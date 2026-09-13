@@ -9,13 +9,34 @@
 - `ios-poc` was created from commit `fc62397591701b2232ae7de4f50a032bd7742064`.
 - Do not make experimental iOS/PWA changes directly on `main`.
 
+## Required detailed iOS handoff
+
+For any iPhone/iOS/WebHome portability work, **read `docs/IOS-PORTING-HANDOFF-2026-09-13.md` after this file before doing new analysis or implementation**.
+
+That document is the durable record of the 2026-09-13 session and contains:
+
+- user constraints and installation/signing decisions;
+- SideStore/update strategy;
+- PWA vs Native iOS conclusions;
+- the inspected `recha-main.zip` / `wang-movie.json` compatibility findings;
+- JAR/DEX/native `.so` conclusions;
+- Python and JavaScript compatibility direction;
+- the Android `VodConfig -> Site -> SiteApi -> Spider -> Result/Vod -> player` contract inventory;
+- WebHome bridge mapping to WKWebView;
+- AVPlayer-first playback scope;
+- persistence mapping;
+- the migration matrix;
+- POC-1 scope, success criteria, exclusions, phase order, and recovery anchor.
+
+Do not restart the broad architecture investigation unless the repository or resource set has materially changed. Continue from the documented recovery anchor.
+
 ## Mandatory Ponytail review gate
 
 This project **must use the Ponytail skill for implementation work**. This is a project requirement, not an optional recommendation.
 
 For every functional code change, architecture change, dependency/build change, native/runtime change, Spider compatibility change, player change, packaging/signing change, or deployment/release change:
 
-1. Read `AGENTS.md`, `README.md`, this handoff document, and any task/domain-specific Skill before editing.
+1. Read `AGENTS.md`, `README.md`, this handoff document, `docs/IOS-PORTING-HANDOFF-2026-09-13.md` when the task concerns iOS, and any task/domain-specific Skill before editing.
 2. **Before implementation, run Ponytail** against the proposed scope/design and resolve or explicitly document every material finding before changing functional code.
 3. Use the repository task guard and verification workflow required by `AGENTS.md` for the selected lane.
 4. After implementation and targeted verification, **run Ponytail again on the final diff** before considering the change complete, committing/pushing it, producing an IPA, or publishing an artifact.
@@ -25,15 +46,16 @@ If Ponytail is not available in the current agent/runtime, **do not claim that P
 
 ## Current iPhone/iOS objective
 
-The current exploration goal is to determine the best way to make WebHomeTV usable on iPhone while keeping the user's preferred operating constraints:
+The current goal is to make WebHomeTV usable on iPhone while keeping the user's preferred operating constraints:
 
 - no jailbreak;
 - zero recurring infrastructure cost where practical;
 - no always-on self-hosted server;
+- no requirement to leave a PC running continuously;
 - updates should be installable/refreshable from the phone where possible;
 - preserve as much WebHomeTV/CatVod/WebHome compatibility as practical rather than performing a blind Java-to-Swift rewrite.
 
-No final decision has been made that the product must be native iOS or PWA. Treat `ios-poc` as an evidence-gathering and proof-of-concept branch until the runtime compatibility questions are resolved.
+After read-only repository and resource analysis, the **current preferred architecture is Native iOS + SwiftUI + WKWebView hybrid**, with SideStore as the preferred zero-cost personal installation/refresh path. PWA remains a fallback/lightweight option rather than the primary porting target. This preference must still be validated by POC-1 before later phases are treated as committed implementation scope.
 
 ## Existing architecture facts that matter to the iOS work
 
@@ -63,16 +85,15 @@ Therefore the preferred compatibility strategy is **not** to promise 100% execut
 
 The resource archive itself is not part of this Git repository unless explicitly added later. Do not infer that the counts above remain current without rechecking the actual resource set when a future task depends on exact numbers.
 
-## Recommended first iOS/PWA work units
+## Recommended first implementation unit
 
-Until functional implementation is explicitly approved and Ponytail is available, the safest useful work in a new session is read-only assessment/documentation. The recommended order is:
+Functional implementation must wait for a session/runtime where Ponytail is available.
 
-1. Map the Android contracts that a new front end must preserve: config parsing, Site/CatVod result models, search/detail/category/player contracts, WebHome bridge methods, history/favorites/storage, and playback URL/header/cookie handling.
-2. Produce a migration matrix separating capabilities into: portable shared protocol, browser/PWA implementation, native iOS implementation, server-dependent/unsupported Android behavior.
-3. Select a minimal end-to-end proof: `config -> one HTTP/CMS source -> search -> detail -> episode -> HLS/MP4 playback`.
-4. Separately select one JS Spider and one relatively simple Python Spider as compatibility proofs. Do not begin with protected/obfuscated DEX JARs.
-5. After those proofs, decide whether the primary client should be native iOS, PWA, or a hybrid architecture before investing in broad UI work.
-6. Only after runtime direction is proven should packaging/IPA/SideStore/GitHub Actions update automation become an implementation task.
+The first approved-style proof should be POC-1 as documented in `docs/IOS-PORTING-HANDOFF-2026-09-13.md`:
+
+`config -> one HTTP/CMS source -> home/category -> search -> detail -> Flag/Episode -> direct HLS/MP4 playerContent -> AVPlayer`
+
+Do not begin with protected/obfuscated DEX JARs, Python, JS runtime, MPV/VLC fallback, DLNA, cloud-drive special handling, or release automation.
 
 ## Branch and upstream discipline
 
@@ -85,7 +106,10 @@ Until functional implementation is explicitly approved and Ponytail is available
 
 - Objective: establish a safe iPhone path for WebHomeTV without destabilizing the Android fork.
 - Active branch: `ios-poc`.
-- Baseline before this handoff document: `fc62397591701b2232ae7de4f50a032bd7742064`.
+- Original branch baseline: `fc62397591701b2232ae7de4f50a032bd7742064`.
 - Functional iOS/PWA code changes completed: none.
-- Ponytail status in the ChatGPT session that created this document: Ponytail was searched for but was not exposed as an available skill/plugin; therefore no Ponytail review was claimed or performed.
-- Next action: perform a read-only contract/architecture inventory for the minimal iOS/PWA proof, or obtain a runtime/session where Ponytail is available before any functional implementation.
+- Current preferred architecture: Native iOS + SwiftUI + WKWebView hybrid.
+- Personal install/update direction: SideStore, with on-device signing/refresh after initial setup.
+- Detailed session record: `docs/IOS-PORTING-HANDOFF-2026-09-13.md`.
+- Ponytail status in the ChatGPT session that created/updated these documents: Ponytail was searched for but was not exposed as an available skill/plugin; therefore no Ponytail review was claimed or performed.
+- Next functional action: in a runtime where Ponytail is available, run Ponytail pre-review for POC-1, then implement only the documented minimal HTTP/CMS-to-AVPlayer vertical slice on an iOS task branch derived from `ios-poc`.

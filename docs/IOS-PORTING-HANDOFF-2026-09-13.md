@@ -812,7 +812,7 @@ Do not repeat these reads unless needed for a concrete implementation question:
 ### 2026-09-15 task correction and POC-1A
 
 - Current task: build the WebHomeTV iOS client and make it consume the user's actual `wang-movie.json`; the earlier Google TV `csp_JPianAmns` repair is no longer active.
-- Input: `recha-main.zip` from the user-provided Google Drive file, modified 2026-09-15; extracted `recha-main/wang-movie.json` is 93,660 bytes with SHA-256 `1b0a3227c84937658a816e992a58e6aad2e2aeb839ea65b4744fdaf8582913c1`.
+- Prior POC-1A input (superseded by the current Recha replacement below): `recha-main.zip` from the earlier user-provided Google Drive file; extracted `recha-main/wang-movie.json` is 93,660 bytes with SHA-256 `1b0a3227c84937658a816e992a58e6aad2e2aeb839ea65b4744fdaf8582913c1`.
 - Observed config: 208 sites; type counts are 2 type-0, 22 type-1, 178 type-3, and 6 type-4 sites. POC-1A supports only the 24 native HTTP/CMS type-0/type-1 sites.
 - Design: use native `JSONDecoder` and `URLSession`, preserve default TLS/ATS validation, and add no dependency. Android DEX/JAR, JS, Python, CarPlay, special schemes, and broad ATS exceptions remain outside this slice.
 - Representative next network source: the configured Sony CMS endpoint passed system TLS and returned a MacCMS-style JSON response. Full home/search/detail/player verification remains for POC-1B.
@@ -893,13 +893,20 @@ Do not repeat these reads unless needed for a concrete implementation question:
 - Verification: Xcode 26.3 iPhone 17 Pro Simulator build passed after the final visual edit. The exact `wang-movie.json` was re-imported through Files, the configured 如意 CMS rendered its poster grid over the aqua/green wallpaper, settings displayed its source rows over the same background, and detail exposed its episodes and all five player choices (built-in, Infuse, Fileball, SenPlayer, VidHub). The first configured 菠菜 source still failed system TLS as previously observed; no TLS setting was relaxed. Temporary screenshots under `/tmp/webhtv-ios-poc3b-*.png` were not committed.
 - Remaining visual difference: iOS 26's native floating tab bar leaves a black system backing at the bottom even with a hidden toolbar background and wallpaper on the tab container. The content and settings wallpaper are visible; this slice does not replace the native tab bar with a custom Android copy.
 
+### 2026-09-15 current Recha input replacement
+
+- Current source: the user-provided [new `recha-main.zip`](https://drive.google.com/file/d/1bjbHgYIkRvSt558HZ_-il25YIItLVim0/view?usp=share_link), created 2026-09-15 06:13 UTC, 544,281,591 bytes, SHA-256 `63a946dec50416e4d1f351658076d655b7138fd52098c983578cd5837fde11d7`. The earlier archive and its 93,660-byte JSON remain historical POC evidence, not the current input.
+- The new `recha-main/wang-movie.json` is 125,864 bytes, SHA-256 `b17576e34eb42b4c589a818ef8b5ec2655a2c7a188d626fc427c37d628897168`. It has 167 sites: 2 type-0, 22 type-1, 137 type-3, and 6 type-4. Relative to the prior JSON, 41 type-3 sites were removed; the 22 type-1 API addresses are unchanged, while names and category text changed. The iOS app's file importer remains user-selected rather than bundling either archive, so selecting this new JSON makes the new names visible without runtime code changes.
+- Scope/decision: update only the supplied-config test expectation and this handoff record. Type-3 Spider execution remains unsupported on iOS; no Android source, network policy, CMS implementation, or player integration changes are justified by this input comparison. This is a data refresh, not a claim of full Recha source parity.
+- Acceptance and verification: `WANG_MOVIE_JSON=/tmp/webhtv-recha-new.wprHof/wang-movie.json swift test --package-path ios` passed all 5 tests on 2026-09-15, including complete-config classification and the configured live CMS home/search/detail/media-URL flow. The downloaded ZIP matched Drive's byte count and was confirmed as ZIP before extracting the single JSON entry; no archive code was run. Rollback: revert `IOS-INPUT-NEW-RECHA` to restore the prior fixture expectation/document marker; the archive was not committed.
+
 - Objective: create a usable iPhone version of WebHomeTV while preserving the portable CatVod/WebHome behavioral contracts and avoiding an always-on server or jailbreak.
 - Preferred architecture: Native iOS + SwiftUI + WKWebView hybrid.
 - Installation strategy for personal zero-cost use: SideStore/on-device refresh after initial setup.
 - Active branch: `ios-poc`.
 - Android `main` must remain unaffected by experimental iOS work.
 - Functional iOS code implemented so far: POC-1A config loading/native CMS classification, POC-1B type-1 JSON CMS data flow, and the POC-1C SwiftUI/AVPlayer app shell.
-- Resource evidence: `recha-main.zip` / `wang-movie.json` was inspected externally; the archive is not in this repo.
+- Resource evidence: the newest user-provided `recha-main.zip` and `wang-movie.json` were inspected externally and are the current iOS porting input; the archive is not in this repo.
 - JAR conclusion: many CSP packages are Android DEX/native packages and are not a generic JVM portability path.
 - Runtime priority: HTTP/CMS first, then WebHome/JS, then Python, then selective CSP replacement/porting.
 - Ponytail: available and applied to POC-1A and POC-1B.

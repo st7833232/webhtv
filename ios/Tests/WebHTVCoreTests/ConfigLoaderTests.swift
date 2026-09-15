@@ -14,7 +14,7 @@ import Testing
     guard let path = ProcessInfo.processInfo.environment["WANG_MOVIE_JSON"] else { return }
     let config = try ConfigLoader.decode(Data(contentsOf: URL(fileURLWithPath: path)))
 
-    #expect(config.sites.count == 208)
+    #expect(config.sites.count == 167)
     #expect(config.nativeCMSSites.count == 24)
     #expect(config.nativeCMSSites.contains { $0.name.contains("索尼") })
 }

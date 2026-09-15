@@ -152,10 +152,6 @@ private struct HomeView: View {
                             }
                         } label: {
                             HStack(spacing: 8) {
-                                bundledImage("ic_logo")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 30, height: 30)
                                 Text(selectedSite.name).font(.headline)
                                 Image(systemName: "chevron.down").font(.caption2)
                             }

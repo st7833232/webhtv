@@ -893,6 +893,12 @@ Do not repeat these reads unless needed for a concrete implementation question:
 - Verification: Xcode 26.3 iPhone 17 Pro Simulator build passed after the final visual edit. The exact `wang-movie.json` was re-imported through Files, the configured 如意 CMS rendered its poster grid over the aqua/green wallpaper, settings displayed its source rows over the same background, and detail exposed its episodes and all five player choices (built-in, Infuse, Fileball, SenPlayer, VidHub). The first configured 菠菜 source still failed system TLS as previously observed; no TLS setting was relaxed. Temporary screenshots under `/tmp/webhtv-ios-poc3b-*.png` were not committed.
 - Remaining visual difference: iOS 26's native floating tab bar leaves a black system backing at the bottom even with a hidden toolbar background and wallpaper on the tab container. The content and settings wallpaper are visible; this slice does not replace the native tab bar with a custom Android copy.
 
+### POC-3C oversized source-picker Logo removal
+
+- User-reported visual defect: the 600 x 600 `ic_logo.png` appeared as a large white-backed image over the source list. The user explicitly chose removal of that obstructing Logo, not the aqua/green wallpaper. This supersedes POC-3B's expectation that the cube Logo remain in the iPhone source picker.
+- Ponytail pre-review and implementation: remove only the four-line bundled Logo image from the toolbar `Menu` label. Keep the site name, chevron, native source menu, settings list, wallpaper asset, and all CMS/player behavior. No new image treatment, toolbar abstraction, dependency, or Android edit.
+- Verification and final-diff review: Xcode 26.3 iPhone 17 Pro Simulator Debug build passed; after installing over the existing app, the imported source home still displayed poster cards and the expanded menu showed unobstructed site rows over the same wallpaper. iOS 26.3 presented the source picker inside the toolbar overflow (`⋯`) in this observed layout; it remained accessible. The four-line deletion is the entire functional diff. Rollback: revert `IOS-POC-3C`; `WebHTVCore`, JSON, and Android paths are untouched.
+
 ### 2026-09-15 current Recha input replacement
 
 - Current source: the user-provided [new `recha-main.zip`](https://drive.google.com/file/d/1bjbHgYIkRvSt558HZ_-il25YIItLVim0/view?usp=share_link), created 2026-09-15 06:13 UTC, 544,281,591 bytes, SHA-256 `63a946dec50416e4d1f351658076d655b7138fd52098c983578cd5837fde11d7`. The earlier archive and its 93,660-byte JSON remain historical POC evidence, not the current input.

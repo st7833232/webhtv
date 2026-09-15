@@ -14,6 +14,11 @@ public struct CMSResponse: Decodable, Sendable {
         classes = try values.decodeIfPresent([CMSCategory].self, forKey: .classes) ?? []
         list = try values.decodeIfPresent([Vod].self, forKey: .list) ?? []
     }
+
+    init(classes: [CMSCategory], list: [Vod]) {
+        self.classes = classes
+        self.list = list
+    }
 }
 
 public struct CMSCategory: Decodable, Identifiable, Sendable {
@@ -51,8 +56,9 @@ public struct Vod: Decodable, Identifiable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        id = try values.decodeString(forKey: .id)
-        name = try values.decode(String.self, forKey: .name)
+        // A detail response may carry only the playback fields, so identity is optional here.
+        id = (try? values.decodeString(forKey: .id)) ?? ""
+        name = (try? values.decode(String.self, forKey: .name)) ?? ""
         picture = try values.decodeIfPresent(String.self, forKey: .picture) ?? ""
         remarks = try values.decodeIfPresent(String.self, forKey: .remarks) ?? ""
         playFrom = try values.decodeIfPresent(String.self, forKey: .playFrom) ?? ""
@@ -109,6 +115,10 @@ public struct Episode: Equatable, Sendable {
     }
 }
 
+struct PlayResponse: Decodable, Sendable {
+    let url: String
+}
+
 public enum CMSClientError: Error, Equatable {
     case unsupportedSiteType(Int)
     case invalidURL
@@ -119,12 +129,32 @@ public struct CMSClient: Sendable {
     public let site: Site
 
     public init(site: Site) throws {
-        guard site.type == 1 else { throw CMSClientError.unsupportedSiteType(site.type) }
+        guard site.type == 1 || site.type == 4 else { throw CMSClientError.unsupportedSiteType(site.type) }
         self.site = site
     }
 
     public func home() async throws -> CMSResponse {
-        try await request([])
+        guard site.type == 4 else { return try await request([]) }
+        // A type-4 home returns categories without titles, so the first category fills the poster grid.
+        // ponytail: first category only; add a category picker when type-1 needs browsing too.
+        let categories = try await request([URLQueryItem(name: "filter", value: "true")])
+        guard let first = categories.classes.first else { return categories }
+        let listing = try await request([URLQueryItem(name: "t", value: first.id), URLQueryItem(name: "pg", value: "1")])
+        return CMSResponse(classes: categories.classes, list: listing.list)
+    }
+
+    /// A type-4 episode may address a web page instead of media; `?play=` returns the playable URL.
+    public func playbackURL(for episode: Episode, flag: String) async throws -> URL? {
+        guard let direct = episode.mediaURL else { return nil }
+        guard site.type == 4, !Self.isDirectMedia(direct) else { return direct }
+        let data = try await data(for: [URLQueryItem(name: "play", value: episode.url), URLQueryItem(name: "flag", value: flag)])
+        guard let resolved = try? JSONDecoder().decode(PlayResponse.self, from: data) else { return nil }
+        return URL(string: resolved.url)
+    }
+
+    // ponytail: path-extension heuristic; probe the content type only if a real site needs it.
+    static func isDirectMedia(_ url: URL) -> Bool {
+        ["m3u8", "mp4", "flv", "mkv", "ts", "mov"].contains(url.pathExtension.lowercased())
     }
 
     public func search(_ keyword: String, page: Int = 1) async throws -> CMSResponse {
@@ -137,16 +167,26 @@ public struct CMSClient: Sendable {
         try await request([URLQueryItem(name: "ac", value: "detail"), URLQueryItem(name: "ids", value: id)]).list.first
     }
 
-    private func request(_ query: [URLQueryItem]) async throws -> CMSResponse {
+    func requestURL(_ query: [URLQueryItem]) throws -> URL {
         guard var components = URLComponents(string: site.api) else { throw CMSClientError.invalidURL }
-        let names = Set(query.map(\.name))
-        components.queryItems = (components.queryItems ?? []).filter { !names.contains($0.name) } + query
+        let added = query + (site.ext ?? [:]).map { URLQueryItem(name: $0.key, value: $0.value) }.sorted { $0.name < $1.name }
+        let names = Set(added.map(\.name))
+        components.queryItems = (components.queryItems ?? []).filter { !names.contains($0.name) } + added
         guard let url = components.url else { throw CMSClientError.invalidURL }
+        return url
+    }
+
+    private func data(for query: [URLQueryItem]) async throws -> Data {
+        let url = try requestURL(query)
         let (data, response) = try await URLSession.shared.data(from: url)
         if let response = response as? HTTPURLResponse, !(200...299).contains(response.statusCode) {
             throw CMSClientError.invalidHTTPStatus(response.statusCode)
         }
-        return try JSONDecoder().decode(CMSResponse.self, from: data)
+        return data
+    }
+
+    private func request(_ query: [URLQueryItem]) async throws -> CMSResponse {
+        try JSONDecoder().decode(CMSResponse.self, from: await data(for: query))
     }
 }
 

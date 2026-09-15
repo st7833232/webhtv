@@ -87,9 +87,9 @@ private struct ConfigView: View {
         defer { url.stopAccessingSecurityScopedResource() }
         do {
             let data = try Data(contentsOf: url)
-            let loaded = try ConfigLoader.decode(data).nativeCMSSites.filter { $0.type == 1 }
+            let loaded = try ConfigLoader.decode(data).nativeCMSSites.filter { $0.type == 1 || $0.type == 4 }
             guard !loaded.isEmpty else {
-                error = "此設定沒有 iOS 可用的 type-1 CMS 來源。"
+                error = "此設定沒有 iOS 可用的 CMS 來源（type-1 或 type-4）。"
                 return
             }
             try data.write(to: configURL(), options: .atomic)
@@ -105,7 +105,7 @@ private struct ConfigView: View {
         do {
             let url = try configURL()
             guard FileManager.default.fileExists(atPath: url.path) else { return }
-            let loaded = try ConfigLoader.decode(Data(contentsOf: url)).nativeCMSSites.filter { $0.type == 1 }
+            let loaded = try ConfigLoader.decode(Data(contentsOf: url)).nativeCMSSites.filter { $0.type == 1 || $0.type == 4 }
             guard !loaded.isEmpty else {
                 error = "已保存的設定沒有 iOS 可用來源，請重新匯入。"
                 return
@@ -311,6 +311,8 @@ private struct VodView: View {
     @State private var detail: Vod?
     @State private var pendingPlayback: Playback?
     @State private var error: String?
+    @State private var playbackError: String?
+    @State private var resolving = false
 
     var body: some View {
         ScrollView {
@@ -338,11 +340,11 @@ private struct VodView: View {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 10)], spacing: 10) {
                                 ForEach(Array(flag.episodes.enumerated()), id: \.offset) { _, episode in
                                     Button(episode.name) {
-                                        if let url = episode.mediaURL { pendingPlayback = Playback(url: url) }
+                                        Task { await play(episode, flag: flag.name) }
                                     }
                                     .buttonStyle(.bordered)
                                     .frame(minHeight: 44)
-                                    .disabled(episode.mediaURL == nil)
+                                    .disabled(episode.mediaURL == nil || resolving)
                                 }
                             }
                         }
@@ -366,6 +368,25 @@ private struct VodView: View {
             catch { self.error = error.localizedDescription }
         }
         .sheet(item: $pendingPlayback) { PlayerPickerView(mediaURL: $0.url) }
+        .alert("無法播放", isPresented: Binding(get: { playbackError != nil }, set: { if !$0 { playbackError = nil } })) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(playbackError ?? "")
+        }
+    }
+
+    private func play(_ episode: Episode, flag: String) async {
+        resolving = true
+        defer { resolving = false }
+        do {
+            guard let url = try await CMSClient(site: site).playbackURL(for: episode, flag: flag) else {
+                playbackError = "這一集沒有可播放的網址。"
+                return
+            }
+            pendingPlayback = Playback(url: url)
+        } catch {
+            playbackError = error.localizedDescription
+        }
     }
 }
 

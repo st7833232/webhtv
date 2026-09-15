@@ -15,6 +15,14 @@ public struct CMSResponse: Decodable, Sendable {
         list = try values.decodeIfPresent([Vod].self, forKey: .list) ?? []
     }
 
+    /// MacCMS `class` is a two-level tree and titles hang off the leaves, so listing a parent id
+    /// returns nothing. Sites that omit `type_pid` — type-4 among them — are already flat.
+    /// ponytail: flattens to leaves; give it a parent row only if the leaf list gets unwieldy.
+    public var browsableCategories: [CMSCategory] {
+        let leaves = classes.filter { $0.parentID != 0 }
+        return leaves.isEmpty ? classes : leaves
+    }
+
     init(classes: [CMSCategory], list: [Vod]) {
         self.classes = classes
         self.list = list
@@ -24,16 +32,19 @@ public struct CMSResponse: Decodable, Sendable {
 public struct CMSCategory: Decodable, Identifiable, Sendable {
     public let id: String
     public let name: String
+    public let parentID: Int
 
     enum CodingKeys: String, CodingKey {
         case id = "type_id"
         case name = "type_name"
+        case parentID = "type_pid"
     }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decodeString(forKey: .id)
         name = try values.decode(String.self, forKey: .name)
+        parentID = Int((try? values.decodeString(forKey: .parentID)) ?? "0") ?? 0
     }
 }
 
@@ -136,11 +147,16 @@ public struct CMSClient: Sendable {
     public func home() async throws -> CMSResponse {
         guard site.type == 4 else { return try await request([]) }
         // A type-4 home returns categories without titles, so the first category fills the poster grid.
-        // ponytail: first category only; add a category picker when type-1 needs browsing too.
         let categories = try await request([URLQueryItem(name: "filter", value: "true")])
-        guard let first = categories.classes.first else { return categories }
-        let listing = try await request([URLQueryItem(name: "t", value: first.id), URLQueryItem(name: "pg", value: "1")])
+        // Match what the caller will offer for browsing, so the listed category is the highlighted one.
+        guard let first = categories.browsableCategories.first else { return categories }
+        let listing = try await category(id: first.id)
         return CMSResponse(classes: categories.classes, list: listing.list)
+    }
+
+    /// Both type-1 and type-4 list a category with the same `t=` / `pg=` contract.
+    public func category(id: String, page: Int = 1) async throws -> CMSResponse {
+        try await request([URLQueryItem(name: "t", value: id), URLQueryItem(name: "pg", value: String(page))])
     }
 
     /// A type-4 episode may address a web page instead of media; `?play=` returns the playable URL.

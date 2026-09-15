@@ -169,6 +169,9 @@ private struct HomeView: View {
 private struct CMSView: View {
     let site: Site
     @State private var items = [Vod]()
+    @State private var categories = [CMSCategory]()
+    @State private var selectedCategory: String?
+    @State private var searching = false
     @State private var query = ""
     @State private var loading = false
     @State private var error: String?
@@ -176,18 +179,21 @@ private struct CMSView: View {
     private let columns = [GridItem(.adaptive(minimum: 140, maximum: 220), spacing: 12)]
 
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 12) {
-                ForEach(items) { vod in
-                    NavigationLink {
-                        VodView(site: site, summary: vod)
-                    } label: {
-                        VodCard(vod: vod)
+        VStack(spacing: 0) {
+            if !categories.isEmpty { categoryBar }
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(items) { vod in
+                        NavigationLink {
+                            VodView(site: site, summary: vod)
+                        } label: {
+                            VodCard(vod: vod)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
+                .padding(12)
             }
-            .padding(12)
         }
         .appWallpaper()
         .overlay {
@@ -195,26 +201,63 @@ private struct CMSView: View {
                 ProgressView("載入中")
             } else if let error, items.isEmpty {
                 ContentUnavailableView("載入失敗", systemImage: "exclamationmark.triangle", description: Text(error))
+            } else if items.isEmpty {
+                // A source can answer normally with nothing; say so instead of showing a blank screen.
+                ContentUnavailableView("沒有內容", systemImage: "tray", description: Text("這個來源或分類沒有回傳任何項目。"))
             }
         }
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: "搜尋影片")
-        .onSubmit(of: .search) { Task { await load(search: query) } }
+        .onSubmit(of: .search) { searching = true; Task { await load(search: query) } }
         .task { if items.isEmpty { await load() } }
         .appNavigationBar()
     }
 
-    private func load(search: String? = nil) async {
+    private var categoryBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                // A type-4 home is really its first category, so it has no separate "all" listing.
+                if site.type != 4 { chip("全部", id: nil) }
+                ForEach(categories) { chip($0.name, id: $0.id) }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+    }
+
+    private func chip(_ title: String, id: String?) -> some View {
+        let active = !searching && selectedCategory == id
+        return Button(title) {
+            searching = false
+            selectedCategory = id
+            Task { await load(category: id) }
+        }
+        .buttonStyle(.plain)
+        .font(.subheadline.weight(active ? .bold : .regular))
+        .foregroundStyle(active ? appSurface : .white)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 7)
+        .background(active ? .white : appSurface.opacity(0.85), in: Capsule())
+    }
+
+    private func load(search: String? = nil, category: String? = nil) async {
         loading = true
         error = nil
         defer { loading = false }
         do {
             let client = try CMSClient(site: site)
-            items = if let search, !search.isEmpty {
-                try await client.search(search).list
+            let response = if let search, !search.isEmpty {
+                try await client.search(search)
+            } else if let category {
+                try await client.category(id: category)
             } else {
-                try await client.home().list
+                try await client.home()
             }
+            items = response.list
+            // A category listing usually omits `class`, so keep the set the home call established.
+            if !response.classes.isEmpty { categories = response.browsableCategories }
+            // A type-4 home lists its first browsable category, so highlight that chip.
+            if site.type == 4, selectedCategory == nil { selectedCategory = categories.first?.id }
         } catch {
             self.error = error.localizedDescription
         }

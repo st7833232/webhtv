@@ -100,6 +100,25 @@ private func site(key: String, type: Int, api: String, ext: String = "null") thr
     #expect(vod.flags.first?.episodes.first?.mediaURL?.absoluteString == "https://cdn.example.com/a/index.m3u8")
 }
 
+@Test func buildsTheSameCategoryRequestForBothSupportedTypes() throws {
+    // Probed 2026-09-15: type-1 (cj.rycjapi.com) and type-4 (aigua1.php) both list a category with t=/pg=.
+    for type in [1, 4] {
+        let client = try CMSClient(site: site(key: "s", type: type, api: "https://example.com/api.php/provide/vod"))
+        #expect(try client.requestURL([URLQueryItem(name: "t", value: "20"), URLQueryItem(name: "pg", value: "1")]).absoluteString
+            == "https://example.com/api.php/provide/vod?t=20&pg=1")
+    }
+}
+
+@Test func browsesLeafCategoriesOnTreeSitesAndEveryCategoryOnFlatOnes() throws {
+    // Probed 2026-09-15: 360zy returns t=2 (a parent) with total 0, while its leaf ids list titles.
+    let tree = Data(#"{"class":[{"type_id":1,"type_name":"电影","type_pid":0},{"type_id":6,"type_name":"动作片","type_pid":1},{"type_id":7,"type_name":"喜剧片","type_pid":"1"}]}"#.utf8)
+    #expect(try JSONDecoder().decode(CMSResponse.self, from: tree).browsableCategories.map(\.name) == ["动作片", "喜剧片"])
+
+    // Type-4 sites omit type_pid entirely, so every entry stays browsable.
+    let flat = Data(#"{"class":[{"type_id":"2","type_name":"电视剧"},{"type_id":"1","type_name":"电影"}]}"#.utf8)
+    #expect(try JSONDecoder().decode(CMSResponse.self, from: flat).browsableCategories.map(\.name) == ["电视剧", "电影"])
+}
+
 @Test func usesABoundedRequestTimeout() {
     // Guards the fix for unreachable sources hanging the screen; the URLSession default is 60 s.
     #expect(URLSession.webHTV.configuration.timeoutIntervalForRequest == 10)

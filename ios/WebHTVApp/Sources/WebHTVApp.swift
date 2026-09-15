@@ -4,9 +4,8 @@ import UIKit
 import UniformTypeIdentifiers
 import WebHTVCore
 
-private let appBackground = Color(red: 0.035, green: 0.075, blue: 0.09)
 private let appSurface = Color(red: 0.075, green: 0.14, blue: 0.16)
-private let appAccent = Color(red: 0.10, green: 0.45, blue: 0.91)
+private let appAccent = Color.white
 
 @main
 struct WebHTVApp: App {
@@ -35,6 +34,8 @@ private struct ConfigView: View {
                         systemImage: "play.rectangle.on.rectangle",
                         description: Text("匯入 wang-movie.json 以顯示 iOS 可用站點。")
                     )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .appWallpaper()
                     .navigationTitle("WebHTV")
                     .toolbar { Button("匯入設定") { importing = true } }
                     .appNavigationBar()
@@ -55,11 +56,11 @@ private struct ConfigView: View {
                     .tag(1)
                     .tabItem { Label("設定", systemImage: "gearshape.fill") }
                 }
-                .toolbarBackground(appSurface, for: .tabBar)
-                .toolbarBackground(.visible, for: .tabBar)
+                .toolbarBackground(.hidden, for: .tabBar)
+                .appWallpaper()
             }
         }
-        .background(appBackground)
+        .appWallpaper()
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
             switch result {
             case .success(let url): load(url)
@@ -99,7 +100,7 @@ private struct HomeView: View {
             CMSView(site: selectedSite)
                 .id(selectedSite.id)
                 .toolbar {
-                    ToolbarItem(placement: .principal) {
+                    ToolbarItem(placement: .topBarLeading) {
                         Menu {
                             ForEach(sites) { site in
                                 Button {
@@ -114,11 +115,16 @@ private struct HomeView: View {
                             }
                         } label: {
                             HStack(spacing: 8) {
-                                Image(systemName: "play.rectangle.fill")
+                                bundledImage("ic_logo")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 30, height: 30)
                                 Text(selectedSite.name).font(.headline)
                                 Image(systemName: "chevron.down").font(.caption2)
                             }
                             .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .frame(minHeight: 44)
                         }
                         .accessibilityLabel("切換內容來源，目前為 \(selectedSite.name)")
                     }
@@ -150,7 +156,7 @@ private struct CMSView: View {
             }
             .padding(12)
         }
-        .background(appBackground)
+        .appWallpaper()
         .overlay {
             if loading && items.isEmpty {
                 ProgressView("載入中")
@@ -257,6 +263,9 @@ private struct SettingsView: View {
                 Text("目前支援 \(sites.count) 個 type-1 JSON CMS 來源。")
             }
         }
+        .scrollContentBackground(.hidden)
+        .appWallpaper()
+        .listRowBackground(Color.black.opacity(0.22))
         .navigationTitle("設定")
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBar()
@@ -315,7 +324,7 @@ private struct VodView: View {
                     .padding(.top, 80)
             }
         }
-        .background(appBackground)
+        .appWallpaper()
         .navigationTitle(summary.name)
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBar()
@@ -411,8 +420,24 @@ private struct PlayerView: View {
 }
 
 private extension View {
-    func appNavigationBar() -> some View {
-        toolbarBackground(appSurface, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
+    func appWallpaper() -> some View {
+        background {
+            bundledImage("wallpaper_1")
+                .resizable()
+                .scaledToFill()
+                .ignoresSafeArea()
+        }
     }
+
+    func appNavigationBar() -> some View {
+        toolbarBackground(.hidden, for: .navigationBar)
+    }
+}
+
+private func bundledImage(_ name: String) -> Image {
+    guard let path = Bundle.main.path(forResource: name, ofType: "png"),
+          let image = UIImage(contentsOfFile: path) else {
+        fatalError("Missing bundled image: \(name).png")
+    }
+    return Image(uiImage: image)
 }

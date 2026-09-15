@@ -821,14 +821,25 @@ Do not repeat these reads unless needed for a concrete implementation question:
 - Ponytail final review: removed the unused public initializer and three fields not consumed by this slice; no third-party dependency or speculative runtime layer remains.
 - Rollback: revert the single `IOS-POC-1A` commit; Android paths are untouched.
 
+### POC-1B CMS vertical slice
+
+- Scope: implement the type-1 JSON MacCMS contract for home, search, detail, playback-group parsing, and direct HTTP(S) episode URL classification in `WebHTVCore`.
+- Android parity evidence: `SiteApi` calls type-1 home without parameters, search with `wd`/`quick`/`extend`, and detail with `ac=detail`/`ids`; `Vod.setFlags()` pairs `vod_play_from` and `vod_play_url` by `$$$`, then splits episodes by top-level `#` and name/URL by the first `$`.
+- Representative source: the configured Sony endpoint was rejected because it explicitly does not support search. The configured `https://cj.rycjapi.com/api.php/provide/vod/at/json/` source completed home, same-title search, detail, two playback groups, and produced an HTTPS episode URL on 2026-09-15.
+- Design: native `URLComponents`, `URLSession`, and `JSONDecoder`; type 0 XML remains deferred, TLS validation remains enabled, and direct playback accepts only HTTP(S).
+- Acceptance: a live test starts from the supplied `wang-movie.json` entry and completes home -> search -> detail -> direct media URL; a deterministic test preserves numeric IDs and bracket-aware episode splitting.
+- Verification: `WANG_MOVIE_JSON=<extracted path> swift test --package-path ios` built successfully with Swift 6.2.4; all 4 tests passed with no failures. The live flow completed in 1.404 seconds.
+- Ponytail final review: `Lean already. Ship.` No dependency, speculative interface, repository layer, or test framework was added.
+- Rollback: revert the single `IOS-POC-1B` commit; POC-1A and Android remain intact.
+
 - Objective: create a usable iPhone version of WebHomeTV while preserving the portable CatVod/WebHome behavioral contracts and avoiding an always-on server or jailbreak.
 - Preferred architecture: Native iOS + SwiftUI + WKWebView hybrid.
 - Installation strategy for personal zero-cost use: SideStore/on-device refresh after initial setup.
 - Active branch: `ios-poc`.
 - Android `main` must remain unaffected by experimental iOS work.
-- Functional iOS code implemented so far: none.
+- Functional iOS code implemented so far: POC-1A config loading/native CMS classification and POC-1B type-1 JSON CMS home/search/detail/direct-media flow.
 - Resource evidence: `recha-main.zip` / `wang-movie.json` was inspected externally; the archive is not in this repo.
 - JAR conclusion: many CSP packages are Android DEX/native packages and are not a generic JVM portability path.
 - Runtime priority: HTTP/CMS first, then WebHome/JS, then Python, then selective CSP replacement/porting.
-- Ponytail: mandatory before and after every functional implementation; unavailable in the session that produced this document.
-- Exactly one next functional action: **in a runtime where Ponytail is available, perform Ponytail pre-review for POC-1, then implement the minimal HTTP/CMS -> detail -> direct HLS/MP4 -> AVPlayer vertical slice on an iOS task branch derived from `ios-poc`.**
+- Ponytail: available and applied to POC-1A and POC-1B.
+- Exactly one next functional action: build the minimal SwiftUI/AVPlayer app shell as POC-1C, consuming the verified `WebHTVCore` flow without adding another data abstraction.

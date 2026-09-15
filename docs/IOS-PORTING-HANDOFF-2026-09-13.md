@@ -832,14 +832,24 @@ Do not repeat these reads unless needed for a concrete implementation question:
 - Ponytail final review: `Lean already. Ship.` No dependency, speculative interface, repository layer, or test framework was added.
 - Rollback: revert the single `IOS-POC-1B` commit; POC-1A and Android remain intact.
 
+### POC-1C SwiftUI and AVPlayer app shell
+
+- Scope: one native iOS app target that imports a JSON file, lists verified type-1 sites, loads home/search/detail data, lists playback groups and episodes, and presents direct HTTP(S) media with `VideoPlayer`.
+- Design: one SwiftUI source file consuming `WebHTVCore` directly; system `fileImporter`, `AsyncImage`, `NavigationStack`, and `AVPlayer`/`VideoPlayer`; no new dependency, persistence layer, app service layer, or ATS exception.
+- Input boundary: the app imports the extracted `wang-movie.json`, not the enclosing ZIP. Type-0 XML, type-3 Spider, type-4 custom APIs, custom headers/cookies, non-HTTP schemes, and unsupported media formats remain deferred.
+- Acceptance: the app target builds for a generic iOS Simulator, and the unchanged full-config/live-CMS test suite still passes.
+- Verification: Xcode 26.3 generic iOS Simulator build succeeded; `WANG_MOVIE_JSON=<extracted path> swift test --package-path ios` passed all 4 tests, including the live CMS flow.
+- Ponytail final review: removed the single-use observable store and kept state inside `ConfigView`; the generated project contains one app target and one local Swift package dependency.
+- Rollback: revert the single `IOS-POC-1C` commit; POC-1A/1B and Android remain intact.
+
 - Objective: create a usable iPhone version of WebHomeTV while preserving the portable CatVod/WebHome behavioral contracts and avoiding an always-on server or jailbreak.
 - Preferred architecture: Native iOS + SwiftUI + WKWebView hybrid.
 - Installation strategy for personal zero-cost use: SideStore/on-device refresh after initial setup.
 - Active branch: `ios-poc`.
 - Android `main` must remain unaffected by experimental iOS work.
-- Functional iOS code implemented so far: POC-1A config loading/native CMS classification and POC-1B type-1 JSON CMS home/search/detail/direct-media flow.
+- Functional iOS code implemented so far: POC-1A config loading/native CMS classification, POC-1B type-1 JSON CMS data flow, and the POC-1C SwiftUI/AVPlayer app shell.
 - Resource evidence: `recha-main.zip` / `wang-movie.json` was inspected externally; the archive is not in this repo.
 - JAR conclusion: many CSP packages are Android DEX/native packages and are not a generic JVM portability path.
 - Runtime priority: HTTP/CMS first, then WebHome/JS, then Python, then selective CSP replacement/porting.
 - Ponytail: available and applied to POC-1A and POC-1B.
-- Exactly one next functional action: build the minimal SwiftUI/AVPlayer app shell as POC-1C, consuming the verified `WebHTVCore` flow without adding another data abstraction.
+- Exactly one next functional action: install POC-1C in an iPhone Simulator, import the supplied JSON through the UI, and record the first runtime/visual acceptance result before expanding compatibility.

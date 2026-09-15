@@ -11,7 +11,7 @@
 
 ## Required detailed iOS handoff
 
-For any iPhone/iOS/WebHome portability work, **read `docs/IOS-PORTING-HANDOFF-2026-09-13.md` after this file before doing new analysis or implementation**.
+For any iPhone/iOS/WebHome portability work, **read `docs/current-task-state.md` and `docs/IOS-PORTING-HANDOFF-2026-09-13.md` after this file before doing new analysis or implementation**. Reconcile those records with current Git state; the older planning sections below are historical.
 
 That document is the durable record of the 2026-09-13 session and contains:
 
@@ -55,7 +55,7 @@ The current goal is to make WebHomeTV usable on iPhone while keeping the user's 
 - updates should be installable/refreshable from the phone where possible;
 - preserve as much WebHomeTV/CatVod/WebHome compatibility as practical rather than performing a blind Java-to-Swift rewrite.
 
-After read-only repository and resource analysis, the **current preferred architecture is Native iOS + SwiftUI + WKWebView hybrid**, with SideStore as the preferred zero-cost personal installation/refresh path. PWA remains a fallback/lightweight option rather than the primary porting target. This preference must still be validated by POC-1 before later phases are treated as committed implementation scope.
+The preferred architecture is Native iOS + SwiftUI, with WKWebView as a proposed later WebHome compatibility layer. The HTTP/CMS-to-AVPlayer POC has been implemented and verified; WKWebView/WebHome is not yet implemented. SideStore remains the preferred zero-cost personal installation/refresh direction, not a completed packaging workflow. PWA remains a fallback/lightweight option.
 
 ## Existing architecture facts that matter to the iOS work
 
@@ -70,9 +70,9 @@ The Android project currently depends on several Android-specific/runtime-specif
 
 Do not assume an Android `.jar` used by TVBox/WebHomeTV is a normal JVM JAR. Resource inspection performed during the iOS assessment found real-world Spider packages containing `classes.dex`, Android API dependencies, dynamic DEX loading, WebView references, and in some cases native `.so` payloads. Browser JVM approaches such as CheerpJ therefore cannot be treated as a universal drop-in solution.
 
-## Resource compatibility assessment already established
+## Historical resource compatibility assessment
 
-A separate user-provided `recha-main.zip` / `wang-movie.json` resource set was inspected during planning. The important result for future design work is:
+An earlier user-provided `recha-main.zip` / `wang-movie.json` resource set was inspected during planning. Its historical counts were:
 
 - 208 configured sites were observed;
 - 136 were `csp_*` / Android JAR-style Spider sites;
@@ -83,11 +83,11 @@ A separate user-provided `recha-main.zip` / `wang-movie.json` resource set was i
 
 Therefore the preferred compatibility strategy is **not** to promise 100% execution of arbitrary Android JARs on iOS. First prefer direct HTTP/CMS, JavaScript, Python compatibility, or equivalent rule implementations. Investigate DEX/native-only sources individually only when they remain valuable and have no viable equivalent.
 
-The resource archive itself is not part of this Git repository unless explicitly added later. Do not infer that the counts above remain current without rechecking the actual resource set when a future task depends on exact numbers.
+The current replacement JSON has 167 sites: 2 type-0, 22 type-1, 137 type-3, and 6 type-4. The resource archive itself is not part of this Git repository. Do not infer that any external endpoint is currently reachable from its presence in the JSON.
 
-## Recommended first implementation unit
+## Historical first implementation unit
 
-Functional implementation must wait for a session/runtime where Ponytail is available.
+Ponytail became available in later sessions, and the first HTTP/CMS-to-AVPlayer unit below was implemented. Do not repeat it as new work.
 
 The first approved-style proof should be POC-1 as documented in `docs/IOS-PORTING-HANDOFF-2026-09-13.md`:
 
@@ -102,14 +102,11 @@ Do not begin with protected/obfuscated DEX JARs, Python, JS runtime, MPV/VLC fal
 - Before importing upstream Android changes, assess whether they touch shared contracts used by the iOS/PWA work.
 - Do not silently copy third-party source/resource implementations into the repository; preserve license/provenance and review compatibility/legal implications where applicable.
 
-## Current recovery anchor
+## Current recovery anchor (2026-09-15 Claude handoff)
 
-- Objective: establish a safe iPhone path for WebHomeTV without destabilizing the Android fork.
-- Active branch: `ios-poc`.
-- Original branch baseline: `fc62397591701b2232ae7de4f50a032bd7742064`.
-- Functional iOS/PWA code changes completed: none.
-- Current preferred architecture: Native iOS + SwiftUI + WKWebView hybrid.
-- Personal install/update direction: SideStore, with on-device signing/refresh after initial setup.
-- Detailed session record: `docs/IOS-PORTING-HANDOFF-2026-09-13.md`.
-- Ponytail status in the ChatGPT session that created/updated these documents: Ponytail was searched for but was not exposed as an available skill/plugin; therefore no Ponytail review was claimed or performed.
-- Next functional action: in a runtime where Ponytail is available, run Ponytail pre-review for POC-1, then implement only the documented minimal HTTP/CMS-to-AVPlayer vertical slice on an iOS task branch derived from `ios-poc`.
+- Objective: continue the iPhone WebHomeTV port with the user's newest Recha `wang-movie.json`; the Google TV `csp_JPianAmns` repair is explicitly not active.
+- Active branch: `ios-poc`; handoff baseline HEAD `e567b03b0f6ba0790a59790358b5e96c20ed2e30`, 10 local commits ahead of `origin/ios-poc`, clean worktree before this documentation update. Check actual Git state on resume; do not infer that these local commits were pushed.
+- Implemented: native Swift config/CMS core, SwiftUI iPhone shell, AVPlayer and Infuse/Fileball/SenPlayer/VidHub choices, Android-like wallpaper/settings surfaces, imported JSON and selected-site persistence, and removal of the oversized source-picker Logo. The current app exposes only the 22 type-1 JSON CMS sites from the 167-site replacement config.
+- Not implemented: type-0 XML, type-3 Spider/Python/DEX, type-4 remote APIs, WKWebView/WebHome bridge, and SideStore/IPA release pipeline. A source-specific DNS/TLS error does not prove a global iOS network bug.
+- Detailed status and unverified cases: `docs/current-task-state.md`, `docs/IOS-PORTING-HANDOFF-2026-09-13.md`, and `docs/IOS-POC-1E-config-persistence.md`. Ponytail pre/final evidence for completed slices is recorded in the detailed handoff/task records; future functional work still requires the review gate above.
+- Exactly one next action for Claude: first reconcile Git/docs and confirm with the user whether the next approved unit prioritizes a small WebHome bridge proof or more usable sources from the current JSON; then plan only that unit before implementation.

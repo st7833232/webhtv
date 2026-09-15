@@ -809,6 +809,18 @@ Do not repeat these reads unless needed for a concrete implementation question:
 
 ## 24. Current recovery anchor
 
+### 2026-09-15 task correction and POC-1A
+
+- Current task: build the WebHomeTV iOS client and make it consume the user's actual `wang-movie.json`; the earlier Google TV `csp_JPianAmns` repair is no longer active.
+- Input: `recha-main.zip` from the user-provided Google Drive file, modified 2026-09-15; extracted `recha-main/wang-movie.json` is 93,660 bytes with SHA-256 `1b0a3227c84937658a816e992a58e6aad2e2aeb839ea65b4744fdaf8582913c1`.
+- Observed config: 208 sites; type counts are 2 type-0, 22 type-1, 178 type-3, and 6 type-4 sites. POC-1A supports only the 24 native HTTP/CMS type-0/type-1 sites.
+- Design: use native `JSONDecoder` and `URLSession`, preserve default TLS/ATS validation, and add no dependency. Android DEX/JAR, JS, Python, CarPlay, special schemes, and broad ATS exceptions remain outside this slice.
+- Representative next network source: the configured Sony CMS endpoint passed system TLS and returned a MacCMS-style JSON response. Full home/search/detail/player verification remains for POC-1B.
+- POC-1A acceptance: the reusable Swift core parses the complete supplied config and deterministically identifies all 24 native CMS sites.
+- Verification: `WANG_MOVIE_JSON=<extracted path> swift test --package-path ios` built successfully with Swift 6.2.4; both tests passed with no failures, including the complete supplied config.
+- Ponytail final review: removed the unused public initializer and three fields not consumed by this slice; no third-party dependency or speculative runtime layer remains.
+- Rollback: revert the single `IOS-POC-1A` commit; Android paths are untouched.
+
 - Objective: create a usable iPhone version of WebHomeTV while preserving the portable CatVod/WebHome behavioral contracts and avoiding an always-on server or jailbreak.
 - Preferred architecture: Native iOS + SwiftUI + WKWebView hybrid.
 - Installation strategy for personal zero-cost use: SideStore/on-device refresh after initial setup.

@@ -4,8 +4,8 @@
 
 - Branch `ios-poc`, baseline HEAD `2c1c2a35` (clean worktree at plan time, 2026-09-15 15:45 CST).
 - Objective: expose the 6 `type: 4` sites of the current `wang-movie.json` in the existing SwiftUI app, alongside the 22 `type: 1` sites, without changing type-1 behaviour.
-- Status: IMPLEMENTED and verified as recorded below. Offline gates A1-A5 pass; in-app type-4 loading is blocked by transport policy, not by this code.
-- Exactly one next action: ask the user to decide the ATS question in "Blocker found during verification" below. Do not relax ATS without that decision.
+- Status: COMPLETE. Offline gates A1-A5 pass and B1-B3 are satisfied after the IOS-POC-4B ATS change recorded at the end of this file.
+- Exactly one next action: choose the next stage with the user; type-0 XML (2 sites) and the WebHome bridge remain the open candidates.
 
 ## Completion sentence
 
@@ -139,3 +139,26 @@ On the iPhone 17 Pro simulator, with the config restored from POC-1E persistence
 For reference the same policy already affects type-1: 21 of its 22 sites are `https`, and the remaining `http` one is blocked for the same reason. This is pre-existing, not introduced here.
 
 Relaxing ATS is listed as out of scope for this stage and the handoff forbids weakening TLS/ATS globally to make one site work, so no ATS change was made. The decision belongs to the user. Note that a cleartext ATS exception and TLS certificate validation are separate settings: permitting `http` for named domains would not weaken certificate checking for `https` hosts.
+
+
+## IOS-POC-4B — ATS decision and outcome (2026-09-15)
+
+The user was shown three options (per-domain exception, no change, global cleartext) with a recommendation for the narrow per-domain exception and an explicit note that the handoff forbids weakening ATS globally for one site. **The user chose global cleartext.** That decision is recorded here and supersedes the earlier prohibition for this personal POC.
+
+`ios/WebHTVApp/Info.plist` now sets `NSAppTransportSecurity` → `NSAllowsArbitraryLoads = true`, wired in through `INFOPLIST_FILE` on both the Debug and Release configurations. Confirmed present in the built bundle with `plutil -p`.
+
+### B2/B3 now satisfied — full in-app flow
+
+On the iPhone 17 Pro simulator, source `爱瓜TV` (type-4, cleartext `http`):
+
+1. Poster grid loads with real artwork (莲花楼, 狂飙, 庆余年2, 云之羽).
+2. 莲花楼 detail shows the `普快线路` flag with all 41 episodes — this is the in-app proof of the `Vod` decoder fix, since that response carries no `vod_id` or `vod_name` and previously produced an empty screen.
+3. Episode 01 resolves and **plays video in the built-in player**.
+
+Type-1 regression re-checked after the change: `360` loads its grid normally (its earlier failure was transient, not a certificate problem).
+
+`php_无水印资源` still shows an empty grid. Over a system-trust client the endpoint completes TLS and answers HTTP 403, so this is that provider's own response, not an app or transport defect.
+
+### What was NOT verified about TLS
+
+The claim that `NSAllowsArbitraryLoads` leaves HTTPS certificate validation intact is supported **structurally, not empirically**: `grep` over `ios/Sources` and `ios/WebHTVApp/Sources` finds no `URLSessionDelegate`, no `didReceive challenge`, and no `serverTrust` handling, so all requests use `URLSession.shared` with default system trust evaluation, and bypassing that evaluation requires an explicit delegate override that does not exist in this codebase. An empirical check against a known-bad certificate was not run: the intended candidate (`php_无水印资源`) turned out to present a chain the system accepts, and the `360` before/after comparison collapsed when that site recovered on its own. Treat "certificate validation still enforced" as reasoned from the code and the ATS/trust layering, not as measured.

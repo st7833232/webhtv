@@ -1,5 +1,6 @@
 import AVKit
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 import WebHTVCore
 
@@ -96,7 +97,7 @@ private struct VodView: View {
     let site: Site
     let summary: Vod
     @State private var detail: Vod?
-    @State private var playback: Playback?
+    @State private var pendingPlayback: Playback?
     @State private var error: String?
 
     var body: some View {
@@ -106,7 +107,7 @@ private struct VodView: View {
                     Section(flag.name) {
                         ForEach(Array(flag.episodes.enumerated()), id: \.offset) { _, episode in
                             Button(episode.name) {
-                                if let url = episode.mediaURL { playback = Playback(url: url) }
+                                if let url = episode.mediaURL { pendingPlayback = Playback(url: url) }
                             }
                             .disabled(episode.mediaURL == nil)
                         }
@@ -123,13 +124,52 @@ private struct VodView: View {
             do { detail = try await CMSClient(site: site).detail(id: summary.id) }
             catch { self.error = error.localizedDescription }
         }
-        .sheet(item: $playback) { PlayerView(url: $0.url) }
+        .sheet(item: $pendingPlayback) { PlayerPickerView(mediaURL: $0.url) }
     }
 }
 
 private struct Playback: Identifiable {
     let url: URL
     var id: String { url.absoluteString }
+}
+
+private struct PlayerPickerView: View {
+    let mediaURL: URL
+    @Environment(\.dismiss) private var dismiss
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                NavigationLink("內建播放器") { PlayerView(url: mediaURL) }
+                ForEach(ExternalPlayer.allCases, id: \.self) { player in
+                    Button(player.displayName) { open(player) }
+                }
+            }
+            .navigationTitle("選擇影片播放器")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { Button("取消") { dismiss() } }
+            .alert("無法開啟播放器", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+                Button("確定", role: .cancel) {}
+            } message: {
+                Text(error ?? "未知錯誤")
+            }
+        }
+    }
+
+    private func open(_ player: ExternalPlayer) {
+        guard let url = player.playbackURL(for: mediaURL) else {
+            error = "無法建立 \(player.displayName) 播放連結。"
+            return
+        }
+        UIApplication.shared.open(url) { opened in
+            if !opened {
+                Task { @MainActor in
+                    error = "請先安裝或更新 \(player.displayName)，也可改用內建播放器。"
+                }
+            }
+        }
+    }
 }
 
 private struct PlayerView: View {

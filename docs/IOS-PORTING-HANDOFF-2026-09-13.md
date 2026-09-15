@@ -852,6 +852,25 @@ Do not repeat these reads unless needed for a concrete implementation question:
 - Evidence: screenshots were captured under `/tmp/webhtv-ios-poc1c-*.png` and were not committed.
 - Remaining boundary: imported config is currently held in memory and must be selected again after a fresh app launch.
 
+### POC-2A selectable video players
+
+- Requirement: selecting a playable episode must offer the built-in player, Infuse, Fileball, SenPlayer, and VidHub.
+- Platform evidence, accessed 2026-09-15:
+  - Grade A: [Infuse third-party API](https://support.firecore.com/hc/en-us/articles/215090997-API-for-Third-Party-Apps-Services) documents `infuse://x-callback-url/play` with a required `url` query item.
+  - Grade A: [VidHub third-party integration](https://vidhub.okaapps.com/3rd-party-app-integration/) documents `open-vidhub://x-callback-url/play` and recommends platform URL builders.
+  - Grade A: [SenPlayer App Store version history](https://apps.apple.com/us/app/senplayer-media-player/id6443975850) confirms URL Scheme playback and its current parameters, but does not publish the complete address.
+  - Grade B: mature [AList Web player integration](https://github.com/AlistGo/alist-web/blob/main/src/pages/home/previews/video_box.tsx) records `filebox://play`; two independent integrations record `SenPlayer://x-callback-url/play`. Fileball's own site says the exact schemes are exposed inside the app rather than in public documentation.
+  - Grade A: [Apple `canOpenURL` documentation](https://developer.apple.com/documentation/uikit/uiapplication/canopenurl%28_%3A%29) states that direct `open` is not constrained by `LSApplicationQueriesSchemes`; its completion result reports whether an app handled the URL.
+- Evidence classes: official platform/app documentation and current App Store records were searched; upstream source/tests are unavailable because these players are closed-source; mature related-project code was checked for the two unpublished addresses. Papers and benchmarks are inapplicable because this change only hands off an existing media URL.
+- Alternatives: no change omits the requested choice; a system share sheet cannot select a named player deterministically; copying each third-party format unchanged would duplicate unsafe manual encoding. The selected WebHTV adaptation uses `URLComponents`, a native selection sheet with a clear cancel route, and `UIApplication.open` completion without a query-scheme allowlist. The built-in player is pushed inside the same sheet to avoid competing SwiftUI presentations.
+- Scope: no playback engine, dependency, persistence, callback/resume protocol, headers, subtitles, or default-player setting is added. External apps receive only the episode's direct HTTP(S) URL.
+- Acceptance: the five choices are visible; built-in playback still presents `VideoPlayer`; each external URL has the documented scheme/path and one decoded `url` query item; an uninstalled or unsupported app produces an actionable alert.
+- Risk: Fileball and SenPlayer can change their app-visible schemes without public notice. A failed launch is surfaced and does not replace built-in playback.
+- Verification: `WANG_MOVIE_JSON=<extracted path> swift test --package-path ios` passed all 5 tests, including the live CMS flow and URL preservation test; the generic iOS Simulator Xcode build succeeded.
+- Runtime acceptance: on the iPhone 17 Pro simulator, the exact `wang-movie.json` opened the 如意 source and displayed all five player choices; built-in playback entered `VideoPlayer`, while uninstalled Infuse produced the expected recovery alert.
+- Ponytail final review: replaced the first competing-dialog implementation with one native sheet/navigation flow and reduced repeated player display-name branches to enum raw values. No further removable abstraction remains.
+- Rollback: revert the single `IOS-POC-2A` commit; CMS/config behavior and Android paths remain unchanged.
+
 - Objective: create a usable iPhone version of WebHomeTV while preserving the portable CatVod/WebHome behavioral contracts and avoiding an always-on server or jailbreak.
 - Preferred architecture: Native iOS + SwiftUI + WKWebView hybrid.
 - Installation strategy for personal zero-cost use: SideStore/on-device refresh after initial setup.
@@ -862,4 +881,4 @@ Do not repeat these reads unless needed for a concrete implementation question:
 - JAR conclusion: many CSP packages are Android DEX/native packages and are not a generic JVM portability path.
 - Runtime priority: HTTP/CMS first, then WebHome/JS, then Python, then selective CSP replacement/porting.
 - Ponytail: available and applied to POC-1A and POC-1B.
-- Exactly one next functional action: POC-1E should copy the imported JSON into the app sandbox and restore it on launch, using `FileManager` without adding a persistence framework.
+- Exactly one next functional action: after POC-2A, POC-1E should copy the imported JSON into the app sandbox and restore it on launch, using `FileManager` without adding a persistence framework.

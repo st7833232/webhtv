@@ -6,6 +6,7 @@ import WebHTVCore
 
 private let appSurface = Color(red: 0.075, green: 0.14, blue: 0.16)
 private let appAccent = Color.white
+private let selectedSiteKey = "selectedSiteKey"
 
 @main
 struct WebHTVApp: App {
@@ -61,6 +62,10 @@ private struct ConfigView: View {
             }
         }
         .appWallpaper()
+        .task { restore() }
+        .onChange(of: selectedSiteID) { _, id in
+            UserDefaults.standard.set(id, forKey: selectedSiteKey)
+        }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
             switch result {
             case .success(let url): load(url)
@@ -75,15 +80,47 @@ private struct ConfigView: View {
     }
 
     private func load(_ url: URL) {
-        let accessed = url.startAccessingSecurityScopedResource()
-        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        guard url.startAccessingSecurityScopedResource() else {
+            error = "無法取得所選檔案的存取權。"
+            return
+        }
+        defer { url.stopAccessingSecurityScopedResource() }
         do {
-            sites = try ConfigLoader.decode(Data(contentsOf: url)).nativeCMSSites.filter { $0.type == 1 }
-            selectedSiteID = sites.first?.id
+            let data = try Data(contentsOf: url)
+            let loaded = try ConfigLoader.decode(data).nativeCMSSites.filter { $0.type == 1 }
+            guard !loaded.isEmpty else {
+                error = "此設定沒有 iOS 可用的 type-1 CMS 來源。"
+                return
+            }
+            try data.write(to: configURL(), options: .atomic)
+            sites = loaded
+            selectedSiteID = loaded.first { $0.id == selectedSiteID }?.id ?? loaded.first?.id
             selectedTab = 0
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    private func restore() {
+        do {
+            let url = try configURL()
+            guard FileManager.default.fileExists(atPath: url.path) else { return }
+            let loaded = try ConfigLoader.decode(Data(contentsOf: url)).nativeCMSSites.filter { $0.type == 1 }
+            guard !loaded.isEmpty else {
+                error = "已保存的設定沒有 iOS 可用來源，請重新匯入。"
+                return
+            }
+            let key = UserDefaults.standard.string(forKey: selectedSiteKey)
+            sites = loaded
+            selectedSiteID = loaded.first { $0.id == key }?.id ?? loaded.first?.id
+        } catch {
+            self.error = "已保存的設定無法載入：\(error.localizedDescription)。請重新匯入。"
+        }
+    }
+
+    private func configURL() throws -> URL {
+        try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            .appendingPathComponent("wang-movie.json")
     }
 }
 

@@ -2,7 +2,7 @@
 
 This document is the durable handoff for the iPhone/iOS work discussed on 2026-09-13. It is intended to let a new ChatGPT/Work/Codex session continue without reconstructing the conversation.
 
-> Scope note: this is an assessment/architecture document only. No functional iOS code has been implemented yet. Functional implementation remains gated by Ponytail review as described in `docs/AGENT_HANDOFF.md`.
+> Scope note: this document began as an assessment/architecture handoff. Functional iOS POC stages are now recorded in its recovery anchor below; each bounded change remains gated by Ponytail review as described in `docs/AGENT_HANDOFF.md`.
 
 ## 1. Repository, branch, and ownership
 
@@ -905,9 +905,10 @@ Do not repeat these reads unless needed for a concrete implementation question:
 - Installation strategy for personal zero-cost use: SideStore/on-device refresh after initial setup.
 - Active branch: `ios-poc`.
 - Android `main` must remain unaffected by experimental iOS work.
-- Functional iOS code implemented so far: POC-1A config loading/native CMS classification, POC-1B type-1 JSON CMS data flow, and the POC-1C SwiftUI/AVPlayer app shell.
+- Functional iOS code implemented so far: POC-1A config loading/native CMS classification, POC-1B type-1 JSON CMS data flow, the POC-1C SwiftUI/AVPlayer app shell, and POC-1E sandbox configuration persistence.
 - Resource evidence: the newest user-provided `recha-main.zip` and `wang-movie.json` were inspected externally and are the current iOS porting input; the archive is not in this repo.
 - JAR conclusion: many CSP packages are Android DEX/native packages and are not a generic JVM portability path.
 - Runtime priority: HTTP/CMS first, then WebHome/JS, then Python, then selective CSP replacement/porting.
 - Ponytail: available and applied to POC-1A and POC-1B.
-- Exactly one next functional action: after POC-2A, POC-1E should copy the imported JSON into the app sandbox and restore it on launch, using `FileManager` without adding a persistence framework.
+- POC-1E record: [config persistence task](IOS-POC-1E-config-persistence.md). The current Recha JSON was imported into Application Support with matching SHA-256; a non-first site key survived relaunch on iPhone 17 Pro Simulator. This is CMS configuration persistence, not support for the type-3/type-4 Spider sources. The invalid re-import UI path and provider-specific permission errors were not exercised.
+- Exactly one next functional action: after POC-1E local closure, resume the previously staged WebHome bridge proof; do not broaden this persistence slice.

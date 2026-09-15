@@ -7,8 +7,9 @@
 
 ## Current Scope
 
-- Branch `ios-poc`, HEAD `10967eae`. 12 local commits ahead of `origin/ios-poc`. Nothing pushed. Clean worktree apart from this update.
-- Recovery tags this session: `recovery/IOS-POC-4A/20260915160547-84213fd4cef7`, `recovery/IOS-POC-4B/20260915162727-10967eae5cbc`.
+- Branch `ios-poc`, HEAD `326b70d2` before this closure commit. Three commits from this session are unpushed: `84213fd4` (type-4), `10967eae` (ATS), `326b70d2` (handoff refresh).
+- `origin/ios-poc` currently resolves to `2c1c2a35`, this session's starting point. Nothing was pushed or fetched here, so treat the real remote state as unconfirmed and re-check on resume.
+- Recovery tags this session: `recovery/IOS-POC-4A/20260915160547-84213fd4cef7`, `recovery/IOS-POC-4B/20260915162727-10967eae5cbc`, `recovery/IOS-POC-4C/20260915162834-326b70d2b992`.
 
 ## Non-Negotiable Constraints
 
@@ -56,4 +57,4 @@
 
 ## Resume Prompt
 
-> Continue the WebHomeTV iPhone port in `/Users/chengchenchih/GIT/webhtv` on the actual `ios-poc` Git state; expected HEAD `10967eae`, 12 local commits ahead of origin and not pushed. Read `AGENTS.md`, `docs/AGENT_HANDOFF.md`, this file, and `docs/IOS-POC-4A-type4-sources.md` for the type-4 stage evidence. The app now exposes 28 of the 167 configured sources (22 type-1 + 6 type-4), persists the imported JSON and selected source, offers built-in/Infuse/Fileball/SenPlayer/VidHub players, and ships `NSAllowsArbitraryLoads` because the user explicitly chose global cleartext on 2026-09-15 after being offered a narrower per-domain option — keep that, and do not broaden transport security further without a fresh decision. Do not resume the Google TV `csp_JPianAmns` repair. Type-0 XML, type-3 Spider, and the WebHome bridge are not implemented, and this JSON contains no WebHome entry. Confirm the next bounded stage with the user before any functional edit. Preserve dirty files, Android `main`, and the task-guard/Ponytail gates. Site reachability is volatile — verify per site and never generalise one failure into a global app defect.
+> Continue the WebHomeTV iPhone port in `/Users/chengchenchih/GIT/webhtv` on the actual `ios-poc` Git state; check `git log` and `git status` first rather than trusting any commit id quoted here. Three commits from the 2026-09-15 Claude session (`84213fd4`, `10967eae`, `326b70d2`) plus a closure commit were left unpushed, and the remote state was never fetched. Read `AGENTS.md`, `docs/AGENT_HANDOFF.md`, this file, and `docs/IOS-POC-4A-type4-sources.md` for the type-4 stage evidence. The app now exposes 28 of the 167 configured sources (22 type-1 + 6 type-4), persists the imported JSON and selected source, offers built-in/Infuse/Fileball/SenPlayer/VidHub players, and ships `NSAllowsArbitraryLoads` because the user explicitly chose global cleartext on 2026-09-15 after being offered a narrower per-domain option — keep that, and do not broaden transport security further without a fresh decision. Do not resume the Google TV `csp_JPianAmns` repair. Type-0 XML, type-3 Spider, and the WebHome bridge are not implemented, and this JSON contains no WebHome entry. Confirm the next bounded stage with the user before any functional edit. Preserve dirty files, Android `main`, and the task-guard/Ponytail gates. Site reachability is volatile — verify per site and never generalise one failure into a global app defect.

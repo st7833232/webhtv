@@ -842,6 +842,16 @@ Do not repeat these reads unless needed for a concrete implementation question:
 - Ponytail final review: removed the single-use observable store and kept state inside `ConfigView`; the generated project contains one app target and one local Swift package dependency.
 - Rollback: revert the single `IOS-POC-1C` commit; POC-1A/1B and Android remain intact.
 
+### POC-1D iPhone Simulator runtime acceptance
+
+- Device: Xcode 26.3 iPhone 17 Pro simulator running iOS 26.3.
+- Result: installed and launched the POC-1C app, imported the exact extracted `wang-movie.json` through the system Files picker, and observed the type-1 CMS site list.
+- Data flow: opened the configured 如意 source, observed its home list, searched for the first visible title and observed a single matching result, opened detail, and observed both `rym3u8` and `ruyi` playback groups.
+- Playback: selected the HTTPS episode and observed an actual video frame in `VideoPlayer`; this validates AVPlayer startup for the representative source, not every URL or format in the configuration.
+- Runtime errors: none observed from the app. The simulator logged a missing system Apple Color Emoji font and app-launch measurement warnings; neither affected the app flow and neither is a repository defect.
+- Evidence: screenshots were captured under `/tmp/webhtv-ios-poc1c-*.png` and were not committed.
+- Remaining boundary: imported config is currently held in memory and must be selected again after a fresh app launch.
+
 - Objective: create a usable iPhone version of WebHomeTV while preserving the portable CatVod/WebHome behavioral contracts and avoiding an always-on server or jailbreak.
 - Preferred architecture: Native iOS + SwiftUI + WKWebView hybrid.
 - Installation strategy for personal zero-cost use: SideStore/on-device refresh after initial setup.
@@ -852,4 +862,4 @@ Do not repeat these reads unless needed for a concrete implementation question:
 - JAR conclusion: many CSP packages are Android DEX/native packages and are not a generic JVM portability path.
 - Runtime priority: HTTP/CMS first, then WebHome/JS, then Python, then selective CSP replacement/porting.
 - Ponytail: available and applied to POC-1A and POC-1B.
-- Exactly one next functional action: install POC-1C in an iPhone Simulator, import the supplied JSON through the UI, and record the first runtime/visual acceptance result before expanding compatibility.
+- Exactly one next functional action: POC-1E should copy the imported JSON into the app sandbox and restore it on launch, using `FileManager` without adding a persistence framework.

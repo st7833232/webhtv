@@ -100,6 +100,11 @@ private func site(key: String, type: Int, api: String, ext: String = "null") thr
     #expect(vod.flags.first?.episodes.first?.mediaURL?.absoluteString == "https://cdn.example.com/a/index.m3u8")
 }
 
+@Test func usesABoundedRequestTimeout() {
+    // Guards the fix for unreachable sources hanging the screen; the URLSession default is 60 s.
+    #expect(URLSession.webHTV.configuration.timeoutIntervalForRequest == 10)
+}
+
 /// Live smoke over every type-4 site in the supplied config. Remote reachability is volatile, so an
 /// unreachable host is reported and skipped; only a host that answers is held to the contract.
 @Test func reportsLiveType4SitesFromProvidedConfig() async throws {

@@ -165,3 +165,48 @@ Result after fixes: **PASS, no material finding outstanding.**
 - No background audio, media session or lock-screen controls. Closing the player pauses.
 - **Nothing ran on a real device.** Still no `CODE_SIGN` or `DEVELOPMENT_TEAM` in the project.
 - Verification ergonomics: the simulator's keyboard capitalised the first character of the page's `siteKey` field, which made `vod_360` arrive as `Vod_360` and reject. Worked around by turning **Auto-Capitalization off in the simulator device's own preferences** and relaunching. That is a device setting, not an app or repository change, and nothing in the app was modified for it.
+
+
+## IOS-POC-2F — closing out the unverified playback paths (2026-09-16)
+
+IOS-POC-2E shipped with five paths implemented but never executed: the inline JS resolver, and the
+`prev`, `stop`, `loop` and `replay` controls. This task drove all five from the unmodified showcase
+page. **No code changed. All five work.**
+
+### Method
+
+The showcase's inline playlist is `MP4 → HLS → Live HLS → Resolver HLS`, and only the fourth needs
+`window.__fmWebHomeInlineResolver`. Its three HLS entries all resolve to the *same* URL, so a URL
+comparison cannot prove the resolver ran. The sequence below makes the proof binary instead: `stop`
+empties the session, so the next status is `{}` unless something actually loaded.
+
+### Results, from the page, on the `588cb85a` build
+
+| Path | Evidence |
+|---|---|
+| `prev` | From index 3, status came back `title: "WebHome SDK Showcase Live HLS"` (index 2), `state: 3`, `speed: 1`, `position: 13467`. |
+| `stop` | The next status was `{"ok":true,"status":200,"headers":{},"url":"","cookies":[],"body":{}}` — a **bare empty body**, exactly what Android returns with no playback service. |
+| **inline resolver** | With the session emptied by `stop`, `next` onto `Resolver HLS` produced `title: "WebHome SDK Showcase Resolver HLS"`, `duration: 90040`, `position: 19343`, `state: 3`. Status can only be non-idle here if `start(at:)` called the page's resolver and loaded what it returned, so the `callAsyncJavaScript` round trip to `window.__fmWebHomeInlineResolver` **executed and returned a URL**. |
+| `replay` | Position dropped from a late playhead back to the start of the stream, `state: 3`. |
+| `loop` | Enabled, then `replay` to restart a 90 040 ms clip, then waited 95 s. Status read `position: 13946`, `speed: 1`, same url and title. With looping off, `finished()` would have called `start(at: 4)`, found nothing in range, and left playback parked at the end — so the restart is `finished()` taking its repeat branch. |
+
+### A fix that was proposed, built, measured and then reverted
+
+While verifying `replay`, the first status after it read `position: 6000` rather than ~0, and the
+conclusion drawn was that this HLS asset starts at a non-zero PTS and that `status.position` was
+therefore carrying a raw origin offset Media3 would have normalised away. A two-line normalisation
+against `seekableTimeRanges.first.start` was written, built and installed.
+
+**The measurement did not support it.** Under the same `replay` → `status` pair, the pre-fix build
+read 6000 and the post-fix build read 7500 — *higher*, not ~6000 lower. If the timeline really began
+at 6 s the fix would have subtracted it; it changed nothing, so the seekable range starts at 0 and
+both numbers were only the latency between the two taps. The change was reverted rather than kept as
+dead code, and `588cb85a` remains the correct implementation. Recorded here because the wrong
+inference is worth not repeating: **`position` is measured from the media's start; the readings in
+this document include the delay between the control tap and the status tap.**
+
+### Scope note
+
+`player.control("loop")` toggles a boolean, while Android's `dispatchRepeat` cycles repeat modes.
+Two `loop` calls therefore return to the starting state on iOS. Left as is — the contract passes an
+action name and returns `{}`, and nothing in it reports the mode back.

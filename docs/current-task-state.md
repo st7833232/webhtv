@@ -34,6 +34,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 2D | Bridge UI, navigation and information methods | `docs/IOS-POC-2D-webhome-bridge-ui-info.md` |
 | 3A–3C | Android-like surfaces, wallpaper, oversized-logo removal | commits |
 | 3D | Uniform 2:3 poster cells | commit |
+| 3E | Built-in player presented full screen | commit |
 | 4A | type-4 CatVod remote API sources | `docs/IOS-POC-4A-type4-sources.md` |
 | 4B | ATS cleartext decision | same document |
 | 4E–4I | Request timeout, category browsing, two-level categories, pagination, type-1 posters | commits |
@@ -55,6 +56,10 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 - Pagination loads the next page when the last card appears, for home, category and search. It stops when a page contributes no new `vod_id` rather than trusting page metadata, which also ends the loop for a source that ignores `pg`.
 - Type-1 listings request `ac=detail`, the only form that carries `vod_pic`. That form drops `class`, so a type-1 home issues the plain and detail requests concurrently.
 - Root-cause fix in the shared `Vod` decoder: `vod_id` and `vod_name` are optional, because `爱瓜TV` answers `ac=detail` without them and requiring them discarded the whole record.
+
+### Playback
+
+- The built-in player is a full-screen cover with its own close control, not a push inside the picker sheet. A page sheet is inset and rounded, so the player used to inherit those bounds and the app wallpaper showed around the video. Letterbox bars for a 16:9 video in a portrait screen are correct aspect-ratio behaviour and are left alone; the player now draws them on its own black background.
 
 ### Configuration
 

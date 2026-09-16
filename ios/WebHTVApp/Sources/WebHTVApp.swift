@@ -644,12 +644,13 @@ private struct PlayerPickerView: View {
     let mediaURL: URL
     @Environment(\.dismiss) private var dismiss
     @State private var error: String?
+    @State private var playing = false
 
     var body: some View {
         NavigationStack {
             List {
-                NavigationLink {
-                    PlayerView(url: mediaURL)
+                Button {
+                    playing = true
                 } label: {
                     Label("內建播放器", systemImage: "play.rectangle.fill")
                 }
@@ -672,6 +673,9 @@ private struct PlayerPickerView: View {
                 Text(error ?? "未知錯誤")
             }
         }
+        // Full screen rather than a push inside this sheet: a page sheet is inset and rounded, so the
+        // player inherited those bounds and the app wallpaper showed through around the video.
+        .fullScreenCover(isPresented: $playing) { PlayerView(url: mediaURL) }
     }
 
     private func open(_ player: ExternalPlayer) {
@@ -690,6 +694,7 @@ private struct PlayerPickerView: View {
 }
 
 private struct PlayerView: View {
+    @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer
 
     init(url: URL) {
@@ -697,10 +702,28 @@ private struct PlayerView: View {
     }
 
     var body: some View {
-        VideoPlayer(player: player)
-            .ignoresSafeArea()
-            .onAppear { player.play() }
-            .onDisappear { player.pause() }
+        ZStack {
+            // The player owns the whole screen, so letterbox bars are black instead of showing
+            // whatever is behind the presentation.
+            Color.black.ignoresSafeArea()
+            VideoPlayer(player: player)
+                .ignoresSafeArea()
+        }
+        .overlay(alignment: .topLeading) {
+            // A full-screen cover has no navigation bar, so it needs its own way out.
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(.black.opacity(0.55), in: Circle())
+            }
+            .padding(.leading, 16)
+            .padding(.top, 8)
+        }
+        .statusBarHidden()
+        .onAppear { player.play() }
+        .onDisappear { player.pause() }
     }
 }
 

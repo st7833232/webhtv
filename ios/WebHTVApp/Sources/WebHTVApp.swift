@@ -74,7 +74,12 @@ private struct ConfigView: View {
             }
         }
         .appWallpaper()
-        .task { restore() }
+        .task {
+            restore()
+            // Every launch re-fetches a remote configuration, so the app opens on the current one
+            // rather than on whatever happened to be cached.
+            await refreshRemote(quiet: true)
+        }
         .onChange(of: selectedSiteID) { _, id in
             UserDefaults.standard.set(id, forKey: selectedSiteKey)
         }
@@ -108,22 +113,41 @@ private struct ConfigView: View {
 
     /// `showHome` is false for a refresh: re-fetching the same source should not yank the user out
     /// of Settings, while pointing the app at a new source should show what it loaded.
-    private func load(remote url: URL, showHome: Bool = true) async {
+    /// `reportFailure` is false only on launch — see `refreshRemote(quiet:)`.
+    /// Returns whether the configuration was replaced, so the launch path can decide to retry.
+    @discardableResult
+    private func load(remote url: URL, showHome: Bool = true, reportFailure: Bool = true) async -> Bool {
         refreshing = true
         defer { refreshing = false }
         do {
             let (data, config) = try await ConfigLoader.fetch(from: url)
             try adopt(data, config: config, from: .remote(url))
             if showHome { selectedTab = 0 }
+            return true
         } catch {
             // The cached configuration and the live source list are untouched by a failed fetch.
-            self.error = "遠端設定載入失敗：\(error.localizedDescription)"
+            if reportFailure { self.error = "遠端設定載入失敗：\(error.localizedDescription)" }
+            return false
         }
     }
 
-    private func refreshRemote() async {
+    /// Re-fetches the current remote source. `quiet` is used on launch: `restore()` has already put
+    /// the last known good configuration on screen and the 上次更新 row shows how old it is, so an
+    /// alert on every offline launch would add nothing. A manual refresh still reports failures.
+    ///
+    /// The launch attempt also retries. A launch can land before the network is ready, and the host
+    /// itself can blip — during this stage's testing the Raw host refused connections for about a
+    /// minute and then recovered on its own. A manual refresh does not retry, because the user is
+    /// watching and can simply tap again rather than wait through the gaps.
+    private func refreshRemote(quiet: Bool = false) async {
         guard case .remote(let url) = source else { return }
-        await load(remote: url, showHome: false)
+        let gaps: [Duration] = quiet ? [.seconds(2), .seconds(5), .seconds(15)] : []
+        for gap in gaps {
+            if await load(remote: url, showHome: false, reportFailure: false) { return }
+            // Cancelled when the view goes away, which ends the retry with it.
+            guard (try? await Task.sleep(for: gap)) != nil else { return }
+        }
+        await load(remote: url, showHome: false, reportFailure: !quiet)
     }
 
     /// Write, then publish. Callers validate first and hand the result in, so nothing that failed

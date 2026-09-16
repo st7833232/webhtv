@@ -104,3 +104,31 @@ Two findings, both fixed before commit:
 ### Out-of-scope defect fixed incidentally
 
 The Settings footer said "目前支援 28 個 type-1 JSON CMS 來源", stale since type-4 landed in IOS-POC-4A. The rewritten footer names both types. This was reported as out of scope in IOS-POC-2B and is corrected here because the same line was being rewritten anyway.
+
+
+## IOS-POC-1G — refresh on launch, with retry (2026-09-16)
+
+The user asked for two things: reopening the app must reload the configuration rather than sit on the cache, and that reload needs to retry because the first attempt after launch can fail.
+
+`.task` now calls `restore()` and then `refreshRemote(quiet: true)`. The launch attempt retries with 2 s, 5 s and 15 s gaps before a final try; a manual refresh does not retry, because the user is watching and can tap again rather than wait through the gaps. `Task.sleep` is cancellable, so the retry ends with the view.
+
+The launch refresh stays silent on failure. `restore()` has already put the last known good configuration on screen and the 上次更新 row shows how old it is, so an alert on every offline launch would add nothing; a manual refresh still reports the error.
+
+### Verification
+
+- **Launch refresh fires.** Measured three times on a reachable source: `configUpdatedAt` advanced to launch time on each relaunch (11:35, 11:48, 11:50).
+- **Retry recovers from a transient failure.** A local server was armed to answer the first two requests with HTTP 503 and then serve the real configuration. Its log recorded exactly three requests — `failuresLeft=2`, `failuresLeft=1`, `failuresLeft=0` — and the app adopted the configuration on the third, about seven seconds after launch.
+- **Quiet failure keeps the cache.** With the stored source pointed at an unreachable address, launch showed no alert, the 28 sources and the selected site kept working from the cache, and the update stamp did not move.
+
+### A real outage happened mid-verification, and it is why the retry is justified
+
+Between 11:23 and 11:45 the GitLab Raw host became unreachable from the host machine as well — `curl` returned `Recv failure: Operation timed out` for roughly a minute before recovering on its own. During that window a launch refresh and a manual refresh both failed. I first read that as "the launch refresh does not fire"; it was the network. The app behaved correctly throughout: it kept serving the cached configuration.
+
+Two further notes on that episode, recorded so the evidence is not overstated:
+
+- I had run `launchctl stop com.apple.cfprefsd.xpc.daemon` inside the simulator earlier to make a preferences edit stick. That suspended preference flushing, so plist readings taken between then and cfprefsd restarting were unreliable. The measurements above were retaken afterwards.
+- Editing the stored source through the plist is only a test harness. It is not a supported path and the app never writes a source it has not successfully loaded.
+
+### Known gap, not addressed here
+
+The 從網址載入設定 dialog silently does nothing when the text is not a valid http(s) URL. It should say so. Out of scope for this commit; introduced in IOS-POC-1F.

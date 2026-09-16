@@ -2,8 +2,18 @@ import Foundation
 import Testing
 @testable import WebHTVCore
 
+private let noopActions = WebHomeBridge.Actions(
+    play: { _, _ in }, search: { _ in }, toast: { _ in }, setToolbar: { _ in },
+    back: {}, reload: {},
+    viewport: { .init(width: 402, height: 720, safeTop: 59, safeRight: 0, safeBottom: 34, safeLeft: 0) }
+)
+
 private func bridge(defaults: UserDefaults) -> WebHomeBridge {
-    WebHomeBridge(actions: .init(play: { _, _ in }, search: { _ in }), defaults: defaults)
+    WebHomeBridge(actions: noopActions, defaults: defaults)
+}
+
+private func decode(_ text: String) throws -> [String: Any] {
+    try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
 }
 
 private func scratchDefaults(_ name: String) throws -> UserDefaults {
@@ -36,8 +46,9 @@ private func scratchDefaults(_ name: String) throws -> UserDefaults {
     let subject = bridge(defaults: defaults)
 
     #expect(try await subject.handle(method: "app.history", payload: [:]) == "[]")
-    await #expect(throws: WebHomeBridgeError.unknownMethod("ui.getViewport")) {
-        try await subject.handle(method: "ui.getViewport", payload: [:])
+    // ui.getViewport became supported in IOS-POC-2D; pan.check is still outside every slice.
+    await #expect(throws: WebHomeBridgeError.unknownMethod("pan.check")) {
+        try await subject.handle(method: "pan.check", payload: [:])
     }
     await #expect(throws: WebHomeBridgeError.invalidPayload) {
         try await subject.handle(method: "player.playUrl", payload: ["url": "notaurl"])
@@ -107,4 +118,95 @@ private func scratchDefaults(_ name: String) throws -> UserDefaults {
     // iOS never chunks, so the synchronous result accessors must not appear.
     #expect(!sdk.contains("resultChunk"))
     #expect(!sdk.contains("resultLength"))
+}
+
+
+@Test func reportsTheViewportWithEveryFieldAndroidSends() async throws {
+    let defaults = try scratchDefaults("viewport")
+    let payload = try await decode(try bridge(defaults: defaults).handle(method: "ui.getViewport", payload: [:]))
+
+    #expect(payload["width"] as? Double == 402)
+    #expect(payload["height"] as? Double == 720)
+    #expect(payload["safeTop"] as? Double == 59)
+    #expect(payload["safeBottom"] as? Double == 34)
+    // Android system-inset concepts with no iOS equivalent are zero, not missing, so a page reading
+    // one of them never gets `undefined`.
+    for key in ["gestureLeft", "gestureRight", "gestureBottom", "navigationBarHeight", "keyboardBottom"] {
+        #expect(payload[key] as? Double == 0, "\(key) should be present and zero")
+    }
+    #expect(payload["systemBarsHidden"] as? Bool == false)
+    #expect(payload["chromeMode"] as? String == "")
+}
+
+@Test func reportsSiteConfigAndExtensionState() async throws {
+    let defaults = try scratchDefaults("info")
+    let site = try JSONDecoder().decode(
+        Site.self,
+        from: Data(#"{"key":"vod_360","name":"360","type":1,"api":"https://example.com/api","ext":null}"#.utf8)
+    )
+    let url = try #require(URL(string: "https://example.com/a/wang-movie.json?ref_type=heads"))
+    let subject = WebHomeBridge(actions: noopActions, site: site, source: .remote(url), device: ["model": "iPhone"], defaults: defaults)
+
+    let info = try await decode(try subject.handle(method: "site.info", payload: [:]))
+    #expect(info["key"] as? String == "vod_360")
+    #expect(info["type"] as? Int == 1)
+
+    let config = try await decode(try subject.handle(method: "config.info", payload: [:]))
+    #expect(config["url"] as? String == url.absoluteString)
+    #expect(config["driveCheck"] as? Bool == false)
+
+    let ext = try await decode(try subject.handle(method: "ext.info", payload: [:]))
+    #expect(ext["siteKey"] as? String == "vod_360")
+    #expect(ext["enabled"] as? Bool == false)
+    #expect(ext["matched"] as? Int == 0)
+
+    #expect(try await decode(try subject.handle(method: "device.info", payload: [:]))["model"] as? String == "iPhone")
+}
+
+@Test func routesTheSideEffectingUiMethodsToTheHost() async throws {
+    let defaults = try scratchDefaults("ui")
+    actor Calls {
+        var toasts = [String]()
+        var toolbar = [Bool]()
+        var backs = 0
+        var reloads = 0
+        func toast(_ m: String) { toasts.append(m) }
+        func toolbar(_ v: Bool) { toolbar.append(v) }
+        func back() { backs += 1 }
+        func reload() { reloads += 1 }
+    }
+    let calls = Calls()
+    let actions = WebHomeBridge.Actions(
+        play: { _, _ in }, search: { _ in },
+        toast: { m in Task { await calls.toast(m) } },
+        setToolbar: { v in Task { await calls.toolbar(v) } },
+        back: { Task { await calls.back() } },
+        reload: { Task { await calls.reload() } },
+        viewport: { .init(width: 0, height: 0, safeTop: 0, safeRight: 0, safeBottom: 0, safeLeft: 0) }
+    )
+    let subject = WebHomeBridge(actions: actions, defaults: defaults)
+
+    #expect(try await subject.handle(method: "ext.toast", payload: ["message": "hi"]) == "{}")
+    // Android treats a missing `visible` as true.
+    #expect(try await subject.handle(method: "ui.setToolbar", payload: [:]) == "{}")
+    #expect(try await subject.handle(method: "ui.setToolbar", payload: ["visible": false]) == "{}")
+    #expect(try await subject.handle(method: "navigation.back", payload: [:]) == "{}")
+    #expect(try await subject.handle(method: "navigation.reload", payload: [:]) == "{}")
+    #expect(try await subject.handle(method: "ext.log", payload: ["message": "x"]) == "{}")
+
+    try await Task.sleep(for: .milliseconds(120))
+    #expect(await calls.toasts == ["hi"])
+    #expect(await calls.toolbar == [true, false])
+    #expect(await calls.backs == 1)
+    #expect(await calls.reloads == 1)
+}
+
+@Test func stillRejectsTheMethodsThisSliceLeftOut() async throws {
+    let defaults = try scratchDefaults("unsupported")
+    let subject = bridge(defaults: defaults)
+    for method in ["pan.check", "player.control", "player.status", "net.resourceUrl", "ui.setChrome", "app.openLive"] {
+        await #expect(throws: WebHomeBridgeError.unknownMethod(method)) {
+            try await subject.handle(method: method, payload: [:])
+        }
+    }
 }

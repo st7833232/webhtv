@@ -17,15 +17,54 @@ public enum WebHomeBridgeError: Error, Equatable, LocalizedError {
 /// from `HomeWebController.getSdk()`; existing pages only ever touch `window.fm` / `window.fongmi`,
 /// so the script text is the real compatibility surface and is kept as close to Android as possible.
 public struct WebHomeBridge: Sendable {
+    /// What the page can be told about its window. Android reports Android system insets too; those
+    /// have no iOS equivalent and are reported as zero rather than omitted, so a page reading them
+    /// finds a number instead of `undefined`.
+    public struct Viewport: Sendable {
+        public var width: Double
+        public var height: Double
+        public var safeTop: Double
+        public var safeRight: Double
+        public var safeBottom: Double
+        public var safeLeft: Double
+
+        public init(width: Double, height: Double, safeTop: Double, safeRight: Double, safeBottom: Double, safeLeft: Double) {
+            self.width = width
+            self.height = height
+            self.safeTop = safeTop
+            self.safeRight = safeRight
+            self.safeBottom = safeBottom
+            self.safeLeft = safeLeft
+        }
+    }
+
     /// Side effects the host owns. Kept as closures so the bridge itself stays testable without UI.
     /// They touch view state, so they are main-actor bound and awaited from the dispatch below.
     public struct Actions: Sendable {
         public var play: @MainActor @Sendable (URL, String) -> Void
         public var search: @MainActor @Sendable (String) -> Void
+        public var toast: @MainActor @Sendable (String) -> Void
+        public var setToolbar: @MainActor @Sendable (Bool) -> Void
+        public var back: @MainActor @Sendable () -> Void
+        public var reload: @MainActor @Sendable () -> Void
+        public var viewport: @MainActor @Sendable () -> Viewport
 
-        public init(play: @escaping @MainActor @Sendable (URL, String) -> Void, search: @escaping @MainActor @Sendable (String) -> Void) {
+        public init(
+            play: @escaping @MainActor @Sendable (URL, String) -> Void,
+            search: @escaping @MainActor @Sendable (String) -> Void,
+            toast: @escaping @MainActor @Sendable (String) -> Void,
+            setToolbar: @escaping @MainActor @Sendable (Bool) -> Void,
+            back: @escaping @MainActor @Sendable () -> Void,
+            reload: @escaping @MainActor @Sendable () -> Void,
+            viewport: @escaping @MainActor @Sendable () -> Viewport
+        ) {
             self.play = play
             self.search = search
+            self.toast = toast
+            self.setToolbar = setToolbar
+            self.back = back
+            self.reload = reload
+            self.viewport = viewport
         }
     }
 
@@ -148,10 +187,23 @@ public struct WebHomeBridge: Sendable {
     """#
 
     private let actions: Actions
+    private let site: Site?
+    private let source: ConfigSource
+    /// Device facts are handed in because `UIDevice` is UIKit and this module also builds for macOS.
+    private let device: [String: String]
     private nonisolated(unsafe) let defaults: UserDefaults
 
-    public init(actions: Actions, defaults: UserDefaults = .standard) {
+    public init(
+        actions: Actions,
+        site: Site? = nil,
+        source: ConfigSource = .importedFile,
+        device: [String: String] = [:],
+        defaults: UserDefaults = .standard
+    ) {
         self.actions = actions
+        self.site = site
+        self.source = source
+        self.device = device
         self.defaults = defaults
     }
 
@@ -184,9 +236,63 @@ public struct WebHomeBridge: Sendable {
         case "cache.del":
             defaults.removeObject(forKey: Self.cacheKey(payload))
             return "{}"
+        case "ui.getViewport":
+            return Self.viewportText(await actions.viewport())
+        case "ui.setToolbar":
+            // Android treats a missing `visible` as true.
+            await actions.setToolbar((payload["visible"] as? Bool) ?? true)
+            return "{}"
+        case "navigation.back":
+            await actions.back()
+            return "{}"
+        case "navigation.reload":
+            await actions.reload()
+            return "{}"
+        case "site.info":
+            // Android also reports homePage, chromeMode, webHomeChrome and header; the iOS Site
+            // model carries none of them, so they are absent rather than invented.
+            return Self.text(from: ["key": site?.key ?? "", "name": site?.name ?? "", "type": site?.type ?? 0]) ?? "{}"
+        case "config.info":
+            // `id` and `desc` have no iOS equivalent; drive check is an Android-only feature.
+            return Self.text(from: [
+                "id": "", "desc": "",
+                "url": source.baseURL?.absoluteString ?? "",
+                "driveCheck": false,
+            ]) ?? "{}"
+        case "ext.info":
+            // There is no extension registry on iOS yet, so the counts are honestly zero.
+            return Self.text(from: [
+                "siteKey": site?.key ?? "", "siteName": site?.name ?? "", "homePage": "",
+                "enabled": false, "matched": 0, "ready": 0,
+            ]) ?? "{}"
+        case "ext.log":
+            print("[webhome-ext] \(Self.string(payload, "message")) \(payload["data"].map { String(describing: $0) } ?? "")")
+            return "{}"
+        case "ext.toast":
+            let message = Self.string(payload, "message")
+            if !message.isEmpty { await actions.toast(message) }
+            return "{}"
+        case "device.info":
+            // Android proxies this to its local server's /device. No such server exists here, so the
+            // payload is built natively and its fields are iOS facts, not an Android-identical shape.
+            return Self.text(from: device) ?? "{}"
         default:
             throw WebHomeBridgeError.unknownMethod(method)
         }
+    }
+
+    /// `WebHomeViewport.json`. The Android-only inset fields are kept at zero so the payload shape
+    /// matches and a page never reads `undefined` from one of them.
+    static func viewportText(_ viewport: Viewport) -> String {
+        text(from: [
+            "width": viewport.width, "height": viewport.height,
+            "safeTop": viewport.safeTop, "safeRight": viewport.safeRight,
+            "safeBottom": viewport.safeBottom, "safeLeft": viewport.safeLeft,
+            "safeBottomMax": viewport.safeBottom,
+            "gestureLeft": 0, "gestureRight": 0, "gestureBottom": 0,
+            "statusBarHeight": viewport.safeTop, "navigationBarHeight": 0, "keyboardBottom": 0,
+            "chromeMode": "", "systemBarsHidden": false,
+        ]) ?? "{}"
     }
 
     /// `HomeWebBridge.cacheKey`: "cache_" + optional rule + key.

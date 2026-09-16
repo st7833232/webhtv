@@ -476,7 +476,7 @@ private struct SettingsView: View {
 
             if let site = sites.first(where: { $0.id == selectedSiteID }) ?? sites.first {
                 Section("開發者") {
-                    NavigationLink("WebHome 橋接驗證") { WebHomeView(site: site) }
+                    NavigationLink("WebHome 橋接驗證") { WebHomeView(site: site, source: source) }
                 }
             }
 
@@ -729,16 +729,28 @@ private func bundledImage(_ name: String) -> Image {
 
 private struct WebHomeView: View {
     let site: Site
+    let source: ConfigSource
+    @Environment(\.dismiss) private var dismiss
     @State private var pendingPlayback: Playback?
     @State private var pendingSearch: SearchRequest?
+    @State private var toast: String?
+    @State private var toolbarVisible = true
 
     var body: some View {
         Group {
             if let page = Bundle.main.url(forResource: "app-capabilities-showcase", withExtension: "html") {
                 WebHomeWebView(
                     pageURL: page,
+                    site: site,
+                    source: source,
                     onPlay: { url, _ in pendingPlayback = Playback(url: url) },
-                    onSearch: { pendingSearch = SearchRequest(keyword: $0) }
+                    onSearch: { pendingSearch = SearchRequest(keyword: $0) },
+                    onToast: { message in
+                        toast = message
+                        Task { try? await Task.sleep(for: .seconds(2)); toast = nil }
+                    },
+                    onSetToolbar: { toolbarVisible = $0 },
+                    onBack: { dismiss() }
                 )
             } else {
                 ContentUnavailableView("找不到頁面", systemImage: "doc.questionmark", description: Text("WebHome 展示頁沒有打包進 App。"))
@@ -748,6 +760,18 @@ private struct WebHomeView: View {
         .navigationTitle("WebHome 橋接")
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBar()
+        .toolbar(toolbarVisible ? .visible : .hidden, for: .navigationBar)
+        .overlay(alignment: .bottom) {
+            if let toast {
+                Text(toast)
+                    .font(.subheadline)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.black.opacity(0.82), in: Capsule())
+                    .padding(.bottom, 28)
+            }
+        }
         .sheet(item: $pendingPlayback) { PlayerPickerView(mediaURL: $0.url) }
         .sheet(item: $pendingSearch) { request in
             NavigationStack { CMSView(site: site, initialQuery: request.keyword) }
@@ -766,6 +790,18 @@ private let cjkFallbackScript = #"""
 """#
 #endif
 
+/// Built once per bridge because `UIDevice` cannot cross into `WebHTVCore`, which also builds for macOS.
+private func deviceInfo() -> [String: String] {
+    let bundle = Bundle.main.infoDictionary ?? [:]
+    return [
+        "model": UIDevice.current.model,
+        "systemName": UIDevice.current.systemName,
+        "systemVersion": UIDevice.current.systemVersion,
+        "appVersion": bundle["CFBundleShortVersionString"] as? String ?? "",
+        "appBuild": bundle["CFBundleVersion"] as? String ?? "",
+    ]
+}
+
 private struct SearchRequest: Identifiable {
     let keyword: String
     var id: String { keyword }
@@ -774,11 +810,31 @@ private struct SearchRequest: Identifiable {
 /// Hosts the WebHome page and carries the string-RPC contract between it and `WebHomeBridge`.
 private struct WebHomeWebView: UIViewRepresentable {
     let pageURL: URL
+    let site: Site
+    let source: ConfigSource
     let onPlay: @MainActor @Sendable (URL, String) -> Void
     let onSearch: @MainActor @Sendable (String) -> Void
+    let onToast: @MainActor @Sendable (String) -> Void
+    let onSetToolbar: @MainActor @Sendable (Bool) -> Void
+    let onBack: @MainActor @Sendable () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(bridge: WebHomeBridge(actions: .init(play: onPlay, search: onSearch)))
+        let coordinator = Coordinator()
+        coordinator.bridge = WebHomeBridge(
+            actions: .init(
+                play: onPlay,
+                search: onSearch,
+                toast: onToast,
+                setToolbar: onSetToolbar,
+                back: onBack,
+                reload: { [weak coordinator] in coordinator?.webView?.reload() },
+                viewport: { [weak coordinator] in coordinator?.viewport() ?? .init(width: 0, height: 0, safeTop: 0, safeRight: 0, safeBottom: 0, safeLeft: 0) }
+            ),
+            site: site,
+            source: source,
+            device: deviceInfo()
+        )
+        return coordinator
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -810,13 +866,22 @@ private struct WebHomeWebView: UIViewRepresentable {
     }
 
     @MainActor final class Coordinator: NSObject, WKScriptMessageHandler {
-        private let bridge: WebHomeBridge
+        var bridge: WebHomeBridge?
         weak var webView: WKWebView?
 
-        init(bridge: WebHomeBridge) { self.bridge = bridge }
+        /// Points are CSS pixels on iOS, so the page receives the same units Android reports.
+        func viewport() -> WebHomeBridge.Viewport {
+            let insets = webView?.safeAreaInsets ?? .zero
+            let size = webView?.bounds.size ?? .zero
+            return .init(
+                width: size.width, height: size.height,
+                safeTop: insets.top, safeRight: insets.right,
+                safeBottom: insets.bottom, safeLeft: insets.left
+            )
+        }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard let call = WebHomeBridge.decodeMessage(message.body) else { return }
+            guard let call = WebHomeBridge.decodeMessage(message.body), let bridge else { return }
             Task {
                 let script: String
                 do {

@@ -5,6 +5,7 @@
 - Port WebHomeTV to iPhone/iOS with an Android-like UI, use the newest user-provided `wang-movie.json`, and offer built-in, Infuse, Fileball, SenPlayer, and VidHub playback choices. The Google TV `csp_JPianAmns` repair is not in scope.
 - Completed: IOS-POC-4A (type-4 sources), 4B (ATS cleartext decision), 4E (request timeout), 4F (category browsing), 4G (two-level categories), 4H (pagination), 4I (type-1 posters), and IOS-POC-2B (WebHome bridge proof).
 - IOS-POC-1F added the local-file / remote-Raw-URL config source split and the config-relative resource resolver. Full record: `docs/IOS-POC-1F-config-sources.md`.
+- IOS-POC-2D extended the WebHome bridge with the UI, navigation and information methods. Full record: `docs/IOS-POC-2D-webhome-bridge-ui-info.md`.
 - IOS-POC-2B returned to the original roadmap's POC-2. `IOS-POC-2A` was already taken by the five-player stage, so the roadmap item took `2B` in the same family. Full record: `docs/IOS-POC-2B-webhome-bridge.md`.
 
 ## Current Scope
@@ -35,6 +36,8 @@
 - `docs/IOS-POC-4A-type4-sources.md` (new, holds the full plan and evidence), `docs/AGENT_HANDOFF.md`, this file.
 
 ## Completed Work
+
+- WebHome bridge, second slice (IOS-POC-2D): `ui.getViewport`, `ui.setToolbar`, `navigation.back`, `navigation.reload`, `site.info`, `config.info`, `ext.info`, `ext.log`, `ext.toast` and `device.info`. Android payload shapes are reproduced field for field, including the fields iOS cannot fill — a missing value is zero, empty or false rather than omitted, so a page never reads `undefined`. Still deliberately out, each for a stated reason: `net.resourceUrl` (no local proxy), `player.playVod*`/`control`/`status`/`preloadArtwork` (no playback service), `app.open*` (no Live/Keep screens), `pan.*` (no drive-check service), `ui.setChrome`/`restoreChrome` (no equivalent surface). Nothing here runs a Spider.
 
 - Invalid config URLs are reported (IOS-POC-1H). The 從網址載入設定 dialog used to drop unparseable text silently; parsing moved to where the error surface lives, so bad input now says what is expected.
 

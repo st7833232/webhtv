@@ -3,7 +3,8 @@
 ## Original Goal
 
 - Port WebHomeTV to iPhone/iOS with an Android-like UI, use the newest user-provided `wang-movie.json`, and offer built-in, Infuse, Fileball, SenPlayer, and VidHub playback choices. The Google TV `csp_JPianAmns` repair is not in scope.
-- Completed this session: IOS-POC-4A (type-4 CatVod remote API sources), IOS-POC-4B (ATS cleartext decision), IOS-POC-4E (bounded request timeout), IOS-POC-4F (category browsing), IOS-POC-4G (two-level categories), IOS-POC-4H (pagination), IOS-POC-4I (type-1 posters).
+- Completed: IOS-POC-4A (type-4 sources), 4B (ATS cleartext decision), 4E (request timeout), 4F (category browsing), 4G (two-level categories), 4H (pagination), 4I (type-1 posters), and IOS-POC-2B (WebHome bridge proof).
+- IOS-POC-2B returned to the original roadmap's POC-2. `IOS-POC-2A` was already taken by the five-player stage, so the roadmap item took `2B` in the same family. Full record: `docs/IOS-POC-2B-webhome-bridge.md`.
 
 ## Current Scope
 
@@ -34,6 +35,8 @@
 
 ## Completed Work
 
+- WebHome bridge (IOS-POC-2B): `WKWebView` + `WKScriptMessageHandler` reproducing the Android string-RPC contract for `net.request`, `player.playUrl`, `app.search`, `app.history` and `cache.get/set/del`. The JS half is ported from `HomeWebController.getSdk()` because pages only touch `window.fm` / `window.fongmi`, so the injected script is the real compatibility surface. Four approved deviations: `net.resourceUrl` returns the raw URL (no local proxy server), results are never chunked (so the synchronous `resultLength`/`resultChunk` accessors are unnecessary), `app.history` returns `[]` until a history store exists, and out-of-subset methods reject exactly as Android's `default` branch does.
+
 - Type-1 posters: a MacCMS listing omits `vod_pic` entirely unless `ac=detail` is requested, which is why every type-1 card showed the placeholder while type-4 cards did not. Type-1 listings and searches now ask for the detail form. That form also drops `class`, so a type-1 home issues the plain and detail requests concurrently and takes the categories from one and the titles from the other; category calls rely on the view keeping the groups the home call established. Type-4 is untouched because its plain listing already carries the picture.
 
 - Pagination: the grid loads the next page when its last card appears, for home, category and search alike. Paging stops when a page contributes no new `vod_id`. The page metadata is not used as the stop signal because `爱瓜TV` reports `pagecount: 9999` / `total: 999999` while `如意` reports an honest 163 — the content check also covers a source that ignores `pg` and repeats a page.
@@ -46,9 +49,10 @@
 
 ## Build / Test / Verification Status
 
-- `WANG_MOVIE_JSON=/tmp/webhtv-recha-new.wprHof/wang-movie.json swift test --package-path ios` → 16 tests pass, including the pre-existing 5 and a type-1 request-shape regression test.
+- `WANG_MOVIE_JSON=/tmp/webhtv-recha-new.wprHof/wang-movie.json swift test --package-path ios` → 23 tests pass, including the pre-existing 5 and a type-1 request-shape regression test.
 - `xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -configuration Debug build` → BUILD SUCCEEDED.
 - Simulator, verified end to end: `爱瓜TV` poster grid → 莲花楼 detail with 41 episodes → episode 01 plays video in the built-in player. Type-1 `如意` and `360` grids load.
+- WebHome bridge verified in the simulator with the unmodified devkit showcase page: its badge reads `SDK: native`, `fm.req JSON` logged `req-json ok (799ms)` with the full contract shape, its HLS button played the stream in the built-in player, and `cache-set ok (12ms)`. Not exercised from the page: `cache.get`, `cache.del`, `app.search`, `app.history` — offline tests only.
 - Type-1 posters verified in the simulator: `360` 全部 and its 电影 → 动作片 category both render real artwork where the same titles previously showed the placeholder, both category rows survive the `class`-less detail response, and opening 惩罚者 still loads its detail and flag.
 - Pagination verified in the simulator: type-4 `爱瓜TV` 电视剧 scrolls well past its 24-title first page, and type-1 `360` 全部 scrolls past its 20-title home page, so both `category(id:page:)` and `home(page:)` are exercised. The category rows stay pinned while the grid scrolls.
 - Category browsing verified in the simulator across all three shapes: `如意` 电影片 opens a child row and 动作片 lists titles; `如意` 电影解说, a childless parent, hides the child row and lists by its own id; type-4 `爱瓜TV` stays a single row with no 全部 chip. `drpyS_听友[听]` renders its row and the empty state explains the blank result.
@@ -66,7 +70,8 @@
 - The detail form costs bandwidth: measured on `360zy`, a 20-title category page grew from 6.5 KB to 49 KB because each record carries `vod_play_url`, `vod_content` and roughly eighty other fields. A type-1 home also now makes two concurrent requests instead of one. Acceptable against poster images of comparable size, but this is the reason the listing payload is large.
 - A failed next page stops pagination silently and keeps the titles already on screen, because the error surface only renders when the grid is empty. The user sees scrolling stop with no explanation.
 - `php_无水印资源` returns an empty grid; over a system-trust client the endpoint completes TLS and answers HTTP 403, so this is the provider's own response.
-- Still not implemented: type-0 XML (2 sites), type-3 Spider/Python/DEX (137 sites), WKWebView/WebHome bridge, SideStore/IPA delivery.
+- Still not implemented: type-0 XML (2 sites), type-3 Spider/Python/DEX (137 sites, of which 132 are structurally out of reach), the rest of the WebHome contract (`pan.*`, `ui.*`, `player.playVod*`, `device/site/config/ext.*`, `net.resourceUrl` proxying), WebHome sites in `wang-movie.json`, and SideStore/IPA delivery.
+- Settings still says "目前支援 28 個 type-1 JSON CMS 來源"; the count is right but the type-1 label has been stale since IOS-POC-4A. Left untouched as out of scope.
 
 ## Next Recommended Step
 

@@ -10,6 +10,7 @@
 		03A4E1B2D21D45A42BB9BC7A /* WebHTVCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7F55C50111675904118B251E /* WebHTVCore */; };
 		0928EDE6AE603074F814CC71 /* wallpaper_1.png in Resources */ = {isa = PBXBuildFile; fileRef = 04FB031023165459EF586DFD /* wallpaper_1.png */; };
 		0B262581C401BC519308428F /* ic_logo.png in Resources */ = {isa = PBXBuildFile; fileRef = 0DBE24A95C91F7C2605D4998 /* ic_logo.png */; };
+		D1A7C0FE51B34A2E90B7E111 /* app-capabilities-showcase.html in Resources */ = {isa = PBXBuildFile; fileRef = D1A7C0FE51B34A2E90B7E110 /* app-capabilities-showcase.html */; };
 		8B273AEB71F9B7002DBB0CD2 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1DE1533ABDF1950D233084A1 /* Foundation.framework */; };
 		C1FAEFECF8AAADA1C45A7C27 /* WebHTVApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7494045C9101CB5C4F234881 /* WebHTVApp.swift */; };
 /* End PBXBuildFile section */
@@ -18,6 +19,7 @@
 		1DE1533ABDF1950D233084A1 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		04FB031023165459EF586DFD /* wallpaper_1.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = wallpaper_1.png; sourceTree = "<group>"; };
 		0DBE24A95C91F7C2605D4998 /* ic_logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = ic_logo.png; sourceTree = "<group>"; };
+		D1A7C0FE51B34A2E90B7E110 /* app-capabilities-showcase.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = "app-capabilities-showcase.html"; path = "../../webhome-devkit/templates/homepages/app-capabilities-showcase.html"; sourceTree = SOURCE_ROOT; };
 		7494045C9101CB5C4F234881 /* WebHTVApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WebHTVApp.swift; sourceTree = "<group>"; };
 		AF891E7F959513A468894926 /* WebHTVApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WebHTVApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -67,6 +69,7 @@
 			children = (
 				04FB031023165459EF586DFD /* wallpaper_1.png */,
 				0DBE24A95C91F7C2605D4998 /* ic_logo.png */,
+				D1A7C0FE51B34A2E90B7E110 /* app-capabilities-showcase.html */,
 			);
 			name = Resources;
 			path = Resources;
@@ -150,6 +153,7 @@
 			files = (
 				0928EDE6AE603074F814CC71 /* wallpaper_1.png in Resources */,
 				0B262581C401BC519308428F /* ic_logo.png in Resources */,
+				D1A7C0FE51B34A2E90B7E111 /* app-capabilities-showcase.html in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

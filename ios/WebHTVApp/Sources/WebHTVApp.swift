@@ -3,6 +3,7 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 import WebHTVCore
+import WebKit
 
 private let appSurface = Color(red: 0.075, green: 0.14, blue: 0.16)
 private let appAccent = Color.white
@@ -168,6 +169,7 @@ private struct HomeView: View {
 
 private struct CMSView: View {
     let site: Site
+    var initialQuery: String?
     @State private var items = [Vod]()
     @State private var groups = [CategoryGroup]()
     @State private var selectedCategory: String?
@@ -219,7 +221,13 @@ private struct CMSView: View {
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: "搜尋影片")
         .onSubmit(of: .search) { searching = true; Task { await load(search: query) } }
-        .task { if items.isEmpty { await load() } }
+        .task {
+            guard items.isEmpty else { return }
+            guard let initialQuery, !initialQuery.isEmpty else { return await load() }
+            query = initialQuery
+            searching = true
+            await load(search: initialQuery)
+        }
         .appNavigationBar()
     }
 
@@ -377,6 +385,12 @@ private struct SettingsView: View {
                         }
                         .contentShape(Rectangle())
                     }
+                }
+            }
+
+            if let site = sites.first(where: { $0.id == selectedSiteID }) ?? sites.first {
+                Section("開發者") {
+                    NavigationLink("WebHome 橋接驗證") { WebHomeView(site: site) }
                 }
             }
 
@@ -584,4 +598,90 @@ private func bundledImage(_ name: String) -> Image {
         fatalError("Missing bundled image: \(name).png")
     }
     return Image(uiImage: image)
+}
+
+private struct WebHomeView: View {
+    let site: Site
+    @State private var pendingPlayback: Playback?
+    @State private var pendingSearch: SearchRequest?
+
+    var body: some View {
+        Group {
+            if let page = Bundle.main.url(forResource: "app-capabilities-showcase", withExtension: "html") {
+                WebHomeWebView(
+                    pageURL: page,
+                    onPlay: { url, _ in pendingPlayback = Playback(url: url) },
+                    onSearch: { pendingSearch = SearchRequest(keyword: $0) }
+                )
+            } else {
+                ContentUnavailableView("找不到頁面", systemImage: "doc.questionmark", description: Text("WebHome 展示頁沒有打包進 App。"))
+                    .appWallpaper()
+            }
+        }
+        .navigationTitle("WebHome 橋接")
+        .navigationBarTitleDisplayMode(.inline)
+        .appNavigationBar()
+        .sheet(item: $pendingPlayback) { PlayerPickerView(mediaURL: $0.url) }
+        .sheet(item: $pendingSearch) { request in
+            NavigationStack { CMSView(site: site, initialQuery: request.keyword) }
+        }
+    }
+}
+
+private struct SearchRequest: Identifiable {
+    let keyword: String
+    var id: String { keyword }
+}
+
+/// Hosts the WebHome page and carries the string-RPC contract between it and `WebHomeBridge`.
+private struct WebHomeWebView: UIViewRepresentable {
+    let pageURL: URL
+    let onPlay: @MainActor @Sendable (URL, String) -> Void
+    let onSearch: @MainActor @Sendable (String) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(bridge: WebHomeBridge(actions: .init(play: onPlay, search: onSearch)))
+    }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let content = WKUserContentController()
+        // At document start, so a page that calls the bridge during parsing still finds window.fm.
+        content.addUserScript(WKUserScript(source: WebHomeBridge.sdkScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        content.add(context.coordinator, name: WebHomeBridge.messageHandlerName)
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController = content
+        configuration.allowsInlineMediaPlayback = true
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        context.coordinator.webView = webView
+        webView.loadFileURL(pageURL, allowingReadAccessTo: pageURL.deletingLastPathComponent())
+        return webView
+    }
+
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
+
+    /// The content controller retains the handler, which would otherwise keep the whole web view alive.
+    static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        uiView.configuration.userContentController.removeScriptMessageHandler(forName: WebHomeBridge.messageHandlerName)
+    }
+
+    @MainActor final class Coordinator: NSObject, WKScriptMessageHandler {
+        private let bridge: WebHomeBridge
+        weak var webView: WKWebView?
+
+        init(bridge: WebHomeBridge) { self.bridge = bridge }
+
+        func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard let call = WebHomeBridge.decodeMessage(message.body) else { return }
+            Task {
+                let script: String
+                do {
+                    let json = try await bridge.handle(method: call.method, payload: call.payload)
+                    script = WebHomeBridge.resolveScript(id: call.id, json: json)
+                } catch {
+                    script = WebHomeBridge.rejectScript(id: call.id, message: error.localizedDescription)
+                }
+                webView?.evaluateJavaScript(script, completionHandler: nil)
+            }
+        }
+    }
 }

@@ -38,6 +38,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 3D | Uniform 2:3 poster cells | commit |
 | 3E | Built-in player presented full screen | commit |
 | 4A | type-4 CatVod remote API sources | `docs/IOS-POC-4A-type4-sources.md` |
+| 4J | type-0 MacCMS XML sources | `docs/IOS-POC-4J-type0-xml-sources.md` |
 | 4B | ATS cleartext decision | same document |
 | 4E–4I | Request timeout, category browsing, two-level categories, pagination, type-1 posters | commits |
 
@@ -45,6 +46,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 
 - Input baseline: Recha `wang-movie.json`, 125,864 bytes, SHA-256 `b17576e34eb42b4c589a818ef8b5ec2655a2c7a188d626fc427c37d628897168`, 167 sites (2 type-0, 22 type-1, 137 type-3, 6 type-4). The archive itself is external, not committed.
 - **Of the 137 type-3 sites, 132 are structurally out of reach on iOS**, not merely unimplemented: 90 are `csp_*` DEX/JAR and 42 are Python. Only 5 are drpy JavaScript, which iOS JavaScriptCore could plausibly host. Never describe all 137 as pending work.
+- With type-0 done (IOS-POC-4J), **every non-Spider source type in this configuration is supported**. The only remaining unsupported sites are the 137 type-3 entries.
 - The WebHome JS SDK is injected by the app, not shipped by pages: pages only touch `window.fm` / `window.fongmi`. Porting the bridge therefore means porting `HomeWebController.getSdk()`, not designing an API from the method list.
 - Core names no hosting provider. A remote config source is an HTTPS URL and nothing more; GitLab and GitHub appear only in test and verification data.
 
@@ -52,7 +54,8 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 
 ### Sources and browsing
 
-- 28 of the 167 configured sources are usable: 22 type-1 plus 6 type-4. Type-4 extends `CMSClient` rather than adding a second client; its only structural difference is that its home returns categories, so the first browsable category fills the grid.
+- **30 of the 167 configured sources are usable: 2 type-0, 22 type-1 and 6 type-4.**
+- type-0 is the same MacCMS contract as type-1 carried in XML, so it reuses `CMSClient` whole and changes only the decoder. `MacCMSXMLDecoder` (Foundation `XMLParser`, no dependency) turns `<class><ty>` into the categories and `<video>` into `Vod`, with `<dd flag>` becoming the flags through the same `$$$` encoding. The one query difference is `ac=videolist` instead of `ac=detail`, matching `SiteApi.ac(int)`. `XMLDocument` is macOS-only and is not an option on iOS. Type-4 extends `CMSClient` rather than adding a second client; its only structural difference is that its home returns categories, so the first browsable category fills the grid.
 - Web-page episodes resolve through `?play=&flag=` before reaching the player, so an HTML page is never handed to AVPlayer.
 - Category browsing has a parent row and a child row. `categoryGroups` pairs each `type_pid == 0` entry with its children; a source without `type_pid` becomes childless groups and renders as one row. A parent chip targets its first child when it has one and its own id otherwise, because childless parents do list content that way.
 - Pagination loads the next page when the last card appears, for home, category and search. It stops when a page contributes no new `vod_id` rather than trusting page metadata, which also ends the loop for a source that ignores `pg`.
@@ -86,7 +89,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 
 ## Build / Test / Verification Status
 
-- `WANG_MOVIE_JSON=/tmp/webhtv-recha-new.wprHof/wang-movie.json swift test --package-path ios` → **39 tests, 38 pass**. The one failure, `reportsLiveType4SitesFromProvidedConfig`, is a **live-network** check that is **pre-existing**: `88看球` resolves an episode to an HTML play page and the test asserts direct media. Reproduced identically at `e1db99d8` in a throwaway worktree, so it is provider state, not a regression. Two live checks are gated on their own variables: `WANG_MOVIE_URL` for the remote config, and the type-4 sweep.
+- `WANG_MOVIE_JSON=/tmp/webhtv-recha-new.wprHof/wang-movie.json swift test --package-path ios` → **43 tests, 42 pass**. The one failure, `reportsLiveType4SitesFromProvidedConfig`, is a **live-network** check that is **pre-existing**: `88看球` resolves an episode to an HTML play page and the test asserts direct media. Reproduced identically at `e1db99d8` in a throwaway worktree, so it is provider state, not a regression. Two live checks are gated on their own variables: `WANG_MOVIE_URL` for the remote config, and the type-4 sweep.
 - `xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -configuration Debug build` → BUILD SUCCEEDED.
 - Remote config, against the real GitLab Raw URL: 125,864 bytes, 167 sites, 28 supported, cached SHA-256 identical to the remote, resolved `jar/fm.jar` HTTP 200. An unreachable URL left the sources and cache intact. Launch retry proven with a local server armed to fail twice — exactly three requests, adopted on the third.
 - Simulator, end to end: `爱瓜TV` grid → 莲花楼 detail with 41 episodes → episode 01 plays in the built-in player. Type-1 `如意` and `360` grids load with real posters and both category rows. Pagination scrolls past the first page on both types.
@@ -109,16 +112,17 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 - The `ac=detail` form costs bandwidth: a 20-title page on `360zy` grew from 6.5 KB to 49 KB.
 - `drpyS_听友[听]` returns an empty list for all 43 of its categories, and `php_无水印资源` answers HTTP 403. Both are provider state, not app defects.
 - The Debug-only CJK font fallback does not fix the log panel's `[上午…]` prefix, and says nothing about a real device.
-- Still not implemented: type-0 XML (2 sites), type-3 Spider/Python/DEX, WebHome sites in `wang-movie.json` (this config has none), and SideStore/IPA delivery.
+- Still not implemented: type-3 Spider/Python/DEX, WebHome sites in `wang-movie.json` (this config has none), and SideStore/IPA delivery.
+- type-0 was verified only against the two configured endpoints. A provider sending a non-UTF-8 encoding would parse to an empty response rather than being transcoded.
 
 ## Next Recommended Step
 
 Agree one bounded stage with the user. Ranked:
 
 1. **Device deployment.** The largest gap and the only one that needs the user's Apple ID and hardware. Free provisioning's 7-day expiry versus a paid account versus SideStore is still an open question.
-2. type-0 XML (2 sites, needs an XML parser; both endpoints answered HTTP 200 on 2026-09-15).
-3. Drive the remaining offline-only bridge methods from a page (`cache.get`/`del`, `app.search`, `app.history`, `device.info`, `site.info`, `ui.getViewport`, `ext.toast`, `navigation.back`/`reload`) — the last block of the contract never exercised live.
+2. Drive the remaining offline-only bridge methods from a page (`cache.get`/`del`, `app.search`, `app.history`, `device.info`, `site.info`, `ui.getViewport`, `ext.toast`, `navigation.back`/`reload`) — the last block of the contract never exercised live.
+3. A watch-history store, which would turn `app.history` from an honest `[]` into real data and give the home screen a 繼續觀看 row.
 
 ## Resume Prompt
 
-> Continue the WebHomeTV iPhone port in `/Users/chengchenchih/GIT/webhtv` on the actual `ios-poc` Git state; check `git log` and `git status` first rather than trusting any commit id quoted here. Read `AGENTS.md`, `docs/AGENT_HANDOFF.md`, this file, and the stage document for whatever you touch. The app exposes 28 of 167 configured sources (22 type-1 + 6 type-4) with category browsing, pagination, five players, imported-file or remote-Raw-URL configuration with last-known-good caching and launch refresh, and a WebHome bridge over WKWebView covering the network, cache, UI, navigation, information **and playback** methods — `player.playVod`, `playVodInline`, `control` and `status` run on one persistent `PlaybackSession` that outlives the player screen. IOS-POC-2F then drove all seven `player.control` actions and the inline JS resolver from the page, so the playback half is fully exercised. It ships `NSAllowsArbitraryLoads` because the user explicitly chose global cleartext on 2026-09-15 — keep it and do not broaden transport security further without a fresh decision. Do not resume the Google TV `csp_JPianAmns` repair. Of the 137 type-3 sites 132 are structurally unreachable on iOS, so do not plan them as work. Nothing has ever run on a real device: there is no signing configuration at all. Confirm the next bounded stage with the user before any functional edit, follow the task-guard and Ponytail gates, and preserve Android `main`.
+> Continue the WebHomeTV iPhone port in `/Users/chengchenchih/GIT/webhtv` on the actual `ios-poc` Git state; check `git log` and `git status` first rather than trusting any commit id quoted here. Read `AGENTS.md`, `docs/AGENT_HANDOFF.md`, this file, and the stage document for whatever you touch. The app exposes 30 of 167 configured sources (2 type-0 + 22 type-1 + 6 type-4) with category browsing, pagination, five players, imported-file or remote-Raw-URL configuration with last-known-good caching and launch refresh, and a WebHome bridge over WKWebView covering the network, cache, UI, navigation, information **and playback** methods — `player.playVod`, `playVodInline`, `control` and `status` run on one persistent `PlaybackSession` that outlives the player screen. IOS-POC-2F then drove all seven `player.control` actions and the inline JS resolver from the page, so the playback half is fully exercised. It ships `NSAllowsArbitraryLoads` because the user explicitly chose global cleartext on 2026-09-15 — keep it and do not broaden transport security further without a fresh decision. Do not resume the Google TV `csp_JPianAmns` repair. Of the 137 type-3 sites 132 are structurally unreachable on iOS, so do not plan them as work. Nothing has ever run on a real device: there is no signing configuration at all. Confirm the next bounded stage with the user before any functional edit, follow the task-guard and Ponytail gates, and preserve Android `main`.

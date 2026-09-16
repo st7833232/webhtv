@@ -514,7 +514,7 @@ private extension SettingsView {
         } header: {
             Text("設定來源")
         } footer: {
-            Text("目前支援 \(sites.count) 個 type-1／type-4 CMS 來源。遠端更新失敗時會保留上一份可用設定。")
+            Text("目前支援 \(sites.count) 個 type-0／type-1／type-4 CMS 來源。遠端更新失敗時會保留上一份可用設定。")
         }
     }
 

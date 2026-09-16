@@ -7,10 +7,10 @@ public struct WebHTVConfig: Decodable, Sendable {
         sites.filter(\.isNativeCMS)
     }
 
-    /// The sites this app can actually drive today: type-1 MacCMS and type-4 CatVod remote APIs.
-    /// Type-0 XML and type-3 Spider entries are classified but not usable.
+    /// The sites this app can actually drive today: type-0 MacCMS XML, type-1 MacCMS JSON and
+    /// type-4 CatVod remote APIs. Type-3 Spider entries are classified but not usable.
     public var supportedSites: [Site] {
-        nativeCMSSites.filter { $0.type == 1 || $0.type == 4 }
+        nativeCMSSites.filter { $0.type == 0 || $0.type == 1 || $0.type == 4 }
     }
 
 }

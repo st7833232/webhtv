@@ -64,6 +64,13 @@ public struct CMSCategory: Decodable, Identifiable, Sendable {
         name = try values.decode(String.self, forKey: .name)
         parentID = Int((try? values.decodeString(forKey: .parentID)) ?? "0") ?? 0
     }
+
+    /// MacCMS XML carries `<ty id="1">名稱</ty>`, which has no parent, so these decode as top level.
+    init(id: String, name: String, parentID: Int) {
+        self.id = id
+        self.name = name
+        self.parentID = parentID
+    }
 }
 
 public struct Vod: Decodable, Identifiable, Sendable {
@@ -94,15 +101,19 @@ public struct Vod: Decodable, Identifiable, Sendable {
         playURL = try values.decodeIfPresent(String.self, forKey: .playURL) ?? ""
     }
 
-    /// A page-supplied vod: `player.playVod` names one by id and has no listing to decode.
-    /// The playback fields stay empty because `VodView` fetches the real detail by id.
-    public init(id: String, name: String, picture: String) {
+    /// Built rather than decoded: `player.playVod` names a vod by id, and the MacCMS XML decoder
+    /// assembles one from parsed elements. The playback fields default to empty because `playVod`
+    /// has none — `VodView` fetches the real detail by id — while the XML decoder passes all three.
+    public init(
+        id: String, name: String, picture: String,
+        remarks: String = "", playFrom: String = "", playURL: String = ""
+    ) {
         self.id = id
         self.name = name
         self.picture = picture
-        remarks = ""
-        playFrom = ""
-        playURL = ""
+        self.remarks = remarks
+        self.playFrom = playFrom
+        self.playURL = playURL
     }
 
     public var flags: [Flag] {
@@ -179,7 +190,7 @@ public struct CMSClient: Sendable {
     public let site: Site
 
     public init(site: Site) throws {
-        guard site.type == 1 || site.type == 4 else { throw CMSClientError.unsupportedSiteType(site.type) }
+        guard site.type == 0 || site.type == 1 || site.type == 4 else { throw CMSClientError.unsupportedSiteType(site.type) }
         self.site = site
     }
 
@@ -204,11 +215,16 @@ public struct CMSClient: Sendable {
         try await request(listingQuery(categoryID: id, page: page))
     }
 
-    /// A MacCMS listing omits `vod_pic` unless `ac=detail` is asked for, which is why type-1 posters
-    /// were blank; a type-4 listing already carries the picture, so it is left alone.
+    /// `SiteApi.ac(int)`: XML sites want `videolist`, everything else `detail`. Both configured
+    /// type-0 endpoints also accept `detail`, but `videolist` is what Android sends.
+    var detailAction: String { site.type == 0 ? "videolist" : "detail" }
+
+    /// A MacCMS listing omits the picture unless the detailed form is asked for, which is why type-1
+    /// posters were blank; a type-4 listing already carries it, so it is left alone. type-0 has the
+    /// same split — the detailed form carries `<pic>` and drops `<class>`.
     func listingQuery(categoryID: String?, page: Int) -> [URLQueryItem] {
         var query = [URLQueryItem]()
-        if site.type == 1 { query.append(URLQueryItem(name: "ac", value: "detail")) }
+        if site.type == 0 || site.type == 1 { query.append(URLQueryItem(name: "ac", value: detailAction)) }
         if let categoryID { query.append(URLQueryItem(name: "t", value: categoryID)) }
         if categoryID != nil || page > 1 { query.append(URLQueryItem(name: "pg", value: String(page))) }
         return query
@@ -230,13 +246,13 @@ public struct CMSClient: Sendable {
 
     public func search(_ keyword: String, page: Int = 1) async throws -> CMSResponse {
         var query = [URLQueryItem(name: "wd", value: keyword), URLQueryItem(name: "quick", value: "false"), URLQueryItem(name: "extend", value: "")]
-        if site.type == 1 { query.append(URLQueryItem(name: "ac", value: "detail")) }
+        if site.type == 0 || site.type == 1 { query.append(URLQueryItem(name: "ac", value: detailAction)) }
         if page > 1 { query.append(URLQueryItem(name: "pg", value: String(page))) }
         return try await request(query)
     }
 
     public func detail(id: String) async throws -> Vod? {
-        try await request([URLQueryItem(name: "ac", value: "detail"), URLQueryItem(name: "ids", value: id)]).list.first
+        try await request([URLQueryItem(name: "ac", value: detailAction), URLQueryItem(name: "ids", value: id)]).list.first
     }
 
     func requestURL(_ query: [URLQueryItem]) throws -> URL {
@@ -258,7 +274,10 @@ public struct CMSClient: Sendable {
     }
 
     private func request(_ query: [URLQueryItem]) async throws -> CMSResponse {
-        try JSONDecoder().decode(CMSResponse.self, from: await data(for: query))
+        let data = try await data(for: query)
+        // The only structural difference between type-0 and the rest: the payload is XML.
+        guard site.type != 0 else { return MacCMSXMLDecoder.decode(data) }
+        return try JSONDecoder().decode(CMSResponse.self, from: data)
     }
 }
 

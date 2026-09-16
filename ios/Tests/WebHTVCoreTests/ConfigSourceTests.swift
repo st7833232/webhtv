@@ -47,8 +47,10 @@ private let base = "https://example.com/group/project/-/raw/main/"
     let usable = Data(#"{"sites":[{"key":"k","name":"n","type":1,"api":"https://example.com/api"}]}"#.utf8)
     #expect(try ConfigLoader.validate(usable).supportedSites.count == 1)
 
-    // Decodes cleanly but drives nothing: type-3 and type-0 are classified, not usable.
-    let useless = Data(#"{"sites":[{"key":"s","name":"s","type":3,"api":"csp_Test"},{"key":"x","name":"x","type":0,"api":"https://example.com/xml"}]}"#.utf8)
+    // Decodes cleanly but drives nothing. type-0 used to belong here and became usable in
+    // IOS-POC-4J, so the fixture now uses a type-3 Spider and a type-2, neither of which is a
+    // native CMS at all.
+    let useless = Data(#"{"sites":[{"key":"s","name":"s","type":3,"api":"csp_Test"},{"key":"x","name":"x","type":2,"api":"https://example.com/live"}]}"#.utf8)
     #expect(throws: ConfigLoaderError.noSupportedSites) { try ConfigLoader.validate(useless) }
     #expect(throws: (any Error).self) { try ConfigLoader.validate(Data("not json".utf8)) }
 }
@@ -56,7 +58,7 @@ private let base = "https://example.com/group/project/-/raw/main/"
 @Test func countsTheSupportedSitesOfTheSuppliedConfig() throws {
     guard let path = ProcessInfo.processInfo.environment["WANG_MOVIE_JSON"] else { return }
     let config = try ConfigLoader.validate(Data(contentsOf: URL(fileURLWithPath: path)))
-    #expect(config.supportedSites.count == 28)
+    #expect(config.supportedSites.count == 30)
     #expect(config.supportedSites.filter { $0.type == 4 }.count == 6)
 }
 
@@ -68,7 +70,7 @@ private let base = "https://example.com/group/project/-/raw/main/"
     let (data, config) = try await ConfigLoader.fetch(from: url)
     let source = ConfigSource.remote(url)
 
-    #expect(config.supportedSites.count == 28)
+    #expect(config.supportedSites.count == 30)
     print("remote config: \(data.count) bytes, \(config.sites.count) sites, \(config.supportedSites.count) supported")
 
     // The spider entry is the archive's own relative reference; resolve it and prove the resource

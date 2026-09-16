@@ -5,17 +5,21 @@ import Foundation
 public actor SpiderSession {
     public let site: Site
     private let runtime: SpiderRuntime
+    /// What `init` receives. Normally the site's raw `ext`, but a rule-engine site points `ext` at a
+    /// rule file (`./json/农民影视.json`), which the resolver turns into an absolute URL first.
+    private let extend: String
     private var started = false
 
-    public init(site: Site, runtime: SpiderRuntime) {
+    public init(site: Site, runtime: SpiderRuntime, extend: String? = nil) {
         self.site = site
         self.runtime = runtime
+        self.extend = extend ?? site.rawExtJSON
     }
 
     private func start() async throws {
         guard !started else { return }
         started = true
-        try await runtime.initialize(extend: site.rawExtJSON)
+        try await runtime.initialize(extend: extend)
     }
 
     public func home(filter: Bool = true) async throws -> String {

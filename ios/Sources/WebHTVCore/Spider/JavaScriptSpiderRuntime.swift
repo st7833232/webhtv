@@ -53,7 +53,9 @@ public final class JavaScriptSpiderRuntime: SpiderRuntime, @unchecked Sendable {
                 }
                 var thrown: String?
                 context.exceptionHandler = { _, value in thrown = value?.toString() ?? "unknown" }
-                let result = function.call(withArguments: arguments)
+                // invokeMethod, not function.call: a spider is an object and may keep state on
+                // `this` between calls, exactly as the Java original keeps instance fields.
+                let result = spider.invokeMethod(method, withArguments: arguments)
                 if let thrown {
                     continuation.resume(throwing: SpiderError.scriptFailed("\(method): \(thrown)"))
                 } else {

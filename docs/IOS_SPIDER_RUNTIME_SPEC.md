@@ -88,6 +88,8 @@ There must never be two JS runtimes. Native half in `Spider/Host/*.swift`, JavaS
 | Crypto | AES and DES, CBC and ECB, PKCS7, base64 or hex input; MD5, SHA1, SHA256; HMAC | done |
 | Utility | `host.match`, `now`, `timestamp`, `random`, `urljoin` | done |
 | Storage | `host.local.get/set/del` | done |
+| Text slicing | `host.cut` / `cut1` — XBPQ's `前綴&&後綴` with `[包含:]` `[不包含:]` `[替换:a>>b]`, plus `host.stripTags` | done |
+| Hiker rule syntax | `&&` first-match descent, `\|\|` attribute fallback, `,N` index, `:has()`, `!prefix` stripping | done |
 | RSA | — | **not implemented**; `csp_AppDrama` needs it |
 | WebView / sniffing | — | **not implemented**; no ported spider needs it yet |
 | `proxy` | ABI present, no host plumbing | **not implemented** |

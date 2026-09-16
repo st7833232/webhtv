@@ -12,11 +12,15 @@ public struct CSPSourceResolver: Sendable {
     public let registry: SpiderRegistry
     private nonisolated(unsafe) let defaults: UserDefaults
     private let session: URLSession
+    /// Where the configuration came from, so a spider's `ext` can point at a sibling rule file.
+    private let source: ConfigSource
 
     public init(registry: SpiderRegistry = .bundled(),
+                source: ConfigSource = .importedFile,
                 defaults: UserDefaults = .standard,
                 session: URLSession = .webHTV) {
         self.registry = registry
+        self.source = source
         self.defaults = defaults
         self.session = session
     }
@@ -30,7 +34,18 @@ public struct CSPSourceResolver: Sendable {
         guard site.isCSPSpider else { throw SpiderError.notRegistered(site.api) }
         let runtime = try registry.makeRuntime(for: site.api, siteKey: site.key,
                                                defaults: defaults, session: session)
-        return SpiderSession(site: site, runtime: runtime)
+        return SpiderSession(site: site, runtime: runtime, extend: resolvedExtend(for: site))
+    }
+
+    /// A rule-engine site sets `ext` to a path like `./json/农民影视.json`. Resolve it against the
+    /// configuration's own directory — the same resolver the `./jar/` and `./py/` references use —
+    /// so the spider receives a URL it can fetch. Anything already absolute, or any inline JSON,
+    /// passes through untouched.
+    func resolvedExtend(for site: Site) -> String {
+        let raw = site.rawExtJSON
+        guard !raw.isEmpty, !raw.hasPrefix("{"), !raw.hasPrefix("["),
+              !raw.lowercased().hasPrefix("http") else { return raw }
+        return source.resourceURL(for: raw)?.absoluteString ?? raw
     }
 
     public func portability(of site: Site) -> SpiderPortability? {

@@ -87,7 +87,10 @@ var host = (function () {
   function parse(html) {
     var root = { tag: '#root', attrs: {}, children: [], parent: null, text: '' };
     var current = root;
-    var re = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z][\w:-]*)((?:\s+[^\s"'>\/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s">]+))?)*)\s*(\/?)>|([^<]+)/g;
+    // The attribute run is matched loosely as "anything up to >". Real pages routinely omit the
+    // space between attributes (`class="pic"style="..."`) and double their quotes; a strict
+    // attribute grammar drops those tags entirely and silently loses the whole subtree.
+    var re = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z][\w:-]*)([^>]*?)(\/?)>|([^<]+)/g;
     var m;
     while ((m = re.exec(html)) !== null) {
       if (m[0].indexOf('<!--') === 0) continue;
@@ -112,7 +115,7 @@ var host = (function () {
   }
 
   function attributes(source) {
-    var out = {}, re = /([^\s"'>\/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s">]+)))?/g, m;
+    var out = {}, re = /([a-zA-Z_:][\w:.-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s">]+)))?/g, m;
     while ((m = re.exec(source)) !== null) {
       out[m[1].toLowerCase()] = m[2] !== undefined ? m[2] : (m[3] !== undefined ? m[3] : (m[4] || ''));
     }
@@ -128,6 +131,14 @@ var host = (function () {
   // Supports `tag`, `.class`, `#id`, `[attr]`, `[attr=value]`, descendant and `>` combinators,
   // plus the `:eq(n)` drpy rules rely on.
   function selectorPart(part) {
+    // Hiker writes an index as a trailing ",N"; drpy writes ":eq(N)". Same meaning.
+    var comma = /,(-?\d+)$/.exec(part);
+    var index = null;
+    if (comma) { index = parseInt(comma[1], 10); part = part.slice(0, comma.index); }
+    // ":has(sel)" keeps elements containing a match; only the tag part is matched here and the
+    // containment is checked in `matches`.
+    var has = /:has\(([^)]*)\)/.exec(part);
+    if (has) part = part.replace(has[0], '');
     var eq = /:eq\((-?\d+)\)$/.exec(part);
     if (eq) part = part.slice(0, eq.index);
     var tag = (/^[a-zA-Z*][\w:-]*/.exec(part) || ['*'])[0].toLowerCase();
@@ -136,7 +147,8 @@ var host = (function () {
     var attrs = [];
     var re = /\[\s*([\w:.-]+)\s*(?:([~^$*|]?=)\s*"?([^\]"]*?)"?)?\s*\]/g, m;
     while ((m = re.exec(part)) !== null) attrs.push({ name: m[1], op: m[2], value: m[3] });
-    return { tag: tag, classes: classes, id: id, attrs: attrs, index: eq ? parseInt(eq[1], 10) : null };
+    return { tag: tag, classes: classes, id: id, attrs: attrs, has: has ? has[1] : null,
+             index: eq ? parseInt(eq[1], 10) : index };
   }
 
   function matches(node, part) {
@@ -146,6 +158,7 @@ var host = (function () {
     for (var i = 0; i < part.classes.length; i++) {
       if (nodeClasses.indexOf(part.classes[i]) === -1) return false;
     }
+    if (part.has && !descendants(node, []).some(function (d) { return matches(d, selectorPart(part.has)); })) return false;
     for (var j = 0; j < part.attrs.length; j++) {
       var a = part.attrs[j], v = node.attrs[a.name.toLowerCase()];
       if (v === undefined) return false;
@@ -162,7 +175,9 @@ var host = (function () {
   }
 
   function select(root, selector) {
-    var groups = String(selector).split(',');
+    // Comma separates selector groups ("a, b"), but Hiker also writes an index as ",N" on a single
+    // part (".sDes,-1"). Only split on a comma that is not introducing an index.
+    var groups = String(selector).split(/,(?!-?\d)/);
     var found = [];
     for (var g = 0; g < groups.length; g++) {
       var parts = groups[g].trim().split(/\s+/);
@@ -199,18 +214,37 @@ var host = (function () {
     return applyIndex(out, part);
   }
 
-  /** drpy rule: "selector&&attr", where attr may be Text, Html or an attribute name. */
+  /**
+   * Hiker/drpy rule: "selector&&attr". The selector itself may be several `&&`-joined steps
+   * ("body&&.list&&li"), the attribute may offer fallbacks ("data-echo||data-src||src"), and a
+   * trailing "!text" strips a label prefix from the result ("Text!简介:").
+   */
   function splitRule(rule) {
-    var parts = String(rule).split('&&');
+    var strip = '';
+    rule = String(rule);
+    var bang = rule.indexOf('!');
+    if (bang !== -1 && rule.lastIndexOf('&&') < bang) { strip = rule.slice(bang + 1); rule = rule.slice(0, bang); }
+    var parts = rule.split('&&');
+    // A bare "Text" or "Html" asks for this node's own content, not for a tag called Text.
+    if (parts.length === 1 && (parts[0] === 'Text' || parts[0] === 'Html')) {
+      return { selector: '', attr: parts[0], strip: strip };
+    }
     var attr = parts.length > 1 ? parts.pop() : 'Text';
-    return { selector: parts.join('&&'), attr: attr };
+    return { selector: parts.join(' '), attr: attr, strip: strip };
   }
 
   function nodeValue(node, attr) {
     if (!node) return '';
-    if (attr === 'Text') return textOf(node).replace(/\s+/g, ' ').trim();
-    if (attr === 'Html') return textOf(node);
-    return node.attrs[String(attr).toLowerCase()] || '';
+    // "data-echo||data-src||src": take the first that is present.
+    var names = String(attr).split('||');
+    for (var i = 0; i < names.length; i++) {
+      var name = names[i];
+      if (name === 'Text') return textOf(node).replace(/\s+/g, ' ').trim();
+      if (name === 'Html') return textOf(node);
+      var value = node.attrs[name.toLowerCase()];
+      if (value) return value;
+    }
+    return '';
   }
 
   /** First match — drpy's `pdfh`. `html` may be a string or a parsed node. */
@@ -218,12 +252,30 @@ var host = (function () {
     var r = splitRule(rule);
     var root = typeof html === 'string' ? parse(html) : html;
     var found = r.selector ? select(root, r.selector) : [root];
-    return nodeValue(found[0], r.attr);
+    var value = nodeValue(found[0], r.attr);
+    if (r.strip && value.indexOf(r.strip) === 0) value = value.slice(r.strip.length).trim();
+    return value;
   }
 
   /** All matching nodes — drpy's `pdfa`. Returns nodes, to be fed back into `pdfh`. */
+  /**
+   * All matching nodes — drpy's `pdfa`, and Hiker's array rules.
+   *
+   * Hiker joins steps with `&&`, and each intermediate step descends into its **first** match, not
+   * into every match: `#leftTabBox&&ul&&li` means "inside #leftTabBox, inside its first ul, every
+   * li". Treating `&&` as a plain descendant combinator picks up every nested list instead, which
+   * on a real page silently mixes the line tabs in with the episodes.
+   */
   function pdfa(html, selector) {
-    return select(typeof html === 'string' ? parse(html) : html, selector);
+    var root = typeof html === 'string' ? parse(html) : html;
+    var steps = String(selector).split('&&');
+    var scope = root;
+    for (var i = 0; i < steps.length - 1; i++) {
+      var found = select(scope, steps[i]);
+      if (!found.length) return [];
+      scope = found[0];
+    }
+    return select(scope, steps[steps.length - 1]);
   }
 
   /** `pdfh` with the result resolved against a base URL — drpy's `pd`. */
@@ -241,6 +293,52 @@ var host = (function () {
     if (path.charAt(0) === '/') return m[1] + path;
     var dir = m[2].replace(/[^/]*$/, '');
     return m[1] + (dir || '/') + path;
+  }
+
+
+  // ---- XBPQ text slicing ------------------------------------------------
+  // XBPQ rules slice between two markers rather than query a DOM: "前綴&&後綴", with optional
+  // modifiers the engine appends. Recovered from the decompiled XBPQ by decoding its obfuscated
+  // string table (hex + XOR "wxEesU"); these are the modifiers its sites actually use.
+  function cut(text, rule) {
+    text = String(text || '');
+    if (!rule) return '';
+    var include = null, exclude = null, replaces = [];
+    rule = String(rule).replace(/\[(包含|不包含|替换):([^\]]*)\]/g, function (_, kind, value) {
+      if (kind === '包含') include = value;
+      else if (kind === '不包含') exclude = value;
+      else replaces.push(value.split('>>'));
+      return '';
+    });
+    var parts = rule.split('&&');
+    var head = parts[0] || '', tail = parts.length > 1 ? parts[1] : '';
+    var out = [];
+    var from = 0;
+    while (true) {
+      var start = head ? text.indexOf(head, from) : from;
+      if (start === -1) break;
+      start += head.length;
+      var end = tail ? text.indexOf(tail, start) : text.length;
+      if (end === -1) break;
+      var piece = text.slice(start, end);
+      for (var i = 0; i < replaces.length; i++) {
+        piece = piece.split(replaces[i][0]).join(replaces[i][1] === undefined ? '' : replaces[i][1]);
+      }
+      var keep = true;
+      if (include !== null && piece.indexOf(include) === -1) keep = false;
+      if (exclude !== null && piece.indexOf(exclude) !== -1) keep = false;
+      if (keep) out.push(piece);
+      from = end + (tail ? tail.length : 1);
+      if (!head && !tail) break;
+    }
+    return out;
+  }
+  function cut1(text, rule) { var r = cut(text, rule); return r.length ? r[0] : ''; }
+
+  function stripTags(html) {
+    return String(html || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim();
   }
 
   // ---- CatVod result builders ------------------------------------------
@@ -287,6 +385,7 @@ var host = (function () {
     md5: md5, sha1: sha1, sha256: sha256, hmac: hmac,
     local: local, now: now, timestamp: timestamp, random: random, match: match,
     parse: parse, select: select, text: textOf, pdfh: pdfh, pdfa: pdfa, pd: pd, urljoin: urljoin,
+    cut: cut, cut1: cut1, stripTags: stripTags,
     result: result
   };
 })();

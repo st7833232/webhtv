@@ -110,10 +110,11 @@ private func object(_ text: String) throws -> [String: Any] {
 /// the app reports "not ported" rather than failing at the first call.
 @Test func registryClaimsOnlyWhatIsActuallyPorted() {
     let registry = SpiderRegistry.bundled()
-    #expect(registry.portedClasses == ["AppGet"])
+    #expect(registry.portedClasses == ["AppGet", "XBPQ", "XYQHiker"])
     #expect(!registry.prelude.isEmpty)
     let entry = registry.entry(for: "csp_AppGet")
     #expect(entry?.portability == .httpCrypto)
     #expect(entry?.origin.contains("river-fman.jar") == true)
-    #expect(registry.canDrive("csp_XBPQ") == false)
+    #expect(registry.canDrive("csp_XBPQ"))
+    #expect(registry.canDrive("csp_NotAThing") == false)
 }

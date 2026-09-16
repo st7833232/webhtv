@@ -29,6 +29,9 @@ public struct SpiderRegistry: Sendable {
     /// Adding a port is a new `.js` resource plus one line here — never a Swift rewrite.
     static let ported: [String: (SpiderPortability, String)] = [
         "AppGet": (.httpCrypto, "river-fman.jar, xiaosa-0807.jar"),
+        // Rule engines: one port serves every site configured for them, now and later.
+        "XBPQ": (.httpCrypto, "xyqxbpq.jar, xiaosa-0807.jar"),
+        "XYQHiker": (.httpJSON, "xyqxbpq.jar, river-fman.jar"),
     ]
 
     public static func bundled(bundle: Bundle? = nil) -> SpiderRegistry {

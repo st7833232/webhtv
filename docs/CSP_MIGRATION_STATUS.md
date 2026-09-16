@@ -3,7 +3,7 @@
 Living record of which spiders are ported, verified, blocked, or waiting on a file.
 Audit data: `docs/CSP_PORTABILITY_MATRIX.md`. Runtime contract: `docs/IOS_SPIDER_RUNTIME_SPEC.md`.
 
-Last updated 2026-09-16 (IOS-POC-5A).
+Last updated 2026-09-16 (IOS-POC-5B).
 
 ## Headline
 
@@ -11,7 +11,7 @@ Last updated 2026-09-16 (IOS-POC-5A).
 |---|---:|---:|
 | configured `csp_*` | 51 | 90 |
 | **portable** (categories A–C) | **33** | **54** |
-| ported and verified | 1 | 5 |
+| ported and verified | 3 | 15 |
 | blocked by native protection (H) | 23 | 34 |
 | missing resource | 2 | 2 |
 
@@ -22,7 +22,12 @@ that was wrong, and this file supersedes it.
 
 | class | sites | category | evidence |
 |---|---:|---|---|
-| `AppGet` | 5 | C. HTTP + crypto | Golden test against the live API: home 6 classes → category 30 items → detail 狮拳 with 5 flags → search 20 results → player `parse:0` direct m3u8. `swift test --filter Golden`. |
+| `AppGet` | 5 | C. HTTP + crypto | Live golden: home 6 classes → category 30 → detail 荒山野店, 2 flags → search 20 → player `parse:0` direct m3u8. |
+| `XBPQ` | 7 | C. rule engine | Live golden on **two** sites. 果果短剧: category 30 → detail → `parse:0` m3u8. AG動漫: category 12 → detail 金田一少年事件簿 with **149 episodes** → `parse:0` m3u8. |
+| `XYQHiker` | 3 | A. rule engine | Live golden on 农民影视: category 30 → detail 《抓特务》 with flags `[线路①, 线路②]` → search 20 → player `parse:0` m3u8. |
+
+`XBPQ` and `XYQHiker` are **rule engines**, so those 10 sites are what this configuration happens to
+contain — the ports serve any future site configured for either engine without further work.
 
 ## Not ported yet — ranked by sites unlocked
 
@@ -32,12 +37,10 @@ site-specific scrapers, which is why they are worth far more than their site cou
 
 | class | sites | category | note |
 |---|---:|---|---|
-| `XBPQ` | 7 | C | config-driven XPath engine; one port serves every XBPQ site, present and future |
 | `AppQi` | 6 | B | same App-API family as `AppGet` |
 | `App99` | 4 | C | App-API family plus a signed login |
 | `AppDrama` | 4 | C | App-API family; **needs RSA in the host** |
 | `Bili` | 4 | B | Bilibili public API, no crypto |
-| `XYQHiker` | 3 | A | rule engine, same leverage as XBPQ |
 | `App3Q` | 2 | C | App-API family |
 | `Douban` | 2 | A | plain JSON |
 | remaining A/B/C | 3 | A–C | `AppYsV2`, `GuaziTY`, `Wwys`, `Jpys`, `Jys`, `Hxq`, `PianKu8`, `Feiyu`, `AppYQK`, `HemaDJ`, `WeiguanDJ`, `HaokanDJ`, `QimaoDJ`, `AppSy`, `MiaoWu`, `MoDu`, `Uvod`, 1 site each |

@@ -245,3 +245,93 @@ private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScri
     #expect(decoded["status"] as? Double == 0)
     #expect((decoded["error"] as? String)?.isEmpty == false)
 }
+
+// MARK: - host: rule-engine primitives
+
+@Test func slicesTextTheWayXBPQRulesDo() async throws {
+    // XBPQ rules slice between markers instead of querying a DOM, with [包含:]/[不包含:]/[替换:]
+    // modifiers. Recovered by decoding the engine's obfuscated string table (hex + XOR "wxEesU").
+    let spider = try runtime("""
+    module.exports = {
+      init: function () { return ''; },
+      homeContent: function () {
+        var html = '<i>A1</i><i>B2</i><i>A3</i>';
+        return {
+          all: host.cut(html, '<i>&&</i>'),
+          first: host.cut1(html, '<i>&&</i>'),
+          include: host.cut(html, '<i>&&</i>[包含:A]'),
+          exclude: host.cut(html, '<i>&&</i>[不包含:A]'),
+          replaced: host.cut1(html, '<i>&&</i>[替换:A>>Z]'),
+          missing: host.cut(html, '<b>&&</b>'),
+          stripped: host.stripTags('<p>hello &amp; <b>world</b></p>')
+        };
+      }
+    };
+    """)
+    let out = try #require(try JSONSerialization.jsonObject(
+        with: Data(try await spider.homeContent(filter: true).utf8)) as? [String: Any])
+    #expect(out["all"] as? [String] == ["A1", "B2", "A3"])
+    #expect(out["first"] as? String == "A1")
+    #expect(out["include"] as? [String] == ["A1", "A3"])
+    #expect(out["exclude"] as? [String] == ["B2"])
+    #expect(out["replaced"] as? String == "Z1")
+    #expect(out["missing"] as? [String] == [])
+    #expect(out["stripped"] as? String == "hello & world")
+}
+
+@Test func followsHikerRuleSyntaxIncludingFirstMatchDescent() async throws {
+    let spider = try runtime("""
+    module.exports = {
+      init: function () { return ''; },
+      homeContent: function () {
+        // Two lists inside one container: the line tabs, then the episodes. Hiker's `&&` descends
+        // into the *first* match at each step, so "#box&&ul&&li" must yield only the tabs.
+        var html = '<div id="box"><div class="hd"><ul><li><a>线路A</a></li><li><a>线路B</a></li></ul></div>' +
+                   '<div class="numList"><ul><li><a href="/p/1">第01集</a></li><li><a href="/p/2">第02集</a></li></ul></div></div>' +
+                   '<span class="d">简介:实际内容</span>' +
+                   '<div class="pic"style="x"><img data-echo="/e.jpg"></div>' +
+                   '<ul class="m"><li>no image</li><li><img src="/y.jpg">has image</li></ul>';
+        return {
+          tabs: host.pdfa(html, '#box&&ul&&li').length,
+          tabText: host.pdfh(host.pdfa(html, '#box&&ul&&li')[0], 'Text'),
+          episodes: host.pdfa(html, '#box&&.numList&&li').length,
+          fallbackAttr: host.pdfh(html, '.pic&&img&&data-echo||data-src||src'),
+          strip: host.pdfh(html, '.d&&Text!简介:'),
+          hasImage: host.pdfa(html, '.m li:has(img)').length,
+          index: host.pdfh(html, '#box .numList li,-1&&Text')
+        };
+      }
+    };
+    """)
+    let out = try #require(try JSONSerialization.jsonObject(
+        with: Data(try await spider.homeContent(filter: true).utf8)) as? [String: Any])
+    // The whole point: 2, not 4 — descending into every ul would sweep the episodes in as well.
+    #expect(out["tabs"] as? Double == 2)
+    #expect(out["tabText"] as? String == "线路A")
+    #expect(out["episodes"] as? Double == 2)
+    // Malformed `class="pic"style="x"` with no separating space must still parse.
+    #expect(out["fallbackAttr"] as? String == "/e.jpg")
+    #expect(out["strip"] as? String == "实际内容")
+    #expect(out["hasImage"] as? Double == 1)
+    #expect(out["index"] as? String == "第02集")
+}
+
+@Test func resolvesARuleFileExtAgainstTheConfigurationDirectory() throws {
+    // A rule-engine site points ext at a sibling file rather than inlining its rules; it must be
+    // resolved the same way ./jar/ and ./py/ references already are.
+    let remote = try #require(URL(string: "https://cfg.example/user/repo/wang-movie.json"))
+    let resolver = CSPSourceResolver(source: .remote(remote))
+    let hiker = try JSONDecoder().decode(Site.self, from: Data(
+        #"{"key":"n","name":"n","type":3,"api":"csp_XYQHiker","ext":"./json/农民影视.json"}"#.utf8))
+    // Percent-encoded, because the result is a URL the spider will fetch.
+    #expect(resolver.resolvedExtend(for: hiker)
+        == "https://cfg.example/user/repo/json/%E5%86%9C%E6%B0%91%E5%BD%B1%E8%A7%86.json")
+
+    // Inline rules and absolute URLs are handed over untouched.
+    let inline = try JSONDecoder().decode(Site.self, from: Data(
+        #"{"key":"i","name":"i","type":3,"api":"csp_XYQHiker","ext":{"分类名称":"电影"}}"#.utf8))
+    #expect(resolver.resolvedExtend(for: inline).hasPrefix("{"))
+    let absolute = try JSONDecoder().decode(Site.self, from: Data(
+        #"{"key":"a","name":"a","type":3,"api":"csp_XYQHiker","ext":"https://x.example/r.json"}"#.utf8))
+    #expect(resolver.resolvedExtend(for: absolute) == "https://x.example/r.json")
+}

@@ -94,6 +94,17 @@ public struct Vod: Decodable, Identifiable, Sendable {
         playURL = try values.decodeIfPresent(String.self, forKey: .playURL) ?? ""
     }
 
+    /// A page-supplied vod: `player.playVod` names one by id and has no listing to decode.
+    /// The playback fields stay empty because `VodView` fetches the real detail by id.
+    public init(id: String, name: String, picture: String) {
+        self.id = id
+        self.name = name
+        self.picture = picture
+        remarks = ""
+        playFrom = ""
+        playURL = ""
+    }
+
     public var flags: [Flag] {
         zip(playFrom.components(separatedBy: "$$$"), playURL.components(separatedBy: "$$$"))
             .filter { !$0.0.isEmpty && !$0.1.isEmpty }

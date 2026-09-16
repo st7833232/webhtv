@@ -476,7 +476,7 @@ private struct SettingsView: View {
 
             if let site = sites.first(where: { $0.id == selectedSiteID }) ?? sites.first {
                 Section("開發者") {
-                    NavigationLink("WebHome 橋接驗證") { WebHomeView(site: site, source: source) }
+                    NavigationLink("WebHome 橋接驗證") { WebHomeView(site: site, sites: sites, source: source) }
                 }
             }
 
@@ -598,7 +598,7 @@ private struct VodView: View {
             do { detail = try await CMSClient(site: site).detail(id: summary.id) }
             catch { self.error = error.localizedDescription }
         }
-        .sheet(item: $pendingPlayback) { PlayerPickerView(mediaURL: $0.url) }
+        .sheet(item: $pendingPlayback) { PlayerPickerView(mediaURL: $0.url, title: $0.title, artwork: $0.artwork) }
         .alert("無法播放", isPresented: Binding(get: { playbackError != nil }, set: { if !$0 { playbackError = nil } })) {
             Button("好", role: .cancel) {}
         } message: {
@@ -614,7 +614,7 @@ private struct VodView: View {
                 playbackError = "這一集沒有可播放的網址。"
                 return
             }
-            pendingPlayback = Playback(url: url)
+            pendingPlayback = Playback(url: url, title: "\(summary.name) \(episode.name)", artwork: summary.picture)
         } catch {
             playbackError = error.localizedDescription
         }
@@ -637,11 +637,16 @@ private struct VodPoster: View {
 
 private struct Playback: Identifiable {
     let url: URL
+    var title = ""
+    /// Android hands VideoActivity the poster, so player.status can report it.
+    var artwork = ""
     var id: String { url.absoluteString }
 }
 
 private struct PlayerPickerView: View {
     let mediaURL: URL
+    var title = ""
+    var artwork = ""
     @Environment(\.dismiss) private var dismiss
     @State private var error: String?
     @State private var playing = false
@@ -650,6 +655,7 @@ private struct PlayerPickerView: View {
         NavigationStack {
             List {
                 Button {
+                    PlaybackSession.shared.open(url: mediaURL, title: title, artwork: artwork)
                     playing = true
                 } label: {
                     Label("內建播放器", systemImage: "play.rectangle.fill")
@@ -675,7 +681,7 @@ private struct PlayerPickerView: View {
         }
         // Full screen rather than a push inside this sheet: a page sheet is inset and rounded, so the
         // player inherited those bounds and the app wallpaper showed through around the video.
-        .fullScreenCover(isPresented: $playing) { PlayerView(url: mediaURL) }
+        .fullScreenCover(isPresented: $playing) { PlayerView() }
     }
 
     private func open(_ player: ExternalPlayer) {
@@ -693,20 +699,139 @@ private struct PlayerPickerView: View {
     }
 }
 
+/// The persistent half of playback. Android reaches its player through a process-wide
+/// `PlaybackService` (`HomeWebBridge.control`, `Server.get().getService()`); this is the same idea at
+/// the smallest size that can answer `player.status` and obey `player.control` after the player
+/// screen has been dismissed — which is the only time a WebHome page is on screen to ask.
+///
+/// One `AVPlayer` for the app's lifetime with items swapped into it, so no view has to observe a
+/// changing player object. Everything else Android tracks — the playlist, the page-supplied title
+/// and artwork, the repeat flag — is what `AVPlayer` has no concept of.
+@MainActor final class PlaybackSession {
+    static let shared = PlaybackSession()
+
+    let player = AVPlayer()
+    private var items = [WebHomeBridge.PlaybackItem]()
+    private var index = 0
+    private var title = ""
+    private var artwork = ""
+    private var url = ""
+    private var looping = false
+    private var started = false
+    /// Resolves an episode the page kept for itself. Set while a WebHome page owns the web view.
+    var resolveEpisode: ((String) async -> URL?)?
+
+    private init() {
+        NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.finished() }
+        }
+    }
+
+    /// One media URL: the CMS path, `player.playUrl`, and an episode picked in `VodView`.
+    /// The item carries no name: the caller's title already names the episode, and `status()`
+    /// appends the item name, which would otherwise report it twice.
+    func open(url: URL, title: String, artwork: String = "") {
+        items = [.init(name: "", url: url)]
+        self.title = title
+        self.artwork = artwork
+        start(at: 0)
+    }
+
+    /// A whole inline vod, so `control("next")` and `("prev")` have somewhere to go.
+    func open(_ vod: WebHomeBridge.InlineVod) {
+        items = vod.items
+        title = vod.title
+        artwork = vod.picture
+        start(at: vod.startIndex)
+    }
+
+    func control(_ action: String) {
+        switch action {
+        case "play": player.play()
+        case "pause": player.pause()
+        case "stop":
+            // No foreground service to stop, so the equivalent is to drop what is loaded.
+            player.pause()
+            player.replaceCurrentItem(with: nil)
+            started = false
+        case "prev": start(at: index - 1)
+        case "next": start(at: index + 1)
+        case "loop": looping.toggle()
+        case "replay":
+            player.seek(to: .zero)
+            player.play()
+        default: break
+        }
+    }
+
+    /// `server/process/Media.java`. Durations and positions are milliseconds, as Media3 reports them.
+    func status() -> WebHomeBridge.PlaybackStatus {
+        guard started, let item = player.currentItem else { return .idleStatus }
+        return .init(
+            state: state(of: item),
+            speed: Double(player.rate),
+            duration: milliseconds(item.duration),
+            position: milliseconds(player.currentTime()),
+            url: url,
+            title: [title, items.indices.contains(index) ? items[index].name : ""]
+                .filter { !$0.isEmpty }.joined(separator: " "),
+            artwork: artwork
+        )
+    }
+
+    private func state(of item: AVPlayerItem) -> Int {
+        if player.timeControlStatus == .playing { return 3 }
+        if player.timeControlStatus == .waitingToPlayAtSpecifiedRate { return 6 }
+        return item.status == .readyToPlay ? 2 : 1
+    }
+
+    private func milliseconds(_ time: CMTime) -> Double {
+        let seconds = time.seconds
+        return seconds.isFinite ? (seconds * 1000).rounded() : 0
+    }
+
+    private func finished() {
+        if looping { control("replay") } else { start(at: index + 1) }
+    }
+
+    private func start(at index: Int) {
+        guard items.indices.contains(index) else { return }
+        self.index = index
+        let item = items[index]
+        if let url = item.url {
+            load(url)
+            return
+        }
+        // The page kept this episode's URL to itself; ask it, the way Android's inline store does.
+        guard let payload = item.resolvePayload, let resolveEpisode else { return }
+        Task { @MainActor in
+            guard let url = await resolveEpisode(payload), self.index == index else { return }
+            self.load(url)
+        }
+    }
+
+    private func load(_ url: URL) {
+        self.url = url.absoluteString
+        started = true
+        player.replaceCurrentItem(with: AVPlayerItem(url: url))
+        player.play()
+    }
+}
+
 private struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var player: AVPlayer
-
-    init(url: URL) {
-        _player = State(initialValue: AVPlayer(url: url))
-    }
+    /// The item is already loaded by the caller, because playback has to outlive this screen for
+    /// `player.status` and `player.control` to mean anything.
+    private let session = PlaybackSession.shared
 
     var body: some View {
         ZStack {
             // The player owns the whole screen, so letterbox bars are black instead of showing
             // whatever is behind the presentation.
             Color.black.ignoresSafeArea()
-            VideoPlayer(player: player)
+            VideoPlayer(player: session.player)
                 .ignoresSafeArea()
         }
         .overlay(alignment: .topLeading) {
@@ -722,8 +847,9 @@ private struct PlayerView: View {
             .padding(.top, 8)
         }
         .statusBarHidden()
-        .onAppear { player.play() }
-        .onDisappear { player.pause() }
+        // Closing the screen pauses rather than tears down, so a page can read the position it
+        // reached and resume it with player.control.
+        .onDisappear { session.player.pause() }
     }
 }
 
@@ -752,10 +878,14 @@ private func bundledImage(_ name: String) -> Image {
 
 private struct WebHomeView: View {
     let site: Site
+    /// `player.playVod` names a site by key, so the whole configured list has to be reachable.
+    let sites: [Site]
     let source: ConfigSource
     @Environment(\.dismiss) private var dismiss
     @State private var pendingPlayback: Playback?
+    @State private var pendingVod: VodRequest?
     @State private var pendingSearch: SearchRequest?
+    @State private var playingInline = false
     @State private var toast: String?
     @State private var toolbarVisible = true
 
@@ -765,8 +895,16 @@ private struct WebHomeView: View {
                 WebHomeWebView(
                     pageURL: page,
                     site: site,
+                    sites: sites,
                     source: source,
-                    onPlay: { url, _ in pendingPlayback = Playback(url: url) },
+                    onPlay: { url, title in pendingPlayback = Playback(url: url, title: title) },
+                    onPlayVod: { site, vod in pendingVod = VodRequest(site: site, vod: vod) },
+                    onPlayInline: { vod in
+                        // Straight to the built-in player: an inline vod carries a playlist and
+                        // player.control semantics that an external player cannot honour.
+                        PlaybackSession.shared.open(vod)
+                        playingInline = true
+                    },
                     onSearch: { pendingSearch = SearchRequest(keyword: $0) },
                     onToast: { message in
                         toast = message
@@ -795,10 +933,14 @@ private struct WebHomeView: View {
                     .padding(.bottom, 28)
             }
         }
-        .sheet(item: $pendingPlayback) { PlayerPickerView(mediaURL: $0.url) }
+        .sheet(item: $pendingPlayback) { PlayerPickerView(mediaURL: $0.url, title: $0.title, artwork: $0.artwork) }
+        .sheet(item: $pendingVod) { request in
+            NavigationStack { VodView(site: request.site, summary: request.vod) }
+        }
         .sheet(item: $pendingSearch) { request in
             NavigationStack { CMSView(site: site, initialQuery: request.keyword) }
         }
+        .fullScreenCover(isPresented: $playingInline) { PlayerView() }
     }
 }
 
@@ -830,12 +972,21 @@ private struct SearchRequest: Identifiable {
     var id: String { keyword }
 }
 
+private struct VodRequest: Identifiable {
+    let site: Site
+    let vod: Vod
+    var id: String { site.key + "/" + vod.id }
+}
+
 /// Hosts the WebHome page and carries the string-RPC contract between it and `WebHomeBridge`.
 private struct WebHomeWebView: UIViewRepresentable {
     let pageURL: URL
     let site: Site
+    let sites: [Site]
     let source: ConfigSource
     let onPlay: @MainActor @Sendable (URL, String) -> Void
+    let onPlayVod: @MainActor @Sendable (Site, Vod) -> Void
+    let onPlayInline: @MainActor @Sendable (WebHomeBridge.InlineVod) -> Void
     let onSearch: @MainActor @Sendable (String) -> Void
     let onToast: @MainActor @Sendable (String) -> Void
     let onSetToolbar: @MainActor @Sendable (Bool) -> Void
@@ -843,9 +994,18 @@ private struct WebHomeWebView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         let coordinator = Coordinator()
+        // The page owns the resolver for its own inline episodes, so the session can only reach it
+        // while this web view is alive.
+        PlaybackSession.shared.resolveEpisode = { [weak coordinator] payload in
+            await coordinator?.resolveInlineEpisode(payload)
+        }
         coordinator.bridge = WebHomeBridge(
             actions: .init(
                 play: onPlay,
+                playVod: onPlayVod,
+                playInline: onPlayInline,
+                control: { PlaybackSession.shared.control($0) },
+                status: { PlaybackSession.shared.status() },
                 search: onSearch,
                 toast: onToast,
                 setToolbar: onSetToolbar,
@@ -854,6 +1014,7 @@ private struct WebHomeWebView: UIViewRepresentable {
                 viewport: { [weak coordinator] in coordinator?.viewport() ?? .init(width: 0, height: 0, safeTop: 0, safeRight: 0, safeBottom: 0, safeLeft: 0) }
             ),
             site: site,
+            sites: sites,
             source: source,
             device: deviceInfo()
         )
@@ -886,6 +1047,7 @@ private struct WebHomeWebView: UIViewRepresentable {
     /// The content controller retains the handler, which would otherwise keep the whole web view alive.
     static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: WebHomeBridge.messageHandlerName)
+        PlaybackSession.shared.resolveEpisode = nil
     }
 
     @MainActor final class Coordinator: NSObject, WKScriptMessageHandler {
@@ -901,6 +1063,25 @@ private struct WebHomeWebView: UIViewRepresentable {
                 safeTop: insets.top, safeRight: insets.right,
                 safeBottom: insets.bottom, safeLeft: insets.left
             )
+        }
+
+        /// `HomeWebBridge.resolveInlineEpisode`. iOS awaits the page's promise directly, so the
+        /// Android side's `inlineResult` callback, UUID-keyed map and `CompletableFuture` have no
+        /// equivalent here and are not ported.
+        func resolveInlineEpisode(_ payload: String) async -> URL? {
+            guard let webView,
+                  let episode = try? JSONSerialization.jsonObject(with: Data(payload.utf8)) else { return nil }
+            let script = """
+            const resolver = window.__fmWebHomeInlineResolver || window.__fmYmvidResolveEpisode;
+            if (typeof resolver !== 'function') return '';
+            const result = await resolver(episode);
+            return (result && result.url) || '';
+            """
+            let value = try? await webView.callAsyncJavaScript(
+                script, arguments: ["episode": episode], contentWorld: .page
+            )
+            guard let text = value as? String else { return nil }
+            return URL(string: text)
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {

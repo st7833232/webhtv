@@ -3,12 +3,14 @@ import Foundation
 public enum WebHomeBridgeError: Error, Equatable, LocalizedError {
     case unknownMethod(String)
     case invalidPayload
+    case unknownSite(String)
 
     /// Android rejects with `e.getMessage()`; these are the equivalent strings.
     public var errorDescription: String? {
         switch self {
         case .unknownMethod(let method): "Unknown method: \(method)"
         case .invalidPayload: "invalid payload"
+        case .unknownSite(let key): "Unknown site: \(key)"
         }
     }
 }
@@ -38,10 +40,82 @@ public struct WebHomeBridge: Sendable {
         }
     }
 
+    /// What the page is told about playback. Mirrors `server/process/Media.java`'s `/media` object
+    /// field for field; Android reads the same values off its own player on demand.
+    public struct PlaybackStatus: Sendable {
+        /// Android's codes: 3 playing, 6 buffering, 2 ready, 1 otherwise.
+        public var state: Int
+        public var speed: Double
+        public var duration: Double
+        public var position: Double
+        public var url: String
+        public var title: String
+        public var artist: String
+        public var artwork: String
+        /// Nothing has been played yet, which Android reports as a bare `{}`.
+        public var idle: Bool
+
+        public init(
+            state: Int, speed: Double, duration: Double, position: Double,
+            url: String, title: String, artist: String = "", artwork: String = "", idle: Bool = false
+        ) {
+            self.state = state
+            self.speed = speed
+            self.duration = duration
+            self.position = position
+            self.url = url
+            self.title = title
+            self.artist = artist
+            self.artwork = artwork
+            self.idle = idle
+        }
+
+        public static let idleStatus = PlaybackStatus(
+            state: 1, speed: 0, duration: 0, position: 0, url: "", title: "", idle: true
+        )
+    }
+
+    /// One episode of an inline vod. `url` is nil when the page asked for lazy resolution, in which
+    /// case `resolvePayload` is the episode JSON to hand back to the page's own resolver.
+    /// No media format is carried: AVPlayer infers it, so storing Android's `format` would be dead weight.
+    public struct PlaybackItem: Sendable, Equatable {
+        public var name: String
+        public var url: URL?
+        public var resolvePayload: String?
+
+        public init(name: String, url: URL?, resolvePayload: String? = nil) {
+            self.name = name
+            self.url = url
+            self.resolvePayload = resolvePayload
+        }
+    }
+
+    /// A vod the page supplied in full, rather than one the app fetches from a site.
+    public struct InlineVod: Sendable {
+        public var id: String
+        public var title: String
+        public var picture: String
+        public var items: [PlaybackItem]
+        public var startIndex: Int
+
+        public init(id: String, title: String, picture: String, items: [PlaybackItem], startIndex: Int) {
+            self.id = id
+            self.title = title
+            self.picture = picture
+            self.items = items
+            self.startIndex = startIndex
+        }
+    }
+
     /// Side effects the host owns. Kept as closures so the bridge itself stays testable without UI.
     /// They touch view state, so they are main-actor bound and awaited from the dispatch below.
     public struct Actions: Sendable {
         public var play: @MainActor @Sendable (URL, String) -> Void
+        /// Opens the app's own vod screen for a configured site, as Android's `VideoActivity.start` does.
+        public var playVod: @MainActor @Sendable (Site, Vod) -> Void
+        public var playInline: @MainActor @Sendable (InlineVod) -> Void
+        public var control: @MainActor @Sendable (String) -> Void
+        public var status: @MainActor @Sendable () -> PlaybackStatus
         public var search: @MainActor @Sendable (String) -> Void
         public var toast: @MainActor @Sendable (String) -> Void
         public var setToolbar: @MainActor @Sendable (Bool) -> Void
@@ -51,6 +125,10 @@ public struct WebHomeBridge: Sendable {
 
         public init(
             play: @escaping @MainActor @Sendable (URL, String) -> Void,
+            playVod: @escaping @MainActor @Sendable (Site, Vod) -> Void,
+            playInline: @escaping @MainActor @Sendable (InlineVod) -> Void,
+            control: @escaping @MainActor @Sendable (String) -> Void,
+            status: @escaping @MainActor @Sendable () -> PlaybackStatus,
             search: @escaping @MainActor @Sendable (String) -> Void,
             toast: @escaping @MainActor @Sendable (String) -> Void,
             setToolbar: @escaping @MainActor @Sendable (Bool) -> Void,
@@ -59,6 +137,10 @@ public struct WebHomeBridge: Sendable {
             viewport: @escaping @MainActor @Sendable () -> Viewport
         ) {
             self.play = play
+            self.playVod = playVod
+            self.playInline = playInline
+            self.control = control
+            self.status = status
             self.search = search
             self.toast = toast
             self.setToolbar = setToolbar
@@ -188,6 +270,8 @@ public struct WebHomeBridge: Sendable {
 
     private let actions: Actions
     private let site: Site?
+    /// `player.playVod` names a site by key, so the bridge needs the configured list to resolve it.
+    private let sites: [Site]
     private let source: ConfigSource
     /// Device facts are handed in because `UIDevice` is UIKit and this module also builds for macOS.
     private let device: [String: String]
@@ -196,12 +280,14 @@ public struct WebHomeBridge: Sendable {
     public init(
         actions: Actions,
         site: Site? = nil,
+        sites: [Site] = [],
         source: ConfigSource = .importedFile,
         device: [String: String] = [:],
         defaults: UserDefaults = .standard
     ) {
         self.actions = actions
         self.site = site
+        self.sites = sites
         self.source = source
         self.device = device
         self.defaults = defaults
@@ -219,6 +305,33 @@ public struct WebHomeBridge: Sendable {
             let title = Self.string(payload, "title")
             await actions.play(url, title.isEmpty ? url.absoluteString : title)
             return "{}"
+        case "player.playVod":
+            let key = Self.string(payload, "siteKey")
+            // Android hands the key to VideoActivity and fails inside it. Rejecting here tells the
+            // page what went wrong, which matters because a page may not know which config is loaded.
+            guard let site = sites.first(where: { $0.key == key }) else { throw WebHomeBridgeError.unknownSite(key) }
+            let vodId = Self.string(payload, "vodId")
+            guard !vodId.isEmpty else { throw WebHomeBridgeError.invalidPayload }
+            await actions.playVod(site, Vod(
+                id: vodId,
+                name: Self.title(payload, fallback: vodId),
+                picture: Self.picture(payload)
+            ))
+            return "{}"
+        case "player.playVodInline":
+            let vod = Self.inlineVod(payload)
+            guard !vod.items.isEmpty else { throw WebHomeBridgeError.invalidPayload }
+            await actions.playInline(vod)
+            // The only playback method with a non-empty result; the page uses it to address the vod later.
+            return Self.text(from: ["siteKey": Self.inlineSiteKey, "vodId": vod.id]) ?? "{}"
+        case "player.control":
+            // Android returns {} even when no playback service exists, so an unknown action is not an error.
+            await actions.control(Self.string(payload, "action"))
+            return "{}"
+        case "player.status":
+            // Android fetches this from its own local server, so the page parses a net.request
+            // envelope rather than the media object. The envelope is reproduced; the HTTP hop is not.
+            return Self.statusText(await actions.status())
         case "app.search":
             let keyword = Self.string(payload, "keyword")
             guard !keyword.isEmpty else { throw WebHomeBridgeError.invalidPayload }
@@ -293,6 +406,67 @@ public struct WebHomeBridge: Sendable {
             "statusBarHeight": viewport.safeTop, "navigationBarHeight": 0, "keyboardBottom": 0,
             "chromeMode": "", "systemBarsHidden": false,
         ]) ?? "{}"
+    }
+
+    /// `WebHomeInlineVodStore.KEY`: the pseudo-site an inline vod is addressed under.
+    static let inlineSiteKey = "webhome_inline"
+
+    /// The `player.status` reply. `ok`/`status` describe a call that never left the device, and `url`
+    /// is empty where Android reports its local server address. `body` is `/media` field for field.
+    static func statusText(_ status: PlaybackStatus) -> String {
+        let body: Any = status.idle ? [String: Any]() : [
+            "state": status.state,
+            "speed": status.speed,
+            "duration": status.duration,
+            "position": status.position,
+            "url": status.url,
+            "title": status.title,
+            "artist": status.artist,
+            "artwork": status.artwork,
+        ]
+        return text(from: [
+            "ok": true, "status": 200, "url": "",
+            "headers": [String: String](), "cookies": [String](),
+            "body": body,
+        ]) ?? errorText("encode failed")
+    }
+
+    /// `HomeWebBridge.playVodInline` plus its `title`/`pic` fallbacks.
+    static func inlineVod(_ payload: [String: Any]) -> InlineVod {
+        let episodes = (payload["episodes"] as? [[String: Any]]) ?? []
+        let items = episodes.enumerated().map { index, episode -> PlaybackItem in
+            let name = string(episode, "name").isEmpty ? String(format: "%02d", index + 1) : string(episode, "name")
+            let url = playableURL(episode)
+            return PlaybackItem(
+                name: name,
+                url: url,
+                // The page resolves this one itself, so keep its own JSON to hand straight back.
+                resolvePayload: url == nil ? text(from: episode) : nil
+            )
+        }
+        let mark = string(payload, "mark")
+        let id = string(payload, "vod_id").isEmpty
+            ? "inline_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+            : string(payload, "vod_id")
+        return InlineVod(
+            id: id,
+            title: title(payload, fallback: id),
+            picture: picture(payload),
+            items: items,
+            startIndex: items.firstIndex { $0.name == mark } ?? 0
+        )
+    }
+
+    /// Android: `title`, then `vod_name`.
+    static func title(_ payload: [String: Any], fallback: String) -> String {
+        for key in ["title", "vod_name"] where !string(payload, key).isEmpty { return string(payload, key) }
+        return fallback
+    }
+
+    /// Android: `pic`, then `vod_pic`.
+    static func picture(_ payload: [String: Any]) -> String {
+        for key in ["pic", "vod_pic"] where !string(payload, key).isEmpty { return string(payload, key) }
+        return ""
     }
 
     /// `HomeWebBridge.cacheKey`: "cache_" + optional rule + key.

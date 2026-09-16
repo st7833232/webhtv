@@ -3,10 +3,18 @@ import Testing
 @testable import WebHTVCore
 
 private let noopActions = WebHomeBridge.Actions(
-    play: { _, _ in }, search: { _ in }, toast: { _ in }, setToolbar: { _ in },
+    play: { _, _ in }, playVod: { _, _ in }, playInline: { _ in },
+    control: { _ in }, status: { .idleStatus },
+    search: { _ in }, toast: { _ in }, setToolbar: { _ in },
     back: {}, reload: {},
     viewport: { .init(width: 402, height: 720, safeTop: 59, safeRight: 0, safeBottom: 34, safeLeft: 0) }
 )
+
+/// `Site` only decodes, so the fixture is the JSON a real config carries rather than a memberwise
+/// init added to production code for a test's benefit.
+private let testSite = try! JSONDecoder().decode(Site.self, from: Data(#"""
+{"key":"vod_360","name":"360","type":1,"api":"https://example.com/api.php/provide/vod"}
+"""#.utf8))
 
 private func bridge(defaults: UserDefaults) -> WebHomeBridge {
     WebHomeBridge(actions: noopActions, defaults: defaults)
@@ -177,7 +185,9 @@ private func scratchDefaults(_ name: String) throws -> UserDefaults {
     }
     let calls = Calls()
     let actions = WebHomeBridge.Actions(
-        play: { _, _ in }, search: { _ in },
+        play: { _, _ in }, playVod: { _, _ in }, playInline: { _ in },
+        control: { _ in }, status: { .idleStatus },
+        search: { _ in },
         toast: { m in Task { await calls.toast(m) } },
         setToolbar: { v in Task { await calls.toolbar(v) } },
         back: { Task { await calls.back() } },
@@ -204,9 +214,143 @@ private func scratchDefaults(_ name: String) throws -> UserDefaults {
 @Test func stillRejectsTheMethodsThisSliceLeftOut() async throws {
     let defaults = try scratchDefaults("unsupported")
     let subject = bridge(defaults: defaults)
-    for method in ["pan.check", "player.control", "player.status", "net.resourceUrl", "ui.setChrome", "app.openLive"] {
+    // player.control and player.status became supported in IOS-POC-2E; preloadArtwork did not,
+    // because AsyncImage has no preload hook and a no-op would claim success it never had.
+    for method in ["pan.check", "player.preloadArtwork", "net.resourceUrl", "ui.setChrome", "app.openLive"] {
         await #expect(throws: WebHomeBridgeError.unknownMethod(method)) {
             try await subject.handle(method: method, payload: [:])
         }
     }
+}
+
+@Test func opensAConfiguredSiteForPlayVodAndRejectsAnyOtherKey() async throws {
+    let defaults = try scratchDefaults("playvod")
+    actor Opened {
+        var calls = [(String, String, String, String)]()
+        func add(_ site: Site, _ vod: Vod) { calls.append((site.key, vod.id, vod.name, vod.picture)) }
+    }
+    let opened = Opened()
+    var actions = noopActions
+    actions.playVod = { site, vod in Task { await opened.add(site, vod) } }
+    let subject = WebHomeBridge(actions: actions, sites: [testSite], defaults: defaults)
+
+    #expect(try await subject.handle(
+        method: "player.playVod",
+        payload: ["siteKey": "vod_360", "vodId": "12345", "title": "蓮花樓", "pic": "https://example.com/p.jpg"]
+    ) == "{}")
+
+    try await Task.sleep(for: .milliseconds(120))
+    let call = try #require(await opened.calls.first)
+    #expect(call == ("vod_360", "12345", "蓮花樓", "https://example.com/p.jpg"))
+
+    // The showcase page ships an empty siteKey field, so this is the first path a page reaches.
+    await #expect(throws: WebHomeBridgeError.unknownSite("")) {
+        try await subject.handle(method: "player.playVod", payload: ["vodId": "1"])
+    }
+    await #expect(throws: WebHomeBridgeError.unknownSite("nope")) {
+        try await subject.handle(method: "player.playVod", payload: ["siteKey": "nope", "vodId": "1"])
+    }
+    await #expect(throws: WebHomeBridgeError.invalidPayload) {
+        try await subject.handle(method: "player.playVod", payload: ["siteKey": "vod_360"])
+    }
+}
+
+@Test func buildsAnInlinePlaylistAndAnswersWithTheStoreKey() async throws {
+    let defaults = try scratchDefaults("inline")
+    actor Opened {
+        var vods = [WebHomeBridge.InlineVod]()
+        func add(_ vod: WebHomeBridge.InlineVod) { vods.append(vod) }
+    }
+    let opened = Opened()
+    var actions = noopActions
+    actions.playInline = { vod in Task { await opened.add(vod) } }
+    let subject = WebHomeBridge(actions: actions, defaults: defaults)
+
+    // The shape the devkit showcase page's own vod-inline button sends.
+    let reply = try await decode(try await subject.handle(method: "player.playVodInline", payload: [
+        "vod_id": "webhome-sdk-showcase",
+        "vod_name": "WebHome SDK Showcase",
+        "vod_pic": "https://example.com/poster.jpg",
+        "mark": "HLS",
+        "episodes": [
+            ["name": "MP4", "url": "https://example.com/a.mp4"],
+            ["name": "HLS", "url": "https://example.com/b.m3u8"],
+            ["name": "Resolver HLS", "pageUrl": "https://example.com/#resolver", "resolve": true],
+        ],
+    ]))
+
+    #expect(reply["siteKey"] as? String == "webhome_inline")
+    #expect(reply["vodId"] as? String == "webhome-sdk-showcase")
+
+    try await Task.sleep(for: .milliseconds(120))
+    let vod = try #require(await opened.vods.first)
+    // title falls back to vod_name and pic to vod_pic, as HomeWebBridge.playVodInline does.
+    #expect(vod.title == "WebHome SDK Showcase")
+    #expect(vod.picture == "https://example.com/poster.jpg")
+    #expect(vod.items.count == 3)
+    #expect(vod.items[0].url?.absoluteString == "https://example.com/a.mp4")
+    // mark names the episode to start on.
+    #expect(vod.startIndex == 1)
+    // An episode with no URL keeps its own JSON, which is what the page's resolver is handed back.
+    #expect(vod.items[2].url == nil)
+    #expect(try #require(vod.items[2].resolvePayload).contains("#resolver"))
+
+    await #expect(throws: WebHomeBridgeError.invalidPayload) {
+        try await subject.handle(method: "player.playVodInline", payload: ["vod_name": "no episodes"])
+    }
+}
+
+@Test func forwardsEveryControlActionAndNeverFails() async throws {
+    let defaults = try scratchDefaults("control")
+    actor Calls {
+        var actions = [String]()
+        func add(_ action: String) { actions.append(action) }
+    }
+    let calls = Calls()
+    var actions = noopActions
+    actions.control = { action in Task { await calls.add(action) } }
+    let subject = WebHomeBridge(actions: actions, defaults: defaults)
+
+    for action in ["play", "pause", "stop", "prev", "next", "loop", "replay", "nonsense"] {
+        #expect(try await subject.handle(method: "player.control", payload: ["action": action]) == "{}")
+    }
+
+    try await Task.sleep(for: .milliseconds(150))
+    // Android returns {} even with no service, so an unknown action is forwarded, not rejected.
+    #expect(await calls.actions == ["play", "pause", "stop", "prev", "next", "loop", "replay", "nonsense"])
+}
+
+@Test func reportsPlaybackStatusInTheEnvelopePagesParse() async throws {
+    let defaults = try scratchDefaults("status")
+    var actions = noopActions
+    actions.status = {
+        .init(
+            state: 3, speed: 1, duration: 125_000, position: 4_200,
+            url: "https://example.com/b.m3u8", title: "WebHome SDK Showcase HLS",
+            artwork: "https://example.com/poster.jpg"
+        )
+    }
+    let subject = WebHomeBridge(actions: actions, defaults: defaults)
+
+    // Android answers this through its local server, so the page parses a net.request envelope.
+    let envelope = try await decode(try await subject.handle(method: "player.status", payload: [:]))
+    #expect(envelope["ok"] as? Bool == true)
+    #expect(envelope["status"] as? Int == 200)
+    #expect(envelope["headers"] as? [String: String] == [:])
+    #expect(envelope["cookies"] as? [String] == [])
+
+    let body = try #require(envelope["body"] as? [String: Any])
+    #expect(body["state"] as? Int == 3)
+    #expect(body["speed"] as? Double == 1)
+    #expect(body["duration"] as? Double == 125_000)
+    #expect(body["position"] as? Double == 4_200)
+    #expect(body["url"] as? String == "https://example.com/b.m3u8")
+    #expect(body["title"] as? String == "WebHome SDK Showcase HLS")
+    #expect(body["artwork"] as? String == "https://example.com/poster.jpg")
+    // Present but empty: iOS has no metadata source for it.
+    #expect(body["artist"] as? String == "")
+
+    // Nothing played yet is a bare {}, which is what Android returns with no playback service.
+    let idle = try await decode(try await bridge(defaults: defaults).handle(method: "player.status", payload: [:]))
+    #expect((idle["body"] as? [String: Any])?.isEmpty == true)
 }

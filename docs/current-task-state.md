@@ -6,7 +6,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current Scope
 
-- Branch `ios-poc`, HEAD `6d926ebd` before this documentation commit. `origin/ios-poc` is at `150181b1`, so one functional commit (`6d926ebd`, IOS-POC-2D) plus this one are unpushed. Re-check with `git log` rather than trusting these ids.
+- Branch `ios-poc`, baseline HEAD `e1db99d8` before the IOS-POC-2E commit, level with `origin/ios-poc` at that point. Re-check with `git log` rather than trusting these ids.
 - Android `app/` is read-only for all iOS work and has never been modified.
 - Every stage below has an annotated `recovery/<task-id>/*` tag. Tags through `IOS-POC-1H` are on the remote.
 
@@ -32,6 +32,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 2B | WebHome bridge over `WKWebView` + `WKScriptMessageHandler` | `docs/IOS-POC-2B-webhome-bridge.md` |
 | 2C | Debug-only CJK font fallback for the simulator | same document |
 | 2D | Bridge UI, navigation and information methods | `docs/IOS-POC-2D-webhome-bridge-ui-info.md` |
+| 2E | Bridge playback half on a persistent playback session | `docs/IOS-POC-2E-webhome-bridge-playback.md` |
 | 3A–3C | Android-like surfaces, wallpaper, oversized-logo removal | commits |
 | 3D | Uniform 2:3 poster cells | commit |
 | 3E | Built-in player presented full screen | commit |
@@ -69,24 +70,36 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 
 ### WebHome bridge
 
-- `WKWebView` + `WKScriptMessageHandler` reproducing the Android string-RPC contract. Implemented: `net.request`, `player.playUrl`, `app.search`, `app.history`, `cache.get/set/del`, `ui.getViewport`, `ui.setToolbar`, `navigation.back`, `navigation.reload`, `site.info`, `config.info`, `ext.info`, `ext.log`, `ext.toast`, `device.info`.
+- `WKWebView` + `WKScriptMessageHandler` reproducing the Android string-RPC contract. Implemented: `net.request`, `player.playUrl`, **`player.playVod`, `player.playVodInline`, `player.control`, `player.status`**, `app.search`, `app.history`, `cache.get/set/del`, `ui.getViewport`, `ui.setToolbar`, `navigation.back`, `navigation.reload`, `site.info`, `config.info`, `ext.info`, `ext.log`, `ext.toast`, `device.info`.
 - Android payload shapes are reproduced field for field including the fields iOS cannot fill; a missing value is zero, empty or false rather than omitted, so a page never reads `undefined`.
 - Deviations, each commented in code: `net.resourceUrl` returns the raw URL (no local proxy server); results are never chunked, so the synchronous `resultLength`/`resultChunk` accessors are unnecessary; `app.history` returns `[]` until a history store exists; `device.info` is built natively; Android-only gesture and system-bar insets are zero; `site.info` omits `homePage`, `chromeMode`, `webHomeChrome`, `header`; `config.info` has no `id` or `desc`.
-- Still outside the bridge, each for a stated reason: `net.resourceUrl` proxying (no local server), `player.playVod*` / `control` / `status` / `preloadArtwork` (no persistent playback service), `app.open*` (no Live or Keep screen), `pan.*` (no drive-check service), `ui.setChrome` / `restoreChrome` (no equivalent surface). All reject with the same `Unknown method` the Android default branch produces.
+- Still outside the bridge, each for a stated reason: `net.resourceUrl` proxying (no local server), `player.preloadArtwork` (`AsyncImage` has no preload hook, so it would be a no-op claiming success), `app.open*` (no Live or Keep screen), `pan.*` (no drive-check service), `ui.setChrome` / `restoreChrome` (no equivalent surface). All reject with the same `Unknown method` the Android default branch produces.
+
+### Playback session (IOS-POC-2E)
+
+- One `@MainActor` `PlaybackSession.shared` in the app target owns a single `AVPlayer` for the app's lifetime and swaps items into it, so no view observes a changing player object. It adds only what `AVPlayer` has no concept of: the inline playlist and index, the page-supplied title and artwork, and the repeat flag. Android's equivalent is the process-wide `PlaybackService` behind `Server.get().getService()`.
+- `PlayerView` no longer creates its own player; closing it pauses rather than tears down, which is what lets a WebHome page read a live `player.status` and resume with `player.control` — the page is only on screen once the player is gone.
+- Every playback path now feeds that one session: the CMS grid, `player.playUrl`, `player.playVod` (which resolves `siteKey` against the loaded config and opens the existing `VodView`) and `player.playVodInline` (which goes straight to the built-in player, since a playlist and `control` semantics are things an external player cannot honour).
+- `player.status` reproduces Android's **`net.request` envelope**, because Android fetches `/media` over its own local HTTP server; the envelope is reproduced field for field and the HTTP hop is not. Durations and positions are milliseconds, as Media3 reports them.
+- An unknown or empty `siteKey` rejects with `Unknown site: <key>` instead of opening a screen that fails later — the showcase page ships that field empty, so a page reaches it immediately.
 
 ## Build / Test / Verification Status
 
-- `WANG_MOVIE_JSON=/tmp/webhtv-recha-new.wprHof/wang-movie.json swift test --package-path ios` → **33 tests pass**. Two live checks are gated on their own variables: `WANG_MOVIE_URL` for the remote config, and the type-4 sweep.
+- `WANG_MOVIE_JSON=/tmp/webhtv-recha-new.wprHof/wang-movie.json swift test --package-path ios` → **39 tests, 38 pass**. The one failure, `reportsLiveType4SitesFromProvidedConfig`, is a **live-network** check that is **pre-existing**: `88看球` resolves an episode to an HTML play page and the test asserts direct media. Reproduced identically at `e1db99d8` in a throwaway worktree, so it is provider state, not a regression. Two live checks are gated on their own variables: `WANG_MOVIE_URL` for the remote config, and the type-4 sweep.
 - `xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -configuration Debug build` → BUILD SUCCEEDED.
 - Remote config, against the real GitLab Raw URL: 125,864 bytes, 167 sites, 28 supported, cached SHA-256 identical to the remote, resolved `jar/fm.jar` HTTP 200. An unreachable URL left the sources and cache intact. Launch retry proven with a local server armed to fail twice — exactly three requests, adopted on the third.
 - Simulator, end to end: `爱瓜TV` grid → 莲花楼 detail with 41 episodes → episode 01 plays in the built-in player. Type-1 `如意` and `360` grids load with real posters and both category rows. Pagination scrolls past the first page on both types.
 - WebHome bridge in the simulator with the unmodified devkit showcase page: badge reads `SDK: native`; `fm.req JSON` logged `req-json ok (799ms)` with the full contract shape; the HLS button played the stream; `cache-set ok`; `ext-info` and `config` logged real payloads; `legacy hide`/`show` removed and restored the navigation bar.
+- **IOS-POC-2E end to end, from the page:** `vodInline 多集` played the inline MP4; with the player closed, `播放状态` returned a live envelope (`duration 90080`, `position 28136`, `state 2`); `fm.ctrl play` advanced it to `state 3`, `position 41502`; `fm.ctrl next` switched the reported url and title to the HLS episode (`speed 1`, `position 10511`); `fm.ctrl pause` returned `{}` and the next status read `speed 0`. `调用 fm.vod` with `vod_360` / `101020` logged `vod ok (229ms)`, opened the native detail screen with ten live episodes and played episode 1, and a following status reported that stream.
 
 ## Risks / Unverified
 
 - **Nothing has ever run on a real device.** The Xcode project has no `CODE_SIGN` or `DEVELOPMENT_TEAM` setting. Every result above is from the iPhone 17 Pro simulator.
 - **Not measured: that HTTPS certificate validation is still enforced.** It is reasoned from the code — no `URLSessionDelegate`, no `serverTrust` handling anywhere — but no test against a known-bad certificate was run.
-- Not driven from the WebHome page, covered only by offline tests: `cache.get`, `cache.del`, `app.search`, `app.history`, `device.info`, `site.info`, `ui.getViewport`, `ext.toast`, `navigation.back`, `navigation.reload`.
+- Not driven from the WebHome page, covered only by offline tests: `cache.get`, `cache.del`, `app.search`, `app.history`, `device.info`, `site.info`, `ui.getViewport`, `ext.toast`, `navigation.back`, `navigation.reload`, and `player.control`'s `prev`, `stop`, `loop` and `replay` (only `play`, `pause` and `next` were driven live).
+- **The inline JS resolver is implemented but never exercised, offline or live.** Only the showcase playlist's fourth episode needs `window.__fmWebHomeInlineResolver`, and `next` was driven only as far as the third. `Coordinator.resolveInlineEpisode` and its `callAsyncJavaScript` round trip are unverified.
+- `player.playUrl` reports an empty `artwork` because `Actions.play` carries only a URL and a title; `playVod`, `playVodInline` and the CMS path all report the real poster.
+- Playback has no background audio, media session or lock-screen controls. Closing the player pauses it; the session keeps the item so `player.status` still answers.
 - Remote reachability is highly volatile. `itv666.cc` went from HTTP 200 to DNS failure within ten minutes, and the GitLab Raw host was unreachable for about a minute mid-session. Never treat one site's failure as a global app defect.
 - `URLSession.webHTV` caps request inactivity at 10 s. A type-4 home issues two sequential requests, so its worst case is about 20 s. This is an inactivity timeout, not a total-transfer cap. AVPlayer playback does not use this session.
 - A failed next page stops pagination silently, because the error surface only renders when the grid is empty.
@@ -101,9 +114,9 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 Agree one bounded stage with the user. Ranked:
 
 1. **Device deployment.** The largest gap and the only one that needs the user's Apple ID and hardware. Free provisioning's 7-day expiry versus a paid account versus SideStore is still an open question.
-2. **The playback half of the WebHome bridge** — `player.playVod`, `playVodInline`, `control`, `status` — which needs a persistent playback service rather than the current sheet.
+2. **Close out the playback half**: drive the inline JS resolver end to end (the showcase's `Resolver HLS` episode), and the `prev`/`stop`/`loop`/`replay` controls, none of which has been exercised. Small, and it removes the only unverified code path this stage added.
 3. type-0 XML (2 sites, needs an XML parser; both endpoints answered HTTP 200 on 2026-09-15).
 
 ## Resume Prompt
 
-> Continue the WebHomeTV iPhone port in `/Users/chengchenchih/GIT/webhtv` on the actual `ios-poc` Git state; check `git log` and `git status` first rather than trusting any commit id quoted here. Read `AGENTS.md`, `docs/AGENT_HANDOFF.md`, this file, and the stage document for whatever you touch. The app exposes 28 of 167 configured sources (22 type-1 + 6 type-4) with category browsing, pagination, five players, imported-file or remote-Raw-URL configuration with last-known-good caching and launch refresh, and a WebHome bridge over WKWebView covering the network, cache, UI, navigation and information methods. It ships `NSAllowsArbitraryLoads` because the user explicitly chose global cleartext on 2026-09-15 — keep it and do not broaden transport security further without a fresh decision. Do not resume the Google TV `csp_JPianAmns` repair. Of the 137 type-3 sites 132 are structurally unreachable on iOS, so do not plan them as work. Nothing has ever run on a real device: there is no signing configuration at all. Confirm the next bounded stage with the user before any functional edit, follow the task-guard and Ponytail gates, and preserve Android `main`.
+> Continue the WebHomeTV iPhone port in `/Users/chengchenchih/GIT/webhtv` on the actual `ios-poc` Git state; check `git log` and `git status` first rather than trusting any commit id quoted here. Read `AGENTS.md`, `docs/AGENT_HANDOFF.md`, this file, and the stage document for whatever you touch. The app exposes 28 of 167 configured sources (22 type-1 + 6 type-4) with category browsing, pagination, five players, imported-file or remote-Raw-URL configuration with last-known-good caching and launch refresh, and a WebHome bridge over WKWebView covering the network, cache, UI, navigation, information **and playback** methods — `player.playVod`, `playVodInline`, `control` and `status` run on one persistent `PlaybackSession` that outlives the player screen. The inline JS resolver inside that stage is implemented but has never been exercised; do not describe it as working. It ships `NSAllowsArbitraryLoads` because the user explicitly chose global cleartext on 2026-09-15 — keep it and do not broaden transport security further without a fresh decision. Do not resume the Google TV `csp_JPianAmns` repair. Of the 137 type-3 sites 132 are structurally unreachable on iOS, so do not plan them as work. Nothing has ever run on a real device: there is no signing configuration at all. Confirm the next bounded stage with the user before any functional edit, follow the task-guard and Ponytail gates, and preserve Android `main`.

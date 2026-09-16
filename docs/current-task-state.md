@@ -3,7 +3,7 @@
 ## Original Goal
 
 - Port WebHomeTV to iPhone/iOS with an Android-like UI, use the newest user-provided `wang-movie.json`, and offer built-in, Infuse, Fileball, SenPlayer, and VidHub playback choices. The Google TV `csp_JPianAmns` repair is not in scope.
-- Completed this session: IOS-POC-4A (type-4 CatVod remote API sources), IOS-POC-4B (ATS cleartext decision), IOS-POC-4E (bounded request timeout), IOS-POC-4F (category browsing), IOS-POC-4G (two-level categories), IOS-POC-4H (pagination).
+- Completed this session: IOS-POC-4A (type-4 CatVod remote API sources), IOS-POC-4B (ATS cleartext decision), IOS-POC-4E (bounded request timeout), IOS-POC-4F (category browsing), IOS-POC-4G (two-level categories), IOS-POC-4H (pagination), IOS-POC-4I (type-1 posters).
 
 ## Current Scope
 
@@ -28,10 +28,13 @@
 - `ios/Sources/WebHTVCore/WebHTVConfig.swift`, `ios/Sources/WebHTVCore/CMSClient.swift`, `ios/WebHTVApp/Sources/WebHTVApp.swift`, `ios/Tests/WebHTVCoreTests/CMSClientTests.swift`, `ios/Tests/WebHTVCoreTests/ConfigLoaderTests.swift` (IOS-POC-4A).
 - `ios/Sources/WebHTVCore/ConfigLoader.swift`, `ios/Sources/WebHTVCore/CMSClient.swift`, `ios/Tests/WebHTVCoreTests/CMSClientTests.swift` (IOS-POC-4E).
 - `ios/Sources/WebHTVCore/CMSClient.swift`, `ios/WebHTVApp/Sources/WebHTVApp.swift`, `ios/Tests/WebHTVCoreTests/CMSClientTests.swift` (IOS-POC-4F, 4G and 4H).
+- `ios/Sources/WebHTVCore/CMSClient.swift`, `ios/Tests/WebHTVCoreTests/CMSClientTests.swift` (IOS-POC-4I).
 - `ios/WebHTVApp/Info.plist` (new), `ios/WebHTVApp/WebHTVApp.xcodeproj/project.pbxproj` (IOS-POC-4B).
 - `docs/IOS-POC-4A-type4-sources.md` (new, holds the full plan and evidence), `docs/AGENT_HANDOFF.md`, this file.
 
 ## Completed Work
+
+- Type-1 posters: a MacCMS listing omits `vod_pic` entirely unless `ac=detail` is requested, which is why every type-1 card showed the placeholder while type-4 cards did not. Type-1 listings and searches now ask for the detail form. That form also drops `class`, so a type-1 home issues the plain and detail requests concurrently and takes the categories from one and the titles from the other; category calls rely on the view keeping the groups the home call established. Type-4 is untouched because its plain listing already carries the picture.
 
 - Pagination: the grid loads the next page when its last card appears, for home, category and search alike. Paging stops when a page contributes no new `vod_id`. The page metadata is not used as the stop signal because `爱瓜TV` reports `pagecount: 9999` / `total: 999999` while `如意` reports an honest 163 — the content check also covers a source that ignores `pg` and repeats a page.
 
@@ -43,9 +46,10 @@
 
 ## Build / Test / Verification Status
 
-- `WANG_MOVIE_JSON=/tmp/webhtv-recha-new.wprHof/wang-movie.json swift test --package-path ios` → 15 tests pass, including the pre-existing 5 and a type-1 request-shape regression test.
+- `WANG_MOVIE_JSON=/tmp/webhtv-recha-new.wprHof/wang-movie.json swift test --package-path ios` → 16 tests pass, including the pre-existing 5 and a type-1 request-shape regression test.
 - `xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -configuration Debug build` → BUILD SUCCEEDED.
 - Simulator, verified end to end: `爱瓜TV` poster grid → 莲花楼 detail with 41 episodes → episode 01 plays video in the built-in player. Type-1 `如意` and `360` grids load.
+- Type-1 posters verified in the simulator: `360` 全部 and its 电影 → 动作片 category both render real artwork where the same titles previously showed the placeholder, both category rows survive the `class`-less detail response, and opening 惩罚者 still loads its detail and flag.
 - Pagination verified in the simulator: type-4 `爱瓜TV` 电视剧 scrolls well past its 24-title first page, and type-1 `360` 全部 scrolls past its 20-title home page, so both `category(id:page:)` and `home(page:)` are exercised. The category rows stay pinned while the grid scrolls.
 - Category browsing verified in the simulator across all three shapes: `如意` 电影片 opens a child row and 动作片 lists titles; `如意` 电影解说, a childless parent, hides the child row and lists by its own id; type-4 `爱瓜TV` stays a single row with no 全部 chip. `drpyS_听友[听]` renders its row and the empty state explains the blank result.
 - Live protocol run over all 6 type-4 sites, second pass at 16:5x when every host was up: `爱瓜TV`, `采集集合`, `drpyS_枫林影视` and `88看球` all resolved to direct `.m3u8`. `drpyS_枫林影视` is the live confirmation of the `?play=&flag=` resolution path. `php_无水印资源` answered with no categories, and `drpyS_听友[听]` returned 43 categories whose first one is empty.
@@ -59,6 +63,7 @@
 - Category browsing has a parent row and a child row. `categoryGroups` pairs each `type_pid == 0` entry with its children; a source with no `type_pid` at all becomes childless groups and renders as one row. Probed 2026-09-15: no orphan children, no third level, and childless parents such as `360zy` 伦理片 (1641 titles) and `如意` 电影解说 (13836) do list by their own id, which is why a parent chip targets its first child when it has one and itself otherwise. `天涯` is a flat type-1 source, so flatness is not a type-4-only shape.
 - `drpyS_听友[听]` returns an empty list for every one of its 43 categories when probed directly with the correct numeric ids, so its blankness is the provider's own state, not a browsing defect.
 - The direct-media test is a path-extension heuristic, marked with a `ponytail:` comment in `CMSClient.swift`.
+- The detail form costs bandwidth: measured on `360zy`, a 20-title category page grew from 6.5 KB to 49 KB because each record carries `vod_play_url`, `vod_content` and roughly eighty other fields. A type-1 home also now makes two concurrent requests instead of one. Acceptable against poster images of comparable size, but this is the reason the listing payload is large.
 - A failed next page stops pagination silently and keeps the titles already on screen, because the error surface only renders when the grid is empty. The user sees scrolling stop with no explanation.
 - `php_无水印资源` returns an empty grid; over a system-trust client the endpoint completes TLS and answers HTTP 403, so this is the provider's own response.
 - Still not implemented: type-0 XML (2 sites), type-3 Spider/Python/DEX (137 sites), WKWebView/WebHome bridge, SideStore/IPA delivery.

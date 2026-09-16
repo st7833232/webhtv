@@ -174,7 +174,11 @@ public struct CMSClient: Sendable {
 
     public func home(page: Int = 1) async throws -> CMSResponse {
         guard site.type == 4 else {
-            return try await request(page > 1 ? [URLQueryItem(name: "pg", value: String(page))] : [])
+            // The ac=detail form is the only one carrying vod_pic, but it drops `class`, so the
+            // categories come from a concurrent plain request rather than a second round trip.
+            async let categories = request([])
+            async let listing = request(listingQuery(categoryID: nil, page: page))
+            return CMSResponse(classes: try await categories.classes, list: try await listing.list)
         }
         // A type-4 home returns categories without titles, so the first category fills the poster grid.
         let categories = try await request([URLQueryItem(name: "filter", value: "true")])
@@ -186,7 +190,17 @@ public struct CMSClient: Sendable {
 
     /// Both type-1 and type-4 list a category with the same `t=` / `pg=` contract.
     public func category(id: String, page: Int = 1) async throws -> CMSResponse {
-        try await request([URLQueryItem(name: "t", value: id), URLQueryItem(name: "pg", value: String(page))])
+        try await request(listingQuery(categoryID: id, page: page))
+    }
+
+    /// A MacCMS listing omits `vod_pic` unless `ac=detail` is asked for, which is why type-1 posters
+    /// were blank; a type-4 listing already carries the picture, so it is left alone.
+    func listingQuery(categoryID: String?, page: Int) -> [URLQueryItem] {
+        var query = [URLQueryItem]()
+        if site.type == 1 { query.append(URLQueryItem(name: "ac", value: "detail")) }
+        if let categoryID { query.append(URLQueryItem(name: "t", value: categoryID)) }
+        if categoryID != nil || page > 1 { query.append(URLQueryItem(name: "pg", value: String(page))) }
+        return query
     }
 
     /// A type-4 episode may address a web page instead of media; `?play=` returns the playable URL.
@@ -205,6 +219,7 @@ public struct CMSClient: Sendable {
 
     public func search(_ keyword: String, page: Int = 1) async throws -> CMSResponse {
         var query = [URLQueryItem(name: "wd", value: keyword), URLQueryItem(name: "quick", value: "false"), URLQueryItem(name: "extend", value: "")]
+        if site.type == 1 { query.append(URLQueryItem(name: "ac", value: "detail")) }
         if page > 1 { query.append(URLQueryItem(name: "pg", value: String(page))) }
         return try await request(query)
     }

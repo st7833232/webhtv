@@ -8,7 +8,7 @@ Usage:
   task_guard.sh start --id ID --mode MODE --scope PATH [--scope PATH ...]
                       [--adopt-dirty PATH ...]
   task_guard.sh check
-  task_guard.sh finish --verified EVIDENCE --commit-message MESSAGE
+  task_guard.sh finish --verified EVIDENCE --commit-message MESSAGE [--no-tag]
   task_guard.sh status
 
 Modes: quick-fix, standard, assessment, upstream
@@ -16,6 +16,10 @@ Modes: quick-fix, standard, assessment, upstream
 Exit codes: 0 pass, 2 usage/setup error,
 4 safety gate (scope, dirty-file, branch, or HEAD violation),
 6 commit created but recovery-tag creation needs a direct fix and one retry.
+
+--no-tag commits without creating a recovery tag. Tags are opt-in since
+2026-09-16 by the repository owner's decision; pass --no-tag by default and
+omit it only when a recovery tag was actually asked for.
 EOF
 }
 
@@ -311,16 +315,23 @@ create_recovery_tag() {
 finish_task() {
   local verified=""
   local commit_message=""
+  local no_tag=0
   while (($# > 0)); do
     case "$1" in
       --verified) (($# >= 2)) || fail_usage "--verified needs a value"; verified="$2"; shift 2 ;;
       --commit-message) (($# >= 2)) || fail_usage "--commit-message needs a value"; commit_message="$2"; shift 2 ;;
+      --no-tag) no_tag=1; shift ;;
       *) fail_usage "unknown finish option: $1" ;;
     esac
   done
   [[ -n "$verified" && -n "$commit_message" ]] || fail_usage "verification evidence and commit message are required"
 
   if [[ "$(read_state status)" == "commit_needs_tag" ]]; then
+    if ((no_tag)); then
+      write_state status finished
+      printf 'PASS: commit %s left untagged (--no-tag)\n' "$(read_state committed_head)"
+      return
+    fi
     create_recovery_tag "$(read_state committed_head)" "$(read_state verification)"
     return
   fi
@@ -353,6 +364,11 @@ finish_task() {
   commit="$(git rev-parse HEAD)"
   write_state committed_head "$commit"
   write_state verification "$verified"
+  if ((no_tag)); then
+    write_state status finished
+    printf 'PASS: committed %s (no recovery tag)\n' "$commit"
+    return
+  fi
   write_state status commit_needs_tag
   printf 'PASS: committed %s\n' "$commit"
   create_recovery_tag "$commit" "$verified"

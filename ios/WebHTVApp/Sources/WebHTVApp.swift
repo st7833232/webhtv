@@ -169,7 +169,7 @@ private struct HomeView: View {
 private struct CMSView: View {
     let site: Site
     @State private var items = [Vod]()
-    @State private var categories = [CMSCategory]()
+    @State private var groups = [CategoryGroup]()
     @State private var selectedCategory: String?
     @State private var searching = false
     @State private var query = ""
@@ -180,7 +180,12 @@ private struct CMSView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !categories.isEmpty { categoryBar }
+            if !groups.isEmpty {
+                categoryRow(parentChips)
+                if let children = activeGroup?.children, !children.isEmpty {
+                    categoryRow(ForEach(children) { chip($0.name, id: $0.id) })
+                }
+            }
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(items) { vod in
@@ -213,31 +218,42 @@ private struct CMSView: View {
         .appNavigationBar()
     }
 
-    private var categoryBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                // A type-4 home is really its first category, so it has no separate "all" listing.
-                if site.type != 4 { chip("全部", id: nil) }
-                ForEach(categories) { chip($0.name, id: $0.id) }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+    /// The group whose parent or child is currently listed, so the parent row can highlight it.
+    private var activeGroup: CategoryGroup? {
+        groups.first { $0.id == selectedCategory || $0.children.contains { $0.id == selectedCategory } }
+    }
+
+    @ViewBuilder private var parentChips: some View {
+        // A type-4 home is really its first category, so it has no separate "all" listing.
+        if site.type != 4 { chip("全部", id: nil) }
+        ForEach(groups) { group in
+            // A parent with no children lists by its own id; otherwise open its first child.
+            chip(group.parent.name, id: group.children.first?.id ?? group.parent.id, active: activeGroup?.id == group.id)
         }
     }
 
-    private func chip(_ title: String, id: String?) -> some View {
-        let active = !searching && selectedCategory == id
+    private func categoryRow<Content: View>(_ content: Content) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) { content }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+        }
+    }
+
+    /// `active` overrides the default match so a parent chip can stay lit while a child is listed.
+    private func chip(_ title: String, id: String?, active: Bool? = nil) -> some View {
+        let isActive = !searching && (active ?? (selectedCategory == id))
         return Button(title) {
             searching = false
             selectedCategory = id
             Task { await load(category: id) }
         }
         .buttonStyle(.plain)
-        .font(.subheadline.weight(active ? .bold : .regular))
-        .foregroundStyle(active ? appSurface : .white)
+        .font(.subheadline.weight(isActive ? .bold : .regular))
+        .foregroundStyle(isActive ? appSurface : .white)
         .padding(.horizontal, 13)
         .padding(.vertical, 7)
-        .background(active ? .white : appSurface.opacity(0.85), in: Capsule())
+        .background(isActive ? .white : appSurface.opacity(0.85), in: Capsule())
     }
 
     private func load(search: String? = nil, category: String? = nil) async {
@@ -255,9 +271,9 @@ private struct CMSView: View {
             }
             items = response.list
             // A category listing usually omits `class`, so keep the set the home call established.
-            if !response.classes.isEmpty { categories = response.browsableCategories }
-            // A type-4 home lists its first browsable category, so highlight that chip.
-            if site.type == 4, selectedCategory == nil { selectedCategory = categories.first?.id }
+            if !response.classes.isEmpty { groups = response.categoryGroups }
+            // A type-4 home already lists its first category, so highlight that chip.
+            if site.type == 4, selectedCategory == nil { selectedCategory = response.firstListableCategory?.id }
         } catch {
             self.error = error.localizedDescription
         }

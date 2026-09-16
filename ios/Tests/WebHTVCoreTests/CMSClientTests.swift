@@ -109,14 +109,33 @@ private func site(key: String, type: Int, api: String, ext: String = "null") thr
     }
 }
 
-@Test func browsesLeafCategoriesOnTreeSitesAndEveryCategoryOnFlatOnes() throws {
-    // Probed 2026-09-15: 360zy returns t=2 (a parent) with total 0, while its leaf ids list titles.
-    let tree = Data(#"{"class":[{"type_id":1,"type_name":"电影","type_pid":0},{"type_id":6,"type_name":"动作片","type_pid":1},{"type_id":7,"type_name":"喜剧片","type_pid":"1"}]}"#.utf8)
-    #expect(try JSONDecoder().decode(CMSResponse.self, from: tree).browsableCategories.map(\.name) == ["动作片", "喜剧片"])
+@Test func groupsCategoriesIntoParentsAndChildren() throws {
+    // Probed 2026-09-15: 360zy answers t=2 (a parent with children) with total 0, so its children
+    // are what can be listed, while the childless 伦理片 returns 1641 titles under its own id.
+    let tree = Data(#"{"class":[{"type_id":1,"type_name":"电影","type_pid":0},{"type_id":6,"type_name":"动作片","type_pid":1},{"type_id":7,"type_name":"喜剧片","type_pid":"1"},{"type_id":5,"type_name":"伦理片","type_pid":0}]}"#.utf8)
+    let grouped = try JSONDecoder().decode(CMSResponse.self, from: tree).categoryGroups
 
-    // Type-4 sites omit type_pid entirely, so every entry stays browsable.
+    #expect(grouped.map(\.parent.name) == ["电影", "伦理片"])
+    #expect(grouped.first?.children.map(\.name) == ["动作片", "喜剧片"])
+    #expect(grouped.last?.children.isEmpty == true)
+
+    // Type-4 sites, and flat type-1 ones such as 天涯, omit type_pid; each entry becomes its own group.
     let flat = Data(#"{"class":[{"type_id":"2","type_name":"电视剧"},{"type_id":"1","type_name":"电影"}]}"#.utf8)
-    #expect(try JSONDecoder().decode(CMSResponse.self, from: flat).browsableCategories.map(\.name) == ["电视剧", "电影"])
+    let flatGroups = try JSONDecoder().decode(CMSResponse.self, from: flat).categoryGroups
+    #expect(flatGroups.map(\.parent.name) == ["电视剧", "电影"])
+    #expect(flatGroups.allSatisfy { $0.children.isEmpty })
+}
+
+@Test func picksTheFirstListableCategoryPerShape() throws {
+    let tree = Data(#"{"class":[{"type_id":1,"type_name":"电影","type_pid":0},{"type_id":6,"type_name":"动作片","type_pid":1}]}"#.utf8)
+    #expect(try JSONDecoder().decode(CMSResponse.self, from: tree).firstListableCategory?.name == "动作片")
+
+    // A leading parent with no children is listable by its own id rather than skipped.
+    let childless = Data(#"{"class":[{"type_id":5,"type_name":"伦理片","type_pid":0},{"type_id":1,"type_name":"电影","type_pid":0},{"type_id":6,"type_name":"动作片","type_pid":1}]}"#.utf8)
+    #expect(try JSONDecoder().decode(CMSResponse.self, from: childless).firstListableCategory?.name == "伦理片")
+
+    let flat = Data(#"{"class":[{"type_id":"2","type_name":"电视剧"}]}"#.utf8)
+    #expect(try JSONDecoder().decode(CMSResponse.self, from: flat).firstListableCategory?.name == "电视剧")
 }
 
 @Test func usesABoundedRequestTimeout() {

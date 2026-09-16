@@ -15,18 +15,36 @@ public struct CMSResponse: Decodable, Sendable {
         list = try values.decodeIfPresent([Vod].self, forKey: .list) ?? []
     }
 
-    /// MacCMS `class` is a two-level tree and titles hang off the leaves, so listing a parent id
-    /// returns nothing. Sites that omit `type_pid` — type-4 among them — are already flat.
-    /// ponytail: flattens to leaves; give it a parent row only if the leaf list gets unwieldy.
-    public var browsableCategories: [CMSCategory] {
-        let leaves = classes.filter { $0.parentID != 0 }
-        return leaves.isEmpty ? classes : leaves
+    /// MacCMS `class` is at most a two-level tree. Grouping keeps the parent names a flat leaf list
+    /// would throw away. Sites that omit `type_pid` — every type-4 source, and some type-1 ones such
+    /// as 天涯 — come back as childless groups, which render as a single row.
+    public var categoryGroups: [CategoryGroup] {
+        let children = classes.filter { $0.parentID != 0 }
+        guard !children.isEmpty else { return classes.map { CategoryGroup(parent: $0, children: []) } }
+        let byParent = Dictionary(grouping: children, by: \.parentID)
+        return classes.filter { $0.parentID == 0 }.map {
+            CategoryGroup(parent: $0, children: byParent[Int($0.id) ?? 0] ?? [])
+        }
+    }
+
+    /// The category a caller should list first. A parent with no children lists by its own id —
+    /// 360zy's 伦理片 and 如意's 电影解说 both return titles that way.
+    public var firstListableCategory: CMSCategory? {
+        guard let group = categoryGroups.first else { return nil }
+        return group.children.first ?? group.parent
     }
 
     init(classes: [CMSCategory], list: [Vod]) {
         self.classes = classes
         self.list = list
     }
+}
+
+public struct CategoryGroup: Identifiable, Sendable {
+    public let parent: CMSCategory
+    public let children: [CMSCategory]
+
+    public var id: String { parent.id }
 }
 
 public struct CMSCategory: Decodable, Identifiable, Sendable {
@@ -149,7 +167,7 @@ public struct CMSClient: Sendable {
         // A type-4 home returns categories without titles, so the first category fills the poster grid.
         let categories = try await request([URLQueryItem(name: "filter", value: "true")])
         // Match what the caller will offer for browsing, so the listed category is the highlighted one.
-        guard let first = categories.browsableCategories.first else { return categories }
+        guard let first = categories.firstListableCategory else { return categories }
         let listing = try await category(id: first.id)
         return CMSResponse(classes: categories.classes, list: listing.list)
     }

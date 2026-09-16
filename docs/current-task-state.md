@@ -4,6 +4,7 @@
 
 - Port WebHomeTV to iPhone/iOS with an Android-like UI, use the newest user-provided `wang-movie.json`, and offer built-in, Infuse, Fileball, SenPlayer, and VidHub playback choices. The Google TV `csp_JPianAmns` repair is not in scope.
 - Completed: IOS-POC-4A (type-4 sources), 4B (ATS cleartext decision), 4E (request timeout), 4F (category browsing), 4G (two-level categories), 4H (pagination), 4I (type-1 posters), and IOS-POC-2B (WebHome bridge proof).
+- IOS-POC-1F added the local-file / remote-Raw-URL config source split and the config-relative resource resolver. Full record: `docs/IOS-POC-1F-config-sources.md`.
 - IOS-POC-2B returned to the original roadmap's POC-2. `IOS-POC-2A` was already taken by the five-player stage, so the roadmap item took `2B` in the same family. Full record: `docs/IOS-POC-2B-webhome-bridge.md`.
 
 ## Current Scope
@@ -35,6 +36,8 @@
 
 ## Completed Work
 
+- Config sources (IOS-POC-1F): the configuration comes from either an imported file or any HTTPS Raw URL. Core names no hosting provider — a remote source is just a URL. A remote config also anchors relative resource references: `ConfigSource.resourceURL(for:)` resolves `./jar/…`, `./py/…`, `./json/…`, `./drpy_libs/…` against the config's own directory, drops the `;md5;<hash>` suffix, passes absolute references through, and refuses anything that is not a relative path so `csp_*` class names are never mistaken for resources. **This locates resources; it does not download or execute them, and nothing about Python, JAR/DEX or JS execution changed.** A failed remote load keeps the last known good cache, and the source and last-update time survive relaunch.
+
 - WebHome bridge (IOS-POC-2B): `WKWebView` + `WKScriptMessageHandler` reproducing the Android string-RPC contract for `net.request`, `player.playUrl`, `app.search`, `app.history` and `cache.get/set/del`. The JS half is ported from `HomeWebController.getSdk()` because pages only touch `window.fm` / `window.fongmi`, so the injected script is the real compatibility surface. Four approved deviations: `net.resourceUrl` returns the raw URL (no local proxy server), results are never chunked (so the synchronous `resultLength`/`resultChunk` accessors are unnecessary), `app.history` returns `[]` until a history store exists, and out-of-subset methods reject exactly as Android's `default` branch does.
 
 - Type-1 posters: a MacCMS listing omits `vod_pic` entirely unless `ac=detail` is requested, which is why every type-1 card showed the placeholder while type-4 cards did not. Type-1 listings and searches now ask for the detail form. That form also drops `class`, so a type-1 home issues the plain and detail requests concurrently and takes the categories from one and the titles from the other; category calls rely on the view keeping the groups the home call established. Type-4 is untouched because its plain listing already carries the picture.
@@ -49,7 +52,8 @@
 
 ## Build / Test / Verification Status
 
-- `WANG_MOVIE_JSON=/tmp/webhtv-recha-new.wprHof/wang-movie.json swift test --package-path ios` → 23 tests pass, including the pre-existing 5 and a type-1 request-shape regression test.
+- `WANG_MOVIE_JSON=/tmp/webhtv-recha-new.wprHof/wang-movie.json swift test --package-path ios` → 29 tests pass. Two live checks are gated on their own variables: `WANG_MOVIE_URL` for the remote config, and the type-4 sweep.
+- Remote config verified against `https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json?ref_type=heads`: 125,864 bytes, 167 sites, 28 supported, cached SHA-256 identical to the remote, and the resolved `jar/fm.jar` answered HTTP 200. An unreachable URL left the previous sources and cache intact.
 - `xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -configuration Debug build` → BUILD SUCCEEDED.
 - Simulator, verified end to end: `爱瓜TV` poster grid → 莲花楼 detail with 41 episodes → episode 01 plays video in the built-in player. Type-1 `如意` and `360` grids load.
 - WebHome bridge verified in the simulator with the unmodified devkit showcase page: its badge reads `SDK: native`, `fm.req JSON` logged `req-json ok (799ms)` with the full contract shape, its HLS button played the stream in the built-in player, and `cache-set ok (12ms)`. Not exercised from the page: `cache.get`, `cache.del`, `app.search`, `app.history` — offline tests only.

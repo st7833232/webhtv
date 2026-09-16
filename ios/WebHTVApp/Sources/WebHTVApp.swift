@@ -8,6 +8,8 @@ import WebKit
 private let appSurface = Color(red: 0.075, green: 0.14, blue: 0.16)
 private let appAccent = Color.white
 private let selectedSiteKey = "selectedSiteKey"
+private let configSourceURLKey = "configSourceURL"
+private let configUpdatedAtKey = "configUpdatedAt"
 
 @main
 struct WebHTVApp: App {
@@ -26,6 +28,9 @@ private struct ConfigView: View {
     @State private var selectedTab = 0
     @State private var error: String?
     @State private var importing = false
+    @State private var source = ConfigSource.importedFile
+    @State private var updatedAt: Date?
+    @State private var refreshing = false
 
     var body: some View {
         Group {
@@ -49,11 +54,17 @@ private struct ConfigView: View {
                         .tabItem { Label("首頁", systemImage: "play.rectangle.fill") }
 
                     NavigationStack {
-                        SettingsView(sites: sites, selectedSiteID: $selectedSiteID) {
-                            importing = true
-                        } onOpenHome: {
-                            selectedTab = 0
-                        }
+                        SettingsView(
+                            sites: sites,
+                            selectedSiteID: $selectedSiteID,
+                            source: source,
+                            updatedAt: updatedAt,
+                            refreshing: refreshing,
+                            onImport: { importing = true },
+                            onUseRemote: { url in Task { await load(remote: url) } },
+                            onRefresh: { Task { await refreshRemote() } },
+                            onOpenHome: { selectedTab = 0 }
+                        )
                     }
                     .tag(1)
                     .tabItem { Label("設定", systemImage: "gearshape.fill") }
@@ -88,29 +99,57 @@ private struct ConfigView: View {
         defer { url.stopAccessingSecurityScopedResource() }
         do {
             let data = try Data(contentsOf: url)
-            let loaded = try ConfigLoader.decode(data).nativeCMSSites.filter { $0.type == 1 || $0.type == 4 }
-            guard !loaded.isEmpty else {
-                error = "此設定沒有 iOS 可用的 CMS 來源（type-1 或 type-4）。"
-                return
-            }
-            try data.write(to: configURL(), options: .atomic)
-            sites = loaded
-            selectedSiteID = loaded.first { $0.id == selectedSiteID }?.id ?? loaded.first?.id
+            try adopt(data, config: try ConfigLoader.validate(data), from: .importedFile)
             selectedTab = 0
         } catch {
             self.error = error.localizedDescription
         }
     }
 
+    /// `showHome` is false for a refresh: re-fetching the same source should not yank the user out
+    /// of Settings, while pointing the app at a new source should show what it loaded.
+    private func load(remote url: URL, showHome: Bool = true) async {
+        refreshing = true
+        defer { refreshing = false }
+        do {
+            let (data, config) = try await ConfigLoader.fetch(from: url)
+            try adopt(data, config: config, from: .remote(url))
+            if showHome { selectedTab = 0 }
+        } catch {
+            // The cached configuration and the live source list are untouched by a failed fetch.
+            self.error = "遠端設定載入失敗：\(error.localizedDescription)"
+        }
+    }
+
+    private func refreshRemote() async {
+        guard case .remote(let url) = source else { return }
+        await load(remote: url, showHome: false)
+    }
+
+    /// Write, then publish. Callers validate first and hand the result in, so nothing that failed
+    /// validation reaches the cached file — that is what makes a failed refresh safe.
+    private func adopt(_ data: Data, config: WebHTVConfig, from source: ConfigSource) throws {
+        let loaded = config.supportedSites
+        try data.write(to: configURL(), options: .atomic)
+        let now = Date()
+        UserDefaults.standard.set(source.baseURL?.absoluteString, forKey: configSourceURLKey)
+        UserDefaults.standard.set(now.timeIntervalSince1970, forKey: configUpdatedAtKey)
+        self.source = source
+        updatedAt = now
+        sites = loaded
+        selectedSiteID = loaded.first { $0.id == selectedSiteID }?.id ?? loaded.first?.id
+    }
+
     private func restore() {
+        if let stored = UserDefaults.standard.string(forKey: configSourceURLKey), let url = URL(string: stored) {
+            source = .remote(url)
+        }
+        let stamp = UserDefaults.standard.double(forKey: configUpdatedAtKey)
+        if stamp > 0 { updatedAt = Date(timeIntervalSince1970: stamp) }
         do {
             let url = try configURL()
             guard FileManager.default.fileExists(atPath: url.path) else { return }
-            let loaded = try ConfigLoader.decode(Data(contentsOf: url)).nativeCMSSites.filter { $0.type == 1 || $0.type == 4 }
-            guard !loaded.isEmpty else {
-                error = "已保存的設定沒有 iOS 可用來源，請重新匯入。"
-                return
-            }
+            let loaded = try ConfigLoader.validate(Data(contentsOf: url)).supportedSites
             let key = UserDefaults.standard.string(forKey: selectedSiteKey)
             sites = loaded
             selectedSiteID = loaded.first { $0.id == key }?.id ?? loaded.first?.id
@@ -365,8 +404,16 @@ private struct VodCard: View {
 private struct SettingsView: View {
     let sites: [Site]
     @Binding var selectedSiteID: Site.ID?
+    let source: ConfigSource
+    let updatedAt: Date?
+    let refreshing: Bool
     let onImport: () -> Void
+    let onUseRemote: (URL) -> Void
+    let onRefresh: () -> Void
     let onOpenHome: () -> Void
+
+    @State private var askingRemote = false
+    @State private var remoteText = ""
 
     var body: some View {
         List {
@@ -394,11 +441,17 @@ private struct SettingsView: View {
                 }
             }
 
-            Section {
-                Button("重新匯入 wang-movie.json", action: onImport)
-            } footer: {
-                Text("目前支援 \(sites.count) 個 type-1 JSON CMS 來源。")
+            sourceSection
+        }
+        .alert("從網址載入設定", isPresented: $askingRemote) {
+            TextField("https://…/wang-movie.json", text: $remoteText)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("載入") {
+                if let url = URL(string: remoteText.trimmingCharacters(in: .whitespacesAndNewlines)),
+                   url.scheme == "http" || url.scheme == "https" { onUseRemote(url) }
             }
+            Button("取消", role: .cancel) {}
         }
         .scrollContentBackground(.hidden)
         .appWallpaper()
@@ -406,6 +459,44 @@ private struct SettingsView: View {
         .navigationTitle("設定")
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBar()
+    }
+}
+
+private extension SettingsView {
+    @ViewBuilder var sourceSection: some View {
+        Section {
+            LabeledContent("來源", value: sourceLabel)
+            LabeledContent("上次更新", value: updatedLabel)
+            Button("從網址載入設定") {
+                remoteText = source.baseURL?.absoluteString ?? ""
+                askingRemote = true
+            }
+            if isRemote {
+                Button(refreshing ? "更新中…" : "重新整理", action: onRefresh).disabled(refreshing)
+            }
+            Button("匯入本機檔案", action: onImport)
+        } header: {
+            Text("設定來源")
+        } footer: {
+            Text("目前支援 \(sites.count) 個 type-1／type-4 CMS 來源。遠端更新失敗時會保留上一份可用設定。")
+        }
+    }
+
+    var isRemote: Bool {
+        if case .remote = source { return true }
+        return false
+    }
+
+    var sourceLabel: String {
+        switch source {
+        case .importedFile: "本機匯入檔案"
+        case .remote(let url): url.absoluteString
+        }
+    }
+
+    var updatedLabel: String {
+        guard let updatedAt else { return "尚未記錄" }
+        return updatedAt.formatted(date: .abbreviated, time: .shortened)
     }
 }
 

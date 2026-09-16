@@ -139,3 +139,26 @@ The page is long and its buttons carry emoji labels that the simulator renders a
 ### Out-of-scope defect observed
 
 Settings still reads "目前支援 28 個 type-1 JSON CMS 來源。" The count is right but the label has been stale since type-4 support landed in IOS-POC-4A. Not touched here.
+
+
+## IOS-POC-2C — Debug-only CJK fallback for the simulator (2026-09-16)
+
+Every CJK glyph in the WebHome page rendered as tofu while Latin rendered normally, which made the page's controls unidentifiable and is the direct reason B4 and B5 above were left incomplete.
+
+### Diagnosis
+
+Not encoding and not the bridge. The page declares `<meta charset="utf-8">`, and its only non-ASCII content is CJK, CJK punctuation, fullwidth forms and five middle dots — **zero non-BMP characters, so no emoji are involved**. The same app's SwiftUI chrome renders Chinese correctly, so the gap is inside the web content process only. The clincher: the log's `[上午HH:MM:SS]` prefix from `toLocaleTimeString()` also failed, and 上/午 are the most basic shared Han characters, so this is a wholesale fallback failure rather than a coverage gap.
+
+The simulator's public font path carries Hiragino (Japanese) but no PingFang; its only PingFang is `PrivateFrameworks/FontServices.framework/CorePrivate/PingFangUI.ttc`, a system-UI copy UIKit can use and the sandboxed web content process cannot.
+
+### Fix
+
+A `WKUserScript` at document end appends one stylesheet naming `"PingFang SC", "PingFang TC", "Hiragino Sans", "Hiragino Kaku Gothic ProN"`. Wrapped in `#if DEBUG` on purpose: a release build must render WebHome pages exactly as Android does, and a development convenience must not become a product behaviour difference.
+
+Verified: the page now renders `能力测试台`, `真实资源与 App SDK 调用样例`, `原生播放`, `缓存`, `App 入口` and every control label correctly.
+
+### Known limits
+
+- The log panel's `[上午…]` prefix is still tofu. The `pre, code, .log` rule lists the CJK families after the monospace ones and the fallback does not reach them. Cosmetic only — the log's own content is ASCII — so it was left alone rather than tuned by guesswork.
+- Naming a font proves the simulator *can* reach a CJK face; it does not prove anything about a real device. The device path remains unverified until deployment exists.
+- B4 and B5 are still offline-only. Two further attempts to drive `cache.get` and `app.history` from the page did not register, because the page's scroll momentum moves the controls between screenshot and tap. That is an interaction-timing problem, not a font or bridge problem.

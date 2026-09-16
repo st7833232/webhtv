@@ -628,6 +628,17 @@ private struct WebHomeView: View {
     }
 }
 
+#if DEBUG
+private let cjkFallbackScript = #"""
+(function(){
+  var style=document.createElement('style');
+  style.textContent='*{font-family:"PingFang SC","PingFang TC","Hiragino Sans","Hiragino Kaku Gothic ProN",sans-serif!important}'
+    +'pre,code,.log{font-family:ui-monospace,Menlo,"PingFang SC","Hiragino Sans",monospace!important}';
+  (document.head||document.documentElement).appendChild(style);
+})();
+"""#
+#endif
+
 private struct SearchRequest: Identifiable {
     let keyword: String
     var id: String { keyword }
@@ -648,6 +659,13 @@ private struct WebHomeWebView: UIViewRepresentable {
         // At document start, so a page that calls the bridge during parsing still finds window.fm.
         content.addUserScript(WKUserScript(source: WebHomeBridge.sdkScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         content.add(context.coordinator, name: WebHomeBridge.messageHandlerName)
+        #if DEBUG
+        // Simulator readability only. The simulator keeps PingFang as a private system-UI font that
+        // the web content process cannot reach, so every CJK glyph in a page renders as tofu and the
+        // controls become impossible to identify while verifying. Naming a stack restores them.
+        // Debug-only on purpose: a release build must render WebHome pages exactly as Android does.
+        content.addUserScript(WKUserScript(source: cjkFallbackScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        #endif
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = content
         configuration.allowsInlineMediaPlayback = true

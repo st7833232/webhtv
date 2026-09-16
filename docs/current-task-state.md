@@ -36,6 +36,8 @@
 
 ## Completed Work
 
+- Invalid config URLs are reported (IOS-POC-1H). The 從網址載入設定 dialog used to drop unparseable text silently; parsing moved to where the error surface lives, so bad input now says what is expected.
+
 - Launch refresh with retry (IOS-POC-1G): reopening the app re-fetches a remote configuration instead of sitting on the cache, retrying at 2 s, 5 s and 15 s because the first attempt after launch can fail. Verified with a local server armed to fail twice: exactly three requests, adopted on the third. The launch attempt is silent on failure since the cached configuration is already on screen and the 上次更新 row shows its age; a manual refresh still reports errors and does not retry.
 
 - Poster cells are one fixed 2:3 size (IOS-POC-3D). Previously the artwork defined the cell, so a landscape image stretched past its column, ate the grid padding and dragged the title and remarks overlays out of place. An empty container now fixes the ratio and the image fills it as a clipped overlay.
@@ -76,7 +78,6 @@
 - `drpyS_听友[听]` returns an empty list for every one of its 43 categories when probed directly with the correct numeric ids, so its blankness is the provider's own state, not a browsing defect.
 - The direct-media test is a path-extension heuristic, marked with a `ponytail:` comment in `CMSClient.swift`.
 - The detail form costs bandwidth: measured on `360zy`, a 20-title category page grew from 6.5 KB to 49 KB because each record carries `vod_play_url`, `vod_content` and roughly eighty other fields. A type-1 home also now makes two concurrent requests instead of one. Acceptable against poster images of comparable size, but this is the reason the listing payload is large.
-- The 從網址載入設定 dialog silently does nothing when the entered text is not a valid http(s) URL. Introduced in IOS-POC-1F, not yet fixed.
 - A failed next page stops pagination silently and keeps the titles already on screen, because the error surface only renders when the grid is empty. The user sees scrolling stop with no explanation.
 - `php_无水印资源` returns an empty grid; over a system-trust client the endpoint completes TLS and answers HTTP 403, so this is the provider's own response.
 - Still not implemented: type-0 XML (2 sites), type-3 Spider/Python/DEX (137 sites, of which 132 are structurally out of reach), the rest of the WebHome contract (`pan.*`, `ui.*`, `player.playVod*`, `device/site/config/ext.*`, `net.resourceUrl` proxying), WebHome sites in `wang-movie.json`, and SideStore/IPA delivery.

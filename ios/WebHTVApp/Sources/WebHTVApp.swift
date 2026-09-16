@@ -61,7 +61,7 @@ private struct ConfigView: View {
                             updatedAt: updatedAt,
                             refreshing: refreshing,
                             onImport: { importing = true },
-                            onUseRemote: { url in Task { await load(remote: url) } },
+                            onUseRemote: { text in useRemote(text) },
                             onRefresh: { Task { await refreshRemote() } },
                             onOpenHome: { selectedTab = 0 }
                         )
@@ -139,6 +139,17 @@ private struct ConfigView: View {
     /// itself can blip — during this stage's testing the Raw host refused connections for about a
     /// minute and then recovered on its own. A manual refresh does not retry, because the user is
     /// watching and can simply tap again rather than wait through the gaps.
+    /// Parsing lives here rather than in the dialog because this is where the error surface is;
+    /// silently doing nothing was the previous behaviour and gave the user no idea why.
+    private func useRemote(_ text: String) {
+        guard let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              url.scheme == "http" || url.scheme == "https", url.host?.isEmpty == false else {
+            error = "請輸入 http:// 或 https:// 開頭的完整設定網址。"
+            return
+        }
+        Task { await load(remote: url) }
+    }
+
     private func refreshRemote(quiet: Bool = false) async {
         guard case .remote(let url) = source else { return }
         let gaps: [Duration] = quiet ? [.seconds(2), .seconds(5), .seconds(15)] : []
@@ -436,7 +447,7 @@ private struct SettingsView: View {
     let updatedAt: Date?
     let refreshing: Bool
     let onImport: () -> Void
-    let onUseRemote: (URL) -> Void
+    let onUseRemote: (String) -> Void
     let onRefresh: () -> Void
     let onOpenHome: () -> Void
 
@@ -475,10 +486,7 @@ private struct SettingsView: View {
             TextField("https://…/wang-movie.json", text: $remoteText)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-            Button("載入") {
-                if let url = URL(string: remoteText.trimmingCharacters(in: .whitespacesAndNewlines)),
-                   url.scheme == "http" || url.scheme == "https" { onUseRemote(url) }
-            }
+            Button("載入") { onUseRemote(remoteText) }
             Button("取消", role: .cancel) {}
         }
         .scrollContentBackground(.hidden)

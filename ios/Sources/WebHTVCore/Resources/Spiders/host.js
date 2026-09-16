@@ -1,0 +1,292 @@
+/**
+ * CatVod compatibility SDK, shared by the `csp_*` ports and the drpy spiders.
+ *
+ * Native pieces (`__http`, `__crypto`, `__store`, `__util`) are installed by CatVodHost.swift.
+ * Everything expressible in JavaScript lives here so there is one implementation of HTML parsing,
+ * result building and the drpy-style `pdfh`/`pdfa`/`pd` helpers, and no spider re-implements them.
+ */
+var host = (function () {
+  'use strict';
+
+  // ---- HTTP -------------------------------------------------------------
+  function req(url, options) {
+    options = options || {};
+    var res = __http.request(url, {
+      method: options.method || 'GET',
+      headers: options.headers || {},
+      body: typeof options.body === 'object' ? encodeForm(options.body) : (options.body || ''),
+      timeout: options.timeout || 15000,
+      redirect: options.redirect !== false
+    });
+    if (options.json !== false && res.body && (res.body[0] === '{' || res.body[0] === '[')) {
+      try { res.json = JSON.parse(res.body); } catch (e) { /* body is not JSON; leave it */ }
+    }
+    return res;
+  }
+  function get(url, options) { return req(url, Object.assign({}, options, { method: 'GET' })); }
+  function post(url, body, options) {
+    return req(url, Object.assign({}, options, { method: 'POST', body: body }));
+  }
+  function encodeForm(object) {
+    return Object.keys(object)
+      .map(function (k) { return enc(k) + '=' + enc(String(object[k])); })
+      .join('&');
+  }
+
+  // ---- encoding ---------------------------------------------------------
+  function enc(s) { return __util.urlencode(String(s)); }
+  function dec(s) { return __util.urldecode(String(s)); }
+  var base64 = {
+    encode: function (s) { return __crypto.b64encode(String(s)); },
+    decode: function (s) { return __crypto.b64decode(String(s)); }
+  };
+
+  // ---- crypto -----------------------------------------------------------
+  // `mode` is CBC or ECB; `inputEncoding` is base64 or hex for decryption.
+  function aesDecrypt(text, key, iv, mode, inputEncoding) {
+    return __crypto.symmetric('aes', false, String(text), String(key), String(iv || ''),
+                              mode || 'CBC', inputEncoding || 'base64');
+  }
+  function aesEncrypt(text, key, iv, mode) {
+    return __crypto.symmetric('aes', true, String(text), String(key), String(iv || ''), mode || 'CBC', 'base64');
+  }
+  function desDecrypt(text, key, iv, mode) {
+    return __crypto.symmetric('des', false, String(text), String(key), String(iv || ''), mode || 'CBC', 'base64');
+  }
+  function md5(s) { return __crypto.digest('md5', String(s)); }
+  function sha1(s) { return __crypto.digest('sha1', String(s)); }
+  function sha256(s) { return __crypto.digest('sha256', String(s)); }
+  function hmac(algorithm, s, key) { return __crypto.hmac(algorithm, String(s), String(key)); }
+
+  // ---- storage ----------------------------------------------------------
+  var local = {
+    get: function (k) { return __store.get(String(k)); },
+    set: function (k, v) { __store.set(String(k), String(v)); },
+    del: function (k) { __store.del(String(k)); }
+  };
+
+  // ---- util -------------------------------------------------------------
+  function now() { return Math.floor(__util.now()); }
+  function timestamp() { return Math.floor(__util.now() / 1000); }
+  function random(length, alphabet) {
+    alphabet = alphabet || 'abcdefghijklmnopqrstuvwxyz0123456789';
+    var out = '';
+    for (var i = 0; i < length; i++) out += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+    return out;
+  }
+  function match(text, pattern, group) {
+    var m = new RegExp(pattern).exec(String(text || ''));
+    return m ? (m[group === undefined ? 1 : group] || '') : '';
+  }
+
+  // ---- HTML -------------------------------------------------------------
+  // A small forgiving parser. Real-world spider pages are malformed often enough that a strict
+  // parser is the wrong tool; this one only needs to support the selectors spiders actually use.
+  var VOID = { area:1, base:1, br:1, col:1, embed:1, hr:1, img:1, input:1, link:1, meta:1, param:1, source:1, track:1, wbr:1 };
+
+  function parse(html) {
+    var root = { tag: '#root', attrs: {}, children: [], parent: null, text: '' };
+    var current = root;
+    var re = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z][\w:-]*)((?:\s+[^\s"'>\/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s">]+))?)*)\s*(\/?)>|([^<]+)/g;
+    var m;
+    while ((m = re.exec(html)) !== null) {
+      if (m[0].indexOf('<!--') === 0) continue;
+      if (m[5] !== undefined) { current.text += m[5]; continue; }
+      var closing = m[1] === '/', tag = m[2].toLowerCase();
+      if (closing) {
+        var node = current;
+        while (node && node.tag !== tag) node = node.parent;
+        if (node && node.parent) current = node.parent;
+      } else {
+        var el = { tag: tag, attrs: attributes(m[3] || ''), children: [], parent: current, text: '' };
+        current.children.push(el);
+        if (!VOID[tag] && m[4] !== '/') current = el;
+        // <script>/<style> bodies are not markup; skip to the matching close tag.
+        if (tag === 'script' || tag === 'style') {
+          var close = html.toLowerCase().indexOf('</' + tag, re.lastIndex);
+          if (close !== -1) { el.text = html.slice(re.lastIndex, close); re.lastIndex = close; }
+        }
+      }
+    }
+    return root;
+  }
+
+  function attributes(source) {
+    var out = {}, re = /([^\s"'>\/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s">]+)))?/g, m;
+    while ((m = re.exec(source)) !== null) {
+      out[m[1].toLowerCase()] = m[2] !== undefined ? m[2] : (m[3] !== undefined ? m[3] : (m[4] || ''));
+    }
+    return out;
+  }
+
+  function textOf(node) {
+    var out = node.text || '';
+    for (var i = 0; i < node.children.length; i++) out += textOf(node.children[i]);
+    return out;
+  }
+
+  // Supports `tag`, `.class`, `#id`, `[attr]`, `[attr=value]`, descendant and `>` combinators,
+  // plus the `:eq(n)` drpy rules rely on.
+  function selectorPart(part) {
+    var eq = /:eq\((-?\d+)\)$/.exec(part);
+    if (eq) part = part.slice(0, eq.index);
+    var tag = (/^[a-zA-Z*][\w:-]*/.exec(part) || ['*'])[0].toLowerCase();
+    var classes = (part.match(/\.[^.#\[\s:]+/g) || []).map(function (c) { return c.slice(1); });
+    var id = (/#([^.#\[\s:]+)/.exec(part) || [])[1];
+    var attrs = [];
+    var re = /\[\s*([\w:.-]+)\s*(?:([~^$*|]?=)\s*"?([^\]"]*?)"?)?\s*\]/g, m;
+    while ((m = re.exec(part)) !== null) attrs.push({ name: m[1], op: m[2], value: m[3] });
+    return { tag: tag, classes: classes, id: id, attrs: attrs, index: eq ? parseInt(eq[1], 10) : null };
+  }
+
+  function matches(node, part) {
+    if (part.tag !== '*' && node.tag !== part.tag) return false;
+    if (part.id && node.attrs.id !== part.id) return false;
+    var nodeClasses = (node.attrs['class'] || '').split(/\s+/);
+    for (var i = 0; i < part.classes.length; i++) {
+      if (nodeClasses.indexOf(part.classes[i]) === -1) return false;
+    }
+    for (var j = 0; j < part.attrs.length; j++) {
+      var a = part.attrs[j], v = node.attrs[a.name.toLowerCase()];
+      if (v === undefined) return false;
+      if (a.op === '=' && v !== a.value) return false;
+      if (a.op === '*=' && v.indexOf(a.value) === -1) return false;
+      if (a.op === '^=' && v.indexOf(a.value) !== 0) return false;
+    }
+    return true;
+  }
+
+  function descendants(node, out) {
+    for (var i = 0; i < node.children.length; i++) { out.push(node.children[i]); descendants(node.children[i], out); }
+    return out;
+  }
+
+  function select(root, selector) {
+    var groups = String(selector).split(',');
+    var found = [];
+    for (var g = 0; g < groups.length; g++) {
+      var parts = groups[g].trim().split(/\s+/);
+      var scope = [root];
+      for (var p = 0; p < parts.length; p++) {
+        if (parts[p] === '>') { p++; scope = childrenMatching(scope, selectorPart(parts[p])); continue; }
+        scope = descendantsMatching(scope, selectorPart(parts[p]));
+      }
+      found = found.concat(scope);
+    }
+    return found;
+  }
+
+  function applyIndex(list, part) {
+    if (part.index === null) return list;
+    var i = part.index < 0 ? list.length + part.index : part.index;
+    return list[i] ? [list[i]] : [];
+  }
+  function descendantsMatching(scope, part) {
+    var out = [];
+    for (var i = 0; i < scope.length; i++) {
+      var all = descendants(scope[i], []);
+      for (var j = 0; j < all.length; j++) if (matches(all[j], part)) out.push(all[j]);
+    }
+    return applyIndex(out, part);
+  }
+  function childrenMatching(scope, part) {
+    var out = [];
+    for (var i = 0; i < scope.length; i++) {
+      for (var j = 0; j < scope[i].children.length; j++) {
+        if (matches(scope[i].children[j], part)) out.push(scope[i].children[j]);
+      }
+    }
+    return applyIndex(out, part);
+  }
+
+  /** drpy rule: "selector&&attr", where attr may be Text, Html or an attribute name. */
+  function splitRule(rule) {
+    var parts = String(rule).split('&&');
+    var attr = parts.length > 1 ? parts.pop() : 'Text';
+    return { selector: parts.join('&&'), attr: attr };
+  }
+
+  function nodeValue(node, attr) {
+    if (!node) return '';
+    if (attr === 'Text') return textOf(node).replace(/\s+/g, ' ').trim();
+    if (attr === 'Html') return textOf(node);
+    return node.attrs[String(attr).toLowerCase()] || '';
+  }
+
+  /** First match — drpy's `pdfh`. `html` may be a string or a parsed node. */
+  function pdfh(html, rule) {
+    var r = splitRule(rule);
+    var root = typeof html === 'string' ? parse(html) : html;
+    var found = r.selector ? select(root, r.selector) : [root];
+    return nodeValue(found[0], r.attr);
+  }
+
+  /** All matching nodes — drpy's `pdfa`. Returns nodes, to be fed back into `pdfh`. */
+  function pdfa(html, selector) {
+    return select(typeof html === 'string' ? parse(html) : html, selector);
+  }
+
+  /** `pdfh` with the result resolved against a base URL — drpy's `pd`. */
+  function pd(html, rule, base) {
+    return urljoin(base || '', pdfh(html, rule));
+  }
+
+  function urljoin(base, path) {
+    if (!path) return '';
+    if (/^https?:\/\//i.test(path)) return path;
+    if (!base) return path;
+    if (path.indexOf('//') === 0) return (base.split(':')[0] || 'https') + ':' + path;
+    var m = /^(https?:\/\/[^/]+)(.*)$/i.exec(base);
+    if (!m) return path;
+    if (path.charAt(0) === '/') return m[1] + path;
+    var dir = m[2].replace(/[^/]*$/, '');
+    return m[1] + (dir || '/') + path;
+  }
+
+  // ---- CatVod result builders ------------------------------------------
+  // Keeps every spider from hand-rolling the same JSON, and keeps the shape the app already parses.
+  function vod(item) {
+    return {
+      vod_id: String(item.vod_id === undefined ? '' : item.vod_id),
+      vod_name: item.vod_name || '',
+      vod_pic: item.vod_pic || '',
+      vod_remarks: item.vod_remarks || ''
+    };
+  }
+  var result = {
+    list: function (items) { return { list: (items || []).map(vod) }; },
+    page: function (items, page, pagecount, limit, total) {
+      return {
+        list: (items || []).map(vod),
+        page: parseInt(page, 10) || 1,
+        pagecount: pagecount === undefined ? 9999 : pagecount,
+        limit: limit === undefined ? ((items || []).length || 20) : limit,
+        total: total === undefined ? 999999 : total
+      };
+    },
+    home: function (classes, items, filters) {
+      var out = { 'class': (classes || []).map(function (c) {
+        return { type_id: String(c.type_id), type_name: String(c.type_name) };
+      }) };
+      if (items) out.list = items.map(vod);
+      if (filters) out.filters = filters;
+      return out;
+    },
+    detail: function (item) { return { list: [item] }; },
+    play: function (url, parse_, headers) {
+      var out = { parse: parse_ ? 1 : 0, url: url };
+      if (headers) out.header = headers;
+      return out;
+    }
+  };
+
+  return {
+    req: req, get: get, post: post, encodeForm: encodeForm,
+    enc: enc, dec: dec, base64: base64,
+    aesDecrypt: aesDecrypt, aesEncrypt: aesEncrypt, desDecrypt: desDecrypt,
+    md5: md5, sha1: sha1, sha256: sha256, hmac: hmac,
+    local: local, now: now, timestamp: timestamp, random: random, match: match,
+    parse: parse, select: select, text: textOf, pdfh: pdfh, pdfa: pdfa, pd: pd, urljoin: urljoin,
+    result: result
+  };
+})();

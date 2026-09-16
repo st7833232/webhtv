@@ -362,19 +362,23 @@ private struct VodCard: View {
     let vod: Vod
 
     var body: some View {
-        AsyncImage(url: URL(string: vod.picture)) { phase in
-            switch phase {
-            case .success(let image): image.resizable().scaledToFill()
-            default:
-                ZStack {
-                    appSurface
-                    Image(systemName: "film").font(.largeTitle).foregroundStyle(.secondary)
+        // The empty container fixes the cell to one poster ratio and the artwork fills it as an
+        // overlay, so a landscape image is cropped instead of stretching its cell past the column.
+        Color.clear
+            .aspectRatio(2 / 3, contentMode: .fit)
+            .overlay {
+                AsyncImage(url: URL(string: vod.picture)) { phase in
+                    switch phase {
+                    case .success(let image): image.resizable().scaledToFill()
+                    default:
+                        ZStack {
+                            appSurface
+                            Image(systemName: "film").font(.largeTitle).foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
-        }
-        .aspectRatio(2 / 3, contentMode: .fit)
-        .frame(maxWidth: .infinity)
-        .clipped()
+            .clipped()
         .overlay(alignment: .bottom) {
             LinearGradient(colors: [.clear, .black.opacity(0.88)], startPoint: .top, endPoint: .bottom)
                 .frame(height: 86)

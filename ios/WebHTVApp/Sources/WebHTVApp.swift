@@ -173,6 +173,9 @@ private struct CMSView: View {
     @State private var selectedCategory: String?
     @State private var searching = false
     @State private var query = ""
+    @State private var page = 1
+    @State private var canLoadMore = true
+    @State private var loadingMore = false
     @State private var loading = false
     @State private var error: String?
 
@@ -195,9 +198,11 @@ private struct CMSView: View {
                             VodCard(vod: vod)
                         }
                         .buttonStyle(.plain)
+                        .onAppear { if vod.id == items.last?.id { Task { await loadMore() } } }
                     }
                 }
                 .padding(12)
+                if loadingMore { ProgressView().padding(.bottom, 16) }
             }
         }
         .appWallpaper()
@@ -256,9 +261,35 @@ private struct CMSView: View {
         .background(isActive ? .white : appSurface.opacity(0.85), in: Capsule())
     }
 
+    private func loadMore() async {
+        guard canLoadMore, !loadingMore, !loading else { return }
+        loadingMore = true
+        defer { loadingMore = false }
+        do {
+            let next = page + 1
+            let response = try await listing(page: next)
+            let merged = items.merging(newTitlesFrom: response.list)
+            guard merged.count > items.count else { canLoadMore = false; return }
+            items = merged
+            page = next
+        } catch {
+            // Keep what is already on screen and stop rather than retrying a failing page on every scroll.
+            canLoadMore = false
+        }
+    }
+
+    private func listing(page: Int) async throws -> CMSResponse {
+        let client = try CMSClient(site: site)
+        if searching, !query.isEmpty { return try await client.search(query, page: page) }
+        if let selectedCategory { return try await client.category(id: selectedCategory, page: page) }
+        return try await client.home(page: page)
+    }
+
     private func load(search: String? = nil, category: String? = nil) async {
         loading = true
         error = nil
+        page = 1
+        canLoadMore = true
         defer { loading = false }
         do {
             let client = try CMSClient(site: site)

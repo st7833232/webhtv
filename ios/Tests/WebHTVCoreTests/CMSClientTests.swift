@@ -138,6 +138,32 @@ private func site(key: String, type: Int, api: String, ext: String = "null") thr
     #expect(try JSONDecoder().decode(CMSResponse.self, from: flat).firstListableCategory?.name == "电视剧")
 }
 
+@Test func stopsPagingWhenAPageAddsNothingNew() throws {
+    func titles(_ ids: [String]) throws -> [Vod] {
+        let items = ids.map { #"{"vod_id":"\#($0)","vod_name":"t\#($0)"}"# }.joined(separator: ",")
+        return try JSONDecoder().decode(CMSResponse.self, from: Data(#"{"list":[\#(items)]}"#.utf8)).list
+    }
+    let first = try titles(["1", "2"])
+
+    // A genuine next page appends only what is new.
+    #expect(first.merging(newTitlesFrom: try titles(["2", "3"])).map(\.id) == ["1", "2", "3"])
+
+    // 爱瓜TV reports pagecount 9999, so a source repeating a page must be detected by content:
+    // the merge adds nothing and the caller stops instead of looping forever.
+    #expect(first.merging(newTitlesFrom: try titles(["1", "2"])).count == first.count)
+    #expect(first.merging(newTitlesFrom: []).count == first.count)
+}
+
+@Test func addsAPageParameterOnlyBeyondTheFirstPage() throws {
+    // Probed 2026-09-15: 如意 paginates its default home listing with a bare pg=.
+    let client = try CMSClient(site: site(key: "cms", type: 1, api: "https://example.com/api.php/provide/vod"))
+    #expect(try client.requestURL([]).absoluteString == "https://example.com/api.php/provide/vod?")
+    #expect(try client.requestURL([URLQueryItem(name: "pg", value: "2")]).absoluteString
+        == "https://example.com/api.php/provide/vod?pg=2")
+    #expect(try client.requestURL([URLQueryItem(name: "t", value: "6"), URLQueryItem(name: "pg", value: "3")]).absoluteString
+        == "https://example.com/api.php/provide/vod?t=6&pg=3")
+}
+
 @Test func usesABoundedRequestTimeout() {
     // Guards the fix for unreachable sources hanging the screen; the URLSession default is 60 s.
     #expect(URLSession.webHTV.configuration.timeoutIntervalForRequest == 10)

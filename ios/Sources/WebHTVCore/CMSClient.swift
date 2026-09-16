@@ -101,6 +101,16 @@ public struct Vod: Decodable, Identifiable, Sendable {
     }
 }
 
+public extension Array where Element == Vod {
+    /// Pagination stops when a page adds nothing. That covers both the end of a list and a source
+    /// that ignores `pg` and keeps returning the same page — `爱瓜TV` reports pagecount 9999 and
+    /// total 999999, so the page metadata cannot be used as the stop signal.
+    func merging(newTitlesFrom page: [Vod]) -> [Vod] {
+        let known = Set(map(\.id))
+        return self + page.filter { !known.contains($0.id) }
+    }
+}
+
 public struct Flag: Equatable, Sendable {
     public let name: String
     public let episodes: [Episode]
@@ -162,13 +172,15 @@ public struct CMSClient: Sendable {
         self.site = site
     }
 
-    public func home() async throws -> CMSResponse {
-        guard site.type == 4 else { return try await request([]) }
+    public func home(page: Int = 1) async throws -> CMSResponse {
+        guard site.type == 4 else {
+            return try await request(page > 1 ? [URLQueryItem(name: "pg", value: String(page))] : [])
+        }
         // A type-4 home returns categories without titles, so the first category fills the poster grid.
         let categories = try await request([URLQueryItem(name: "filter", value: "true")])
         // Match what the caller will offer for browsing, so the listed category is the highlighted one.
         guard let first = categories.firstListableCategory else { return categories }
-        let listing = try await category(id: first.id)
+        let listing = try await category(id: first.id, page: page)
         return CMSResponse(classes: categories.classes, list: listing.list)
     }
 

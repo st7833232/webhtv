@@ -260,6 +260,10 @@ private struct CMSView: View {
     @State private var items = [Vod]()
     @State private var groups = [CategoryGroup]()
     @State private var selectedCategory: String?
+    /// Filter rows for the listed category, and the value chosen in each, keyed by the row's own
+    /// `key` so it can be handed straight to the source as `extend`.
+    @State private var filterRows = [String: [CMSFilter]]()
+    @State private var chosenFilters = [String: String]()
     @State private var searching = false
     @State private var query = ""
     @State private var page = 1
@@ -276,6 +280,11 @@ private struct CMSView: View {
                 categoryRow(parentChips)
                 if let children = activeGroup?.children, !children.isEmpty {
                     categoryRow(ForEach(children) { chip($0.name, id: $0.id) })
+                }
+                // Filter rows belong to a category, so they only appear once one is listed, and
+                // only for a source whose API publishes them at all.
+                ForEach(activeFilterRows) { row in
+                    filterRow(row)
                 }
             }
             ScrollView {
@@ -323,13 +332,61 @@ private struct CMSView: View {
         groups.first { $0.id == selectedCategory || $0.children.contains { $0.id == selectedCategory } }
     }
 
+    /// True when the source's own category list already opens with an "all" entry, as every
+    /// 苹果CMS App-API site does (`type_id: 0, type_name: 全部`). Adding ours on top of it showed
+    /// two 全部 chips side by side.
+    private var providerSuppliesAllChip: Bool {
+        groups.first.map { $0.parent.name == "全部" || $0.parent.id == "0" } ?? false
+    }
+
     @ViewBuilder private var parentChips: some View {
         // A type-4 home is really its first category, so it has no separate "all" listing.
-        if site.type != 4 { chip("全部", id: nil) }
+        if site.type != 4 && !providerSuppliesAllChip { chip("全部", id: nil) }
         ForEach(groups) { group in
             // A parent with no children lists by its own id; otherwise open its first child.
             chip(group.parent.name, id: group.children.first?.id ?? group.parent.id, active: activeGroup?.id == group.id)
         }
+    }
+
+    /// The rows for whatever category is listed. A child category inherits its parent's rows,
+    /// because the API keys them by the parent's `type_id`.
+    private var activeFilterRows: [CMSFilter] {
+        guard !searching else { return [] }
+        if let selectedCategory, let rows = filterRows[selectedCategory] { return rows }
+        if let parent = activeGroup?.parent.id, let rows = filterRows[parent] { return rows }
+        return []
+    }
+
+    private func filterRow(_ row: CMSFilter) -> some View {
+        categoryRow(
+            HStack(spacing: 8) {
+                Text(row.name)
+                    .font(.caption).bold()
+                    .foregroundStyle(.white.opacity(0.75))
+                    .frame(minWidth: 34, alignment: .leading)
+                ForEach(row.options) { option in
+                    filterChip(row: row.key, option: option)
+                }
+            }
+        )
+    }
+
+    private func filterChip(row: String, option: CMSFilter.Option) -> some View {
+        // An unset row means the empty value, which is what "全部" carries.
+        let isActive = (chosenFilters[row] ?? "") == option.value
+        return Button {
+            if option.value.isEmpty { chosenFilters.removeValue(forKey: row) }
+            else { chosenFilters[row] = option.value }
+            Task { await load(category: selectedCategory) }
+        } label: {
+            Text(option.name)
+                .font(.footnote)
+                .foregroundStyle(isActive ? appSurface : .white)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 5)
+                .background(isActive ? .white : appSurface.opacity(0.85), in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     private func categoryRow<Content: View>(_ content: Content) -> some View {
@@ -341,11 +398,20 @@ private struct CMSView: View {
     }
 
     /// `active` overrides the default match so a parent chip can stay lit while a child is listed.
+    /// Choosing a different category drops the filters chosen for the previous one: their rows
+    /// belong to that category, and sending 剧情 to a category that has no such class empties the
+    /// listing for no visible reason.
+    private func selectCategory(_ id: String?) {
+        guard selectedCategory != id else { return }
+        chosenFilters.removeAll()
+        selectedCategory = id
+    }
+
     private func chip(_ title: String, id: String?, active: Bool? = nil) -> some View {
         let isActive = !searching && (active ?? (selectedCategory == id))
         return Button(title) {
             searching = false
-            selectedCategory = id
+            selectCategory(id)
             Task { await load(category: id) }
         }
         .buttonStyle(.plain)
@@ -376,7 +442,9 @@ private struct CMSView: View {
     private func listing(page: Int) async throws -> CMSResponse {
         let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
         if searching, !query.isEmpty { return try await client.search(query, page: page) }
-        if let selectedCategory { return try await client.category(id: selectedCategory, page: page) }
+        if let selectedCategory {
+            return try await client.category(id: selectedCategory, page: page, extend: chosenFilters)
+        }
         return try await client.home(page: page)
     }
 
@@ -391,13 +459,15 @@ private struct CMSView: View {
             let response = if let search, !search.isEmpty {
                 try await client.search(search)
             } else if let category {
-                try await client.category(id: category)
+                try await client.category(id: category, extend: chosenFilters)
             } else {
                 try await client.home()
             }
             items = response.list
             // A category listing usually omits `class`, so keep the set the home call established.
             if !response.classes.isEmpty { groups = response.categoryGroups }
+            // Same for the filter rows: only the home call carries them.
+            if !response.filters.isEmpty { filterRows = response.filters }
             // A type-4 home already lists its first category, and a spider home falls back to the
             // same behaviour because most spiders return no home list at all — highlight that chip.
             if site.type == 4 || site.isCSPSpider, selectedCategory == nil {

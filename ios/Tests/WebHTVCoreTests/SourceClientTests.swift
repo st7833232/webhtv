@@ -178,3 +178,51 @@ private extension String {
         count >= width ? self : self + String(repeating: " ", count: width - count)
     }
 }
+
+/// Filters are CatVod's own `{key, name, value:[{n,v}]}` shape, keyed by `type_id`. `AppGet` is the
+/// only ported class whose API publishes them (`filter_type_list`); MacCMS has no filter protocol,
+/// so a type-1 response must decode to an empty set rather than failing.
+@Test func decodesTheCatVodFilterRowsAndToleratesTheirAbsence() throws {
+    let withFilters = try JSONDecoder().decode(CMSResponse.self, from: Data(#"""
+    {"class":[{"type_id":"1","type_name":"电影"}],
+     "filters":{"1":[
+        {"key":"class","name":"類型","value":[{"n":"全部","v":""},{"n":"剧情","v":"剧情"}]},
+        {"key":"by","name":"排序","value":[{"n":"全部","v":""},{"n":"最新","v":"time"}]}]}}
+    """#.utf8))
+    let rows = try #require(withFilters.filters["1"])
+    #expect(rows.map(\.key) == ["class", "by"])
+    #expect(rows[0].name == "類型")
+    #expect(rows[0].options.map(\.name) == ["全部", "剧情"])
+    // An empty value is how "no constraint" travels, and it must survive decoding.
+    #expect(rows[0].options[0].value.isEmpty)
+    #expect(rows[1].options[1].value == "time")
+
+    // A MacCMS response has no `filters` key at all.
+    let plain = try JSONDecoder().decode(CMSResponse.self, from: Data(#"{"class":[],"list":[]}"#.utf8))
+    #expect(plain.filters.isEmpty)
+
+    // A year row ships numbers rather than strings on some sources.
+    let numeric = try JSONDecoder().decode(CMSResponse.self, from: Data(#"""
+    {"filters":{"2":[{"key":"year","name":"年代","value":[{"n":2026,"v":2026}]}]}}
+    """#.utf8))
+    #expect(numeric.filters["2"]?.first?.options.first?.value == "2026")
+}
+
+/// The whole point of the filter rows: the chosen values must reach the spider's `extend`, keyed as
+/// the row named itself. Gated on the real site because only a live API publishes filter rows.
+@Test func sendsChosenFilterValuesBackToTheSpider() async throws {
+    guard let raw = ProcessInfo.processInfo.environment["CSP_GOLDEN_SITE"] else { return }
+    let site = try JSONDecoder().decode(Site.self, from: Data(raw.utf8))
+    let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver())
+    let home = try await client.home()
+    guard let category = home.classes.first(where: { !($0.id == "0") }),
+          let rows = home.filters[category.id], let row = rows.first,
+          let option = row.options.first(where: { !$0.value.isEmpty }) else {
+        print("[filters] this site publishes none; nothing to assert")
+        return
+    }
+    print("[filters] \(category.name): rows=\(rows.map(\.key)), applying \(row.key)=\(option.value)")
+    let filtered = try await client.category(id: category.id, extend: [row.key: option.value])
+    // The listing must still come back — a rejected filter would empty it.
+    #expect(!filtered.list.isEmpty, "filtering \(row.key)=\(option.value) returned nothing")
+}

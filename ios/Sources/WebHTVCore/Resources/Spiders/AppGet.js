@@ -45,6 +45,11 @@ var spider = (function () {
   // The original hides these categories; keeping the filter keeps the class list identical.
   var HIDDEN = ['正版QQ群', '伦理', '福利', '小影院'];
 
+  // Only the rows the API's typeFilterVodList actually accepts, with the labels the original Java
+  // gives them. Anything else the site invents is dropped rather than shown as a dead row.
+  var FILTER_KEYS = ['class', 'area', 'lang', 'year', 'sort'];
+  var FILTER_NAMES = { 'class': '類型', area: '地區', lang: '語言', year: '年代', sort: '排序' };
+
   return {
     init: function (extend) {
       var ext = {};
@@ -71,13 +76,32 @@ var spider = (function () {
 
     homeContent: function () {
       var data = api('/getappapi.index/initV119', '{}');
-      var classes = [];
+      var classes = [], filters = {};
       (data.type_list || []).forEach(function (t) {
-        if (HIDDEN.indexOf(t.type_name) === -1) {
-          classes.push({ type_id: String(t.type_id), type_name: t.type_name });
-        }
+        if (HIDDEN.indexOf(t.type_name) !== -1) return;
+        var id = String(t.type_id);
+        classes.push({ type_id: id, type_name: t.type_name });
+        // The API ships each category's own filter rows. `sort` is renamed `by` because that is
+        // the key categoryContent maps back onto the API's `sort` — the same rename the original
+        // Java does in createFilterItem.
+        var rows = [];
+        (t.filter_type_list || []).forEach(function (f) {
+          if (FILTER_KEYS.indexOf(f.name) === -1) return;
+          var options = (f.list || []).map(function (v) {
+            var label = String(v);
+            // The API already leads most rows with 全部; that entry means "no constraint", so it
+            // must travel as an empty value rather than the literal word, which the API would
+            // filter by. Adding another one would show two 全部 chips, which is the bug the
+            // category row itself had.
+            return { n: label, v: label === '全部' ? '' : label };
+          });
+          if (!options.length) return;
+          if (options[0].v !== '') options.unshift({ n: '全部', v: '' });
+          rows.push({ key: f.name === 'sort' ? 'by' : f.name, name: FILTER_NAMES[f.name], value: options });
+        });
+        if (rows.length) filters[id] = rows;
       });
-      return host.result.home(classes, vodList(data.recommend_list));
+      return host.result.home(classes, vodList(data.recommend_list), filters);
     },
 
     categoryContent: function (tid, page, filter, extend) {

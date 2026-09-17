@@ -58,6 +58,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 5G | WebView media sniffer + first-bytes probe; 29 → 35 playable | `docs/IOS-POC-5G-media-sniffer.md` |
 | 5H | Removed the `Task { }` race that made four bridge tests flaky | the 5G document |
 | 5I | XBPQ knew only the older 苹果CMS skins; 永樂 rendered its nav as films | `docs/IOS-POC-5I-xbpq-listing-templates.md` |
+| 5J | One 全部 chip instead of two; CatVod filter rows under the category row | `docs/IOS-POC-5J-category-filters.md` |
 
 ## Important Decisions
 
@@ -233,9 +234,8 @@ without further code, which is why they are worth more than their site counts su
 - **`parse:1` is not playable.** It means “open in a browser and sniff the media”, and no WebView
   sniffer exists. `SourceClient.playbackURL` returns nil so the UI reports an unplayable episode
   rather than handing AVPlayer a web page.
-- **A site whose own category list contains 「全部」 renders two 「全部」 chips** (王子 does). The app
-  adds its own and `categoryGroups` keeps the provider's. Pre-existing rendering behaviour that
-  only became visible once spider sites were listed; not introduced by IOS-POC-5D.
+- ~~A site whose own category list contains 「全部」 renders two chips~~ **Fixed in IOS-POC-5J**: the
+  app's own 全部 is suppressed when the provider's first category is already an “all” entry.
 - **2 of the 15 spider sites currently fail on provider state, not app defects** (confirmed with
   `curl`, 2026-09-17): AG動漫's episode m3u8 answers HTTP 404 with or without `Referer`/UA, and
   方舟动漫's host answers HTTP 403 while the sibling AppGet site 王子 answers 200.

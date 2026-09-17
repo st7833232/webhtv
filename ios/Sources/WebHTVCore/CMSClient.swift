@@ -3,16 +3,22 @@ import Foundation
 public struct CMSResponse: Decodable, Sendable {
     public let classes: [CMSCategory]
     public let list: [Vod]
+    /// Per-category filter rows, keyed by `type_id`, exactly as CatVod publishes them. Empty for
+    /// every MacCMS source: the protocol has no filter call, so only spiders whose API exposes one
+    /// (`AppGet`'s `filter_type_list`) ever fill this.
+    public let filters: [String: [CMSFilter]]
 
     enum CodingKeys: String, CodingKey {
         case classes = "class"
         case list
+        case filters
     }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         classes = try values.decodeIfPresent([CMSCategory].self, forKey: .classes) ?? []
         list = try values.decodeIfPresent([Vod].self, forKey: .list) ?? []
+        filters = try values.decodeIfPresent([String: [CMSFilter]].self, forKey: .filters) ?? [:]
     }
 
     /// MacCMS `class` is at most a two-level tree. Grouping keeps the parent names a flat leaf list
@@ -34,9 +40,60 @@ public struct CMSResponse: Decodable, Sendable {
         return group.children.first ?? group.parent
     }
 
-    init(classes: [CMSCategory], list: [Vod]) {
+    init(classes: [CMSCategory], list: [Vod], filters: [String: [CMSFilter]] = [:]) {
         self.classes = classes
         self.list = list
+        self.filters = filters
+    }
+}
+
+/// One row of filter chips — CatVod's `{key, name, value: [{n, v}]}`.
+///
+/// `key` is what `categoryContent`'s `extend` is keyed by, so it travels back to the spider
+/// unchanged; `name` is only ever shown to the user.
+public struct CMSFilter: Decodable, Identifiable, Sendable {
+    public let key: String
+    public let name: String
+    public let options: [Option]
+
+    public struct Option: Decodable, Identifiable, Sendable {
+        /// Display name; CatVod calls it `n`.
+        public let name: String
+        /// The value sent back in `extend`; CatVod calls it `v`. Empty means "no constraint".
+        public let value: String
+
+        public var id: String { value }
+
+        enum CodingKeys: String, CodingKey { case name = "n", value = "v" }
+
+        public init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            // Both halves are strings in practice, but a year filter sometimes ships numbers.
+            name = (try? values.decodeString(forKey: .name)) ?? ""
+            value = (try? values.decodeString(forKey: .value)) ?? ""
+        }
+
+        public init(name: String, value: String) {
+            self.name = name
+            self.value = value
+        }
+    }
+
+    public var id: String { key }
+
+    enum CodingKeys: String, CodingKey { case key, name, value }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        key = try values.decodeIfPresent(String.self, forKey: .key) ?? ""
+        name = try values.decodeIfPresent(String.self, forKey: .name) ?? ""
+        options = try values.decodeIfPresent([Option].self, forKey: .value) ?? []
+    }
+
+    public init(key: String, name: String, options: [Option]) {
+        self.key = key
+        self.name = name
+        self.options = options
     }
 }
 

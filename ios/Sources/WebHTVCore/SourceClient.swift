@@ -36,16 +36,21 @@ public enum SourceClient: Sendable {
             // same fallback a type-4 home already uses: list the first browsable category.
             guard home.list.isEmpty, let first = home.firstListableCategory else { return home }
             let listing = try await category(id: first.id, page: page)
-            return CMSResponse(classes: home.classes, list: listing.list)
+            // Keep the home response's filters: the fallback only borrows the category's titles.
+            return CMSResponse(classes: home.classes, list: listing.list, filters: home.filters)
         }
     }
 
-    public func category(id: String, page: Int = 1) async throws -> CMSResponse {
+    /// `extend` carries the chosen filter values, keyed exactly as the source's own filter rows
+    /// name them. A MacCMS endpoint has no filter protocol, so it ignores them.
+    public func category(id: String, page: Int = 1,
+                         extend: [String: String] = [:]) async throws -> CMSResponse {
         switch self {
         case .cms(let client):
             return try await client.category(id: id, page: page)
         case .spider(let session):
-            return try await decode(CMSResponse.self, from: session.category(tid: id, page: String(page)))
+            return try await decode(CMSResponse.self,
+                                    from: session.category(tid: id, page: String(page), extend: extend))
         }
     }
 

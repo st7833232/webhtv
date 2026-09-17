@@ -3,20 +3,37 @@
 Living record of which spiders are ported, verified, blocked, or waiting on a file.
 Audit data: `docs/CSP_PORTABILITY_MATRIX.md`. Runtime contract: `docs/IOS_SPIDER_RUNTIME_SPEC.md`.
 
-Last updated 2026-09-16 (IOS-POC-5B).
+Last updated 2026-09-17 (IOS-POC-5C reconciliation; the ports themselves are unchanged since
+IOS-POC-5B).
 
 ## Headline
 
-| | classes | sites |
-|---|---:|---:|
-| configured `csp_*` | 51 | 90 |
-| **portable** (categories A–C) | **33** | **54** |
-| ported and verified | 3 | 15 |
-| blocked by native protection (H) | 23 | 34 |
-| missing resource | 2 | 2 |
+| | audit rows | distinct classes | sites |
+|---|---:|---:|---:|
+| configured `csp_*` | 58 | 51 | 90 |
+| **portable** (categories A–C) | **33** | **26** | **54** |
+|  ported and verified | 3 | 3 | 15 |
+|  portable, not yet ported | 30 | 23 | 39 |
+| blocked by native protection (H) | 23 | 23 | 34 |
+| missing resource | 2 | 2 | 2 |
+
+**Read the two class columns carefully.** The audit keys a class by *(class name, JAR)*, so the same
+class shipped in two JARs is two rows: 58 rows over 51 distinct names. Only the distinct column adds
+up to 51 (26 + 23 + 2). The sites column is exact either way, because each configured site maps to
+exactly one row. Earlier revisions of this file and the summary table in
+`docs/CSP_PORTABILITY_MATRIX.md` put the 33-row figure under a “classes” heading against a
+denominator of 51, which cannot be right — 33 + 23 + 2 = 58, not 51. The port count is what matters
+for planning, and a duplicated class costs one port, not two: porting the 26th portable class covers
+every JAR it appears in.
 
 **54 of 90 sites are reachable work.** The earlier record called all 90 permanently unreachable;
-that was wrong, and this file supersedes it.
+that was wrong, and this file supersedes it — `docs/IOS-TYPE3-REACHABILITY-2026-09-16.md` now
+carries a banner saying so.
+
+**“Verified” here means verified through the core library and its golden tests, not visible in the
+app.** The app target still lists `WebHTVConfig.supportedSites` (type-0/1/4) and routes every
+content call through `CMSClient`; nothing calls `drivableSites(resolvedBy:)`. Until that is wired
+up, the app UI shows 30 of 167 sources while the runtime can drive 45.
 
 ## Verified
 
@@ -25,6 +42,13 @@ that was wrong, and this file supersedes it.
 | `AppGet` | 5 | C. HTTP + crypto | Live golden: home 6 classes → category 30 → detail 荒山野店, 2 flags → search 20 → player `parse:0` direct m3u8. |
 | `XBPQ` | 7 | C. rule engine | Live golden on **two** sites. 果果短剧: category 30 → detail → `parse:0` m3u8. AG動漫: category 12 → detail 金田一少年事件簿 with **149 episodes** → `parse:0` m3u8. |
 | `XYQHiker` | 3 | A. rule engine | Live golden on 农民影视: category 30 → detail 《抓特务》 with flags `[线路①, 线路②]` → search 20 → player `parse:0` m3u8. |
+
+All three were re-run live on 2026-09-17 at HEAD `226e826c` and each still ends in a `parse:0`
+direct stream. **Caveat on `XYQHiker`:** all 3 of its configured sites set `ext` to a relative path
+(`./json/农民影视.json`), and `ConfigSource.importedFile` has no base URL, so `resourceURL` returns
+nil and the rule file cannot be fetched. Those 3 sites therefore work only when the configuration
+was loaded from a remote URL; the 2026-09-17 golden run substituted the absolute URL by hand.
+`AppGet` and `XBPQ` carry inline `ext` objects and are unaffected.
 
 `XBPQ` and `XYQHiker` are **rule engines**, so those 10 sites are what this configuration happens to
 contain — the ports serve any future site configured for either engine without further work.
@@ -44,6 +68,24 @@ site-specific scrapers, which is why they are worth far more than their site cou
 | `App3Q` | 2 | C | App-API family |
 | `Douban` | 2 | A | plain JSON |
 | remaining A/B/C | 3 | A–C | `AppYsV2`, `GuaziTY`, `Wwys`, `Jpys`, `Jys`, `Hxq`, `PianKu8`, `Feiyu`, `AppYQK`, `HemaDJ`, `WeiguanDJ`, `HaokanDJ`, `QimaoDJ`, `AppSy`, `MiaoWu`, `MoDu`, `Uvod`, 1 site each |
+
+### `AppQi` — static reading done 2026-09-17, not implemented
+
+Recorded so the decompilation is not repeated. Against the verified `AppGet`, `AppQi` differs only
+in: the `/qijiappapi.index/` endpoint prefix; `init` and `search` method names taken from `ext`
+(defaults `initV120` / `searchList`, and all 6 configured sites set `initV122`, one setting
+`search: mineInfo`); a home that also builds `filter_type_list` into CatVod `filters`; a slider
+challenge retried when search answers `code 1001`; and a player that POSTs the whole
+`parse_api=…&url=…&token=…` string to `/qijiappapi.index/vodParse` signed with
+`app-api-verify-sign: base64(AES-CBC(timestamp, dataKey, dataIv))`, whose decrypted reply is
+`{"json": "{\"url\": …}"}`. The crypto is stock `AES/CBC/PKCS7` on the site's own `dataKey`/`dataIv`,
+already in `CatVodHost`.
+
+Two things must not be copied from `AppGet.js`: the episode `url=` payload is
+`base64(AES(url))`, **not** plain base64 — the site's own `vodParse` endpoint consumes it, so the
+encryption is not internal to the spider — and `Proxy.getUrl()` danmaku URLs have no iOS equivalent
+(no local HTTP server) and are simply dropped. 5 of the 6 sites resolve their host from an `ext.site`
+text file of candidate URLs, which `AppGet.js` already handles.
 
 ## Blocked — native-protected payload
 

@@ -94,6 +94,10 @@ There must never be two JS runtimes. Native half in `Spider/Host/*.swift`, JavaS
 | WebView / sniffing | — | **not implemented**; no ported spider needs it yet |
 | `proxy` | ABI present, no host plumbing | **not implemented** |
 
+**Not yet wired to the app UI.** `CSPSourceResolver` and `WebHTVConfig.drivableSites(resolvedBy:)`
+are complete, but the app target still lists `supportedSites` and drives content through
+`CMSClient`, so a ported spider is reachable only from the core library and the golden tests.
+
 ## Adding a port
 
 1. Decompile and read the original: `jadx -d out jar/<name>.jar`.

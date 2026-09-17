@@ -6,16 +6,24 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current Scope
 
-- Branch `ios-poc`, baseline HEAD `e1db99d8` before the IOS-POC-2E commit, level with `origin/ios-poc` at that point. Re-check with `git log` rather than trusting these ids.
-- Android `app/` is read-only for all iOS work and has never been modified.
-- Every stage below has an annotated `recovery/<task-id>/*` tag. Tags through `IOS-POC-1H` are on the remote.
+- Branch `ios-poc`, HEAD `226e826c` after IOS-POC-5B, level with `origin/ios-poc`. **Re-check with `git log` rather than trusting any id quoted here.**
+- Android `app/` is read-only for all iOS work and has never been modified: `git diff <branch-point>..HEAD -- app/` is empty, and the 42 commits on this branch touch only `ios/`, `docs/`, `scripts/`, `AGENTS.md` and `.codex/`.
+- Stages through IOS-POC-4J have an annotated `recovery/<task-id>/*` tag; tags through `IOS-POC-1H` are on the remote. **Recovery tags became opt-in on 2026-09-16** (AGENTS.md §6), so IOS-POC-5A onwards are deliberately untagged.
 
 ## Non-Negotiable Constraints
 
 - Preserve Android `main`, unrelated dirty files, and the repository's task-guard / Ponytail / research / approval gates. Do not push, sign, package or publish without user authorization.
 - No jailbreak, always-on self-hosted server, or recurring infrastructure cost for the personal iPhone path.
 - **ATS: superseded by explicit user decision (2026-09-15, IOS-POC-4B).** The user was offered a narrow per-domain exception, no change, or global cleartext, was told the earlier records forbid weakening ATS globally for one site, and chose global cleartext. `NSAllowsArbitraryLoads` ships. Keep it; do not broaden further — no server-trust override, no pinning bypass — without a fresh decision.
-- Do not claim iOS can execute Python, JAR/DEX or JS. No Spider runtime exists.
+- **Do not claim iOS executes Python, JAR or DEX — it does not, and that is deliberate.** A CatVod
+  spider runtime *does* exist since IOS-POC-5A, but it works by **reimplementing the CatVod Spider
+  contract in JavaScript on JavaScriptCore**, never by running Android bytecode. The decompiled
+  Java is a specification only. `docs/IOS_SPIDER_RUNTIME_SPEC.md` is the single source of truth for
+  that boundary; an earlier version of this line read “No Spider runtime exists” and was left stale
+  by the IOS-POC-5A/5B commits.
+- There is still **no Python runtime and no drpy JavaScript loader.** `host.js` is written to be
+  drpy-compatible (`pdfh`/`pdfa`/`pd`) and `ConfigSource` resolves `./py/` and `./drpy_libs/`
+  references, but nothing loads or executes either. Locating a resource is not running it.
 
 ## Stage index
 
@@ -41,13 +49,30 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 4J | type-0 MacCMS XML sources | `docs/IOS-POC-4J-type0-xml-sources.md` |
 | 4B | ATS cleartext decision | same document |
 | 4E–4I | Request timeout, category browsing, two-level categories, pagination, type-1 posters | commits |
+| 5A | CatVod spider runtime on JavaScriptCore + `CatVodHost` + the `AppGet` port | `docs/IOS_SPIDER_RUNTIME_SPEC.md`, `docs/CSP_PORTABILITY_MATRIX.md`, `docs/CSP_MIGRATION_STATUS.md` |
+| 5B | `XBPQ` and `XYQHiker` rule engines | `docs/CSP_MIGRATION_STATUS.md` |
+| 5C | Reconciled this document and the handoff with the code at `226e826c`; no functional change | this document |
 
 ## Important Decisions
 
 - Input baseline: Recha `wang-movie.json`, 125,864 bytes, SHA-256 `b17576e34eb42b4c589a818ef8b5ec2655a2c7a188d626fc427c37d628897168`, 167 sites (2 type-0, 22 type-1, 137 type-3, 6 type-4). The archive itself is external, not committed.
-- **Of the 137 type-3 sites, 90 are structurally out of reach on iOS**, not merely unimplemented: every JAR this configuration references contains `classes.dex` and no `.class` file at all, and two also ship native ARM guard libraries. Never describe all 137 as pending work — but never describe all 137 as impossible either.
+- **SUPERSEDED 2026-09-16 (IOS-POC-5A): the 90 `csp_*` sites are not “structurally out of reach”.**
+  That verdict came from observing `classes.dex`, which says nothing about portability. The full
+  static audit (`scripts/audit_spider_jars.py`, re-runnable) found **54 of the 90 sites portable**,
+  spanning **26 of the 51 distinct classes** (33 rows in the audit, which keys a class per JAR);
+  **34 sites / 23 classes** are blocked by a **native-encrypted payload** (`aowu-0722.jar`,
+  `fan-0720.jar`) whose `csp_*` classes are empty shims; **2 sites / 2 classes** are only **missing
+  downloads**, which is not a technical verdict. Authoritative tables:
+  `docs/CSP_PORTABILITY_MATRIX.md` (audit) and `docs/CSP_MIGRATION_STATUS.md` (progress). Do not
+  attempt to defeat the native protection on those two JARs.
 - **The 42 Python sites are expensive, not impossible.** Measured 2026-09-16: only 1 of the 38 present `.py` files references `android.`; the rest are standard library plus `requests`, `pycryptodome` and the host-supplied `base` module. The blocker is embedding CPython and those packages, which is architecture-compatible. An earlier record counted them among the 132 "structurally out of reach" and that was wrong. The 5 drpy JavaScript sites are the most plausible of all, since iOS ships JavaScriptCore. Evidence: `docs/IOS-TYPE3-REACHABILITY-2026-09-16.md`.
-- With type-0 done (IOS-POC-4J), **every non-Spider source type in this configuration is supported**. The only remaining unsupported sites are the 137 type-3 entries.
+- With type-0 done (IOS-POC-4J), **every non-Spider source type in this configuration is supported**.
+  Since IOS-POC-5A/5B, 15 of the 137 type-3 entries are driven too — see the coverage table below.
+- **The spider runtime reimplements the CatVod contract; it does not run Android code.** Every
+  `Spider.java` method is text in, text out, so a JavaScript reimplementation is indistinguishable
+  from the DEX original to everything above it. One `JSContext` and one serial queue per site, one
+  shared `CatVodHost`, and `host.js` is the only JS SDK — a second runtime for drpy must never be
+  built. Full contract: `docs/IOS_SPIDER_RUNTIME_SPEC.md`.
 - The WebHome JS SDK is injected by the app, not shipped by pages: pages only touch `window.fm` / `window.fongmi`. Porting the bridge therefore means porting `HomeWebController.getSdk()`, not designing an API from the method list.
 - Core names no hosting provider. A remote config source is an HTTPS URL and nothing more; GitLab and GitHub appear only in test and verification data.
 
@@ -55,7 +80,49 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 
 ### Sources and browsing
 
-- **30 of the 167 configured sources are usable: 2 type-0, 22 type-1 and 6 type-4.**
+#### Source coverage, recounted from the config at HEAD `226e826c`
+
+Counted directly from the 167-site `wang-movie.json`, not carried over from an earlier record.
+
+| group | sites | status |
+|---|---:|---|
+| type-0 MacCMS XML | 2 | **driven, in the app UI** |
+| type-1 MacCMS JSON | 22 | **driven, in the app UI** |
+| type-4 CatVod remote API | 6 | **driven, in the app UI** |
+| type-3 `csp_*` spiders | 90 | **15 driven by the runtime; 0 in the app UI** (see the wiring gap below) |
+| type-3 Python (`./py/*.py`) | 42 | not implemented — no Python runtime |
+| type-3 drpy JavaScript (`./drpy_libs/*.js`, `./json/4k.js`) | 5 | not implemented — no drpy loader |
+| **total** | **167** | **30 usable in the app, 45 proven at runtime** |
+
+**Two different numbers, and the difference is real.** `WebHTVConfig.supportedSites` — what the app
+target actually lists at `ios/WebHTVApp/Sources/WebHTVApp.swift:167` and `:187` — is type-0/1/4 only,
+and every content call in the app goes through `CMSClient`. `drivableSites(resolvedBy:)` exists in
+`WebHTVConfig` and returns 45, but **nothing in the app target calls it**, so the 15 ported spider
+sites are reachable only from the core library and its golden tests. The settings screen says
+“目前支援 30 個 type-0／type-1／type-4 CMS 來源”, which is accurate for the shipped UI. Wiring
+`drivableSites` into the app is a known, unstarted next step — not a defect in the ports.
+
+#### The 90 `csp_*` sites
+
+| bucket | classes | sites |
+|---|---:|---:|
+| portable (audit categories A–C) | 26 | 54 |
+|  of which ported **and live-verified** | 3 | **15** |
+|  of which portable but not yet ported | 23 | 39 |
+| blocked by native-encrypted payload (category H) | 23 | 34 |
+| missing resource — JAR never downloaded, portability unknown | 2 | 2 |
+| **total** | **51** | **90** |
+
+Class counts above are **distinct class names**, so they sum to 51. The audit table in
+`docs/CSP_PORTABILITY_MATRIX.md` keys a class per JAR and therefore shows 58 rows (33 portable);
+a class shipped in two JARs still costs only one port. See `docs/CSP_MIGRATION_STATUS.md`.
+
+Verified classes: `AppGet` (5 sites, 苹果CMS App-API + AES-CBC), `XBPQ` (7 sites, rule engine),
+`XYQHiker` (3 sites, rule engine). The two rule engines serve any future site configured for them
+without further code, which is why they are worth more than their site counts suggest.
+
+#### Native CMS notes
+
 - type-0 is the same MacCMS contract as type-1 carried in XML, so it reuses `CMSClient` whole and changes only the decoder. `MacCMSXMLDecoder` (Foundation `XMLParser`, no dependency) turns `<class><ty>` into the categories and `<video>` into `Vod`, with `<dd flag>` becoming the flags through the same `$$$` encoding. The one query difference is `ac=videolist` instead of `ac=detail`, matching `SiteApi.ac(int)`. `XMLDocument` is macOS-only and is not an option on iOS. Type-4 extends `CMSClient` rather than adding a second client; its only structural difference is that its home returns categories, so the first browsable category fills the grid.
 - Web-page episodes resolve through `?play=&flag=` before reaching the player, so an HTML page is never handed to AVPlayer.
 - Category browsing has a parent row and a child row. `categoryGroups` pairs each `type_pid == 0` entry with its children; a source without `type_pid` becomes childless groups and renders as one row. A parent chip targets its first child when it has one and its own id otherwise, because childless parents do list content that way.
@@ -88,11 +155,40 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 - `player.status` reproduces Android's **`net.request` envelope**, because Android fetches `/media` over its own local HTTP server; the envelope is reproduced field for field and the HTTP hop is not. Durations and positions are milliseconds, as Media3 reports them.
 - An unknown or empty `siteKey` rejects with `Unknown site: <key>` instead of opening a screen that fails later — the showcase page ships that field empty, so a page reaches it immediately.
 
+### Spider runtime (IOS-POC-5A / 5B)
+
+- `ios/Sources/WebHTVCore/Spider/` holds the 13-method `SpiderRuntime` ABI mirroring `Spider.java`,
+  `SpiderRegistry` (class name → script + audit metadata), `SpiderSession` (the actor that guarantees
+  `init` runs exactly once before any content call), `CSPSourceResolver` (the routing change: the
+  question became “is this class registered?” instead of “is this type 3?”) and
+  `JavaScriptSpiderRuntime` (one `JSContext` and one serial `DispatchQueue` per site).
+- `Spider/Host/` is the native half of `CatVodHost`: HTTP with a per-host cookie jar, AES/DES,
+  MD5/SHA/HMAC, and per-site namespaced storage. `Resources/Spiders/host.js` is the JavaScript half:
+  `pdfh`/`pdfa`/`pd` selectors, `host.cut` text slicing, and the CatVod result builders.
+- A spider that re-implements HTTP, crypto or parsing is a bug — the primitive belongs in
+  `CatVodHost`. `RSA`, WebView sniffing and `proxy` host plumbing are **not implemented**;
+  `csp_AppDrama` needs RSA before it can be ported.
+- `XBPQ`'s 331 rule keys were recovered by decoding the decompiled `merge/xbpq/HaB.d` string table
+  (hex + XOR `"wxEesU"`). That is ordinary bytecode inspection, unrelated to the native-protected
+  JARs, which are left alone.
+
 ## Build / Test / Verification Status
 
-- `WANG_MOVIE_JSON=/tmp/webhtv-recha-new.wprHof/wang-movie.json swift test --package-path ios` → **43 tests, 42 pass**. The one failure, `reportsLiveType4SitesFromProvidedConfig`, is a **live-network** check that is **pre-existing**: `88看球` resolves an episode to an HTML play page and the test asserts direct media. Reproduced identically at `e1db99d8` in a throwaway worktree, so it is provider state, not a regression. Two live checks are gated on their own variables: `WANG_MOVIE_URL` for the remote config, and the type-4 sweep.
+- **Re-run 2026-09-17 at HEAD `226e826c` (IOS-POC-5C reconciliation).**
+  `WANG_MOVIE_JSON=/tmp/webhtv-recha-new.wprHof/wang-movie.json swift test --package-path ios`
+  → **57 tests, 56 pass**. The one failure, `reportsLiveType4SitesFromProvidedConfig`, is the same
+  **pre-existing live-network** check: `88看球` resolved `纽约大都会 vs 巴尔的摩金莺` to
+  `https://embed.st/embed/admin/ppv-baltimore-orioles-vs-new-york-mets/1`, an HTML play page, and
+  the test asserts direct media. It failed identically at earlier HEADs, so it is provider state,
+  not a regression — **do not “fix” it.** Gated live checks stay off by default: `WANG_MOVIE_URL`
+  for the remote config, and `CSP_GOLDEN_SITE` for the spider goldens.
+- **Spider goldens re-run live 2026-09-17, all three ported classes, each ending in `parse:0`:**
+  `AppGet` (王子) home 6 classes → category 30 items → detail 5 flags → search 20 →
+  `https://vv.jisuzyv.com/play/…/index.m3u8`; `XBPQ` (果果短剧) 8 classes → 30 items →
+  `https://vodcnd17.uvjtih.cn/…/index.m3u8`; `XYQHiker` (农民影视) 5 classes → 30 items → flags
+  `[线路①, 线路②]` → search 20 → `https://1853039965.cdn.123clouddisk.com/….m3u8`. No regression.
 - `xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -configuration Debug build` → BUILD SUCCEEDED.
-- Remote config, against the real GitLab Raw URL: 125,864 bytes, 167 sites, 28 supported, cached SHA-256 identical to the remote, resolved `jar/fm.jar` HTTP 200. An unreachable URL left the sources and cache intact. Launch retry proven with a local server armed to fail twice — exactly three requests, adopted on the third.
+- Remote config, against the real GitLab Raw URL (measured at IOS-POC-1F, when 28 sites were supported): 125,864 bytes, 167 sites, cached SHA-256 identical to the remote, resolved `jar/fm.jar` HTTP 200. An unreachable URL left the sources and cache intact. Launch retry proven with a local server armed to fail twice — exactly three requests, adopted on the third.
 - Simulator, end to end: `爱瓜TV` grid → 莲花楼 detail with 41 episodes → episode 01 plays in the built-in player. Type-1 `如意` and `360` grids load with real posters and both category rows. Pagination scrolls past the first page on both types.
 - WebHome bridge in the simulator with the unmodified devkit showcase page: badge reads `SDK: native`; `fm.req JSON` logged `req-json ok (799ms)` with the full contract shape; the HLS button played the stream; `cache-set ok`; `ext-info` and `config` logged real payloads; `legacy hide`/`show` removed and restored the navigation bar.
 - **IOS-POC-2E end to end, from the page:** `vodInline 多集` played the inline MP4; with the player closed, `播放状态` returned a live envelope (`duration 90080`, `position 28136`, `state 2`); `fm.ctrl play` advanced it to `state 3`, `position 41502`; `fm.ctrl next` switched the reported url and title to the HLS episode (`speed 1`, `position 10511`); `fm.ctrl pause` returned `{}` and the next status read `speed 0`. `调用 fm.vod` with `vod_360` / `101020` logged `vod ok (229ms)`, opened the native detail screen with ten live episodes and played episode 1, and a following status reported that stream.
@@ -113,17 +209,51 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 - The `ac=detail` form costs bandwidth: a 20-title page on `360zy` grew from 6.5 KB to 49 KB.
 - `drpyS_听友[听]` returns an empty list for all 43 of its categories, and `php_无水印资源` answers HTTP 403. Both are provider state, not app defects.
 - The Debug-only CJK font fallback does not fix the log panel's `[上午…]` prefix, and says nothing about a real device.
-- Still not implemented: type-3 Spider/Python/DEX, WebHome sites in `wang-movie.json` (this config has none), and SideStore/IPA delivery.
+- **The 15 ported spider sites are not in the app UI.** They are verified through the core library
+  and the golden tests only; the app target lists `supportedSites` (type-0/1/4) and every content
+  call goes through `CMSClient`. Nothing calls `drivableSites(resolvedBy:)`. Do not report the
+  ports as user-visible.
+- **The 3 `XYQHiker` sites need a remote config to work at all.** Their `ext` is a relative path
+  (`./json/农民影视.json`), and `ConfigSource.importedFile` has no `baseURL`, so `resourceURL` returns
+  nil and `resolvedExtend` hands the spider an unfetchable `./json/…` string. The 2026-09-17 golden
+  run passed only because the absolute GitLab Raw URL was substituted by hand. `XBPQ`'s 7 sites and
+  `AppGet`'s 5 carry inline `ext` objects and are unaffected.
+- Still not implemented: a Python runtime (42 sites), a drpy JavaScript loader (5 sites), the 39
+  portable-but-unported `csp_*` sites, `CatVodHost` RSA / WebView-sniffing / `proxy` plumbing,
+  WebHome sites in `wang-movie.json` (this config has none), and SideStore/IPA delivery.
+- 34 `csp_*` sites are blocked by the native-encrypted payload in `aowu-0722.jar` and
+  `fan-0720.jar`. **Do not attempt to defeat that protection.** If such a site matters, the routes
+  are an `XBPQ`/`XYQHiker` rule equivalent or a direct HTTP/CMS entry.
+- The `csp_*` audit is a **static** audit. “Portable” means nothing in the class prevents a
+  reimplementation — it is not a promise that the site is reachable or that the port is cheap.
+- 2 `csp_*` classes (`JPianAmns`, `AppV6`) were never downloaded, so their portability is
+  **unknown**. Do not record a missing file as a technical verdict.
 - type-0 was verified only against the two configured endpoints. A provider sending a non-UTF-8 encoding would parse to an empty response rather than being transcoded.
 
 ## Next Recommended Step
 
-Agree one bounded stage with the user. Ranked:
+Agree exactly one bounded stage with the user first. Ranked, at most three:
 
-1. **Device deployment.** The largest gap and the only one that needs the user's Apple ID and hardware. Free provisioning's 7-day expiry versus a paid account versus SideStore is still an open question.
-2. Drive the remaining offline-only bridge methods from a page (`cache.get`/`del`, `app.search`, `app.history`, `device.info`, `site.info`, `ui.getViewport`, `ext.toast`, `navigation.back`/`reload`) — the last block of the contract never exercised live.
-3. A watch-history store, which would turn `app.history` from an honest `[]` into real data and give the home screen a 繼續觀看 row.
+1. **Surface the 15 ported spider sites in the app UI.** The cheapest real gain on the board: point
+   the app target at `drivableSites(resolvedBy:)` instead of `supportedSites`, and update the
+   settings caption. It turns already-verified work into something the user can actually open, and
+   it is the prerequisite for every further port being worth anything. Risk: `CMSClient` is assumed
+   throughout the content path, so the detail/player call sites need a spider branch — this is a
+   real code change, not a one-line swap.
+2. **Batch-port the 苹果CMS App-API family:** `AppQi` (6 sites), `App99` (4), `App3Q` (2). Same shape
+   as the verified `AppGet`, so cost per site is lowest here. Static reading done 2026-09-17 confirms
+   `AppQi` differs from `AppGet` only in the `/qijiappapi.index/` prefix, configurable `init`/`search`
+   method names, a home filter list, a slider-verification retry on `code 1001`, and a `vodParse`
+   POST signed with `base64(AES(timestamp))`. Then `Bili` (4 sites, public API, no crypto) → 31 sites
+   total. `AppDrama` (4) needs RSA in `CatVodHost` first.
+3. **Device deployment.** The largest gap, and the only one needing the user's Apple ID and hardware.
+   Free provisioning's 7-day expiry versus a paid account versus SideStore is still an open question.
+
+Still open, lower priority: drive the remaining offline-only bridge methods from a page
+(`cache.get`/`del`, `app.search`, `app.history`, `device.info`, `site.info`, `ui.getViewport`,
+`ext.toast`, `navigation.back`/`reload`), and a watch-history store that would turn `app.history`
+from an honest `[]` into real data and give the home screen a 繼續觀看 row.
 
 ## Resume Prompt
 
-> Continue the WebHomeTV iPhone port in `/Users/chengchenchih/GIT/webhtv` on the actual `ios-poc` Git state; check `git log` and `git status` first rather than trusting any commit id quoted here. Read `AGENTS.md`, `docs/AGENT_HANDOFF.md`, this file, and the stage document for whatever you touch. The app exposes 30 of 167 configured sources (2 type-0 + 22 type-1 + 6 type-4) with category browsing, pagination, five players, imported-file or remote-Raw-URL configuration with last-known-good caching and launch refresh, and a WebHome bridge over WKWebView covering the network, cache, UI, navigation, information **and playback** methods — `player.playVod`, `playVodInline`, `control` and `status` run on one persistent `PlaybackSession` that outlives the player screen. IOS-POC-2F then drove all seven `player.control` actions and the inline JS resolver from the page, so the playback half is fully exercised. It ships `NSAllowsArbitraryLoads` because the user explicitly chose global cleartext on 2026-09-15 — keep it and do not broaden transport security further without a fresh decision. Do not resume the Google TV `csp_JPianAmns` repair. Of the 137 type-3 sites, 90 (the `csp_*` DEX/JAR ones) are structurally unreachable on iOS, so do not plan them; the 42 Python and 5 JavaScript sites are unimplemented but architecturally possible and must not be called impossible — see `docs/IOS-TYPE3-REACHABILITY-2026-09-16.md`. Nothing has ever run on a real device: there is no signing configuration at all. Confirm the next bounded stage with the user before any functional edit, follow the task-guard and Ponytail gates, and preserve Android `main`.
+> Continue the WebHomeTV iPhone port in `/Users/chengchenchih/GIT/webhtv` on the actual `ios-poc` Git state; check `git log` and `git status` first rather than trusting any commit id quoted here. Read `AGENTS.md`, `docs/AGENT_HANDOFF.md`, this file, `docs/IOS_SPIDER_RUNTIME_SPEC.md` (runtime/ABI source of truth), `docs/CSP_PORTABILITY_MATRIX.md` (audit) and `docs/CSP_MIGRATION_STATUS.md` (port progress), plus the stage document for whatever you touch. **The app UI exposes 30 of 167 configured sources** (2 type-0 + 22 type-1 + 6 type-4) with category browsing, pagination, five players, imported-file or remote-Raw-URL configuration with last-known-good caching and launch refresh, and a WebHome bridge over WKWebView covering the network, cache, UI, navigation, information and playback methods — `player.playVod`, `playVodInline`, `control` and `status` run on one persistent `PlaybackSession` that outlives the player screen, and IOS-POC-2F drove all seven `control` actions and the inline JS resolver from the page. **A CatVod spider runtime also exists** (IOS-POC-5A/5B): it reimplements the `Spider.java` text-in/text-out contract in JavaScript on JavaScriptCore — it never runs Android DEX — and drives 15 more sites through 3 ported classes (`AppGet` 5, `XBPQ` 7, `XYQHiker` 3, the last two being rule engines). Those 15 are verified live but **not yet wired into the app UI**, which still calls `supportedSites`/`CMSClient` only. Of the 90 `csp_*` sites, 54 are portable (26 of the 51 distinct classes), 34 are blocked by a native-encrypted payload in `aowu-0722.jar`/`fan-0720.jar` — **do not try to break that protection** — and 2 are simply missing downloads; the earlier “90 permanently unreachable” verdict is superseded. The 42 Python and 5 drpy JavaScript sites are unimplemented but architecturally possible and must not be called impossible. It ships `NSAllowsArbitraryLoads` because the user explicitly chose global cleartext on 2026-09-15 — keep it and do not broaden transport security further without a fresh decision. Do not resume the Google TV `csp_JPianAmns` repair. Nothing has ever run on a real device: there is no signing configuration at all. Confirm the next bounded stage with the user before any functional edit, follow the task-guard and Ponytail gates, commit with `--no-tag`, and preserve Android `main`.

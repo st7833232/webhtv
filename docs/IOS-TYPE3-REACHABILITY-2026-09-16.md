@@ -1,5 +1,24 @@
 # type-3 reachability on iOS — measured, 2026-09-16
 
+> ## ⚠ Partly superseded, 2026-09-16 (IOS-POC-5A)
+>
+> **Section A — the `csp_*` verdict — is wrong and must not be quoted.** This document concluded
+> that all 90 `csp_*` sites are “structurally out of reach” because their JARs carry `classes.dex`.
+> Carrying DEX says nothing about portability: every `Spider.java` method is text in, text out, so
+> the behaviour can be reimplemented without running any Android bytecode. The full static audit
+> (`scripts/audit_spider_jars.py`) found **54 of the 90 sites portable**, spanning 26 of the 51
+> distinct classes, of which
+> **15 are now ported and live-verified**; only **34 sites (23 classes)** are genuinely blocked, by a
+> native-encrypted payload rather than by DEX, and **2** are merely missing downloads.
+>
+> Live documents: `docs/CSP_PORTABILITY_MATRIX.md` (audit), `docs/CSP_MIGRATION_STATUS.md`
+> (progress), `docs/IOS_SPIDER_RUNTIME_SPEC.md` (runtime and ABI).
+>
+> **Sections B and C — the 42 Python and 5 drpy JavaScript measurements — remain valid** and are
+> still the reference for those 47 sites. This document is kept because that measurement is the
+> reason the “132 out of reach” figure was retired; note that its own replacement figure was in turn
+> too pessimistic in exactly the same way.
+
 ## Why this document exists
 
 `docs/current-task-state.md` and `docs/AGENT_HANDOFF.md` both carried the claim:
@@ -20,7 +39,7 @@ Read directly from the user's own resource set — `wang-movie.json` (167 sites)
 `recha-main.zip` it belongs to — not from the earlier planning documents. Only the JARs and scripts
 this configuration actually references were inspected.
 
-## A. 90 × `csp_*` — structurally out of reach
+## A. 90 × `csp_*` — structurally out of reach — **SUPERSEDED, see the banner above**
 
 51 distinct spider classes across 11 referenced JARs, of which 9 are present in the archive:
 

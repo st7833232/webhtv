@@ -106,6 +106,70 @@ private func object(_ text: String) throws -> [String: Any] {
     await session.destroy()
 }
 
+/// The same live flow, driven by a script that arrived as a **compatibility pack** rather than from
+/// the app bundle. This is the claim the whole IOS-POC-5O architecture rests on: a pack is not a
+/// second-class path, it is the path, and a script delivered that way drives a real site end to end.
+///
+/// The bytes are the bundled script, published through the pack machinery with its真 SHA-256, so the
+/// test exercises manifest parsing, hash verification, atomic install and registry override, and
+/// then asks the result to go and fetch from the live provider.
+@Test func aSpiderDeliveredAsACompatibilityPackDrivesTheLiveSite() async throws {
+    guard let site = try goldenSite() else { return }
+    let className = SpiderRegistry.className(from: site.api)
+    let bundled = try #require(SpiderRegistry.bundled().entry(for: site.api)?.script,
+                               "this test publishes the bundled script through the pack path")
+
+    let manifestURL = URL(string: "https://example.invalid/spiders/manifest.json")!
+    let scriptURL = "https://example.invalid/spiders/\(className).js"
+    let digest = SpiderPackStore.sha256(Data(bundled.utf8))
+    let manifest = """
+    {"schema": \(SpiderPack.schema), "version": "golden", "scripts": [
+      {"class": "\(className)", "path": "./\(className).js", "sha256": "\(digest)",
+       "originJar": "river-fman.jar", "notes": "published by the golden test"}]}
+    """
+    let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("golden-pack-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("SpiderPack", isDirectory: true)
+    let store = SpiderPackStore(directory: directory) { url in
+        let body = url.absoluteString == manifestURL.absoluteString ? manifest : bundled
+        return (Data(body.utf8), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+    }
+
+    let pack = try await store.refresh(from: manifestURL)
+    let registry = SpiderRegistry.bundled(overlaying: pack)
+    #expect(registry.entry(for: site.api)?.source == .pack(version: "golden"))
+
+    let session = try CSPSourceResolver(registry: registry).session(for: site)
+    let home = try await object(session.home())
+    let classes = try #require(home["class"] as? [[String: Any]])
+    #expect(!classes.isEmpty)
+    let tid = try #require(classes.first(where: { ($0["type_id"] as? String) != "0" })?["type_id"] as? String)
+    let list = try #require(try await object(session.category(tid: tid, page: "1"))["list"] as? [[String: Any]])
+    #expect(!list.isEmpty)
+
+    var play: [String: Any]?
+    for candidate in list.prefix(4) {
+        guard let id = candidate["vod_id"] as? String,
+              let vod = (try await object(session.detail(ids: [id]))["list"] as? [[String: Any]])?.first,
+              let urls = vod["vod_play_url"] as? String, !urls.isEmpty,
+              let first = urls.components(separatedBy: "$$$").first?.components(separatedBy: "#").first
+        else { continue }
+        let target = String(first.drop(while: { $0 != "$" }).dropFirst())
+        let flag = (vod["vod_play_from"] as? String)?.components(separatedBy: "$$$").first ?? ""
+        play = try await object(session.player(flag: flag, id: target))
+        break
+    }
+    let resolved = try #require(play, "no listed title produced a playable episode")
+    print("[golden-pack] \(className) home=\(classes.count) list=\(list.count) " +
+          "play=\(String(describing: resolved["url"]).prefix(90))")
+    #expect((resolved["url"] as? String)?.isEmpty == false)
+    let search = try await object(session.search(key: "我"))
+    #expect(search["list"] is [[String: Any]])
+
+    await session.destroy()
+    await store.reset()
+}
+
 /// The registry must only ever claim classes it can genuinely drive; everything else stays absent so
 /// the app reports "not ported" rather than failing at the first call.
 @Test func registryClaimsOnlyWhatIsActuallyPorted() {

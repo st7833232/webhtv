@@ -31,6 +31,9 @@ private struct ConfigView: View {
     @State private var source = ConfigSource.importedFile
     @State private var updatedAt: Date?
     @State private var refreshing = false
+    /// What the compatibility pack is doing, shown in settings so a refused pack is visible rather
+    /// than silent. Empty means "bundled scripts", which is the normal state until a pack is served.
+    @State private var packStatus = ""
 
     var body: some View {
         Group {
@@ -60,6 +63,7 @@ private struct ConfigView: View {
                             source: source,
                             updatedAt: updatedAt,
                             refreshing: refreshing,
+                            packStatus: packStatus,
                             onImport: { importing = true },
                             onUseRemote: { text in useRemote(text) },
                             onRefresh: { Task { await refreshRemote() } },
@@ -76,9 +80,13 @@ private struct ConfigView: View {
         .appWallpaper()
         .task {
             restore()
+            // The cached pack is adopted before anything is fetched, so an offline launch runs on
+            // the last known good scripts rather than waiting for the network.
+            await adoptCachedSpiderPack()
             // Every launch re-fetches a remote configuration, so the app opens on the current one
             // rather than on whatever happened to be cached.
             await refreshRemote(quiet: true)
+            await refreshSpiderPack()
         }
         .onChange(of: selectedSiteID) { _, id in
             UserDefaults.standard.set(id, forKey: selectedSiteKey)
@@ -159,6 +167,46 @@ private struct ConfigView: View {
             guard (try? await Task.sleep(for: gap)) != nil else { return }
         }
         await load(remote: url, showHome: false, reportFailure: !quiet)
+    }
+
+    /// Reads whatever pack is already on disk. Verification happens inside the store, so a cache
+    /// that no longer matches its manifest is simply not adopted.
+    private func adoptCachedSpiderPack() async {
+        guard let pack = await SpiderPackStore.shared.installedPack() else { return }
+        packStatus = Self.describe(pack)
+        rebuildSites()
+    }
+
+    /// Fetches a pack in the background. A failure is deliberately quiet in the UI beyond the
+    /// status line: the app keeps running on the pack or the bundled scripts it already had.
+    private func refreshSpiderPack() async {
+        guard let url = SpiderPackStore.url(for: source) else { return }
+        do {
+            let pack = try await SpiderPackStore.shared.refresh(from: url)
+            packStatus = Self.describe(pack)
+            await SpiderSessionStore.shared.reset()
+            rebuildSites()
+        } catch {
+            let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            let current = await SpiderPackStore.shared.installedPack()
+            packStatus = current.map { "\(Self.describe($0))（更新失敗：\(reason)）" }
+                ?? "內建腳本（更新失敗：\(reason)）"
+        }
+    }
+
+    private static func describe(_ pack: SpiderPack) -> String {
+        let skipped = pack.rejected.isEmpty ? "" : "，略過 \(pack.rejected.count)："
+            + pack.rejected.map { "\($0.className)（\($0.reason)）" }.joined(separator: "、")
+        return "相容性套件 \(pack.version)，\(pack.scripts.count) 支腳本\(skipped)"
+    }
+
+    /// A pack can add or replace a driveable class, so the listed sites are recomputed from the
+    /// configuration already on disk rather than re-fetched.
+    private func rebuildSites() {
+        guard let url = try? configURL(), let data = try? Data(contentsOf: url),
+              let config = try? ConfigLoader.validate(data) else { return }
+        sites = config.drivableSites(resolvedBy: CSPSourceResolver(source: source))
+        selectedSiteID = sites.first { $0.id == selectedSiteID }?.id ?? selectedSiteID ?? sites.first?.id
     }
 
     /// Write, then publish. Callers validate first and hand the result in, so nothing that failed
@@ -615,6 +663,7 @@ private struct SettingsView: View {
     let source: ConfigSource
     let updatedAt: Date?
     let refreshing: Bool
+    let packStatus: String
     let onImport: () -> Void
     let onUseRemote: (String) -> Void
     let onRefresh: () -> Void
@@ -672,6 +721,7 @@ private extension SettingsView {
         Section {
             LabeledContent("來源", value: sourceLabel)
             LabeledContent("上次更新", value: updatedLabel)
+            LabeledContent("Spider 腳本", value: packStatus.isEmpty ? "內建" : packStatus)
             Button("從網址載入設定") {
                 remoteText = source.baseURL?.absoluteString ?? ""
                 askingRemote = true
@@ -683,7 +733,7 @@ private extension SettingsView {
         } header: {
             Text("設定來源")
         } footer: {
-            Text("目前支援 \(sites.count) 個來源：type-0／type-1／type-4 CMS，以及已移植的 csp_* Spider。遠端更新失敗時會保留上一份可用設定。")
+            Text("目前支援 \(sites.count) 個來源：type-0／type-1／type-4 CMS，以及已移植的 csp_* Spider。遠端更新失敗時會保留上一份可用設定。Spider 腳本可由設定檔旁的 ./spiders/manifest.json 熱更新，驗過 SHA-256 才會採用。")
         }
     }
 

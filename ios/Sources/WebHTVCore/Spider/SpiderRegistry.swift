@@ -10,15 +10,26 @@ public struct SpiderRegistry: Sendable {
         public let portability: SpiderPortability
         /// The JAR the original shipped in, so the audit stays traceable from the code.
         public let origin: String
+        /// Which copy of the script this is. The app shows it; the tests assert on it.
+        public let source: Source
 
-        public init(script: String, portability: SpiderPortability, origin: String) {
+        public init(script: String, portability: SpiderPortability, origin: String,
+                    source: Source = .bundled) {
             self.script = script
             self.portability = portability
             self.origin = origin
+            self.source = source
         }
     }
 
-    private let entries: [String: Entry]
+    /// Where a script came from. Resolution order is exactly this order:
+    /// a verified remote pack first, the bundled copy second, and absent means "not ported".
+    public enum Source: Sendable, Equatable {
+        case bundled
+        case pack(version: String)
+    }
+
+    let entries: [String: Entry]
     public let prelude: String
 
     public init(entries: [String: Entry], prelude: String) {
@@ -50,7 +61,42 @@ public struct SpiderRegistry: Sendable {
     /// logic of its own. Only ever for a pair proven to be the same site.
     static let aliases = ["JPianAmns": "JianPian"]
 
+    /// The registry the app actually runs on: the bundled scripts, with a verified compatibility
+    /// pack overlaid on top. `CSPSourceResolver` uses this, so every call site picks up a pack
+    /// without knowing one exists.
+    public static func active(bundle: Bundle? = nil) -> SpiderRegistry {
+        bundled(bundle: bundle, overlaying: InstalledSpiderPack.shared.current)
+    }
+
     public static func bundled(bundle: Bundle? = nil) -> SpiderRegistry {
+        bundled(bundle: bundle, overlaying: nil)
+    }
+
+    /// A pack entry replaces the bundled script for the same class, and may add a class the bundle
+    /// never carried. Nothing else about the app changes: the script still runs against the same
+    /// `CatVodHost` and the same `Spider` ABI, which is the boundary a pack cannot cross.
+    public static func bundled(bundle: Bundle? = nil, overlaying pack: SpiderPack?) -> SpiderRegistry {
+        var registry = bundledOnly(bundle: bundle)
+        guard let pack else { return registry }
+        var entries = registry.entries
+        for (name, script) in pack.scripts {
+            let existing = entries[name]
+            entries[name] = Entry(script: script,
+                                  portability: existing?.portability ?? .httpJSON,
+                                  origin: existing?.origin ?? "compatibility pack \(pack.version)",
+                                  source: .pack(version: pack.version))
+        }
+        // A pack alias only resolves to a script the pack itself brought, so a stale alias cannot
+        // silently repoint a bundled class.
+        for (alias, target) in pack.aliases {
+            guard let entry = entries[target], case .pack = entry.source else { continue }
+            entries[alias] = entry
+        }
+        registry = SpiderRegistry(entries: entries, prelude: registry.prelude)
+        return registry
+    }
+
+    private static func bundledOnly(bundle: Bundle? = nil) -> SpiderRegistry {
         let bundle = bundle ?? .module
         func load(_ name: String) -> String {
             guard let url = bundle.url(forResource: name, withExtension: "js", subdirectory: "Spiders"),
@@ -60,7 +106,9 @@ public struct SpiderRegistry: Sendable {
         var entries = [String: Entry]()
         for (name, meta) in ported {
             let script = load(aliases[name] ?? name)
-            if !script.isEmpty { entries[name] = Entry(script: script, portability: meta.0, origin: meta.1) }
+            if !script.isEmpty {
+                entries[name] = Entry(script: script, portability: meta.0, origin: meta.1, source: .bundled)
+            }
         }
         return SpiderRegistry(entries: entries, prelude: load("host"))
     }

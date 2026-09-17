@@ -95,6 +95,15 @@ There must never be two JS runtimes. Native half in `Spider/Host/*.swift`, JavaS
 | WebView / sniffing | `MediaSniffer` — injected JS hook on XHR / `fetch` / media `src`, plus `MediaProbe` | done (IOS-POC-5G). **Native, not a `host.*` primitive**: `WKWebView` has no `shouldInterceptRequest`, so the sniff happens in Swift above the spider, on any `parse:1` result |
 | `proxy` | ABI present, no host plumbing | **not implemented** |
 
+**Scripts can now arrive from outside the bundle.** Since IOS-POC-5O a signed-by-hash
+*compatibility pack* — a manifest plus scripts published at any HTTPS URL beside the configuration —
+may replace or add spider scripts at runtime. Resolution order is **verified pack → bundled script →
+not supported**, `host.js` is deliberately not packable because it is the SDK `minHostApi` describes,
+and a pack can never add a native primitive, touch entitlements, ATS or signing, or cross the
+`Spider` ABI. `SpiderPackStore.hostApiVersion` (currently **1**) is the gate: bump it whenever
+`CatVodHost` gains a primitive, and older apps will refuse a script that needs it instead of failing
+mid-call. Full contract: `docs/IOS-POC-5O-remote-compatibility-pack.md`.
+
 **Ported classes: 7.** `AppGet`, `AppQi`, `App99`, `App3Q` (苹果CMS App-API family), `Bili`
 (bilibili public API), and the two rule engines `XBPQ` and `XYQHiker`. See
 `docs/CSP_MIGRATION_STATUS.md` for what each one covers and what it was measured doing.
@@ -113,6 +122,8 @@ See `docs/IOS-POC-5D-spider-sites-in-app.md`.
    parsing. Everything else comes from `host`.
 3. Register it in `SpiderRegistry.ported` with its audit category and origin JAR.
 4. Add a golden test.
+5. To ship it without an app release, publish it in a compatibility pack instead of (or as well as)
+   bundling it — `scripts/spider_pack.py build`.
 
 If a port needs a primitive the host lacks, add it to `CatVodHost` — never inside the spider. A
 spider that re-implements HTTP, crypto or parsing is a bug.

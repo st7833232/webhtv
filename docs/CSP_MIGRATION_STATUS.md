@@ -3,6 +3,11 @@
 Living record of which spiders are ported, verified, blocked, or waiting on a file.
 Audit data: `docs/CSP_PORTABILITY_MATRIX.md`. Runtime contract: `docs/IOS_SPIDER_RUNTIME_SPEC.md`.
 
+Since IOS-POC-5O a ported script no longer has to be rebuilt into the app to be updated: a
+compatibility pack published beside the configuration replaces it at runtime, hash-verified, with the
+bundled copy as the fallback. What still requires an app release is a new `CatVodHost` primitive.
+See `docs/IOS-POC-5O-remote-compatibility-pack.md`.
+
 Last updated 2026-09-17 (IOS-POC-5M: `JianPian` ported, which drives 薦片 despite its class being
 blocked; IOS-POC-5L added `AppQi`, `App99`, `App3Q` and `Bili`).
 

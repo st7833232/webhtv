@@ -264,6 +264,14 @@ private struct CMSView: View {
     /// `key` so it can be handed straight to the source as `extend`.
     @State private var filterRows = [String: [CMSFilter]]()
     @State private var chosenFilters = [String: String]()
+    /// Parent categories whose child row the user has folded away, by group id. Empty means every
+    /// child row is shown, which is how it behaved before.
+    @State private var collapsedGroups = Set<String>()
+    /// Whether the grid is scrolled to the very top, so the Top button can stay out of the way
+    /// until it is useful.
+    @State private var atTop = true
+
+    private static let topAnchor = "grid-top"
     @State private var searching = false
     @State private var query = ""
     @State private var page = 1
@@ -275,19 +283,29 @@ private struct CMSView: View {
     private let columns = [GridItem(.adaptive(minimum: 140, maximum: 220), spacing: 12)]
 
     var body: some View {
-        VStack(spacing: 0) {
-            if !groups.isEmpty {
-                categoryRow(parentChips)
-                if let children = activeGroup?.children, !children.isEmpty {
-                    categoryRow(ForEach(children) { chip($0.name, id: $0.id) })
-                }
-                // Filter rows belong to a category, so they only appear once one is listed, and
-                // only for a source whose API publishes them at all.
-                ForEach(activeFilterRows) { row in
-                    filterRow(row)
-                }
-            }
+        ScrollViewReader { proxy in
             ScrollView {
+                // Just an anchor for `scrollTo`. Whether we are at the top is decided by the
+                // first grid cell below, because `LazyVGrid` really does load and unload its cells
+                // — a plain ScrollView does not, which is why a marker's own onDisappear never fires.
+                Color.clear
+                    .frame(height: 0)
+                    .id(Self.topAnchor)
+
+                // The category and filter rows scroll away with the grid rather than pinning to
+                // the top: they cost four rows of height on a phone, and the Top button below is
+                // what brings them back.
+                if !groups.isEmpty {
+                    categoryRow(parentChips)
+                    if showsChildRow, let children = activeGroup?.children, !children.isEmpty {
+                        categoryRow(ForEach(children) { chip($0.name, id: $0.id) })
+                    }
+                    // Filter rows belong to a category, so they only appear once one is listed, and
+                    // only for a source whose API publishes them at all.
+                    ForEach(activeFilterRows) { row in
+                        filterRow(row)
+                    }
+                }
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(items) { vod in
                         NavigationLink {
@@ -296,12 +314,17 @@ private struct CMSView: View {
                             VodCard(vod: vod)
                         }
                         .buttonStyle(.plain)
-                        .onAppear { if vod.id == items.last?.id { Task { await loadMore() } } }
+                        .onAppear {
+                            if vod.id == items.first?.id { atTop = true }
+                            if vod.id == items.last?.id { Task { await loadMore() } }
+                        }
+                        .onDisappear { if vod.id == items.first?.id { atTop = false } }
                     }
                 }
                 .padding(12)
                 if loadingMore { ProgressView().padding(.bottom, 16) }
             }
+            .overlay(alignment: .bottomTrailing) { topButton(proxy) }
         }
         .appWallpaper()
         .overlay {
@@ -343,8 +366,7 @@ private struct CMSView: View {
         // A type-4 home is really its first category, so it has no separate "all" listing.
         if site.type != 4 && !providerSuppliesAllChip { chip("全部", id: nil) }
         ForEach(groups) { group in
-            // A parent with no children lists by its own id; otherwise open its first child.
-            chip(group.parent.name, id: group.children.first?.id ?? group.parent.id, active: activeGroup?.id == group.id)
+            parentChip(group)
         }
     }
 
@@ -389,6 +411,65 @@ private struct CMSView: View {
         .buttonStyle(.plain)
     }
 
+    /// The child row is shown unless this group was folded away.
+    private var showsChildRow: Bool {
+        guard let group = activeGroup else { return false }
+        return !collapsedGroups.contains(group.id)
+    }
+
+    @ViewBuilder private func topButton(_ proxy: ScrollViewProxy) -> some View {
+        if !atTop {
+            Button {
+                withAnimation { proxy.scrollTo(Self.topAnchor, anchor: .top) }
+            } label: {
+                Image(systemName: "chevron.up")
+                    .font(.headline.bold())
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(appSurface.opacity(0.9), in: Circle())
+                    .overlay(Circle().stroke(.white.opacity(0.25), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 16)
+            .padding(.bottom, 24)
+            .accessibilityLabel("回到頂部")
+        }
+    }
+
+    /// A parent with children is also a disclosure control: tapping the one already listed folds
+    /// its child row away, and tapping a different one switches to it and unfolds it.
+    private func parentChip(_ group: CategoryGroup) -> some View {
+        let isActive = activeGroup?.id == group.id
+        let hasChildren = !group.children.isEmpty
+        let isCollapsed = collapsedGroups.contains(group.id)
+        return Button {
+            searching = false
+            if isActive && hasChildren {
+                if isCollapsed { collapsedGroups.remove(group.id) } else { collapsedGroups.insert(group.id) }
+                return
+            }
+            collapsedGroups.remove(group.id)
+            let target = group.children.first?.id ?? group.parent.id
+            selectCategory(target)
+            Task { await load(category: target) }
+        } label: {
+            HStack(spacing: 4) {
+                Text(group.parent.name)
+                if hasChildren {
+                    // Points down when the children are hidden, up when they are showing.
+                    Image(systemName: isActive && !isCollapsed ? "chevron.up" : "chevron.down")
+                        .font(.caption2.bold())
+                }
+            }
+            .font(.subheadline.weight(isActive ? .bold : .regular))
+            .foregroundStyle(isActive ? appSurface : .white)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 7)
+            .background(isActive ? .white : appSurface.opacity(0.85), in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
     private func categoryRow<Content: View>(_ content: Content) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) { content }
@@ -407,8 +488,10 @@ private struct CMSView: View {
         selectedCategory = id
     }
 
-    private func chip(_ title: String, id: String?, active: Bool? = nil) -> some View {
-        let isActive = !searching && (active ?? (selectedCategory == id))
+    /// Plain chip for the 全部 entry and the child row. A parent is `parentChip`, which also folds
+    /// its children away.
+    private func chip(_ title: String, id: String?) -> some View {
+        let isActive = !searching && selectedCategory == id
         return Button(title) {
             searching = false
             selectCategory(id)

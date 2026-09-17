@@ -59,6 +59,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 5H | Removed the `Task { }` race that made four bridge tests flaky | the 5G document |
 | 5I | XBPQ knew only the older 苹果CMS skins; 永樂 rendered its nav as films | `docs/IOS-POC-5I-xbpq-listing-templates.md` |
 | 5J | One 全部 chip instead of two; CatVod filter rows under the category row | `docs/IOS-POC-5J-category-filters.md` |
+| 5K | Category rows scroll away; Top button; collapsible child rows | `docs/IOS-POC-5K-scrolling-and-collapsible-categories.md` |
 
 ## Important Decisions
 

@@ -36,9 +36,15 @@ carries a banner saying so.
 
 **A blocked class does not always mean a blocked site.** `JPianAmns` is an empty shim over an
 encrypted payload, but 薦片 is served today by river-fman's unprotected `JianPian`, registered under
-both names. That is the first proven case of this shape; whether any of the other 33 protected sites
-has an equivalent elsewhere in the JAR set is an open, answerable question that has not been asked.
-See `docs/IOS-POC-5M-jianpian.md`.
+both names (`docs/IOS-POC-5M-jianpian.md`).
+
+**That question has now been asked for all 35 protected sites** (IOS-POC-5N, assessment only):
+**7 more are reachable** through 6 unprotected classes — `XueLuo` for 哔嘀 ×2 with ext-level proof,
+then `QimaoDJ`, `Duboku`, `HaokanDJ`, and `Hxq` / `Jpys` whose identity still needs confirming — and
+**2 were already covered** by other entries in the same configuration (愛瓜 as a type-4 source,
+歐樂 on `XBPQ`). The remaining 25, including the 9 菠菜专线 sites whose very identity is encrypted,
+have no equivalent anywhere in this JAR set. Table and evidence grades:
+`docs/IOS-POC-5N-protected-site-equivalents.md`.
 
 **But listed is not working.** Every listed source is swept through the app's own path and the first
 bytes of each resolved stream are fetched, because a URL resolving and the media existing are

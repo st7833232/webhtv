@@ -120,8 +120,12 @@ sometimes lands after the read. Two tests now fail intermittently —
 `opensAConfiguredSiteForPlayVodAndRejectsAnyOtherKey` — always one or neither, never reproducibly.
 
 **This is a defect in those tests, not in the bridge**, and `WebHomeBridgeTests.swift` was outside
-this stage's declared scope, so it is reported rather than fixed. It should be fixed before the next
-stage, because flaky tests corrupt every later verification.
+this stage's declared scope, so it was reported rather than fixed here.
+
+**Fixed in IOS-POC-5H.** Every `Actions` closure is already `@MainActor @Sendable` and `handle`
+awaits it, so the four recording containers became `@MainActor final class` and record
+synchronously; the `Task { }` bridge is gone and the write now finishes before `handle` returns.
+Four consecutive full-suite runs showed only the pre-existing 88看球 failure.
 
 ## Files
 

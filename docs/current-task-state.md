@@ -56,6 +56,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 5E | End-to-end sweep of all 45 listed sources, with a media probe | `docs/IOS-POC-5E-all-source-sweep.md` |
 | 5F | Fixed five spider/host defects the sweep found; 27 → 29 playable | `docs/IOS-POC-5F-spider-defect-fixes.md` |
 | 5G | WebView media sniffer + first-bytes probe; 29 → 35 playable | `docs/IOS-POC-5G-media-sniffer.md` |
+| 5H | Removed the `Task { }` race that made four bridge tests flaky | the 5G document |
 
 ## Important Decisions
 

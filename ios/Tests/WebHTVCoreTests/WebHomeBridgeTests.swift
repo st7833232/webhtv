@@ -171,9 +171,13 @@ private func scratchDefaults(_ name: String) throws -> UserDefaults {
     #expect(try await decode(try subject.handle(method: "device.info", payload: [:]))["model"] as? String == "iPhone")
 }
 
-@Test func routesTheSideEffectingUiMethodsToTheHost() async throws {
+@MainActor @Test func routesTheSideEffectingUiMethodsToTheHost() async throws {
     let defaults = try scratchDefaults("ui")
-    actor Calls {
+    // @MainActor, not an actor: every Actions closure is already `@MainActor @Sendable` and
+    // `handle` awaits it, so recording synchronously makes the write finish before `handle`
+    // returns. Bridging to an actor through `Task { }` instead made the read race the write —
+    // these tests passed only while the suite was fast enough to hide it.
+    @MainActor final class Calls {
         var toasts = [String]()
         var toolbar = [Bool]()
         var backs = 0
@@ -188,10 +192,10 @@ private func scratchDefaults(_ name: String) throws -> UserDefaults {
         play: { _, _ in }, playVod: { _, _ in }, playInline: { _ in },
         control: { _ in }, status: { .idleStatus },
         search: { _ in },
-        toast: { m in Task { await calls.toast(m) } },
-        setToolbar: { v in Task { await calls.toolbar(v) } },
-        back: { Task { await calls.back() } },
-        reload: { Task { await calls.reload() } },
+        toast: { m in calls.toast(m) },
+        setToolbar: { v in calls.toolbar(v) },
+        back: { calls.back() },
+        reload: { calls.reload() },
         viewport: { .init(width: 0, height: 0, safeTop: 0, safeRight: 0, safeBottom: 0, safeLeft: 0) }
     )
     let subject = WebHomeBridge(actions: actions, defaults: defaults)
@@ -205,10 +209,10 @@ private func scratchDefaults(_ name: String) throws -> UserDefaults {
     #expect(try await subject.handle(method: "ext.log", payload: ["message": "x"]) == "{}")
 
     try await Task.sleep(for: .milliseconds(120))
-    #expect(await calls.toasts == ["hi"])
-    #expect(await calls.toolbar == [true, false])
-    #expect(await calls.backs == 1)
-    #expect(await calls.reloads == 1)
+    #expect(calls.toasts == ["hi"])
+    #expect(calls.toolbar == [true, false])
+    #expect(calls.backs == 1)
+    #expect(calls.reloads == 1)
 }
 
 @Test func stillRejectsTheMethodsThisSliceLeftOut() async throws {
@@ -223,15 +227,15 @@ private func scratchDefaults(_ name: String) throws -> UserDefaults {
     }
 }
 
-@Test func opensAConfiguredSiteForPlayVodAndRejectsAnyOtherKey() async throws {
+@MainActor @Test func opensAConfiguredSiteForPlayVodAndRejectsAnyOtherKey() async throws {
     let defaults = try scratchDefaults("playvod")
-    actor Opened {
+    @MainActor final class Opened {
         var calls = [(String, String, String, String)]()
         func add(_ site: Site, _ vod: Vod) { calls.append((site.key, vod.id, vod.name, vod.picture)) }
     }
     let opened = Opened()
     var actions = noopActions
-    actions.playVod = { site, vod in Task { await opened.add(site, vod) } }
+    actions.playVod = { site, vod in opened.add(site, vod) }
     let subject = WebHomeBridge(actions: actions, sites: [testSite], defaults: defaults)
 
     #expect(try await subject.handle(
@@ -240,7 +244,7 @@ private func scratchDefaults(_ name: String) throws -> UserDefaults {
     ) == "{}")
 
     try await Task.sleep(for: .milliseconds(120))
-    let call = try #require(await opened.calls.first)
+    let call = try #require(opened.calls.first)
     #expect(call == ("vod_360", "12345", "蓮花樓", "https://example.com/p.jpg"))
 
     // The showcase page ships an empty siteKey field, so this is the first path a page reaches.
@@ -255,15 +259,15 @@ private func scratchDefaults(_ name: String) throws -> UserDefaults {
     }
 }
 
-@Test func buildsAnInlinePlaylistAndAnswersWithTheStoreKey() async throws {
+@MainActor @Test func buildsAnInlinePlaylistAndAnswersWithTheStoreKey() async throws {
     let defaults = try scratchDefaults("inline")
-    actor Opened {
+    @MainActor final class Opened {
         var vods = [WebHomeBridge.InlineVod]()
         func add(_ vod: WebHomeBridge.InlineVod) { vods.append(vod) }
     }
     let opened = Opened()
     var actions = noopActions
-    actions.playInline = { vod in Task { await opened.add(vod) } }
+    actions.playInline = { vod in opened.add(vod) }
     let subject = WebHomeBridge(actions: actions, defaults: defaults)
 
     // The shape the devkit showcase page's own vod-inline button sends.
@@ -283,7 +287,7 @@ private func scratchDefaults(_ name: String) throws -> UserDefaults {
     #expect(reply["vodId"] as? String == "webhome-sdk-showcase")
 
     try await Task.sleep(for: .milliseconds(120))
-    let vod = try #require(await opened.vods.first)
+    let vod = try #require(opened.vods.first)
     // title falls back to vod_name and pic to vod_pic, as HomeWebBridge.playVodInline does.
     #expect(vod.title == "WebHome SDK Showcase")
     #expect(vod.picture == "https://example.com/poster.jpg")
@@ -300,15 +304,15 @@ private func scratchDefaults(_ name: String) throws -> UserDefaults {
     }
 }
 
-@Test func forwardsEveryControlActionAndNeverFails() async throws {
+@MainActor @Test func forwardsEveryControlActionAndNeverFails() async throws {
     let defaults = try scratchDefaults("control")
-    actor Calls {
+    @MainActor final class Calls {
         var actions = [String]()
         func add(_ action: String) { actions.append(action) }
     }
     let calls = Calls()
     var actions = noopActions
-    actions.control = { action in Task { await calls.add(action) } }
+    actions.control = { action in calls.add(action) }
     let subject = WebHomeBridge(actions: actions, defaults: defaults)
 
     for action in ["play", "pause", "stop", "prev", "next", "loop", "replay", "nonsense"] {
@@ -317,7 +321,7 @@ private func scratchDefaults(_ name: String) throws -> UserDefaults {
 
     try await Task.sleep(for: .milliseconds(150))
     // Android returns {} even with no service, so an unknown action is forwarded, not rejected.
-    #expect(await calls.actions == ["play", "pause", "stop", "prev", "next", "loop", "replay", "nonsense"])
+    #expect(calls.actions == ["play", "pause", "stop", "prev", "next", "loop", "replay", "nonsense"])
 }
 
 @Test func reportsPlaybackStatusInTheEnvelopePagesParse() async throws {

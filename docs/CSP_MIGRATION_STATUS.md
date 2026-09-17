@@ -30,10 +30,15 @@ every JAR it appears in.
 that was wrong, and this file supersedes it — `docs/IOS-TYPE3-REACHABILITY-2026-09-16.md` now
 carries a banner saying so.
 
-**“Verified” here means verified through the core library and its golden tests, not visible in the
-app.** The app target still lists `WebHTVConfig.supportedSites` (type-0/1/4) and routes every
-content call through `CMSClient`; nothing calls `drivableSites(resolvedBy:)`. Until that is wired
-up, the app UI shows 30 of 167 sources while the runtime can drive 45.
+**Since IOS-POC-5D these 15 sites are listed in the app UI**, which now offers 45 of 167 sources
+(30 native + 15 spider) through `SourceClient`.
+
+**But listed is not working.** A sweep of all 15 through the app's own path, 2026-09-17: **3 browse
+and play end to end** (王子, 农民, 果果短剧 — 农民 played in the simulator), **7 fail at the provider**
+(522/403 hosts, 404 listing URLs, one withdrawn media file, each confirmed with `curl`), and
+**5 stop in our own code**. Per-site table and the open defects:
+`docs/IOS-POC-5D-spider-sites-in-app.md`. A class being “ported and verified” means the engine
+runs, not that every site configured for it is alive.
 
 ## Verified
 

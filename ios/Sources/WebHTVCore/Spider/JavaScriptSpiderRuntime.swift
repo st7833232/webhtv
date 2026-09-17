@@ -45,7 +45,13 @@ public final class JavaScriptSpiderRuntime: SpiderRuntime, @unchecked Sendable {
         spider = exports
     }
 
-    private func call(_ method: String, _ arguments: [Any]) async throws -> JSValue {
+    /// Invokes a spider method and returns its result already serialised to text.
+    ///
+    /// `JSValue` never leaves `queue`: it is not `Sendable`, and Swift 6 rejects sending one across
+    /// the continuation. Serialising inside the queue is also what the ABI wanted anyway — every
+    /// `Spider.java` method is text in, text out — so the conversion moved here rather than a
+    /// wrapper being invented to carry the value out.
+    private func text(_ method: String, _ arguments: [Any]) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { [self] in
                 guard let function = spider.objectForKeyedSubscript(method), !function.isUndefined else {
@@ -58,24 +64,24 @@ public final class JavaScriptSpiderRuntime: SpiderRuntime, @unchecked Sendable {
                 let result = spider.invokeMethod(method, withArguments: arguments)
                 if let thrown {
                     continuation.resume(throwing: SpiderError.scriptFailed("\(method): \(thrown)"))
-                } else {
-                    continuation.resume(returning: result ?? JSValue(undefinedIn: context))
+                    return
                 }
+                // A spider may return a JSON string, like the Java original, or a plain object,
+                // which is far more natural to write in JavaScript. Both arrive as the same JSON.
+                guard let result, !result.isUndefined, !result.isNull else {
+                    continuation.resume(returning: ""); return
+                }
+                if result.isString {
+                    continuation.resume(returning: result.toString() ?? ""); return
+                }
+                let encoded = context.objectForKeyedSubscript("JSON")?
+                    .invokeMethod("stringify", withArguments: [result])?.toString() ?? ""
+                continuation.resume(returning: encoded)
             }
         }
     }
 
-    /// A spider may return a JSON string, like the Java original, or a plain object, which is far
-    /// more natural to write in JavaScript. Both arrive at the app as the same CatVod JSON.
-    private func text(_ method: String, _ arguments: [Any]) async throws -> String {
-        let value = try await call(method, arguments)
-        if value.isUndefined || value.isNull { return "" }
-        if value.isString { return value.toString() ?? "" }
-        return context.objectForKeyedSubscript("JSON")?
-            .invokeMethod("stringify", withArguments: [value])?.toString() ?? ""
-    }
-
-    public func initialize(extend: String) async throws { _ = try await call("init", [extend]) }
+    public func initialize(extend: String) async throws { _ = try await text("init", [extend]) }
     public func homeContent(filter: Bool) async throws -> String { try await text("homeContent", [filter]) }
     public func homeVideoContent() async throws -> String {
         (try? await text("homeVideoContent", [])) ?? ""
@@ -91,12 +97,14 @@ public final class JavaScriptSpiderRuntime: SpiderRuntime, @unchecked Sendable {
         try await text("playerContent", [flag, id, vipFlags])
     }
     public func liveContent(url: String) async throws -> String { (try? await text("liveContent", [url])) ?? "" }
+    // `JSON.stringify(true)` is "true", so the text path already carries a boolean out of the
+    // context — no second helper is needed to keep JSValue off the continuation.
     public func isVideoFormat(url: String) async throws -> Bool {
-        ((try? await call("isVideoFormat", [url])) ?? JSValue()).toBool()
+        (try? await text("isVideoFormat", [url])) == "true"
     }
     public func manualVideoCheck() async throws -> Bool {
-        ((try? await call("manualVideoCheck", [])) ?? JSValue()).toBool()
+        (try? await text("manualVideoCheck", [])) == "true"
     }
     public func action(_ action: String) async throws -> String { (try? await text("action", [action])) ?? "" }
-    public func destroy() async { _ = try? await call("destroy", []) }
+    public func destroy() async { _ = try? await text("destroy", []) }
 }

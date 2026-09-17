@@ -126,7 +126,7 @@ var spider = (function () {
 
   return {
     init: function (extend) {
-      try { rule = JSON.parse(extend || '{}'); } catch (e) { rule = {}; }
+      rule = host.parseJSON(extend || '{}') || {};
       headers = parseHeaders(text('请求头') || text('请求头参数'));
       if (!headers['User-Agent']) headers['User-Agent'] = parseHeaders('u$MOBILE_UA').u;
       return '';

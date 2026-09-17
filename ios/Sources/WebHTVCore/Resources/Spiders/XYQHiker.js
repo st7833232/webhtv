@@ -104,7 +104,7 @@ var spider = (function () {
       if (raw.charAt(0) !== '{' && /^https?:\/\//i.test(raw)) {
         raw = host.get(raw, { timeout: 20000 }).body || '{}';
       }
-      try { rule = JSON.parse(raw); } catch (e) { rule = {}; }
+      rule = host.parseJSON(raw) || {};
       headers = parseHeaders(text('请求头参数') || text('请求头'));
       searchHeaders = parseHeaders(text('搜索请求头参数') || text('请求头参数'));
       return '';

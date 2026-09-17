@@ -94,9 +94,11 @@ There must never be two JS runtimes. Native half in `Spider/Host/*.swift`, JavaS
 | WebView / sniffing | — | **not implemented**; no ported spider needs it yet |
 | `proxy` | ABI present, no host plumbing | **not implemented** |
 
-**Not yet wired to the app UI.** `CSPSourceResolver` and `WebHTVConfig.drivableSites(resolvedBy:)`
-are complete, but the app target still lists `supportedSites` and drives content through
-`CMSClient`, so a ported spider is reachable only from the core library and the golden tests.
+**Wired to the app UI since IOS-POC-5D.** `SourceClient` routes each site to either `CMSClient` or
+a `SpiderSession` behind the five methods the app already called, and `ConfigView` lists
+`drivableSites(resolvedBy:)`. A spider is stateful, so `SpiderSessionStore` keeps one session per
+site — a rule engine downloads its rule file during `init`, and the app builds a client per call.
+See `docs/IOS-POC-5D-spider-sites-in-app.md`.
 
 ## Adding a port
 

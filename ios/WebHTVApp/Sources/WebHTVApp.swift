@@ -49,7 +49,7 @@ private struct ConfigView: View {
                 }
             } else {
                 TabView(selection: $selectedTab) {
-                    HomeView(sites: sites, selectedSiteID: $selectedSiteID)
+                    HomeView(sites: sites, selectedSiteID: $selectedSiteID, source: source)
                         .tag(0)
                         .tabItem { Label("首頁", systemImage: "play.rectangle.fill") }
 
@@ -164,7 +164,7 @@ private struct ConfigView: View {
     /// Write, then publish. Callers validate first and hand the result in, so nothing that failed
     /// validation reaches the cached file — that is what makes a failed refresh safe.
     private func adopt(_ data: Data, config: WebHTVConfig, from source: ConfigSource) throws {
-        let loaded = config.supportedSites
+        let loaded = config.drivableSites(resolvedBy: CSPSourceResolver(source: source))
         try data.write(to: configURL(), options: .atomic)
         let now = Date()
         UserDefaults.standard.set(source.baseURL?.absoluteString, forKey: configSourceURLKey)
@@ -172,19 +172,28 @@ private struct ConfigView: View {
         self.source = source
         updatedAt = now
         sites = loaded
+        // Reclaim the spider sessions this configuration orphaned. Correctness does not depend on
+        // this landing first — `SpiderSessionStore` keys on the site's `ext`, so a redefined site
+        // misses the cache regardless.
+        Task { await SpiderSessionStore.shared.reset() }
         selectedSiteID = loaded.first { $0.id == selectedSiteID }?.id ?? loaded.first?.id
     }
 
     private func restore() {
+        var restored = ConfigSource.importedFile
         if let stored = UserDefaults.standard.string(forKey: configSourceURLKey), let url = URL(string: stored) {
-            source = .remote(url)
+            restored = .remote(url)
+            source = restored
         }
         let stamp = UserDefaults.standard.double(forKey: configUpdatedAtKey)
         if stamp > 0 { updatedAt = Date(timeIntervalSince1970: stamp) }
         do {
             let url = try configURL()
             guard FileManager.default.fileExists(atPath: url.path) else { return }
-            let loaded = try ConfigLoader.validate(Data(contentsOf: url)).supportedSites
+            // Read the local value, not the `@State` just written: a spider's relative `ext` is
+            // resolved against it, and resolving against the wrong base silently breaks those sites.
+            let loaded = try ConfigLoader.validate(Data(contentsOf: url))
+                .drivableSites(resolvedBy: CSPSourceResolver(source: restored))
             let key = UserDefaults.standard.string(forKey: selectedSiteKey)
             sites = loaded
             selectedSiteID = loaded.first { $0.id == key }?.id ?? loaded.first?.id
@@ -202,6 +211,9 @@ private struct ConfigView: View {
 private struct HomeView: View {
     let sites: [Site]
     @Binding var selectedSiteID: Site.ID?
+    /// Needed only so a rule-engine spider can resolve a relative `ext` such as
+    /// `./json/农民影视.json` against the configuration's own directory.
+    let source: ConfigSource
 
     private var selectedSite: Site {
         sites.first { $0.id == selectedSiteID } ?? sites[0]
@@ -209,7 +221,7 @@ private struct HomeView: View {
 
     var body: some View {
         NavigationStack {
-            CMSView(site: selectedSite)
+            CMSView(site: selectedSite, source: source)
                 .id(selectedSite.id)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
@@ -243,6 +255,7 @@ private struct HomeView: View {
 
 private struct CMSView: View {
     let site: Site
+    let source: ConfigSource
     var initialQuery: String?
     @State private var items = [Vod]()
     @State private var groups = [CategoryGroup]()
@@ -269,7 +282,7 @@ private struct CMSView: View {
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(items) { vod in
                         NavigationLink {
-                            VodView(site: site, summary: vod)
+                            VodView(site: site, summary: vod, source: source)
                         } label: {
                             VodCard(vod: vod)
                         }
@@ -361,7 +374,7 @@ private struct CMSView: View {
     }
 
     private func listing(page: Int) async throws -> CMSResponse {
-        let client = try CMSClient(site: site)
+        let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
         if searching, !query.isEmpty { return try await client.search(query, page: page) }
         if let selectedCategory { return try await client.category(id: selectedCategory, page: page) }
         return try await client.home(page: page)
@@ -374,7 +387,7 @@ private struct CMSView: View {
         canLoadMore = true
         defer { loading = false }
         do {
-            let client = try CMSClient(site: site)
+            let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
             let response = if let search, !search.isEmpty {
                 try await client.search(search)
             } else if let category {
@@ -385,8 +398,11 @@ private struct CMSView: View {
             items = response.list
             // A category listing usually omits `class`, so keep the set the home call established.
             if !response.classes.isEmpty { groups = response.categoryGroups }
-            // A type-4 home already lists its first category, so highlight that chip.
-            if site.type == 4, selectedCategory == nil { selectedCategory = response.firstListableCategory?.id }
+            // A type-4 home already lists its first category, and a spider home falls back to the
+            // same behaviour because most spiders return no home list at all — highlight that chip.
+            if site.type == 4 || site.isCSPSpider, selectedCategory == nil {
+                selectedCategory = response.firstListableCategory?.id
+            }
         } catch {
             self.error = error.localizedDescription
         }
@@ -514,7 +530,7 @@ private extension SettingsView {
         } header: {
             Text("設定來源")
         } footer: {
-            Text("目前支援 \(sites.count) 個 type-0／type-1／type-4 CMS 來源。遠端更新失敗時會保留上一份可用設定。")
+            Text("目前支援 \(sites.count) 個來源：type-0／type-1／type-4 CMS，以及已移植的 csp_* Spider。遠端更新失敗時會保留上一份可用設定。")
         }
     }
 
@@ -539,6 +555,7 @@ private extension SettingsView {
 private struct VodView: View {
     let site: Site
     let summary: Vod
+    let source: ConfigSource
     @State private var detail: Vod?
     @State private var pendingPlayback: Playback?
     @State private var error: String?
@@ -595,8 +612,10 @@ private struct VodView: View {
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBar()
         .task {
-            do { detail = try await CMSClient(site: site).detail(id: summary.id) }
-            catch { self.error = error.localizedDescription }
+            do {
+                let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
+                detail = try await client.detail(id: summary.id)
+            } catch { self.error = error.localizedDescription }
         }
         .sheet(item: $pendingPlayback) { PlayerPickerView(mediaURL: $0.url, title: $0.title, artwork: $0.artwork) }
         .alert("無法播放", isPresented: Binding(get: { playbackError != nil }, set: { if !$0 { playbackError = nil } })) {
@@ -610,7 +629,8 @@ private struct VodView: View {
         resolving = true
         defer { resolving = false }
         do {
-            guard let url = try await CMSClient(site: site).playbackURL(for: episode, flag: flag) else {
+            let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
+            guard let url = try await client.playbackURL(for: episode, flag: flag) else {
                 playbackError = "這一集沒有可播放的網址。"
                 return
             }
@@ -935,10 +955,10 @@ private struct WebHomeView: View {
         }
         .sheet(item: $pendingPlayback) { PlayerPickerView(mediaURL: $0.url, title: $0.title, artwork: $0.artwork) }
         .sheet(item: $pendingVod) { request in
-            NavigationStack { VodView(site: request.site, summary: request.vod) }
+            NavigationStack { VodView(site: request.site, summary: request.vod, source: source) }
         }
         .sheet(item: $pendingSearch) { request in
-            NavigationStack { CMSView(site: site, initialQuery: request.keyword) }
+            NavigationStack { CMSView(site: site, source: source, initialQuery: request.keyword) }
         }
         .fullScreenCover(isPresented: $playingInline) { PlayerView() }
     }
@@ -1086,15 +1106,30 @@ private struct WebHomeWebView: UIViewRepresentable {
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             guard let call = WebHomeBridge.decodeMessage(message.body), let bridge else { return }
+            // Swift 6 region isolation: `[String: Any]` is not Sendable, and `handle` is
+            // nonisolated, so the decoded payload cannot be sent out of this @MainActor method.
+            // The page sends the payload as JSON text to begin with, so the text crosses and the
+            // dictionary is rebuilt inside the task, where it has no other alias.
+            let payloadJSON = (message.body as? [String: Any])?["payload"] as? String ?? "{}"
+            let id = call.id
+            let method = call.method
             Task {
-                let script: String
-                do {
-                    let json = try await bridge.handle(method: call.method, payload: call.payload)
-                    script = WebHomeBridge.resolveScript(id: call.id, json: json)
-                } catch {
-                    script = WebHomeBridge.rejectScript(id: call.id, message: error.localizedDescription)
-                }
+                let script = await Self.respond(bridge: bridge, id: id, method: method, payloadJSON: payloadJSON)
                 webView?.evaluateJavaScript(script, completionHandler: nil)
+            }
+        }
+
+        /// Runs the bridge call off the main actor so the `[String: Any]` payload is created and
+        /// consumed inside one nonisolated region and never crosses an isolation boundary — only
+        /// the JSON text in and the script text out, both `Sendable`.
+        private nonisolated static func respond(
+            bridge: WebHomeBridge, id: String, method: String, payloadJSON: String
+        ) async -> String {
+            let payload = (try? JSONSerialization.jsonObject(with: Data(payloadJSON.utf8))) as? [String: Any] ?? [:]
+            do {
+                return WebHomeBridge.resolveScript(id: id, json: try await bridge.handle(method: method, payload: payload))
+            } catch {
+                return WebHomeBridge.rejectScript(id: id, message: error.localizedDescription)
             }
         }
     }

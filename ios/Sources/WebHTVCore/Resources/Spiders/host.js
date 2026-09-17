@@ -335,6 +335,51 @@ var host = (function () {
   }
   function cut1(text, rule) { var r = cut(text, rule); return r.length ? r[0] : ''; }
 
+  /**
+   * Gson-lenient JSON. The Android originals parse a rule file with Gson, which tolerates `//` and
+   * block comments and trailing commas; `JSON.parse` does not. Real rule files rely on it —
+   * `巴士动漫.json` and `動漫巴士.json` both comment keys out with `//` — and a strict parse turning
+   * those into `{}` is indistinguishable, in the UI, from a site that simply returned nothing.
+   *
+   * Returns null when the text is genuinely not JSON, so a caller can tell "unparseable" from
+   * "parsed to an empty object".
+   */
+  function parseJSON(text) {
+    var s = String(text == null ? '' : text);
+    try { return JSON.parse(s); } catch (e) { /* fall through to the lenient pass */ }
+    var out = '', i = 0, n = s.length;
+    while (i < n) {
+      var c = s.charAt(i);
+      if (c === '"') {
+        // Copy strings verbatim so a `//` inside one — every `https://` URL has one — survives.
+        var j = i + 1;
+        while (j < n) {
+          if (s.charAt(j) === '\\') { j += 2; continue; }
+          if (s.charAt(j) === '"') break;
+          j++;
+        }
+        out += s.slice(i, Math.min(j + 1, n));
+        i = j + 1;
+        continue;
+      }
+      if (c === '/' && s.charAt(i + 1) === '/') {
+        var nl = s.indexOf('\n', i);
+        if (nl === -1) break;
+        i = nl;
+        continue;
+      }
+      if (c === '/' && s.charAt(i + 1) === '*') {
+        var end = s.indexOf('*/', i + 2);
+        i = end === -1 ? n : end + 2;
+        continue;
+      }
+      out += c;
+      i++;
+    }
+    out = out.replace(/,\s*([}\]])/g, '$1');
+    try { return JSON.parse(out); } catch (e) { return null; }
+  }
+
   function stripTags(html) {
     return String(html || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ')
       .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
@@ -385,7 +430,7 @@ var host = (function () {
     md5: md5, sha1: sha1, sha256: sha256, hmac: hmac,
     local: local, now: now, timestamp: timestamp, random: random, match: match,
     parse: parse, select: select, text: textOf, pdfh: pdfh, pdfa: pdfa, pd: pd, urljoin: urljoin,
-    cut: cut, cut1: cut1, stripTags: stripTags,
+    cut: cut, cut1: cut1, stripTags: stripTags, parseJSON: parseJSON,
     result: result
   };
 })();

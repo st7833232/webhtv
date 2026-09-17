@@ -335,3 +335,45 @@ private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScri
         #"{"key":"a","name":"a","type":3,"api":"csp_XYQHiker","ext":"https://x.example/r.json"}"#.utf8))
     #expect(resolver.resolvedExtend(for: absolute) == "https://x.example/r.json")
 }
+
+/// `host.parseJSON` is Gson-lenient because real rule files are: `巴士动漫.json` and `動漫巴士.json`
+/// comment keys out with `//`, and a strict `JSON.parse` turned both sites into an empty home.
+@Test func parsesTheLenientJSONRealRuleFilesActuallyContain() async throws {
+    let runtime = try JavaScriptSpiderRuntime(
+        name: "LenientJSON",
+        script: """
+        module.exports = {
+            init: function (extend) { return ''; },
+            action: function (a) { var r = host.parseJSON(a); return r === null ? 'NULL' : JSON.stringify(r); }
+        };
+        """,
+        prelude: SpiderRegistry.bundled().prelude,
+        storage: SpiderStorage(siteKey: "lenient", defaults: UserDefaults(suiteName: "lenient")!)
+    )
+
+    // Strict JSON still parses unchanged.
+    #expect(try await runtime.action(#"{"a":"1"}"#) == #"{"a":"1"}"#)
+
+    // Line comments, the exact shape the two 巴士 rule files use.
+    let commented = """
+    {
+        "分类链接": "https://dm84.net/list-{cateId}-{catePg}.html",
+        "筛选数据": {},
+        //"筛选数据": "ext",
+        //{cateId}
+        "筛选子分类名称": ""
+    }
+    """
+    let decoded = try await runtime.action(commented)
+    #expect(decoded.contains("dm84.net"), "a commented rule file must still yield its rules")
+    #expect(!decoded.contains("ext"), "the commented-out key must not come back")
+
+    // A `//` inside a string is part of the value, not a comment — every URL has one.
+    #expect(try await runtime.action(#"{"u":"https://a.b/c"}"#).contains("https://a.b/c"))
+    // Block comments and trailing commas.
+    #expect(try await runtime.action("{/* hi */\"a\":1,}") == #"{"a":1}"#)
+    // Genuinely unparseable text is reported, not silently turned into an empty object.
+    #expect(try await runtime.action("not json at all") == "NULL")
+
+    await runtime.destroy()
+}

@@ -34,12 +34,14 @@ carries a banner saying so.
 (30 native + 15 spider) through `SourceClient`.
 
 **But listed is not working.** IOS-POC-5E swept all 15 through the app's own path and fetched the
-first bytes of each resolved stream: **3 are playable** (王子, 农民, 果果短剧 — 农民 played in the
-simulator), 2 resolve a URL whose media 404s, 1 resolves nothing, 4 list titles but return no
-flags, and 5 are empty. Seven of the twelve failures are provider state (522/403/404/301 hosts),
-five are defects in our own code. Per-site table and ranked open defects:
-`docs/IOS-POC-5E-all-source-sweep.md`. A class being “ported and verified” means the engine runs,
-not that every site configured for it is alive.
+first bytes of each resolved stream; IOS-POC-5F fixed five host/engine defects it found.
+**5 are now playable** (王子, 农民, 果果短剧, 灵虎, 不戳 — 农民 played in the simulator), 2 browse and
+list 158 episodes but resolve no stream (動漫巴士 / 巴士动漫: their rule file expects a sniffer and the
+play page currently 522s), 1 resolves media that 404s, 2 list category links instead of titles
+because the provider's listing URL 404s, and 5 are empty on provider state (522/403/301, or the
+site itself answering 「暂无数据」). Per-site table: `docs/IOS-POC-5E-all-source-sweep.md`; fixes:
+`docs/IOS-POC-5F-spider-defect-fixes.md`. A class being “ported and verified” means the engine
+runs, not that every site configured for it is alive.
 
 ## Verified
 

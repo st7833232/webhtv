@@ -79,8 +79,12 @@ Unchanged from the IOS-POC-5D sweep except that the media probe now separates �
 | `csp_動漫巴士`, `巴士动漫` | NO-EPISODE | browse fixed in 5D by the lenient rule parse; detail still returns no flags | **ours** |
 | `猎豹`, `csp_歐樂影院ORG` | EMPTY | hosts answer HTTP 522 | provider |
 | `方舟动漫` | EMPTY | host answers HTTP 403 | provider |
-| `csp_If101` | EMPTY | listing page answers 200 with 27 KB, we parse 0 titles | **ours** |
-| `csp_天天動漫` | EMPTY | host answers HTTP 301 | provider, unconfirmed |
+| `csp_If101` | EMPTY | ~~we parse 0 titles from a 200 page~~ → **corrected in 5F**: the page says 「暂无数据」 in all four categories | ~~ours~~ **provider** |
+| `csp_天天動漫` | EMPTY | redirects to `ttdm11.me`, which answers 599 bytes (confirmed in 5F) | provider |
+
+> **Superseded in part by IOS-POC-5F**, which fixed five of the defects below and corrected two
+> “ours” verdicts to “provider”. Playable went 27 → 29 of 45. Read
+> `docs/IOS-POC-5F-spider-defect-fixes.md` for the current state.
 
 ## Open defects, ranked by sources recovered
 

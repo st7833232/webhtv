@@ -51,6 +51,18 @@ var spider = (function () {
     });
   }
 
+  /**
+   * Hiker lets a listing template carry `[firstPage=<template>]`: the first page uses that
+   * template and every later page the main one. 巴士动漫 and 動漫巴士 list page 1 at
+   * `/list-{cateId}.html` and the rest at `/list-{cateId}-{catePg}.html`; ignoring the marker
+   * requests a literal "…html[firstPage=…]" and the category comes back empty.
+   */
+  function pickTemplate(raw, page, startPage) {
+    var match = /^([\s\S]*?)\[firstPage=([\s\S]*?)\]\s*$/.exec(String(raw || ''));
+    if (!match) return String(raw || '');
+    return String(page) === String(startPage) ? match[2] : match[1];
+  }
+
   function fill(template, values) {
     return String(template || '').replace(/\{([a-zA-Z]+)\}/g, function (_, name) {
       return values[name] === undefined ? '' : values[name];
@@ -65,32 +77,55 @@ var spider = (function () {
    * One list block, shared by home, category and search: they differ only in which rule keys name
    * the array, the fields and the link prefix.
    */
+  /** First key that the rule file actually defines; a key may name a fallback after itself. */
+  function ruleFor(spec) {
+    var names = typeof spec === 'string' ? [spec] : (spec || []);
+    for (var i = 0; i < names.length; i++) {
+      var value = text(names[i]);
+      if (value) return value;
+    }
+    return '';
+  }
+
   function extract(html, keys) {
     var scope = html;
     if (keys.outer && text(keys.outer)) {
       var outer = host.pdfa(html, text(keys.outer));
       if (outer.length) scope = outer[0];
     }
+    var urlRule = ruleFor(keys.url);
+    // An empty rule makes `pdfh` fall back to the node's own text, which would make every field —
+    // including `vod_id` — the title. `detailContent` then fetches that title as a URL and the
+    // whole listing silently yields no episodes, which is exactly how 巴士动漫 presented.
+    if (!urlRule) return [];
     var nodes = host.pdfa(scope, text(keys.array));
-    var prefix = text(keys.prefix), suffix = text(keys.suffix);
+    var prefix = ruleFor(keys.prefix), suffix = ruleFor(keys.suffix);
+    var titleRule = ruleFor(keys.title), picRule = ruleFor(keys.pic), remarkRule = ruleFor(keys.remark);
     var out = [];
     for (var i = 0; i < nodes.length; i++) {
-      var link = host.pdfh(nodes[i], text(keys.url));
-      var title = host.pdfh(nodes[i], text(keys.title));
+      var link = host.pdfh(nodes[i], urlRule);
+      var title = host.pdfh(nodes[i], titleRule);
       if (!link || !title) continue;
       out.push({
         vod_id: prefix + link + suffix,
         vod_name: title,
-        vod_pic: host.urljoin(prefix, host.pdfh(nodes[i], text(keys.pic))),
-        vod_remarks: keys.remark ? host.pdfh(nodes[i], text(keys.remark)) : ''
+        vod_pic: host.urljoin(prefix, host.pdfh(nodes[i], picRule)),
+        vod_remarks: remarkRule ? host.pdfh(nodes[i], remarkRule) : ''
       });
     }
     return out;
   }
 
-  var HOME = { outer: '首页列表数组规则', array: '首页片单列表数组规则', title: '首页片单标题',
-               url: '首页片单链接', pic: '首页片单图片', remark: '首页片单副标题',
-               prefix: '首页片单链接加前缀', suffix: '首页片单链接加后缀' };
+  // A rule file may give the home block only its array rules and leave the per-field ones to the
+  // 分类片单* set — 巴士动漫 and 動漫巴士 both do. Each field therefore names its own key first and
+  // the category key as the fallback, which is what Hiker does.
+  var HOME = { outer: '首页列表数组规则', array: '首页片单列表数组规则',
+               title: ['首页片单标题', '分类片单标题'],
+               url: ['首页片单链接', '分类片单链接'],
+               pic: ['首页片单图片', '分类片单图片'],
+               remark: ['首页片单副标题', '分类片单副标题'],
+               prefix: ['首页片单链接加前缀', '分类片单链接加前缀'],
+               suffix: ['首页片单链接加后缀', '分类片单链接加后缀'] };
   var CATEGORY = { array: '分类列表数组规则', title: '分类片单标题', url: '分类片单链接',
                    pic: '分类片单图片', remark: '分类片单副标题',
                    prefix: '分类片单链接加前缀', suffix: '分类片单链接加后缀' };
@@ -119,8 +154,10 @@ var spider = (function () {
     },
 
     categoryContent: function (tid, page, filter, extend) {
-      var url = fill(text('分类链接'), {
-        cateId: tid, catePg: String(page || text('分类起始页码', '1')),
+      var startPage = text('分类起始页码', '1');
+      var pageNumber = String(page || startPage);
+      var url = fill(pickTemplate(text('分类链接'), pageNumber, startPage), {
+        cateId: tid, catePg: pageNumber,
         by: (extend && extend.by) || '', year: (extend && extend.year) || '',
         area: (extend && extend.area) || '', 'class': (extend && extend['class']) || '',
         lang: (extend && extend.lang) || '', letter: ''

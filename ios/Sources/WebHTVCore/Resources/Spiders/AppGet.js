@@ -98,11 +98,17 @@ var spider = (function () {
       (data.vod_play_list || []).forEach(function (group) {
         var info = group.player_info || {};
         var episodes = (group.urls || []).map(function (ep) {
-          // The episode id carries what playerContent needs: the (possibly encrypted) url, the
-          // vod name and the nid, joined exactly as the original does.
-          var target = /^https?:\/\//.test(ep.parse_api_url || '')
-            ? ep.parse_api_url
-            : 'parse_api=' + (info.parse || '') + '&url=' + host.base64.encode(ep.url || '') + '&token=' + (ep.token || '');
+          // `parse_api_url` is the site's own concatenation of `player_info.parse` and `url`.
+          // 王子 ships an empty `parse`, so there it happens to equal `url` and looks like a clean
+          // link; 灵虎 and 不戳 ship a non-empty one and hand back "<parse><url>" glued together,
+          // which is not a URL at all and which the original Java trusts just as blindly. `url` is
+          // the field that is only ever the target, so prefer it and never parse the derived one.
+          var direct = String(ep.url || '');
+          var target = /^https?:\/\//.test(direct)
+            ? direct
+            : (/^https?:\/\//.test(ep.parse_api_url || '')
+                ? ep.parse_api_url
+                : 'parse_api=' + (info.parse || '') + '&url=' + host.base64.encode(direct) + '&token=' + (ep.token || ''));
           return (ep.name || '') + '$' + target + '|' + (v.vod_name || '') + '|' + (ep.nid || '');
         });
         if (episodes.length) { froms.push(info.show || 'default'); urls.push(episodes.join('#')); }
@@ -144,11 +150,13 @@ var spider = (function () {
         return host.result.play(target, true, headers);
       }
 
-      // `parse_api=<endpoint>&url=<base64 aes>&token=<token>`: the url is AES-encrypted with the
-      // same site key, so it decrypts locally without calling the parse endpoint at all.
+      // `parse_api=<endpoint>&url=<base64>&token=<token>`, the fallback detailContent builds when
+      // the episode carries no usable url. detailContent encodes it with base64, so decode it with
+      // base64: an earlier version decrypted it as AES here, which could never match what was
+      // written and silently fell through to the parse endpoint on every episode.
       var encoded = host.match(target, 'url=([^&]+)');
       if (encoded) {
-        var plain = host.aesDecrypt(host.dec(encoded), cfg.key, cfg.iv, 'CBC', 'base64');
+        var plain = host.base64.decode(host.dec(encoded));
         if (/^https?:\/\//.test(plain)) return host.result.play(plain, false, headers);
       }
       var parseApi = host.match(target, 'parse_api=([^&]+)');

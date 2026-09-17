@@ -377,3 +377,69 @@ private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScri
 
     await runtime.destroy()
 }
+
+/// Jsoup's `Element.select()` collects from the element itself, so a rule read against a node can
+/// match that node. 巴士动漫 selects episodes with `a` and then reads each with `a&&href`; without
+/// self-matching every episode is skipped and the title lists zero flags.
+@Test func matchesTheNodeItselfTheWayJsoupSelectDoes() async throws {
+    let runtime = try JavaScriptSpiderRuntime(
+        name: "SelfMatch",
+        script: """
+        module.exports = {
+            init: function () { return ''; },
+            action: function (a) {
+                var doc = host.parse('<ul class="play_list"><li><a href="/p/1.html">117</a></li>' +
+                                     '<li><a href="/p/2.html">116</a></li></ul>');
+                var items = host.pdfa(doc, '.play_list&&a');
+                var out = items.map(function (n) {
+                    return host.pdfh(n, 'a&&Text') + '|' + host.pdfh(n, 'a&&href');
+                });
+                // A descendant rule must still descend, not collapse onto the scope node.
+                out.push('desc=' + host.pdfa(doc, '.play_list&&li').length);
+                return out.join(',');
+            }
+        };
+        """,
+        prelude: SpiderRegistry.bundled().prelude,
+        storage: SpiderStorage(siteKey: "selfmatch", defaults: UserDefaults(suiteName: "selfmatch")!)
+    )
+    let result = try await runtime.action("")
+    #expect(result.contains("117|/p/1.html"), "an <a> node must satisfy `a&&href` against itself")
+    #expect(result.contains("116|/p/2.html"))
+    // The `li` rule must still find the two list items, not the <ul> it was scoped to.
+    #expect(result.contains("desc=2"))
+    await runtime.destroy()
+}
+
+/// An undefined rule key is not a request for the node's whole text. Rule files leave 详情 fields
+/// empty all the time, and returning the document text made 巴士动漫 report its year as the page.
+@Test func treatsAnEmptyRuleAsNoValueRatherThanTheWholeNode() async throws {
+    let runtime = try JavaScriptSpiderRuntime(
+        name: "EmptyRule",
+        script: """
+        module.exports = {
+            init: function () { return ''; },
+            action: function () {
+                var doc = host.parse('<div class="x"><span>hello</span></div>');
+                return JSON.stringify({
+                    empty: host.pdfh(doc, ''),
+                    undef: host.pdfh(doc, undefined),
+                    blank: host.pdfh(doc, '   '),
+                    text: host.pdfh(doc, '.x&&Text'),
+                    self: host.pdfh(doc, 'Text').length > 0
+                });
+            }
+        };
+        """,
+        prelude: SpiderRegistry.bundled().prelude,
+        storage: SpiderStorage(siteKey: "emptyrule", defaults: UserDefaults(suiteName: "emptyrule")!)
+    )
+    let out = try await runtime.action("")
+    #expect(out.contains("\"empty\":\"\""))
+    #expect(out.contains("\"undef\":\"\""))
+    #expect(out.contains("\"blank\":\"\""))
+    // A real rule still works, and an explicit bare `Text` still means this node's text.
+    #expect(out.contains("\"text\":\"hello\""))
+    #expect(out.contains("\"self\":true"))
+    await runtime.destroy()
+}

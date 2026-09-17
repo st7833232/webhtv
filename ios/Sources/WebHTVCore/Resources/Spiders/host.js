@@ -184,7 +184,12 @@ var host = (function () {
       var scope = [root];
       for (var p = 0; p < parts.length; p++) {
         if (parts[p] === '>') { p++; scope = childrenMatching(scope, selectorPart(parts[p])); continue; }
-        scope = descendantsMatching(scope, selectorPart(parts[p]));
+        // Jsoup's `Element.select()` collects from the element itself, not only its descendants, so
+        // a rule evaluated against a node may match that node. Rule files depend on it: 巴士动漫
+        // picks episodes with `a` and then reads each one with `a&&href`, which finds nothing if
+        // the <a> cannot match itself. Only the first part self-matches — later parts are descendant
+        // combinators and must keep descending.
+        scope = descendantsMatching(scope, selectorPart(parts[p]), p === 0);
       }
       found = found.concat(scope);
     }
@@ -196,10 +201,11 @@ var host = (function () {
     var i = part.index < 0 ? list.length + part.index : part.index;
     return list[i] ? [list[i]] : [];
   }
-  function descendantsMatching(scope, part) {
+  function descendantsMatching(scope, part, includeSelf) {
     var out = [];
     for (var i = 0; i < scope.length; i++) {
       var all = descendants(scope[i], []);
+      if (includeSelf) all = [scope[i]].concat(all);
       for (var j = 0; j < all.length; j++) if (matches(all[j], part)) out.push(all[j]);
     }
     return applyIndex(out, part);
@@ -249,6 +255,10 @@ var host = (function () {
 
   /** First match — drpy's `pdfh`. `html` may be a string or a parsed node. */
   function pdfh(html, rule) {
+    // No rule means the rule file did not define that field, which is not the same as asking for
+    // this node's whole text. Returning the text made every undefined 详情 field come back as the
+    // entire page — 巴士动漫 reported its `vod_year` as the full HTML document's text.
+    if (!String(rule === undefined || rule === null ? '' : rule).trim()) return '';
     var r = splitRule(rule);
     var root = typeof html === 'string' ? parse(html) : html;
     var found = r.selector ? select(root, r.selector) : [root];

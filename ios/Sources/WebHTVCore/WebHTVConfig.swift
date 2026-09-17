@@ -45,7 +45,13 @@ public struct Site: Decodable, Identifiable, Sendable {
         case key, name, type, api, ext
     }
 
-    public var id: String { key }
+    /// **Not `key` alone.** CatVod does not require site keys to be unique and this configuration
+    /// proves it: four keys appear twice (`爱影`, `Bidys`, `AppV6Dxs`, `星芽短剧`), and since
+    /// IOS-POC-5L both `爱影` sites are drivable, so a key-only identity would give the picker two
+    /// rows that select each other. The `ext` is what distinguishes them — it is the whole
+    /// definition of where a site points — which is also why `SpiderSessionStore` keys its cache on
+    /// exactly this string.
+    public var id: String { key + "\u{0}" + rawExtJSON }
 
     public var isNativeCMS: Bool {
         guard type == 0 || type == 1 || type == 4, let scheme = URL(string: api)?.scheme else { return false }

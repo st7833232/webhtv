@@ -96,10 +96,13 @@ private func site(_ json: String) throws -> Site {
     let spiders = config.spiderSites(resolvedBy: resolver)
 
     #expect(native.count == 30, "2 type-0 + 22 type-1 + 6 type-4")
-    #expect(spiders.count == 15, "AppGet 5 + XBPQ 7 + XYQHiker 3")
+    #expect(spiders.count == 31, "AppGet 5 + AppQi 6 + App99 4 + App3Q 2 + Bili 4 + XBPQ 7 + XYQHiker 3")
     #expect(drivable.count == native.count + spiders.count)
-    // The app selects a site by key, so a duplicate would make the picker ambiguous.
-    #expect(Set(drivable.map(\.key)).count == drivable.count)
+    // The app selects a site by `id`, so a duplicate would make the picker ambiguous. This
+    // configuration does repeat site *keys* — `爱影` names two different AppQi sites — which is why
+    // `Site.id` is the key together with the `ext`.
+    #expect(Set(drivable.map(\.id)).count == drivable.count)
+    #expect(Set(drivable.map(\.key)).count < drivable.count, "the config really does repeat a key")
     // Every listed spider must be one the registry can genuinely drive.
     #expect(spiders.allSatisfy { resolver.canResolve($0) })
     print("[sources] app list: \(drivable.count) = \(native.count) native + \(spiders.count) spider")

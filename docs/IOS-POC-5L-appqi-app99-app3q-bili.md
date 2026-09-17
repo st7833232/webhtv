@@ -144,6 +144,17 @@ CSP_GOLDEN_SITE='{"key":"gulu","name":"gulu","type":3,"api":"csp_AppQi","ext":{�
   swift test --package-path ios --filter appGetDrivesTheWholeCatVodFlow
 ```
 
+### A third defect, in the app rather than the ports
+
+Listing the two `爱影` sites made the app's site picker ambiguous: `Site.id` was the CatVod `key`,
+CatVod does not require keys to be unique, and this configuration repeats four of them (`爱影`,
+`Bidys`, `AppV6Dxs`, `星芽短剧`). Until this stage no duplicate was drivable, so `ForEach(sites)`
+had never seen two rows with one identity. `Site.id` is now the key together with the `ext` — the
+same string `SpiderSessionStore` already used for its cache, which now reads `site.id` instead of
+rebuilding it. The suite's own `listsThePortedSpiderSitesAlongsideTheNativeCMSSites` caught this;
+it now asserts unique ids *and* that the configuration really does repeat a key, so the case cannot
+quietly regress. Committed separately (`IOS-POC-5L-B`) because it is an app-listing fix, not a port.
+
 ### Two defects found and fixed during the stage
 
 1. **`App99` returned nothing at all.** Its `systemInit` reply decrypts to 36 KB of **zlib**, not
@@ -172,8 +183,8 @@ CSP_GOLDEN_SITE='{"key":"gulu","name":"gulu","type":3,"api":"csp_AppQi","ext":{�
 
 ## Verification
 
-- `WANG_MOVIE_JSON=… swift test --package-path ios` → **78 tests**. Live golden runs of `App99`
-  (剧圈99) and `App3Q` (云朵影视) pass through home → category → detail → search → player.
+- `WANG_MOVIE_JSON=… swift test --package-path ios` → **78 tests, all pass**. Live golden runs of
+  `App99` (剧圈99) and `App3Q` (云朵影视) go through home → category → detail → search → player.
 - The sweep above, 61 sources.
 - `xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp -destination
   'platform=iOS Simulator,name=iPhone 17 Pro' -configuration Debug build` passes.

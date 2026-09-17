@@ -148,12 +148,12 @@ public actor SpiderSessionStore {
     public init() {}
 
     public func session(for site: Site, resolver: CSPSourceResolver) throws -> SpiderSession {
-        // Keyed by the site's `ext` as well as its key: a reloaded configuration may keep a key and
+        // `Site.id` is the site's key *and* its `ext`: a reloaded configuration may keep a key and
         // change what it points at, and a session caches the `ext` it was initialised with. Keying
         // on both means a changed site simply misses the cache, so correctness does not depend on
         // `reset()` having run first — which, being an actor hop from the reload, is not ordered
         // against the next lookup.
-        let identity = "\(site.key)\u{0}\(site.rawExtJSON)"
+        let identity = site.id
         if let existing = sessions[identity] { return existing }
         let session = try resolver.session(for: site)
         sessions[identity] = session

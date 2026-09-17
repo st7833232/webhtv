@@ -6,7 +6,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current Scope
 
-- Branch `ios-poc`, HEAD `3e8a7a84` after IOS-POC-5K, **9 commits ahead of `origin/ios-poc` and not pushed**. **Re-check with `git log` rather than trusting any id quoted here.**
+- Branch `ios-poc`, HEAD after IOS-POC-5L. `03ba9cf0` **was pushed to `origin/ios-poc` on 2026-09-17** at the user's explicit instruction; the IOS-POC-5L commits sit on top of it and are local. **Re-check with `git log` rather than trusting any id quoted here.**
 - Android `app/` is read-only for all iOS work and has never been modified: `git diff <branch-point>..HEAD -- app/` is empty, and every commit on this branch touches only `ios/`, `docs/`, `scripts/`, `AGENTS.md` and `.codex/`.
 - **The input configuration lives in the scratchpad, not `/tmp`.** `/tmp/webhtv-recha-new.wprHof/` was cleared mid-session; `wang-movie.json` was re-fetched from the user's own GitLab and its SHA-256 matches the recorded baseline byte for byte. Re-fetch it from `https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json` if it is missing. `recha-main.zip` was **not** restored, so `scripts/audit_spider_jars.py` cannot be re-run without downloading it again.
 - Stages through IOS-POC-4J have an annotated `recovery/<task-id>/*` tag; tags through `IOS-POC-1H` are on the remote. **Recovery tags became opt-in on 2026-09-16** (AGENTS.md §6), so IOS-POC-5A onwards are deliberately untagged.
@@ -61,6 +61,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 5I | XBPQ knew only the older 苹果CMS skins; 永樂 rendered its nav as films | `docs/IOS-POC-5I-xbpq-listing-templates.md` |
 | 5J | One 全部 chip instead of two; CatVod filter rows under the category row | `docs/IOS-POC-5J-category-filters.md` |
 | 5K | Category rows scroll away; Top button; collapsible child rows | `docs/IOS-POC-5K-scrolling-and-collapsible-categories.md` |
+| 5L | `AppQi`, `App99`, `App3Q` and `Bili` ported (+16 sites, 45 → 61 listed); IV-prefixed AES + zlib in the host; `Site.id` made unique | `docs/IOS-POC-5L-appqi-app99-app3q-bili.md` |
 
 ## Important Decisions
 
@@ -96,34 +97,36 @@ Counted directly from the 167-site `wang-movie.json`, not carried over from an e
 | group | sites | status |
 |---|---:|---|
 | type-0 MacCMS XML | 2 | listed; **2 play** |
-| type-1 MacCMS JSON | 22 | listed; **22 play** — the three `/share/` player pages are sniffed since 5G |
+| type-1 MacCMS JSON | 22 | listed; **20 play** on 2026-09-17 — the three `/share/` player pages are sniffed since 5G; the two `如意` hosts served dead media that day |
 | type-4 CatVod remote API | 6 | listed; **4 play**, 2 return nothing (403 host, and 43 empty categories) |
-| type-3 `csp_*` spiders | 90 | **15 listed** since IOS-POC-5D; **8 play** after IOS-POC-5I, 7 blocked on provider state |
+| type-3 `csp_*` spiders | 90 | **31 listed** since IOS-POC-5L; **11 play**, the rest blocked on provider state or the missing player headers |
 | type-3 Python (`./py/*.py`) | 42 | not implemented — no Python runtime |
 | type-3 drpy JavaScript (`./drpy_libs/*.js`, `./json/4k.js`) | 5 | not implemented — no drpy loader |
-| **total** | **167** | **45 listed; 36 measured playable** (28 native + 8 spider) |
+| **total** | **167** | **61 listed; 37 measured playable** (26 native + 11 spider) |
 
 **IOS-POC-5D closed the routing gap that used to sit here.** `ConfigView` lists
 `drivableSites(resolvedBy:)` and every content call goes through `SourceClient`, which routes a
-site to either `CMSClient` or a cached `SpiderSession`. The settings caption reads
-「目前支援 45 個來源」.
+site to either `CMSClient` or a cached `SpiderSession`. The caption counts `drivableSites`, so it
+now reads 「目前支援 61 個來源」.
 
-**Listing is not working.** IOS-POC-5E swept all 45 listed sources through the app's own path and
-then **fetched the first bytes of every resolved stream**, because a URL resolving and the media
-existing are different things. After IOS-POC-5F fixed five host/engine defects and IOS-POC-5G added the WebView sniffer:
-**36 playable**, 2 resolve media that 404s, 7 are empty, and NO-EPISODE is zero. Native sources are
-28 of 30; spiders are 8 of 15. **Every remaining failure is provider state** — 403/522 hosts, or a
-site answering 「暂无数据」 — none is a defect in this app. Per-site table:
-`docs/IOS-POC-5E-all-source-sweep.md`; the sniffer: `docs/IOS-POC-5G-media-sniffer.md`; the
-苹果CMS skin fixes: `docs/IOS-POC-5I-xbpq-listing-templates.md`. **Quote 36 of 45, not 45.**
+**Listing is not working.** Every listed source is swept through the app's own path and then the
+**first bytes of every resolved stream are fetched**, because a URL resolving and the media existing
+are different things. Measured 2026-09-17 after IOS-POC-5L: **37 of 61 playable**, 7 resolve media
+that 403s or 404s, 1 gives episodes but no URL, 1 gives titles but no episodes, 15 are empty.
+Native is 26 of 30, spiders 11 of 31. Almost every failure is provider state — dead or 504-ing
+hosts, an expired VIP account, a provider serving its own 「site closed」 clip — with one structural
+exception: the four `Bili` sites resolve a genuine progressive MP4 that bilibili's CDN refuses
+without a `Referer`, which `AVPlayer` cannot send until per-request headers are threaded through
+`PlayerView`. Per-site tables: `docs/IOS-POC-5L-appqi-app99-app3q-bili.md` (current) and
+`docs/IOS-POC-5E-all-source-sweep.md` (the earlier 45-source run). **Quote 37 of 61, not 61.**
 
 #### The 90 `csp_*` sites
 
 | bucket | classes | sites |
 |---|---:|---:|
 | portable (audit categories A–C) | 26 | 54 |
-|  of which ported **and live-verified** | 3 | **15** |
-|  of which portable but not yet ported | 23 | 39 |
+|  of which ported | 7 | **31** |
+|  of which portable but not yet ported | 19 | 23 |
 | blocked by native-encrypted payload (category H) | 23 | 34 |
 | missing resource — JAR never downloaded, portability unknown | 2 | 2 |
 | **total** | **51** | **90** |
@@ -132,8 +135,11 @@ Class counts above are **distinct class names**, so they sum to 51. The audit ta
 `docs/CSP_PORTABILITY_MATRIX.md` keys a class per JAR and therefore shows 58 rows (33 portable);
 a class shipped in two JARs still costs only one port. See `docs/CSP_MIGRATION_STATUS.md`.
 
-Verified classes: `AppGet` (5 sites, 苹果CMS App-API + AES-CBC), `XBPQ` (7 sites, rule engine),
-`XYQHiker` (3 sites, rule engine). The two rule engines serve any future site configured for them
+Ported classes: `AppGet` (5 sites), `AppQi` (6), `App99` (4), `App3Q` (2) — four dialects of the
+苹果CMS App-API — `Bili` (4, the public bilibili API), `XBPQ` (7, rule engine) and `XYQHiker`
+(3, rule engine). All are live-verified except `AppQi`, whose six sites resolve to four hosts that
+were all dead on 2026-09-17; its `init`, decrypt, home and category are proven from one short
+window in which one host answered, its detail and player are not. The two rule engines serve any future site configured for them
 without further code, which is why they are worth more than their site counts suggest.
 
 #### Native CMS notes

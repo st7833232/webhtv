@@ -148,9 +148,10 @@ private func site(_ json: String) throws -> Site {
                     // Resolving a URL is not the same as the media existing: AG動漫 resolves cleanly
                     // and then 404s. Fetch the first bytes so the tally means "playable", not "parsed".
                     if let url {
-                        let media = await probeMedia(url)
-                        line += " [\(media)]"
-                        stop = media == "ok" ? .played : .deadMedia
+                        // Same classifier the playback path uses, so the sweep and the app agree.
+                        let kind = await MediaProbe.classify(url)
+                        line += " [\(kind)]"
+                        stop = kind == .media ? .played : .deadMedia
                     } else {
                         stop = .noPlay
                     }
@@ -175,24 +176,5 @@ private extension String {
     /// Keeps the sweep output in columns so 45 lines stay readable.
     func padded(_ width: Int) -> String {
         count >= width ? self : self + String(repeating: " ", count: width - count)
-    }
-}
-
-/// Fetches the first bytes of a resolved stream so the sweep can tell a playable URL from one that
-/// merely parsed. Returns "ok", an HTTP status, "html" for a web page dressed as media, or the
-/// transport failure — never throws, because this is a diagnostic.
-private func probeMedia(_ url: URL) async -> String {
-    var request = URLRequest(url: url)
-    // A range request keeps this cheap on a multi-gigabyte file and is what a player opens with.
-    request.setValue("bytes=0-1023", forHTTPHeaderField: "Range")
-    do {
-        let (data, response) = try await URLSession.webHTV.data(for: request)
-        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200...299).contains(code) else { return "HTTP \(code)" }
-        let head = String(decoding: data.prefix(64), as: UTF8.self).lowercased()
-        if head.contains("<html") || head.contains("<!doc") || head.contains("<script") { return "html" }
-        return data.isEmpty ? "empty" : "ok"
-    } catch {
-        return "unreachable"
     }
 }

@@ -75,20 +75,34 @@ public enum SourceClient: Sendable {
     public func playbackURL(for episode: Episode, flag: String) async throws -> URL? {
         switch self {
         case .cms(let client):
-            return try await client.playbackURL(for: episode, flag: flag)
+            guard let url = try await client.playbackURL(for: episode, flag: flag) else { return nil }
+            return await Self.resolveMedia(url)
         case .spider(let session):
             let play = try await decode(SpiderPlayResponse.self, from: session.player(flag: flag, id: episode.url))
-            // parse:1 means "open this in a browser and sniff the media out of it", which needs the
-            // WebView sniffer this app does not have. Returning nil surfaces an honest "no playable
-            // URL" instead of handing AVPlayer a web page.
-            guard play.parse == 0 else { return nil }
-            return URL(string: play.url)
+            guard let url = URL(string: play.url) else { return nil }
+            // parse:1 is the spider saying outright "this is a page, sniff it" — no need to probe.
+            if play.parse != 0 { return await MediaSniffer.shared.sniff(page: url) }
+            return await Self.resolveMedia(url)
         }
+    }
+
+    /// A resolved URL may still be a player page rather than a stream: three type-1 sources hand
+    /// back `…/share/<id>`. But the extension heuristic cuts both ways — `…/play/e0R98E7b` has no
+    /// extension and *is* media — so probe first and only sniff what comes back as HTML. That keeps
+    /// the web view off the playback path for every source that already worked.
+    ///
+    /// Sniffing is best effort, so a miss hands back the original URL rather than nil: a page that
+    /// at least opens is not made worse by us failing to improve it.
+    private static func resolveMedia(_ url: URL) async -> URL? {
+        if CMSClient.isDirectMedia(url) { return url }
+        guard await MediaProbe.classify(url) == .page else { return url }
+        return await MediaSniffer.shared.sniff(page: url) ?? url
     }
 
     /// The `header` a spider attaches to a play result is dropped: `AVPlayer` takes request headers
     /// only through `AVURLAsset` options, which `PlayerView` does not thread through yet. A CDN that
-    /// checks Referer will therefore fail to play — visibly, not silently.
+    /// checks Referer will therefore fail to play — visibly, not silently. This applies to sniffed
+    /// URLs too: the web view sends the right Referer while sniffing, `AVPlayer` then does not.
     private func decode<T: Decodable>(_ type: T.Type, from text: String) throws -> T {
         try JSONDecoder().decode(type, from: Data(text.utf8))
     }

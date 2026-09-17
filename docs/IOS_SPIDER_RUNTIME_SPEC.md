@@ -91,7 +91,7 @@ There must never be two JS runtimes. Native half in `Spider/Host/*.swift`, JavaS
 | Text slicing | `host.cut` / `cut1` — XBPQ's `前綴&&後綴` with `[包含:]` `[不包含:]` `[替换:a>>b]`, plus `host.stripTags` | done |
 | Hiker rule syntax | `&&` first-match descent, `\|\|` attribute fallback, `,N` index, `:has()`, `!prefix` stripping | done |
 | RSA | — | **not implemented**; `csp_AppDrama` needs it |
-| WebView / sniffing | — | **not implemented**; no ported spider needs it yet |
+| WebView / sniffing | `MediaSniffer` — injected JS hook on XHR / `fetch` / media `src`, plus `MediaProbe` | done (IOS-POC-5G). **Native, not a `host.*` primitive**: `WKWebView` has no `shouldInterceptRequest`, so the sniff happens in Swift above the spider, on any `parse:1` result |
 | `proxy` | ABI present, no host plumbing | **not implemented** |
 
 **Wired to the app UI since IOS-POC-5D.** `SourceClient` routes each site to either `CMSClient` or

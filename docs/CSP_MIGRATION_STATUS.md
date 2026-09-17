@@ -33,12 +33,13 @@ carries a banner saying so.
 **Since IOS-POC-5D these 15 sites are listed in the app UI**, which now offers 45 of 167 sources
 (30 native + 15 spider) through `SourceClient`.
 
-**But listed is not working.** A sweep of all 15 through the app's own path, 2026-09-17: **3 browse
-and play end to end** (王子, 农民, 果果短剧 — 农民 played in the simulator), **7 fail at the provider**
-(522/403 hosts, 404 listing URLs, one withdrawn media file, each confirmed with `curl`), and
-**5 stop in our own code**. Per-site table and the open defects:
-`docs/IOS-POC-5D-spider-sites-in-app.md`. A class being “ported and verified” means the engine
-runs, not that every site configured for it is alive.
+**But listed is not working.** IOS-POC-5E swept all 15 through the app's own path and fetched the
+first bytes of each resolved stream: **3 are playable** (王子, 农民, 果果短剧 — 农民 played in the
+simulator), 2 resolve a URL whose media 404s, 1 resolves nothing, 4 list titles but return no
+flags, and 5 are empty. Seven of the twelve failures are provider state (522/403/404/301 hosts),
+five are defects in our own code. Per-site table and ranked open defects:
+`docs/IOS-POC-5E-all-source-sweep.md`. A class being “ported and verified” means the engine runs,
+not that every site configured for it is alive.
 
 ## Verified
 

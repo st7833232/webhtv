@@ -104,3 +104,95 @@ private func site(_ json: String) throws -> Site {
     #expect(spiders.allSatisfy { resolver.canResolve($0) })
     print("[sources] app list: \(drivable.count) = \(native.count) native + \(spiders.count) spider")
 }
+
+/// Sweeps **every source the app lists** — native CMS and ported spider alike — through
+/// `SourceClient`, the same path the app itself uses, and reports where each one stops.
+///
+/// This is a diagnostic, not a gate: it asserts nothing about individual sites, because provider
+/// reachability is volatile and a dead host is not a defect. It exists because IOS-POC-5D was first
+/// reported as "15 spider sites work" on the strength of four hand-checked ones, and the only cheap
+/// way to know the real number is to drive all of them.
+///
+///     SWEEP_CONFIG=/path/wang-movie.json SWEEP_BASE=https://…/wang-movie.json \
+///       swift test --package-path ios --filter sweepsEveryDrivableSource
+@Test func sweepsEveryDrivableSourceThroughTheAppPath() async throws {
+    let env = ProcessInfo.processInfo.environment
+    guard let path = env["SWEEP_CONFIG"] else { return }
+    let config = try JSONDecoder().decode(WebHTVConfig.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+    // A rule-engine spider resolves a relative `ext` against the config's own directory, so the
+    // sweep must carry the same remote source the app had or those sites fail for the wrong reason.
+    let source: ConfigSource = env["SWEEP_BASE"].flatMap { URL(string: $0) }.map { .remote($0) } ?? .importedFile
+    let resolver = CSPSourceResolver(source: source)
+
+    enum Stop: String, CaseIterable {
+        case played = "PLAYABLE", deadMedia = "DEAD-MEDIA", noPlay = "NO-PLAY"
+        case noEpisode = "NO-EPISODE", empty = "EMPTY", failed = "ERROR"
+    }
+    var tally = [Stop: Int]()
+
+    for site in config.drivableSites(resolvedBy: resolver) {
+        let kind = site.isCSPSpider ? SpiderRegistry.className(from: site.api) : "type-\(site.type)"
+        var line = "[sweep] \(kind.padded(12)) \(site.key.padded(22))"
+        var stop = Stop.failed
+        do {
+            let client = try await SourceClient.make(site: site, resolver: resolver)
+            let home = try await client.home()
+            line += " classes=\(home.classes.count) home=\(home.list.count)"
+            if let vod = home.list.first {
+                let detail = try await client.detail(id: vod.id)
+                let flags = detail?.flags ?? []
+                line += " flags=\(flags.count) eps=\(flags.first?.episodes.count ?? 0)"
+                if let episode = flags.first?.episodes.first, let flag = flags.first?.name {
+                    let url = try await client.playbackURL(for: episode, flag: flag)
+                    line += " play=\(url?.absoluteString.prefix(58) ?? "nil")"
+                    // Resolving a URL is not the same as the media existing: AG動漫 resolves cleanly
+                    // and then 404s. Fetch the first bytes so the tally means "playable", not "parsed".
+                    if let url {
+                        let media = await probeMedia(url)
+                        line += " [\(media)]"
+                        stop = media == "ok" ? .played : .deadMedia
+                    } else {
+                        stop = .noPlay
+                    }
+                } else {
+                    stop = .noEpisode
+                }
+            } else {
+                stop = .empty
+            }
+        } catch {
+            line += "  \(error)"
+        }
+        tally[stop, default: 0] += 1
+        print("\(line)  -> \(stop.rawValue)")
+    }
+
+    let total = tally.values.reduce(0, +)
+    print("[sweep] ---- \(total) sources: " + Stop.allCases.map { "\($0.rawValue)=\(tally[$0] ?? 0)" }.joined(separator: " "))
+}
+
+private extension String {
+    /// Keeps the sweep output in columns so 45 lines stay readable.
+    func padded(_ width: Int) -> String {
+        count >= width ? self : self + String(repeating: " ", count: width - count)
+    }
+}
+
+/// Fetches the first bytes of a resolved stream so the sweep can tell a playable URL from one that
+/// merely parsed. Returns "ok", an HTTP status, "html" for a web page dressed as media, or the
+/// transport failure — never throws, because this is a diagnostic.
+private func probeMedia(_ url: URL) async -> String {
+    var request = URLRequest(url: url)
+    // A range request keeps this cheap on a multi-gigabyte file and is what a player opens with.
+    request.setValue("bytes=0-1023", forHTTPHeaderField: "Range")
+    do {
+        let (data, response) = try await URLSession.webHTV.data(for: request)
+        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200...299).contains(code) else { return "HTTP \(code)" }
+        let head = String(decoding: data.prefix(64), as: UTF8.self).lowercased()
+        if head.contains("<html") || head.contains("<!doc") || head.contains("<script") { return "html" }
+        return data.isEmpty ? "empty" : "ok"
+    } catch {
+        return "unreachable"
+    }
+}

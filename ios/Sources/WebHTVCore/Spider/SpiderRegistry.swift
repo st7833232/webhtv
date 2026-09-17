@@ -29,6 +29,11 @@ public struct SpiderRegistry: Sendable {
     /// Adding a port is a new `.js` resource plus one line here — never a Swift rewrite.
     static let ported: [String: (SpiderPortability, String)] = [
         "AppGet": (.httpCrypto, "river-fman.jar, xiaosa-0807.jar"),
+        // The rest of the 苹果CMS App-API family, ported in IOS-POC-5L.
+        "AppQi": (.httpCrypto, "river-fman.jar, xiaosa-0807.jar, 愛影.jar"),
+        "App99": (.httpCrypto, "river-fman.jar, xiaosa-0807.jar"),
+        "App3Q": (.httpCrypto, "river-fman.jar, xiaosa-0807.jar"),
+        "Bili": (.httpJSON, "river-fman.jar"),
         // Rule engines: one port serves every site configured for them, now and later.
         "XBPQ": (.httpCrypto, "xyqxbpq.jar, xiaosa-0807.jar"),
         "XYQHiker": (.httpJSON, "xyqxbpq.jar, river-fman.jar"),

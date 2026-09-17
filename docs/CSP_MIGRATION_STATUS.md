@@ -3,8 +3,7 @@
 Living record of which spiders are ported, verified, blocked, or waiting on a file.
 Audit data: `docs/CSP_PORTABILITY_MATRIX.md`. Runtime contract: `docs/IOS_SPIDER_RUNTIME_SPEC.md`.
 
-Last updated 2026-09-17 (IOS-POC-5C reconciliation; the ports themselves are unchanged since
-IOS-POC-5B).
+Last updated 2026-09-17 (IOS-POC-5L: `AppQi`, `App99`, `App3Q` and `Bili` ported, +16 sites).
 
 ## Headline
 
@@ -12,8 +11,8 @@ IOS-POC-5B).
 |---|---:|---:|---:|
 | configured `csp_*` | 58 | 51 | 90 |
 | **portable** (categories A–C) | **33** | **26** | **54** |
-|  ported and verified | 3 | 3 | 15 |
-|  portable, not yet ported | 30 | 23 | 39 |
+|  ported | 8 | 7 | 31 |
+|  portable, not yet ported | 25 | 19 | 23 |
 | blocked by native protection (H) | 23 | 23 | 34 |
 | missing resource | 2 | 2 | 2 |
 
@@ -30,19 +29,16 @@ every JAR it appears in.
 that was wrong, and this file supersedes it — `docs/IOS-TYPE3-REACHABILITY-2026-09-16.md` now
 carries a banner saying so.
 
-**Since IOS-POC-5D these 15 sites are listed in the app UI**, which now offers 45 of 167 sources
-(30 native + 15 spider) through `SourceClient`.
+**Since IOS-POC-5L these 31 sites are listed in the app UI**, which now offers 61 of 167 sources
+(30 native + 31 spider) through `SourceClient`.
 
-**But listed is not working.** IOS-POC-5E swept all 15 through the app's own path and fetched the
-first bytes of each resolved stream; IOS-POC-5F fixed five host/engine defects it found.
-**8 are now playable**: 王子, 农民, 果果短剧, 灵虎, 不戳, 動漫巴士 / 巴士动漫 (IOS-POC-5G's sniffer
-covered the play pages their rule file never described) and 永乐影视 / csp_YLSP (IOS-POC-5I taught
-XBPQ the newer 苹果CMS skin, which it had been rendering as four nav entries). 1 resolves media
-that 404s (AG動漫) and 5 are empty on provider state — 522/403/301 hosts, or the site itself
-answering 「暂无数据」. **All 6 remaining failures are provider state.** Per-site table:
-`docs/IOS-POC-5E-all-source-sweep.md`; fixes: `docs/IOS-POC-5F-spider-defect-fixes.md` and
-`docs/IOS-POC-5I-xbpq-listing-templates.md`; sniffer: `docs/IOS-POC-5G-media-sniffer.md`. A class
-being “ported and verified” means the engine runs, not that every site configured for it is alive.
+**But listed is not working.** Every listed source is swept through the app's own path and the first
+bytes of each resolved stream are fetched, because a URL resolving and the media existing are
+different things. Per-site verdicts live in the stage documents: 45 sources in
+`docs/IOS-POC-5E-all-source-sweep.md` (with the fixes in `-5F`, `-5G` and `-5I`), and the 61-source
+sweep after this stage in `docs/IOS-POC-5L-appqi-app99-app3q-bili.md`. **A class being “ported”
+means the engine runs, not that every site configured for it is alive** — of the 16 sites added
+here, all six `AppQi` hosts were dead on the day, and two of the four `App99` hosts time out.
 
 ## Verified
 
@@ -51,8 +47,12 @@ being “ported and verified” means the engine runs, not that every site confi
 | `AppGet` | 5 | C. HTTP + crypto | Live golden: home 6 classes → category 30 → detail 荒山野店, 2 flags → search 20 → player `parse:0` direct m3u8. |
 | `XBPQ` | 7 | C. rule engine | Live golden on **two** sites. 果果短剧: category 30 → detail → `parse:0` m3u8. AG動漫: category 12 → detail 金田一少年事件簿 with **149 episodes** → `parse:0` m3u8. |
 | `XYQHiker` | 3 | A. rule engine | Live golden on 农民影视: category 30 → detail 《抓特务》 with flags `[线路①, 线路②]` → search 20 → player `parse:0` m3u8. |
+| `App99` | 4 | C. HTTP + crypto | IOS-POC-5L live golden on 剧圈99: home 18 classes → category 21 → detail 打生桩 with 4 flags → search 21 → player `parse:0` direct m3u8. |
+| `App3Q` | 2 | C. HTTP + crypto | IOS-POC-5L live golden on 云朵影视: home 4 classes → category 24 → detail 八仙！ with 4 flags → search 15. Playback stops at the site's own `{"code":403,"msg":"VIP权益已过期"}`. |
+| `Bili` | 4 | B. HTTP + JSON | IOS-POC-5L live: 39 classes from the site's own JSON → search listing 20 → detail → `playurl` `parse:0` progressive MP4. The MP4 then needs a `Referer` the player cannot send yet. |
+| `AppQi` | 6 | B. HTTP + crypto | **Ported, unverified.** All four hosts the six sites resolve to were dead on 2026-09-17 — two connection-refused, one 504, one DNS failure — so no request reached a live API. |
 
-All three were re-run live on 2026-09-17 at HEAD `226e826c` and each still ends in a `parse:0`
+The first three were re-run live on 2026-09-17 at HEAD `226e826c` and each still ends in a `parse:0`
 direct stream. **Caveat on `XYQHiker`:** all 3 of its configured sites set `ext` to a relative path
 (`./json/农民影视.json`), and `ConfigSource.importedFile` has no base URL, so `resourceURL` returns
 nil and the rule file cannot be fetched. Those 3 sites therefore work only when the configuration
@@ -64,37 +64,39 @@ contain — the ports serve any future site configured for either engine without
 
 ## Not ported yet — ranked by sites unlocked
 
-Highest value first. `AppQi`, `App99` and `App3Q` are the same 苹果CMS App-API family as the ported
-`AppGet`, so they mostly reuse its shape; `XBPQ` and `XYQHiker` are **rule engines** rather than
-site-specific scrapers, which is why they are worth far more than their site counts suggest.
+Highest value first. The App-API family (`AppQi`, `App99`, `App3Q`) and `Bili` left this table in
+IOS-POC-5L; `AppDrama` is the last of the family and is blocked on RSA in the host.
 
 | class | sites | category | note |
 |---|---:|---|---|
-| `AppQi` | 6 | B | same App-API family as `AppGet` |
-| `App99` | 4 | C | App-API family plus a signed login |
 | `AppDrama` | 4 | C | App-API family; **needs RSA in the host** |
-| `Bili` | 4 | B | Bilibili public API, no crypto |
-| `App3Q` | 2 | C | App-API family |
 | `Douban` | 2 | A | plain JSON |
 | remaining A/B/C | 3 | A–C | `AppYsV2`, `GuaziTY`, `Wwys`, `Jpys`, `Jys`, `Hxq`, `PianKu8`, `Feiyu`, `AppYQK`, `HemaDJ`, `WeiguanDJ`, `HaokanDJ`, `QimaoDJ`, `AppSy`, `MiaoWu`, `MoDu`, `Uvod`, 1 site each |
 
-### `AppQi` — static reading done 2026-09-17, not implemented
+### The App-API family, as ported in IOS-POC-5L
 
-Recorded so the decompilation is not repeated. Against the verified `AppGet`, `AppQi` differs only
-in: the `/qijiappapi.index/` endpoint prefix; `init` and `search` method names taken from `ext`
-(defaults `initV120` / `searchList`, and all 6 configured sites set `initV122`, one setting
-`search: mineInfo`); a home that also builds `filter_type_list` into CatVod `filters`; a slider
-challenge retried when search answers `code 1001`; and a player that POSTs the whole
-`parse_api=…&url=…&token=…` string to `/qijiappapi.index/vodParse` signed with
-`app-api-verify-sign: base64(AES-CBC(timestamp, dataKey, dataIv))`, whose decrypted reply is
-`{"json": "{\"url\": …}"}`. The crypto is stock `AES/CBC/PKCS7` on the site's own `dataKey`/`dataIv`,
-already in `CatVodHost`.
+`AppGet`, `AppQi`, `App99` and `App3Q` are four dialects of the same 苹果CMS app backend and share
+`homeContent → categoryContent → detailContent → playerContent` shape, but not much else:
 
-Two things must not be copied from `AppGet.js`: the episode `url=` payload is
-`base64(AES(url))`, **not** plain base64 — the site's own `vodParse` endpoint consumes it, so the
-encryption is not internal to the spider — and `Proxy.getUrl()` danmaku URLs have no iOS equivalent
-(no local HTTP server) and are simply dropped. 5 of the 6 sites resolve their host from an `ext.site`
-text file of candidate URLs, which `AppGet.js` already handles.
+| | endpoint prefix | body | response | player |
+|---|---|---|---|---|
+| `AppGet` | `/api.php/getappapi.index/` | plain JSON | `{"data": base64}`, AES-CBC on `dataKey`/`dataIv` | `parse_api=…&url=base64(url)` |
+| `AppQi` | `/api.php/qijiappapi.index/` | plain JSON | same envelope | `url=base64(AES(url))`, resolved by a signed `vodParse` POST |
+| `App99` | `/vod/…`, `/app/…` | AES-CBC under a **random IV**, `base64(iv‖ct)`, keyed by the client's own uuid | same dialect, **zlib-compressed inside** | the site's parse list, by `api_url` or a signed `/app/vodParser` |
+| `App3Q` | `/api.php/app/` | none — plain GET | plain JSON | `/app/decode/url/` |
+
+Two things in `AppQi` must not be copied from `AppGet.js`: the episode `url=` payload is
+`base64(AES(url))`, **not** plain base64 — the site's own `vodParse` endpoint consumes it — and
+`Proxy.getUrl()` danmaku URLs have no iOS equivalent and are dropped. 5 of its 6 sites resolve their
+host from an `ext.site` text file of candidate URLs.
+
+`App99` was the one port that needed a new host primitive: nothing in `CatVodHost` could express an
+IV carried in front of the ciphertext, and its `systemInit` reply is 36 KB of zlib that has to be
+inflated **before** the bytes become a String. Both now live in `CryptoHost`
+(`host.aesEncryptIV` / `aesDecryptIV`), not in the spider.
+
+Full design record, including every deliberate deviation from the decompiled original:
+`docs/IOS-POC-5L-appqi-app99-app3q-bili.md`.
 
 ## Blocked — native-protected payload
 

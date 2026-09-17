@@ -86,6 +86,7 @@ There must never be two JS runtimes. Native half in `Spider/Host/*.swift`, JavaS
 | JSON | native `JSON`, plus `host.result.{list,page,home,detail,play}` builders | done |
 | Encoding | `host.enc/dec`, `host.base64.encode/decode` | done |
 | Crypto | AES and DES, CBC and ECB, PKCS7, base64 or hex input; MD5, SHA1, SHA256; HMAC | done |
+| Crypto, IV-prefixed | `host.aesEncryptIV` / `aesDecryptIV` — AES-CBC carrying a fresh random IV in front of the ciphertext, `base64(iv‖ct)`, and inflating a zlib plaintext the way `java.util.zip.Inflater` does. `csp_App99` speaks only this dialect (IOS-POC-5L) | done |
 | Utility | `host.match`, `now`, `timestamp`, `random`, `urljoin` | done |
 | Storage | `host.local.get/set/del` | done |
 | Text slicing | `host.cut` / `cut1` — XBPQ's `前綴&&後綴` with `[包含:]` `[不包含:]` `[替换:a>>b]`, plus `host.stripTags` | done |
@@ -93,6 +94,10 @@ There must never be two JS runtimes. Native half in `Spider/Host/*.swift`, JavaS
 | RSA | — | **not implemented**; `csp_AppDrama` needs it |
 | WebView / sniffing | `MediaSniffer` — injected JS hook on XHR / `fetch` / media `src`, plus `MediaProbe` | done (IOS-POC-5G). **Native, not a `host.*` primitive**: `WKWebView` has no `shouldInterceptRequest`, so the sniff happens in Swift above the spider, on any `parse:1` result |
 | `proxy` | ABI present, no host plumbing | **not implemented** |
+
+**Ported classes: 7.** `AppGet`, `AppQi`, `App99`, `App3Q` (苹果CMS App-API family), `Bili`
+(bilibili public API), and the two rule engines `XBPQ` and `XYQHiker`. See
+`docs/CSP_MIGRATION_STATUS.md` for what each one covers and what it was measured doing.
 
 **Wired to the app UI since IOS-POC-5D.** `SourceClient` routes each site to either `CMSClient` or
 a `SpiderSession` behind the five methods the app already called, and `ConfigView` lists

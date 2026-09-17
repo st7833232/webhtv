@@ -3,6 +3,10 @@
 Stage record. Measured 2026-09-17 at HEAD `f0e42264`, against the user's own `wang-movie.json`
 (SHA-256 `b17576e3…897168`, 167 sites) loaded from its GitLab URL.
 
+> **Superseded as the current sweep by IOS-POC-5L.** This document records the 45-source sweep and
+> stays as that stage's record. The app now lists 61 sources; the current per-site table is in
+> `docs/IOS-POC-5L-appqi-app99-app3q-bili.md`.
+
 ## What this stage is
 
 IOS-POC-5D added a sweep over the 15 spider sites. The 30 native CMS sources had never been checked

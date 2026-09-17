@@ -110,11 +110,14 @@ private func object(_ text: String) throws -> [String: Any] {
 /// the app reports "not ported" rather than failing at the first call.
 @Test func registryClaimsOnlyWhatIsActuallyPorted() {
     let registry = SpiderRegistry.bundled()
-    #expect(registry.portedClasses == ["AppGet", "XBPQ", "XYQHiker"])
+    #expect(registry.portedClasses == ["App3Q", "App99", "AppGet", "AppQi", "Bili", "XBPQ", "XYQHiker"])
     #expect(!registry.prelude.isEmpty)
     let entry = registry.entry(for: "csp_AppGet")
     #expect(entry?.portability == .httpCrypto)
     #expect(entry?.origin.contains("river-fman.jar") == true)
     #expect(registry.canDrive("csp_XBPQ"))
+    // IOS-POC-5L: every script the registry names must have actually loaded from the bundle.
+    #expect(registry.entry(for: "csp_Bili")?.portability == .httpJSON)
+    #expect(registry.entry(for: "csp_App99")?.origin.contains("xiaosa-0807.jar") == true)
     #expect(registry.canDrive("csp_NotAThing") == false)
 }

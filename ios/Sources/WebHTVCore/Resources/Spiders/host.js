@@ -50,6 +50,10 @@ var host = (function () {
   function aesEncrypt(text, key, iv, mode) {
     return __crypto.symmetric('aes', true, String(text), String(key), String(iv || ''), mode || 'CBC', 'base64');
   }
+  // AES-CBC where the IV rides in front of the ciphertext: `aesEncryptIV` picks a fresh one and
+  // returns base64(iv+ct), `aesDecryptIV` strips it back off. `App99` talks this dialect.
+  function aesEncryptIV(text, key) { return __crypto.symmetricIV(true, String(text), String(key)); }
+  function aesDecryptIV(text, key) { return __crypto.symmetricIV(false, String(text), String(key)); }
   function desDecrypt(text, key, iv, mode) {
     return __crypto.symmetric('des', false, String(text), String(key), String(iv || ''), mode || 'CBC', 'base64');
   }
@@ -437,6 +441,7 @@ var host = (function () {
     req: req, get: get, post: post, encodeForm: encodeForm,
     enc: enc, dec: dec, base64: base64,
     aesDecrypt: aesDecrypt, aesEncrypt: aesEncrypt, desDecrypt: desDecrypt,
+    aesEncryptIV: aesEncryptIV, aesDecryptIV: aesDecryptIV,
     md5: md5, sha1: sha1, sha256: sha256, hmac: hmac,
     local: local, now: now, timestamp: timestamp, random: random, match: match,
     parse: parse, select: select, text: textOf, pdfh: pdfh, pdfa: pdfa, pd: pd, urljoin: urljoin,

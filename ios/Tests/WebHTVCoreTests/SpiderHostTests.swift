@@ -135,6 +135,43 @@ private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScri
     #expect(out["enc"] as? String == "a b&c")
 }
 
+/// `csp_App99` ships `base64(iv‖ciphertext)` under a fresh IV per request and reads the reply the
+/// same way, which is the one cipher shape the string-IV helpers cannot express.
+@Test func carriesTheIVInFrontOfTheCiphertextTheWayApp99Does() async throws {
+    let spider = try runtime("""
+    module.exports = {
+      init: function () { return ''; },
+      homeContent: function () {
+        // The key is a uuid with its dashes removed, so 32 bytes: AES-256.
+        var key = '0f8fad5bd9cb469fa16570867728950e';
+        var first = host.aesEncryptIV('{"kw":"","page":"1"}', key);
+        var second = host.aesEncryptIV('{"kw":"","page":"1"}', key);
+        return {
+          roundTrip: host.aesDecryptIV(first, key),
+          // A fresh IV every call is the point: the same plaintext must not encrypt alike twice.
+          differs: first !== second,
+          // 16 bytes of IV + one AES block for a 20-byte body = 48 bytes = 64 base64 characters.
+          length: first.length,
+          crossDecrypt: host.aesDecryptIV(second, key),
+          wrongKey: host.aesDecryptIV(first, '0f8fad5bd9cb469fa16570867728950f') === '{"kw":"","page":"1"}',
+          truncated: host.aesDecryptIV('c2hvcnQ=', key)
+        };
+      }
+    };
+    """)
+    let out = try #require(try JSONSerialization.jsonObject(
+        with: Data(try await spider.homeContent(filter: true).utf8)) as? [String: Any])
+
+    #expect(out["roundTrip"] as? String == "{\"kw\":\"\",\"page\":\"1\"}")
+    #expect(out["crossDecrypt"] as? String == "{\"kw\":\"\",\"page\":\"1\"}")
+    #expect(out["differs"] as? Bool == true)
+    #expect(out["length"] as? Int == 64)
+    // A wrong key yields rubbish or nothing — never the plaintext — and a payload shorter than the
+    // IV is an empty result rather than a crash.
+    #expect(out["wrongKey"] as? Bool == false)
+    #expect(out["truncated"] as? String == "")
+}
+
 // MARK: - host: HTML
 
 @Test func selectsNodesAndAttributesTheWayDrpyRulesExpect() async throws {

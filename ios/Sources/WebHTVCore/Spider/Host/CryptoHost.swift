@@ -36,6 +36,13 @@ enum CryptoHost {
             return hex(Data(out.prefix(length)))
         }
 
+        /// `App99` ships `base64(iv‖ciphertext)` under a random IV per request, which no string
+        /// `iv` argument can express. The algorithm is stock AES-CBC/PKCS7, so it belongs here
+        /// rather than inside the spider.
+        let symmetricIV: @convention(block) (Bool, String, String) -> String = { encrypt, input, key in
+            ivPrefixed(encrypt: encrypt, input: input, key: key)
+        }
+
         let b64encode: @convention(block) (String) -> String = { Data($0.utf8).base64EncodedString() }
         let b64decode: @convention(block) (String) -> String = {
             String(decoding: Data(base64Encoded: $0, options: [.ignoreUnknownCharacters]) ?? Data(), as: UTF8.self)
@@ -43,6 +50,7 @@ enum CryptoHost {
 
         let crypto = JSValue(newObjectIn: context)
         crypto?.setObject(symmetric, forKeyedSubscript: "symmetric" as NSString)
+        crypto?.setObject(symmetricIV, forKeyedSubscript: "symmetricIV" as NSString)
         crypto?.setObject(digestBlock, forKeyedSubscript: "digest" as NSString)
         crypto?.setObject(hmac, forKeyedSubscript: "hmac" as NSString)
         crypto?.setObject(b64encode, forKeyedSubscript: "b64encode" as NSString)
@@ -70,23 +78,65 @@ enum CryptoHost {
         var options = CCOptions(kCCOptionPKCS7Padding)
         if mode.uppercased() == "ECB" { options |= CCOptions(kCCOptionECBMode) }
 
+        guard let out = transform(source, key: keyData, iv: ivData, encrypt: encrypt,
+                                  algorithm: cc, options: options, blockSize: blockSize) else { return "" }
+        return encrypt ? out.base64EncodedString() : String(decoding: out, as: UTF8.self)
+    }
+
+    /// AES-CBC/PKCS7 where the IV travels in front of the ciphertext: encryption picks a fresh IV
+    /// and returns `base64(iv‖ct)`, decryption takes the first block back off.
+    static func ivPrefixed(encrypt: Bool, input: String, key: String) -> String {
+        let keyData = Data(key.utf8)
+        let block = kCCBlockSizeAES128
+        guard !keyData.isEmpty else { return "" }
+        let options = CCOptions(kCCOptionPKCS7Padding)
+        if encrypt {
+            let iv = Data((0..<block).map { _ in UInt8.random(in: UInt8.min...UInt8.max) })
+            guard let out = transform(Data(input.utf8), key: keyData, iv: iv, encrypt: true,
+                                      algorithm: kCCAlgorithmAES, options: options, blockSize: block)
+            else { return "" }
+            return (iv + out).base64EncodedString()
+        }
+        guard let source = Data(base64Encoded: input, options: [.ignoreUnknownCharacters]),
+              source.count > block else { return "" }
+        let iv = source.prefix(block), body = source.dropFirst(block)
+        guard let out = transform(Data(body), key: keyData, iv: Data(iv), encrypt: false,
+                                  algorithm: kCCAlgorithmAES, options: options, blockSize: block)
+        else { return "" }
+        // `App99.c()` runs the plaintext through `java.util.zip.Inflater` and falls back to the raw
+        // bytes when that throws. It is not decoration: 剧圈99 answers `systemInit` with 36 KB of
+        // zlib, and reading it as text produces replacement characters, not JSON. Inflating here
+        // rather than in the spider is also what keeps it correct — the bytes never become a String
+        // first, which would have destroyed them.
+        return String(decoding: inflated(out) ?? out, as: UTF8.self)
+    }
+
+    /// zlib (RFC 1950) — a 2-byte header, raw DEFLATE, then an Adler-32 the decoder does not need.
+    /// `NSData.decompressed(using: .zlib)` is that raw DEFLATE body, so the header comes off first.
+    static func inflated(_ data: Data) -> Data? {
+        guard data.count > 6, data[data.startIndex] == 0x78 else { return nil }
+        return try? (Data(data.dropFirst(2)) as NSData).decompressed(using: .zlib) as Data
+    }
+
+    private static func transform(_ source: Data, key: Data, iv: Data, encrypt: Bool,
+                                  algorithm: Int, options: CCOptions, blockSize: Int) -> Data? {
         var out = Data(count: source.count + blockSize)
         let capacity = out.count
         var moved = 0
         let status = out.withUnsafeMutableBytes { o in
             source.withUnsafeBytes { s in
-                keyData.withUnsafeBytes { k in
-                    ivData.withUnsafeBytes { i in
-                        CCCrypt(CCOperation(encrypt ? kCCEncrypt : kCCDecrypt), CCAlgorithm(cc), options,
-                                k.baseAddress, keyData.count, ivData.isEmpty ? nil : i.baseAddress,
+                key.withUnsafeBytes { k in
+                    iv.withUnsafeBytes { i in
+                        CCCrypt(CCOperation(encrypt ? kCCEncrypt : kCCDecrypt), CCAlgorithm(algorithm), options,
+                                k.baseAddress, key.count, iv.isEmpty ? nil : i.baseAddress,
                                 s.baseAddress, source.count, o.baseAddress, capacity, &moved)
                     }
                 }
             }
         }
-        guard status == kCCSuccess else { return "" }
+        guard status == kCCSuccess else { return nil }
         out.removeSubrange(moved...)
-        return encrypt ? out.base64EncodedString() : String(decoding: out, as: UTF8.self)
+        return out
     }
 
     static func digest(_ algorithm: String, _ data: Data) -> Data {

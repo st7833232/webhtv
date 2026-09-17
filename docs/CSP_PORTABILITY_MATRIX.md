@@ -19,11 +19,19 @@ not such a thing, and neither is a `.so` sitting in the same archive.
 | A. HTTP + JSON | 9 | 11 | yes |
 | B. HTTP + Jsoup/Gson helper | 9 | 18 | yes |
 | C. HTTP + crypto/token | 15 | 25 | yes |
-| H. Native-protected payload | 23 | 34 | blocked by protection |
-| — resource missing | 2 | 2 | **unknown — file not downloaded** |
+| H. Native-protected payload | 24 | 35 | blocked by protection |
+| — resource missing | 1 | 1 | **unknown — file not downloaded** |
 | **portable total** | **33** | **54** | |
 
 So **54 of 90 sites (60%)** are a matter of work, not of defeating protection.
+
+> **Hand-corrected 2026-09-17 (IOS-POC-5M), after the generator last ran.** `aowu.jar` was finally
+> downloaded and `JPianAmns` proved to be another empty shim, so it moved from “resource missing”
+> to category H. `scripts/audit_spider_jars.py` cannot be re-run until `recha-main.zip` is fetched
+> again; when it is, keep these two rows.
+>
+> A class being in H is a verdict about **that class**, not about the site behind it: `JPianAmns`'s
+> site is driven today by river-fman's unprotected `JianPian`.
 
 ## JARs
 
@@ -36,7 +44,7 @@ So **54 of 90 sites (60%)** are a matter of work, not of defeating protection.
 | `fan-0720.jar` | yes | 5 | ftyguard_v7.so, ftyguard_v8.so | androidapi, dynamicload, reflection, regex |
 | `custom_spider.jar` | yes | 1 | — | androidapi, base64, crypto, messagedigest, okhttp, orgjson, reflection, regex |
 | `愛影.jar` | yes | 1 | — | androidapi, base64, cookie, crypto, gson, messagedigest, okhttp, orgjson, reflection, regex, webview |
-| `https://gitlab.com/st7833232/recha/-/raw/main/jar/aowu.jar` | **NO** | 1 | unknown | unknown — never downloaded |
+| `https://gitlab.com/st7833232/recha/-/raw/main/jar/aowu.jar` | **yes, fetched 2026-09-17** | 1 | awdm-v7.so, awdm-v8.so + encrypted `aowunnn.amns` | same protected family as `aowu-0722.jar` |
 | `https://s3plus.meituan.net/opapisdk/op_ticket_1_5677168484_1774853250308_PA5tmo8g_vip.jar` | **NO** | 1 | unknown | unknown — never downloaded |
 
 ## Every class
@@ -99,5 +107,5 @@ So **54 of 90 sites (60%)** are a matter of work, not of defeating protection.
 | `JpysGuard` | fan-0720.jar | 1 | 5 | H. Native-protected payload | — | empty shim extending BaseSpiderGuard |
 | `NmyswvGuard` | fan-0720.jar | 1 | 5 | H. Native-protected payload | — | empty shim extending BaseSpiderGuard |
 | `T4Guard` | fan-0720.jar | 1 | 5 | H. Native-protected payload | — | empty shim extending BaseSpiderGuard |
-| `JPianAmns` | aowu.jar | 1 | — | — resource missing | — | class not found in any downloaded JAR |
+| `JPianAmns` | aowu.jar | 1 | 6 | H. Native-protected payload | — | empty shim extending BaseSpiderAmns. **The site is still reachable**: river-fman's unprotected `JianPian` drives the same API and is ported — see `docs/IOS-POC-5M-jianpian.md` |
 | `AppV6` | op_ticket_1_5677168484_1774853250308_PA5tmo8g_vip.jar | 1 | — | — resource missing | — | class not found in any downloaded JAR |

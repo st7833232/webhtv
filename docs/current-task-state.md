@@ -62,6 +62,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 5J | One 全部 chip instead of two; CatVod filter rows under the category row | `docs/IOS-POC-5J-category-filters.md` |
 | 5K | Category rows scroll away; Top button; collapsible child rows | `docs/IOS-POC-5K-scrolling-and-collapsible-categories.md` |
 | 5L | `AppQi`, `App99`, `App3Q` and `Bili` ported (+16 sites, 45 → 61 listed); IV-prefixed AES + zlib in the host; `Site.id` made unique | `docs/IOS-POC-5L-appqi-app99-app3q-bili.md` |
+| 5M | 薦片 driven by `JianPian` although its configured class is a protected shim (+1 site, 62 listed) | `docs/IOS-POC-5M-jianpian.md` |
 
 ## Important Decisions
 
@@ -99,7 +100,7 @@ Counted directly from the 167-site `wang-movie.json`, not carried over from an e
 | type-0 MacCMS XML | 2 | listed; **2 play** |
 | type-1 MacCMS JSON | 22 | listed; **20 play** on 2026-09-17 — the three `/share/` player pages are sniffed since 5G; the two `如意` hosts served dead media that day |
 | type-4 CatVod remote API | 6 | listed; **4 play**, 2 return nothing (403 host, and 43 empty categories) |
-| type-3 `csp_*` spiders | 90 | **31 listed** since IOS-POC-5L; **11 play**, the rest blocked on provider state or the missing player headers |
+| type-3 `csp_*` spiders | 90 | **32 listed** since IOS-POC-5M; the rest blocked on provider state or the missing player headers |
 | type-3 Python (`./py/*.py`) | 42 | not implemented — no Python runtime |
 | type-3 drpy JavaScript (`./drpy_libs/*.js`, `./json/4k.js`) | 5 | not implemented — no drpy loader |
 | **total** | **167** | **61 listed; 37 measured playable** (26 native + 11 spider) |
@@ -107,25 +108,29 @@ Counted directly from the 167-site `wang-movie.json`, not carried over from an e
 **IOS-POC-5D closed the routing gap that used to sit here.** `ConfigView` lists
 `drivableSites(resolvedBy:)` and every content call goes through `SourceClient`, which routes a
 site to either `CMSClient` or a cached `SpiderSession`. The caption counts `drivableSites`, so it
-now reads 「目前支援 61 個來源」.
+now reads 「目前支援 62 個來源」.
 
 **Listing is not working.** Every listed source is swept through the app's own path and then the
 **first bytes of every resolved stream are fetched**, because a URL resolving and the media existing
-are different things. Measured 2026-09-17 after IOS-POC-5L: **37 of 61 playable**, 7 resolve media
+are different things. Last coherent aggregate, 2026-09-17 after IOS-POC-5L: **37 of 61 playable**, 7 resolve media
 that 403s or 404s, 1 gives episodes but no URL, 1 gives titles but no episodes, 15 are empty.
 Native is 26 of 30, spiders 11 of 31. Almost every failure is provider state — dead or 504-ing
 hosts, an expired VIP account, a provider serving its own 「site closed」 clip — with one structural
 exception: the four `Bili` sites resolve a genuine progressive MP4 that bilibili's CDN refuses
 without a `Referer`, which `AVPlayer` cannot send until per-request headers are threaded through
 `PlayerView`. Per-site tables: `docs/IOS-POC-5L-appqi-app99-app3q-bili.md` (current) and
-`docs/IOS-POC-5E-all-source-sweep.md` (the earlier 45-source run). **Quote 37 of 61, not 61.**
+`docs/IOS-POC-5E-all-source-sweep.md` (the earlier 45-source run). IOS-POC-5M adds 薦片 (verified
+playable on its own, three ways) for 62 listed. **Provider state moves by the hour and repeated
+sweeps degrade it** — a later run the same afternoon collapsed to 10 playable with 9 TLS
+certificate failures that `curl` reproduced, which is a measurement of the network, not a
+regression. Re-measure before calling anything broken. **Quote 37 of 61, not 61.**
 
 #### The 90 `csp_*` sites
 
 | bucket | classes | sites |
 |---|---:|---:|
 | portable (audit categories A–C) | 26 | 54 |
-|  of which ported | 7 | **31** |
+|  of which ported | 8 | **32** |
 |  of which portable but not yet ported | 19 | 23 |
 | blocked by native-encrypted payload (category H) | 23 | 34 |
 | missing resource — JAR never downloaded, portability unknown | 2 | 2 |
@@ -136,8 +141,8 @@ Class counts above are **distinct class names**, so they sum to 51. The audit ta
 a class shipped in two JARs still costs only one port. See `docs/CSP_MIGRATION_STATUS.md`.
 
 Ported classes: `AppGet` (5 sites), `AppQi` (6), `App99` (4), `App3Q` (2) — four dialects of the
-苹果CMS App-API — `Bili` (4, the public bilibili API), `XBPQ` (7, rule engine) and `XYQHiker`
-(3, rule engine). All are live-verified except `AppQi`, whose six sites resolve to four hosts that
+苹果CMS App-API — `Bili` (4, the public bilibili API), `JianPian` (1 — registered under the blocked
+`JPianAmns` name the config uses), `XBPQ` (7, rule engine) and `XYQHiker` (3, rule engine). All are live-verified except `AppQi`, whose six sites resolve to four hosts that
 were all dead on 2026-09-17; its `init`, decrypt, home and category are proven from one short
 window in which one host answered, its detail and player are not. The two rule engines serve any future site configured for them
 without further code, which is why they are worth more than their site counts suggest.

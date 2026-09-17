@@ -3,7 +3,8 @@
 Living record of which spiders are ported, verified, blocked, or waiting on a file.
 Audit data: `docs/CSP_PORTABILITY_MATRIX.md`. Runtime contract: `docs/IOS_SPIDER_RUNTIME_SPEC.md`.
 
-Last updated 2026-09-17 (IOS-POC-5L: `AppQi`, `App99`, `App3Q` and `Bili` ported, +16 sites).
+Last updated 2026-09-17 (IOS-POC-5M: `JianPian` ported, which drives 薦片 despite its class being
+blocked; IOS-POC-5L added `AppQi`, `App99`, `App3Q` and `Bili`).
 
 ## Headline
 
@@ -13,8 +14,9 @@ Last updated 2026-09-17 (IOS-POC-5L: `AppQi`, `App99`, `App3Q` and `Bili` ported
 | **portable** (categories A–C) | **33** | **26** | **54** |
 |  ported | 8 | 7 | 31 |
 |  portable, not yet ported | 25 | 19 | 23 |
-| blocked by native protection (H) | 23 | 23 | 34 |
-| missing resource | 2 | 2 | 2 |
+| blocked by native protection (H) | 24 | 24 | 35 |
+|   of which driven anyway, through an equivalent class | 1 | 1 | 1 |
+| missing resource | 1 | 1 | 1 |
 
 **Read the two class columns carefully.** The audit keys a class by *(class name, JAR)*, so the same
 class shipped in two JARs is two rows: 58 rows over 51 distinct names. Only the distinct column adds
@@ -29,8 +31,14 @@ every JAR it appears in.
 that was wrong, and this file supersedes it — `docs/IOS-TYPE3-REACHABILITY-2026-09-16.md` now
 carries a banner saying so.
 
-**Since IOS-POC-5L these 31 sites are listed in the app UI**, which now offers 61 of 167 sources
-(30 native + 31 spider) through `SourceClient`.
+**Since IOS-POC-5M these 32 sites are listed in the app UI**, which now offers 62 of 167 sources
+(30 native + 32 spider) through `SourceClient`.
+
+**A blocked class does not always mean a blocked site.** `JPianAmns` is an empty shim over an
+encrypted payload, but 薦片 is served today by river-fman's unprotected `JianPian`, registered under
+both names. That is the first proven case of this shape; whether any of the other 33 protected sites
+has an equivalent elsewhere in the JAR set is an open, answerable question that has not been asked.
+See `docs/IOS-POC-5M-jianpian.md`.
 
 **But listed is not working.** Every listed source is swept through the app's own path and the first
 bytes of each resolved stream are fetched, because a URL resolving and the media existing are
@@ -51,6 +59,7 @@ here, all six `AppQi` hosts were dead on the day, and two of the four `App99` ho
 | `App3Q` | 2 | C. HTTP + crypto | IOS-POC-5L live golden on 云朵影视: home 4 classes → category 24 → detail 八仙！ with 4 flags → search 15. Playback stops at the site's own `{"code":403,"msg":"VIP权益已过期"}`. |
 | `Bili` | 4 | B. HTTP + JSON | IOS-POC-5L live: 39 classes from the site's own JSON → search listing 20 → detail → `playurl` `parse:0` progressive MP4. The MP4 then needs a `Referer` the player cannot send yet. |
 | `AppQi` | 6 | B. HTTP + crypto | **Ported, unverified.** All four hosts the six sites resolve to were dead on 2026-09-17 — two connection-refused, one 504, one DNS failure — so no request reached a live API. |
+| `JianPian` | 1 | A. HTTP + JSON | IOS-POC-5M live golden on 薦片 (configured as `csp_JPianAmns`): 5 classes → 15 titles → detail with **24 lines** → search 20 → `parse:0` m3u8 whose playlist fetches as media with no Referer. |
 
 The first three were re-run live on 2026-09-17 at HEAD `226e826c` and each still ends in a `parse:0`
 direct stream. **Caveat on `XYQHiker`:** all 3 of its configured sites set `ext` to a relative path

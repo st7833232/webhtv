@@ -34,10 +34,21 @@ public struct SpiderRegistry: Sendable {
         "App99": (.httpCrypto, "river-fman.jar, xiaosa-0807.jar"),
         "App3Q": (.httpCrypto, "river-fman.jar, xiaosa-0807.jar"),
         "Bili": (.httpJSON, "river-fman.jar"),
+        "JianPian": (.httpJSON, "river-fman.jar"),
+        // 薦片 is configured as `csp_JPianAmns`, which in `aowu.jar` is an empty shim over a
+        // native-encrypted payload — nothing to port. `JianPian` drives the same API unprotected,
+        // and the site's own `ext` proves they are the same one: its categories 1/2/3/4/67 and keys
+        // type/area/year/sort are exactly what `JianPian` substitutes into its request template,
+        // including 67 being the category that goes to `shortList`. See docs/IOS-POC-5M-jianpian.md.
+        "JPianAmns": (.httpJSON, "river-fman.jar (as JianPian; aowu.jar's own class is a shim)"),
         // Rule engines: one port serves every site configured for them, now and later.
         "XBPQ": (.httpCrypto, "xyqxbpq.jar, xiaosa-0807.jar"),
         "XYQHiker": (.httpJSON, "xyqxbpq.jar, river-fman.jar"),
     ]
+
+    /// A configured class name that a *different* script drives, because the named class carries no
+    /// logic of its own. Only ever for a pair proven to be the same site.
+    static let aliases = ["JPianAmns": "JianPian"]
 
     public static func bundled(bundle: Bundle? = nil) -> SpiderRegistry {
         let bundle = bundle ?? .module
@@ -48,7 +59,7 @@ public struct SpiderRegistry: Sendable {
         }
         var entries = [String: Entry]()
         for (name, meta) in ported {
-            let script = load(name)
+            let script = load(aliases[name] ?? name)
             if !script.isEmpty { entries[name] = Entry(script: script, portability: meta.0, origin: meta.1) }
         }
         return SpiderRegistry(entries: entries, prelude: load("host"))

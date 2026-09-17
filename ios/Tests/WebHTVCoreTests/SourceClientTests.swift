@@ -96,7 +96,8 @@ private func site(_ json: String) throws -> Site {
     let spiders = config.spiderSites(resolvedBy: resolver)
 
     #expect(native.count == 30, "2 type-0 + 22 type-1 + 6 type-4")
-    #expect(spiders.count == 31, "AppGet 5 + AppQi 6 + App99 4 + App3Q 2 + Bili 4 + XBPQ 7 + XYQHiker 3")
+    #expect(spiders.count == 32,
+            "AppGet 5 + AppQi 6 + App99 4 + App3Q 2 + Bili 4 + JianPian 1 + XBPQ 7 + XYQHiker 3")
     #expect(drivable.count == native.count + spiders.count)
     // The app selects a site by `id`, so a duplicate would make the picker ambiguous. This
     // configuration does repeat site *keys* — `爱影` names two different AppQi sites — which is why

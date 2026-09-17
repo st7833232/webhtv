@@ -80,6 +80,10 @@ var spider = (function () {
     var nodes = host.pdfa(html, '.stui-vodlist li');
     if (!nodes.length) nodes = host.pdfa(html, 'ul.stui-vodlist__media li');
     if (!nodes.length) nodes = host.pdfa(html, '.myui-vodlist li');
+    // The newer 苹果CMS skin (永乐影视) uses `module-items module-poster-items-base` and no
+    // `*-vodlist` class at all, so without this the chain fell through to the bare `li` below and
+    // picked up the category nav instead of the titles.
+    if (!nodes.length) nodes = host.pdfa(html, '.module-items a');
     if (!nodes.length) nodes = host.pdfa(html, 'li');
     for (var i = 0; i < nodes.length; i++) {
       var link = host.pdfh(nodes[i], 'a&&href');
@@ -88,7 +92,10 @@ var spider = (function () {
       // A listing link points at a detail page; the nav and filter lists do not.
       // A real detail link, not a category or type nav entry that happens to end in a number.
       if (!/\/\d+\.html|id[=/]\d+|\/\d+\/?$/.test(link)) continue;
-      if (/\/(type|show|label|area|year|by|class|lang)\//i.test(link)) continue;
+      // `(vod)?` matters: 永乐's nav links are `/vodtype/1/`, where `type` is not preceded by a
+      // slash, so they sailed through this filter and rendered as four titles called 电影, 剧集,
+      // 综艺 and 动漫. `/voddetail/<id>/` is unaffected — `detail` is deliberately not listed.
+      if (/\/(vod)?(type|show|label|search|area|year|by|class|lang)\//i.test(link)) continue;
       var pic = host.pdfh(nodes[i], 'a&&data-original') || host.pdfh(nodes[i], 'a&&data-src')
              || host.pdfh(nodes[i], 'img&&data-original') || host.pdfh(nodes[i], 'img&&src');
       var remark = host.pdfh(nodes[i], '.pic-text&&Text') || host.pdfh(nodes[i], '.pic-tag&&Text')
@@ -179,6 +186,10 @@ var spider = (function () {
         var tabs = host.pdfa(html, '.stui-pannel__head h3');
         if (!tabs.length) tabs = host.pdfa(html, '.myui-panel__head h3');
         if (!tabs.length) tabs = host.pdfa(html, '.nav-tabs li a');
+        // The newer skin names each line in a tab chip instead of a panel heading:
+        // <div class="module-tab-item" data-dropdown-value="大陆0线"><span>大陆0线</span><small>1</small></div>
+        // Taking the <span> avoids the episode count in the <small>.
+        if (!tabs.length) tabs = host.pdfa(html, '.module-tab-item span');
         for (var t = 0; t < tabs.length; t++) flagNames.push(host.text(tabs[t]).trim());
       }
 
@@ -186,8 +197,12 @@ var spider = (function () {
       var lists = host.pdfa(html, 'ul.stui-content__playlist');
       if (!lists.length) lists = host.pdfa(html, 'ul.myui-content__list');
       if (!lists.length) lists = host.pdfa(html, 'ul.content__playlist');
+      // The newer skin uses a div, not a ul, and puts the links directly inside it.
+      if (!lists.length) lists = host.pdfa(html, '.module-play-list-content');
       for (var l = 0; l < lists.length; l++) {
+        // `li a` for the ul-based skins; a bare `a` for the div-based one, which has no li.
         var items = host.pdfa(lists[l], 'li a');
+        if (!items.length) items = host.pdfa(lists[l], 'a');
         var episodes = [];
         for (var e = 0; e < items.length; e++) {
           var href = host.pdfh(items[e], 'a&&href') || items[e].attrs.href;

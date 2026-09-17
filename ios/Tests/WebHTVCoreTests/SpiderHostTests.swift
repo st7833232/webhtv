@@ -443,3 +443,33 @@ private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScri
     #expect(out.contains("\"self\":true"))
     await runtime.destroy()
 }
+
+/// The nav filter itself, which is where the 永乐 fault actually lived.
+@Test func rejectsVodPrefixedNavLinksButKeepsDetailLinks() async throws {
+    let runtime = try JavaScriptSpiderRuntime(
+        name: "NavFilter",
+        script: """
+        module.exports = {
+            init: function () { return ''; },
+            action: function (link) {
+                var isNav = /\\/(vod)?(type|show|label|search|area|year|by|class|lang)\\//i.test(link);
+                var looksIndexed = /\\/\\d+\\.html|id[=\\/]\\d+|\\/\\d+\\/?$/.test(link);
+                return JSON.stringify({ nav: isNav, indexed: looksIndexed });
+            }
+        };
+        """,
+        prelude: SpiderRegistry.bundled().prelude,
+        storage: SpiderStorage(siteKey: "navfilter", defaults: UserDefaults(suiteName: "navfilter")!)
+    )
+    // These used to pass both checks and render as titles.
+    #expect(try await runtime.action("/vodtype/1/").contains("\"nav\":true"))
+    #expect(try await runtime.action("/vodshow/6-----------/").contains("\"nav\":true"))
+    // A detail link must survive: it is indexed and is not nav.
+    let detail = try await runtime.action("/voddetail/126509/")
+    #expect(detail.contains("\"nav\":false"))
+    #expect(detail.contains("\"indexed\":true"))
+    // The shapes the older skins use must keep working too.
+    #expect(try await runtime.action("/vod/12345.html").contains("\"nav\":false"))
+    #expect(try await runtime.action("/index.php?id=99").contains("\"nav\":false"))
+    await runtime.destroy()
+}

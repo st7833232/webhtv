@@ -35,14 +35,14 @@ carries a banner saying so.
 
 **But listed is not working.** IOS-POC-5E swept all 15 through the app's own path and fetched the
 first bytes of each resolved stream; IOS-POC-5F fixed five host/engine defects it found.
-**7 are now playable** (王子, 农民, 果果短剧, 灵虎, 不戳, and 動漫巴士 / 巴士动漫 once IOS-POC-5G's
-sniffer covered the play pages their rule file never described). 1 resolves media that 404s
-(AG動漫), 2 list category links instead of titles because the provider's listing URL 404s
-(YLSP / 永乐影视), and 5 are empty on provider state (522/403/301, or the site answering
-「暂无数据」). **All 8 remaining failures are provider state.** Per-site table:
-`docs/IOS-POC-5E-all-source-sweep.md`; fixes: `docs/IOS-POC-5F-spider-defect-fixes.md`; sniffer:
-`docs/IOS-POC-5G-media-sniffer.md`. A class being “ported and verified” means the engine runs,
-not that every site configured for it is alive.
+**8 are now playable**: 王子, 农民, 果果短剧, 灵虎, 不戳, 動漫巴士 / 巴士动漫 (IOS-POC-5G's sniffer
+covered the play pages their rule file never described) and 永乐影视 / csp_YLSP (IOS-POC-5I taught
+XBPQ the newer 苹果CMS skin, which it had been rendering as four nav entries). 1 resolves media
+that 404s (AG動漫) and 5 are empty on provider state — 522/403/301 hosts, or the site itself
+answering 「暂无数据」. **All 6 remaining failures are provider state.** Per-site table:
+`docs/IOS-POC-5E-all-source-sweep.md`; fixes: `docs/IOS-POC-5F-spider-defect-fixes.md` and
+`docs/IOS-POC-5I-xbpq-listing-templates.md`; sniffer: `docs/IOS-POC-5G-media-sniffer.md`. A class
+being “ported and verified” means the engine runs, not that every site configured for it is alive.
 
 ## Verified
 

@@ -75,7 +75,7 @@ Unchanged from the IOS-POC-5D sweep except that the media probe now separates �
 | `不戳` | DEAD-MEDIA | play URL is two URLs concatenated → 404 | **ours** |
 | `csp_AG動漫` | DEAD-MEDIA | clean resolve, media 404 | provider |
 | `灵虎` | NO-PLAY | 8 flags / 24 episodes, `playerContent` returns nil | **ours** |
-| `csp_YLSP`, `永乐影视` | NO-EPISODE | listing URL 404s, XBPQ falls back to parsing category links as titles | provider |
+| `csp_YLSP`, `永乐影视` | NO-EPISODE | ~~listing URL 404s~~ → **wrong, corrected in 5I**: `永乐影视` is `ylys.tv` and answers 200; I applied `ylsp.tv`'s 404 to both. XBPQ knew neither the newer skin's grid nor its `/vodtype/` nav shape | ~~provider~~ **ours, fixed in 5I** |
 | `csp_動漫巴士`, `巴士动漫` | NO-EPISODE | browse fixed in 5D by the lenient rule parse; detail still returns no flags | **ours** |
 | `猎豹`, `csp_歐樂影院ORG` | EMPTY | hosts answer HTTP 522 | provider |
 | `方舟动漫` | EMPTY | host answers HTTP 403 | provider |

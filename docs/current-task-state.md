@@ -57,6 +57,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 5F | Fixed five spider/host defects the sweep found; 27 → 29 playable | `docs/IOS-POC-5F-spider-defect-fixes.md` |
 | 5G | WebView media sniffer + first-bytes probe; 29 → 35 playable | `docs/IOS-POC-5G-media-sniffer.md` |
 | 5H | Removed the `Task { }` race that made four bridge tests flaky | the 5G document |
+| 5I | XBPQ knew only the older 苹果CMS skins; 永樂 rendered its nav as films | `docs/IOS-POC-5I-xbpq-listing-templates.md` |
 
 ## Important Decisions
 
@@ -94,10 +95,10 @@ Counted directly from the 167-site `wang-movie.json`, not carried over from an e
 | type-0 MacCMS XML | 2 | listed; **2 play** |
 | type-1 MacCMS JSON | 22 | listed; **22 play** — the three `/share/` player pages are sniffed since 5G |
 | type-4 CatVod remote API | 6 | listed; **4 play**, 2 return nothing (403 host, and 43 empty categories) |
-| type-3 `csp_*` spiders | 90 | **15 listed** since IOS-POC-5D; **7 play** after IOS-POC-5G, 8 blocked on provider state |
+| type-3 `csp_*` spiders | 90 | **15 listed** since IOS-POC-5D; **8 play** after IOS-POC-5I, 7 blocked on provider state |
 | type-3 Python (`./py/*.py`) | 42 | not implemented — no Python runtime |
 | type-3 drpy JavaScript (`./drpy_libs/*.js`, `./json/4k.js`) | 5 | not implemented — no drpy loader |
-| **total** | **167** | **45 listed; 35 measured playable** (28 native + 7 spider) |
+| **total** | **167** | **45 listed; 36 measured playable** (28 native + 8 spider) |
 
 **IOS-POC-5D closed the routing gap that used to sit here.** `ConfigView` lists
 `drivableSites(resolvedBy:)` and every content call goes through `SourceClient`, which routes a
@@ -107,11 +108,11 @@ site to either `CMSClient` or a cached `SpiderSession`. The settings caption rea
 **Listing is not working.** IOS-POC-5E swept all 45 listed sources through the app's own path and
 then **fetched the first bytes of every resolved stream**, because a URL resolving and the media
 existing are different things. After IOS-POC-5F fixed five host/engine defects and IOS-POC-5G added the WebView sniffer:
-**35 playable**, 1 resolves media that 404s, 2 list titles but no flags, 7 are empty. Native
-sources are 28 of 30; spiders are 7 of 15. **Every remaining failure is provider state** — 403/522
-hosts, 404 listing URLs, or a site answering 「暂无数据」 — none is a defect in this app. Per-site
-table: `docs/IOS-POC-5E-all-source-sweep.md`; the sniffer and its limits:
-`docs/IOS-POC-5G-media-sniffer.md`. **Quote 35 of 45, not 45.**
+**36 playable**, 2 resolve media that 404s, 7 are empty, and NO-EPISODE is zero. Native sources are
+28 of 30; spiders are 8 of 15. **Every remaining failure is provider state** — 403/522 hosts, or a
+site answering 「暂无数据」 — none is a defect in this app. Per-site table:
+`docs/IOS-POC-5E-all-source-sweep.md`; the sniffer: `docs/IOS-POC-5G-media-sniffer.md`; the
+苹果CMS skin fixes: `docs/IOS-POC-5I-xbpq-listing-templates.md`. **Quote 36 of 45, not 45.**
 
 #### The 90 `csp_*` sites
 
@@ -284,4 +285,4 @@ from an honest `[]` into real data and give the home screen a 繼續觀看 row.
 
 ## Resume Prompt
 
-> Continue the WebHomeTV iPhone port in `/Users/chengchenchih/GIT/webhtv` on the actual `ios-poc` Git state; check `git log` and `git status` first rather than trusting any commit id quoted here. Read `AGENTS.md`, `docs/AGENT_HANDOFF.md`, this file, `docs/IOS_SPIDER_RUNTIME_SPEC.md` (runtime/ABI source of truth), `docs/CSP_PORTABILITY_MATRIX.md` (audit) and `docs/CSP_MIGRATION_STATUS.md` (port progress), plus the stage document for whatever you touch. **The app UI lists 45 of 167 configured sources** (2 type-0 + 22 type-1 + 6 type-4 + 15 `csp_*` spider), of which **35 were measured end-to-end playable** after IOS-POC-5G — quote 35, not 45 with category browsing, pagination, five players, imported-file or remote-Raw-URL configuration with last-known-good caching and launch refresh, and a WebHome bridge over WKWebView covering the network, cache, UI, navigation, information and playback methods — `player.playVod`, `playVodInline`, `control` and `status` run on one persistent `PlaybackSession` that outlives the player screen, and IOS-POC-2F drove all seven `control` actions and the inline JS resolver from the page. **A CatVod spider runtime also exists** (IOS-POC-5A/5B): it reimplements the `Spider.java` text-in/text-out contract in JavaScript on JavaScriptCore — it never runs Android DEX — and drives 15 more sites through 3 ported classes (`AppGet` 5, `XBPQ` 7, `XYQHiker` 3, the last two being rule engines). IOS-POC-5D wired those 15 into the app UI through `SourceClient`, which routes each site to either `CMSClient` or a cached `SpiderSession`; 农民 played an episode end to end in the simulator. Of the 90 `csp_*` sites, 54 are portable (26 of the 51 distinct classes), 34 are blocked by a native-encrypted payload in `aowu-0722.jar`/`fan-0720.jar` — **do not try to break that protection** — and 2 are simply missing downloads; the earlier “90 permanently unreachable” verdict is superseded. The 42 Python and 5 drpy JavaScript sites are unimplemented but architecturally possible and must not be called impossible. It ships `NSAllowsArbitraryLoads` because the user explicitly chose global cleartext on 2026-09-15 — keep it and do not broaden transport security further without a fresh decision. Do not resume the Google TV `csp_JPianAmns` repair. Nothing has ever run on a real device: there is no signing configuration at all. Confirm the next bounded stage with the user before any functional edit, follow the task-guard and Ponytail gates, commit with `--no-tag`, and preserve Android `main`.
+> Continue the WebHomeTV iPhone port in `/Users/chengchenchih/GIT/webhtv` on the actual `ios-poc` Git state; check `git log` and `git status` first rather than trusting any commit id quoted here. Read `AGENTS.md`, `docs/AGENT_HANDOFF.md`, this file, `docs/IOS_SPIDER_RUNTIME_SPEC.md` (runtime/ABI source of truth), `docs/CSP_PORTABILITY_MATRIX.md` (audit) and `docs/CSP_MIGRATION_STATUS.md` (port progress), plus the stage document for whatever you touch. **The app UI lists 45 of 167 configured sources** (2 type-0 + 22 type-1 + 6 type-4 + 15 `csp_*` spider), of which **36 were measured end-to-end playable** after IOS-POC-5I — quote 36, not 45 with category browsing, pagination, five players, imported-file or remote-Raw-URL configuration with last-known-good caching and launch refresh, and a WebHome bridge over WKWebView covering the network, cache, UI, navigation, information and playback methods — `player.playVod`, `playVodInline`, `control` and `status` run on one persistent `PlaybackSession` that outlives the player screen, and IOS-POC-2F drove all seven `control` actions and the inline JS resolver from the page. **A CatVod spider runtime also exists** (IOS-POC-5A/5B): it reimplements the `Spider.java` text-in/text-out contract in JavaScript on JavaScriptCore — it never runs Android DEX — and drives 15 more sites through 3 ported classes (`AppGet` 5, `XBPQ` 7, `XYQHiker` 3, the last two being rule engines). IOS-POC-5D wired those 15 into the app UI through `SourceClient`, which routes each site to either `CMSClient` or a cached `SpiderSession`; 农民 played an episode end to end in the simulator. Of the 90 `csp_*` sites, 54 are portable (26 of the 51 distinct classes), 34 are blocked by a native-encrypted payload in `aowu-0722.jar`/`fan-0720.jar` — **do not try to break that protection** — and 2 are simply missing downloads; the earlier “90 permanently unreachable” verdict is superseded. The 42 Python and 5 drpy JavaScript sites are unimplemented but architecturally possible and must not be called impossible. It ships `NSAllowsArbitraryLoads` because the user explicitly chose global cleartext on 2026-09-15 — keep it and do not broaden transport security further without a fresh decision. Do not resume the Google TV `csp_JPianAmns` repair. Nothing has ever run on a real device: there is no signing configuration at all. Confirm the next bounded stage with the user before any functional edit, follow the task-guard and Ponytail gates, commit with `--no-tag`, and preserve Android `main`.

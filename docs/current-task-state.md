@@ -6,11 +6,10 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current Scope
 
-- Branch `ios-poc`. **Verified 2026-09-18 at HEAD `261b5c03` (IOS-POC-5R): 2 commits ahead of
-  `origin/ios-poc`, 0 behind, worktree clean.** The two local commits are IOS-POC-5Q (`0ab06a3c`)
-  and IOS-POC-5R (`261b5c03`); everything through `d571f3a7` is pushed. **Re-check with `git log`
-  rather than trusting any id quoted here** — an earlier revision of this line still said "HEAD
-  after IOS-POC-5L".
+- Branch `ios-poc`. **Verified 2026-09-18 before IOS-POC-8E: HEAD `a087dd50` (IOS-POC-8D), 1 commit
+  ahead of `origin/ios-poc`, 0 behind, worktree clean.** **Re-check with `git log` rather than
+  trusting any id quoted here** — an earlier revision of this line still said "HEAD after
+  IOS-POC-5L", and the one before that "HEAD `261b5c03`".
 - Android `app/` is read-only for all iOS work and has never been modified: `git diff <branch-point>..HEAD -- app/` is empty, and every commit on this branch touches only `ios/`, `docs/`, `scripts/`, `AGENTS.md` and `.codex/`.
 - **The input configuration lives in the scratchpad, not `/tmp`.** `/tmp/webhtv-recha-new.wprHof/` was cleared mid-session; `wang-movie.json` was re-fetched from the user's own GitLab and its SHA-256 matches the recorded baseline byte for byte. Re-fetch it from `https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json` if it is missing. `recha-main.zip` was **not** restored, so `scripts/audit_spider_jars.py` cannot be re-run without downloading it again.
 - Stages through IOS-POC-4J have an annotated `recovery/<task-id>/*` tag; tags through `IOS-POC-1H` are on the remote. **Recovery tags became opt-in on 2026-09-16** (AGENTS.md §6), so IOS-POC-5A onwards are deliberately untagged.
@@ -80,6 +79,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 8B | Two more device findings: a black band under the tab bar, and the player's close button in AVKit's corner | this document |
 | 8C | An app icon, and the asset catalog the project never had | this document |
 | 8D | Reverted 8B's wallpaper change, which had relayouted every screen; the black band it chased is left alone | this document |
+| 8E | The three device-reported UI defects re-tested on the clean build: two were the 8B regression and are gone, the third was real and is fixed — the search field no longer vanishes after a source switch | this document |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
 | 6A/6B | **drpy JavaScript loader**: the engine and its nine libraries fetched from the configuration's own origin, hash-pinned and verified before evaluation, running on the existing `JavaScriptSpiderRuntime` | `docs/IOS-POC-6A-drpy-loader.md` |
 
@@ -286,6 +286,15 @@ have been collapsed into the first bullet.
 
 ### Simulator runs (iPhone 17 Pro)
 
+- **IOS-POC-8E, 2026-09-18, on the remote configuration (67 sources).** Before the fix: 愛瓜 scrolled
+  down → source menu → 菠菜 listed from the top **with no search field**, and it came back only on an
+  over-scroll. After the fix the same sequence keeps the field, and so does 荐片 → 愛瓜. 荐片 renders
+  its category row and all four filter rows clear of the field at rest, while scrolled, and with the
+  field focused; the grid keeps its 12 pt margin. Search itself still submits: on 360 高清,
+  `the` returned `X The League`, `Happy Together`, `The One Shot`, `The Scout`. **A source answering
+  「暂不支持搜索」 looks identical to a search that did not fire** — 菠菜 does exactly that
+  (`curl` confirms the provider, not the app), and because the error surface only renders on an empty
+  grid the old list simply stays. That is the known error-surface limitation, not a defect found here.
 - **IOS-POC-5R end to end, 2026-09-18** — the fullest one on record. `愛瓜 PHP` → `莲花楼` →
   普快线路 01 → the player sheet showed **no quality section**, which is the correct behaviour for a
   single-URL source and the reverse check on IOS-POC-5Q. Sixteen seconds in, the app container held
@@ -353,6 +362,41 @@ have been collapsed into the first bullet.
      and mute top-right; the custom close button crowded the first. Moved below that row rather than
      to another corner, because AVKit owns both top corners and the bottom. **Only the simulator's
      different AVKit layout hid this.**
+- **The three UI defects the user reported from the device were re-tested on a clean build
+  (IOS-POC-8E, 2026-09-18), and only one of them was real.** The build they saw carried the 8B
+  wallpaper regression, so the first job was to see which complaints survived its revert. Driven in
+  the simulator against the remote configuration, on 荐片 because it publishes a category row plus
+  four filter rows:
+  1. ~~**「海報沒有留外圍的邊」**~~ **did not reproduce.** The grid keeps its 12 pt padding on all
+     four sides and the cells sit level with the category chips. This was 8B's
+     「posters bleeding past the screen edge」.
+  2. ~~**「搜尋框會擋住分類跟篩選列」**~~ **did not reproduce** at rest, while scrolled, or with the
+     field focused: the category row and all four filter rows stayed clear. This was 8B's
+     「the grid running under the navigation bar」.
+  3. **「切換內容來源之後搜尋框會不見」 did reproduce, and is fixed.** It needs one precondition the
+     report did not mention, which is why it looked intermittent: **the previous source must be
+     scrolled down when the menu is opened.** The search field hides on scroll, that hidden state
+     belongs to the navigation bar rather than to the grid, and `HomeView` rebuilds `CMSView` under
+     a new `.id` on every switch — so the new grid starts at the top while the bar keeps the
+     collapse it learned from the destroyed one. The field stayed gone until the user over-scrolled.
+     Fixed by `placement: .navigationBarDrawer(displayMode: .always)`, UIKit's
+     `hidesSearchBarWhenScrolling = false`: a field that never collapses has no state to carry
+     across the swap. **The cost is that the field now occupies its row permanently**, and content
+     scrolls underneath it.
+  **Dropping `appNavigationBar()` on `CMSView` to put a material behind that pinned field was tried
+  and reverted — it changed nothing on screen.** iOS 26 draws this navigation bar as per-control
+  glass, not as a full-width background, so there is no material to opt into; scrolling content
+  shows through the search field either way, exactly as it already showed through the status bar and
+  the source chip before this change. **That bleed-through is pre-existing chrome behaviour, not
+  new**, and the attempt is recorded in the code the way 8D's were. Restructuring so the field hides
+  on scroll again — hoisting `query` and `.searchable` out of the `.id()` into `HomeView` — was
+  weighed and rejected: about twenty lines across two views plus a second search path for the
+  WebHome bridge sheet, to buy back a transient cosmetic overlap.
+  **Ponytail, before:** the ladder stops at the native-platform rung — `SearchFieldPlacement` already
+  expresses this, so no state, no restructuring and no new view. **Ponytail, after:** the functional
+  diff is one line in one file; nothing was abstracted, and the one addition that earned nothing was
+  taken back out. Two of the three reported defects were closed by reproducing them rather than by
+  writing code.
 - **The app has an icon and an asset catalog since IOS-POC-8C.** The project had neither: its images
   were loose files read through `Bundle.main.path(forResource:)`, which cannot supply an app icon —
   iOS needs a compiled `Assets.car` and `CFBundleIconName`. A single 1024×1024 entry is enough on
@@ -505,7 +549,7 @@ Paste this into a new session:
 
 > 接手 `/Users/chengchenchih/GIT/webhtv` 的 `ios-poc` 分支，透過本機終端操作，不要每步停下來問我確認。用台灣繁體中文回報。
 >
-> **先確認實際狀態，不要相信以下引用的任何 ID**：預期 HEAD 在 `261b5c03`（IOS-POC-5R），**領先 `origin/ios-poc` 2 個 commit 且尚未 push**，worktree clean。未經我明確授權不得 push。
+> **先確認實際狀態，不要相信以下引用的任何 ID**：預期 HEAD 在 IOS-POC-8E，**領先 `origin/ios-poc` 2 個 commit 且尚未 push**，worktree clean。未經我明確授權不得 push。
 >
 > 動手前必讀：`AGENTS.md`、`docs/AGENT_HANDOFF.md`、`docs/current-task-state.md`、`docs/IOS_SPIDER_RUNTIME_SPEC.md`（runtime/ABI 唯一真實來源，含 compatibility pack 契約）、`docs/CSP_MIGRATION_STATUS.md`（移植進度）。要動哪個既有階段就讀那個階段的 `docs/IOS-POC-5*.md`。
 >
@@ -513,7 +557,7 @@ Paste this into a new session:
 >
 > **Spider 架構核心**：不在 iOS 執行 Android DEX/JAR，而是用 JavaScriptCore 重現 `Spider.java` 的 text-in/text-out 契約；反編譯的 Java 只當規格書。已移植 8 個 class（`AppGet` 5 站、`AppQi` 6、`App99` 4、`App3Q` 2、`Bili` 4、`JianPian` 1、規則引擎 `XBPQ` 7 與 `XYQHiker` 3）。共用 `CatVodHost`，**不要做第二套 runtime**。
 >
-> **下一步照這個順序，不要自己改**：(1) **POC-3 drpy JavaScript loader**（5 個來源；共用既有 JavaScriptCore／`CatVodHost`／`host.js`，`ConfigSource` 已能 resolve `./drpy_libs/`，要補的是 load + execute + `SourceClient` routing，先一個來源 end-to-end golden 再擴到 5 個）→ (2) **POC-4 Python runtime 最小可行性驗證**（42 站，不得標為 impossible）→ (3) **第一次真機驗證**（signing／DEVELOPMENT_TEAM 起） → (4) IOS-POC-5S 廣告與片頭跳過，之後才是更多 CSP。**不要優先新增 XueLuo／QimaoDJ／AppDrama。**
+> **下一步照這個順序，不要自己改**：(1) ~~POC-3 drpy JavaScript loader~~ **已完成（IOS-POC-6A/6B/6C）** → (2) **POC-4 Python runtime**（42 站，不得標為 impossible；P1 已量測，P2–P5 未開始，未決事項是 `swift test` 跑在 macOS、XCFramework 只有 iOS slice，golden 要怎麼驅動）→ (3) **真機驗證**（已跑過一次 IOS-POC-8A，不等於驗證完成；免費憑證 2026-09-25 到期）→ (4) IOS-POC-5S 廣告與片頭跳過，之後才是更多 CSP。**不要優先新增 XueLuo／QimaoDJ／AppDrama。**
 >
 > **驗證方式**：`WANG_MOVIE_JSON=<config> swift test --package-path ios` → **143 測試，142 或 143 通過**（差別只在那條即時網路案例當下的 provider 狀態）。`reportsLiveType4SitesFromProvidedConfig` 是即時網路案例（88看球），會因 provider 狀態時好時壞，**失敗時不要去修**。`xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp -destination 'platform=iOS Simulator,id=7B4E9557-4774-4EB9-B408-BB544DCC8657' -configuration Debug build` 通過——**destination 要用 id 不能用 name**，機器上有兩台同名的 iPhone 17 Pro。工具鏈是 **Xcode 27 / Swift 6.4**。
 >
@@ -523,6 +567,8 @@ Paste this into a new session:
 >
 > **規範**：每次功能變更前後各跑一次 Ponytail，結果寫進該階段 durable 文件；改動前 `bash .codex/scripts/task_guard.sh start --id <id> --mode <lane> --scope <path>...`（scope 一次宣告齊全），結束用 `finish ... --no-tag`；commit message 用檔案傳入，並以 `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>` 結尾。
 >
-> **禁止**：改 Android `main` 或 `app/`（唯讀，供比對契約）；未經我明確授權不得 push；commit 不打 recovery tag；不要嘗試解密 `aowu-0722.jar`／`aowu.jar`／`fan-0720.jar` 的 native payload；不要碰 Python/JAR-DEX 直接執行、CarPlay；保留 `NSAllowsArbitraryLoads` 但不得再放寬傳輸安全。
+> **禁止**：改 Android `main` 或 `app/`（唯讀，供比對契約）；未經我明確授權不得 push；commit 不打 recovery tag；不要嘗試解密 `aowu-0722.jar`／`aowu.jar`／`fan-0720.jar` 的 native payload；不要碰 Python/JAR-DEX 直接執行、CarPlay；保留 `NSAllowsArbitraryLoads` 但不得再放寬傳輸安全；**不要再去動分頁列底下那條黑帶**（純外觀、今天之前就存在，IOS-POC-8B 兩種蓋法都造成內容重新佈局，程式碼裡有註記）。
 >
-> **實機從未驗證**：專案沒有任何 `CODE_SIGN` / `DEVELOPMENT_TEAM`，所有結果都來自 iPhone 17 Pro 模擬器。
+> **真機狀態**：專案檔仍然沒有任何 `CODE_SIGN` / `DEVELOPMENT_TEAM`（簽章用命令列參數傳入，沒進 repo）。已在 iPhone 16 Pro 上跑過一次（IOS-POC-8A），**其餘所有結果都來自 iPhone 17 Pro 模擬器**。免費 provisioning profile 2026-09-25 到期，過期要重裝。
+>
+> **尚未真機驗證的項目**：播放器 X 鍵移到 `top: 64` 之後的位置、B 站畫質線路、drpy 引擎第一次下載 1.2 MB 的耗時，以及 IOS-POC-8E 的搜尋框修正。

@@ -16,10 +16,13 @@ public struct WebHTVConfig: Decodable, Sendable {
     /// Every configured `csp_*` spider site, whether or not one is ported yet.
     public var cspSpiderSites: [Site] { sites.filter(\.isCSPSpider) }
 
+    /// Every configured drpy JavaScript site, whether or not its engine can be loaded today.
+    public var drpySpiderSites: [Site] { sites.filter(\.isDrpySpider) }
+
     /// The `csp_*` sites a registry can actually run. This is the routing change that stops type-3
     /// being rejected on classification alone: membership is decided by the registry, not the type.
     public func spiderSites(resolvedBy resolver: CSPSourceResolver) -> [Site] {
-        cspSpiderSites.filter(resolver.canResolve)
+        (cspSpiderSites + drpySpiderSites).filter(resolver.canResolve)
     }
 
     /// Everything browsable today — native CMS plus any spider the registry can drive.
@@ -60,6 +63,11 @@ public struct Site: Decodable, Identifiable, Sendable {
 
     /// A type-3 site whose `api` names a CatVod spider class rather than an endpoint.
     public var isCSPSpider: Bool { type == 3 && api.hasPrefix("csp_") }
+
+    /// A type-3 site whose `api` is a JavaScript engine rather than a class name — the drpy sites.
+    /// `api` is the engine (`./drpy_libs/drpy2.min.js`) and `ext` is this site's own rule script,
+    /// the same split `XBPQ` and `XYQHiker` already have between an engine and a rule file.
+    public var isDrpySpider: Bool { type == 3 && api.hasSuffix(".js") }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)

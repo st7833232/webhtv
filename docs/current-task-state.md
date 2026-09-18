@@ -74,6 +74,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 5R | Watch history, resume, the 記錄 tab, the detail screen's last-episode mark, and `app.history` answering real data | `docs/IOS-POC-5R-watch-history.md` |
 | 5U | Reconciliation: the live handoff documents rewritten against the actual HEAD and test run | this document |
 | 5V | Debug-only simulator display fix for the font set the runtime is missing; no behaviour change | this document |
+| 6A/6B | **drpy JavaScript loader**: the engine and its nine libraries fetched from the configuration's own origin, hash-pinned and verified before evaluation, running on the existing `JavaScriptSpiderRuntime` | `docs/IOS-POC-6A-drpy-loader.md` |
 
 ## Important Decisions
 
@@ -237,8 +238,9 @@ Everything in this section is from **HEAD `261b5c03`** unless it names an earlie
 conflicting test counts that used to sit here (77/76, 96/95, 110/109, each from a different HEAD)
 have been collapsed into the first bullet.
 
-- **124 tests, all 124 pass** — `WANG_MOVIE_JSON=<config> swift test --package-path ios`, measured
-  2026-09-18. The trajectory: 96 at `d571f3a7`, 110 after IOS-POC-5Q, 124 after IOS-POC-5R.
+- **140 tests, all 140 pass** — `WANG_MOVIE_JSON=<config> swift test --package-path ios`, measured
+  2026-09-18. The trajectory: 96 at `d571f3a7`, 110 after IOS-POC-5Q, 124 after IOS-POC-5R, 140
+  after the drpy loader.
 - **`reportsLiveType4SitesFromProvidedConfig` passed this run, and that is not a change in the
   code.** It is a live-network check: 88看球 resolves an episode to an HTML page, and the test
   asserts direct media through `CMSClient`, which has no sniffer hop. It failed twice earlier on
@@ -362,8 +364,14 @@ have been collapsed into the first bullet.
   run passed only because the absolute GitLab Raw URL was substituted by hand. Confirmed in the
   app at IOS-POC-5D: 农民 resolved and played correctly **because the configuration came from a
   remote URL**. `XBPQ`'s 7 sites and `AppGet`'s 5 carry inline `ext` objects and are unaffected.
-- **Still not implemented, as of `261b5c03`:** a Python runtime (42 sites), a drpy JavaScript
-  loader (5 sites), the 23 portable-but-unported `csp_*` sites, `CatVodHost` RSA and `proxy`
+- **The drpy loader exists since IOS-POC-6B, and is verified on one source.** `去看吧` runs
+  `home → category → detail → search → player` against the live provider with all ten dependencies
+  hash-verified. **The other three were never measured** — GitLab began refusing connections after
+  repeated 1.2 MB pulls, which `curl` reproduces from the shell (`http=000`), so that is provider
+  rate limiting and not a defect. `bubutv`'s `./json/4k.js` is a 404 in the repository.
+  The last hop for `去看吧` is a **sniffer** gap, not a loader one: drpy answers `parse:1` with a
+  page and `MediaSniffer` stops at a wrapper whose `?url=` query parameter holds the real m3u8.
+- **Still not implemented:** a Python runtime (42 sites), the 23 portable-but-unported `csp_*` sites, `CatVodHost` RSA and `proxy`
   plumbing, the configuration's `ads`/`rules` (`WebHTVConfig` decodes only `sites`) and everything
   else in IOS-POC-5S including opening/ending skip, `player.preloadArtwork`, `pan.*`, `app.open*`,
   `net.resourceUrl` proxying, `ui.setChrome`/`restoreChrome`, WebHome sites in `wang-movie.json`

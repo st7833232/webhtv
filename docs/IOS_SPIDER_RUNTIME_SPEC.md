@@ -133,6 +133,24 @@ a `SpiderSession` behind the five methods the app already called, and `ConfigVie
 site — a rule engine downloads its rule file during `init`, and the app builds a client per call.
 See `docs/IOS-POC-5D-spider-sites-in-app.md`.
 
+## drpy sites run on this same runtime
+
+A drpy site's `api` is a JavaScript engine (`./drpy_libs/drpy2.min.js`) and its `ext` is that site's
+rule script — the engine/rule split `XBPQ` and `XYQHiker` already have, except the engine itself
+arrives from the configuration. **It is not a second runtime.** `DrpyEngine` is a loader: it fetches
+the engine and its nine libraries, rewrites the four that are ES modules into plain script, and
+hands the result to the *existing* `JavaScriptSpiderRuntime` as a prelude. `drpy-bridge.js` maps
+drpy2's export onto the same thirteen methods above.
+
+**The engine is pinned; a rule script is not.** This is the `host.js` line from IOS-POC-5O applied
+again: the libraries are the SDK a rule runs against, so their SHA-256 is compiled into the build
+and a mismatch refuses the site with no warn-and-continue path. A rule script is the spider
+equivalent and stays hot-updatable under same-origin, HTTPS and a size cap. Everything fails
+closed — cross-origin, plain HTTP, oversize, bad hash, transport error, or module syntax the
+rewriter could not handle. A drpy site gains **no** native capability: same `JSContext`, same
+`CatVodHost`, no bridge, no file system, no entitlement. Contract:
+`docs/IOS-POC-6A-drpy-loader.md`.
+
 ## Adding a port
 
 1. Decompile and read the original: `jadx -d out jar/<name>.jar`.

@@ -39,7 +39,7 @@ private func playURL(_ value: Any?) -> [String] {
 
 @Test func appGetDrivesTheWholeCatVodFlowAgainstTheLiveSite() async throws {
     guard let site = try goldenSite() else { return }
-    let session = try CSPSourceResolver().session(for: site)
+    let session = try await CSPSourceResolver().session(for: site)
 
     // --- home: the class list the UI renders -------------------------------
     let home = try await object(session.home())
@@ -154,7 +154,7 @@ private func playURL(_ value: Any?) -> [String] {
     let registry = SpiderRegistry.bundled(overlaying: pack)
     #expect(registry.entry(for: site.api)?.source == .pack(version: "golden"))
 
-    let session = try CSPSourceResolver(registry: registry).session(for: site)
+    let session = try await CSPSourceResolver(registry: registry).session(for: site)
     let home = try await object(session.home())
     let classes = try #require(home["class"] as? [[String: Any]])
     #expect(!classes.isEmpty)
@@ -219,7 +219,7 @@ private func playURL(_ value: Any?) -> [String] {
 /// it needs neither `ext.json` nor a remote configuration base to resolve one.
 @Test func biliOffersMultipleQualityLines() async throws {
     guard let site = try goldenSite(), SpiderRegistry.className(from: site.api) == "Bili" else { return }
-    let session = try CSPSourceResolver().session(for: site)
+    let session = try await CSPSourceResolver().session(for: site)
 
     let search = try await object(session.search(key: "音樂"))
     let results = try #require(search["list"] as? [[String: Any]])

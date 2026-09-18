@@ -1,9 +1,9 @@
 # IOS-POC-6A — drpy JavaScript loader（使用者 roadmap 的 POC-3）
 
-- 狀態：**D1 觀測完成，計畫待核可**。尚未改任何 production 程式碼。
+- 狀態：**已核可（A+）並實作**。D1 觀測 + E1/E2/E3 完成，**E4 未完成**（見文末）。
 - 分支 `ios-poc`，基線 HEAD `5b4b8668`
 - 日期：2026-09-18
-- 下一步：**一個需要你決定的事項**（見「待你決定」），其餘都已定案
+- 下一步：等 GitLab 冷卻後補完 E4（另外三站），以及嗅探層對 `?url=` 包裝頁的處理
 
 ## D1 — 實際量到的東西
 
@@ -145,7 +145,7 @@ extend  = 該站 ext 解析出來的絕對 URL（沿用 CSPSourceResolver.resolv
 `七色番[漫].js` 那個非 base64 的編碼要在 E3/E4 才會知道 drpy2 能不能自己解（`getRule` 應該會處理），
 若不能就把那一站標為 blocked，**不擴大範圍去逆向它**。
 
-## 待你決定（只有這一項）
+## 待你決定（已於 2026-09-18 由使用者選定 **A+**，保留原文供追溯）
 
 **要不要讓 App 在執行期抓取並 eval 約 1.2 MB 未經驗證的第三方 JavaScript？**
 
@@ -208,3 +208,135 @@ extend  = 該站 ext 解析出來的絕對 URL（沿用 CSPSourceResolver.resolv
 
 刻意不做：真正的 ES module loader（相依圖是靜態的九個檔案）、磁碟快取、共用 `JSContext`、
 逆向 `七色番[漫].js` 的編碼、`bubutv`（缺檔）。
+
+
+---
+
+# 實作紀錄（IOS-POC-6B，2026-09-18）
+
+使用者選 **A+**：允許執行期下載並 eval，但邊界要收緊。以下逐條對應。
+
+## A+ 的每一條，實作在哪
+
+| 要求 | 實作 |
+|---|---|
+| 只從目前設定檔自己的 origin 載入 | `DrpyEngine.checked(_:origin:)`，比對 scheme + host + port |
+| 強制 HTTPS | 同上，非 https 直接 `insecureURL` |
+| 禁止任意跨 origin import | 同上；`assets://` 被映射到設定檔的 `drpy_libs/`，不另開連線 |
+| 只用既有 JavaScriptCore + `host.js` + `CatVodHost` | 沒有新 runtime。drpy 站跑的是**同一個** `JavaScriptSpiderRuntime`、同一個 `JSContext`、同一個 `CatVodHost`。無 native bridge、檔案系統、entitlement、shell |
+| eval 前比對 approved SHA-256，不符拒絕 | `DrpyEngine.load` 先下載、再比對 `dependencies` 裡的 hash，不符拋 `hashMismatch`。**沒有警告後繼續的路徑** |
+| cache 也要重新驗證 | 只有記憶體 cache，存的是**本 process 已驗證過的文字**，未驗證的位元組沒有進入點。**刻意沒有磁碟 cache**，因為那才需要回頭重驗 |
+| 單檔與整包大小上限 | 單檔 512 KB、整包 2 MB、站規則 256 KB。用 `URLSession.bytes` 邊收邊檢查，**超過就中止**而不是先緩衝完再說 |
+| 不建立第二套 runtime | 見上。`DrpyEngine` 是 loader，`drpy-bridge.js` 是 adapter |
+| 共用 library 只載入一次 | `DrpyEngineStore` 以設定檔 origin 為鍵做 per-process 快取；四個 drpy 站共用同一份引擎，且不會每次呼叫重抓 |
+| 區分 dependency 與 site rule，記錄 provenance | 見下表。dependency 被 hash pin，site rule 不被 pin（理由見下） |
+| 失敗一律 fail closed | hash 不符、HTTP 失敗、超過上限、非 UTF-8、改寫後的語法錯誤、缺 host primitive，全部讓**該站**不可用並帶名稱，不退化成執行未驗證碼 |
+
+## Ponytail 對「hash 寫死進 App」的回答
+
+使用者允許我在不降低 fail-closed 的前提下提最小替代方案。**不需要替代方案，因為 pin 並不會破壞熱更新目標**：
+
+IOS-POC-5O 已經畫過同一條線——compatibility pack 可以換 **spider script**，但 `host.js` **刻意不可 pack**，因為那是 script 跑在上面的 SDK，換 SDK 就是發版。drpy2 與它的九個 library 正是同一類東西：它們是站規則跑在上面的引擎，約 1 MB 的第三方 bundle，**很少變動**。所以：
+
+- **dependency library → 綁進 App 的 SHA-256**，不符就拒絕該站。與 `host.js` 站在同一側。
+- **site rule/script → 不 pin**，只受同源 + HTTPS + 大小上限約束。它是 spider 的對應物，幾 KB、常變動，**這才是真正需要熱更新的那一半**。
+
+所以熱更新能力一點都沒少，只是把引擎放到 `host.js` 本來就在的那一邊。
+
+## Provenance：這次實際 pin 的十個檔案
+
+全部量自 `https://gitlab.com/st7833232/recha/-/raw/main/drpy_libs/`，2026-09-18。
+
+| 檔案 | bytes | SHA-256 |
+|---|---:|---|
+| cheerio.min.js | 356,593 | `f03171a4d979593c59dff2267b4beee8aaedd1a0af04f34f9984bdf5f7bdeade` |
+| crypto-js.js | 204,310 | `731c9606953ddedd5bafe52e32eeced73f2a3750fbdac3c812b4a04881e48c07` |
+| jsencrypt.js | 217,423 | `dfba3a7905507484399622e0938cd5462a44c913450927ea8c3eb760d57660dd` |
+| node-rsa.js | 167,481 | `b2e1d9c402ce06c19d08e1659624bfbbda91994d06339300970c395977e6d37c` |
+| pako.min.js | 46,859 | `7b7a3b8db4d7b65846b807f1309688a8955961dbde5538694862a6c5cbc932cf` |
+| 模板.js | 20,033 | `0f6874dc6d19aa9fb71125780bc3ffd349ef7be80032f95a76985a1f1ac8cbf2` |
+| gbk.js | 56,246 | `cf46ccf34d32ce873f021fc5e94c43a73afcb7a551004be8d6a02e94986d0696` |
+| json5.js | 60,431 | `1b3d54f76b9106641e540b6561dc950ffe281590f8546b88f26fc7a91c225e10` |
+| jinja.js | 22,706 | `6cf1781f0c32206236049d392383dbc558b530244926d93762dfa3362967bff2` |
+| drpy2.min.js | 71,463 | `cbfd7b23f86b07f8fa55ba85aae66af430b2a1c5501160f8867e1852661adba2` |
+| **合計** | **1,223,545**（1,194 KB） | |
+
+**Site rule script（不 pin，只記錄）**：`去看吧.js` 12,458 B、`爱弹幕.js` 8,796 B、
+`七色番[漫].js` 3,352 B（非 base64 的未知編碼）、`爱弹幕[漫].js` 4,340 B（base64）。
+
+## 補進 `CatVodHost` 的 primitive
+
+使用者要求缺的 primitive 放共用層、不寫進單站 script。這一輪補了三樣，全在共用層：
+
+1. **`pdfh` / `pdfa` / `pd` / `joinUrl` / `local` 的 bare global 別名**（`DrpyEngine.moduleRuntime`）。
+   drpy 的 host 契約把它們放全域，我們一直放在 `host.` 命名空間下。**是別名不是第二套實作。**
+2. **`req`**（同上）。`CatVodHost.req` 本來就會發請求，回 `{body, json, headers, code}`；drpy 讀
+   `res.content`。只映射這一個欄位名。
+3. **選擇器的 `:gt(n)` / `:lt(n)`**（`host.js`）。`去看吧` 的 `class_parse` 是
+   `.fed-pops-list:eq(0)&&li:gt(0):lt(6)`，我們的引擎原本只有 `:eq(n)`，分類清單因此是空的。
+   照 jQuery 語意實作並可鏈接。**這是唯一一個真正新增的能力，而且在共用層。**
+
+## ESM 改寫踩到的兩個坑
+
+1. **side-effect import 的 regex 咬進字串字面值。** cheerio 的 minified 內容含
+   `"parseImport: expected import"`，`import"` 這個序列真的出現在字串裡，於是幾百個字元的真程式碼
+   被換成分號，症狀是 `'break' is only valid inside a switch or loop`。修法：所有 pattern 都錨定在
+   陳述式邊界（`^` / `;` / `}` / 換行）。
+2. **連續的 import 互相吃掉分隔符。** drpy2 把九個 import 放在同一行，前一個 match 若吃掉結尾的
+   `;`，下一個就沒有錨點，而掃描不會回頭。修法：import 形式**不消耗結尾的 `;`**。
+
+殘留檢查刻意**不自己寫掃描器**——改寫不掉的東西仍是 module 語法，`evaluateScript` 會拋
+SyntaxError，該站 fail closed。引擎自己的 parser 比任何分不清字串與程式碼的掃描器都準。
+
+## 驗證
+
+### 離線（預設就會跑）
+
+`WANG_MOVIE_JSON=<config> swift test --package-path ios` → **140 測試全過**（6B 之前是 124）。
+新增 16 條：四種 ESM 形狀、模組不共用頂層名稱、未載入模組要拋錯、改寫不掉要 SyntaxError、
+非 HTTPS 拒絕、跨 origin 拒絕、imported config 不給 drpy、路徑解析、pin 清單自洽且在上限內、
+SHA-256 演算法向量、bridge 走完 13 個方法、無引擎時 bridge 要拒絕。
+`SourceClientTests` 的計數測試擴充為：imported config 列 62、remote config 多列 5 個 drpy 站。
+
+`xcodebuild … -scheme WebHTVApp … Debug build` → **BUILD SUCCEEDED**。
+
+### Live golden — `去看吧`，兩次一致
+
+```
+DRPY_GOLDEN_BASE='https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json' DRPY_GOLDEN_SITE='{"key":"drpy_js_去看吧",…,"ext":"./drpy_js/去看吧.js"}'   swift test --package-path ios --filter drpyDrivesARealSourceEndToEnd
+```
+
+```
+[drpy] engine verified and loaded for drpy_js_去看吧
+[drpy] home: ["高清原碟", "日漫", "国语动漫", "劇場", "女频", "日韩剧"]
+[drpy] category 33: 48 items, first=浪漫追星社
+[drpy] detail 浪漫追星社: flags=["线路空" …×5], episodes=12
+[drpy] search 我: 10 results
+[drpy] player: parse=1 url=https://www.k9dm.com/index.php/vod/play/id/10959/sid/3/nid/1.html
+[drpy] playback: https://www.k9dm.com/1006/vip/?url=https://vip.dytt-network.com/…/index.m3u8
+```
+
+**十個相依全部 hash 驗證通過並載入，`home → category → detail → search → player` 全通，資料是真的。**
+
+## 沒做到的：G3 的最後一哩，與 E4
+
+- **G3（媒體位元組）在 `去看吧` 上沒達成。** drpy 回 `parse:1`（一個頁面），把頁面變成串流是
+  `MediaSniffer` 的工作，而它停在一個**外層播放頁**：
+  `https://www.k9dm.com/1006/vip/?url=https://vip.dytt-network.com/…/index.m3u8`。
+  真正的 m3u8 就在 `?url=` 查詢參數裡。兩次執行結果一致，不是時序抖動。
+  **這是嗅探層的缺口，不是 drpy loader 的**——loader 的責任到 `parse:1` 頁面為止，而那一步是對的。
+  修法（下一步，不在本階段）：`MediaSniffer` 遇到候選頁時，先看 URL 的查詢參數裡有沒有直接的媒體位址。
+- **E4（擴到全部來源）沒完成。** 另外三站 `爱弹幕`、`七色番[漫]`、`爱弹幕[漫]` **一次都沒量到**：
+  GitLab 在我反覆抓 1.2 MB 之後開始拒絕連線。`curl` 從 shell 直接測也是
+  `http=000 size=0`，**與 App 無關，是站方限流**。放長逾時（引擎專用 session，60 s/180 s）沒有用，
+  因為連線根本沒建立。等冷卻後重跑即可。
+- **`bubutv`（`./json/4k.js`）是 404**，缺檔，不列為技術判決。
+- **實機仍然從未驗證。**
+
+## Ponytail（final diff）
+
+刪掉沒有呼叫端的 `DrpyEngine.engineModule`。`host` 的別名區塊加了 `typeof host === 'undefined'`
+守衛，讓改寫器能在裸 context 裡被測試而不用拖進整個 host。沒有新增 runtime、沒有 vendor 任何
+第三方碼、沒有新的 native 能力；唯一真正新增的能力是選擇器的 `:gt`/`:lt`，而它在共用層。
+三個 `ponytail:` 註記：改寫器是針對已知四種形狀（非 ES module loader）、殘留檢查交給引擎自己的
+parser、記憶體快取不落磁碟。

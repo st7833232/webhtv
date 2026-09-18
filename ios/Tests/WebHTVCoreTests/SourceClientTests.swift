@@ -261,6 +261,16 @@ private final class OneShotHTTPServer: @unchecked Sendable {
     let drivable = config.drivableSites(resolvedBy: resolver)
     let spiders = config.spiderSites(resolvedBy: resolver)
 
+    // drpy needs an origin to load its engine from, so an imported file lists none of them and a
+    // remote configuration lists all four. `./json/4k.js` is a fifth configured drpy source whose
+    // file is a 404 in the repository — a missing resource, counted here because listing is about
+    // shape, and refused at session build like any other unreachable engine.
+    let remote = ConfigSource.remote(URL(string: "https://example.invalid/raw/main/wang-movie.json")!)
+    let withOrigin = config.drivableSites(resolvedBy: CSPSourceResolver(source: remote))
+    #expect(config.drpySpiderSites.count == 5)
+    #expect(withOrigin.count == drivable.count + 5,
+            "a remote configuration also lists the drpy sources")
+
     #expect(native.count == 30, "2 type-0 + 22 type-1 + 6 type-4")
     #expect(spiders.count == 32,
             "AppGet 5 + AppQi 6 + App99 4 + App3Q 2 + Bili 4 + JianPian 1 + XBPQ 7 + XYQHiker 3")

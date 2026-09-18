@@ -31,10 +31,15 @@ public struct SpiderRegistry: Sendable {
 
     let entries: [String: Entry]
     public let prelude: String
+    /// The drpy adapter — the `SpiderRuntime` names mapped onto drpy2's export. Bundled like
+    /// `host.js` and, like it, **not packable**: it is part of the SDK a drpy rule runs against,
+    /// not a spider a compatibility pack may replace.
+    public let drpyBridge: String
 
-    public init(entries: [String: Entry], prelude: String) {
+    public init(entries: [String: Entry], prelude: String, drpyBridge: String = "") {
         self.entries = entries
         self.prelude = prelude
+        self.drpyBridge = drpyBridge
     }
 
     /// Adding a port is a new `.js` resource plus one line here — never a Swift rewrite.
@@ -92,7 +97,8 @@ public struct SpiderRegistry: Sendable {
             guard let entry = entries[target], case .pack = entry.source else { continue }
             entries[alias] = entry
         }
-        registry = SpiderRegistry(entries: entries, prelude: registry.prelude)
+        registry = SpiderRegistry(entries: entries, prelude: registry.prelude,
+                                  drpyBridge: registry.drpyBridge)
         return registry
     }
 
@@ -110,7 +116,7 @@ public struct SpiderRegistry: Sendable {
                 entries[name] = Entry(script: script, portability: meta.0, origin: meta.1, source: .bundled)
             }
         }
-        return SpiderRegistry(entries: entries, prelude: load("host"))
+        return SpiderRegistry(entries: entries, prelude: load("host"), drpyBridge: load("drpy-bridge"))
     }
 
     public var portedClasses: [String] { entries.keys.sorted() }

@@ -25,16 +25,45 @@ public struct CSPSourceResolver: Sendable {
         self.session = session
     }
 
-    /// True when this site is a `csp_*` spider the app can actually drive today.
+    /// True when this site is a spider the app can drive today — a registered `csp_*` class, or a
+    /// drpy site whose engine this build can load.
+    ///
+    /// A drpy site is listed on the strength of its shape, not of a completed download: the engine
+    /// is fetched when the session is built, and a failure there refuses that one site with a named
+    /// error rather than quietly removing it from the picker. An imported configuration file has no
+    /// origin, so it can never satisfy the same-origin rule and is not offered at all.
     public func canResolve(_ site: Site) -> Bool {
-        site.isCSPSpider && registry.canDrive(site.api)
+        if site.isDrpySpider { return source.baseURL != nil }
+        return site.isCSPSpider && registry.canDrive(site.api)
     }
 
-    public func session(for site: Site) throws -> SpiderSession {
+    /// Builds the session. Async because a drpy site has to fetch and verify its engine first;
+    /// a `csp_*` site still resolves without touching the network.
+    public func session(for site: Site) async throws -> SpiderSession {
+        if site.isDrpySpider { return try await drpySession(for: site) }
         guard site.isCSPSpider else { throw SpiderError.notRegistered(site.api) }
         let runtime = try registry.makeRuntime(for: site.api, siteKey: site.key,
                                                defaults: defaults, session: session)
         return SpiderSession(site: site, runtime: runtime, extend: resolvedExtend(for: site))
+    }
+
+    /// A drpy site runs on **the same `JavaScriptSpiderRuntime`** every ported spider uses. The only
+    /// differences are what goes in the prelude — `host.js` plus the verified engine — and that the
+    /// `extend` handed to `init` is the site's rule script text rather than a path, because the
+    /// engine must not do its own fetching outside the origin check.
+    private func drpySession(for site: Site) async throws -> SpiderSession {
+        // The engine downloads on its own session: a megabyte of libraries needs a longer
+        // inactivity ceiling than the 10 s a content request gets. The spider itself still runs on
+        // the content session, so nothing about its own HTTP changes.
+        let prelude = try await DrpyEngineStore.shared.prelude(source: source, host: registry.prelude)
+        let rule = try await DrpyEngine.rule(at: site.rawExtJSON, source: source)
+        let runtime = try JavaScriptSpiderRuntime(
+            name: "drpy-\(site.key)",
+            script: registry.drpyBridge,
+            prelude: prelude,
+            storage: SpiderStorage(siteKey: site.key, defaults: defaults),
+            session: session)
+        return SpiderSession(site: site, runtime: runtime, extend: rule)
     }
 
     /// A rule-engine site sets `ext` to a path like `./json/农民影视.json`. Resolve it against the

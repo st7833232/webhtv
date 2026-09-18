@@ -219,7 +219,9 @@ public actor SpiderSessionStore {
 
     public init() {}
 
-    public func session(for site: Site, resolver: CSPSourceResolver) throws -> SpiderSession {
+    /// Async since IOS-POC-6B: a drpy site fetches and verifies its engine before it has a runtime.
+    /// A `csp_*` site still builds without touching the network.
+    public func session(for site: Site, resolver: CSPSourceResolver) async throws -> SpiderSession {
         // `Site.id` is the site's key *and* its `ext`: a reloaded configuration may keep a key and
         // change what it points at, and a session caches the `ext` it was initialised with. Keying
         // on both means a changed site simply misses the cache, so correctness does not depend on
@@ -227,7 +229,7 @@ public actor SpiderSessionStore {
         // against the next lookup.
         let identity = site.id
         if let existing = sessions[identity] { return existing }
-        let session = try resolver.session(for: site)
+        let session = try await resolver.session(for: site)
         sessions[identity] = session
         return session
     }

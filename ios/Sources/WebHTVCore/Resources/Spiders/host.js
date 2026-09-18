@@ -143,8 +143,16 @@ var host = (function () {
     // containment is checked in `matches`.
     var has = /:has\(([^)]*)\)/.exec(part);
     if (has) part = part.replace(has[0], '');
-    var eq = /:eq\((-?\d+)\)$/.exec(part);
-    if (eq) part = part.slice(0, eq.index);
+    // `:eq(n)`, `:gt(n)` and `:lt(n)` are jQuery's positional filters, which drpy rule files use
+    // and chain — 去看吧's class_parse is `li:gt(0):lt(6)`. They are collected in written order and
+    // applied to the matched list in that order, which is what jQuery does.
+    var slicers = [];
+    var positional = /:(eq|gt|lt)\((-?\d+)\)/g, slice;
+    while ((slice = positional.exec(part)) !== null) {
+      slicers.push({ kind: slice[1], n: parseInt(slice[2], 10) });
+    }
+    var eq = slicers.length && slicers[0].kind === 'eq' && slicers.length === 1 ? slicers[0] : null;
+    part = part.replace(/:(eq|gt|lt)\((-?\d+)\)/g, '');
     var tag = (/^[a-zA-Z*][\w:-]*/.exec(part) || ['*'])[0].toLowerCase();
     var classes = (part.match(/\.[^.#\[\s:]+/g) || []).map(function (c) { return c.slice(1); });
     var id = (/#([^.#\[\s:]+)/.exec(part) || [])[1];
@@ -152,7 +160,7 @@ var host = (function () {
     var re = /\[\s*([\w:.-]+)\s*(?:([~^$*|]?=)\s*"?([^\]"]*?)"?)?\s*\]/g, m;
     while ((m = re.exec(part)) !== null) attrs.push({ name: m[1], op: m[2], value: m[3] });
     return { tag: tag, classes: classes, id: id, attrs: attrs, has: has ? has[1] : null,
-             index: eq ? parseInt(eq[1], 10) : index };
+             index: eq ? eq.n : index, slicers: slicers };
   }
 
   function matches(node, part) {
@@ -201,9 +209,25 @@ var host = (function () {
   }
 
   function applyIndex(list, part) {
-    if (part.index === null) return list;
-    var i = part.index < 0 ? list.length + part.index : part.index;
-    return list[i] ? [list[i]] : [];
+    var out = list;
+    var slicers = part.slicers || [];
+    for (var s = 0; s < slicers.length; s++) {
+      var n = slicers[s].n;
+      if (slicers[s].kind === 'eq') {
+        var i = n < 0 ? out.length + n : n;
+        out = out[i] ? [out[i]] : [];
+      } else if (slicers[s].kind === 'gt') {
+        out = out.slice(n < 0 ? out.length + n + 1 : n + 1);
+      } else {
+        out = out.slice(0, n < 0 ? out.length + n : n);
+      }
+    }
+    // Hiker's trailing ",N" index, which is only set when no positional filter was written.
+    if (!slicers.length && part.index !== null) {
+      var k = part.index < 0 ? out.length + part.index : part.index;
+      out = out[k] ? [out[k]] : [];
+    }
+    return out;
   }
   function descendantsMatching(scope, part, includeSelf) {
     var out = [];

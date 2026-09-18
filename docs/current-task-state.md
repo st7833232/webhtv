@@ -80,6 +80,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 8C | An app icon, and the asset catalog the project never had | this document |
 | 8D | Reverted 8B's wallpaper change, which had relayouted every screen; the black band it chased is left alone | this document |
 | 8E | The three device-reported UI defects re-tested on the clean build: two were the 8B regression and are gone, the third was real and is fixed — the search field no longer vanishes after a source switch | this document |
+| 8F | The search field goes back to hiding on scroll, at the user's request: the `.id` moves up to the whole `NavigationStack`, after three other ways of making the bar give the field back were measured and failed | this document |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
 | 6A/6B | **drpy JavaScript loader**: the engine and its nine libraries fetched from the configuration's own origin, hash-pinned and verified before evaluation, running on the existing `JavaScriptSpiderRuntime` | `docs/IOS-POC-6A-drpy-loader.md` |
 
@@ -286,6 +287,10 @@ have been collapsed into the first bullet.
 
 ### Simulator runs (iPhone 17 Pro)
 
+- **IOS-POC-8F, 2026-09-18.** 愛瓜 loaded and scrolled down until the search field hid → source menu
+  → 菠菜 lists from the top **with the search field back**, and it still hides on the next scroll.
+  The three failed attempts above were each driven through this same sequence and each left the
+  field gone, which is what makes them worth recording rather than re-trying.
 - **IOS-POC-8E, 2026-09-18, on the remote configuration (67 sources).** Before the fix: 愛瓜 scrolled
   down → source menu → 菠菜 listed from the top **with no search field**, and it came back only on an
   over-scroll. After the fix the same sequence keeps the field, and so does 荐片 → 愛瓜. 荐片 renders
@@ -383,6 +388,24 @@ have been collapsed into the first bullet.
      `hidesSearchBarWhenScrolling = false`: a field that never collapses has no state to carry
      across the swap. **The cost is that the field now occupies its row permanently**, and content
      scrolls underneath it.
+- **8E's always-visible search field was replaced at the user's request (IOS-POC-8F, 2026-09-18).**
+  They asked for the field to hide on scroll again, which meant fixing the navigation bar's stale
+  collapse rather than removing the collapse. **Three pure-SwiftUI attempts were built and measured,
+  and none of them worked:**
+  1. **Hoisting `.searchable` above the grid's `.id`**, into a shell view that a source switch never
+     replaces, so the search controller itself survives. No effect — the replacement `ScrollView` is
+     born at offset 0 and never raises a scroll event, so the bar has nothing to re-evaluate on.
+  2. **Resetting the listing in place**, dropping the `.id` entirely so the scroll view is never
+     replaced at all, plus `proxy.scrollTo(topAnchor)`. No effect: scrolling a view already at the
+     top is not a scroll.
+  3. **Scrolling the old listing to the top first**, while it was still tall enough for that to be a
+     real offset change, and swapping the content on the next turn. No effect either.
+  **What worked is moving the `.id` up to the whole `NavigationStack`.** A new stack is a new
+  navigation bar, and a new bar has no collapse to remember. The functional diff is one modifier
+  moved one level up and `placement:` deleted; the three failures are recorded in the code so nobody
+  repeats them. **The bleed-through note below is now historical** — with the field hiding on scroll
+  again it is only ever over the wallpaper, not over the grid.
+
   **Dropping `appNavigationBar()` on `CMSView` to put a material behind that pinned field was tried
   and reverted — it changed nothing on screen.** iOS 26 draws this navigation bar as per-control
   glass, not as a full-width background, so there is no material to opt into; scrolling content

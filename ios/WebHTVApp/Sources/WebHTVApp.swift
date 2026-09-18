@@ -299,7 +299,6 @@ private struct HomeView: View {
     var body: some View {
         NavigationStack {
             CMSView(site: selectedSite, source: source)
-                .id(selectedSite.id)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         Menu {
@@ -327,6 +326,18 @@ private struct HomeView: View {
                     }
                 }
         }
+        // The identity sits on the whole `NavigationStack`, not on `CMSView` inside it, and that is
+        // what lets the search field keep hiding on scroll.
+        //
+        // The field's hidden state belongs to the navigation bar rather than to the grid, and a bar
+        // that outlives the switch keeps the collapse it learned from the listing the user just
+        // scrolled — so the field was simply gone, and only an over-scroll brought it back. Three
+        // ways of making that bar change its mind were measured at IOS-POC-8F and **none worked**:
+        // hoisting `.searchable` above the grid's `.id`, resetting the listing in place so the
+        // scroll view was never replaced, and scrolling the old listing to the top before swapping
+        // it. Rebuilding the stack sidesteps all of it, because a new stack is a new navigation bar
+        // with nothing to remember. Do not repeat those three.
+        .id(selectedSite.id)
     }
 }
 
@@ -415,13 +426,10 @@ private struct CMSView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        // `.always` is UIKit's `hidesSearchBarWhenScrolling = false`, and it is here for
-        // correctness rather than taste. The collapsed-on-scroll state belongs to the navigation
-        // bar, not to the grid: switching source rebuilds `CMSView` under a new `.id`, so the new
-        // grid starts at the top while the bar keeps the collapse it learned from the old one, and
-        // the search field stays gone until the user over-scrolls to shake it loose. A field that
-        // never collapses has no such state to carry across the swap (IOS-POC-8E).
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜尋影片")
+        // Plain `.searchable`, so the field hides on scroll the way it always did. What keeps it
+        // from disappearing across a source switch is the `.id` on `HomeView`'s `NavigationStack`,
+        // not anything here (IOS-POC-8F).
+        .searchable(text: $query, prompt: "搜尋影片")
         .onSubmit(of: .search) { searching = true; Task { await load(search: query) } }
         .task {
             guard items.isEmpty else { return }

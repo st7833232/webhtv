@@ -79,6 +79,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 8A | **The first real-device run**, and the defect it found: a fresh install could not accept a remote configuration URL | this document |
 | 8B | Two more device findings: a black band under the tab bar, and the player's close button in AVKit's corner | this document |
 | 8C | An app icon, and the asset catalog the project never had | this document |
+| 8D | Reverted 8B's wallpaper change, which had relayouted every screen; the black band it chased is left alone | this document |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
 | 6A/6B | **drpy JavaScript loader**: the engine and its nine libraries fetched from the configuration's own origin, hash-pinned and verified before evaluation, running on the existing `JavaScriptSpiderRuntime` | `docs/IOS-POC-6A-drpy-loader.md` |
 
@@ -341,7 +342,14 @@ have been collapsed into the first bullet.
      is a `ZStack` now, the image behind as a sibling that nothing clips. **This one did reproduce
      in the simulator** and is visible in every screenshot this project has taken — it took a real
      phone for anyone to name it.
-  3. **The player's close button sat in AVKit's corner.** iOS puts its video-output control top-left
+  3. **The wallpaper fix in 2 was wrong and is reverted (IOS-POC-8D).** Making `appWallpaper()` a
+     `ZStack` put every screen inside a container whose other child ignores the safe area, so
+     content laid out against the window instead: row labels clipped at the left edge, posters
+     bleeding to the screen edge, and the grid running under the navigation bar so the search field
+     covered the category and filter rows. **Two ways of covering the tab bar were tried and both
+     relayouted content**, so the black band — which predates today and is cosmetic — is left alone,
+     with the attempts recorded in the code so nobody repeats them.
+  4. **The player's close button sat in AVKit's corner.** iOS puts its video-output control top-left
      and mute top-right; the custom close button crowded the first. Moved below that row rather than
      to another corner, because AVKit owns both top corners and the bottom. **Only the simulator's
      different AVKit layout hid this.**

@@ -1421,21 +1421,25 @@ private struct PlayerView: View {
 }
 
 private extension View {
-    /// The wallpaper, behind everything including the tab bar.
+    /// The wallpaper behind one screen's content.
     ///
-    /// This used to be a `.background`, and a background is bounded by the view it decorates: on a
-    /// `TabView` it stops at the content area, so hiding the tab bar's own background revealed the
-    /// window's black rather than the wallpaper — a black band under every screen. A `ZStack` puts
-    /// the image behind as a sibling instead, which nothing clips. Found on the first real-device
-    /// run (IOS-POC-8B); it reproduced in the simulator too, where it had been visible in every
-    /// screenshot for weeks without anyone naming it.
+    /// Deliberately a `.background` and **not** a `ZStack`. IOS-POC-8B briefly made it a ZStack to
+    /// cure a black band under the tab bar, and that put every screen inside a container whose
+    /// other child ignores the safe area: content then laid out against the full window instead of
+    /// the safe area, so row labels were clipped at the left edge and the grid ran under the
+    /// navigation bar. A background decorates without relayouting, which is what every content view
+    /// needs.
+    ///
+    /// The cost is a black band behind the tab bar, which predates today and is cosmetic. Two ways
+    /// of covering it were tried and both relayouted content, so it stays until someone finds a way
+    /// that does not: the bar sits outside the content view's frame, and nothing reachable from a
+    /// background modifier draws there.
     func appWallpaper() -> some View {
-        ZStack {
+        background {
             bundledImage("wallpaper_1")
                 .resizable()
                 .scaledToFill()
                 .ignoresSafeArea()
-            self
         }
     }
 

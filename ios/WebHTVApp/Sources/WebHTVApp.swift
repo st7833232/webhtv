@@ -1393,6 +1393,11 @@ private struct PlayerView: View {
         }
         .overlay(alignment: .topLeading) {
             // A full-screen cover has no navigation bar, so it needs its own way out.
+            //
+            // Sat level with AVKit's own top row until IOS-POC-8B, where the device put its video
+            // output control in the same corner and the two crowded each other. The simulator lays
+            // that row out differently, so it only showed on hardware. Dropped below the row rather
+            // than moved to another corner, because AVKit owns both top corners and the bottom.
             Button { dismiss() } label: {
                 Image(systemName: "xmark")
                     .font(.headline.weight(.semibold))
@@ -1401,7 +1406,7 @@ private struct PlayerView: View {
                     .background(.black.opacity(0.55), in: Circle())
             }
             .padding(.leading, 16)
-            .padding(.top, 8)
+            .padding(.top, 64)
         }
         .statusBarHidden()
         // Closing the screen pauses rather than tears down, so a page can read the position it
@@ -1416,12 +1421,21 @@ private struct PlayerView: View {
 }
 
 private extension View {
+    /// The wallpaper, behind everything including the tab bar.
+    ///
+    /// This used to be a `.background`, and a background is bounded by the view it decorates: on a
+    /// `TabView` it stops at the content area, so hiding the tab bar's own background revealed the
+    /// window's black rather than the wallpaper — a black band under every screen. A `ZStack` puts
+    /// the image behind as a sibling instead, which nothing clips. Found on the first real-device
+    /// run (IOS-POC-8B); it reproduced in the simulator too, where it had been visible in every
+    /// screenshot for weeks without anyone naming it.
     func appWallpaper() -> some View {
-        background {
+        ZStack {
             bundledImage("wallpaper_1")
                 .resizable()
                 .scaledToFill()
                 .ignoresSafeArea()
+            self
         }
     }
 

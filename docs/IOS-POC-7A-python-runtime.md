@@ -1,6 +1,6 @@
 # IOS-POC-7A — Python runtime 最小可行性評估（使用者 roadmap 的 POC-4）
 
-- 狀態：**評估完成，計畫待核可**。尚未改任何 production 程式碼。
+- 狀態：**已核可（A）**。**P1 量測完成**（見文末），P2–P5 未開始。尚未改任何 production 程式碼。
 - 分支 `ios-poc`，基線 HEAD `a80cde63`
 - 日期：2026-09-18
 - 需要你決定的只有一件事：見「待你決定」
@@ -201,3 +201,55 @@ repo 裡現成的 Android 版。③ 標準庫——最小 POC 的 4 支腳本只
 
 刻意不做：`Crypto` 與 `lxml` 的 C 擴充、`html()`、`loadSpider`、本機 proxy server、
 跨 origin 腳本、Official/XPTV build profile。
+
+
+---
+
+# P1 量測結果（2026-09-18）
+
+實際下載 `Python-Apple-support 3.13-b15`（`Python-3.13-iOS-support.b15.tar.gz`，31 MB）並拆開量。
+**兩個數字推翻了計畫裡的估計，照實更正。**
+
+## 版本與 slice
+
+| | |
+|---|---|
+| 來源 | `github.com/beeware/Python-Apple-support`，release `3.13-b15`（2026-09-04） |
+| 選 3.13 的理由 | PEP 730 讓 iOS 成為 CPython 正式支援平台**自 3.13 起**。3.14/3.15 也有 iOS 建置，但 3.13 是第一個正式支援版，也最成熟 |
+| slice | `ios-arm64`（實機）、`ios-arm64_x86_64-simulator`（模擬器）。**沒有 macOS slice** |
+| 解壓後總計 | 116 MB（含兩個 slice、共用 stdlib 與建置腳本） |
+
+## 實際要塞進 App 的東西
+
+| 成分 | 大小 | 說明 |
+|---|---:|---|
+| `Python.framework/Python`（直譯器） | **5.2 MB** | 實機 slice |
+| `lib-dynload/*.so` — 全部 68 個 | 15 MB | 每個在 iOS 上要各自包成 framework（PEP 730） |
+| `lib-dynload/*.so` — **這 31 支腳本用得到的** | **約 9 MB** | `_ssl`／`_hashlib`／`_socket`／`_json`／`zlib`／`_decimal`／`unicodedata` 等 |
+| 純 Python 標準庫（架構無關） | 50 MB **原始** | 其中 **35 MB 是 `test/`**；再扣掉 `idlelib` 1.9M、`ensurepip` 1.8M、`tkinter`、`pydoc_data` 後約剩 10–12 MB |
+
+**修正計畫裡的估計**：先前寫「約十幾 MB」。實際精簡後大約
+**5.2 + 9 + 10～12 ≈ 24 MB（未壓縮）**，App 瘦身與壓縮後會再小一些。**大約是原估計的兩倍**，
+這是你當初核可時應該拿到的數字，所以在這裡更正。
+
+**好消息**：`_ssl`、`_hashlib`、`_socket` 都是現成的預編譯 `.so`，所以
+**標準庫的 HTTPS 開箱即用**，`urllib.request` 與 `requests` 都不用額外處理憑證以外的事。
+
+## 一個會改變 P2 形狀的結構性發現
+
+**這個 XCFramework 沒有 macOS slice，而 `swift test --package-path ios` 是在 macOS 上跑的**
+（測試輸出寫著 `Target Platform: arm64e-apple-macos14.0`）。
+
+也就是說 **現有的 143 條測試無法執行 Python runtime**。這不是問題，是事實，但它決定了 P2–P4 怎麼驗：
+
+- **平台中立的部分**（路由、同源／HTTPS 檢查、大小上限、腳本抓取）留在 `WebHTVCore`，
+  照舊用 `swift test` 在 macOS 上測——與 `DrpyEngine` 的做法一致。
+- **真正跑直譯器的部分**（P4 的 `皮皮虾.py` 端到端 golden）**只能在模擬器上跑**，
+  需要在 Xcode 專案裡新增一個 iOS 測試 target，或以驅動 App UI 的方式取證。
+  這是 P2 之前要先決定的一件事，本文件先標記，不自行決定。
+
+## P1 之後的狀態
+
+- P1 **完成**。
+- P2–P5 未開始。P2 會動到 Xcode 專案檔（加入 XCFramework），而那個檔案本輪已被 Xcode 自動改寫過
+  兩次，要留意。

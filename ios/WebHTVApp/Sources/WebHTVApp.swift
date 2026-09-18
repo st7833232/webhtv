@@ -1448,15 +1448,29 @@ private extension View {
     /// navigation bar. A background decorates without relayouting, which is what every content view
     /// needs.
     ///
-    /// The cost is a black band behind the tab bar, which predates today and is cosmetic. Two ways
-    /// of covering it were tried and both relayouted content, so it stays until someone finds a way
-    /// that does not: the bar sits outside the content view's frame, and nothing reachable from a
-    /// background modifier draws there.
+    /// The black band behind the tab bar that this comment used to call permanent is **fixed**, and
+    /// it never needed a `ZStack` at all — see the body. The diagnosis it rested on was wrong: the
+    /// bar is not outside the content view's frame, and a background modifier does reach there.
+    ///
+    /// Four other things were built and measured first, and all four failed (IOS-POC-8G): colouring
+    /// `UIWindow.appearance()`, colouring `UITabBar.appearance()`, inserting a wallpaper image view
+    /// under the tab bar controller's own container, and clearing the opaque `systemBackground` that
+    /// every hosting view above it paints. The first two never appeared at all, and the last two
+    /// lost to backgrounds SwiftUI re-applies on its next layout pass. **Do not reach into UIKit for
+    /// this.**
     func appWallpaper() -> some View {
         background {
-            bundledImage("wallpaper_1")
-                .resizable()
-                .scaledToFill()
+            // `.ignoresSafeArea()` belongs on a view that fills, and `scaledToFill` does not: it
+            // sizes the image to its own aspect-filled bounds, so the modifier had nothing to
+            // expand and the wallpaper stopped at the safe area — the black band under the tab bar
+            // (IOS-POC-8G). `Color.clear` fills, ignores the safe area, and the image fills that
+            // instead. Still a `.background`, so it still cannot relayout anything.
+            Color.clear
+                .overlay {
+                    bundledImage("wallpaper_1")
+                        .resizable()
+                        .scaledToFill()
+                }
                 .ignoresSafeArea()
         }
     }

@@ -81,6 +81,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 8D | Reverted 8B's wallpaper change, which had relayouted every screen; the black band it chased is left alone | this document |
 | 8E | The three device-reported UI defects re-tested on the clean build: two were the 8B regression and are gone, the third was real and is fixed — the search field no longer vanishes after a source switch | this document |
 | 8F | The search field goes back to hiding on scroll, at the user's request: the `.id` moves up to the whole `NavigationStack`, after three other ways of making the bar give the field back were measured and failed | this document |
+| 8G | The black band behind the tab bar is gone on every tab — `scaledToFill` never filled, so `.ignoresSafeArea()` had nothing to expand | this document |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
 | 6A/6B | **drpy JavaScript loader**: the engine and its nine libraries fetched from the configuration's own origin, hash-pinned and verified before evaluation, running on the existing `JavaScriptSpiderRuntime` | `docs/IOS-POC-6A-drpy-loader.md` |
 
@@ -287,6 +288,9 @@ have been collapsed into the first bullet.
 
 ### Simulator runs (iPhone 17 Pro)
 
+- **IOS-POC-8G, 2026-09-18.** All three tabs (首頁／記錄／設定) screenshotted with no black band; the
+  wallpaper runs under the floating glass tab bar. 荐片 re-checked for the IOS-POC-8B relayout tells
+  and shows none, and a detail screen renders normally.
 - **IOS-POC-8F, 2026-09-18.** 愛瓜 loaded and scrolled down until the search field hid → source menu
   → 菠菜 lists from the top **with the search field back**, and it still hides on the next scroll.
   The three failed attempts above were each driven through this same sequence and each left the
@@ -420,6 +424,24 @@ have been collapsed into the first bullet.
   diff is one line in one file; nothing was abstracted, and the one addition that earned nothing was
   taken back out. Two of the three reported defects were closed by reproducing them rather than by
   writing code.
+- **The black band behind the tab bar is fixed (IOS-POC-8G, 2026-09-18), and the diagnosis it had
+  carried since IOS-POC-8B was wrong.** That record said the bar sits outside the content view's
+  frame and that nothing reachable from a background modifier draws there, so the band was written
+  off as permanent and cosmetic. Both halves were false. **`appWallpaper()`'s image was
+  `scaledToFill`, which sizes the image to its own aspect-filled bounds rather than filling its
+  container — so `.ignoresSafeArea()` had nothing to expand and the wallpaper stopped at the safe
+  area.** Wrapping it in a `Color.clear` that does fill, and moving `.ignoresSafeArea()` onto that,
+  runs the wallpaper to the bottom of the window on all three tabs. It is still a `.background`, so
+  the IOS-POC-8B relayout trap is untouched: 荐片 was re-checked and its filter labels are unclipped,
+  the poster grid keeps its 12 pt margin, and the detail screen is unchanged.
+  **Four heavier things were built and measured first, and all four failed.** Colouring
+  `UIWindow.appearance()` and `UITabBar.appearance()` — neither ever appeared, which is what ruled
+  out the window and the tab bar as the painter. Then a probe walking up to the tab bar controller
+  and inserting a wallpaper image view at the bottom of its container — installed correctly,
+  confirmed in a logged view hierarchy, and invisible because every hosting view above it paints an
+  opaque `systemBackground`. Then clearing those backgrounds — SwiftUI re-applies them on its next
+  layout pass. **The lesson is recorded in the code: do not reach into UIKit for this.** The view
+  hierarchy dump that settled it is worth re-deriving rather than guessing if this ever regresses.
 - **The app has an icon and an asset catalog since IOS-POC-8C.** The project had neither: its images
   were loose files read through `Bundle.main.path(forResource:)`, which cannot supply an app icon —
   iOS needs a compiled `Assets.car` and `CFBundleIconName`. A single 1024×1024 entry is enough on
@@ -590,7 +612,7 @@ Paste this into a new session:
 >
 > **規範**：每次功能變更前後各跑一次 Ponytail，結果寫進該階段 durable 文件；改動前 `bash .codex/scripts/task_guard.sh start --id <id> --mode <lane> --scope <path>...`（scope 一次宣告齊全），結束用 `finish ... --no-tag`；commit message 用檔案傳入，並以 `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>` 結尾。
 >
-> **禁止**：改 Android `main` 或 `app/`（唯讀，供比對契約）；未經我明確授權不得 push；commit 不打 recovery tag；不要嘗試解密 `aowu-0722.jar`／`aowu.jar`／`fan-0720.jar` 的 native payload；不要碰 Python/JAR-DEX 直接執行、CarPlay；保留 `NSAllowsArbitraryLoads` 但不得再放寬傳輸安全；**不要再去動分頁列底下那條黑帶**（純外觀、今天之前就存在，IOS-POC-8B 兩種蓋法都造成內容重新佈局，程式碼裡有註記）。
+> **禁止**：改 Android `main` 或 `app/`（唯讀，供比對契約）；未經我明確授權不得 push；commit 不打 recovery tag；不要嘗試解密 `aowu-0722.jar`／`aowu.jar`／`fan-0720.jar` 的 native payload；不要碰 Python/JAR-DEX 直接執行、CarPlay；保留 `NSAllowsArbitraryLoads` 但不得再放寬傳輸安全；**不要為了版面問題去碰 UIKit 內部**（IOS-POC-8G 試過四種都失敗，正解在 `appWallpaper()` 的 SwiftUI 佈局裡）。
 >
 > **真機狀態**：專案檔仍然沒有任何 `CODE_SIGN` / `DEVELOPMENT_TEAM`（簽章用命令列參數傳入，沒進 repo）。已在 iPhone 16 Pro 上跑過一次（IOS-POC-8A），**其餘所有結果都來自 iPhone 17 Pro 模擬器**。免費 provisioning profile 2026-09-25 到期，過期要重裝。
 >

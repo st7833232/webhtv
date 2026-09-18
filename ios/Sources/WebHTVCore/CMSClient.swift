@@ -233,8 +233,11 @@ public struct Episode: Equatable, Sendable {
     }
 }
 
+/// type-4's `?play=` answer. `url` carries all three CatVod shapes — see `PlayURL`. It was
+/// `String`, and an array made the decode fail, which `playbackURL`'s `try?` turned into
+/// 「這一集沒有可播放的網址」 for a source that was in fact listing several qualities.
 struct PlayResponse: Decodable, Sendable {
-    let url: String
+    let url: PlayURL
 }
 
 public enum CMSClientError: Error, Equatable {
@@ -288,12 +291,16 @@ public struct CMSClient: Sendable {
     }
 
     /// A type-4 episode may address a web page instead of media; `?play=` returns the playable URL.
-    public func playbackURL(for episode: Episode, flag: String) async throws -> URL? {
+    ///
+    /// Answers a `PlayURL` rather than a `URL` because that field is a menu, not a string: a
+    /// `vod_play_url` target is single-valued by construction, but a `?play=` response is free to
+    /// list qualities and used to be discarded whole when it did.
+    public func playbackURL(for episode: Episode, flag: String) async throws -> PlayURL? {
         guard let direct = episode.mediaURL else { return nil }
-        guard site.type == 4, !Self.isDirectMedia(direct) else { return direct }
+        guard site.type == 4, !Self.isDirectMedia(direct) else { return PlayURL(direct.absoluteString) }
         let data = try await data(for: [URLQueryItem(name: "play", value: episode.url), URLQueryItem(name: "flag", value: flag)])
         guard let resolved = try? JSONDecoder().decode(PlayResponse.self, from: data) else { return nil }
-        return URL(string: resolved.url)
+        return resolved.url
     }
 
     // ponytail: path-extension heuristic; probe the content type only if a real site needs it.

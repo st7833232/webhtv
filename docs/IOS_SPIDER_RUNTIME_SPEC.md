@@ -108,6 +108,25 @@ mid-call. Full contract: `docs/IOS-POC-5O-remote-compatibility-pack.md`.
 (bilibili public API), and the two rule engines `XBPQ` and `XYQHiker`. See
 `docs/CSP_MIGRATION_STATUS.md` for what each one covers and what it was measured doing.
 
+## A play result's `url` is three shapes
+
+`playerContent`'s `url` is **not** a string. `app/.../gson/UrlAdapter.java` accepts a JSON string
+(one unnamed address), a JSON array of alternating `name, url` pairs (`i + 1 < size`, so a trailing
+odd element is dropped), or a JSON object `{"values":[{"n","v"}], "position": n}`. `PlayURL`
+(`ios/Sources/WebHTVCore/PlayURL.swift`) is the only decoder for it, on **both** the spider and the
+CMS path — reading it as a `String` used to throw `DecodingError.typeMismatch` on one path and be
+swallowed into 「這一集沒有可播放的網址」 by a `try?` on the other. `SourceClient.target(from:…)` is
+the single place that turns it into a `PlaybackTarget`, and only the default entry gets the
+probe/sniff hop. A spider may keep returning a plain string; nothing about that changed.
+
+**A quality is not automatically a `url` array.** When each quality needs its own request to
+resolve — which is the case for `Bili`, where every `qn` costs a separate `player/playurl` call —
+express them as **flags** instead: one line per quality, the quality's parameter travelling in each
+episode's id. The choice then happens before `playerContent` runs and costs no extra requests, and
+the app's existing line UI presents it. `Bili.js` does exactly this since IOS-POC-5Q, labelling the
+lines from the API's own `accept_description` rather than a local `qn`-to-name table. Contract:
+`docs/IOS-POC-5Q-playback-quality.md`.
+
 **Wired to the app UI since IOS-POC-5D.** `SourceClient` routes each site to either `CMSClient` or
 a `SpiderSession` behind the five methods the app already called, and `ConfigView` lists
 `drivableSites(resolvedBy:)`. A spider is stateful, so `SpiderSessionStore` keeps one session per

@@ -87,23 +87,42 @@ public enum SourceClient: Sendable {
         switch self {
         case .cms(let client):
             // A MacCMS endpoint has no header protocol, so these are the app's own defaults: none.
-            guard let url = try await client.playbackURL(for: episode, flag: flag) else { return nil }
-            guard let resolved = await Self.resolveMedia(url, headers: [:]) else { return nil }
-            return PlaybackTarget(url: resolved, headers: [:])
+            guard let play = try await client.playbackURL(for: episode, flag: flag) else { return nil }
+            return await Self.target(from: play, headers: [:], parse: 0)
         case .spider(let session):
             let play = try await decode(SpiderPlayResponse.self, from: session.player(flag: flag, id: episode.url))
-            guard let url = URL(string: play.url) else { return nil }
-            let headers = play.header ?? [:]
-            // parse:1 is the spider saying outright "this is a page, sniff it" — no need to probe.
-            if play.parse != 0 {
-                guard let sniffed = await MediaSniffer.shared.sniff(page: url,
-                                                                    referer: headers["Referer"] ?? headers["referer"])
-                else { return nil }
-                return PlaybackTarget(url: sniffed, headers: headers)
-            }
-            guard let resolved = await Self.resolveMedia(url, headers: headers) else { return nil }
-            return PlaybackTarget(url: resolved, headers: headers)
+            return await Self.target(from: play.url, headers: play.header ?? [:], parse: play.parse)
         }
+    }
+
+    /// The one place a CatVod `url` becomes something the player can open, so the CMS and spider
+    /// paths cannot drift apart again — reading that field was already broken in two different ways
+    /// precisely because each path decoded it for itself.
+    ///
+    /// Only the default entry is resolved. A menu of five qualities would otherwise cost five
+    /// probes, or five web views for a `parse:1` result, to open one episode.
+    ///
+    /// ponytail: switching quality in the picker therefore opens that entry's URL exactly as the
+    /// source gave it, with no probe or sniff hop. Resolve the others lazily if a real multi-value
+    /// source ever needs it — none of the 62 listed sources answers with a `url` array today.
+    private static func target(from play: PlayURL, headers: [String: String], parse: Int) async -> PlaybackTarget? {
+        let qualities = play.values.compactMap { value in
+            URL(string: value.v).map { PlaybackQuality(name: value.n ?? "", url: $0) }
+        }
+        guard !qualities.isEmpty else { return nil }
+        let index = PlaybackQuality.defaultIndex(in: qualities, position: play.position)
+        let chosen = qualities[index].url
+        let resolved: URL?
+        if parse != 0 {
+            // parse:1 is the spider saying outright "this is a page, sniff it" — no need to probe.
+            resolved = await MediaSniffer.shared.sniff(page: chosen,
+                                                       referer: headers["Referer"] ?? headers["referer"])
+        } else {
+            resolved = await Self.resolveMedia(chosen, headers: headers)
+        }
+        guard let resolved else { return nil }
+        return PlaybackTarget(url: resolved, headers: headers,
+                              qualities: qualities, position: play.position, defaultIndex: index)
     }
 
     /// A resolved URL may still be a player page rather than a stream: three type-1 sources hand
@@ -132,14 +151,28 @@ public enum SourceClient: Sendable {
 /// Two fields rather than a bare `URL` because a stream and the headers that make it play are one
 /// fact, not two — every path that forgot the second half is a site that resolves and then 403s.
 public struct PlaybackTarget: Sendable, Equatable {
+    /// The stream to open: `qualities[defaultIndex]` after the probe/sniff hop.
     public let url: URL
     /// Request headers the source requires. Empty for every CMS source; `Referer` and `User-Agent`
     /// for the spiders that need them.
     public let headers: [String: String]
+    /// The source's quality menu, in the source's own order — exactly one entry when it answered
+    /// with a single URL, which is every source in this configuration today.
+    public let qualities: [PlaybackQuality]
+    /// The source's own preferred index, carried so a remembered choice can re-run
+    /// `PlaybackQuality.defaultIndex` with the same inputs (IOS-POC-5R R6).
+    public let position: Int
+    /// The entry `url` was resolved from.
+    public let defaultIndex: Int
 
-    public init(url: URL, headers: [String: String] = [:]) {
+    public init(url: URL, headers: [String: String] = [:],
+                qualities: [PlaybackQuality] = [], position: Int = 0, defaultIndex: Int = 0) {
         self.url = url
         self.headers = headers
+        // A single-URL source still has a one-entry menu, so callers never special-case emptiness.
+        self.qualities = qualities.isEmpty ? [PlaybackQuality(name: "", url: url)] : qualities
+        self.position = position
+        self.defaultIndex = defaultIndex
     }
 }
 
@@ -147,7 +180,9 @@ public struct PlaybackTarget: Sendable, Equatable {
 /// some CatVod sources send it as a string, so both are accepted rather than failing the decode.
 struct SpiderPlayResponse: Decodable, Sendable {
     let parse: Int
-    let url: String
+    /// All three shapes CatVod allows — see `PlayURL`. This was `String`, and an array made the
+    /// decode throw rather than offering the qualities it was listing.
+    let url: PlayURL
     /// CatVod calls it `header`, singular, and every ported spider fills it with the headers the
     /// stream needs. It was decoded away until IOS-POC-5P; a source whose CDN checks Referer could
     /// not play without it.
@@ -157,7 +192,7 @@ struct SpiderPlayResponse: Decodable, Sendable {
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        url = try values.decodeIfPresent(String.self, forKey: .url) ?? ""
+        url = try values.decodeIfPresent(PlayURL.self, forKey: .url) ?? PlayURL(values: [])
         // A spider may emit a non-string value here (a number, or `false` for "none"); one odd
         // header must not cost the whole play result, so anything undecodable is simply no headers.
         header = try? values.decodeIfPresent([String: String].self, forKey: .header)

@@ -24,6 +24,19 @@ private func object(_ text: String) throws -> [String: Any] {
     try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
 }
 
+/// The addresses in a `playerContent` result's `url`, whichever of CatVod's three shapes it used.
+/// `PlayURL` is the production decoder; this only has to be able to read the same JSON back.
+private func playURL(_ value: Any?) -> [String] {
+    if let text = value as? String { return [text] }
+    if let pairs = value as? [Any] {
+        return stride(from: 1, to: pairs.count, by: 2).compactMap { pairs[$0] as? String }
+    }
+    if let object = value as? [String: Any], let values = object["values"] as? [[String: Any]] {
+        return values.compactMap { $0["v"] as? String }
+    }
+    return []
+}
+
 @Test func appGetDrivesTheWholeCatVodFlowAgainstTheLiveSite() async throws {
     guard let site = try goldenSite() else { return }
     let session = try CSPSourceResolver().session(for: site)
@@ -92,7 +105,9 @@ private func object(_ text: String) throws -> [String: Any] {
     let episode = try #require(episodes.first)
     let target = String(episode.drop(while: { $0 != "$" }).dropFirst())
     let play = try await object(session.player(flag: froms.first ?? "", id: target))
-    let url = try #require(play["url"] as? String)
+    // `url` is three shapes, not one (`PlayURL`), so reading it as a String would fail this test on
+    // any source that answers with a quality list rather than a single address.
+    let url = try #require(playURL(play["url"]).first)
     #expect(play["parse"] != nil)
     print("[golden] player: parse=\(play["parse"] ?? "") url=\(url.prefix(90))")
     if play["parse"] as? Int == 0 {
@@ -188,4 +203,68 @@ private func object(_ text: String) throws -> [String: Any] {
     #expect(registry.entry(for: "csp_JPianAmns")?.script == registry.entry(for: "csp_JianPian")?.script)
     #expect(registry.entry(for: "csp_JPianAmns")?.script.contains("crumb/list") == true)
     #expect(registry.canDrive("csp_NotAThing") == false)
+}
+
+/// IOS-POC-5Q Q2, and the gate for its success condition S3: a bilibili episode must offer more
+/// than one quality, each as its own line carrying its own `qn`, best first — and the best one must
+/// actually serve bytes.
+///
+/// Its own test rather than the generic golden above, because that one asserts the shape every
+/// spider shares and would pass while pointed at `csp_Bili` without checking a single quality.
+///
+///     CSP_GOLDEN_SITE='{"key":"bili","name":"bili","type":3,"api":"csp_Bili"}' \
+///       swift test --package-path ios --filter biliOffersMultipleQualityLines
+///
+/// `ext` may be omitted: the flow below searches rather than browsing the site's home document, so
+/// it needs neither `ext.json` nor a remote configuration base to resolve one.
+@Test func biliOffersMultipleQualityLines() async throws {
+    guard let site = try goldenSite(), SpiderRegistry.className(from: site.api) == "Bili" else { return }
+    let session = try CSPSourceResolver().session(for: site)
+
+    let search = try await object(session.search(key: "音樂"))
+    let results = try #require(search["list"] as? [[String: Any]])
+    var lines = [(name: String, episodes: [String])]()
+    for hit in results.prefix(5) {
+        guard let id = hit["vod_id"] as? String else { continue }
+        let detail = try await object(session.detail(ids: [id]))
+        guard let vod = (detail["list"] as? [[String: Any]])?.first else { continue }
+        let froms = (vod["vod_play_from"] as? String ?? "").components(separatedBy: "$$$")
+        let urls = (vod["vod_play_url"] as? String ?? "").components(separatedBy: "$$$")
+        guard froms.count == urls.count, froms.count > 1 else { continue }
+        lines = zip(froms, urls).map { ($0, $1.components(separatedBy: "#")) }
+        print("[golden] bili \(vod["vod_name"] ?? ""): lines=\(froms)")
+        break
+    }
+    // Every quality above 360P needs a session bilibili may refuse today. A run that finds only
+    // single-quality videos measures the account, not this port, so it must not read as a failure.
+    guard !lines.isEmpty else {
+        print("[golden] bili: no searched title offered more than one quality — nothing to assert")
+        return
+    }
+
+    // Each line is one quality, so its episodes carry that line's own `qn` in their target.
+    let qns = try lines.map { line -> Int in
+        let episode = try #require(line.episodes.first)
+        let target = String(episode.drop(while: { $0 != "$" }).dropFirst())
+        let qn = try #require(target.components(separatedBy: "+").last.flatMap { Int($0) })
+        #expect(line.name.hasPrefix("B站 "))
+        return qn
+    }
+    #expect(Set(qns).count == qns.count, "two lines shared a qn, so one of them is unreachable")
+    #expect(qns == qns.sorted(by: >), "lines must be ordered best first: \(qns)")
+    #expect(try #require(qns.first) == qns.max())
+
+    // The first line is the one the player will open by default, so it is the one that must play.
+    let best = try #require(lines.first)
+    let episode = try #require(best.episodes.first)
+    let target = String(episode.drop(while: { $0 != "$" }).dropFirst())
+    let play = try await object(session.player(flag: best.name, id: target))
+    let url = try #require(playURL(play["url"]).first)
+    let headers = play["header"] as? [String: String] ?? [:]
+    print("[golden] bili player qn=\(qns.first ?? 0): \(url.prefix(90)) +hdr\(headers.count)")
+    #expect(play["parse"] as? Int == 0)
+    let resolved = try #require(URL(string: url))
+    #expect(await MediaProbe.classify(resolved, headers: headers) == .media)
+
+    await session.destroy()
 }

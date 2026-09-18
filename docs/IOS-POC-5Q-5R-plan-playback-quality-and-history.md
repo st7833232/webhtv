@@ -1,9 +1,10 @@
 # Plan — IOS-POC-5Q 多畫質選擇 + IOS-POC-5R 播放記錄 + IOS-POC-5S 嗅探層廣告與站點規則
 
-- 狀態：**Ready for Dev**（審查通過，尚未實作）
+- 狀態：**5Q 已實作**（2026-09-18）；5R 與 5S 仍 Ready for Dev
 - 建立：2026-09-18
-- 基線 HEAD：`0414c032`（IOS-POC-5P 之後），branch `ios-poc`
-- 下一步：`$execute-from-plan`
+- 基線 HEAD：`0414c032`（IOS-POC-5P 之後），branch `ios-poc`。5Q 實際實作於 `d571f3a7` 之上。
+- 下一步：`$execute-from-plan`，從 R1 起手（Q1/Q2/Q3 已完成，見
+  `docs/IOS-POC-5Q-playback-quality.md`，含三項與本計畫的偏離）
 
 ## 這份文件在這個 repo 裡的位置（偏離說明）
 
@@ -279,7 +280,7 @@ xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp \
 
 | 階段 | 狀態 | 下一步 |
 |---|---|---|
-| IOS-POC-5Q | **Ready for Dev** | `$execute-from-plan`（Q1 → Q2 → Q3） |
+| IOS-POC-5Q | **Done**（2026-09-18，Q1+Q2+Q3 一個 commit） | 無；紀錄在 `docs/IOS-POC-5Q-playback-quality.md` |
 | IOS-POC-5R | **Ready for Dev** | `$execute-from-plan`（R1 → R2／R4／R5 → R3 → R6 → R7） |
 | IOS-POC-5S | **Ready for Dev** | `$execute-from-plan`（V0 → V1／V2） |
 

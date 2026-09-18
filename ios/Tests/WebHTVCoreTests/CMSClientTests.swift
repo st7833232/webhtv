@@ -86,8 +86,9 @@ private func site(key: String, type: Int, api: String, ext: String = "null") thr
     #expect(CMSClient.isDirectMedia(direct))
     #expect(!CMSClient.isDirectMedia(page))
 
+    // `url` is a menu, not a string — one entry here, and `PlayURLTests` covers the other shapes.
     let resolved = try JSONDecoder().decode(PlayResponse.self, from: Data(#"{"parse":0,"url":"https://v.example.com/2960/index.m3u8"}"#.utf8))
-    #expect(resolved.url == "https://v.example.com/2960/index.m3u8")
+    #expect(resolved.url.values.map(\.v) == ["https://v.example.com/2960/index.m3u8"])
 }
 
 @Test func decodesDetailCarryingOnlyPlaybackFields() throws {
@@ -205,7 +206,8 @@ private func site(key: String, type: Int, api: String, ext: String = "null") thr
         guard let first = home.list.first,
               let detail = try? await client.detail(id: first.id),
               let flag = detail.flags.first, let episode = flag.episodes.first else { continue }
-        let resolved = try? await client.playbackURL(for: episode, flag: flag.name)
+        let play = try? await client.playbackURL(for: episode, flag: flag.name)
+        let resolved = (play?.values.first?.v).flatMap { URL(string: $0) }
         print("type-4 \(site.key): \(first.name) / \(episode.name) -> \(resolved?.absoluteString ?? "unresolved")")
         if let resolved { #expect(CMSClient.isDirectMedia(resolved)) }
     }

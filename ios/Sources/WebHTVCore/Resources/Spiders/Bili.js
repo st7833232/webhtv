@@ -5,8 +5,8 @@
  * ask of it: each one points `ext.json` at a static CatVod home document whose every `type_id` is a
  * search keyword, so browsing is `search/type` and playing is `player/playurl`.
  *
- * Two deliberate departures from the original, both forced by the platform (see
- * `docs/IOS-POC-5L-appqi-app99-app3q-bili.md`):
+ * Three deliberate departures from the original (see `docs/IOS-POC-5L-appqi-app99-app3q-bili.md`
+ * and `docs/IOS-POC-5Q-playback-quality.md`); the first two are forced by the platform:
  *
  *   1. **No DASH.** The original hands the player `Proxy.getUrl()?do=bili&…&type=mpd` and then
  *      synthesises an MPD from the `dash` response inside the Android app's own HTTP server. iOS has
@@ -15,6 +15,10 @@
  *   2. **`wbi/view` instead of `view`.** `/x/web-interface/view` now answers with an HTML error page
  *      for every aid and bvid (measured 2026-09-17, with and without a fresh `buvid3`);
  *      `/x/web-interface/wbi/view` returns the same document and, today, needs no `w_rid`.
+ *   3. **One line per quality.** The original plays whatever `qn` it asked for and offers no
+ *      choice. Every quality's real address needs its own `playurl` call, so a `url` array would
+ *      cost one extra request per quality on every episode; as lines the choice is made before
+ *      `playerContent` runs and costs nothing (IOS-POC-5Q, decision D10).
  *
  * Not ported: the `<mid>/{pg}` up-主 branch of `categoryContent`, which needs wbi query signing —
  * none of the 73 categories the four sites configure uses it. Danmaku, as everywhere, is dropped.
@@ -61,6 +65,26 @@ var spider = (function () {
     });
   }
 
+  /**
+   * The qualities a `playurl` response says this session may have, best first.
+   *
+   * `accept_quality` and `accept_description` are parallel arrays and the API is the only authority
+   * on the wording ('高清 720P', '流畅 360P'), so no local qn-to-name table is kept. They already
+   * arrive best first; sorting anyway means the ordering is a property of this code rather than of
+   * today's server behaviour.
+   */
+  function acceptedQualities(playurl) {
+    var qns = playurl.accept_quality || [];
+    var names = playurl.accept_description || [];
+    var lines = qns.map(function (qn, index) {
+      // `$` and `#` are CatVod's own separators, so a label carrying one would split a flag list.
+      var name = String(names[index] || ('QN ' + qn)).replace(/[$#]/g, ' ').trim();
+      return { qn: Number(qn), name: name || ('QN ' + qn) };
+    }).filter(function (line) { return line.qn > 0; });
+    if (!lines.length) return [{ qn: 64, name: '默認' }];
+    return lines.sort(function (a, b) { return b.qn - a.qn; });
+  }
+
   /** `categoryContent` and `searchContent` are the same keyword search in the original. */
   function browse(tid, page, extend) {
     var order = (extend && extend.order) || 'totalrank';
@@ -105,13 +129,21 @@ var spider = (function () {
       var field = id.indexOf('BV') === 0 ? 'bvid=' : 'aid=';
       var view = api('https://api.bilibili.com/x/web-interface/wbi/view?' + field + host.enc(id));
       var aid = view.aid || id;
-      // Every page of a multi-part video is one episode; `qn` travels with it so playerContent can
-      // ask for the best quality this session is allowed, exactly as the original does.
+      // One `playurl` call, only to learn which qualities this session may have. Its `durl` is
+      // discarded: playerContent fetches the one the user actually chose.
       var quality = api('https://api.bilibili.com/x/player/playurl?avid=' + aid
                         + '&cid=' + (view.cid || '') + '&qn=64&fnval=1&fourk=1');
-      var accepted = (quality.accept_quality || [64]).join(':');
-      var episodes = (view.pages || []).map(function (page) {
-        return (page.part || ('P' + page.page)) + '$' + aid + '+' + page.cid + '+' + accepted;
+      var lines = acceptedQualities(quality);
+      var pages = view.pages || [];
+      // Each quality is a *line*, not a `url` array entry, because every quality's real address
+      // needs its own `playurl` request: as lines the choice happens before playerContent runs and
+      // costs nothing, and the detail screen's existing line UI already presents it.
+      var froms = [], urls = [];
+      lines.forEach(function (line) {
+        froms.push('B站 ' + line.name);
+        urls.push(pages.map(function (page) {
+          return (page.part || ('P' + page.page)) + '$' + aid + '+' + page.cid + '+' + line.qn;
+        }).join('#'));
       });
       return host.result.detail({
         vod_id: id,
@@ -121,8 +153,8 @@ var spider = (function () {
         vod_content: view.desc || '',
         vod_actor: (view.owner || {}).name || '',
         vod_director: (view.owner || {}).name || '',
-        vod_play_from: 'B站',
-        vod_play_url: episodes.join('#')
+        vod_play_from: froms.join('$$$'),
+        vod_play_url: urls.join('$$$')
       });
     },
 
@@ -132,11 +164,13 @@ var spider = (function () {
     playerContent: function (flag, id, vipFlags) {
       var parts = String(id).split('+');
       var aid = parts[0], cid = parts[1];
-      var qualities = String(parts[2] || '64').split(':');
-      // `accept_quality` comes back best first; without a login anything above 80 is refused and
-      // the API silently downgrades, so asking for the first entry is safe.
+      // The chosen line put its own `qn` here. The `:`-split survives an id minted by an older
+      // version of this script, which listed every accepted quality in one episode.
+      var qn = String(parts[2] || '64').split(':')[0];
+      // Without a login anything above 80 is refused and the API silently downgrades rather than
+      // erroring, so an unauthorised `qn` costs quality, never the stream.
       var data = api('https://api.bilibili.com/x/player/playurl?avid=' + aid + '&cid=' + cid
-                     + '&qn=' + qualities[0] + '&fnval=1&fourk=1');
+                     + '&qn=' + qn + '&fnval=1&fourk=1');
       var durl = (data.durl || [])[0] || {};
       var url = durl.url || (durl.backup_url || [])[0] || '';
       if (url) return host.result.play(url, false, headers());

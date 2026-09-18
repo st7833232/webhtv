@@ -821,7 +821,8 @@ private struct VodView: View {
             } catch { self.error = error.localizedDescription }
         }
         .sheet(item: $pendingPlayback) {
-            PlayerPickerView(mediaURL: $0.url, headers: $0.headers, title: $0.title, artwork: $0.artwork)
+            PlayerPickerView(mediaURL: $0.url, headers: $0.headers, title: $0.title, artwork: $0.artwork,
+                             qualities: $0.qualities, defaultIndex: $0.defaultIndex)
         }
         .alert("無法播放", isPresented: Binding(get: { playbackError != nil }, set: { if !$0 { playbackError = nil } })) {
             Button("好", role: .cancel) {}
@@ -840,7 +841,8 @@ private struct VodView: View {
                 return
             }
             pendingPlayback = Playback(url: target.url, headers: target.headers,
-                                       title: "\(summary.name) \(episode.name)", artwork: summary.picture)
+                                       title: "\(summary.name) \(episode.name)", artwork: summary.picture,
+                                       qualities: target.qualities, defaultIndex: target.defaultIndex)
         } catch {
             playbackError = error.localizedDescription
         }
@@ -868,6 +870,10 @@ private struct Playback: Identifiable {
     var title = ""
     /// Android hands VideoActivity the poster, so player.status can report it.
     var artwork = ""
+    /// The source's quality menu. One entry for every source in this configuration today, which is
+    /// why the picker only shows it when there is more than one.
+    var qualities: [PlaybackQuality] = []
+    var defaultIndex = 0
     var id: String { url.absoluteString }
 }
 
@@ -878,15 +884,55 @@ private struct PlayerPickerView: View {
     var headers: [String: String] = [:]
     var title = ""
     var artwork = ""
+    /// The source's quality menu, in the source's own order.
+    var qualities: [PlaybackQuality] = []
+    /// The entry `mediaURL` was resolved from, which is where the menu starts.
+    var defaultIndex = 0
     @Environment(\.dismiss) private var dismiss
     @State private var error: String?
     @State private var playing = false
+    @State private var selected: Int?
+
+    /// A single-URL source is every source in this configuration today, and a one-item menu is a
+    /// control that decides nothing. Show it only where there is a choice to make.
+    private var offersChoice: Bool { qualities.count > 1 }
+
+    private var chosen: Int { selected ?? defaultIndex }
+
+    /// The default entry is the one that went through the probe and the sniffer, so it is handed on
+    /// resolved. Any other entry is opened exactly as the source gave it.
+    ///
+    /// ponytail: that asymmetry is the cost of resolving one URL instead of all of them. Thread a
+    /// resolver in here if a real multi-value source ever needs the hop on a non-default entry.
+    private var playURL: URL {
+        guard chosen != defaultIndex, chosen < qualities.count else { return mediaURL }
+        return qualities[chosen].url
+    }
 
     var body: some View {
         NavigationStack {
             List {
+                if offersChoice {
+                    Section("畫質") {
+                        ForEach(Array(qualities.enumerated()), id: \.offset) { index, quality in
+                            Button {
+                                selected = index
+                            } label: {
+                                HStack {
+                                    Text(quality.name.isEmpty ? "線路 \(index + 1)" : quality.name)
+                                    Spacer()
+                                    if index == chosen {
+                                        Image(systemName: "checkmark").foregroundStyle(.tint)
+                                    }
+                                }
+                            }
+                            .foregroundStyle(.primary)
+                        }
+                    }
+                }
+
                 Button {
-                    PlaybackSession.shared.open(url: mediaURL, headers: headers, title: title, artwork: artwork)
+                    PlaybackSession.shared.open(url: playURL, headers: headers, title: title, artwork: artwork)
                     playing = true
                 } label: {
                     Label("內建播放器", systemImage: "play.rectangle.fill")
@@ -916,7 +962,7 @@ private struct PlayerPickerView: View {
     }
 
     private func open(_ player: ExternalPlayer) {
-        guard let url = player.playbackURL(for: mediaURL) else {
+        guard let url = player.playbackURL(for: playURL) else {
             error = "無法建立 \(player.displayName) 播放連結。"
             return
         }

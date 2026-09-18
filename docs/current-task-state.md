@@ -66,6 +66,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 5N | Assessment: do the other 34 protected sites have unprotected equivalents? 7 more do | `docs/IOS-POC-5N-protected-site-equivalents.md` |
 | 5O | Remote compatibility pack: spider scripts update without rebuilding the app | `docs/IOS-POC-5O-remote-compatibility-pack.md` |
 | 5P | A spider's request headers reach `AVPlayer`, the probe and the sniffer | `docs/IOS-POC-5P-player-request-headers.md` |
+| 5Q | `playerContent`'s `url` reads all three CatVod shapes; `Bili` offers one line per quality; a quality menu in the player picker | `docs/IOS-POC-5Q-playback-quality.md` |
 
 ## Important Decisions
 
@@ -203,6 +204,19 @@ without further code, which is why they are worth more than their site counts su
 
 ## Build / Test / Verification Status
 
+- **At the IOS-POC-5Q commit: 110 tests, 109 pass** (`WANG_MOVIE_JSON=<config> swift test
+  --package-path ios`). It was 96/95 at `d571f3a7`; IOS-POC-5Q added 14. The single failure is the
+  same pre-existing live-network one described in the next bullet — **do not "fix" it.**
+- **IOS-POC-5Q verification (2026-09-18), full detail in `docs/IOS-POC-5Q-playback-quality.md`:**
+  the new `biliOffersMultipleQualityLines` golden passed live (`B站 清晰 480P` / `B站 流畅 360P`,
+  distinct `qn`, best first, and the best line's stream probed as `.media`); the existing
+  `appGetDrivesTheWholeCatVodFlowAgainstTheLiveSite` golden passed unchanged, which is what proves
+  the single-string path did not move; `xcodebuild … -scheme WebHTVApp` → BUILD SUCCEEDED. In the
+  simulator `bilbil合集` browses, filters and renders its grid normally, but **the detail screen was
+  unreachable: a synthetic tap on a poster cell does nothing**, which extends the known episode-button
+  defect to the grid's `NavigationLink` cells. **Only 480P/360P were offered**, because `qn > 80`
+  needs a SESSDATA the configured sites' expired cookies cannot supply — that measures the account,
+  not the port.
 - **At HEAD `3e8a7a84`: 77 tests, 76 pass.** The single failure is
   `reportsLiveType4SitesFromProvidedConfig`, a **pre-existing live-network** check: 88看球 resolves
   an episode to `https://embed.st/embed/…`, an HTML page, and the test asserts direct media through
@@ -244,9 +258,14 @@ without further code, which is why they are worth more than their site counts su
 - The `ac=detail` form costs bandwidth: a 20-title page on `360zy` grew from 6.5 KB to 49 KB.
 - `drpyS_听友[听]` returns an empty list for all 43 of its categories, and `php_无水印资源` answers HTTP 403. Both are provider state, not app defects.
 - The Debug-only CJK font fallback does not fix the log panel's `[上午…]` prefix, and says nothing about a real device.
-- **A spider play result's `header` is dropped.** `AVPlayer` takes request headers only through
-  `AVURLAsset` options, which `PlayerView` does not thread through, so a CDN that checks Referer
-  will fail to play — visibly, not silently. No configured site has been observed needing it.
+- ~~**A spider play result's `header` is dropped.**~~ **Fixed in IOS-POC-5P**: `SourceClient`
+  answers a `PlaybackTarget` carrying the headers, and the probe, the sniffer and `AVURLAsset` all
+  send them. bilibili's CDN needs both a `Referer` and a browser `User-Agent`.
+- **Only the default quality is resolved (IOS-POC-5Q).** When a source answers a multi-value `url`,
+  `SourceClient.target(from:…)` runs the probe/sniff hop on the default entry alone; picking another
+  entry in the player sheet opens that URL exactly as the source gave it. Marked `ponytail:` in
+  `SourceClient.swift` and `WebHTVApp.swift`. **No source in this configuration returns a `url`
+  array**, so the quality menu has never been triggered by real data — its gate is a unit test.
 - **The sniffer is best effort and timing-sensitive.** `MediaSniffer` hooks `XMLHttpRequest`,
   `fetch` and media `src` — `WKWebView` has no `shouldInterceptRequest`, so there is no way to see
   every subresource. A stream fetched inside a Worker or through WASM is not caught. It is also
@@ -270,9 +289,11 @@ without further code, which is why they are worth more than their site counts su
   app at IOS-POC-5D: 农民 resolved and played correctly **because the configuration came from a
   remote URL**. `XBPQ`'s 7 sites and `AppGet`'s 5 carry inline `ext` objects and are unaffected.
 - Still not implemented: a Python runtime (42 sites), a drpy JavaScript loader (5 sites), the 36
-  portable-but-unported `csp_*` sites, `CatVodHost` RSA and `proxy` plumbing, **per-request playback
-  headers for `AVPlayer`**, WebHome sites in `wang-movie.json` (this config has none), and
-  SideStore/IPA delivery.
+  portable-but-unported `csp_*` sites, `CatVodHost` RSA and `proxy` plumbing, a watch-history store
+  (IOS-POC-5R), the configuration's `ads`/`rules` (IOS-POC-5S — `WebHTVConfig` still decodes only
+  `sites`), WebHome sites in `wang-movie.json` (this config has none), and SideStore/IPA delivery.
+  **Per-request playback headers landed in IOS-POC-5P**, and **multi-quality `url` handling in
+  IOS-POC-5Q**; earlier versions of this line listed both as missing.
 - **Filter rows exist only where the source publishes them.** MacCMS has no filter protocol and
   neither rule engine exposes one, so only `AppGet` sites show 類型/地區/語言/年代/排序. That is
   correct behaviour, not a missing feature.

@@ -173,7 +173,8 @@ private func gatedSession() -> URLSession {
     #expect(try decode(#"{"parse":0,"url":"https://a/x.m3u8","header":false}"#).header == nil)
     #expect(try decode(#"{"parse":0,"url":"https://a/x.m3u8","header":{"n":1}}"#).header == nil)
     #expect(try decode(#"{"parse":0,"url":"https://a/x.m3u8"}"#).header == nil)
-    #expect(try decode(#"{"parse":0,"url":"https://a/x.m3u8","header":false}"#).url == "https://a/x.m3u8")
+    #expect(try decode(#"{"parse":0,"url":"https://a/x.m3u8","header":false}"#).url.values.map(\.v)
+        == ["https://a/x.m3u8"])
 }
 
 /// Proves the part of IOS-POC-5P that no stub can: that `AVURLAsset` really sends the headers it is

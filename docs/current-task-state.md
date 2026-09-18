@@ -74,6 +74,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 5R | Watch history, resume, the 記錄 tab, the detail screen's last-episode mark, and `app.history` answering real data | `docs/IOS-POC-5R-watch-history.md` |
 | 5U | Reconciliation: the live handoff documents rewritten against the actual HEAD and test run | this document |
 | 5V | Debug-only simulator display fix for the font set the runtime is missing; no behaviour change | this document |
+| 7A | Assessment: what a Python runtime would actually cost, measured against the 31 same-origin scripts | `docs/IOS-POC-7A-python-runtime.md` |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
 | 6A/6B | **drpy JavaScript loader**: the engine and its nine libraries fetched from the configuration's own origin, hash-pinned and verified before evaluation, running on the existing `JavaScriptSpiderRuntime` | `docs/IOS-POC-6A-drpy-loader.md` |
 
@@ -379,6 +380,15 @@ have been collapsed into the first bullet.
   player was handed a page. `MediaSniffer.isCandidate` is now the single test both sniff paths use,
   and an accepted candidate is unwrapped one level. A page whose own query names the stream skips
   the web view entirely.
+- **The Python runtime is assessed but not built (IOS-POC-7A).** Measured 2026-09-18 across the 31
+  same-origin scripts: **zero Android dependencies** — the five files mentioning "android" all do so
+  in a User-Agent or a query parameter. 30 need the host's `base` module, whose Android original is
+  in this repository at `chaquo/src/main/python/base/spider.py`; `requests` (23 files) is pure
+  Python; and **4 scripts need nothing but `base` and the standard library**, which is what makes a
+  minimum POC possible with no C extension at all. 15 of 31 need one (`Crypto` 10, `pyquery` 4,
+  `lxml` 3) and are deliberately out of that POC. Three of the 42 sites point at cross-origin,
+  mostly plain-HTTP script URLs and would be refused under the rule IOS-POC-6B set.
+  **Embedding CPython is a binary and packaging decision and is not taken yet.**
 - **Still not implemented:** a Python runtime (42 sites), the 23 portable-but-unported `csp_*` sites, `CatVodHost` RSA and `proxy`
   plumbing, the configuration's `ads`/`rules` (`WebHTVConfig` decodes only `sites`) and everything
   else in IOS-POC-5S including opening/ending skip, `player.preloadArtwork`, `pan.*`, `app.open*`,

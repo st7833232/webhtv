@@ -16,8 +16,11 @@ private let testSite = try! JSONDecoder().decode(Site.self, from: Data(#"""
 {"key":"vod_360","name":"360","type":1,"api":"https://example.com/api.php/provide/vod"}
 """#.utf8))
 
-private func bridge(defaults: UserDefaults) -> WebHomeBridge {
-    WebHomeBridge(actions: noopActions, defaults: defaults)
+private func bridge(defaults: UserDefaults, history: WatchHistoryStore = WatchHistoryStore(
+    directory: URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("webhome-history-\(UUID().uuidString)", isDirectory: true)
+)) -> WebHomeBridge {
+    WebHomeBridge(actions: noopActions, defaults: defaults, history: history)
 }
 
 private func decode(_ text: String) throws -> [String: Any] {
@@ -49,10 +52,31 @@ private func scratchDefaults(_ name: String) throws -> UserDefaults {
     #expect(try await subject.handle(method: "cache.get", payload: ["key": "k"]) == #""""#)
 }
 
+/// IOS-POC-5R: `app.history` answers the real store. It returned a hard-coded `[]` until now, which
+/// is a behaviour change rather than a relaxed assertion — the field shape is asserted in
+/// `WatchHistoryTests`.
+@Test func appHistoryReportsWhatWasActuallyWatched() async throws {
+    let defaults = try scratchDefaults("history")
+    let store = WatchHistoryStore(directory: URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("webhome-history-\(UUID().uuidString)", isDirectory: true))
+    await store.save(WatchHistory(key: "site\u{0}{}@@@9", siteKey: "site", vodId: "9",
+                                  vodName: "蓮花樓", vodFlag: "線路①", vodRemarks: "01",
+                                  episodeUrl: "https://a/9.m3u8", position: 42_000, duration: 2_400_000))
+    let subject = bridge(defaults: defaults, history: store)
+
+    let text = try await subject.handle(method: "app.history", payload: [:])
+    let items = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [[String: Any]])
+    #expect(items.count == 1)
+    #expect(items.first?["key"] as? String == "site@@@9")
+    #expect(items.first?["vodName"] as? String == "蓮花樓")
+    #expect(items.first?["position"] as? Double == 42_000)
+}
+
 @Test func reportsAnEmptyHistoryAndRejectsUnsupportedMethods() async throws {
     let defaults = try scratchDefaults("misc")
     let subject = bridge(defaults: defaults)
 
+    // Still `[]` — but now because nothing has been watched, not because the method is a stub.
     #expect(try await subject.handle(method: "app.history", payload: [:]) == "[]")
     // ui.getViewport became supported in IOS-POC-2D; pan.check is still outside every slice.
     await #expect(throws: WebHomeBridgeError.unknownMethod("pan.check")) {

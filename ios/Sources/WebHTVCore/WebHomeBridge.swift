@@ -276,6 +276,9 @@ public struct WebHomeBridge: Sendable {
     /// Device facts are handed in because `UIDevice` is UIKit and this module also builds for macOS.
     private let device: [String: String]
     private nonisolated(unsafe) let defaults: UserDefaults
+    /// What `app.history` answers from. Injected so a test can drive its own file rather than the
+    /// one the app is using.
+    private let history: WatchHistoryStore
 
     public init(
         actions: Actions,
@@ -283,7 +286,8 @@ public struct WebHomeBridge: Sendable {
         sites: [Site] = [],
         source: ConfigSource = .importedFile,
         device: [String: String] = [:],
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        history: WatchHistoryStore = .shared
     ) {
         self.actions = actions
         self.site = site
@@ -291,6 +295,7 @@ public struct WebHomeBridge: Sendable {
         self.source = source
         self.device = device
         self.defaults = defaults
+        self.history = history
     }
 
     /// Mirrors `HomeWebBridge.handle`: returns the JSON text handed to `fongmiNative.resolve`, or
@@ -338,9 +343,7 @@ public struct WebHomeBridge: Sendable {
             await actions.search(keyword)
             return "{}"
         case "app.history":
-            // ponytail: the iOS app has no watch-history store yet, so report an empty list rather
-            // than pretending. Android returns History.get(), which is also empty on a fresh install.
-            return "[]"
+            return Self.historyText(await history.records())
         case "cache.get":
             return Self.jsonText(defaults.string(forKey: Self.cacheKey(payload)) ?? "")
         case "cache.set":
@@ -406,6 +409,47 @@ public struct WebHomeBridge: Sendable {
             "statusBarHeight": viewport.safeTop, "navigationBarHeight": 0, "keyboardBottom": 0,
             "chromeMode": "", "systemBarsHidden": false,
         ]) ?? "{}"
+    }
+
+    /// `HomeWebBridge.history()`, which is `gson.toJson(History.get())` — a plain array of
+    /// `History` objects, already filtered to the last 60 days.
+    ///
+    /// Every field Android declares is present, because a page written against Android indexes them
+    /// directly. The ones iOS has nothing to put in follow this bridge's existing rule and carry
+    /// zero, empty or false rather than being omitted:
+    ///
+    /// - `wallPic`, `revSort`, `revPlay` — no equivalent concept here;
+    /// - `opening` / `ending` — IOS-POC-5S, deferred; Android's unset value is `C.TIME_UNSET`, a
+    ///   large negative, and zero reads the same to any `> 0` test a page makes;
+    /// - `speed` and `scale` carry Android's own defaults, 1 and -1;
+    /// - `cid` is 0 because an iOS configuration has no id, exactly as `config.info` reports.
+    ///
+    /// `WatchHistory.quality` is deliberately **not** here: it has no Android counterpart, and this
+    /// payload is a reproduction rather than an extension.
+    static func historyText(_ records: [WatchHistory]) -> String {
+        let items: [[String: Any]] = records.map { record in
+            [
+                "key": record.androidKey,
+                "vodPic": record.vodPic,
+                "wallPic": "",
+                "vodName": record.vodName,
+                "vodFlag": record.vodFlag,
+                "vodRemarks": record.vodRemarks,
+                "episodeUrl": record.episodeUrl,
+                "revSort": false,
+                "revPlay": false,
+                "createTime": record.createTime,
+                "opening": 0,
+                "ending": 0,
+                "position": record.position,
+                "duration": record.duration,
+                "speed": 1,
+                "scale": -1,
+                "cid": 0,
+            ]
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: items) else { return "[]" }
+        return String(decoding: data, as: UTF8.self)
     }
 
     /// `WebHomeInlineVodStore.KEY`: the pseudo-site an inline vod is addressed under.

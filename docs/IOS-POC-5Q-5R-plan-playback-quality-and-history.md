@@ -1,10 +1,27 @@
 # Plan — IOS-POC-5Q 多畫質選擇 + IOS-POC-5R 播放記錄 + IOS-POC-5S 嗅探層廣告與站點規則
 
-- 狀態：**5Q 已實作**（2026-09-18）；5R 與 5S 仍 Ready for Dev
+- 狀態：**5Q 與 5R（R1–R6）已實作**（2026-09-18）。**IOS-POC-5S 與 5R 的 R7 由使用者
+  2026-09-18 明確指示 deferred**——設計保留在本文件中，不刪除，但不在目前主線。
 - 建立：2026-09-18
-- 基線 HEAD：`0414c032`（IOS-POC-5P 之後），branch `ios-poc`。5Q 實際實作於 `d571f3a7` 之上。
-- 下一步：`$execute-from-plan`，從 R1 起手（Q1/Q2/Q3 已完成，見
-  `docs/IOS-POC-5Q-playback-quality.md`，含三項與本計畫的偏離）
+- 基線 HEAD：`0414c032`（IOS-POC-5P 之後），branch `ios-poc`。5Q 實作於 `d571f3a7` 之上，
+  5R 實作於 `0ab06a3c` 之上。
+- 下一步：**不是本計畫的任何一段**。使用者指定的主線是
+  `durable docs reconciliation → drpy JavaScript loader → Python runtime 最小 POC → 第一次真機驗證`，
+  之後才回頭做 5S。實作紀錄：`docs/IOS-POC-5Q-playback-quality.md`、
+  `docs/IOS-POC-5R-watch-history.md`，兩份都列出與本計畫的偏離。
+
+## Deferred（2026-09-18，使用者指示）
+
+以下**設計有效但不實作**，等 drpy + Python POC + 真機主線完成後再排：
+
+- **IOS-POC-5S 整段**：V0（`WebHTVConfig` 解碼 `ads`／`rules`）、V1（`ads` 兩層攔截）、
+  V2（`rules.script` 注入）。
+- **R7 片頭／片尾跳過**（D9／D13／D14／S9／S10），與 5S 同一批 deferred。
+- 任何 m3u8 中插廣告過濾——本來就在「不做」清單裡，此處再確認一次。
+
+理由（使用者原話的意思）：這些屬於 Android parity / UX refinement，不是原 roadmap 的當前主線。
+D9 把「不實作 `opening`/`ending`」反轉成實作的那個決定，因此**暫時反轉回去**；D9 的論證本身沒有
+被推翻，只是排序在後。
 
 ## 這份文件在這個 repo 裡的位置（偏離說明）
 
@@ -166,10 +183,10 @@ R2 必須知道「這次用了哪條線路、哪個畫質」才能寫進記錄�
 | **R4** | 「記錄」分頁 + 詳情頁標記上次那一集 | R1 | 模擬器截圖 |
 | **R5** | `app.history` 回傳真資料（Android 欄位形狀） | R1 | 改寫 `WebHomeBridgeTests` 既有的空陣列斷言 |
 | **R6** | 再次開啟同一部片時沿用記錄裡的線路與畫質 | Q1 + R1 | 單元測試；模擬器實測 |
-| **R7** | 片頭／片尾：播放畫面兩顆鍵（設定為當下位置、±1 秒微調）；載入時 `seek(max(opening, position))`；剩餘 ≤ `ending` 視為播完 | R3 | 單元測試 seek 與播完決策（純函式）；模擬器實測標記後換一集是否生效 |
-| **V0** | `WebHTVConfig` 解碼 `ads: [String]` 與 `rules: [{name, hosts, regex, script}]`；缺欄位時行為不變 | — | 單元測試：有欄位、無欄位、畸形欄位各一組 |
-| **V1** | `SnifferPolicy` + `ads` 兩層攔截（原生規則清單 + hook 內過濾） | V0 | 單元測試三項：①注入含廣告 host 的 HTML，斷言該 URL 不被回報（hook 層）②**真的沒有送出請求**——用 IOS-POC-5P 已經寫好的 `NWListener` 本地伺服器當廣告 host，斷言命中計數為 0（原生規則層）③**餵一份畸形規則**，斷言編譯失敗時退回只用 hook 過濾且嗅探仍可運作（K8 的那條路） |
-| **V2** | 符合 host 的 `rules.script` 在嗅探時注入執行 | V0 | 單元測試：本地 HTML，`src` 只在點擊後出現，斷言注入後抓得到 |
+| **R7** *(deferred)* | 片頭／片尾：播放畫面兩顆鍵（設定為當下位置、±1 秒微調）；載入時 `seek(max(opening, position))`；剩餘 ≤ `ending` 視為播完 | R3 | 單元測試 seek 與播完決策（純函式）；模擬器實測標記後換一集是否生效 |
+| **V0** *(deferred)* | `WebHTVConfig` 解碼 `ads: [String]` 與 `rules: [{name, hosts, regex, script}]`；缺欄位時行為不變 | — | 單元測試：有欄位、無欄位、畸形欄位各一組 |
+| **V1** *(deferred)* | `SnifferPolicy` + `ads` 兩層攔截（原生規則清單 + hook 內過濾） | V0 | 單元測試三項：①注入含廣告 host 的 HTML，斷言該 URL 不被回報（hook 層）②**真的沒有送出請求**——用 IOS-POC-5P 已經寫好的 `NWListener` 本地伺服器當廣告 host，斷言命中計數為 0（原生規則層）③**餵一份畸形規則**，斷言編譯失敗時退回只用 hook 過濾且嗅探仍可運作（K8 的那條路） |
+| **V2** *(deferred)* | 符合 host 的 `rules.script` 在嗅探時注入執行 | V0 | 單元測試：本地 HTML，`src` 只在點擊後出現，斷言注入後抓得到 |
 
 建議提交順序：`Q1+Q2+Q3` 一個 commit（同一件事的三段），`R1+R2+R3+R5` 一個，`R4+R6+R7` 一個，
 `V0+V1+V2` 一個。5S 與 5Q／5R 之間沒有相依，可以先後任意，但 R7 必須在 R3 之後。
@@ -281,7 +298,7 @@ xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp \
 | 階段 | 狀態 | 下一步 |
 |---|---|---|
 | IOS-POC-5Q | **Done**（2026-09-18，Q1+Q2+Q3 一個 commit） | 無；紀錄在 `docs/IOS-POC-5Q-playback-quality.md` |
-| IOS-POC-5R | **Ready for Dev** | `$execute-from-plan`（R1 → R2／R4／R5 → R3 → R6 → R7） |
-| IOS-POC-5S | **Ready for Dev** | `$execute-from-plan`（V0 → V1／V2） |
+| IOS-POC-5R | **Done — R1–R6**（2026-09-18）；**R7 deferred** | 無；紀錄在 `docs/IOS-POC-5R-watch-history.md` |
+| IOS-POC-5S | **Deferred**（2026-09-18，使用者指示；設計保留） | 等 drpy + Python POC + 真機主線完成後再排 |
 
 本 repo 沒有 `docs/todo.md`，這張表就是那一行 todo；狀態由 `$execute-from-plan` 推進。

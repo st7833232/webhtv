@@ -57,6 +57,12 @@ private struct ConfigView: View {
                         .tabItem { Label("首頁", systemImage: "play.rectangle.fill") }
 
                     NavigationStack {
+                        HistoryView(sites: sites, source: source)
+                    }
+                    .tag(1)
+                    .tabItem { Label("記錄", systemImage: "clock.arrow.circlepath") }
+
+                    NavigationStack {
                         SettingsView(
                             sites: sites,
                             selectedSiteID: $selectedSiteID,
@@ -70,7 +76,7 @@ private struct ConfigView: View {
                             onOpenHome: { selectedTab = 0 }
                         )
                     }
-                    .tag(1)
+                    .tag(2)
                     .tabItem { Label("設定", systemImage: "gearshape.fill") }
                 }
                 .toolbarBackground(.hidden, for: .tabBar)
@@ -764,6 +770,9 @@ private struct VodView: View {
     @State private var error: String?
     @State private var playbackError: String?
     @State private var resolving = false
+    /// What was watched last, if anything. Marks the episode in the grid (R4) and supplies the
+    /// remembered quality when the picker opens (R6).
+    @State private var watched: WatchHistory?
 
     var body: some View {
         ScrollView {
@@ -790,10 +799,16 @@ private struct VodView: View {
                             Text(flag.name).font(.headline)
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 10)], spacing: 10) {
                                 ForEach(Array(flag.episodes.enumerated()), id: \.offset) { _, episode in
+                                    let lastWatched = watched?.vodFlag == flag.name
+                                        && watched?.episodeUrl == episode.url
                                     Button(episode.name) {
                                         Task { await play(episode, flag: flag.name) }
                                     }
                                     .buttonStyle(.bordered)
+                                    // Marks where the viewer left off. Android puts the same cue on
+                                    // the episode its History points at.
+                                    .tint(lastWatched ? .accentColor : nil)
+                                    .fontWeight(lastWatched ? .bold : nil)
                                     .frame(minHeight: 44)
                                     .disabled(episode.mediaURL == nil || resolving)
                                 }
@@ -815,14 +830,16 @@ private struct VodView: View {
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBar()
         .task {
+            watched = await WatchHistoryStore.shared.record(forKey: historyKey)
             do {
                 let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
                 detail = try await client.detail(id: summary.id)
             } catch { self.error = error.localizedDescription }
         }
-        .sheet(item: $pendingPlayback) {
+        .sheet(item: $pendingPlayback, onDismiss: { Task { watched = await WatchHistoryStore.shared.record(forKey: historyKey) } }) {
             PlayerPickerView(mediaURL: $0.url, headers: $0.headers, title: $0.title, artwork: $0.artwork,
-                             qualities: $0.qualities, defaultIndex: $0.defaultIndex)
+                             qualities: $0.qualities, position: $0.position, defaultIndex: $0.defaultIndex,
+                             preferredQuality: $0.preferredQuality, history: $0.history)
         }
         .alert("無法播放", isPresented: Binding(get: { playbackError != nil }, set: { if !$0 { playbackError = nil } })) {
             Button("好", role: .cancel) {}
@@ -830,6 +847,8 @@ private struct VodView: View {
             Text(playbackError ?? "")
         }
     }
+
+    private var historyKey: String { WatchHistory.key(siteID: site.id, vodId: summary.id) }
 
     private func play(_ episode: Episode, flag: String) async {
         resolving = true
@@ -840,12 +859,132 @@ private struct VodView: View {
                 playbackError = "這一集沒有可播放的網址。"
                 return
             }
+            // The identity the watch history is keyed on. `Site.id` rather than `site.key`, because
+            // this configuration has four duplicate keys (IOS-POC-5L) and two providers must not
+            // share one record.
+            let record = WatchHistory(
+                key: historyKey, siteKey: site.key, siteName: site.name, vodId: summary.id,
+                vodName: summary.name, vodPic: summary.picture,
+                vodFlag: flag, vodRemarks: episode.name, episodeUrl: episode.url)
             pendingPlayback = Playback(url: target.url, headers: target.headers,
                                        title: "\(summary.name) \(episode.name)", artwork: summary.picture,
-                                       qualities: target.qualities, defaultIndex: target.defaultIndex)
+                                       qualities: target.qualities, position: target.position,
+                                       defaultIndex: target.defaultIndex,
+                                       preferredQuality: watched?.quality ?? "", history: record)
         } catch {
             playbackError = error.localizedDescription
         }
+    }
+}
+
+/// What has been watched, newest first. Android's equivalent is the History screen behind the same
+/// 60-day window.
+///
+/// A row reopens the title's own detail screen rather than resuming straight into the player: the
+/// detail screen is where the remembered episode is marked, and it is the screen a viewer needs
+/// anyway to pick a different one.
+private struct HistoryView: View {
+    let sites: [Site]
+    let source: ConfigSource
+    @State private var records = [WatchHistory]()
+    @State private var loaded = false
+
+    var body: some View {
+        Group {
+            if records.isEmpty {
+                ContentUnavailableView(
+                    "還沒有觀看記錄",
+                    systemImage: "clock.arrow.circlepath",
+                    description: Text(loaded ? "播放任何一集之後，這裡會記住看到哪裡。" : "載入中…")
+                )
+            } else {
+                List {
+                    ForEach(records) { record in
+                        row(for: record)
+                    }
+                    .onDelete { offsets in
+                        let removing = offsets.map { records[$0] }
+                        records.remove(atOffsets: offsets)
+                        Task { for record in removing { await WatchHistoryStore.shared.remove(key: record.key) } }
+                    }
+                    .listRowBackground(appSurface)
+                }
+                .scrollContentBackground(.hidden)
+            }
+        }
+        .appWallpaper()
+        .navigationTitle("觀看記錄")
+        .navigationBarTitleDisplayMode(.inline)
+        .appNavigationBar()
+        .toolbar {
+            if !records.isEmpty {
+                Button("清除") {
+                    records = []
+                    Task { await WatchHistoryStore.shared.clear() }
+                }
+            }
+        }
+        // .task runs again whenever the tab is re-entered, which is what keeps the list current
+        // after a viewing without any notification plumbing.
+        .task {
+            records = await WatchHistoryStore.shared.records()
+            loaded = true
+        }
+    }
+
+    @ViewBuilder
+    private func row(for record: WatchHistory) -> some View {
+        // Matched on the whole key rather than by splitting it: `Site.id` embeds the site's ext,
+        // which may contain anything, and two sites here really do share a key.
+        if let site = sites.first(where: { WatchHistory.key(siteID: $0.id, vodId: record.vodId) == record.key }) {
+            NavigationLink {
+                VodView(site: site,
+                        summary: Vod(id: record.vodId, name: record.vodName, picture: record.vodPic),
+                        source: source)
+            } label: {
+                label(for: record)
+            }
+        } else {
+            // The configuration changed under the record. Show it, greyed, rather than dropping it:
+            // deleting someone's history because a site was renamed is worse than a dead row.
+            label(for: record).foregroundStyle(.secondary)
+        }
+    }
+
+    private func label(for record: WatchHistory) -> some View {
+        HStack(spacing: 12) {
+            AsyncImage(url: URL(string: record.vodPic)) { phase in
+                switch phase {
+                case .success(let image): image.resizable().scaledToFill()
+                default: appSurface.overlay { Image(systemName: "film").foregroundStyle(.secondary) }
+                }
+            }
+            .frame(width: 48, height: 72)
+            .clipShape(.rect(cornerRadius: 6))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(record.vodName).font(.headline).lineLimit(2)
+                Text([record.siteName, record.vodFlag, record.vodRemarks]
+                    .filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Text(progress(of: record)).font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func progress(of record: WatchHistory) -> String {
+        guard record.duration > 0 else { return "看到 " + clock(record.position) }
+        if record.isNearEnding { return "已看完" }
+        return "看到 \(clock(record.position)) / \(clock(record.duration))"
+    }
+
+    private func clock(_ milliseconds: Double) -> String {
+        let total = Int(milliseconds / 1000)
+        let minutes = total / 60, seconds = total % 60
+        if minutes < 60 { return String(format: "%d:%02d", minutes, seconds) }
+        return String(format: "%d:%02d:%02d", minutes / 60, minutes % 60, seconds)
     }
 }
 
@@ -873,7 +1012,13 @@ private struct Playback: Identifiable {
     /// The source's quality menu. One entry for every source in this configuration today, which is
     /// why the picker only shows it when there is more than one.
     var qualities: [PlaybackQuality] = []
+    var position = 0
     var defaultIndex = 0
+    /// The quality name this title was last watched at, so the menu opens on the viewer's own choice
+    /// rather than on the default (D8, R6). Empty when nothing is remembered.
+    var preferredQuality = ""
+    /// Identity for the watch history. Nil for `player.playUrl`, which names no site or title.
+    var history: WatchHistory?
     var id: String { url.absoluteString }
 }
 
@@ -886,8 +1031,13 @@ private struct PlayerPickerView: View {
     var artwork = ""
     /// The source's quality menu, in the source's own order.
     var qualities: [PlaybackQuality] = []
-    /// The entry `mediaURL` was resolved from, which is where the menu starts.
+    /// The source's own preferred index, so the same decision can be re-run here with a preference.
+    var position = 0
+    /// The entry `mediaURL` was resolved from.
     var defaultIndex = 0
+    /// What this title was last watched at, which outranks the default (D8).
+    var preferredQuality = ""
+    var history: WatchHistory?
     @Environment(\.dismiss) private var dismiss
     @State private var error: String?
     @State private var playing = false
@@ -897,7 +1047,14 @@ private struct PlayerPickerView: View {
     /// control that decides nothing. Show it only where there is a choice to make.
     private var offersChoice: Bool { qualities.count > 1 }
 
-    private var chosen: Int { selected ?? defaultIndex }
+    /// Where the menu opens. The same pure function core used, re-run with the remembered choice —
+    /// which is why that choice is a parameter rather than something core looks up.
+    private var initialIndex: Int {
+        PlaybackQuality.defaultIndex(in: qualities, position: position,
+                                     preferred: preferredQuality.isEmpty ? nil : preferredQuality)
+    }
+
+    private var chosen: Int { selected ?? initialIndex }
 
     /// The default entry is the one that went through the probe and the sniffer, so it is handed on
     /// resolved. Any other entry is opened exactly as the source gave it.
@@ -932,7 +1089,8 @@ private struct PlayerPickerView: View {
                 }
 
                 Button {
-                    PlaybackSession.shared.open(url: playURL, headers: headers, title: title, artwork: artwork)
+                    PlaybackSession.shared.open(url: playURL, headers: headers, title: title,
+                                                artwork: artwork, history: record)
                     playing = true
                 } label: {
                     Label("內建播放器", systemImage: "play.rectangle.fill")
@@ -961,6 +1119,16 @@ private struct PlayerPickerView: View {
         .fullScreenCover(isPresented: $playing) { PlayerView() }
     }
 
+    /// The history entry this playback would write, with the quality actually chosen. Nil for a
+    /// path that names no title — `player.playUrl` hands over a bare URL.
+    private var record: WatchHistory? {
+        guard var record = history else { return nil }
+        record.quality = qualities.indices.contains(chosen) ? qualities[chosen].name : ""
+        return record
+    }
+
+    /// An external player is opened and forgotten: a URL scheme carries no way back, so nothing it
+    /// plays can ever be recorded (K6). Only the built-in player writes history.
     private func open(_ player: ExternalPlayer) {
         guard let url = player.playbackURL(for: playURL) else {
             error = "無法建立 \(player.displayName) 播放連結。"
@@ -1001,31 +1169,94 @@ private struct PlayerPickerView: View {
     /// Resolves an episode the page kept for itself. Set while a WebHome page owns the web view.
     var resolveEpisode: ((String) async -> URL?)?
 
+    /// What this playback writes into the watch history, with the position kept up to date. Nil for
+    /// a path that names no title: `player.playUrl` and an inline vod both hand over bare media.
+    private var record: WatchHistory?
+    /// Where to resume to, consumed by the next `load`. Resolved before playback starts so the item
+    /// is never created twice or seeked after it is already running.
+    private var resumeTo: Double?
+    private var sampler: Task<Void, Never>?
+
     private init() {
         NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in self?.finished() }
         }
+        // The 5-second sampler cannot be relied on for the last few seconds before the app is
+        // suspended, and those are the ones a viewer notices losing.
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+        ) { _ in
+            Task { @MainActor in await PlaybackSession.shared.persist() }
+        }
     }
 
     /// One media URL: the CMS path, `player.playUrl`, and an episode picked in `VodView`.
     /// The item carries no name: the caller's title already names the episode, and `status()`
     /// appends the item name, which would otherwise report it twice.
-    func open(url: URL, headers: [String: String] = [:], title: String, artwork: String = "") {
+    func open(url: URL, headers: [String: String] = [:], title: String, artwork: String = "",
+              history: WatchHistory? = nil) {
         items = [.init(name: "", url: url)]
         self.headers = headers
         self.title = title
         self.artwork = artwork
-        start(at: 0)
+        record = history
+        guard let history else {
+            resumeTo = nil
+            start(at: 0)
+            return
+        }
+        // Resuming has to know where the last viewing stopped, and the store is an actor. Resolve
+        // it first and start afterwards: the read is from an in-memory cache, and starting first
+        // would mean seeking a stream that has already begun.
+        Task { @MainActor in
+            resumeTo = await WatchHistoryStore.shared.record(forKey: history.key)?.resumePosition
+            start(at: 0)
+        }
     }
 
     /// A whole inline vod, so `control("next")` and `("prev")` have somewhere to go.
+    ///
+    /// Not recorded: an inline vod is a page's own playlist addressed under the pseudo-site
+    /// `webhome_inline`, so it has no site or vod identity the history could be keyed on.
     func open(_ vod: WebHomeBridge.InlineVod) {
         items = vod.items
         title = vod.title
         artwork = vod.picture
+        record = nil
+        resumeTo = nil
         start(at: vod.startIndex)
+    }
+
+    /// Writes where the viewer got to.
+    ///
+    /// `onlyWhilePlaying` is what the sampler passes: the history file is rewritten whole, so a
+    /// paused player must not keep rewriting it every five seconds.
+    ///
+    /// ponytail: whole-file writes at 5 s are fine for a few hundred records. Coalesce them, or
+    /// flush only on pause and background, if the file ever grows enough to matter.
+    func persist(onlyWhilePlaying: Bool = false) async {
+        guard var record, started, let item = player.currentItem else { return }
+        if onlyWhilePlaying, player.rate == 0 { return }
+        let position = milliseconds(player.currentTime())
+        guard position > 0 else { return }
+        record.position = position
+        record.duration = milliseconds(item.duration)
+        self.record = record
+        await WatchHistoryStore.shared.save(record)
+    }
+
+    private func startSampling() {
+        sampler?.cancel()
+        guard record != nil else { return }
+        sampler = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                if Task.isCancelled { return }
+                await PlaybackSession.shared.persist(onlyWhilePlaying: true)
+            }
+        }
     }
 
     func control(_ action: String) {
@@ -1034,6 +1265,8 @@ private struct PlayerPickerView: View {
         case "pause": player.pause()
         case "stop":
             // No foreground service to stop, so the equivalent is to drop what is loaded.
+            Task { @MainActor in await persist() }
+            sampler?.cancel()
             player.pause()
             player.replaceCurrentItem(with: nil)
             started = false
@@ -1074,6 +1307,9 @@ private struct PlayerPickerView: View {
     }
 
     private func finished() {
+        // Record the end before moving on, so a title watched through reads as near-ending rather
+        // than as stopped wherever the last sample happened to land.
+        Task { @MainActor in await persist() }
         if looping { control("replay") } else { start(at: index + 1) }
     }
 
@@ -1097,7 +1333,14 @@ private struct PlayerPickerView: View {
         self.url = url.absoluteString
         started = true
         player.replaceCurrentItem(with: AVPlayerItem(asset: Self.asset(for: url, headers: headers)))
+        if let resumeTo {
+            self.resumeTo = nil
+            // A seek issued now is honoured once the item is ready, which is why it goes before
+            // play() rather than behind a readiness observer.
+            player.seek(to: CMTime(value: CMTimeValue(resumeTo), timescale: 1000))
+        }
         player.play()
+        startSampling()
     }
 
     /// `AVPlayer` sends request headers only through `AVURLAsset` options, and the key for them —
@@ -1140,7 +1383,12 @@ private struct PlayerView: View {
         .statusBarHidden()
         // Closing the screen pauses rather than tears down, so a page can read the position it
         // reached and resume it with player.control.
-        .onDisappear { session.player.pause() }
+        .onDisappear {
+            session.player.pause()
+            // The sampler skips a paused player, so the moment of leaving is the last chance to
+            // record where the viewer actually got to.
+            Task { await session.persist() }
+        }
     }
 }
 

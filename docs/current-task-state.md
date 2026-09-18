@@ -82,6 +82,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 8E | The three device-reported UI defects re-tested on the clean build: two were the 8B regression and are gone, the third was real and is fixed — the search field no longer vanishes after a source switch | this document |
 | 8F | The search field goes back to hiding on scroll, at the user's request: the `.id` moves up to the whole `NavigationStack`, after three other ways of making the bar give the field back were measured and failed | this document |
 | 8G | The black band behind the tab bar is gone on every tab — `scaledToFill` never filled, so `.ignoresSafeArea()` had nothing to expand | this document |
+| 8H | 8F and 8G confirmed on the iPhone 16 Pro by the user; the second device run this project has had | this document |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
 | 6A/6B | **drpy JavaScript loader**: the engine and its nine libraries fetched from the configuration's own origin, hash-pinned and verified before evaluation, running on the existing `JavaScriptSpiderRuntime` | `docs/IOS-POC-6A-drpy-loader.md` |
 
@@ -288,6 +289,12 @@ have been collapsed into the first bullet.
 
 ### Simulator runs (iPhone 17 Pro)
 
+- **Confirmed on the real device, 2026-09-18 (IOS-POC-8H).** The iPhone 16 Pro run of `feeb1407`
+  was signed and installed with the command line settings as before, and **the user confirmed both
+  fixes on hardware: no black band, and the search field behaving.** That is the **second** device
+  run this project has had, and the first that verified a change rather than finding defects. It
+  covers IOS-POC-8F and 8G only — everything else in this document is still simulator-only, and the
+  three items below remain unchecked on hardware.
 - **IOS-POC-8G, 2026-09-18.** All three tabs (首頁／記錄／設定) screenshotted with no black band; the
   wallpaper runs under the floating glass tab bar. 荐片 re-checked for the IOS-POC-8B relayout tells
   and shows none, and a detail screen renders normally.
@@ -616,4 +623,4 @@ Paste this into a new session:
 >
 > **真機狀態**：專案檔仍然沒有任何 `CODE_SIGN` / `DEVELOPMENT_TEAM`（簽章用命令列參數傳入，沒進 repo）。已在 iPhone 16 Pro 上跑過一次（IOS-POC-8A），**其餘所有結果都來自 iPhone 17 Pro 模擬器**。免費 provisioning profile 2026-09-25 到期，過期要重裝。
 >
-> **尚未真機驗證的項目**：播放器 X 鍵移到 `top: 64` 之後的位置、B 站畫質線路、drpy 引擎第一次下載 1.2 MB 的耗時，以及 IOS-POC-8E 的搜尋框修正。
+> **尚未真機驗證的項目**：播放器 X 鍵移到 `top: 64` 之後的位置、B 站畫質線路、drpy 引擎第一次下載 1.2 MB 的耗時。（IOS-POC-8F 搜尋框與 8G 背景圖已於 2026-09-18 真機確認。）

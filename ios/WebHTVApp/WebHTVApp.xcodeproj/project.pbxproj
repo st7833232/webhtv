@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		03A4E1B2D21D45A42BB9BC7A /* WebHTVCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7F55C50111675904118B251E /* WebHTVCore */; };
+		A55E1C0091D74B0EA0C41002 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A55E1C0091D74B0EA0C41001 /* Assets.xcassets */; };
 		0928EDE6AE603074F814CC71 /* wallpaper_1.png in Resources */ = {isa = PBXBuildFile; fileRef = 04FB031023165459EF586DFD /* wallpaper_1.png */; };
 		0B262581C401BC519308428F /* ic_logo.png in Resources */ = {isa = PBXBuildFile; fileRef = 0DBE24A95C91F7C2605D4998 /* ic_logo.png */; };
 		D1A7C0FE51B34A2E90B7E111 /* app-capabilities-showcase.html in Resources */ = {isa = PBXBuildFile; fileRef = D1A7C0FE51B34A2E90B7E110 /* app-capabilities-showcase.html */; };
@@ -17,6 +18,7 @@
 
 /* Begin PBXFileReference section */
 		1DE1533ABDF1950D233084A1 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		A55E1C0091D74B0EA0C41001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		04FB031023165459EF586DFD /* wallpaper_1.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = wallpaper_1.png; sourceTree = "<group>"; };
 		0DBE24A95C91F7C2605D4998 /* ic_logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = ic_logo.png; sourceTree = "<group>"; };
 		D1A7C0FE51B34A2E90B7E110 /* app-capabilities-showcase.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = "app-capabilities-showcase.html"; path = "../../webhome-devkit/templates/homepages/app-capabilities-showcase.html"; sourceTree = SOURCE_ROOT; };
@@ -52,6 +54,7 @@
 				08BE9315CDD3C49B7008EAFD /* Frameworks */,
 				65BBB9EF3B89F11ACB0F8FD3 /* Sources */,
 				09286A605248E82B70F5974C /* Resources */,
+				A55E1C0091D74B0EA0C41001 /* Assets.xcassets */,
 			);
 			sourceTree = "<group>";
 		};
@@ -151,6 +154,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A55E1C0091D74B0EA0C41002 /* Assets.xcassets in Resources */,
 				0928EDE6AE603074F814CC71 /* wallpaper_1.png in Resources */,
 				0B262581C401BC519308428F /* ic_logo.png in Resources */,
 				D1A7C0FE51B34A2E90B7E111 /* app-capabilities-showcase.html in Resources */,
@@ -238,6 +242,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ENABLE_OBJC_WEAK = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
@@ -313,6 +318,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ENABLE_OBJC_WEAK = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;

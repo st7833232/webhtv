@@ -77,6 +77,8 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 7A/7C | Assessment and P1 measurement for a Python runtime: what it would cost, measured rather than estimated | `docs/IOS-POC-7A-python-runtime.md` |
 | 7B | Xcode's per-user state is ignored, after it blocked three commits in one session | `.gitignore` |
 | 8A | **The first real-device run**, and the defect it found: a fresh install could not accept a remote configuration URL | this document |
+| 8B | Two more device findings: a black band under the tab bar, and the player's close button in AVKit's corner | this document |
+| 8C | An app icon, and the asset catalog the project never had | this document |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
 | 6A/6B | **drpy JavaScript loader**: the engine and its nine libraries fetched from the configuration's own origin, hash-pinned and verified before evaluation, running on the existing `JavaScriptSpiderRuntime` | `docs/IOS-POC-6A-drpy-loader.md` |
 
@@ -325,12 +327,30 @@ have been collapsed into the first bullet.
   (IOS-POC-5V's Debug-only workaround is therefore correctly scoped). A remote configuration loaded
   and the app listed **67 sources**, which is only reachable through the remote path and so also
   confirms the five drpy sites route correctly on device.
-- **Found by that device run, and fixed the same day:** a fresh install could only ever import a
-  file. The remote-URL entry lives in the settings page, the settings page lives in the tab bar, and
-  the tab bar only exists once a configuration has loaded — so the one screen a new install shows
-  was missing half its purpose. **The simulator could not have caught this**: it always had a cached
-  configuration from an earlier session, so the empty state was never exercised. The empty state now
-  offers both ways in, calling the `useRemote` that `ConfigView` already had.
+- **Found by the device run and fixed the same day — three defects, each hidden for a different
+  reason.**
+  1. **A fresh install could only ever import a file.** The remote-URL entry lives in the settings
+     page, the settings page lives in the tab bar, and the tab bar only exists once a configuration
+     has loaded, so the one screen a new install shows was missing half its purpose. **The simulator
+     could not have caught it**: it always had a configuration cached by an earlier session, so the
+     empty state was never exercised. It now offers both ways in, calling the `useRemote`
+     `ConfigView` already had.
+  2. **A black band sat under the tab bar on every screen.** `appWallpaper()` was a `.background`,
+     and a background is bounded by the view it decorates: on a `TabView` it stops at the content
+     area, so hiding the tab bar's own background revealed the window rather than the wallpaper. It
+     is a `ZStack` now, the image behind as a sibling that nothing clips. **This one did reproduce
+     in the simulator** and is visible in every screenshot this project has taken — it took a real
+     phone for anyone to name it.
+  3. **The player's close button sat in AVKit's corner.** iOS puts its video-output control top-left
+     and mute top-right; the custom close button crowded the first. Moved below that row rather than
+     to another corner, because AVKit owns both top corners and the bottom. **Only the simulator's
+     different AVKit layout hid this.**
+- **The app has an icon and an asset catalog since IOS-POC-8C.** The project had neither: its images
+  were loose files read through `Bundle.main.path(forResource:)`, which cannot supply an app icon —
+  iOS needs a compiled `Assets.car` and `CFBundleIconName`. A single 1024×1024 entry is enough on
+  iOS 17+. The source art was a rounded square on white, so it is cropped past its own corner radius
+  (~22%) until the gradient reaches all four edges; leaving it would have shown white slivers
+  wherever iOS's mask radius disagreed with the artwork's.
 - **Not measured: that HTTPS certificate validation is still enforced.** It is reasoned from the code — no `URLSessionDelegate`, no `serverTrust` handling anywhere — but no test against a known-bad certificate was run.
 - Not driven from the WebHome page, covered only by offline tests: `cache.get`, `cache.del`,
   `app.search`, `app.history`, `device.info`, `site.info`, `ui.getViewport`, `ext.toast`,

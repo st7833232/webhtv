@@ -102,54 +102,108 @@ Do not begin with protected/obfuscated DEX JARs, Python, JS runtime, MPV/VLC fal
 - Before importing upstream Android changes, assess whether they touch shared contracts used by the iOS/PWA work.
 - Do not silently copy third-party source/resource implementations into the repository; preserve license/provenance and review compatibility/legal implications where applicable.
 
-## Current recovery anchor (2026-09-18, after IOS-POC-5Q)
+## Current recovery anchor (2026-09-18, after IOS-POC-5R)
 
-- Objective: continue the iPhone WebHomeTV port with the user's Recha `wang-movie.json`. The Google TV `csp_JPianAmns` repair is explicitly not active.
-- Active branch: `ios-poc`. **Verified 2026-09-18: `d571f3a7` (through IOS-POC-5P and the 5Q/5R/5S plan) is level with `origin/ios-poc`, 0 ahead / 0 behind, worktree clean** — the earlier note here said the 5M commits were still local, which is no longer true. The IOS-POC-5Q commit on top of it is local. Check the actual Git state on resume; do not infer what has been pushed.
-- **Playback carries the source's request headers since IOS-POC-5P.** `SourceClient.playbackURL` returns a `PlaybackTarget` (URL + headers); the probe, the sniffer and `AVURLAsset` all use them. bilibili's CDN requires **both** a `Referer` and a browser `User-Agent` (measured 2026-09-18: browser UA + Referer → 206, everything else → 403), which corrects the 5L note that a bare request sufficed on one mirror. External players still cannot be told about headers — a URL scheme is their whole interface. `AVURLAssetHTTPHeaderFieldsKey` is undocumented; `avURLAssetSendsTheHeadersItWasGiven` observes it working against a real socket.
-- **Spider scripts are updatable without an app release since IOS-POC-5O.** A compatibility pack — `./spiders/manifest.json` beside the configuration, HTTPS only, every script verified against a SHA-256 in the manifest — replaces or adds spider scripts at runtime; resolution order is verified pack → bundled → unsupported, and a failed or malformed pack can never take away the working one. `SpiderPackStore.hostApiVersion` gates scripts that need a `CatVodHost` primitive this build lacks. A pack cannot add native capability, entitlements, ATS or signing changes. Build and check packs with `scripts/spider_pack.py`. Contract: `docs/IOS-POC-5O-remote-compatibility-pack.md`.
-- Toolchain is **Xcode 27 / Swift 6.4** and there is no older one on the machine. It changed mid-session and broke the build at the then-current HEAD; the Swift 6 region-isolation repairs are in `docs/IOS-POC-5D-spider-sites-in-app.md`.
-- **The input config is not in `/tmp` any more.** Re-fetch `wang-movie.json` from `https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json` (SHA-256 `b17576e3…897168`, 167 sites). `recha-main.zip` was not restored, so `scripts/audit_spider_jars.py` cannot be re-run until it is.
-- Implemented: native Swift config/CMS core; SwiftUI iPhone shell with Android-like wallpaper and settings; AVPlayer plus Infuse, Fileball, SenPlayer and VidHub; **type-0, type-1 and type-4 sources, 30 of the 167 configured, which is what the app UI lists**; two-level category browsing and pagination; configuration from an imported file **or any HTTPS Raw URL**, with schema validation, last-known-good caching, atomic replace, last-update status, manual refresh and a retrying launch refresh; a config-relative resource resolver; and a **WebHome bridge over `WKWebView` + `WKScriptMessageHandler`** covering the network, cache, UI, navigation, information **and playback** methods. The playback half (`player.playVod`, `playVodInline`, `control`, `status`) runs on one persistent `PlaybackSession` owning a single `AVPlayer`, which is what lets a page read a live status and control playback after the player screen is closed.
-- Also implemented (IOS-POC-5A/5B, extended in 5L): a **CatVod spider runtime** in `ios/Sources/WebHTVCore/Spider/` that reimplements the `Spider.java` text-in/text-out contract in JavaScript on JavaScriptCore — one `JSContext` and serial queue per site, one shared `CatVodHost` — driving **32 further sites through 8 ported classes** (`AppGet` 5, `AppQi` 6, `App99` 4, `Bili` 4, `App3Q` 2, `JianPian` 1, plus the rule engines `XBPQ` 7 and `XYQHiker` 3, which serve any future site configured for them). **A blocked class is not always a blocked site**: 薦片's configured class `csp_JPianAmns` is an empty shim over an encrypted payload, and it is driven anyway because river-fman's unprotected `JianPian` serves the same API — `SpiderRegistry.aliases` maps the one name to the other, so the shared `wang-movie.json` needs no edit and Android is unaffected (`docs/IOS-POC-5M-jianpian.md`). **It never executes Android DEX or JAR bytecode**; the decompiled Java is a specification only. Contract: `docs/IOS_SPIDER_RUNTIME_SPEC.md`. **Those 32 sites are listed in the app UI**: `ConfigView` lists `drivableSites(resolvedBy:)` and every content call goes through `SourceClient`, which routes a site to either `CMSClient` or a cached `SpiderSession`. The app offers **62 of 167 sources**. **Listed is not working**: the sweep drives every listed source through the app's own path and fetches the first bytes of each resolved stream. Measured 2026-09-17: **37 playable** (26 of 30 native, 11 of 31 spider), 7 resolve media that 403s or 404s, 1 lists episodes without a URL, 1 lists titles without episodes, 15 are empty. **Almost every failure is provider state** — dead hosts, an expired VIP, a "site closed" placeholder — with one structural exception: the four `Bili` sites resolve a real MP4 that bilibili's CDN refuses without a `Referer` the player cannot send yet. Per-site tables: `docs/IOS-POC-5L-appqi-app99-app3q-bili.md` (current, 61 sources) and `docs/IOS-POC-5E-all-source-sweep.md` (the earlier 45). **Quote 37 of 61.**
-- Not implemented: a Python runtime (42 sites) and a drpy JavaScript loader (5 sites); the 39 portable-but-unported `csp_*` sites; `CatVodHost` RSA and `proxy` plumbing; per-request playback headers for `AVPlayer`; `player.preloadArtwork`, `pan.*`, `app.open*`, `net.resourceUrl` proxying, `ui.setChrome`/`restoreChrome`; and the SideStore/IPA release pipeline. IOS-POC-2F drove the inline JS resolver and all seven `player.control` actions from the page, so the playback half has no unexercised paths left. A source-specific DNS or TLS error does not prove a global iOS network bug.
-- **The 137 type-3 sites, as measured 2026-09-16/17 — this supersedes every earlier count.** 90 are
-  `csp_*`, 42 Python, 5 drpy JavaScript. Of the 90 `csp_*`: **54 sites, spanning 26 of the 51
-  distinct classes, are portable**, of which **15 sites / 3 classes are ported and live-verified**;
-  **34 sites / 23 classes are blocked by a native-encrypted
-  payload** in `aowu-0722.jar` and `fan-0720.jar`, whose `csp_*` classes are empty
-  shims and whose real logic a native library decrypts — **that is protection, not obfuscation, and
-  it must not be attacked**; and **2 sites are only missing downloads**, so their portability is
-  unknown rather than impossible. An earlier version of this file called all 90 “structurally out of
-  reach” because their JARs carry `classes.dex` — that inference was wrong and DEX was never the
-  obstacle. The 42 Python sites are expensive but architecture-compatible (standard library plus
-  `requests`/`pycryptodome`/`base`; only 1 of 38 files touches `android.`), and the 5 drpy sites are
-  the most plausible of all since iOS ships JavaScriptCore. Audit: `docs/CSP_PORTABILITY_MATRIX.md`
-  (re-runnable via `scripts/audit_spider_jars.py`); progress: `docs/CSP_MIGRATION_STATUS.md`;
-  Python/drpy measurement: `docs/IOS-TYPE3-REACHABILITY-2026-09-16.md`, whose `csp_*` section is
-  superseded.
-- **Nothing has ever run on a real device.** The Xcode project carries no `CODE_SIGN` or `DEVELOPMENT_TEAM` setting; every verification to date is simulator-only.
-- **ATS policy changed by explicit user decision on 2026-09-15 (IOS-POC-4B).** Most configured sources are cleartext `http`, so the user was offered a narrow per-domain exception, no change, or global cleartext, was told that the earlier records forbid weakening ATS globally for one site, and chose global cleartext. `ios/WebHTVApp/Info.plist` sets `NSAllowsArbitraryLoads`. The earlier "do not weaken TLS/ATS globally" instruction is superseded for this personal POC only and still applies to any future broadening. No server-trust override was added, so HTTPS certificate evaluation remains the system default — but that was reasoned from the code, not measured.
-- Detailed status, the stage index and every unverified case: `docs/current-task-state.md`. Per-stage records: `docs/IOS-POC-1E-config-persistence.md`, `docs/IOS-POC-1F-config-sources.md`, `docs/IOS-POC-2B-webhome-bridge.md`, `docs/IOS-POC-2D-webhome-bridge-ui-info.md`, `docs/IOS-POC-2E-webhome-bridge-playback.md`, `docs/IOS-POC-4A-type4-sources.md`, `docs/IOS-POC-4J-type0-xml-sources.md`, and `docs/IOS-PORTING-HANDOFF-2026-09-13.md` for the original architecture assessment (written against an older 208-site resource set; its 136 `csp_*` figure is historical). **For the spider work, the three live documents are `docs/IOS_SPIDER_RUNTIME_SPEC.md` (runtime and ABI — anything contradicting it is a bug in that thing), `docs/CSP_PORTABILITY_MATRIX.md` (the 51-class static audit) and `docs/CSP_MIGRATION_STATUS.md` (what is ported, blocked or waiting on a file).** `docs/IOS-TYPE3-REACHABILITY-2026-09-16.md` remains valid only for its Python and drpy measurements; its `csp_*` verdict is superseded.
-- **Verified 2026-09-17 at this HEAD (IOS-POC-5L):** `swift test --package-path ios` with `WANG_MOVIE_JSON` → **78 tests, all pass**. `reportsLiveType4SitesFromProvidedConfig` is a live-network case that depends on `88看球`'s state and has failed before; it is not to be “fixed” when it does. `xcodebuild … -scheme WebHTVApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -configuration Debug build` → BUILD SUCCEEDED. All three ported spiders re-verified live, each ending in `parse:0` direct media.
-- Category **filter rows** (類型/地區/語言/年代/排序) exist since IOS-POC-5J, driven by CatVod's `filters` contract. `AppGet` and `AppQi` sites publish them (and `Bili` sites inherit whatever their own JSON declares) — MacCMS has no filter protocol and the rule engines do not expose one — so the rows are absent elsewhere by design. See `docs/IOS-POC-5J-category-filters.md`.
-- **UI state after IOS-POC-5J/5K:** the category rows scroll away with the grid instead of pinning, a Top button returns to the top, a parent category folds its child row away, and `AppGet` sites show 類型/地區/語言/年代/排序 filter rows driven by CatVod's `filters` contract. Only `AppGet` publishes rows — MacCMS has no filter protocol and neither rule engine exposes one.
-- **A play result's `url` reads all three CatVod shapes since IOS-POC-5Q, and `Bili` offers a
-  quality choice.** `PlayURL` (`ios/Sources/WebHTVCore/PlayURL.swift`) is the single decoder for
-  `playerContent`'s `url` on **both** the spider and the CMS path: a string, an alternating
-  `[name, url, …]` array, or `{"values":[{"n","v"}],"position"}`, exactly as
-  `app/.../gson/UrlAdapter.java` defines them. Reading it as a `String` used to **throw**
-  `DecodingError.typeMismatch` on the spider path and be swallowed into 「這一集沒有可播放的網址」
-  by a `try?` on the CMS path — neither was the source being broken. `PlaybackTarget` now carries
-  `qualities` / `position` / `defaultIndex`, the player sheet shows a 畫質 section only when there
-  is more than one, and **only the default entry gets the probe/sniff hop** (`ponytail:`-marked).
-  `Bili.js` expresses its qualities as **one line per quality** rather than a `url` array, because
-  every `qn` costs its own `playurl` call; the labels come from the API's `accept_description`.
-  **No source in this configuration returns a `url` array**, so the menu has never been triggered by
-  real data. Contract: `docs/IOS-POC-5Q-playback-quality.md`.
-- **The 5Q/5R/5S plan is `docs/IOS-POC-5Q-5R-plan-playback-quality-and-history.md`** (reviewed,
-  `PASS`). 5Q is done; **IOS-POC-5R (watch history) and IOS-POC-5S (sniffer-layer ads and site
-  rules) are still Ready for Dev** and are the obvious next stages. R2's prerequisite is unchanged
-  and still outstanding: `Playback` and `PlaybackSession.open` carry no site or title identity.
-- Exactly one next action for Claude: agree the next bounded stage with the user, do not pick one alone. Ranked: **(1) `aowu-0722.jar` compatibility recovery**, which the user asked for — but its first step is blocked, because the 9 `AppV7Amns` sites' `ext` is itself an encrypted hex blob so the site identity is unknown and there is no equivalent to search for; the order must invert to observe-then-compare, and the cheapest probe is `adb logcat` for `SpiderDebug.log` before building an APK and a proxy. (2) batch-porting `AppQi`/`App99`/`App3Q`/`Bili` (+16 sites; the `AppQi` static reading is already recorded in `docs/CSP_MIGRATION_STATUS.md`; `AppDrama` needs RSA first). (3) ~~per-request playback headers for `AVPlayer`~~ **done in IOS-POC-5P**; read that slot as
-  **IOS-POC-5R / 5S from the reviewed plan above**. (4) device deployment, which needs the user's Apple ID and hardware. Full reasoning and the ready-to-paste resume prompt are in `docs/current-task-state.md`.
+This section was rewritten wholesale on 2026-09-18 against the actual HEAD and an actual test run,
+because it had accumulated contradictions — a stale branch state, work listed as future that had
+shipped, and three different source counts. Detailed status: `docs/current-task-state.md`.
+
+- Objective: continue the iPhone WebHomeTV port with the user's Recha `wang-movie.json`. The Google
+  TV `csp_JPianAmns` repair is explicitly not active.
+- **Branch `ios-poc`, HEAD `261b5c03` (IOS-POC-5R), 2 ahead of `origin/ios-poc`, 0 behind, worktree
+  clean — verified 2026-09-18.** The two local commits are IOS-POC-5Q (`0ab06a3c`) and IOS-POC-5R
+  (`261b5c03`). Check the actual Git state on resume; do not infer what has been pushed.
+- **Verified at this HEAD, 2026-09-18:** `WANG_MOVIE_JSON=<config> swift test --package-path ios`
+  → **124 tests, all pass**. `reportsLiveType4SitesFromProvidedConfig` is a live-network case that
+  depends on 88看球's state — it failed twice and passed once on the same day — and is **not to be
+  "fixed"**. `xcodebuild … -scheme WebHTVApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+  -configuration Debug build` → BUILD SUCCEEDED.
+- **The app lists 62 of 167 sources: 30 native (2 type-0, 22 type-1, 6 type-4) and 32 spider**,
+  asserted by a passing test. **The playable count has not been re-measured since IOS-POC-5L**; the
+  last coherent sweep was 37 of 61 on 2026-09-17, which predates 5M, 5P and 5Q. Quote 62 listed and
+  say the playable figure is stale — do not quote 37 of 61 as current.
+- **The CatVod spider runtime** in `ios/Sources/WebHTVCore/Spider/` reimplements the `Spider.java`
+  text-in/text-out contract in JavaScript on JavaScriptCore — one `JSContext` and serial queue per
+  site, one shared `CatVodHost`. **It never executes Android DEX or JAR bytecode**; the decompiled
+  Java is a specification only. **8 ported classes drive 32 sites**: `AppGet` 5, `AppQi` 6, `App99`
+  4, `Bili` 4, `App3Q` 2, `JianPian` 1, plus the rule engines `XBPQ` 7 and `XYQHiker` 3, which serve
+  any future site configured for them. **A blocked class is not always a blocked site**: 薦片's
+  configured class `csp_JPianAmns` is an empty shim over an encrypted payload and is driven anyway
+  because river-fman's unprotected `JianPian` serves the same API, mapped by `SpiderRegistry.aliases`
+  so the shared config needs no edit and Android is unaffected. Contract:
+  `docs/IOS_SPIDER_RUNTIME_SPEC.md`; progress: `docs/CSP_MIGRATION_STATUS.md`.
+- **Spider scripts update without an app release since IOS-POC-5O.** A compatibility pack —
+  `./spiders/manifest.json` beside the configuration, HTTPS only, every script verified against a
+  SHA-256 — replaces or adds scripts at runtime; resolution order is verified pack → bundled →
+  unsupported, and a failed pack can never take away the working one. `host.js` is not packable.
+  Build and check packs with `scripts/spider_pack.py`.
+- **Playback carries the source's request headers since IOS-POC-5P.** `SourceClient.playbackURL`
+  returns a `PlaybackTarget`; the probe, the sniffer and `AVURLAsset` all use them. bilibili's CDN
+  requires **both** a `Referer` and a browser `User-Agent` (measured 2026-09-18: browser UA +
+  Referer → 206, everything else → 403). External players still cannot be told about headers — a URL
+  scheme is their whole interface. `AVURLAssetHTTPHeaderFieldsKey` is undocumented;
+  `avURLAssetSendsTheHeadersItWasGiven` observes it working against a real socket.
+- **`playerContent`'s `url` reads all three CatVod shapes since IOS-POC-5Q.** `PlayURL` is the only
+  decoder for it on **both** the spider and the CMS path — reading it as a `String` used to throw on
+  one and be swallowed into 「這一集沒有可播放的網址」 on the other. The player sheet shows a quality
+  menu when a source offers more than one, defaulting to the highest unless a remembered choice says
+  otherwise. `Bili` expresses its qualities as **one line per quality**, because every `qn` costs its
+  own `playurl` call. No configured source returns a `url` array, so the menu has never been
+  triggered by real data. `docs/IOS-POC-5Q-playback-quality.md`.
+- **The app remembers what was watched since IOS-POC-5R.** `WatchHistory` follows Android's
+  `History.java` field for field, including `isNearEnding()`'s formula, and is keyed on **`Site.id`
+  rather than `siteKey`** because this configuration has four duplicate keys. One JSON file in
+  Application Support, written atomically, pruned to 60 days and 500 records. Playback samples every
+  five seconds while playing and writes again on close, background and end; reopening a title
+  resumes it; the detail screen marks the last episode; a 記錄 tab lists everything; and
+  **`app.history` answers real data** in Android's exact field shape. Only the built-in player is
+  recorded — a URL scheme has no way back. `docs/IOS-POC-5R-watch-history.md`.
+- **Also implemented:** native Swift config/CMS core; SwiftUI iPhone shell with Android-like
+  wallpaper and settings; AVPlayer plus Infuse, Fileball, SenPlayer and VidHub; type-0, type-1 and
+  type-4 sources; two-level category browsing, CatVod filter rows, scrolling category rows, a Top
+  button and collapsible child rows; pagination; configuration from an imported file **or any HTTPS
+  Raw URL** with schema validation, last-known-good caching, atomic replace, last-update status,
+  manual refresh and a retrying launch refresh; a config-relative resource resolver; and a **WebHome
+  bridge over `WKWebView` + `WKScriptMessageHandler`** covering the network, cache, UI, navigation,
+  information and playback methods on one persistent `PlaybackSession`.
+- **Not implemented:** a Python runtime (42 sites), a drpy JavaScript loader (5 sites), the 23
+  portable-but-unported `csp_*` sites, `CatVodHost` RSA and `proxy` plumbing, the configuration's
+  `ads`/`rules` and the rest of IOS-POC-5S including opening/ending skip, `player.preloadArtwork`,
+  `pan.*`, `app.open*`, `net.resourceUrl` proxying, `ui.setChrome`/`restoreChrome`, device signing,
+  and the SideStore/IPA release pipeline. A source-specific DNS or TLS error does not prove a global
+  iOS network bug.
+- **The 137 type-3 sites, as measured 2026-09-16/17.** 90 are `csp_*`, 42 Python, 5 drpy JavaScript.
+  Of the 90 `csp_*`: **54 sites over 26 of the 51 distinct classes are portable**, of which **32
+  sites / 8 classes are ported**; **34 sites / 23 classes are blocked by a native-encrypted
+  payload** in `aowu-0722.jar` and `fan-0720.jar`, whose `csp_*` classes are empty shims — **that is
+  protection, not obfuscation, and it must not be attacked**; and **2 sites** are only missing
+  downloads, so their portability is unknown rather than impossible. The 42 Python sites are
+  expensive but architecture-compatible (standard library plus `requests`/`pycryptodome`/`base`; only
+  1 of 38 files touches `android.`), and the 5 drpy sites are the most plausible of all since iOS
+  ships JavaScriptCore. **Neither group may be called impossible.** Audit:
+  `docs/CSP_PORTABILITY_MATRIX.md`; progress: `docs/CSP_MIGRATION_STATUS.md`; Python/drpy
+  measurement: `docs/IOS-TYPE3-REACHABILITY-2026-09-16.md`, whose `csp_*` section is superseded.
+- **Nothing has ever run on a real device.** The Xcode project carries no `CODE_SIGN` or
+  `DEVELOPMENT_TEAM` setting; every verification to date is simulator-only, on an iPhone 17 Pro.
+- **ATS policy changed by explicit user decision on 2026-09-15 (IOS-POC-4B).** Most configured
+  sources are cleartext `http`; the user was offered a narrow per-domain exception, no change, or
+  global cleartext, was told the earlier records forbid weakening ATS globally for one site, and
+  chose global cleartext. `ios/WebHTVApp/Info.plist` sets `NSAllowsArbitraryLoads`. Do not broaden
+  transport security further. No server-trust override was added, so HTTPS certificate evaluation
+  remains the system default — reasoned from the code, not measured.
+- **The next stages are fixed, by the user on 2026-09-18**, and this replaces every earlier ranking:
+  **(1) POC-3, the drpy JavaScript loader** for the 5 `./drpy_libs/*.js` + `./json/4k.js` sources —
+  reuse the existing JavaScriptCore runtime, `CatVodHost` and `host.js`, **never build a second
+  JavaScript runtime**, and treat it as load + execute + `SourceClient` routing rather than a new
+  ABI; one minimal source end to end with a golden first, then all 5. **(2) POC-4**, a
+  minimum-viable Python runtime POC. **(3) the first real-device verification**, as a milestone in
+  its own right. **(4) IOS-POC-5S** and only then more `csp_*` ports. **Do not prioritise XueLuo,
+  QimaoDJ, AppDrama or any further `csp_*` class**; the IOS-POC-5N candidates stay in the backlog.
+  A future Official/XPTV-style build (0 bundled sources, user-imported config, pack disabled) is an
+  architecture boundary to remember, **not** something to fork the runtime for now.
+- Per-stage records: `docs/IOS-POC-1E-config-persistence.md`, `docs/IOS-POC-1F-config-sources.md`,
+  `docs/IOS-POC-2B-webhome-bridge.md`, `docs/IOS-POC-2D-webhome-bridge-ui-info.md`,
+  `docs/IOS-POC-2E-webhome-bridge-playback.md`, `docs/IOS-POC-4A-type4-sources.md`,
+  `docs/IOS-POC-4J-type0-xml-sources.md`, `docs/IOS-POC-5D` through `docs/IOS-POC-5R-*.md`, and
+  `docs/IOS-PORTING-HANDOFF-2026-09-13.md` for the original architecture assessment (written against
+  an older 208-site resource set; its 136 `csp_*` figure is historical).

@@ -6,7 +6,11 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current Scope
 
-- Branch `ios-poc`, HEAD after IOS-POC-5L. `03ba9cf0` **was pushed to `origin/ios-poc` on 2026-09-17** at the user's explicit instruction; the IOS-POC-5L commits sit on top of it and are local. **Re-check with `git log` rather than trusting any id quoted here.**
+- Branch `ios-poc`. **Verified 2026-09-18 at HEAD `261b5c03` (IOS-POC-5R): 2 commits ahead of
+  `origin/ios-poc`, 0 behind, worktree clean.** The two local commits are IOS-POC-5Q (`0ab06a3c`)
+  and IOS-POC-5R (`261b5c03`); everything through `d571f3a7` is pushed. **Re-check with `git log`
+  rather than trusting any id quoted here** — an earlier revision of this line still said "HEAD
+  after IOS-POC-5L".
 - Android `app/` is read-only for all iOS work and has never been modified: `git diff <branch-point>..HEAD -- app/` is empty, and every commit on this branch touches only `ios/`, `docs/`, `scripts/`, `AGENTS.md` and `.codex/`.
 - **The input configuration lives in the scratchpad, not `/tmp`.** `/tmp/webhtv-recha-new.wprHof/` was cleared mid-session; `wang-movie.json` was re-fetched from the user's own GitLab and its SHA-256 matches the recorded baseline byte for byte. Re-fetch it from `https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json` if it is missing. `recha-main.zip` was **not** restored, so `scripts/audit_spider_jars.py` cannot be re-run without downloading it again.
 - Stages through IOS-POC-4J have an annotated `recovery/<task-id>/*` tag; tags through `IOS-POC-1H` are on the remote. **Recovery tags became opt-in on 2026-09-16** (AGENTS.md §6), so IOS-POC-5A onwards are deliberately untagged.
@@ -67,6 +71,8 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 5O | Remote compatibility pack: spider scripts update without rebuilding the app | `docs/IOS-POC-5O-remote-compatibility-pack.md` |
 | 5P | A spider's request headers reach `AVPlayer`, the probe and the sniffer | `docs/IOS-POC-5P-player-request-headers.md` |
 | 5Q | `playerContent`'s `url` reads all three CatVod shapes; `Bili` offers one line per quality; a quality menu in the player picker | `docs/IOS-POC-5Q-playback-quality.md` |
+| 5R | Watch history, resume, the 記錄 tab, the detail screen's last-episode mark, and `app.history` answering real data | `docs/IOS-POC-5R-watch-history.md` |
+| 5U | This reconciliation: the live handoff documents rewritten against the actual HEAD and test run | this document |
 
 ## Important Decisions
 
@@ -95,39 +101,38 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 
 ### Sources and browsing
 
-#### Source coverage, measured at HEAD `3e8a7a84`
+#### Source coverage at HEAD `261b5c03`
 
-Counted directly from the 167-site `wang-movie.json`, not carried over from an earlier record.
+Counted directly from the 167-site `wang-movie.json` by
+`listsThePortedSpiderSitesAlongsideTheNativeCMSSites`, which asserts every number in this table and
+passes at this HEAD. Earlier revisions of this section said 45 and 61; both are stale.
 
 | group | sites | status |
 |---|---:|---|
-| type-0 MacCMS XML | 2 | listed; **2 play** |
-| type-1 MacCMS JSON | 22 | listed; **20 play** on 2026-09-17 — the three `/share/` player pages are sniffed since 5G; the two `如意` hosts served dead media that day |
-| type-4 CatVod remote API | 6 | listed; **4 play**, 2 return nothing (403 host, and 43 empty categories) |
-| type-3 `csp_*` spiders | 90 | **32 listed** since IOS-POC-5M; the rest blocked on provider state or the missing player headers |
+| type-0 MacCMS XML | 2 | listed |
+| type-1 MacCMS JSON | 22 | listed |
+| type-4 CatVod remote API | 6 | listed |
+| type-3 `csp_*` spiders | 90 | **32 listed** through 8 ported classes |
 | type-3 Python (`./py/*.py`) | 42 | not implemented — no Python runtime |
 | type-3 drpy JavaScript (`./drpy_libs/*.js`, `./json/4k.js`) | 5 | not implemented — no drpy loader |
-| **total** | **167** | **61 listed; 37 measured playable** (26 native + 11 spider) |
+| **total** | **167** | **62 listed** (30 native + 32 spider) |
+
+**Listing is not working, and the playable count is currently unmeasured.** The last coherent
+sweep was **37 of 61 playable on 2026-09-17** (26 of 30 native, 11 of 31 spider), and it predates
+three stages that change the answer: IOS-POC-5M added 薦片, IOS-POC-5P gave the player the request
+headers the four `Bili` sites were failing without, and IOS-POC-5Q changed how `Bili` reports its
+episodes. **Do not quote 37 of 61 as current** — quote 62 listed, and say the playable count has not
+been re-measured since 5L. Per-site tables, both historical:
+`docs/IOS-POC-5L-appqi-app99-app3q-bili.md` (61 sources) and
+`docs/IOS-POC-5E-all-source-sweep.md` (the earlier 45).
+
+**Provider state moves by the hour and a bad sweep is not a regression.** A run the same afternoon
+as the 37/61 one collapsed to 10 playable with 9 TLS certificate failures that `curl` reproduced;
+2026-09-17 and 2026-09-18 both had windows like that. Re-measure before calling anything broken.
 
 **IOS-POC-5D closed the routing gap that used to sit here.** `ConfigView` lists
 `drivableSites(resolvedBy:)` and every content call goes through `SourceClient`, which routes a
-site to either `CMSClient` or a cached `SpiderSession`. The caption counts `drivableSites`, so it
-now reads 「目前支援 62 個來源」.
-
-**Listing is not working.** Every listed source is swept through the app's own path and then the
-**first bytes of every resolved stream are fetched**, because a URL resolving and the media existing
-are different things. Last coherent aggregate, 2026-09-17 after IOS-POC-5L: **37 of 61 playable**, 7 resolve media
-that 403s or 404s, 1 gives episodes but no URL, 1 gives titles but no episodes, 15 are empty.
-Native is 26 of 30, spiders 11 of 31. Almost every failure is provider state — dead or 504-ing
-hosts, an expired VIP account, a provider serving its own 「site closed」 clip — with one structural
-exception: the four `Bili` sites resolve a genuine progressive MP4 that bilibili's CDN refuses
-without a `Referer`, which `AVPlayer` cannot send until per-request headers are threaded through
-`PlayerView`. Per-site tables: `docs/IOS-POC-5L-appqi-app99-app3q-bili.md` (current) and
-`docs/IOS-POC-5E-all-source-sweep.md` (the earlier 45-source run). IOS-POC-5M adds 薦片 (verified
-playable on its own, three ways) for 62 listed. **Provider state moves by the hour and repeated
-sweeps degrade it** — a later run the same afternoon collapsed to 10 playable with 9 TLS
-certificate failures that `curl` reproduced, which is a measurement of the network, not a
-regression. Re-measure before calling anything broken. **Quote 37 of 61, not 61.**
+site to either `CMSClient` or a cached `SpiderSession`. The caption reads 「目前支援 62 個來源」.
 
 #### The 90 `csp_*` sites
 
@@ -164,6 +169,27 @@ without further code, which is why they are worth more than their site counts su
 
 - The built-in player is a full-screen cover with its own close control, not a push inside the picker sheet. A page sheet is inset and rounded, so the player used to inherit those bounds and the app wallpaper showed around the video. Letterbox bars for a 16:9 video in a portrait screen are correct aspect-ratio behaviour and are left alone; the player now draws them on its own black background.
 
+### Watch history (IOS-POC-5R)
+
+- `WatchHistory` + `WatchHistoryStore` in `ios/Sources/WebHTVCore/WatchHistory.swift`: one JSON file
+  in Application Support, written with `Data.write(options: .atomic)`, read behind an actor, pruned
+  to 60 days (`Constant.HISTORY_TIME`) and 500 records. A corrupt file costs the history, not the
+  launch.
+- Fields follow `History.java` so `app.history` is a reproduction rather than an extension, and the
+  formulas are Android's: `canSave()`, and `isNearEnding()` as one percent of runtime clamped to
+  5–30 s. **The key is `Site.id`, not `siteKey`** — the configuration has four duplicate keys, and
+  keying on the key alone would merge two providers into one record. `androidKey` (`siteKey@@@vodId`)
+  is the only form that leaves the app, because a page splits it.
+- `quality` is an iOS-only field: Android expresses every quality as a line, and since IOS-POC-5Q one
+  line can carry several. It is deliberately absent from the `app.history` payload.
+- Playback carries the site and title identity it never had. Position is sampled every five seconds
+  **only while actually playing**, and written again on player close, on entering the background, at
+  the end of an item, and on `control("stop")`.
+- Reopening a title resumes it when the stored position is past ten seconds and not inside the
+  near-end window; the detail screen marks the last episode; the 記錄 tab lists everything with
+  「看到 m:ss / m:ss」. Only the built-in player is recorded — a URL scheme gives an external player
+  no way back.
+
 ### Configuration
 
 - The configuration comes from an imported file or any HTTPS Raw URL. `ConfigSource.resourceURL(for:)` resolves `./jar/…`, `./py/…`, `./json/…`, `./drpy_libs/…` against the config's own directory, drops the `;md5;<hash>` suffix, passes absolute references through, and refuses anything that is not a relative path so `csp_*` class names are never mistaken for resources. **This locates resources; it does not download, verify or execute them.**
@@ -174,7 +200,7 @@ without further code, which is why they are worth more than their site counts su
 
 - `WKWebView` + `WKScriptMessageHandler` reproducing the Android string-RPC contract. Implemented: `net.request`, `player.playUrl`, **`player.playVod`, `player.playVodInline`, `player.control`, `player.status`**, `app.search`, `app.history`, `cache.get/set/del`, `ui.getViewport`, `ui.setToolbar`, `navigation.back`, `navigation.reload`, `site.info`, `config.info`, `ext.info`, `ext.log`, `ext.toast`, `device.info`.
 - Android payload shapes are reproduced field for field including the fields iOS cannot fill; a missing value is zero, empty or false rather than omitted, so a page never reads `undefined`.
-- Deviations, each commented in code: `net.resourceUrl` returns the raw URL (no local proxy server); results are never chunked, so the synchronous `resultLength`/`resultChunk` accessors are unnecessary; `app.history` returns `[]` until a history store exists; `device.info` is built natively; Android-only gesture and system-bar insets are zero; `site.info` omits `homePage`, `chromeMode`, `webHomeChrome`, `header`; `config.info` has no `id` or `desc`.
+- Deviations, each commented in code: `net.resourceUrl` returns the raw URL (no local proxy server); results are never chunked, so the synchronous `resultLength`/`resultChunk` accessors are unnecessary; `app.history` **answered `[]` until IOS-POC-5R and now returns the real store** in Android's field shape, minus `quality`, which has no Android counterpart; `device.info` is built natively; Android-only gesture and system-bar insets are zero; `site.info` omits `homePage`, `chromeMode`, `webHomeChrome`, `header`; `config.info` has no `id` or `desc`.
 - Still outside the bridge, each for a stated reason: `net.resourceUrl` proxying (no local server), `player.preloadArtwork` (`AsyncImage` has no preload hook, so it would be a no-op claiming success), `app.open*` (no Live or Keep screen), `pan.*` (no drive-check service), `ui.setChrome` / `restoreChrome` (no equivalent surface). All reject with the same `Unknown method` the Android default branch produces.
 
 ### Playback session (IOS-POC-2E)
@@ -196,57 +222,87 @@ without further code, which is why they are worth more than their site counts su
   MD5/SHA/HMAC, and per-site namespaced storage. `Resources/Spiders/host.js` is the JavaScript half:
   `pdfh`/`pdfa`/`pd` selectors, `host.cut` text slicing, and the CatVod result builders.
 - A spider that re-implements HTTP, crypto or parsing is a bug — the primitive belongs in
-  `CatVodHost`. `RSA`, WebView sniffing and `proxy` host plumbing are **not implemented**;
-  `csp_AppDrama` needs RSA before it can be ported.
+  `CatVodHost`. `RSA` and `proxy` host plumbing are **not implemented**; `csp_AppDrama` needs RSA
+  before it can be ported. **WebView sniffing is implemented** — `MediaSniffer` since IOS-POC-5G —
+  but natively, above the spider, not as a `host.*` primitive; an earlier revision of this line
+  listed it as missing, contradicting `docs/IOS_SPIDER_RUNTIME_SPEC.md`, which is the authority.
 - `XBPQ`'s 331 rule keys were recovered by decoding the decompiled `merge/xbpq/HaB.d` string table
   (hex + XOR `"wxEesU"`). That is ordinary bytecode inspection, unrelated to the native-protected
   JARs, which are left alone.
 
 ## Build / Test / Verification Status
 
-- **At the IOS-POC-5Q commit: 110 tests, 109 pass** (`WANG_MOVIE_JSON=<config> swift test
-  --package-path ios`). It was 96/95 at `d571f3a7`; IOS-POC-5Q added 14. The single failure is the
-  same pre-existing live-network one described in the next bullet — **do not "fix" it.**
-- **IOS-POC-5Q verification (2026-09-18), full detail in `docs/IOS-POC-5Q-playback-quality.md`:**
-  the new `biliOffersMultipleQualityLines` golden passed live (`B站 清晰 480P` / `B站 流畅 360P`,
-  distinct `qn`, best first, and the best line's stream probed as `.media`); the existing
-  `appGetDrivesTheWholeCatVodFlowAgainstTheLiveSite` golden passed unchanged, which is what proves
-  the single-string path did not move; `xcodebuild … -scheme WebHTVApp` → BUILD SUCCEEDED. In the
-  simulator `bilbil合集` browses, filters and renders its grid normally, but **the detail screen was
-  unreachable: a synthetic tap on a poster cell does nothing**, which extends the known episode-button
-  defect to the grid's `NavigationLink` cells. **Only 480P/360P were offered**, because `qn > 80`
-  needs a SESSDATA the configured sites' expired cookies cannot supply — that measures the account,
-  not the port.
-- **At HEAD `3e8a7a84`: 77 tests, 76 pass.** The single failure is
-  `reportsLiveType4SitesFromProvidedConfig`, a **pre-existing live-network** check: 88看球 resolves
-  an episode to `https://embed.st/embed/…`, an HTML page, and the test asserts direct media through
-  `CMSClient`, which has no sniffer hop. It failed identically at earlier HEADs. **Do not "fix" it.**
-  The 45-source sweep independently classifies that site as playable *through `SourceClient`*, which
-  is the path the app uses — the test and the sweep disagree because they drive different layers.
+Everything in this section is from **HEAD `261b5c03`** unless it names an earlier stage. The three
+conflicting test counts that used to sit here (77/76, 96/95, 110/109, each from a different HEAD)
+have been collapsed into the first bullet.
+
+- **124 tests, all 124 pass** — `WANG_MOVIE_JSON=<config> swift test --package-path ios`, measured
+  2026-09-18. The trajectory: 96 at `d571f3a7`, 110 after IOS-POC-5Q, 124 after IOS-POC-5R.
+- **`reportsLiveType4SitesFromProvidedConfig` passed this run, and that is not a change in the
+  code.** It is a live-network check: 88看球 resolves an episode to an HTML page, and the test
+  asserts direct media through `CMSClient`, which has no sniffer hop. It failed twice earlier on
+  2026-09-18 and passed on the third run, which is exactly what a provider-state check looks like.
+  **Do not "fix" it when it fails.** The sweep classifies that site as playable *through
+  `SourceClient`*, the path the app actually uses; the two disagree because they drive different
+  layers.
 - **The suite is stable across runs since IOS-POC-5H.** Four bridge tests used to fail
   intermittently; they recorded callbacks through a detached `Task` and read the result immediately.
-  Four consecutive full runs now end with exactly the one failure above.
+- `xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -configuration Debug build` → **BUILD SUCCEEDED**.
 - Gated live checks stay off by default: `WANG_MOVIE_URL` (remote config), `CSP_GOLDEN_SITE` (spider
-  goldens), `SWEEP_CONFIG` + `SWEEP_BASE` (the 45-source sweep).
+  goldens, including IOS-POC-5Q's own `biliOffersMultipleQualityLines`), `SWEEP_CONFIG` +
+  `SWEEP_BASE` (the whole-configuration sweep).
 - **Toolchain: Xcode 27 / Swift 6.4.** It changed mid-session and the project stopped building at the
   then-current HEAD; the Swift 6 region-isolation repairs are recorded in the IOS-POC-5D document.
   There is no older Xcode on this machine.
-- **Spider goldens re-run live 2026-09-17, all three ported classes, each ending in `parse:0`:**
-  `AppGet` (王子) home 6 classes → category 30 items → detail 5 flags → search 20 →
-  `https://vv.jisuzyv.com/play/…/index.m3u8`; `XBPQ` (果果短剧) 8 classes → 30 items →
-  `https://vodcnd17.uvjtih.cn/…/index.m3u8`; `XYQHiker` (农民影视) 5 classes → 30 items → flags
-  `[线路①, 线路②]` → search 20 → `https://1853039965.cdn.123clouddisk.com/….m3u8`. No regression.
-- `xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -configuration Debug build` → BUILD SUCCEEDED.
-- Remote config, against the real GitLab Raw URL (measured at IOS-POC-1F, when 28 sites were supported): 125,864 bytes, 167 sites, cached SHA-256 identical to the remote, resolved `jar/fm.jar` HTTP 200. An unreachable URL left the sources and cache intact. Launch retry proven with a local server armed to fail twice — exactly three requests, adopted on the third.
-- Simulator, end to end: `爱瓜TV` grid → 莲花楼 detail with 41 episodes → episode 01 plays in the built-in player. Type-1 `如意` and `360` grids load with real posters and both category rows. Pagination scrolls past the first page on both types.
-- WebHome bridge in the simulator with the unmodified devkit showcase page: badge reads `SDK: native`; `fm.req JSON` logged `req-json ok (799ms)` with the full contract shape; the HLS button played the stream; `cache-set ok`; `ext-info` and `config` logged real payloads; `legacy hide`/`show` removed and restored the navigation bar.
-- **IOS-POC-2E end to end, from the page:** `vodInline 多集` played the inline MP4; with the player closed, `播放状态` returned a live envelope (`duration 90080`, `position 28136`, `state 2`); `fm.ctrl play` advanced it to `state 3`, `position 41502`; `fm.ctrl next` switched the reported url and title to the HLS episode (`speed 1`, `position 10511`); `fm.ctrl pause` returned `{}` and the next status read `speed 0`. `调用 fm.vod` with `vod_360` / `101020` logged `vod ok (229ms)`, opened the native detail screen with ten live episodes and played episode 1, and a following status reported that stream.
+
+### Live golden runs
+
+- **2026-09-18 (IOS-POC-5Q).** `biliOffersMultipleQualityLines` — a bilibili title returned
+  `B站 清晰 480P` and `B站 流畅 360P`, distinct `qn`, best first, and the best line's stream probed
+  as `.media`. Only 480P/360P were on offer because `qn > 80` needs a SESSDATA the configured sites'
+  2025 cookies cannot supply: that measures the account, not the port.
+  `appGetDrivesTheWholeCatVodFlowAgainstTheLiveSite` passed unchanged, which is what proves the
+  single-string `url` path did not move.
+- **2026-09-17, all three then-ported classes, each ending in `parse:0`:** `AppGet` (王子) home 6
+  classes → category 30 items → detail 5 flags → search 20 → `…/index.m3u8`; `XBPQ` (果果短剧) 8
+  classes → 30 items → `…/index.m3u8`; `XYQHiker` (农民影视) 5 classes → 30 items → flags
+  `[线路①, 线路②]` → search 20 → `….m3u8`.
+
+### Simulator runs (iPhone 17 Pro)
+
+- **IOS-POC-5R end to end, 2026-09-18** — the fullest one on record. `愛瓜 PHP` → `莲花楼` →
+  普快线路 01 → the player sheet showed **no quality section**, which is the correct behaviour for a
+  single-URL source and the reverse check on IOS-POC-5Q. Sixteen seconds in, the app container held
+  a record keyed on `Site.id` with `position 28261`, `duration 2796399`, flag `普快线路`, episode
+  `01`. Closing the player advanced it to `44292`. The detail screen came back with episode 01
+  marked. The 記錄 tab listed 「莲花楼 / 愛瓜｜PHP · 普快线路 · 01 / 看到 0:44 / 46:36」. Replaying
+  from that list read `53487` after seven seconds — it **resumed rather than restarted**.
+- **IOS-POC-5Q, 2026-09-18.** `bilbil合集` browses, filters and renders its grid. The detail screen
+  was not reached that day: taps on the grid cells did nothing. **That did not reproduce in the 5R
+  run above**, where grid cells and episode buttons both responded, so the earlier failure was more
+  likely coordinate mis-mapping than the known synthetic-tap defect. Neither confirms nor clears it.
+- Earlier: `爱瓜TV` grid → 莲花楼 detail with 41 episodes → episode 01 plays. Type-1 `如意` and `360`
+  grids load with posters and both category rows. Pagination scrolls past the first page.
+- WebHome bridge with the unmodified devkit showcase page: badge reads `SDK: native`; `fm.req JSON`
+  logged `req-json ok (799ms)`; the HLS button played; `cache-set ok`; `ext-info` and `config` logged
+  real payloads; `legacy hide`/`show` removed and restored the navigation bar.
+- **IOS-POC-2E/2F from the page:** `vodInline 多集` played the inline MP4; with the player closed,
+  `播放状态` returned a live envelope (`duration 90080`, `position 28136`, `state 2`); `fm.ctrl play`
+  advanced it to `state 3`; `next` switched url and title; `pause` returned `{}` and the next status
+  read `speed 0`. `fm.vod` with `vod_360` / `101020` opened the native detail screen and played
+  episode 1.
+- Remote config against the real GitLab Raw URL (measured at IOS-POC-1F): 125,864 bytes, 167 sites,
+  cached SHA-256 identical to the remote, resolved `jar/fm.jar` HTTP 200. An unreachable URL left the
+  sources and cache intact. Launch retry proven with a local server armed to fail twice.
 
 ## Risks / Unverified
 
 - **Nothing has ever run on a real device.** The Xcode project has no `CODE_SIGN` or `DEVELOPMENT_TEAM` setting. Every result above is from the iPhone 17 Pro simulator.
 - **Not measured: that HTTPS certificate validation is still enforced.** It is reasoned from the code — no `URLSessionDelegate`, no `serverTrust` handling anywhere — but no test against a known-bad certificate was run.
-- Not driven from the WebHome page, covered only by offline tests: `cache.get`, `cache.del`, `app.search`, `app.history`, `device.info`, `site.info`, `ui.getViewport`, `ext.toast`, `navigation.back`, `navigation.reload`.
+- Not driven from the WebHome page, covered only by offline tests: `cache.get`, `cache.del`,
+  `app.search`, `app.history`, `device.info`, `site.info`, `ui.getViewport`, `ext.toast`,
+  `navigation.back`, `navigation.reload`. **`app.history` answers real data since IOS-POC-5R** — it
+  is on this list because no page has asked it for that data yet, not because it is still a stub.
 - **IOS-POC-2F closed the playback gaps.** All seven `player.control` actions and the inline JS resolver have now been driven from the page; see the IOS-POC-2F section of the 2E document for the evidence. No code changed.
 - `player.status.position` is the media's own playhead. A reading taken after a control tap includes the delay between the two taps — an earlier reading of `6000` right after `replay` was misread as an HLS timeline origin offset, and the normalisation written for it was measured, disproved and reverted.
 - `player.playUrl` reports an empty `artwork` because `Actions.play` carries only a URL and a title; `playVod`, `playVodInline` and the CMS path all report the real poster.
@@ -266,6 +322,11 @@ without further code, which is why they are worth more than their site counts su
   entry in the player sheet opens that URL exactly as the source gave it. Marked `ponytail:` in
   `SourceClient.swift` and `WebHTVApp.swift`. **No source in this configuration returns a `url`
   array**, so the quality menu has never been triggered by real data — its gate is a unit test.
+- **Watch history is local and built-in-player only (IOS-POC-5R).** An external player is opened
+  through a URL scheme, which has no way back, so nothing watched in Infuse, Fileball, SenPlayer or
+  VidHub is ever recorded (K6). There is no cross-device sync: Android has its own local HTTP server
+  for that and iOS has no equivalent. The store rewrites the whole JSON file on every save, at most
+  every five seconds and only while actually playing — marked `ponytail:` with the upgrade path.
 - **The sniffer is best effort and timing-sensitive.** `MediaSniffer` hooks `XMLHttpRequest`,
   `fetch` and media `src` — `WKWebView` has no `shouldInterceptRequest`, so there is no way to see
   every subresource. A stream fetched inside a Worker or through WASM is not caught. It is also
@@ -288,12 +349,16 @@ without further code, which is why they are worth more than their site counts su
   run passed only because the absolute GitLab Raw URL was substituted by hand. Confirmed in the
   app at IOS-POC-5D: 农民 resolved and played correctly **because the configuration came from a
   remote URL**. `XBPQ`'s 7 sites and `AppGet`'s 5 carry inline `ext` objects and are unaffected.
-- Still not implemented: a Python runtime (42 sites), a drpy JavaScript loader (5 sites), the 36
-  portable-but-unported `csp_*` sites, `CatVodHost` RSA and `proxy` plumbing, a watch-history store
-  (IOS-POC-5R), the configuration's `ads`/`rules` (IOS-POC-5S — `WebHTVConfig` still decodes only
-  `sites`), WebHome sites in `wang-movie.json` (this config has none), and SideStore/IPA delivery.
-  **Per-request playback headers landed in IOS-POC-5P**, and **multi-quality `url` handling in
-  IOS-POC-5Q**; earlier versions of this line listed both as missing.
+- **Still not implemented, as of `261b5c03`:** a Python runtime (42 sites), a drpy JavaScript
+  loader (5 sites), the 23 portable-but-unported `csp_*` sites, `CatVodHost` RSA and `proxy`
+  plumbing, the configuration's `ads`/`rules` (`WebHTVConfig` decodes only `sites`) and everything
+  else in IOS-POC-5S including opening/ending skip, `player.preloadArtwork`, `pan.*`, `app.open*`,
+  `net.resourceUrl` proxying, `ui.setChrome`/`restoreChrome`, WebHome sites in `wang-movie.json`
+  (this config has none), device signing, and SideStore/IPA delivery.
+  **Landed and no longer future work:** the `AppQi`/`App99`/`App3Q`/`Bili` ports (IOS-POC-5L),
+  `JianPian` for 薦片 (5M), the compatibility pack (5O), per-request playback headers (5P),
+  multi-quality `url` handling (5Q), and the watch-history store with resume and `app.history`
+  (5R). Earlier revisions of this line listed several of those as missing.
 - **Filter rows exist only where the source publishes them.** MacCMS has no filter protocol and
   neither rule engine exposes one, so only `AppGet` sites show 類型/地區/語言/年代/排序. That is
   correct behaviour, not a missing feature.
@@ -308,38 +373,42 @@ without further code, which is why they are worth more than their site counts su
 
 ## Next Recommended Step
 
-Agree exactly one bounded stage with the user first.
+**The order below was fixed by the user on 2026-09-18 and supersedes every earlier ranking in this
+document.** The previous list recommended `aowu-0722.jar` recovery, the App-API batch port and
+per-request headers; the last two are done and the first is explicitly deprioritised.
 
-1. **`aowu-0722.jar` compatibility recovery — the user asked for this and it is blocked on one
-   thing.** The method they specified is right: never try to get logic out of the 18 empty shim
-   classes, work per class family, start with `AppV7Amns` (9 sites), look for a portable equivalent
-   of the same site first, and only then treat the Spider as a black box on Android to record the
-   real HTTP contract. **But the first step cannot run yet**: those 9 sites' `ext` is itself an
-   encrypted hex blob (all nine share the middle `5714a2413f05151fea6864509533510f`), so the site
-   identity is unknown and there is nothing to search for an equivalent of. The order has to invert
-   — observe first, then compare.
-   *Environment:* `adb`, `emulator` and a `Pixel_8` AVD exist; **no mitmproxy/Charles**, and no
-   WebHomeTV APK yet (it would have to be built from `app/`, which has native dependencies).
-   *Cheapest first probe, ~10 minutes:* Android's `SpiderDebug.log` writes spider requests to
-   logcat, so `adb logcat` may reveal the URLs with no proxy and no CA install. Try that before
-   committing to the full 1.5–2 h environment build.
-   Mark each family `portable` / `needs host primitive` / `protected-only` / `provider-dead`, and
-   put any missing AES/MD5/header/token/JSON/HTML helper in `CatVodHost`, never in one spider.
-2. **Batch-port the 苹果CMS App-API family:** `AppQi` (6 sites), `App99` (4), `App3Q` (2), then
-   `Bili` (4, public API, no crypto). Lowest cost per site, because they share `AppGet`'s shape —
-   and `AppGet` is now the best-understood port. **The `AppQi` static reading is already done** and
-   recorded in `docs/CSP_MIGRATION_STATUS.md`, including the two things that must not be copied from
-   `AppGet.js`. `AppDrama` (4) needs RSA in `CatVodHost` first.
-3. **Per-request playback headers.** The sniffer sends a correct `Referer` and then hands the URL to
-   `AVPlayer` without one, because `PlayerView` does not thread `AVURLAsset` options through. This
-   is the last known playback gap that is ours rather than a provider's.
-4. **Device deployment.** Needs the user's Apple ID and hardware. Free provisioning's 7-day expiry
-   versus a paid account versus SideStore is still open.
+1. **POC-3 — the drpy JavaScript loader.** The next bounded functional stage, covering the 5
+   `./drpy_libs/*.js` + `./json/4k.js` sources. Hard constraints from the user: reuse the existing
+   JavaScriptCore runtime, `CatVodHost` and `host.js` (which already exposes the drpy-compatible
+   `pdfh`/`pdfa`/`pd`); **never build a second JavaScript runtime**; `ConfigSource` already resolves
+   `./drpy_libs/`, so the work is load + execute + `SourceClient` routing, not a new ABI. Do one
+   minimal drpy source end to end with a golden first, then widen to all 5. A primitive a drpy script
+   needs goes into the shared `CatVodHost`, never into one site's script.
+2. **POC-4 — a minimum-viable Python runtime POC** for the 42 Python sites. **They must not be
+   called impossible**: measured 2026-09-16, only 1 of 38 files touches `android.`. Scope is one
+   source through `home → category → detail → search → player`, plus an assessment of an acceptable
+   iOS CPython embedding, the minimum `base` host contract, an HTTP/`requests` strategy and the
+   necessary slice of `pycryptodome`. No Android DEX/JAR execution. App Store distribution risk is
+   not a reason to reject a Personal/SideStore runtime.
+3. **The first real-device verification — a milestone in its own right.** Signing and
+   `DEVELOPMENT_TEAM`, then remote config, CMS, spider, WKWebView/WebHome, AVPlayer headers, external
+   players and persistence all re-checked on hardware. SideStore/TestFlight/App Store distribution
+   can be decided later; the first device run cannot keep being deferred.
+4. **Then IOS-POC-5S** (config `ads` blocking, `rules.script` injection, opening/ending skip) and
+   only then more `csp_*` ports.
 
-Lower priority: drive the remaining offline-only bridge methods from a page (`cache.get`/`del`,
-`app.search`, `app.history`, `device.info`, `site.info`, `ui.getViewport`, `ext.toast`,
-`navigation.back`/`reload`), and a watch-history store that would turn `app.history` from an honest
-`[]` into real data and give the home screen a 繼續觀看 row.
+**Explicitly not next**, by the user's instruction: XueLuo, QimaoDJ, AppDrama or any further `csp_*`
+class. The IOS-POC-5N candidates (XueLuo, QimaoDJ, Duboku, HaokanDJ) stay in the backlog until the
+drpy, Python and device milestones are done.
+
+**Unchanged boundary:** `aowu-0722.jar`, `aowu.jar` and `fan-0720.jar` keep their native-encrypted
+payload and **must not be attacked**. `JPianAmns → JianPian` — an alias to a class proven to serve
+the same API — is the correct pattern for anything behind them.
+
+**Recorded, not to be built now:** a future Official/XPTV-style build would ship 0 sources, have the
+user import their own playlist, not bundle `wang-movie.json`, and could disable the remote executable
+compatibility pack, while the Personal/SideStore build keeps the full spider pack. That is an
+architecture boundary to remember, not a second product to fork.
 
 ## Resume Prompt
 
@@ -347,26 +416,24 @@ Paste this into a new session:
 
 > 接手 `/Users/chengchenchih/GIT/webhtv` 的 `ios-poc` 分支，透過本機終端操作，不要每步停下來問我確認。用台灣繁體中文回報。
 >
-> **先確認實際狀態，不要相信以下引用的任何 ID**：預期 HEAD 在 `3e8a7a84`，**領先 `origin/ios-poc` 9 個 commit 且尚未 push**，worktree clean。未經我明確授權不得 push。
+> **先確認實際狀態，不要相信以下引用的任何 ID**：預期 HEAD 在 `261b5c03`（IOS-POC-5R），**領先 `origin/ios-poc` 2 個 commit 且尚未 push**，worktree clean。未經我明確授權不得 push。
 >
-> 動手前必讀：`AGENTS.md`、`docs/AGENT_HANDOFF.md`、`docs/current-task-state.md`，以及 `docs/IOS_SPIDER_RUNTIME_SPEC.md`（runtime/ABI 唯一真實來源）、`docs/CSP_PORTABILITY_MATRIX.md`（51 class 靜態審計）、`docs/CSP_MIGRATION_STATUS.md`（移植進度）、`docs/IOS-POC-5E-all-source-sweep.md`（45 站逐站狀態表）。要動哪個階段就讀那個階段的 `docs/IOS-POC-5*.md`。
+> 動手前必讀：`AGENTS.md`、`docs/AGENT_HANDOFF.md`、`docs/current-task-state.md`、`docs/IOS_SPIDER_RUNTIME_SPEC.md`（runtime/ABI 唯一真實來源，含 compatibility pack 契約）、`docs/CSP_MIGRATION_STATUS.md`（移植進度）。要動哪個既有階段就讀那個階段的 `docs/IOS-POC-5*.md`。
 >
-> **這個 App 現在能做什麼**：iPhone 版 WebHomeTV。**App UI 列出 167 個設定來源中的 45 個**（2 type-0 + 22 type-1 + 6 type-4 + 15 個已移植 `csp_*` spider），其中 **36 個經實測可端到端播放**——**回報時引用 36，不要引用 45**。兩層分類、分頁、搜尋、詳情、五種播放器（內建 AVPlayer + Infuse/Fileball/SenPlayer/VidHub）、匯入檔或 HTTPS Raw URL 設定（schema 驗證 + LKG 快取 + 啟動重試）、config 相對資源解析器、WebHome bridge over WKWebView（全部方法都已實站驗證）。分類列會隨內容捲走、右下角有 Top 鍵、父分類可收合子分類、`AppGet` 站有類型/地區/語言/年代/排序篩選列。
+> **這個 App 現在能做什麼**：iPhone 版 WebHomeTV。列出 167 個設定來源中的 **62 個**（30 native + 32 spider），**可播數量自 IOS-POC-5L 之後沒有重新量過**——上一次是 2026-09-17 的 37/61，那是 5M／5P／5Q 之前的數字，不要當成現況引用。兩層分類、篩選列、分頁、搜尋、詳情、五種播放器、匯入檔或 HTTPS Raw URL 設定（schema 驗證 + LKG 快取 + 啟動重試）、WebHome bridge over WKWebView、spider compatibility pack 熱更新、播放帶來源要求的 request headers、`playerContent.url` 三形狀 + 畫質選單、以及**播放記錄／續播／記錄分頁／`app.history` 真資料**。
 >
-> **Spider 架構的核心原則**：不在 iOS 執行 Android DEX/JAR，而是用 JavaScriptCore 重現 `Spider.java` 的 text-in/text-out 契約。反編譯的 Java 只當規格書。共用 `CatVodHost`（native 半邊在 `Spider/Host/*.swift`，JS 半邊在 `Resources/Spiders/host.js`），drpy 未來共用同一套，**不要做第二套 runtime**。已移植 3 個 class：`AppGet`（5 站）、`XBPQ`（7 站，規則引擎）、`XYQHiker`（3 站，規則引擎）。`SourceClient` 負責把每個站路由到 `CMSClient` 或快取的 `SpiderSession`。
+> **Spider 架構核心**：不在 iOS 執行 Android DEX/JAR，而是用 JavaScriptCore 重現 `Spider.java` 的 text-in/text-out 契約；反編譯的 Java 只當規格書。已移植 8 個 class（`AppGet` 5 站、`AppQi` 6、`App99` 4、`App3Q` 2、`Bili` 4、`JianPian` 1、規則引擎 `XBPQ` 7 與 `XYQHiker` 3）。共用 `CatVodHost`，**不要做第二套 runtime**。
 >
-> **90 個 `csp_*` 的真實分布**：54 站可移植（51 個相異 class 中的 26 個）、34 站被 `aowu-0722.jar` 與 `fan-0720.jar` 的 **native 加密 payload** 擋住（class 全是空殼，**不要嘗試破解那層保護**）、2 站只是 JAR 沒下載。42 個 Python 與 5 個 drpy JavaScript 站尚未實作但架構上可行，**不可稱為不可能**。
+> **下一步照這個順序，不要自己改**：(1) **POC-3 drpy JavaScript loader**（5 個來源；共用既有 JavaScriptCore／`CatVodHost`／`host.js`，`ConfigSource` 已能 resolve `./drpy_libs/`，要補的是 load + execute + `SourceClient` routing，先一個來源 end-to-end golden 再擴到 5 個）→ (2) **POC-4 Python runtime 最小可行性驗證**（42 站，不得標為 impossible）→ (3) **第一次真機驗證**（signing／DEVELOPMENT_TEAM 起） → (4) IOS-POC-5S 廣告與片頭跳過，之後才是更多 CSP。**不要優先新增 XueLuo／QimaoDJ／AppDrama。**
 >
-> **驗證方式**：`WANG_MOVIE_JSON=<config> swift test --package-path ios` → 77 測試、76 通過。唯一失敗 `reportsLiveType4SitesFromProvidedConfig` 是既有的即時網路案例（88看球 走 `CMSClient`，該路徑沒有嗅探那一跳），**不要去修**。全站掃描：`SWEEP_CONFIG=<config> SWEEP_BASE=<remote url> swift test --package-path ios --filter sweepsEveryDrivableSource`。`xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -configuration Debug build` 通過。工具鏈是 **Xcode 27 / Swift 6.4**，機器上沒有舊版。
+> **驗證方式**：`WANG_MOVIE_JSON=<config> swift test --package-path ios` → **124 測試、124 全過**。`reportsLiveType4SitesFromProvidedConfig` 是即時網路案例（88看球），會因 provider 狀態時好時壞，**失敗時不要去修**。`xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -configuration Debug build` 通過。工具鏈是 **Xcode 27 / Swift 6.4**。
 >
-> **設定檔不在 `/tmp`**：`/tmp/webhtv-recha-new.wprHof/` 已被清空。`wang-movie.json` 要從 `https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json` 重新取得（SHA-256 應為 `b17576e34eb42b4c589a818ef8b5ec2655a2c7a188d626fc427c37d628897168`，167 站）。`recha-main.zip` 沒有還原，所以 `scripts/audit_spider_jars.py` 目前無法重跑。
+> **設定檔**從 `https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json` 取得（SHA-256 `b17576e34eb42b4c589a818ef8b5ec2655a2c7a188d626fc427c37d628897168`，167 站）。`recha-main.zip` 沒有還原，`scripts/audit_spider_jars.py` 目前無法重跑。
 >
-> **踩過的坑，不要重犯**：① HTML parser 的 tag regex 曾要求屬性間有空白；② `select()` 曾先用逗號切 selector group；③ 直連嗅探 regex 曾允許 `$`/`#`；④ `JavaScriptSpiderRuntime` 必須用 `invokeMethod` 派送；⑤ `player.status.position` 是媒體自身播放頭，不是時間軸偏移；⑥ **`ScrollView` 不是 lazy 容器**，marker 的 `onDisappear` 永遠不觸發，要判斷捲動位置請用 `LazyVGrid` cell 的生命週期；⑦ **測試不要用 `Task { }` 記錄再立刻讀**，那是競爭條件（`Actions` closure 都是 `@MainActor` 且 `handle` 會 await，直接同步記錄）；⑧ **站方的分類與篩選選項第一項通常已經是「全部」**，再加一個就會出現兩個；⑨ **判斷某站是我方 bug 還是站方問題前，一定要對那個 site key 的實際 host 發請求**——我曾把 `ylsp.tv` 的 404 誤套到 `ylys.tv`。
+> **踩過的坑**：① `decodeIfPresent` 對型別不符是 throw 不是回 nil；② `ScrollView` 不是 lazy 容器，判斷捲動位置要用 `LazyVGrid` cell 的生命週期；③ 測試不要用 `Task { }` 記錄再立刻讀；④ 站方的分類／篩選第一項通常已經是「全部」；⑤ **判斷某站是我方 bug 還是站方問題前，一定要對那個 site key 的實際 host 發請求**；⑥ 設定檔有 4 組重複 site key，`Site.id` 是 key+ext 不是 key——播放記錄就是靠這個才不會把兩站混在一起；⑦ `.gitignore:30` 的 `plans/` 會把 `docs/plans/` 一起忽略，task guard 的 `git add` 沒有 `-f`，所以計畫檔放 `docs/`。
 >
-> **規範**：每次功能變更前後各跑一次 Ponytail（改動前對設計、改動後對 final diff），結果寫進該階段 durable 文件；改動前 `bash .codex/scripts/task_guard.sh start --id <id> --mode <lane> --scope <path>...`，**scope 一次宣告齊全**（guard 不支援中途重新宣告，本次 session 因此擴了三次）；結束用 `finish ... --no-tag`。commit message 用檔案傳入（`-F`），不要直接放反引號進 shell。
+> **規範**：每次功能變更前後各跑一次 Ponytail，結果寫進該階段 durable 文件；改動前 `bash .codex/scripts/task_guard.sh start --id <id> --mode <lane> --scope <path>...`（scope 一次宣告齊全），結束用 `finish ... --no-tag`；commit message 用檔案傳入，並以 `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>` 結尾。
 >
-> **禁止事項**：不要改 Android `main` 或 `app/`（只讀，供比對契約）；未經我明確授權不得 push；commit 不要打 recovery tag；不要嘗試解密 aowu/fan 的 native payload；不要碰 Python/JAR-DEX 直接執行、CarPlay；不要恢復 Google TV `csp_JPianAmns` 修復；保留 `NSAllowsArbitraryLoads`（2026-09-15 我明確決定）但不得再放寬傳輸安全。
+> **禁止**：改 Android `main` 或 `app/`（唯讀，供比對契約）；未經我明確授權不得 push；commit 不打 recovery tag；不要嘗試解密 `aowu-0722.jar`／`aowu.jar`／`fan-0720.jar` 的 native payload；不要碰 Python/JAR-DEX 直接執行、CarPlay；保留 `NSAllowsArbitraryLoads` 但不得再放寬傳輸安全。
 >
-> **實機從未驗證**：專案沒有任何 `CODE_SIGN` / `DEVELOPMENT_TEAM`，所有結果都來自 iPhone 17 Pro 模擬器，不得把模擬器結果說成實機可用。
->
-> **下一步**：先跟我確認要做哪一個，不要自己選。候選依序是 (1) `aowu-0722.jar` 的 compatibility recovery——我要求過，但第一步「找同站的 portable equivalent」目前做不到，因為那 9 個 `AppV7Amns` 站的 `ext` 本身是加密的，站點身分未知，必須先在 Android 上黑箱觀察；先試 `adb logcat` 的 `SpiderDebug.log`（約 10 分鐘），不行再評估建 APK + 抓包環境（1.5–2 小時）。(2) 批次移植 `AppQi`/`App99`/`App3Q`/`Bili`（+16 站，`AppQi` 的靜態解讀已完成並記在 `CSP_MIGRATION_STATUS.md`）。(3) 補 `AVPlayer` 的 per-request headers。(4) 實機部署（需要我的 Apple ID 與硬體）。
+> **實機從未驗證**：專案沒有任何 `CODE_SIGN` / `DEVELOPMENT_TEAM`，所有結果都來自 iPhone 17 Pro 模擬器。

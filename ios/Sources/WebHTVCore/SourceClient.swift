@@ -77,17 +77,32 @@ public enum SourceClient: Sendable {
     /// The spider branch deliberately does **not** pre-check `episode.mediaURL` the way the CMS
     /// branch does: a spider episode target is frequently not a URL at all (`parse_api=…&url=…`),
     /// and `playerContent` is the thing that turns it into one.
-    public func playbackURL(for episode: Episode, flag: String) async throws -> URL? {
+    ///
+    /// **The headers travel with the URL now.** A spider attaches them to its play result because
+    /// the CDN behind that URL often refuses a request without them — bilibili's `upos-*` mirrors
+    /// answer 403 to a bare request and 206 to one carrying a Referer, and that difference is the
+    /// whole gap between "resolves" and "plays". They are used for the probe, for the sniff and by
+    /// the player itself.
+    public func playbackURL(for episode: Episode, flag: String) async throws -> PlaybackTarget? {
         switch self {
         case .cms(let client):
+            // A MacCMS endpoint has no header protocol, so these are the app's own defaults: none.
             guard let url = try await client.playbackURL(for: episode, flag: flag) else { return nil }
-            return await Self.resolveMedia(url)
+            guard let resolved = await Self.resolveMedia(url, headers: [:]) else { return nil }
+            return PlaybackTarget(url: resolved, headers: [:])
         case .spider(let session):
             let play = try await decode(SpiderPlayResponse.self, from: session.player(flag: flag, id: episode.url))
             guard let url = URL(string: play.url) else { return nil }
+            let headers = play.header ?? [:]
             // parse:1 is the spider saying outright "this is a page, sniff it" — no need to probe.
-            if play.parse != 0 { return await MediaSniffer.shared.sniff(page: url) }
-            return await Self.resolveMedia(url)
+            if play.parse != 0 {
+                guard let sniffed = await MediaSniffer.shared.sniff(page: url,
+                                                                    referer: headers["Referer"] ?? headers["referer"])
+                else { return nil }
+                return PlaybackTarget(url: sniffed, headers: headers)
+            }
+            guard let resolved = await Self.resolveMedia(url, headers: headers) else { return nil }
+            return PlaybackTarget(url: resolved, headers: headers)
         }
     }
 
@@ -98,18 +113,33 @@ public enum SourceClient: Sendable {
     ///
     /// Sniffing is best effort, so a miss hands back the original URL rather than nil: a page that
     /// at least opens is not made worse by us failing to improve it.
-    private static func resolveMedia(_ url: URL) async -> URL? {
+    private static func resolveMedia(_ url: URL, headers: [String: String]) async -> URL? {
         if CMSClient.isDirectMedia(url) { return url }
-        guard await MediaProbe.classify(url) == .page else { return url }
-        return await MediaSniffer.shared.sniff(page: url) ?? url
+        // Probing without the spider's headers is what made a referer-checked stream look dead:
+        // the probe got the CDN's 403 and reported `.unknown`, never `.media`.
+        guard await MediaProbe.classify(url, headers: headers) == .page else { return url }
+        return await MediaSniffer.shared.sniff(page: url,
+                                               referer: headers["Referer"] ?? headers["referer"]) ?? url
     }
 
-    /// The `header` a spider attaches to a play result is dropped: `AVPlayer` takes request headers
-    /// only through `AVURLAsset` options, which `PlayerView` does not thread through yet. A CDN that
-    /// checks Referer will therefore fail to play — visibly, not silently. This applies to sniffed
-    /// URLs too: the web view sends the right Referer while sniffing, `AVPlayer` then does not.
     private func decode<T: Decodable>(_ type: T.Type, from text: String) throws -> T {
         try JSONDecoder().decode(type, from: Data(text.utf8))
+    }
+}
+
+/// A resolved episode: what to open, and what to send when opening it.
+///
+/// Two fields rather than a bare `URL` because a stream and the headers that make it play are one
+/// fact, not two — every path that forgot the second half is a site that resolves and then 403s.
+public struct PlaybackTarget: Sendable, Equatable {
+    public let url: URL
+    /// Request headers the source requires. Empty for every CMS source; `Referer` and `User-Agent`
+    /// for the spiders that need them.
+    public let headers: [String: String]
+
+    public init(url: URL, headers: [String: String] = [:]) {
+        self.url = url
+        self.headers = headers
     }
 }
 
@@ -118,12 +148,19 @@ public enum SourceClient: Sendable {
 struct SpiderPlayResponse: Decodable, Sendable {
     let parse: Int
     let url: String
+    /// CatVod calls it `header`, singular, and every ported spider fills it with the headers the
+    /// stream needs. It was decoded away until IOS-POC-5P; a source whose CDN checks Referer could
+    /// not play without it.
+    let header: [String: String]?
 
-    enum CodingKeys: String, CodingKey { case parse, url }
+    enum CodingKeys: String, CodingKey { case parse, url, header }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         url = try values.decodeIfPresent(String.self, forKey: .url) ?? ""
+        // A spider may emit a non-string value here (a number, or `false` for "none"); one odd
+        // header must not cost the whole play result, so anything undecodable is simply no headers.
+        header = try? values.decodeIfPresent([String: String].self, forKey: .header)
         if let number = try? values.decode(Int.self, forKey: .parse) {
             parse = number
         } else if let text = try? values.decode(String.self, forKey: .parse) {

@@ -820,7 +820,9 @@ private struct VodView: View {
                 detail = try await client.detail(id: summary.id)
             } catch { self.error = error.localizedDescription }
         }
-        .sheet(item: $pendingPlayback) { PlayerPickerView(mediaURL: $0.url, title: $0.title, artwork: $0.artwork) }
+        .sheet(item: $pendingPlayback) {
+            PlayerPickerView(mediaURL: $0.url, headers: $0.headers, title: $0.title, artwork: $0.artwork)
+        }
         .alert("無法播放", isPresented: Binding(get: { playbackError != nil }, set: { if !$0 { playbackError = nil } })) {
             Button("好", role: .cancel) {}
         } message: {
@@ -833,11 +835,12 @@ private struct VodView: View {
         defer { resolving = false }
         do {
             let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
-            guard let url = try await client.playbackURL(for: episode, flag: flag) else {
+            guard let target = try await client.playbackURL(for: episode, flag: flag) else {
                 playbackError = "這一集沒有可播放的網址。"
                 return
             }
-            pendingPlayback = Playback(url: url, title: "\(summary.name) \(episode.name)", artwork: summary.picture)
+            pendingPlayback = Playback(url: target.url, headers: target.headers,
+                                       title: "\(summary.name) \(episode.name)", artwork: summary.picture)
         } catch {
             playbackError = error.localizedDescription
         }
@@ -860,6 +863,8 @@ private struct VodPoster: View {
 
 private struct Playback: Identifiable {
     let url: URL
+    /// The headers the source says this stream needs. Only the built-in player can send them.
+    var headers: [String: String] = [:]
     var title = ""
     /// Android hands VideoActivity the poster, so player.status can report it.
     var artwork = ""
@@ -868,6 +873,9 @@ private struct Playback: Identifiable {
 
 private struct PlayerPickerView: View {
     let mediaURL: URL
+    /// Headers the stream needs. The built-in player sends them; an external player cannot be told
+    /// about them at all, because a URL scheme is the whole interface those apps expose.
+    var headers: [String: String] = [:]
     var title = ""
     var artwork = ""
     @Environment(\.dismiss) private var dismiss
@@ -878,7 +886,7 @@ private struct PlayerPickerView: View {
         NavigationStack {
             List {
                 Button {
-                    PlaybackSession.shared.open(url: mediaURL, title: title, artwork: artwork)
+                    PlaybackSession.shared.open(url: mediaURL, headers: headers, title: title, artwork: artwork)
                     playing = true
                 } label: {
                     Label("內建播放器", systemImage: "play.rectangle.fill")
@@ -940,6 +948,9 @@ private struct PlayerPickerView: View {
     private var artwork = ""
     private var url = ""
     private var looping = false
+    /// Request headers for whatever is loaded now. Cleared by every `open`, because they belong to
+    /// the source that resolved the URL and mean nothing for the next one.
+    private var headers = [String: String]()
     private var started = false
     /// Resolves an episode the page kept for itself. Set while a WebHome page owns the web view.
     var resolveEpisode: ((String) async -> URL?)?
@@ -955,8 +966,9 @@ private struct PlayerPickerView: View {
     /// One media URL: the CMS path, `player.playUrl`, and an episode picked in `VodView`.
     /// The item carries no name: the caller's title already names the episode, and `status()`
     /// appends the item name, which would otherwise report it twice.
-    func open(url: URL, title: String, artwork: String = "") {
+    func open(url: URL, headers: [String: String] = [:], title: String, artwork: String = "") {
         items = [.init(name: "", url: url)]
+        self.headers = headers
         self.title = title
         self.artwork = artwork
         start(at: 0)
@@ -1038,8 +1050,18 @@ private struct PlayerPickerView: View {
     private func load(_ url: URL) {
         self.url = url.absoluteString
         started = true
-        player.replaceCurrentItem(with: AVPlayerItem(url: url))
+        player.replaceCurrentItem(with: AVPlayerItem(asset: Self.asset(for: url, headers: headers)))
         player.play()
+    }
+
+    /// `AVPlayer` sends request headers only through `AVURLAsset` options, and the key for them —
+    /// `AVURLAssetHTTPHeaderFieldsKey` — is not in Apple's public headers, which is why it is spelled
+    /// out here rather than referenced. It is what every player on the platform uses for this, and
+    /// the failure mode if it ever stops working is the one we already had: the stream 403s. With no
+    /// headers the asset is built exactly as before, so nothing that worked can regress.
+    private static func asset(for url: URL, headers: [String: String]) -> AVURLAsset {
+        guard !headers.isEmpty else { return AVURLAsset(url: url) }
+        return AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
     }
 }
 

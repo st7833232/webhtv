@@ -65,6 +65,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 5M | 薦片 driven by `JianPian` although its configured class is a protected shim (+1 site, 62 listed) | `docs/IOS-POC-5M-jianpian.md` |
 | 5N | Assessment: do the other 34 protected sites have unprotected equivalents? 7 more do | `docs/IOS-POC-5N-protected-site-equivalents.md` |
 | 5O | Remote compatibility pack: spider scripts update without rebuilding the app | `docs/IOS-POC-5O-remote-compatibility-pack.md` |
+| 5P | A spider's request headers reach `AVPlayer`, the probe and the sniffer | `docs/IOS-POC-5P-player-request-headers.md` |
 
 ## Important Decisions
 

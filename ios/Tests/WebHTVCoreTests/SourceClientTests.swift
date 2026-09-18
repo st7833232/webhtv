@@ -1,4 +1,6 @@
+import AVFoundation
 import Foundation
+import Network
 import Testing
 @testable import WebHTVCore
 
@@ -84,6 +86,169 @@ private func site(_ json: String) throws -> Site {
     #expect(try play(#"{"parse":0}"#).url.isEmpty)
 }
 
+// MARK: - playback headers (IOS-POC-5P)
+
+/// A CDN that answers 403 to a bare request and 206 to one carrying a Referer — which is exactly
+/// what bilibili's `upos-*` mirrors do, measured on 2026-09-17.
+private final class RefererGate: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var seenHeaders: [String: String] = [:]
+
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "gate.invalid" }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+
+    override func startLoading() {
+        let headers = request.allHTTPHeaderFields ?? [:]
+        Self.seenHeaders = headers
+        let allowed = headers["Referer"] != nil
+        let response = HTTPURLResponse(
+            url: request.url!, statusCode: allowed ? 206 : 403, httpVersion: nil,
+            headerFields: allowed ? ["Content-Type": "video/mp4"] : ["Content-Type": "text/plain"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: allowed ? Data(repeating: 0, count: 512) : Data("forbidden".utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+}
+
+private func gatedSession() -> URLSession {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [RefererGate.self]
+    return URLSession(configuration: configuration)
+}
+
+@Test func theProbeSendsTheHeadersTheSourceAskedFor() async throws {
+    let url = URL(string: "https://gate.invalid/upgcxcode/clip.mp4")!
+
+    // Without them the CDN's 403 is indistinguishable from a dead link — which is how four working
+    // bilibili sources were being reported as DEAD-MEDIA.
+    #expect(await MediaProbe.classify(url, session: gatedSession()) == .unknown)
+
+    let kind = await MediaProbe.classify(url, headers: ["Referer": "https://www.bilibili.com",
+                                                        "User-Agent": "WebHTV"], session: gatedSession())
+    #expect(kind == .media)
+    #expect(RefererGate.seenHeaders["Referer"] == "https://www.bilibili.com")
+    #expect(RefererGate.seenHeaders["User-Agent"] == "WebHTV")
+    // The range request the probe already made must survive the addition.
+    #expect(RefererGate.seenHeaders["Range"] == "bytes=0-1023")
+}
+
+/// The contract end to end: what a spider writes into `header` is what the player is handed.
+@Test func aSpidersHeadersReachThePlaybackTarget() async throws {
+    let runtime = try JavaScriptSpiderRuntime(
+        name: "t", script: """
+        module.exports = {
+          init: function () { return ''; },
+          playerContent: function (flag, id) {
+            return host.result.play('https://cdn.invalid/' + id + '.m3u8', false,
+                                    { Referer: 'https://www.bilibili.com', 'User-Agent': 'WebHTV' });
+          }
+        };
+        """,
+        prelude: SpiderRegistry.bundled().prelude,
+        storage: SpiderStorage(siteKey: "t", defaults: .standard))
+    let site = try JSONDecoder().decode(Site.self, from: Data(
+        #"{"key":"t","name":"t","type":3,"api":"csp_Bili"}"#.utf8))
+    let client = SourceClient.spider(SpiderSession(site: site, runtime: runtime))
+
+    let target = try #require(try await client.playbackURL(for: Episode(name: "01", url: "ep1"), flag: "B站"))
+    #expect(target.url.absoluteString == "https://cdn.invalid/ep1.m3u8")
+    #expect(target.headers["Referer"] == "https://www.bilibili.com")
+    #expect(target.headers["User-Agent"] == "WebHTV")
+}
+
+/// A CMS source has no header protocol, and must not grow one by accident.
+@Test func aCMSSourceResolvesWithNoHeaders() throws {
+    let target = PlaybackTarget(url: URL(string: "https://example.invalid/a.m3u8")!)
+    #expect(target.headers.isEmpty)
+}
+
+/// `header` is whatever the spider wrote. A spider that writes something that is not a string map
+/// must cost its own headers, never the play result.
+@Test func anUnusableHeaderFieldIsNoHeadersRatherThanNoPlayback() throws {
+    func decode(_ json: String) throws -> SpiderPlayResponse {
+        try JSONDecoder().decode(SpiderPlayResponse.self, from: Data(json.utf8))
+    }
+    #expect(try decode(#"{"parse":0,"url":"https://a/x.m3u8","header":{"Referer":"https://b"}}"#)
+        .header?["Referer"] == "https://b")
+    #expect(try decode(#"{"parse":0,"url":"https://a/x.m3u8","header":false}"#).header == nil)
+    #expect(try decode(#"{"parse":0,"url":"https://a/x.m3u8","header":{"n":1}}"#).header == nil)
+    #expect(try decode(#"{"parse":0,"url":"https://a/x.m3u8"}"#).header == nil)
+    #expect(try decode(#"{"parse":0,"url":"https://a/x.m3u8","header":false}"#).url == "https://a/x.m3u8")
+}
+
+/// Proves the part of IOS-POC-5P that no stub can: that `AVURLAsset` really sends the headers it is
+/// given, through **AVFoundation's own networking**, which does not go near `URLSession` and so
+/// cannot be intercepted by a `URLProtocol`. The key it takes them under,
+/// `AVURLAssetHTTPHeaderFieldsKey`, is undocumented; this test is what turns "everyone uses it" into
+/// something this repository has actually observed.
+///
+/// A real socket, a real HTTP request, and an assertion on the bytes that arrived.
+@Test func avURLAssetSendsTheHeadersItWasGiven() async throws {
+    let server = try OneShotHTTPServer()
+    defer { server.stop() }
+    let asset = AVURLAsset(url: server.url, options: ["AVURLAssetHTTPHeaderFieldsKey": [
+        "Referer": "https://www.bilibili.com",
+        "User-Agent": "WebHTV/IOS-POC-5P"
+    ]])
+    // Loading any property makes AVFoundation open the URL; the load itself is expected to fail,
+    // because the reply is deliberately not media. The request is the whole point.
+    _ = try? await asset.load(.isPlayable)
+
+    let request = try #require(await server.firstRequest(timeout: .seconds(10)),
+                               "AVURLAsset never opened the URL")
+    #expect(request.contains("Referer: https://www.bilibili.com"),
+            "the Referer a spider attaches must reach the CDN:\n\(request)")
+    #expect(request.contains("User-Agent: WebHTV/IOS-POC-5P"),
+            "and it must be able to override AVFoundation's own User-Agent:\n\(request)")
+}
+
+/// The smallest thing that can answer one HTTP request and remember what it was asked.
+private final class OneShotHTTPServer: @unchecked Sendable {
+    private let listener: NWListener
+    private let lock = NSLock()
+    private var request: String?
+
+    init() throws {
+        listener = try NWListener(using: .tcp, on: .any)
+        listener.newConnectionHandler = { [weak self] connection in
+            connection.start(queue: .global())
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { data, _, _, _ in
+                if let data { self?.record(String(decoding: data, as: UTF8.self)) }
+                let body = "not media"
+                let response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n"
+                    + "Content-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
+                connection.send(content: Data(response.utf8),
+                                completion: .contentProcessed { _ in connection.cancel() })
+            }
+        }
+        listener.start(queue: .global())
+    }
+
+    private func record(_ text: String) { lock.withLock { if request == nil { request = text } } }
+
+    var url: URL {
+        // The port is assigned asynchronously; it is ready before the first load in practice, and a
+        // nil port would fail the test loudly rather than silently pass.
+        for _ in 0..<200 {
+            if let port = listener.port?.rawValue, port != 0,
+               let url = URL(string: "http://127.0.0.1:\(port)/clip.mp4") { return url }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return URL(string: "http://127.0.0.1:0/clip.mp4")!
+    }
+
+    func firstRequest(timeout: Duration) async -> String? {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if let value = lock.withLock({ request }) { return value }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return lock.withLock { request }
+    }
+
+    func stop() { listener.cancel() }
+}
+
 /// The whole point of the stage: the configured spider sites must actually appear in the list the
 /// app builds. Gated on the real config, like every other live-data check in this suite.
 @Test func listsThePortedSpiderSitesAlongsideTheNativeCMSSites() throws {
@@ -147,13 +312,15 @@ private func site(_ json: String) throws -> Site {
                 let flags = detail?.flags ?? []
                 line += " flags=\(flags.count) eps=\(flags.first?.episodes.count ?? 0)"
                 if let episode = flags.first?.episodes.first, let flag = flags.first?.name {
-                    let url = try await client.playbackURL(for: episode, flag: flag)
-                    line += " play=\(url?.absoluteString.prefix(58) ?? "nil")"
+                    let target = try await client.playbackURL(for: episode, flag: flag)
+                    line += " play=\(target?.url.absoluteString.prefix(58) ?? "nil")"
                     // Resolving a URL is not the same as the media existing: AG動漫 resolves cleanly
                     // and then 404s. Fetch the first bytes so the tally means "playable", not "parsed".
-                    if let url {
-                        // Same classifier the playback path uses, so the sweep and the app agree.
-                        let kind = await MediaProbe.classify(url)
+                    if let target {
+                        if !target.headers.isEmpty { line += " +hdr\(target.headers.count)" }
+                        // Same classifier and the same headers the playback path uses, so the sweep
+                        // and the app agree — including on a CDN that answers 403 to a bare request.
+                        let kind = await MediaProbe.classify(target.url, headers: target.headers)
                         line += " [\(kind)]"
                         stop = kind == .media ? .played : .deadMedia
                     } else {

@@ -18,10 +18,14 @@ public enum MediaKind: Sendable {
 /// path alone would either miss the pages or send every extensionless stream through the sniffer
 /// and add seconds to playback that already worked.
 public enum MediaProbe {
-    public static func classify(_ url: URL, session: URLSession = .webHTV) async -> MediaKind {
+    /// `headers` are the ones the source says the stream needs. Probing without them reports a
+    /// referer-checked CDN's 403 as `.unknown`, which reads as "dead media" when the stream is fine.
+    public static func classify(_ url: URL, headers: [String: String] = [:],
+                                session: URLSession = .webHTV) async -> MediaKind {
         var request = URLRequest(url: url)
         // A range request keeps this cheap on a large file, and is how a player opens one anyway.
         request.setValue("bytes=0-1023", forHTTPHeaderField: "Range")
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         do {
             let (data, response) = try await session.data(for: request)
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0

@@ -102,7 +102,7 @@ Do not begin with protected/obfuscated DEX JARs, Python, JS runtime, MPV/VLC fal
 - Before importing upstream Android changes, assess whether they touch shared contracts used by the iOS/PWA work.
 - Do not silently copy third-party source/resource implementations into the repository; preserve license/provenance and review compatibility/legal implications where applicable.
 
-## Current recovery anchor (2026-09-18, after IOS-POC-5R)
+## Current recovery anchor (2026-09-18, after IOS-POC-7C)
 
 This section was rewritten wholesale on 2026-09-18 against the actual HEAD and an actual test run,
 because it had accumulated contradictions — a stale branch state, work listed as future that had
@@ -110,16 +110,21 @@ shipped, and three different source counts. Detailed status: `docs/current-task-
 
 - Objective: continue the iPhone WebHomeTV port with the user's Recha `wang-movie.json`. The Google
   TV `csp_JPianAmns` repair is explicitly not active.
-- **Branch `ios-poc`, HEAD `261b5c03` (IOS-POC-5R), 2 ahead of `origin/ios-poc`, 0 behind, worktree
-  clean — verified 2026-09-18.** The two local commits are IOS-POC-5Q (`0ab06a3c`) and IOS-POC-5R
-  (`261b5c03`). Check the actual Git state on resume; do not infer what has been pushed.
+- **Branch `ios-poc`, HEAD `2a177f50` (IOS-POC-7C), pushed to `origin/ios-poc` on 2026-09-18 at the
+  user's explicit instruction.** Ten commits went up in that push, from IOS-POC-5Q through the
+  Python P1 measurement. Check the actual Git state on resume; do not infer what has been pushed.
 - **Verified at this HEAD, 2026-09-18:** `WANG_MOVIE_JSON=<config> swift test --package-path ios`
-  → **124 tests, all pass**. `reportsLiveType4SitesFromProvidedConfig` is a live-network case that
-  depends on 88看球's state — it failed twice and passed once on the same day — and is **not to be
-  "fixed"**. `xcodebuild … -scheme WebHTVApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
-  -configuration Debug build` → BUILD SUCCEEDED.
-- **The app lists 62 of 167 sources: 30 native (2 type-0, 22 type-1, 6 type-4) and 32 spider**,
-  asserted by a passing test. **The playable count has not been re-measured since IOS-POC-5L**; the
+  → **143 tests, of which 142 or 143 pass**. The only one that ever fails is
+  `reportsLiveType4SitesFromProvidedConfig`, a live-network case that depends on 88看球's state —
+  it went fail, fail, pass, fail, pass across five runs on 2026-09-18 — and is **not to be
+  "fixed"**. `xcodebuild … -scheme WebHTVApp -destination
+  'platform=iOS Simulator,id=7B4E9557-4774-4EB9-B408-BB544DCC8657' -configuration Debug build`
+  → BUILD SUCCEEDED. **The destination must be an id now**: an iOS 27.0 runtime appeared on this
+  machine, so `name=iPhone 17 Pro` matches two devices and xcodebuild refuses to choose.
+- **The app lists 62 of 167 sources from an imported file — 30 native (2 type-0, 22 type-1,
+  6 type-4) and 32 `csp_*` spider — and 67 from a remote URL**, the extra five being the drpy
+  sources, which need the configuration's own origin to load their engine from. Asserted by a
+  passing test. **The playable count has not been re-measured since IOS-POC-5L**; the
   last coherent sweep was 37 of 61 on 2026-09-17, which predates 5M, 5P and 5Q. Quote 62 listed and
   say the playable figure is stale — do not quote 37 of 61 as current.
 - **The CatVod spider runtime** in `ios/Sources/WebHTVCore/Spider/` reimplements the `Spider.java`
@@ -158,6 +163,31 @@ shipped, and three different source counts. Detailed status: `docs/current-task-
   resumes it; the detail screen marks the last episode; a 記錄 tab lists everything; and
   **`app.history` answers real data** in Android's exact field shape. Only the built-in player is
   recorded — a URL scheme has no way back. `docs/IOS-POC-5R-watch-history.md`.
+- **drpy JavaScript sources run since IOS-POC-6B.** Their `api` is an engine
+  (`./drpy_libs/drpy2.min.js`) and their `ext` is the site's own rule script — the engine/rule split
+  `XBPQ` and `XYQHiker` already have, except the engine arrives from the configuration. It is **not
+  a second runtime**: `DrpyEngine` is a loader that fetches drpy2 and its nine libraries, rewrites
+  the four that are ES modules into plain script, and hands the result to the existing
+  `JavaScriptSpiderRuntime`. **Nothing is evaluated unverified** — same origin as the configuration,
+  HTTPS only, per-file and whole-bundle size ceilings checked while the body streams, and a SHA-256
+  compiled into the build that must match or the site is refused. No warn-and-continue path. The
+  **engine is pinned and a rule script is not**, which is the `host.js` line IOS-POC-5O already
+  drew. All four same-origin drpy sources reach real media bytes. Contract:
+  `docs/IOS-POC-6A-drpy-loader.md`.
+- **The sniffer unwraps a wrapper page since IOS-POC-6C.** A candidate like
+  `…/vip/?url=…/index.m3u8` passed the keyword test on the strength of the address inside it, so the
+  player got HTML. `MediaSniffer.isCandidate` is now the one test both sniff paths use, an accepted
+  candidate is unwrapped one level, and a page whose own query names the stream skips the web view.
+- **A Python runtime is assessed and measured, not built (IOS-POC-7A/7C).** Across the 31
+  same-origin scripts the Android coupling is **zero** — all five "android" mentions are User-Agent
+  or query strings. 30 need the host `base` module, whose Android original is in this repository at
+  `chaquo/src/main/python/base/spider.py`; `requests` (23 scripts) is pure Python; and **4 scripts
+  need nothing but `base` and the standard library**, which is what makes a POC possible with no C
+  extension. 15 of 31 need one (`Crypto` 10, `pyquery` 4, `lxml` 3). Measured payload for
+  `Python-Apple-support 3.13-b15`: **about 24 MB trimmed and uncompressed**. **The XCFramework has
+  iOS slices only**, so `swift test` cannot execute Python — how the end-to-end golden gets driven
+  is an open decision. Three of the 42 Python sites load their script cross-origin over plain HTTP
+  and would be refused.
 - **Also implemented:** native Swift config/CMS core; SwiftUI iPhone shell with Android-like
   wallpaper and settings; AVPlayer plus Infuse, Fileball, SenPlayer and VidHub; type-0, type-1 and
   type-4 sources; two-level category browsing, CatVod filter rows, scrolling category rows, a Top
@@ -166,7 +196,7 @@ shipped, and three different source counts. Detailed status: `docs/current-task-
   manual refresh and a retrying launch refresh; a config-relative resource resolver; and a **WebHome
   bridge over `WKWebView` + `WKScriptMessageHandler`** covering the network, cache, UI, navigation,
   information and playback methods on one persistent `PlaybackSession`.
-- **Not implemented:** a Python runtime (42 sites), a drpy JavaScript loader (5 sites), the 23
+- **Not implemented:** a Python runtime (42 sites — assessed only), the 23
   portable-but-unported `csp_*` sites, `CatVodHost` RSA and `proxy` plumbing, the configuration's
   `ads`/`rules` and the rest of IOS-POC-5S including opening/ending skip, `player.preloadArtwork`,
   `pan.*`, `app.open*`, `net.resourceUrl` proxying, `ui.setChrome`/`restoreChrome`, device signing,
@@ -192,12 +222,11 @@ shipped, and three different source counts. Detailed status: `docs/current-task-
   transport security further. No server-trust override was added, so HTTPS certificate evaluation
   remains the system default — reasoned from the code, not measured.
 - **The next stages are fixed, by the user on 2026-09-18**, and this replaces every earlier ranking:
-  **(1) POC-3, the drpy JavaScript loader** for the 5 `./drpy_libs/*.js` + `./json/4k.js` sources —
-  reuse the existing JavaScriptCore runtime, `CatVodHost` and `host.js`, **never build a second
-  JavaScript runtime**, and treat it as load + execute + `SourceClient` routing rather than a new
-  ABI; one minimal source end to end with a golden first, then all 5. **(2) POC-4**, a
-  minimum-viable Python runtime POC. **(3) the first real-device verification**, as a milestone in
-  its own right. **(4) IOS-POC-5S** and only then more `csp_*` ports. **Do not prioritise XueLuo,
+  ~~**(1) POC-3, the drpy JavaScript loader**~~ **done (IOS-POC-6A/6B/6C)**. **(2) POC-4**, the
+  Python runtime — assessed and measured, P2–P5 not started, and its open decision is how a golden
+  that needs the interpreter gets driven when `swift test` runs on macOS. **(3) the first real-device
+  verification**, as a milestone in its own right. **(4) IOS-POC-5S** and only then more `csp_*`
+  ports. **Do not prioritise XueLuo,
   QimaoDJ, AppDrama or any further `csp_*` class**; the IOS-POC-5N candidates stay in the backlog.
   A future Official/XPTV-style build (0 bundled sources, user-imported config, pack disabled) is an
   architecture boundary to remember, **not** something to fork the runtime for now.

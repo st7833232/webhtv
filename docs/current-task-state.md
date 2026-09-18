@@ -74,7 +74,8 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 5R | Watch history, resume, the 記錄 tab, the detail screen's last-episode mark, and `app.history` answering real data | `docs/IOS-POC-5R-watch-history.md` |
 | 5U | Reconciliation: the live handoff documents rewritten against the actual HEAD and test run | this document |
 | 5V | Debug-only simulator display fix for the font set the runtime is missing; no behaviour change | this document |
-| 7A | Assessment: what a Python runtime would actually cost, measured against the 31 same-origin scripts | `docs/IOS-POC-7A-python-runtime.md` |
+| 7A/7C | Assessment and P1 measurement for a Python runtime: what it would cost, measured rather than estimated | `docs/IOS-POC-7A-python-runtime.md` |
+| 7B | Xcode's per-user state is ignored, after it blocked three commits in one session | `.gitignore` |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
 | 6A/6B | **drpy JavaScript loader**: the engine and its nine libraries fetched from the configuration's own origin, hash-pinned and verified before evaluation, running on the existing `JavaScriptSpiderRuntime` | `docs/IOS-POC-6A-drpy-loader.md` |
 
@@ -118,8 +119,8 @@ passes at this HEAD. Earlier revisions of this section said 45 and 61; both are 
 | type-4 CatVod remote API | 6 | listed |
 | type-3 `csp_*` spiders | 90 | **32 listed** through 8 ported classes |
 | type-3 Python (`./py/*.py`) | 42 | not implemented — no Python runtime |
-| type-3 drpy JavaScript (`./drpy_libs/*.js`, `./json/4k.js`) | 5 | not implemented — no drpy loader |
-| **total** | **167** | **62 listed** (30 native + 32 spider) |
+| type-3 drpy JavaScript | 5 | **listed and driven since IOS-POC-6B — but only under a remote configuration**, because the engine must come from the configuration's own origin |
+| **total** | **167** | **62 listed from an imported file, 67 from a remote URL** |
 
 **Listing is not working, and the playable count is currently unmeasured.** The last coherent
 sweep was **37 of 61 playable on 2026-09-17** (26 of 30 native, 11 of 31 spider), and it predates
@@ -240,9 +241,12 @@ Everything in this section is from **HEAD `261b5c03`** unless it names an earlie
 conflicting test counts that used to sit here (77/76, 96/95, 110/109, each from a different HEAD)
 have been collapsed into the first bullet.
 
-- **143 tests, all 143 pass** — `WANG_MOVIE_JSON=<config> swift test --package-path ios`, measured
-  2026-09-18. The trajectory: 96 at `d571f3a7`, 110 after IOS-POC-5Q, 124 after IOS-POC-5R, 140
-  after the drpy loader, 143 after the sniffer's wrapper handling.
+- **143 tests** — `WANG_MOVIE_JSON=<config> swift test --package-path ios`, measured 2026-09-18.
+  **Either 142 or 143 pass**, and which one is not a property of this code: the only test that ever
+  fails is the live-network `reportsLiveType4SitesFromProvidedConfig` in the next bullet, which went
+  fail, fail, pass, fail, pass across five runs on the same day. The trajectory: 96 at `d571f3a7`,
+  110 after IOS-POC-5Q, 124 after IOS-POC-5R, 140 after the drpy loader, 143 after the sniffer's
+  wrapper handling.
 - **`reportsLiveType4SitesFromProvidedConfig` passed this run, and that is not a change in the
   code.** It is a live-network check: 88看球 resolves an episode to an HTML page, and the test
   asserts direct media through `CMSClient`, which has no sniffer hop. It failed twice earlier on
@@ -412,33 +416,30 @@ have been collapsed into the first bullet.
 
 ## Next Recommended Step
 
-**The order below was fixed by the user on 2026-09-18 and supersedes every earlier ranking in this
-document.** The previous list recommended `aowu-0722.jar` recovery, the App-API batch port and
-per-request headers; the last two are done and the first is explicitly deprioritised.
+**The order was fixed by the user on 2026-09-18 and has been followed through drpy.** Where things
+now stand against it:
 
-1. **POC-3 — the drpy JavaScript loader.** The next bounded functional stage, covering the 5
-   `./drpy_libs/*.js` + `./json/4k.js` sources. Hard constraints from the user: reuse the existing
-   JavaScriptCore runtime, `CatVodHost` and `host.js` (which already exposes the drpy-compatible
-   `pdfh`/`pdfa`/`pd`); **never build a second JavaScript runtime**; `ConfigSource` already resolves
-   `./drpy_libs/`, so the work is load + execute + `SourceClient` routing, not a new ABI. Do one
-   minimal drpy source end to end with a golden first, then widen to all 5. A primitive a drpy script
-   needs goes into the shared `CatVodHost`, never into one site's script.
-2. **POC-4 — a minimum-viable Python runtime POC** for the 42 Python sites. **They must not be
-   called impossible**: measured 2026-09-16, only 1 of 38 files touches `android.`. Scope is one
-   source through `home → category → detail → search → player`, plus an assessment of an acceptable
-   iOS CPython embedding, the minimum `base` host contract, an HTTP/`requests` strategy and the
-   necessary slice of `pycryptodome`. No Android DEX/JAR execution. App Store distribution risk is
-   not a reason to reject a Personal/SideStore runtime.
-3. **The first real-device verification — a milestone in its own right.** Signing and
-   `DEVELOPMENT_TEAM`, then remote config, CMS, spider, WKWebView/WebHome, AVPlayer headers, external
-   players and persistence all re-checked on hardware. SideStore/TestFlight/App Store distribution
-   can be decided later; the first device run cannot keep being deferred.
+1. ~~**POC-3 — the drpy JavaScript loader.**~~ **Done (IOS-POC-6A/6B/6C).** All four same-origin
+   drpy sources run `home → category → detail → search → player` and reach real media bytes. The
+   fifth configured one, `bubutv`, points at a `./json/4k.js` that is a 404 in the repository.
+2. **POC-4 — the Python runtime.** Assessed and measured (IOS-POC-7A/7C); **P2–P5 not started**.
+   Two findings from P1 the user has, and which should be re-confirmed before building:
+   - the trimmed payload is **about 24 MB uncompressed**, roughly twice the plan's original estimate;
+   - the XCFramework has **iOS slices only**, so `swift test` — which runs on macOS — cannot execute
+     a Python runtime at all. **The open decision is how P4's golden gets driven**: a new iOS test
+     target in the Xcode project, or a run through the app on the simulator. Not taken yet.
+3. **The first real-device verification — still the milestone that keeps being deferred.** Signing
+   and `DEVELOPMENT_TEAM`, then remote config, CMS, spider, drpy, WKWebView/WebHome, AVPlayer
+   headers, external players and persistence re-checked on hardware.
 4. **Then IOS-POC-5S** (config `ads` blocking, `rules.script` injection, opening/ending skip) and
    only then more `csp_*` ports.
 
 **Explicitly not next**, by the user's instruction: XueLuo, QimaoDJ, AppDrama or any further `csp_*`
-class. The IOS-POC-5N candidates (XueLuo, QimaoDJ, Duboku, HaokanDJ) stay in the backlog until the
-drpy, Python and device milestones are done.
+class. The IOS-POC-5N candidates stay in the backlog.
+
+**The cheapest next win inside POC-4** is not cross-compiling anything: 10 of the 31 Python scripts
+need only `Crypto`, and `CatVodHost` already has AES, DES, MD5, SHA and HMAC. A `Crypto.Cipher` shim
+over those is likely far cheaper than building pycryptodome for iOS.
 
 **Unchanged boundary:** `aowu-0722.jar`, `aowu.jar` and `fan-0720.jar` keep their native-encrypted
 payload and **must not be attacked**. `JPianAmns → JianPian` — an alias to a class proven to serve
@@ -459,13 +460,13 @@ Paste this into a new session:
 >
 > 動手前必讀：`AGENTS.md`、`docs/AGENT_HANDOFF.md`、`docs/current-task-state.md`、`docs/IOS_SPIDER_RUNTIME_SPEC.md`（runtime/ABI 唯一真實來源，含 compatibility pack 契約）、`docs/CSP_MIGRATION_STATUS.md`（移植進度）。要動哪個既有階段就讀那個階段的 `docs/IOS-POC-5*.md`。
 >
-> **這個 App 現在能做什麼**：iPhone 版 WebHomeTV。列出 167 個設定來源中的 **62 個**（30 native + 32 spider），**可播數量自 IOS-POC-5L 之後沒有重新量過**——上一次是 2026-09-17 的 37/61，那是 5M／5P／5Q 之前的數字，不要當成現況引用。兩層分類、篩選列、分頁、搜尋、詳情、五種播放器、匯入檔或 HTTPS Raw URL 設定（schema 驗證 + LKG 快取 + 啟動重試）、WebHome bridge over WKWebView、spider compatibility pack 熱更新、播放帶來源要求的 request headers、`playerContent.url` 三形狀 + 畫質選單、以及**播放記錄／續播／記錄分頁／`app.history` 真資料**。
+> **這個 App 現在能做什麼**：iPhone 版 WebHomeTV。匯入檔設定列出 167 個來源中的 **62 個**（30 native + 32 spider），**遠端設定再多 5 個 drpy 站共 67 個**，**可播數量自 IOS-POC-5L 之後沒有重新量過**——上一次是 2026-09-17 的 37/61，那是 5M／5P／5Q 之前的數字，不要當成現況引用。兩層分類、篩選列、分頁、搜尋、詳情、五種播放器、匯入檔或 HTTPS Raw URL 設定（schema 驗證 + LKG 快取 + 啟動重試）、WebHome bridge over WKWebView、spider compatibility pack 熱更新、播放帶來源要求的 request headers、`playerContent.url` 三形狀 + 畫質選單、以及**播放記錄／續播／記錄分頁／`app.history` 真資料**。
 >
 > **Spider 架構核心**：不在 iOS 執行 Android DEX/JAR，而是用 JavaScriptCore 重現 `Spider.java` 的 text-in/text-out 契約；反編譯的 Java 只當規格書。已移植 8 個 class（`AppGet` 5 站、`AppQi` 6、`App99` 4、`App3Q` 2、`Bili` 4、`JianPian` 1、規則引擎 `XBPQ` 7 與 `XYQHiker` 3）。共用 `CatVodHost`，**不要做第二套 runtime**。
 >
 > **下一步照這個順序，不要自己改**：(1) **POC-3 drpy JavaScript loader**（5 個來源；共用既有 JavaScriptCore／`CatVodHost`／`host.js`，`ConfigSource` 已能 resolve `./drpy_libs/`，要補的是 load + execute + `SourceClient` routing，先一個來源 end-to-end golden 再擴到 5 個）→ (2) **POC-4 Python runtime 最小可行性驗證**（42 站，不得標為 impossible）→ (3) **第一次真機驗證**（signing／DEVELOPMENT_TEAM 起） → (4) IOS-POC-5S 廣告與片頭跳過，之後才是更多 CSP。**不要優先新增 XueLuo／QimaoDJ／AppDrama。**
 >
-> **驗證方式**：`WANG_MOVIE_JSON=<config> swift test --package-path ios` → **124 測試、124 全過**。`reportsLiveType4SitesFromProvidedConfig` 是即時網路案例（88看球），會因 provider 狀態時好時壞，**失敗時不要去修**。`xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -configuration Debug build` 通過。工具鏈是 **Xcode 27 / Swift 6.4**。
+> **驗證方式**：`WANG_MOVIE_JSON=<config> swift test --package-path ios` → **143 測試，142 或 143 通過**（差別只在那條即時網路案例當下的 provider 狀態）。`reportsLiveType4SitesFromProvidedConfig` 是即時網路案例（88看球），會因 provider 狀態時好時壞，**失敗時不要去修**。`xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp -destination 'platform=iOS Simulator,id=7B4E9557-4774-4EB9-B408-BB544DCC8657' -configuration Debug build` 通過——**destination 要用 id 不能用 name**，機器上有兩台同名的 iPhone 17 Pro。工具鏈是 **Xcode 27 / Swift 6.4**。
 >
 > **設定檔**從 `https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json` 取得（SHA-256 `b17576e34eb42b4c589a818ef8b5ec2655a2c7a188d626fc427c37d628897168`，167 站）。`recha-main.zip` 沒有還原，`scripts/audit_spider_jars.py` 目前無法重跑。
 >

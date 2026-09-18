@@ -60,13 +60,64 @@ public final class MediaSniffer {
 
     /// Extensions and fragments that mark a request as the stream itself. `video/tos` is in here
     /// because the rule files list it — some CDNs serve media from a path rather than a file name.
-    public static let defaultKeywords = [".m3u8", ".mp4", ".flv", ".mkv", ".ts?", "video/tos", "/videoplayback"]
+    nonisolated public static let defaultKeywords = [".m3u8", ".mp4", ".flv", ".mkv", ".ts?", "video/tos", "/videoplayback"]
     /// Fragments that look like a hit but never are.
-    public static let defaultExclusions = [".html", ".css", ".js?", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".woff"]
+    nonisolated public static let defaultExclusions = [".html", ".css", ".js?", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".woff"]
 
     private var collector: Collector?
 
     public init() {}
+
+    /// Whether a URL the page mentioned is the stream itself.
+    ///
+    /// One predicate, two callers: the JavaScript hook's reports and the query-string check below.
+    /// They used to be able to disagree, which is the kind of drift that makes a sniffer behave
+    /// differently depending on which way it found the same URL.
+    nonisolated static func isCandidate(_ value: String, keywords: [String], exclusions: [String]) -> Bool {
+        let lower = value.lowercased()
+        guard lower.hasPrefix("http") else { return false }
+        guard keywords.contains(where: { lower.contains($0.lowercased()) }) else { return false }
+        return !exclusions.contains(where: { lower.contains($0.lowercased()) })
+    }
+
+    /// The stream a wrapper page carries in its own query string.
+    ///
+    /// A player page frequently *is* the address: `…/vip/?url=https://cdn/…/index.m3u8` hands the
+    /// stream over in plain sight, and 去看吧 resolves to exactly that shape (IOS-POC-6B). Reading
+    /// it needs no web view, no injected hook and no timeout — which also means this path cannot be
+    /// missed the way a hook can when a player fetches inside a Worker.
+    ///
+    /// Only an absolute http(s) value that passes the same candidate test is taken, so a `?poster=`
+    /// or a relative `?next=` is left alone.
+    nonisolated public static func embeddedMedia(
+        in page: URL,
+        keywords: [String] = defaultKeywords,
+        exclusions: [String] = defaultExclusions
+    ) -> URL? {
+        guard let items = URLComponents(url: page, resolvingAgainstBaseURL: false)?.queryItems else {
+            return nil
+        }
+        for item in items {
+            guard let value = item.value?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty,
+                  isCandidate(value, keywords: keywords, exclusions: exclusions),
+                  let url = URL(string: value) else { continue }
+            return url
+        }
+        return nil
+    }
+
+    /// The stream a URL stands for: itself, or the one its query string names.
+    ///
+    /// Applied wherever a candidate is accepted, because a wrapper matches the keyword test on the
+    /// strength of the very address it is wrapping — `…/vip/?url=…/index.m3u8` contains `.m3u8`, so
+    /// the hook reports the wrapper and the player is handed a page. One level only: a doubly
+    /// wrapped address has never been seen, and unwrapping blindly could walk somewhere unintended.
+    nonisolated static func unwrapped(_ url: URL,
+                                      keywords: [String] = defaultKeywords,
+                                      exclusions: [String] = defaultExclusions) -> URL {
+        embeddedMedia(in: url, keywords: keywords, exclusions: exclusions) ?? url
+    }
 
     /// Returns the first URL the page requests that matches `keywords`, or nil on timeout.
     ///
@@ -79,6 +130,13 @@ public final class MediaSniffer {
         exclusions: [String] = MediaSniffer.defaultExclusions,
         timeout: Duration = .seconds(12)
     ) async -> URL? {
+        // A page that names the stream in its own query string needs no web view at all. Checked
+        // first because it is both cheaper and more reliable than loading the page and hoping the
+        // player asks for it somewhere the hook can see.
+        if let embedded = Self.embeddedMedia(in: page, keywords: keywords, exclusions: exclusions) {
+            return embedded
+        }
+
         // One sniff at a time: a second concurrent web view competes for the main actor and the
         // network, and no caller needs it.
         if let live = collector { live.cancel() }
@@ -154,12 +212,12 @@ public final class MediaSniffer {
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             guard let raw = message.body as? String else { return }
             let candidate = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            let lower = candidate.lowercased()
-            guard lower.hasPrefix("http") else { return }
-            guard keywords.contains(where: lower.contains) else { return }
-            guard !exclusions.contains(where: lower.contains) else { return }
-            guard let url = URL(string: candidate) else { return }
-            finish(with: url)
+            guard MediaSniffer.isCandidate(candidate, keywords: keywords, exclusions: exclusions),
+                  let url = URL(string: candidate) else { return }
+            // The reported URL may be a wrapper around the real one — that is how 去看吧's player
+            // page resolves (IOS-POC-6B/6C), and the wrapper only matched because of the address
+            // inside it.
+            finish(with: MediaSniffer.unwrapped(url, keywords: keywords, exclusions: exclusions))
         }
 
         /// A page that fails to load will never report anything, so stop waiting for the timeout.

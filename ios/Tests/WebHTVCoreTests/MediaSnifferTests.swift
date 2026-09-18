@@ -94,3 +94,48 @@ private func sniff(_ html: String, timeout: Duration = .seconds(6)) async -> URL
     print("[probe] /share/ classified as \(kind)")
     #expect(kind == .page || kind == .unknown, "a /share/ link is a player page, never media")
 }
+
+// MARK: - IOS-POC-6C: a wrapper page that carries the stream in its own query string
+
+/// The shape IOS-POC-6B hit on 去看吧: drpy answered `parse:1` with a page, and the page *was* the
+/// address. Taking it costs no web view, no hook and no timeout.
+@Test func aStreamNamedInTheWrapperPagesQueryIsTakenDirectly() throws {
+    let wrapper = try #require(URL(string:
+        "https://www.k9dm.com/1006/vip/?url=https://vip.dytt-network.com/20260914/39525_86d53348/index.m3u8"))
+    #expect(MediaSniffer.embeddedMedia(in: wrapper)?.absoluteString
+            == "https://vip.dytt-network.com/20260914/39525_86d53348/index.m3u8")
+
+    // Percent-encoded is the same fact written differently.
+    let encoded = try #require(URL(string:
+        "https://host.invalid/play?src=https%3A%2F%2Fcdn.invalid%2Fa%2Findex.m3u8&t=1"))
+    #expect(MediaSniffer.embeddedMedia(in: encoded)?.absoluteString == "https://cdn.invalid/a/index.m3u8")
+}
+
+@Test func aQueryThatOnlyLooksLikeMediaIsLeftAlone() throws {
+    // No query at all.
+    #expect(MediaSniffer.embeddedMedia(in: try #require(URL(string: "https://host.invalid/play/1.html"))) == nil)
+    // An image, which the exclusions already cover.
+    #expect(MediaSniffer.embeddedMedia(in: try #require(URL(string:
+        "https://host.invalid/play?poster=https://cdn.invalid/a.jpg"))) == nil)
+    // Relative, so it is not an address this can hand a player.
+    #expect(MediaSniffer.embeddedMedia(in: try #require(URL(string:
+        "https://host.invalid/play?next=/videos/a.mp4"))) == nil)
+    // A page, not a stream.
+    #expect(MediaSniffer.embeddedMedia(in: try #require(URL(string:
+        "https://host.invalid/play?go=https://other.invalid/watch.html"))) == nil)
+    // Present but empty.
+    #expect(MediaSniffer.embeddedMedia(in: try #require(URL(string:
+        "https://host.invalid/play?url="))) == nil)
+}
+
+/// The hook and the query check must agree about what a stream looks like, because the same URL can
+/// arrive either way.
+@Test func bothSniffPathsShareOneCandidateTest() {
+    let keywords = MediaSniffer.defaultKeywords
+    let exclusions = MediaSniffer.defaultExclusions
+    #expect(MediaSniffer.isCandidate("https://cdn.invalid/a/index.m3u8", keywords: keywords, exclusions: exclusions))
+    #expect(MediaSniffer.isCandidate("HTTPS://CDN.INVALID/A/INDEX.M3U8", keywords: keywords, exclusions: exclusions))
+    #expect(!MediaSniffer.isCandidate("blob:https://cdn.invalid/x", keywords: keywords, exclusions: exclusions))
+    #expect(!MediaSniffer.isCandidate("https://cdn.invalid/a.png", keywords: keywords, exclusions: exclusions))
+    #expect(!MediaSniffer.isCandidate("/relative/a.mp4", keywords: keywords, exclusions: exclusions))
+}

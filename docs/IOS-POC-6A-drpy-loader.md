@@ -1,9 +1,9 @@
 # IOS-POC-6A — drpy JavaScript loader（使用者 roadmap 的 POC-3）
 
-- 狀態：**已核可（A+）並實作**。D1 觀測 + E1/E2/E3 完成，**E4 未完成**（見文末）。
+- 狀態：**完成**。D1 + E1/E2/E3/E4 全數完成，**四個 drpy 來源全部端到端驗證並取得媒體位元組**。
 - 分支 `ios-poc`，基線 HEAD `5b4b8668`
 - 日期：2026-09-18
-- 下一步：等 GitLab 冷卻後補完 E4（另外三站），以及嗅探層對 `?url=` 包裝頁的處理
+- 下一步：無。嗅探層的包裝頁處理已於 IOS-POC-6C 完成（見 `docs/current-task-state.md`）。
 
 ## D1 — 實際量到的東西
 
@@ -340,3 +340,48 @@ DRPY_GOLDEN_BASE='https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json'
 第三方碼、沒有新的 native 能力；唯一真正新增的能力是選擇器的 `:gt`/`:lt`，而它在共用層。
 三個 `ponytail:` 註記：改寫器是針對已知四種形狀（非 ES module loader）、殘留檢查交給引擎自己的
 parser、記憶體快取不落磁碟。
+
+
+---
+
+# E4 收尾與 G3 達成（2026-09-18，IOS-POC-6C 之後）
+
+先前擋住的兩件事都解決了。
+
+## G3 —— 媒體位元組拿到了
+
+原因跟我先前寫的不一樣，值得更正：**問題不在輸入頁，而在嗅探結果**。
+`去看吧` 的播放頁沒有 query string；是**嗅探器回報的候選** `…/1006/vip/?url=…/index.m3u8`
+本身是個包裝頁，而它之所以通過關鍵字比對，正是因為被它包住的那個位址含 `.m3u8`。
+
+修法（IOS-POC-6C）：把候選的比對述詞抽成 `MediaSniffer.isCandidate`（hook 與 query 檢查共用，
+避免兩條路徑對「什麼是串流」產生分歧），並在**接受候選時**用 `MediaSniffer.unwrapped` 拆一層。
+輸入頁本身就帶 query 的情況也一併短路處理——那條路連 web view 都不用開。只拆一層。
+
+結果：`去看吧` 的 playback 從包裝頁變成
+`https://vip.dytt-network.com/20260914/39525_86d53348/index.m3u8`，`MediaProbe` 回 `.media`。
+
+## E4 —— 四個來源全部通過
+
+GitLab 冷卻後重跑，四站都是 `home → category → detail → search → player` 全通，
+且**最後都取得媒體位元組**：
+
+| 來源 | 規則檔形式 | home | category | detail | search | player | 媒體 |
+|---|---|---|---|---|---|---|---|
+| `drpy_js_去看吧` | 明文 | 6 類 | 48 筆 | 5 線路 / 12 集 | 10 | `parse:1` → 嗅探 → 拆包裝 | ✔ |
+| `drpy_js_爱弹幕` | 明文 | ✔ | ✔ | ✔ | ✔ | `parse:0` 直出 | ✔ |
+| `hipy_js_七色番[漫]` | **非 base64 的編碼** | 3 類 | 20 筆 | 2 線路 / 43 集 | 12 | `parse:1` → 嗅探 | ✔ |
+| `hipy_js_爱弹幕[漫]` | **base64** | 6 類 | 48 筆 | 2 線路 / 12 集 | 0 | `parse:0` 直出 | ✔ |
+
+**風險 R3 解除**：`七色番[漫].js` 那個非 base64 的編碼，drpy2 的 `getOriginalJs` 自己解得開，
+我們一行都不用碰，也沒有逆向任何東西。
+
+`bubutv`（`./json/4k.js`）仍是 404，缺檔。它在遠端設定下**仍會被列出**（列出依形狀判斷，與
+其他 62 站「列出不等於可播」的既有立場一致），開啟時會以具名錯誤失敗。
+
+## 本輪的環境變化
+
+`xcodebuild` 的 `-destination 'platform=iOS Simulator,name=iPhone 17 Pro'` **不再唯一**：
+機器上多了 iOS 27.0 runtime，`iPhone 17 Pro` 同時存在於 26.0 與 26.3，xcodebuild 因此拒絕解析。
+改用 `-destination 'platform=iOS Simulator,id=7B4E9557-4774-4EB9-B408-BB544DCC8657'`（一路以來
+驗證用的那台，iOS 26.3）即可。

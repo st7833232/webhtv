@@ -72,7 +72,8 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 5P | A spider's request headers reach `AVPlayer`, the probe and the sniffer | `docs/IOS-POC-5P-player-request-headers.md` |
 | 5Q | `playerContent`'s `url` reads all three CatVod shapes; `Bili` offers one line per quality; a quality menu in the player picker | `docs/IOS-POC-5Q-playback-quality.md` |
 | 5R | Watch history, resume, the 記錄 tab, the detail screen's last-episode mark, and `app.history` answering real data | `docs/IOS-POC-5R-watch-history.md` |
-| 5U | This reconciliation: the live handoff documents rewritten against the actual HEAD and test run | this document |
+| 5U | Reconciliation: the live handoff documents rewritten against the actual HEAD and test run | this document |
+| 5V | Debug-only simulator display fix for the font set the runtime is missing; no behaviour change | this document |
 
 ## Important Decisions
 
@@ -314,6 +315,18 @@ have been collapsed into the first bullet.
 - The `ac=detail` form costs bandwidth: a 20-title page on `360zy` grew from 6.5 KB to 49 KB.
 - `drpyS_听友[听]` returns an empty list for all 43 of its categories, and `php_无水印资源` answers HTTP 403. Both are provider state, not app defects.
 - The Debug-only CJK font fallback does not fix the log panel's `[上午…]` prefix, and says nothing about a real device.
+- **The simulator's font set is incomplete, and that is not an app defect (IOS-POC-5V).** Every site
+  name in this configuration starts with an emoji, and the iOS 26.3 simulator runtime draws all of
+  them as `.notdef` boxes. Measured 2026-09-18: the runtime ships **no PingFang** — only Hiragino and
+  Kohinoor — and although `AppleColorEmoji-160px.ttc` (136 MB) sits in
+  `System/Library/Fonts/CoreAddition/` it is never picked up. **Safari on the same simulator renders
+  🎡, 蓮花樓 and even the fullwidth ｜ as boxes**, which is what proves the gap belongs to the
+  runtime; the app's own CJK survives only because SwiftUI falls back to Hiragino. A real device has
+  the full set. `String.displayName` in the app target drops the undrawable characters **only in a
+  Debug simulator build** so screenshots are legible; Release and device builds show the name
+  verbatim, and the stored, bridged and searched name is always the real one. This is the same shape
+  as IOS-POC-2C's Debug-only web-view fallback, added for the same underlying reason.
+  **Delete it when the simulator ships a complete font set.**
 - ~~**A spider play result's `header` is dropped.**~~ **Fixed in IOS-POC-5P**: `SourceClient`
   answers a `PlaybackTarget` carrying the headers, and the probe, the sniffer and `AVURLAsset` all
   send them. bilibili's CDN needs both a `Referer` and a browser `User-Agent`.

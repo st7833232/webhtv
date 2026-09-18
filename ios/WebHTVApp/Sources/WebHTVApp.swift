@@ -285,15 +285,15 @@ private struct HomeView: View {
                                     selectedSiteID = site.id
                                 } label: {
                                     if site.id == selectedSite.id {
-                                        Label(site.name, systemImage: "checkmark")
+                                        Label(site.name.displayName, systemImage: "checkmark")
                                     } else {
-                                        Text(site.name)
+                                        Text(site.name.displayName)
                                     }
                                 }
                             }
                         } label: {
                             HStack(spacing: 8) {
-                                Text(selectedSite.name).font(.headline)
+                                Text(selectedSite.name.displayName).font(.headline)
                                 Image(systemName: "chevron.down").font(.caption2)
                             }
                             .foregroundStyle(.white)
@@ -687,7 +687,7 @@ private struct SettingsView: View {
                         onOpenHome()
                     } label: {
                         HStack {
-                            Text(site.name).foregroundStyle(.primary)
+                            Text(site.name.displayName).foregroundStyle(.primary)
                             Spacer()
                             if site.id == selectedSiteID {
                                 Image(systemName: "checkmark").foregroundStyle(appAccent)
@@ -786,7 +786,7 @@ private struct VodView: View {
                             if !summary.remarks.isEmpty {
                                 Text(summary.remarks).foregroundStyle(.secondary)
                             }
-                            Text(site.name)
+                            Text(site.name.displayName)
                                 .font(.caption.weight(.semibold))
                                 .padding(.horizontal, 9)
                                 .padding(.vertical, 5)
@@ -964,7 +964,7 @@ private struct HistoryView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(record.vodName).font(.headline).lineLimit(2)
-                Text([record.siteName, record.vodFlag, record.vodRemarks]
+                Text([record.siteName.displayName, record.vodFlag, record.vodRemarks]
                     .filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1480,6 +1480,40 @@ private struct WebHomeView: View {
             NavigationStack { CMSView(site: site, source: source, initialQuery: request.keyword) }
         }
         .fullScreenCover(isPresented: $playingInline) { PlayerView() }
+    }
+}
+
+extension String {
+    /// Site names in this configuration start with an emoji (🏆, 🎡, 🎖︎ …), and the simulator draws
+    /// every one of them as a `.notdef` box.
+    ///
+    /// **It is not this app.** The iOS 26.3 simulator runtime ships a reduced font set: no PingFang
+    /// at all, and although `AppleColorEmoji-160px.ttc` is on disk it is never picked up. Safari on
+    /// the same simulator renders 🎡, 蓮花樓 and even the fullwidth ｜ as boxes, which is how we know
+    /// the gap is the runtime's. The app's own CJK survives only because SwiftUI falls back to the
+    /// Hiragino faces that *are* installed. A real device has the full set and renders these names
+    /// exactly as the configuration writes them.
+    ///
+    /// So this is a **screenshot-legibility fix and nothing more**: Debug builds on the simulator
+    /// drop the characters that cannot be drawn, every other build shows the name verbatim. It is
+    /// the same shape as the Debug-only CJK fallback IOS-POC-2C added to the web view for the same
+    /// underlying reason.
+    ///
+    /// ponytail: delete this the day the simulator ships a complete font set. Nothing depends on it
+    /// — the stored, bridged and searched name is always the real one.
+    var displayName: String {
+        #if DEBUG && targetEnvironment(simulator)
+        let cleaned = unicodeScalars.filter { scalar in
+            // Variation selectors, and the ranges the emoji font owns.
+            if scalar.properties.isVariationSelector { return false }
+            return !(0x1F000...0x1FAFF).contains(scalar.value)
+                && !(0x2600...0x27BF).contains(scalar.value)
+        }
+        return String(String.UnicodeScalarView(cleaned))
+            .trimmingCharacters(in: CharacterSet(charactersIn: " \u{FF5C}|\u{00B7}-"))
+        #else
+        return self
+        #endif
     }
 }
 

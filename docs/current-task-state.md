@@ -76,6 +76,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 5V | Debug-only simulator display fix for the font set the runtime is missing; no behaviour change | this document |
 | 7A/7C | Assessment and P1 measurement for a Python runtime: what it would cost, measured rather than estimated | `docs/IOS-POC-7A-python-runtime.md` |
 | 7B | Xcode's per-user state is ignored, after it blocked three commits in one session | `.gitignore` |
+| 8A | **The first real-device run**, and the defect it found: a fresh install could not accept a remote configuration URL | this document |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
 | 6A/6B | **drpy JavaScript loader**: the engine and its nine libraries fetched from the configuration's own origin, hash-pinned and verified before evaluation, running on the existing `JavaScriptSpiderRuntime` | `docs/IOS-POC-6A-drpy-loader.md` |
 
@@ -309,7 +310,27 @@ have been collapsed into the first bullet.
 
 ## Risks / Unverified
 
-- **Nothing has ever run on a real device.** The Xcode project has no `CODE_SIGN` or `DEVELOPMENT_TEAM` setting. Every result above is from the iPhone 17 Pro simulator.
+- **It has now run on a real device — once, on 2026-09-18 (IOS-POC-8A).** An iPhone 16 Pro, signed
+  with the personal Apple ID `st7833232@gmail.com`, team `764SVXY2B7`. **The project file still has
+  no `CODE_SIGN` or `DEVELOPMENT_TEAM`**: the settings were passed to `xcodebuild` on the command
+  line so nothing personal was committed —
+  `DEVELOPMENT_TEAM=764SVXY2B7 CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates` with
+  `-destination 'platform=iOS,id=<device udid>'`, then `xcrun devicectl device install app`.
+  **The provisioning profile is a free-tier one and expires seven days after issue**, so the app
+  stops launching and must be reinstalled; a paid account or SideStore is the way out of that.
+  **Everything else in this document is still simulator-only** — one device run is not a device
+  verification pass.
+- **Confirmed on that device run:** Chinese and the site names' emoji render correctly, which
+  settles that the simulator's `.notdef` boxes are the runtime's missing font set and not this app
+  (IOS-POC-5V's Debug-only workaround is therefore correctly scoped). A remote configuration loaded
+  and the app listed **67 sources**, which is only reachable through the remote path and so also
+  confirms the five drpy sites route correctly on device.
+- **Found by that device run, and fixed the same day:** a fresh install could only ever import a
+  file. The remote-URL entry lives in the settings page, the settings page lives in the tab bar, and
+  the tab bar only exists once a configuration has loaded — so the one screen a new install shows
+  was missing half its purpose. **The simulator could not have caught this**: it always had a cached
+  configuration from an earlier session, so the empty state was never exercised. The empty state now
+  offers both ways in, calling the `useRemote` that `ConfigView` already had.
 - **Not measured: that HTTPS certificate validation is still enforced.** It is reasoned from the code — no `URLSessionDelegate`, no `serverTrust` handling anywhere — but no test against a known-bad certificate was run.
 - Not driven from the WebHome page, covered only by offline tests: `cache.get`, `cache.del`,
   `app.search`, `app.history`, `device.info`, `site.info`, `ui.getViewport`, `ext.toast`,

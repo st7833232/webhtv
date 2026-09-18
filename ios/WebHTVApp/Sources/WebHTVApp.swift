@@ -28,6 +28,10 @@ private struct ConfigView: View {
     @State private var selectedTab = 0
     @State private var error: String?
     @State private var importing = false
+    /// The remote-URL prompt, which the empty state needs as much as the settings page does.
+    @State private var askingRemote = false
+    @State private var remoteText = ""
+
     @State private var source = ConfigSource.importedFile
     @State private var updatedAt: Date?
     @State private var refreshing = false
@@ -42,12 +46,23 @@ private struct ConfigView: View {
                     ContentUnavailableView(
                         "尚未載入設定",
                         systemImage: "play.rectangle.on.rectangle",
-                        description: Text("匯入 wang-movie.json 以顯示 iOS 可用站點。")
+                        description: Text("匯入 wang-movie.json，或直接貼上它的 HTTPS 網址。")
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .appWallpaper()
                     .navigationTitle("WebHTV")
-                    .toolbar { Button("匯入設定") { importing = true } }
+                    // Both ways in, because the settings page that offers the URL lives inside the
+                    // tab bar, and the tab bar only exists once a configuration has loaded. A fresh
+                    // install could otherwise only ever import a file — found on the first
+                    // real-device run, IOS-POC-8A.
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("使用網址") { askingRemote = true }
+                        }
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("匯入設定") { importing = true }
+                        }
+                    }
                     .appNavigationBar()
                 }
             } else {
@@ -96,6 +111,14 @@ private struct ConfigView: View {
         }
         .onChange(of: selectedSiteID) { _, id in
             UserDefaults.standard.set(id, forKey: selectedSiteKey)
+        }
+        .alert("從網址載入設定", isPresented: $askingRemote) {
+            TextField("https://…/wang-movie.json", text: $remoteText)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+            Button("載入") { useRemote(remoteText) }
+            Button("取消", role: .cancel) {}
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
             switch result {

@@ -29,3 +29,9 @@ __pycache__/
 third_party/sources/
 plans/
 .codex/task-state/
+
+# Xcode's own per-user state, regenerated on every build and never anyone's work.
+# It blocked three commits on 2026-09-18 by appearing mid-task; ignoring it is the fix.
+xcuserdata/
+*.xcuserstate
+ios/.swiftpm/

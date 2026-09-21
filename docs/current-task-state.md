@@ -84,6 +84,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 8G | The black band behind the tab bar is gone on every tab — `scaledToFill` never filled, so `.ignoresSafeArea()` had nothing to expand | this document |
 | 8H | 8F and 8G confirmed on the iPhone 16 Pro by the user; the second device run this project has had | this document |
 | 8I | No synthetic 全部 anywhere — the category row and the filter rows show only what the source sends; the episode picker splits a long line into 100-episode blocks | this document |
+| 8J | The episode blocks split on the printed episode number, not on position, so `1-100` ends at 第100集 on a line whose entries merge episodes | this document |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
 | 6A/6B | **drpy JavaScript loader**: the engine and its nine libraries fetched from the configuration's own origin, hash-pinned and verified before evaluation, running on the existing `JavaScriptSpiderRuntime` | `docs/IOS-POC-6A-drpy-loader.md` |
 
@@ -289,6 +290,17 @@ have been collapsed into the first bullet.
   `[线路①, 线路②]` → search 20 → `….m3u8`.
 
 ### Simulator runs (iPhone 17 Pro)
+
+- **IOS-POC-8J, 2026-09-21.** 8I's blocks were cut by **position**, and the user caught it on the
+  device: the block labelled `1-100` ran to 第109集. The cause is that a source may merge episodes
+  into one entry — 稀有祖宗 carries `第1-8集`, `第9-10集`, `第95-96集`, `第115-117集` — so the 100th
+  *entry* is not 第100集. The split now reads the number the source printed (first run of digits,
+  which also survives the malformed `-第98集`) and breaks on it; the chip is labelled from the
+  numbers actually inside the block, so it cannot disagree with the grid beneath it. A line that
+  prints no numbers at all still falls back to fixed blocks of 100 entries.
+  **Confirmed on 稀有祖宗 (王子, `csp_AppGet`, 119 episodes over two lines):** the chips read
+  `1-100` / `101-119` (was `1-100` / `101-108`), the first block ends at 第100集 (was 第109集) and
+  the second begins at 第101集 (was 第110集).
 
 - **IOS-POC-8I, 2026-09-21.** Two user requests, both confirmed on the simulator against live sources.
   - **No synthetic 全部.** The app used to prepend its own 全部 in three places: the category row

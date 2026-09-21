@@ -833,17 +833,18 @@ private struct VodView: View {
                     }
 
                     ForEach(detail.flags, id: \.name) { flag in
-                        let chunk = episodeChunk[flag.name] ?? defaultChunk(for: flag)
+                        let blocks = episodeBlocks(of: flag)
+                        // Clamped: a stale index survives a reload that returned fewer episodes.
+                        let chunk = min(episodeChunk[flag.name] ?? defaultChunk(for: flag), blocks.count - 1)
                         VStack(alignment: .leading, spacing: 12) {
                             Text(flag.name).font(.headline)
                             // A few hundred buttons in one grid is unnavigable. Offer the 100-episode
                             // blocks the numbering already follows, and only when there is more than one.
-                            if flag.episodes.count > episodeChunkSize {
+                            if blocks.count > 1 {
                                 ScrollView(.horizontal, showsIndicators: false) {
                                     HStack(spacing: 8) {
-                                        ForEach(Array(0..<chunkCount(of: flag)), id: \.self) { index in
-                                            let range = episodeRange(index, of: flag)
-                                            Button("\(range.lowerBound + 1)-\(range.upperBound)") {
+                                        ForEach(Array(blocks.indices), id: \.self) { index in
+                                            Button(blockLabel(flag, blocks[index])) {
                                                 episodeChunk[flag.name] = index
                                             }
                                             .buttonStyle(.bordered)
@@ -855,7 +856,7 @@ private struct VodView: View {
                                 }
                             }
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 10)], spacing: 10) {
-                                ForEach(Array(flag.episodes.enumerated())[episodeRange(chunk, of: flag)], id: \.offset) { _, episode in
+                                ForEach(Array(flag.episodes.enumerated())[blocks[max(0, chunk)]], id: \.offset) { _, episode in
                                     let lastWatched = watched?.vodFlag == flag.name
                                         && watched?.episodeUrl == episode.url
                                     Button(episode.name) {
@@ -911,14 +912,46 @@ private struct VodView: View {
     /// the step their own numbering follows.
     private let episodeChunkSize = 100
 
-    private func chunkCount(of flag: Flag) -> Int {
-        max(1, (flag.episodes.count + episodeChunkSize - 1) / episodeChunkSize)
+    /// The number a source printed in an episode's name. Entries merge episodes (`第1-8集`) and
+    /// carry stray punctuation (`-第98集`), so this takes the first run of digits and nothing else.
+    private static func leadingNumber(_ name: String) -> Int? {
+        var digits = ""
+        for character in name {
+            if character.isNumber { digits.append(character) }
+            else if !digits.isEmpty { break }
+        }
+        return Int(digits)
     }
 
-    private func episodeRange(_ index: Int, of flag: Flag) -> Range<Int> {
-        // Clamped: a stale index survives a reload that returned fewer episodes.
-        let start = max(0, min(index, chunkCount(of: flag) - 1)) * episodeChunkSize
-        return start..<min(start + episodeChunkSize, flag.episodes.count)
+    /// The blocks as index ranges, split on the **printed episode number** rather than on position.
+    /// A merged entry counts as the episode it starts at, so the block labelled 1-100 ends at 第100集
+    /// instead of running to the 100th entry — which on a line holding `第1-8集` would be 第109集.
+    /// An entry with no number joins the block before it, and a line that prints no numbers at all
+    /// falls back to fixed blocks of `episodeChunkSize` entries.
+    private func episodeBlocks(of flag: Flag) -> [Range<Int>] {
+        var bounds = [0]
+        var current = 0
+        var sawNumber = false
+        for (index, episode) in flag.episodes.enumerated() {
+            guard let number = Self.leadingNumber(episode.name) else { continue }
+            sawNumber = true
+            let block = max(0, (number - 1) / episodeChunkSize)
+            if block > current { bounds.append(index); current = block }
+        }
+        if !sawNumber {
+            bounds = Array(stride(from: 0, to: max(flag.episodes.count, 1), by: episodeChunkSize))
+        }
+        return zip(bounds, Array(bounds.dropFirst()) + [flag.episodes.count]).map { $0..<$1 }
+    }
+
+    /// Names a block by the episode numbers actually inside it, so the chip cannot disagree with
+    /// the grid under it. Falls back to the entry positions when the line prints no numbers.
+    private func blockLabel(_ flag: Flag, _ range: Range<Int>) -> String {
+        let numbers = flag.episodes[range].compactMap { Self.leadingNumber($0.name) }
+        guard let first = numbers.first, let last = numbers.max() else {
+            return "\(range.lowerBound + 1)-\(range.upperBound)"
+        }
+        return first == last ? "\(first)" : "\(first)-\(last)"
     }
 
     /// Opens on the block holding the remembered episode, so resuming episode 380 of a 600-episode
@@ -927,7 +960,7 @@ private struct VodView: View {
         guard watched?.vodFlag == flag.name,
               let index = flag.episodes.firstIndex(where: { $0.url == watched?.episodeUrl })
         else { return 0 }
-        return index / episodeChunkSize
+        return episodeBlocks(of: flag).firstIndex { $0.contains(index) } ?? 0
     }
 
     private func play(_ episode: Episode, flag: String) async {

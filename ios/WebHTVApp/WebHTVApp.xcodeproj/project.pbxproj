@@ -16,6 +16,7 @@
 		C1FAEFECF8AAADA1C45A7C27 /* WebHTVApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7494045C9101CB5C4F234881 /* WebHTVApp.swift */; };
 		7E10000000000000000000A2 /* Python.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000A1 /* Python.xcframework */; };
 		7E10000000000000000000A3 /* Python.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000A1 /* Python.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		7E10000000000000000000B4 /* PythonSpiderRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000B3 /* PythonSpiderRuntime.swift */; };
 		7E10000000000000000000A7 /* PythonBoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000A6 /* PythonBoot.swift */; };
 /* End PBXBuildFile section */
 
@@ -27,6 +28,7 @@
 		D1A7C0FE51B34A2E90B7E110 /* app-capabilities-showcase.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = "app-capabilities-showcase.html"; path = "../../webhome-devkit/templates/homepages/app-capabilities-showcase.html"; sourceTree = SOURCE_ROOT; };
 		7494045C9101CB5C4F234881 /* WebHTVApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WebHTVApp.swift; sourceTree = "<group>"; };
 		7E10000000000000000000A1 /* Python.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Python.xcframework; path = "../../third_party/python-ios/Python.xcframework"; sourceTree = SOURCE_ROOT; };
+		7E10000000000000000000B3 /* PythonSpiderRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PythonSpiderRuntime.swift; sourceTree = "<group>"; };
 		7E10000000000000000000A6 /* PythonBoot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PythonBoot.swift; sourceTree = "<group>"; };
 		AF891E7F959513A468894926 /* WebHTVApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WebHTVApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -74,7 +76,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\n# install_python is upstream's own installer: it lays the standard library out at\n# $CODESIGNING_FOLDER_PATH/python and turns lib-dynload into the signed framework form iOS\n# needs. Its argument is relative to $PROJECT_DIR, which is what its own example passes, and\n# it has to run after resources are copied but before the frameworks are embedded and signed.\nREL=../../third_party/python-ios/Python.xcframework\n. \"$PROJECT_DIR/$REL/build/utils.sh\"\ninstall_python \"$REL\"\n";
+			shellScript = "set -e\n# install_python is upstream's own installer: it lays the standard library out at\n# $CODESIGNING_FOLDER_PATH/python and turns lib-dynload into the signed framework form iOS\n# needs. Its argument is relative to $PROJECT_DIR, which is what its own example passes, and\n# it has to run after resources are copied but before the frameworks are embedded and signed.\nREL=../../third_party/python-ios/Python.xcframework\n. \"$PROJECT_DIR/$REL/build/utils.sh\"\ninstall_python \"$REL\"\n# The app's own Python travels beside the standard library, not inside it: a folder named\n# Python would be the same directory as install_python's python on a case-insensitive\n# filesystem, and a folder reference cannot rename its destination.\nrsync -au --delete \"$PROJECT_DIR/Python/\" \"$CODESIGNING_FOLDER_PATH/webhtv-python/\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -117,6 +119,7 @@
 			children = (
 				7494045C9101CB5C4F234881 /* WebHTVApp.swift */,
 				7E10000000000000000000A6 /* PythonBoot.swift */,
+				7E10000000000000000000B3 /* PythonSpiderRuntime.swift */,
 			);
 			name = Sources;
 			path = Sources;
@@ -228,6 +231,7 @@
 			files = (
 				C1FAEFECF8AAADA1C45A7C27 /* WebHTVApp.swift in Sources */,
 				7E10000000000000000000A7 /* PythonBoot.swift in Sources */,
+				7E10000000000000000000B4 /* PythonSpiderRuntime.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

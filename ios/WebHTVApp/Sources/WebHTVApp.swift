@@ -19,6 +19,7 @@ struct WebHTVApp: App {
         // CPython until it does.
         #if DEBUG
         print("[python] boot \(PythonBoot.start())")
+        Task { print("[python] selfcheck \(await PythonBoot.selfCheck())") }
         #endif
     }
 

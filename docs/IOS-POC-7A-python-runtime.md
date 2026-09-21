@@ -359,3 +359,76 @@ Python 自己的 stdout **不會**進到 `simctl launch --console-pty` 抓得到
 ### 尚未開始
 
 `base/spider.py` shim、`PythonSpiderRuntime`、P3 routing 與安全邊界、P4 端到端、P5 覆蓋量測。
+
+## IOS-POC-7G — P2 完成：`base/spider.py` shim 與 `PythonSpiderRuntime`（2026-09-21）
+
+### 結果
+
+```
+[python] boot running(version: "3.13.15")
+[python] selfcheck 13/13 methods OK, errors propagate
+```
+
+一支寫死的假 spider **以文字形式送進去**（跟真腳本從 HTTP 來的形式相同），13 個方法全部走通。
+`swift test` 的 143 條仍全過。
+
+### 橋接設計：全部用字串過，Swift 不碰 `PyObject` 容器
+
+`SpiderRuntime` 本來就是 text in / text out，所以橋接只有**一個** Swift 函式：
+`webhtv_runtime.<fn>(str, str, ...) -> str`。參數在 Swift 端編成 JSON 陣列，回傳是一個信封
+`{"ok": bool, "value"|"error"}`。
+
+好處是 dict→JSON 的轉換留在 Python（本來就是它的資料），Swift 端沒有任何 PyObject 型別判斷或
+生命週期管理——只有一個 tuple 與一個結果的 refcount。
+
+**CatVod 的 Python spider 回傳 dict 而不是 JSON 字串**（Java 與 JS 版都是字串），這個差異由
+`webhtv_runtime.invoke` 吸收：`None`→空字串、`str` 原樣、`bool`→`"true"`/`"false"`、其餘 `json.dumps`。
+
+### `base/spider.py`：實作了什麼、沒實作什麼
+
+依據是**實際數過的呼叫次數**，不是猜測：`fetch` 47、`post` 20、`log` 16、`getCache` 5、`setCache` 3、
+`getProxyUrl` 3。
+
+| 成員 | 處置 |
+|---|---|
+| `fetch` / `post` | **stdlib `urllib.request`** + 一個 `requests.Response` 相容物件（`.text`/`.json()`/`.content`/`.status_code`/`.headers`） |
+| `log` | print |
+| `getCache` / `setCache` | 每站一個 JSON 檔 |
+| `getProxyUrl` | 回空字串（iOS 沒有本機 proxy server，專案已排除） |
+| `regStr`/`removeHtmlTags`/`cleanText`/`str2json`/`json2str` | 照 Android 原版 |
+| `html` / `loadSpider` / `loadModule` | **拋具名錯誤**，不是靜默缺席 |
+
+`ponytail:` 沒有 vendoring 真的 `requests`。量出來的事實是 **31 支裡 23 支直接 `import requests`、
+8 支不用**（`皮皮虾.py` 屬於後者）。那 23 支卡在打包，不是卡在這個類別；先用 stdlib 讓 P3/P4 走得下去，
+P5 會把「8 可驅動 / 23 需要 requests」量成數字，vendoring 就變成有數據支撐的後續工作。
+
+`ponytail:` cache 用檔案而不是既有的 `SpiderStorage`。接那個要把 Swift callable 橋進 Python 只為了
+兩個字串操作，而且沒有任何站會同時是 JS 與 Python spider，沒有共用狀態要保。升級路徑就是那座橋。
+
+### 四個實際踩到的坑
+
+1. **`Python/` 資料夾參照解析到 `Sources/Python`**，因為它被放進 `path = Sources` 的 group。
+2. 更嚴重的是**大小寫碰撞**：`install_python` 已經在 bundle 放了 `python/`，macOS 檔案系統不分大小寫，
+   我的 `Python/` 會跟它合併。改成由 Install phase `rsync` 到 `webhtv-python/`，資料夾參照整個不用。
+3. **`sys.path` 插不進去**。`PyRun_SimpleString` 會吞掉自己的錯誤，所以失敗完全看不見。改用
+   `PySys_GetObject("path")` + `PyList_Insert` 走 C API，沒有字串要引號，也沒有錯誤會消失。
+4. **失敗訊息是空的**。原本 bridge 在每個失敗點呼叫 `PyErr_Clear()`，把原因丟掉。加了
+   `PythonBoot.takePythonError()`（`PyErr_Fetch` + `Normalize` + `__name__`/`str`），第 3 點才查得出來
+   ——它回報的是 `ModuleNotFoundError: No module named 'webhtv_runtime'`，一句話指出真因。
+
+### 驗證
+
+- 假 spider 13 個方法全部回傳預期內容；`init` 存下的 `extend` 能在後續 `detailContent` 取回，
+  證明實例狀態是活的而不是每次重建
+- 兩個 bool（`isVideoFormat` 真/假、`manualVideoCheck`）分別驗
+- **錯誤傳播**：一支 `init` 就 `raise ValueError('boom')` 的 spider，錯誤帶著 `boom` 傳回 Swift，
+  不是崩潰也不是空頁
+- `swift test` 143 條全過 → `WebHTVCore` 仍在 macOS 上建置與測試
+
+`ponytail:` `selfCheck()` 掛在 DEBUG 啟動路徑上。它是本階段的驗收證據，但正確的家是一個
+iOS Simulator test target；P4 需要更完整的端到端驅動時一起搬。
+
+### 尚未開始
+
+P3（`Site.isPythonSpider`、routing、same-origin + HTTPS + size limit + fail closed）、
+P4（`皮皮虾.py` 端到端取得 media bytes）、P5（Tier-1 覆蓋量測）。

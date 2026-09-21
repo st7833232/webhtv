@@ -484,3 +484,36 @@ xcrun devicectl device install app --device 00008160-00124C8200214036 …/WebHTV
 畫面下方的文字區會列出 `FILE_LOADED`／`VIDEO_RECONFIG` 與 `w`／`h`／`codec`／`vo`／`hwdec`。
 **`VIDEO_RECONFIG` 出現且有畫面才算成立**；只有 `FILE_LOADED` 不算。
 「本機圖片」在這個 build 上必定失敗（沒有 PNG 解碼器），不必試。
+
+---
+
+# 真機算繪結果（2026-09-21，使用者回報）
+
+**Metal (gpu-next) + 軟體解碼，在 iPhone 18 Pro 上：`FILE_LOADED` 到了，`VIDEO_RECONFIG` 沒有，畫面仍然是黑的。**
+
+## 這推翻了 9C／9D 的判讀
+
+9C 與 9D 都把「模擬器的 MoltenVK 是軟體路徑」當成最可能的原因，9E 又把嫌疑轉向網路。
+**真機這一格把兩個都排除掉了**：真機有真 GPU，也有正常網路，而且 `FILE_LOADED` 證明媒體確實到手了
+——demux 成功，資料有進來。**卡住的就是 `FILE_LOADED` 之後、`VIDEO_RECONFIG` 之前那一段**，
+也就是解碼輸出接上 video output 的地方。
+
+先前三輪寫的「模擬器環境不可靠，要真機才能判斷」是對的方向，但**結論不是「真機就會動」**。
+現在證據更集中，不是更分散：
+
+| 假設 | 狀態 |
+|---|---|
+| 模擬器的軟體 MoltenVK 擋住 | **排除**，真機一樣黑 |
+| 網路／HLS 拿不到媒體 | **排除**，真機 `FILE_LOADED` 成立 |
+| 硬體解碼不存在 | 不適用，這一格是軟解 |
+| **`wid` + `CAMetalLayer` 的接線本身** | **最可疑，尚未驗證** |
+
+## 還沒問的三格
+
+使用者目前只回報了 Metal＋軟解。剩下三格仍有價值，尤其 **OpenGL**：它走的是完全不同的表面模型
+（宿主擁有 framebuffer），如果 OpenGL 在真機出得了畫面，就直接指向 `wid` 那條路的接線問題。
+
+## 下一步
+
+本輪暫停 MPV，優先處理使用者提出的五項 UI／資料問題（`docs/IOS-POC-10-plan-ux-and-sources.md`）。
+恢復時的第一個動作是**真機跑 OpenGL 那一格**，那是目前最能分辨病因的一次點擊。

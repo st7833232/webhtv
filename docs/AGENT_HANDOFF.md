@@ -102,34 +102,39 @@ Do not begin with protected/obfuscated DEX JARs, Python, JS runtime, MPV/VLC fal
 - Before importing upstream Android changes, assess whether they touch shared contracts used by the iOS/PWA work.
 - Do not silently copy third-party source/resource implementations into the repository; preserve license/provenance and review compatibility/legal implications where applicable.
 
-## Current recovery anchor (2026-09-18, after IOS-POC-7C)
+## Current recovery anchor (2026-09-21, after IOS-POC-7Q)
 
 This section was rewritten wholesale on 2026-09-18 against the actual HEAD and an actual test run,
 because it had accumulated contradictions — a stale branch state, work listed as future that had
-shipped, and three different source counts. Detailed status: `docs/current-task-state.md`.
+shipped, and three different source counts. **It went stale again by 2026-09-21**: it still carried
+`bb965dda`, 143 tests, 67 sources and "a Python runtime is assessed, not built", all of which the
+IOS-POC-7E–7P commits had already overtaken. The reconciled bullets below were re-measured at the
+actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-state.md`.
 
 - Objective: continue the iPhone WebHomeTV port with the user's Recha `wang-movie.json`. The Google
   TV `csp_JPianAmns` repair is explicitly not active.
-- **Branch `ios-poc`, HEAD `bb965dda` (IOS-POC-8K), pushed to `origin/ios-poc` on 2026-09-21 at the
-  user's explicit instruction — local and remote are level, 0 ahead and 0 behind.** Eight commits
-  went up in that push, `a087dd50`..`bb965dda`. No tag was created; recovery tags have been opt-in
-  since 2026-09-16. Check the actual Git state on resume; do not infer what has been pushed, and do
-  not trust the id in this line — it has been stale at `2a177f50` before.
-- **Verified at this HEAD, 2026-09-21:** `WANG_MOVIE_JSON=<config> swift test --package-path ios`
-  → **143 tests, of which 142 or 143 pass**; three runs on 2026-09-21 passed all 143. The only one
-  that ever fails is
-  `reportsLiveType4SitesFromProvidedConfig`, a live-network case that depends on 88看球's state —
-  it went fail, fail, pass, fail, pass across five runs on 2026-09-18 — and is **not to be
-  "fixed"**. `xcodebuild … -scheme WebHTVApp -destination
-  'platform=iOS Simulator,id=7B4E9557-4774-4EB9-B408-BB544DCC8657' -configuration Debug build`
-  → BUILD SUCCEEDED. **The destination must be an id now**: an iOS 27.0 runtime appeared on this
-  machine, so `name=iPhone 17 Pro` matches two devices and xcodebuild refuses to choose.
-- **The app lists 62 of 167 sources from an imported file — 30 native (2 type-0, 22 type-1,
-  6 type-4) and 32 `csp_*` spider — and 67 from a remote URL**, the extra five being the drpy
-  sources, which need the configuration's own origin to load their engine from. Asserted by a
-  passing test. **The playable count has not been re-measured since IOS-POC-5L**; the
-  last coherent sweep was 37 of 61 on 2026-09-17, which predates 5M, 5P and 5Q. Quote 62 listed and
-  say the playable figure is stale — do not quote 37 of 61 as current.
+- **Branch `ios-poc`, HEAD `7653a9fb` (IOS-POC-7Q), worktree clean, level with `origin/ios-poc`
+  — `git rev-list --left-right --count origin/ios-poc...ios-poc` answered `0 0` on 2026-09-21.**
+  Pushed at the user's explicit instruction; no tag was created, and recovery tags have been opt-in
+  since 2026-09-16. **Do not trust the id in this line.** It has been stale at `2a177f50` and at
+  `bb965dda` before; run `git log` and the `rev-list` above on resume instead of reading it here.
+- **Re-measured at `7653a9fb` on 2026-09-21 (IOS-POC-7R):** `swift test --package-path ios` →
+  **151 tests, all pass** (IOS-POC-7H's 8 routing tests took it from 143). `xcodebuild … -scheme
+  WebHTVApp -destination 'platform=iOS Simulator,id=7B4E9557-4774-4EB9-B408-BB544DCC8657'
+  -configuration Debug build` → **BUILD SUCCEEDED**. **The destination must be an id now**: an
+  iOS 27.0 runtime appeared on this machine, so `name=iPhone 17 Pro` matches two devices and
+  xcodebuild refuses to choose. The one test that has ever failed here is the live-network
+  `reportsLiveType4SitesFromProvidedConfig`, which depends on 88看球's state and is **not to be
+  "fixed"**; it passed in this run.
+- **The app lists 62 of 167 sources from an imported file and 109 from a remote URL.** The 62 are
+  30 native (2 type-0, 22 type-1, 6 type-4) and 32 `csp_*` spider. A remote configuration adds the
+  5 drpy sources, which need the configuration's own origin to load their engine from, and — since
+  IOS-POC-7H — the 42 Python sources, which need it to load their script from: 62 + 5 + 42 = 109.
+  Asserted by a passing test. **This line said 67 until 2026-09-21 and was left stale by 7H.**
+  **The playable count has not been re-measured since IOS-POC-5L**; the last coherent sweep was
+  37 of 61 on 2026-09-17, which predates 5M, 5P and 5Q. Quote the listed counts and say the playable
+  figure is stale — do not quote 37 of 61 as current. The Python sites are the exception, because
+  IOS-POC-7P measured them end to end: **14 of 42 execute and 6 reach media bytes.**
 - **The CatVod spider runtime** in `ios/Sources/WebHTVCore/Spider/` reimplements the `Spider.java`
   text-in/text-out contract in JavaScript on JavaScriptCore — one `JSContext` and serial queue per
   site, one shared `CatVodHost`. **It never executes Android DEX or JAR bytecode**; the decompiled
@@ -181,16 +186,24 @@ shipped, and three different source counts. Detailed status: `docs/current-task-
   `…/vip/?url=…/index.m3u8` passed the keyword test on the strength of the address inside it, so the
   player got HTML. `MediaSniffer.isCandidate` is now the one test both sniff paths use, an accepted
   candidate is unwrapped one level, and a page whose own query names the stream skips the web view.
-- **A Python runtime is assessed and measured, not built (IOS-POC-7A/7C).** Across the 31
-  same-origin scripts the Android coupling is **zero** — all five "android" mentions are User-Agent
-  or query strings. 30 need the host `base` module, whose Android original is in this repository at
-  `chaquo/src/main/python/base/spider.py`; `requests` (23 scripts) is pure Python; and **4 scripts
-  need nothing but `base` and the standard library**, which is what makes a POC possible with no C
-  extension. 15 of 31 need one (`Crypto` 10, `pyquery` 4, `lxml` 3). Measured payload for
-  `Python-Apple-support 3.13-b15`: **about 24 MB trimmed and uncompressed**. **The XCFramework has
-  iOS slices only**, so `swift test` cannot execute Python — how the end-to-end golden gets driven
-  is an open decision. Three of the 42 Python sites load their script cross-origin over plain HTTP
-  and would be refused.
+- **The Python runtime is built and measured (IOS-POC-7E–7P), not merely assessed.** This bullet
+  said "assessed and measured, not built" until 2026-09-21 and was left stale by those commits.
+  **CPython 3.13.15 starts inside the app**, `PythonSpiderRuntime` implements the same
+  `SpiderRuntime` contract every other spider uses, and routing is the existing `CSPSourceResolver`
+  with one extra branch — so `SourceClient`, history and the UI never learn that a source is Python.
+  The payload is **not committed**: `scripts/fetch_python_ios.sh` downloads and verifies it against
+  `third_party/python-ios-lock.json` (the Xcode `Prepare Python` phase calls the script, so an
+  ordinary build does this by itself). `requests`, `urllib3`, `certifi`, `idna` and
+  `charset-normalizer` are vendored as pinned pure-Python wheels (IOS-POC-7P) — no compilation.
+  **Python lives in the App target only**, behind the `PythonSpiderSupport.makeRuntime` seam, so
+  `WebHTVCore` still builds and tests on macOS where the XCFramework has no slice.
+  **What it actually buys, measured on the simulator: 14 of 42 sites execute and 6 reach media
+  bytes** (4 and 1 before vendoring). **Do not quote the larger numbers from the P1 assessment.**
+  24 sites are still blocked on a dependency — `Crypto` 17, `lxml` 3, `pyquery` 2, `bs4` 2 — and
+  4 are refused by the same-origin/HTTPS policy. `bs4` is pure Python and would go the way
+  `requests` did; `Crypto` is the largest block and `CatVodHost` already has AES, DES, MD5, SHA and
+  HMAC to shim over. **Neither was started, and neither should start without the user asking.**
+  **Nothing Python has ever run on a device.** Full record: `docs/IOS-POC-7A-python-runtime.md`.
 - **Also implemented:** native Swift config/CMS core; SwiftUI iPhone shell with Android-like
   wallpaper and settings; AVPlayer plus Infuse, Fileball, SenPlayer and VidHub; type-0, type-1 and
   type-4 sources; two-level category browsing, CatVod filter rows, scrolling category rows, a Top
@@ -199,12 +212,13 @@ shipped, and three different source counts. Detailed status: `docs/current-task-
   manual refresh and a retrying launch refresh; a config-relative resource resolver; and a **WebHome
   bridge over `WKWebView` + `WKScriptMessageHandler`** covering the network, cache, UI, navigation,
   information and playback methods on one persistent `PlaybackSession`.
-- **Not implemented:** a Python runtime (42 sites — assessed only), the 23
-  portable-but-unported `csp_*` sites, `CatVodHost` RSA and `proxy` plumbing, the configuration's
-  `ads`/`rules` and the rest of IOS-POC-5S including opening/ending skip, `player.preloadArtwork`,
-  `pan.*`, `app.open*`, `net.resourceUrl` proxying, `ui.setChrome`/`restoreChrome`, device signing,
-  and the SideStore/IPA release pipeline. A source-specific DNS or TLS error does not prove a global
-  iOS network bug.
+- **Not implemented:** the 23 portable-but-unported `csp_*` sites, the `Crypto`/`lxml`/`pyquery`/
+  `bs4` shims the remaining 24 Python sites need, a second playback core (MPV), `CatVodHost` RSA and
+  `proxy` plumbing, the configuration's `ads`/`rules` and the rest of IOS-POC-5S including
+  opening/ending skip, `player.preloadArtwork`, `pan.*`, `app.open*`, `net.resourceUrl` proxying,
+  `ui.setChrome`/`restoreChrome`, device signing, and the SideStore/IPA release pipeline.
+  **The Python runtime came off this list on 2026-09-21** — see the bullet above for what it does
+  and does not cover. A source-specific DNS or TLS error does not prove a global iOS network bug.
 - **The 137 type-3 sites, as measured 2026-09-16/17.** 90 are `csp_*`, 42 Python, 5 drpy JavaScript.
   Of the 90 `csp_*`: **54 sites over 26 of the 51 distinct classes are portable**, of which **32
   sites / 8 classes are ported**; **34 sites / 23 classes are blocked by a native-encrypted
@@ -236,11 +250,12 @@ shipped, and three different source counts. Detailed status: `docs/current-task-
   remains the system default — reasoned from the code, not measured.
 - **The next stages are fixed, by the user on 2026-09-21**, and this replaces the 2026-09-18 ranking
   that used to sit here (it put the first real-device verification second):
-  **(1) Python P2–P5**, the minimum runtime POC — assessed and measured at P1, P2–P5 not started, and
-  its open decision is how a golden that needs the interpreter gets driven, since the Python
-  XCFramework has no macOS slice and `swift test` runs on macOS. **(2) MPV feasibility**, a second
-  built-in playback core. **(3) the full real-device acceptance**, deferred out of second place on
-  2026-09-21 — the partial baseline already taken stands. **(4) IOS-POC-5S** and only then more
+  ~~**(1) Python P2–P5**~~ **done — IOS-POC-7E–7P**; the open decision it carried (how a golden that
+  needs the interpreter gets driven, since the XCFramework has no macOS slice) was answered by
+  driving it from the app's own launch path on the simulator. **(1) MPV feasibility**, a second
+  built-in playback core — **the current head of the queue, and it may not begin without the user's
+  instruction.** **(2) the full real-device acceptance**, deferred out of second place on
+  2026-09-21 — the partial baseline already taken stands. **(3) IOS-POC-5S** and only then more
   `csp_*` ports. **Do not prioritise XueLuo,
   QimaoDJ, AppDrama or any further `csp_*` class**; the IOS-POC-5N candidates stay in the backlog.
   **The Official/XPTV shape stopped being hypothetical on 2026-09-21**: the user settled it as the

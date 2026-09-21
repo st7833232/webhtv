@@ -6,10 +6,12 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current Scope
 
-- Branch `ios-poc`. **Verified 2026-09-21 at IOS-POC-7Q: HEAD `85fb4e6a` (IOS-POC-7P), worktree
-  clean. Pushed to `origin/ios-poc` at the user's explicit instruction on 2026-09-21.** **Re-check with `git log` rather than trusting any id
-  quoted here** — this one line has carried four different stale ids in turn (`261b5c03`, "HEAD after
-  IOS-POC-5L", `a087dd50`, and `2a177f50` in the handoff), each wrong by the time it was read.
+- Branch `ios-poc`. **Verified 2026-09-21 at IOS-POC-7R: HEAD `7653a9fb` (IOS-POC-7Q), worktree
+  clean, and `git rev-list --left-right --count origin/ios-poc...ios-poc` answered `0 0`** — level
+  with the remote, which was pushed at the user's explicit instruction on 2026-09-21.
+  **Re-check with `git log` rather than trusting any id quoted here** — this one line has carried
+  five different stale ids in turn (`261b5c03`, "HEAD after IOS-POC-5L", `a087dd50`, `2a177f50` and
+  `bb965dda` in the handoff), each wrong by the time it was read.
 - Android `app/` is read-only for all iOS work and has never been modified: `git diff <branch-point>..HEAD -- app/` is empty, and every commit on this branch touches only `ios/`, `docs/`, `scripts/`, `AGENTS.md` and `.codex/`.
 - **The input configuration lives in the scratchpad, not `/tmp`.** `/tmp/webhtv-recha-new.wprHof/` was cleared mid-session; `wang-movie.json` was re-fetched from the user's own GitLab and its SHA-256 matches the recorded baseline byte for byte. Re-fetch it from `https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json` if it is missing. `recha-main.zip` was **not** restored, so `scripts/audit_spider_jars.py` cannot be re-run without downloading it again.
 - Stages through IOS-POC-4J have an annotated `recovery/<task-id>/*` tag; tags through `IOS-POC-1H` are on the remote. **Recovery tags became opt-in on 2026-09-16** (AGENTS.md §6), so IOS-POC-5A onwards are deliberately untagged.
@@ -138,6 +140,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 7L/7M | **P5 done**: `scripts/audit_python_spiders.py` (static, 42 sites) and the runtime survey, reconciled | same document |
 | 7N | A Python traceback goes to the log; one readable line goes to the screen | same document |
 | 7P | `requests` + `urllib3` + `certifi` + `idna` + `charset-normalizer` vendored as pinned pure-Python wheels; sites reaching media bytes went 1 → 6, executing 4 → 14 | same document |
+| 7R | Reconciliation: the handoff anchor and the spider spec rewritten against the actual HEAD and a fresh test/build run; no functional change | this document |
 | 6A/6B | **drpy JavaScript loader**: the engine and its nine libraries fetched from the configuration's own origin, hash-pinned and verified before evaluation, running on the existing `JavaScriptSpiderRuntime` | `docs/IOS-POC-6A-drpy-loader.md` |
 
 ## Important Decisions
@@ -298,12 +301,17 @@ without further code, which is why they are worth more than their site counts su
 
 ## Build / Test / Verification Status
 
-**Latest, 2026-09-21 at `9bec98f5`:**
+**Latest, re-measured 2026-09-21 at `7653a9fb` (IOS-POC-7R), which is the actual HEAD:**
 
 - `swift test --package-path ios` → **151 tests, all pass** (143 before IOS-POC-7H added 8).
 - `xcodebuild … -destination 'platform=iOS Simulator,id=7B4E9557-4774-4EB9-B408-BB544DCC8657'`
-  → **BUILD SUCCEEDED**. Device build for `platform=iOS,id=00008160-00124C8200214036` also succeeded
-  and installed earlier today.
+  → **BUILD SUCCEEDED**. Device build for `platform=iOS,id=00008160-00124C8200214036` succeeded and
+  installed at `bb965dda` earlier on 2026-09-21; **nothing since then has been built for a device.**
+- `third_party/python-ios/` is present (78 MB) with the five vendored wheels in `site-packages`, so
+  the Python path is buildable on this machine without a re-fetch.
+- **The iPhone 18 Pro `00008160-00124C8200214036` reports `available (paired)` to `devicectl`**, so
+  the deferred device pass is blocked only by the user's decision, not by the hardware. The
+  iPhone 16 Pro still reports `unavailable`.
 - Simulator, from the app's own launch path:
   `[python] boot running(version: "3.13.15")`,
   `[python] selfcheck 13/13 methods OK, errors propagate`,
@@ -703,11 +711,13 @@ have been collapsed into the first bullet.
 first two items are finished.
 
 1. ~~**POC-3 — the drpy JavaScript loader.**~~ **Done (IOS-POC-6A/6B/6C).**
-2. ~~**POC-4 — the Python runtime, P2–P5.**~~ **Done (IOS-POC-7E–7N).** What it actually buys is
-   small and measured: Tier 1 executes 4 of 42 configured Python sites and reaches media bytes on 1.
-   34 are blocked on a dependency (`requests` 23, `Crypto` 10, `urllib3` 1) and 4 are refused by the
-   same-origin/HTTPS policy. Vendoring `requests` would add 13; a `Crypto.Cipher` shim over the AES,
-   DES, MD5, SHA and HMAC `CatVodHost` already has would address the largest block, 17 sites.
+2. ~~**POC-4 — the Python runtime, P2–P5.**~~ **Done (IOS-POC-7E–7P).** What it actually buys is
+   modest and measured: **14 of 42 configured Python sites execute and 6 reach media bytes** (it was
+   4 and 1 before IOS-POC-7P vendored `requests`; this paragraph quoted those pre-vendoring numbers
+   until 2026-09-21). **24 are still blocked on a dependency** — `Crypto` 17, `lxml` 3, `pyquery` 2,
+   `bs4` 2 — and 4 are refused by the same-origin/HTTPS policy. `bs4` is pure Python and would go
+   the way `requests` did; a `Crypto.Cipher` shim over the AES, DES, MD5, SHA and HMAC `CatVodHost`
+   already has would address the largest block, 17 sites.
    **Neither was done, and neither should start without the user asking.**
 3. **MPV feasibility — the next stage, and it is waiting on the user's instruction.** A second
    built-in playback core, `PlaybackTarget → PlayerRouter → AVPlayerEngine / MPVEngine`, sharing the
@@ -727,7 +737,7 @@ Paste this into a new session:
 
 > 接手 `/Users/chengchenchih/GIT/webhtv` 的 `ios-poc`，透過本機終端操作，不要每步停下來問我確認。用台灣繁體中文回報。
 >
-> **先確認實際狀態，不要相信這段文字裡的任何 SHA**：2026-09-21 當時 HEAD 在 `85fb4e6a`（IOS-POC-7P），**已依我的指示 push 到 `origin/ios-poc`**，worktree clean。用 `git log` 與 `git rev-list --left-right --count origin/ios-poc...ios-poc` 覆蓋這一行。**未經我明確授權不得 push、tag、package、publish。**
+> **先確認實際狀態，不要相信這段文字裡的任何 SHA**：最後一次驗證是 2026-09-21 的 IOS-POC-7R（文件對帳），在它之前 HEAD 是 `7653a9fb`（IOS-POC-7Q），**7Q 以前的 commit 已依我的指示 push 到 `origin/ios-poc`**，worktree clean。**IOS-POC-7R 本身尚未 push。** 用 `git log` 與 `git rev-list --left-right --count origin/ios-poc...ios-poc` 覆蓋這一行。**未經我明確授權不得 push、tag、package、publish。**
 >
 > 動手前必讀：`AGENTS.md`、`README.md`、`docs/AGENT_HANDOFF.md`、`docs/current-task-state.md`、`docs/IOS_SPIDER_RUNTIME_SPEC.md`（runtime/ABI 唯一真相，含 spider 程式碼投遞的五種方式）、`docs/IOS-POC-7A-python-runtime.md`（Python 全部階段）、`docs/analysis/ios-app-store-readiness-research.md`（發行）。
 >
@@ -737,7 +747,7 @@ Paste this into a new session:
 >
 > **Python 剛完成（IOS-POC-7E–7P），而且要知道它到底買到什麼**：CPython 3.13.15 在 App 內啟動，`PythonSpiderRuntime` 走既有 `SpiderRuntime` 契約，routing 沿用 `CSPSourceResolver`，`requests` 等五個純 Python 套件已 vendored。**實測 42 站裡 14 站跑得動、6 站拿得到媒體位元組**（vendoring 前是 4 與 1）。剩下 24 站被相依性擋住：`Crypto` 17、`lxml` 3、`pyquery` 2、`bs4` 2；4 站被同源/HTTPS 政策拒絕。**不要引用 P1 評估裡比較大的數字。** `bs4` 純 Python、走 `requests` 同一條路即可；`Crypto` 是最大宗且 `CatVodHost` 已有 AES/DES/MD5/SHA/HMAC 可蓋層——**兩者都沒做，也不要自行開始**。
 >
-> **下一階段是 MPV feasibility，但必須等我的指令才能開始。** 方向：`PlaybackTarget → PlayerRouter → AVPlayerEngine / MPVEngine`，共用既有 `PlaybackSession`、headers、history、resume、quality；不重造 `SourceClient`；**不得**從 Infuse/Fileball/SenPlayer/VidHub 拆 framework，只能整合授權允許嵌入的 SDK；整合前先做 license/provenance review，並遵守 `.codex/skills/upstream-integration-governor/SKILL.md`。外部播放器全部保留。
+> **下一階段是 MPV feasibility——它現在是隊列第一順位，但必須等我的指令才能開始。** 方向：`PlaybackTarget → PlayerRouter → AVPlayerEngine / MPVEngine`，共用既有 `PlaybackSession`、headers、history、resume、quality；不重造 `SourceClient`；**不得**從 Infuse/Fileball/SenPlayer/VidHub 拆 framework，只能整合授權允許嵌入的 SDK；整合前先做 license/provenance review，並遵守 `.codex/skills/upstream-integration-governor/SKILL.md`。外部播放器全部保留。
 >
 > **不要提前做**：5S 廣告/片頭片尾、XueLuo、QimaoDJ、更多 `csp_*`、CarPlay、把 Official/XPTV 另外分叉。完整真機 acceptance 已由我延後。
 >

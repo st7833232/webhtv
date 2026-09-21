@@ -104,9 +104,12 @@ and a pack can never add a native primitive, touch entitlements, ATS or signing,
 `CatVodHost` gains a primitive, and older apps will refuse a script that needs it instead of failing
 mid-call. Full contract: `docs/IOS-POC-5O-remote-compatibility-pack.md`.
 
-**Ported classes: 7.** `AppGet`, `AppQi`, `App99`, `App3Q` (苹果CMS App-API family), `Bili`
-(bilibili public API), and the two rule engines `XBPQ` and `XYQHiker`. See
-`docs/CSP_MIGRATION_STATUS.md` for what each one covers and what it was measured doing.
+**Ported classes: 8.** `AppGet`, `AppQi`, `App99`, `App3Q` (苹果CMS App-API family), `Bili`
+(bilibili public API), `JianPian` (registered under the blocked `JPianAmns` name the configuration
+uses, IOS-POC-5M), and the two rule engines `XBPQ` and `XYQHiker`. This line said 7 and omitted
+`JianPian` until 2026-09-21; `SpiderRegistry.ported` is the authority and has carried 8 since
+IOS-POC-5M. See `docs/CSP_MIGRATION_STATUS.md` for what each one covers and what it was measured
+doing.
 
 ## A play result's `url` is three shapes
 

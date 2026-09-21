@@ -81,6 +81,39 @@ public struct CMSFilter: Decodable, Identifiable, Sendable {
 
     public var id: String { key }
 
+    /// The row label to put on screen, in Traditional Chinese where the source did not.
+    ///
+    /// IOS-POC-10B. A filter row's `name` is whatever the provider sends, and several send the bare
+    /// API token — `class`, `area`, `year` — so the label read as English while the chips under it
+    /// were Chinese. `AppGet.js` and `AppQi.js` already map their own rows, but that cannot help a
+    /// CMS source, whose names come straight off the wire. One table at the display layer covers
+    /// every source instead.
+    ///
+    /// **Only a known token is replaced.** Anything else is the provider's own wording and is shown
+    /// verbatim, so a source that already labels its rows well is never second-guessed. An empty
+    /// name falls back to the key, which is better than a blank label.
+    public var displayName: String {
+        if let mapped = Self.rowNames[name.lowercased()] { return mapped }
+        if !name.isEmpty { return name }
+        return Self.rowNames[key.lowercased()] ?? key
+    }
+
+    /// The CatVod / MacCMS filter vocabulary, plus the Simplified forms that mean the same row.
+    /// Deliberately closed: guessing at an unknown token would mislabel it.
+    private static let rowNames: [String: String] = [
+        "class": "類型", "type": "類型", "tid": "類型", "cateid": "類型", "类型": "類型",
+        "area": "地區", "region": "地區", "地区": "地區",
+        "lang": "語言", "language": "語言", "语言": "語言",
+        "year": "年代", "date": "年代", "年份": "年份", "年代": "年代",
+        "sort": "排序", "by": "排序", "order": "排序", "排序": "排序",
+        "letter": "字母", "initial": "字母",
+        "state": "狀態", "status": "狀態", "状态": "狀態",
+        "version": "版本", "版本": "版本",
+        "plot": "劇情", "剧情": "劇情",
+        "star": "演員", "actor": "演員", "演员": "演員",
+        "director": "導演", "导演": "導演",
+    ]
+
     enum CodingKeys: String, CodingKey { case key, name, value }
 
     public init(from decoder: Decoder) throws {

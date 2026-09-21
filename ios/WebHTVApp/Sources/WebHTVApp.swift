@@ -533,7 +533,7 @@ private struct CMSView: View {
     private func filterRow(_ row: CMSFilter) -> some View {
         categoryRow(
             HStack(spacing: 8) {
-                Text(row.name)
+                Text(row.displayName)
                     .font(.caption).bold()
                     .foregroundStyle(.white.opacity(0.75))
                     .frame(minWidth: 34, alignment: .leading)

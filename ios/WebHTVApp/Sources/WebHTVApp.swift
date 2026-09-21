@@ -1015,6 +1015,10 @@ private struct VodView: View {
     /// Which 100-episode block each flag is showing. Keyed by flag name because the lines
     /// carry different episode counts.
     @State private var episodeChunk: [String: Int] = [:]
+    /// IOS-POC-10G: the line on show. Every line used to be stacked down the page with its own
+    /// full grid, so a title with four lines and eighty episodes meant scrolling past three
+    /// hundred buttons to reach the bottom one.
+    @State private var selectedFlag: String?
 
     var body: some View {
         ScrollView {
@@ -1036,12 +1040,29 @@ private struct VodView: View {
                         }
                     }
 
-                    ForEach(detail.flags, id: \.name) { flag in
+                    if let flag = currentFlag(in: detail.flags) {
                         let blocks = episodeBlocks(of: flag)
                         // Clamped: a stale index survives a reload that returned fewer episodes.
                         let chunk = min(episodeChunk[flag.name] ?? defaultChunk(for: flag), blocks.count - 1)
                         VStack(alignment: .leading, spacing: 12) {
-                            Text(flag.name).font(.headline)
+                            // The lines, in one row at the top. With only one there is nothing to
+                            // choose, so it stays the plain heading it has always been — the same
+                            // rule the block chips below already follow.
+                            if detail.flags.count > 1 {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 8) {
+                                        ForEach(detail.flags, id: \.name) { line in
+                                            Button(line.name) { selectedFlag = line.name }
+                                                .buttonStyle(.bordered)
+                                                .tint(line.name == flag.name ? .accentColor : nil)
+                                                .fontWeight(line.name == flag.name ? .bold : nil)
+                                                .frame(minHeight: 44)
+                                        }
+                                    }
+                                }
+                            } else {
+                                Text(flag.name).font(.headline)
+                            }
                             // A few hundred buttons in one grid is unnavigable. Offer the 100-episode
                             // blocks the numbering already follows, and only when there is more than one.
                             if blocks.count > 1 {
@@ -1132,6 +1153,18 @@ private struct VodView: View {
     /// instead of running to the 100th entry — which on a line holding `第1-8集` would be 第109集.
     /// An entry with no number joins the block before it, and a line that prints no numbers at all
     /// falls back to fixed blocks of `episodeChunkSize` entries.
+    /// The line to show: the viewer's pick, else the one they last watched, else the first.
+    ///
+    /// Resolved against the flags actually present rather than trusted, so a reload that drops a
+    /// line cannot leave the screen pointing at nothing.
+    private func currentFlag(in flags: [Flag]) -> Flag? {
+        if let selectedFlag, let match = flags.first(where: { $0.name == selectedFlag }) { return match }
+        if let watchedFlag = watched?.vodFlag, let match = flags.first(where: { $0.name == watchedFlag }) {
+            return match
+        }
+        return flags.first
+    }
+
     private func episodeBlocks(of flag: Flag) -> [Range<Int>] {
         var bounds = [0]
         var current = 0

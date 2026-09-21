@@ -493,3 +493,43 @@ Python 站的腳本**本身就是 spider**，所以沒有引擎要先抓——�
 ### 尚未開始
 
 P4（`皮皮虾.py` 端到端並由 MediaProbe 取得 media bytes）、P5（Tier-1 覆蓋量測）。
+
+## IOS-POC-7J — P4 的量測工具，與它立刻找到的兩個缺陷（2026-09-21）
+
+`PythonLiveCheck` 讀 App **已經安裝的**設定檔與來源網址，挑一個 resolver 願意驅動的 Python 站，
+走 `CSPSourceResolver → SpiderSession → MediaProbe`——也就是 UI 走的同一條路。不是另外湊一條。
+
+### 跑到哪裡
+
+```
+[python] live FAILED [🏆｜銅牌｜高清] init → home(5 classes) → category(21 items) → detail ✗ …
+```
+
+`皮皮虾.py` 在 App 的直譯器上**真的跑起來了**：初始化、首頁回 5 個分類、分類頁回 21 筆、詳情成功。
+這已經證明整條鏈（同源下載 → CPython → shim → dict→JSON → SourceClient 契約）是通的。
+
+### 缺陷 1：`requests` 真的擋住了 23 支
+
+第一次跑挑到 `aidianying.py`，直接 `ModuleNotFoundError: No module named 'requests'`。這不是推論，
+是執行結果——P1 量到的「23 支直接 import requests」現在有了執行期證據。
+
+### 缺陷 2：shim 的 `fetch` 沒有百分比編碼 URL
+
+```
+File "<spider:皮皮虾>", line 76, in searchContent
+File ".../base/spider.py", line 64, in _request
+UnicodeEncodeError: 'ascii' codec can't encode characters in position 32-33
+```
+
+搜尋詞是中文，`requests` 會自動 quote URL，`urllib.request` **不會**。這是我在 IOS-POC-7G 用 stdlib
+取代 `requests` 時帶進來的真缺陷，不是腳本的問題。修在 `_request`，不是修呼叫端。
+
+### 這個工具本身的一個 bug，也記著
+
+第一版用 `sorted { left, _ in left.api.contains("皮皮虾") }` 排序——**那個比較函式忽略右運算元，
+不是合法的排序關係**，結果是任意順序，所以它先跑了 `aidianying` 而不是指定的最輕量腳本。改成明確
+把偏好項提出來再串接。順帶把「只回報最後一次失敗」改成回報每一次嘗試，因為 P5 要數的就是這些。
+
+### 尚未完成
+
+缺陷 2 的修正與重跑（P4 的成功條件是 `MediaProbe` 取得 media bytes），然後 P5 覆蓋量測。

@@ -24,7 +24,12 @@ struct WebHTVApp: App {
         }
         #if DEBUG
         print("[python] boot \(PythonBoot.start())")
-        Task { print("[python] selfcheck \(await PythonBoot.selfCheck())") }
+        Task {
+            print("[python] selfcheck \(await PythonBoot.selfCheck())")
+            // IOS-POC-7J: give the configuration a moment to land, then drive a real source.
+            try? await Task.sleep(for: .seconds(6))
+            print("[python] live \(await PythonLiveCheck.run())")
+        }
         #endif
     }
 

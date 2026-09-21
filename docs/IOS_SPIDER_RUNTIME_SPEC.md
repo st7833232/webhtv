@@ -174,3 +174,58 @@ contract, not the binary that happened to run it on Android.
 
 Only these are genuine blockers: a native VM, heavy control-flow obfuscation, anti-debug or
 anti-tamper, Binder, device attestation, DRM, or a proprietary native protocol.
+
+## How a spider's code reaches the app — five mechanisms, two categories
+
+Added 2026-09-21 (IOS-POC-7I), after the product shape was settled: **a shell app that bundles no
+sources, into which the user brings their own configuration** — the XPTV model. Distribution itself
+is analysed in `docs/analysis/ios-app-store-readiness-research.md`; this section is the architecture
+half, and it exists because the two questions get confused.
+
+The axis that matters is **not** "is it interpreted" — the bundled `csp_*` ports are interpreted
+JavaScript too. It is **when the code arrives**, and therefore whether anyone reviewing the app
+could have seen it.
+
+| # | Mechanism | Where the logic comes from | Code or data? | Coverage |
+|---|---|---|---|---|
+| 1 | Bundled `csp_*` scripts | The app binary (116 KB of JS, 8 classes) | **Code, shipped** | ~62 of the user's sites |
+| 2 | **Rule engines** `XBPQ` / `XYQHiker` | Engine in the binary; the **rule file is data** | **Data** | Whatever rules the user brings |
+| 3 | Compatibility pack | The configuration's origin, at runtime | Code, later | Can replace any class |
+| 4 | drpy | The configuration's origin, at runtime (1.2 MB) | Code, later | 5 sites |
+| 5 | Python | The configuration's origin, at runtime, on a bundled CPython | Code, later | 42 sites |
+
+### Mechanism 2 is the one that gets overlooked
+
+An `XBPQ` or `XYQHiker` rule file is JSON and selectors — **data the engine interprets, not code the
+app executes**. A user bringing their own rule file is doing the same kind of thing as bringing a
+playlist. That makes it the only mechanism that gives all four of: no bundled sources, user-supplied
+sources, updatable without rebuilding the app, and nothing that arrives after review.
+
+Mechanisms 3, 4 and 5 each buy updatability by giving up the last of those. That is a real trade,
+not a defect — it is simply a trade that only one of the two build profiles can afford.
+
+### Why 5 sits below 4 rather than beside it
+
+drpy runs on **JavaScriptCore, which the platform provides**. Python runs on **a CPython this project
+bundles itself**. Whatever latitude exists for downloaded interpreted code has historically been
+written around the platform's own JavaScript engines, so a bundled interpreter is a structurally
+weaker position — not merely a worse one by degree. Treat that as reasoning to verify at submission
+time, not as a quoted rule.
+
+### The gates, and the one thing that must stay true
+
+Each remote mechanism is one line:
+
+| Mechanism | Off switch |
+|---|---|
+| Compatibility pack | `SpiderPackStore.url(for:)` returns `nil` |
+| drpy | the `isDrpySpider` branch in `CSPSourceResolver.canResolve` returns `false` |
+| Python | simply never install `PythonSpiderSupport.makeRuntime` — core links no interpreter at all |
+
+Python's is the cleanest of the three, which is not an accident: IOS-POC-7H built that seam precisely
+so `WebHTVCore` keeps building where no interpreter exists.
+
+**The rule that keeps the gates usable: no remote mechanism may become load-bearing.** The bundled
+scripts have to stay independently correct. The moment a spider fix ships only through the pack, or a
+source is reachable only through drpy or Python, closing the gate stops shipping a smaller app and
+starts shipping a broken one.

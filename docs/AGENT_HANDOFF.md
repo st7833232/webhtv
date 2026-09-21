@@ -243,8 +243,11 @@ shipped, and three different source counts. Detailed status: `docs/current-task-
   2026-09-21 — the partial baseline already taken stands. **(4) IOS-POC-5S** and only then more
   `csp_*` ports. **Do not prioritise XueLuo,
   QimaoDJ, AppDrama or any further `csp_*` class**; the IOS-POC-5N candidates stay in the backlog.
-  A future Official/XPTV-style build (0 bundled sources, user-imported config, pack disabled) is an
-  architecture boundary to remember, **not** something to fork the runtime for now.
+  **The Official/XPTV shape stopped being hypothetical on 2026-09-21**: the user settled it as the
+  product — a shell that bundles no sources and takes the user's own configuration. The app already
+  bundles none. What remains is a build profile, not a fork: see
+  `docs/analysis/ios-app-store-readiness-research.md` for distribution and submission, and
+  `docs/IOS_SPIDER_RUNTIME_SPEC.md` for which spider delivery mechanisms are code and which are data.
 - Per-stage records: `docs/IOS-POC-1E-config-persistence.md`, `docs/IOS-POC-1F-config-sources.md`,
   `docs/IOS-POC-2B-webhome-bridge.md`, `docs/IOS-POC-2D-webhome-bridge-ui-info.md`,
   `docs/IOS-POC-2E-webhome-bridge-playback.md`, `docs/IOS-POC-4A-type4-sources.md`,

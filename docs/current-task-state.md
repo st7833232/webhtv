@@ -680,10 +680,18 @@ over those is likely far cheaper than building pycryptodome for iOS.
 payload and **must not be attacked**. `JPianAmns → JianPian` — an alias to a class proven to serve
 the same API — is the correct pattern for anything behind them.
 
-**Recorded, not to be built now:** a future Official/XPTV-style build would ship 0 sources, have the
-user import their own playlist, not bundle `wang-movie.json`, and could disable the remote executable
-compatibility pack, while the Personal/SideStore build keeps the full spider pack. That is an
-architecture boundary to remember, not a second product to fork.
+**Superseded 2026-09-21 — this is the product, not a future boundary.** The user settled the shape:
+**a shell app that bundles no sources, into which the user brings their own configuration** — the
+XPTV model. The app already satisfies the first half: there is no bundled `wang-movie.json` and no
+default configuration of any kind in `ios/WebHTVApp/`, so "0 bundled sources" is today's behaviour
+rather than future work.
+
+What that leaves is a **build-profile question, not a rewrite**: which mechanisms a store-bound build
+switches off. Distribution and submission are analysed in
+`docs/analysis/ios-app-store-readiness-research.md`; the architecture half — the five ways a spider's
+code can reach the app, which of them are code and which are data, and where each gate is — is in
+`docs/IOS_SPIDER_RUNTIME_SPEC.md` under "How a spider's code reaches the app". The single rule that
+keeps the gates usable: **no remote mechanism may become load-bearing.**
 
 ## Resume Prompt
 
@@ -691,11 +699,11 @@ Paste this into a new session:
 
 > 接手 `/Users/chengchenchih/GIT/webhtv` 的 `ios-poc` 分支，透過本機終端操作，不要每步停下來問我確認。用台灣繁體中文回報。
 >
-> **先確認實際狀態，不要相信以下引用的任何 ID**：預期 HEAD 在 IOS-POC-8E，**領先 `origin/ios-poc` 2 個 commit 且尚未 push**，worktree clean。未經我明確授權不得 push。
+> **先確認實際狀態，不要相信以下引用的任何 ID**：2026-09-21 當時 HEAD 在 `2112a48f`（IOS-APPSTORE-READINESS 之後），**領先 `origin/ios-poc` 6 個 commit 且尚未 push**，worktree clean。這一行每次都會過期，用 `git log` 覆蓋它。未經我明確授權不得 push。
 >
 > 動手前必讀：`AGENTS.md`、`docs/AGENT_HANDOFF.md`、`docs/current-task-state.md`、`docs/IOS_SPIDER_RUNTIME_SPEC.md`（runtime/ABI 唯一真實來源，含 compatibility pack 契約）、`docs/CSP_MIGRATION_STATUS.md`（移植進度）。要動哪個既有階段就讀那個階段的 `docs/IOS-POC-5*.md`。
 >
-> **這個 App 現在能做什麼**：iPhone 版 WebHomeTV。匯入檔設定列出 167 個來源中的 **62 個**（30 native + 32 spider），**遠端設定再多 5 個 drpy 站共 67 個**，**可播數量自 IOS-POC-5L 之後沒有重新量過**——上一次是 2026-09-17 的 37/61，那是 5M／5P／5Q 之前的數字，不要當成現況引用。兩層分類、篩選列、分頁、搜尋、詳情、五種播放器、匯入檔或 HTTPS Raw URL 設定（schema 驗證 + LKG 快取 + 啟動重試）、WebHome bridge over WKWebView、spider compatibility pack 熱更新、播放帶來源要求的 request headers、`playerContent.url` 三形狀 + 畫質選單、以及**播放記錄／續播／記錄分頁／`app.history` 真資料**。
+> **這個 App 現在能做什麼**：iPhone 版 WebHomeTV，**一個不內建任何來源的空殼**，使用者自帶設定檔（XPTV 模型，2026-09-21 由使用者確認為產品定位）。匯入檔設定列出 167 個來源中的 **62 個**（30 native + 32 spider），**遠端設定再多 5 個 drpy 站共 67 個，Python routing（IOS-POC-7H）之後再多 42 個共 109 個**，**可播數量自 IOS-POC-5L 之後沒有重新量過**——上一次是 2026-09-17 的 37/61，那是 5M／5P／5Q 之前的數字，不要當成現況引用。兩層分類、篩選列、分頁、搜尋、詳情、五種播放器、匯入檔或 HTTPS Raw URL 設定（schema 驗證 + LKG 快取 + 啟動重試）、WebHome bridge over WKWebView、spider compatibility pack 熱更新、播放帶來源要求的 request headers、`playerContent.url` 三形狀 + 畫質選單、以及**播放記錄／續播／記錄分頁／`app.history` 真資料**。
 >
 > **Spider 架構核心**：不在 iOS 執行 Android DEX/JAR，而是用 JavaScriptCore 重現 `Spider.java` 的 text-in/text-out 契約；反編譯的 Java 只當規格書。已移植 8 個 class（`AppGet` 5 站、`AppQi` 6、`App99` 4、`App3Q` 2、`Bili` 4、`JianPian` 1、規則引擎 `XBPQ` 7 與 `XYQHiker` 3）。共用 `CatVodHost`，**不要做第二套 runtime**。
 >

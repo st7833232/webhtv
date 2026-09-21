@@ -306,3 +306,56 @@ ImportError，而 payload 本來就不進 repo，磁碟很便宜。等到真的�
 ### 尚未開始
 
 `PythonSpiderRuntime`、`base/spider.py` shim、Xcode 專案連結、P3 routing、P4 端到端、P5 覆蓋量測。
+
+## IOS-POC-7F — P2b：直譯器在 App 裡起得來（2026-09-21）
+
+P2 的第二段，也是整個 Python 階段風險最高的一段：**CPython 到底能不能在這個 App 內初始化**。
+這個問題沒有任何 macOS 測試能回答，因為 XCFramework 沒有 macOS slice。
+
+### 結果
+
+```
+[python] boot running(version: "3.13.15")
+```
+
+在 iPhone 17 Pro 模擬器上的 WebHTVApp 內取得。**同時 `swift test` 的 143 條仍全過**——這證實了
+本階段最重要的架構約束成立：Python 只進 App target，`WebHTVCore` 在 macOS 上照常建置與測試。
+
+### 架構決定：Python 只能住在 App target
+
+| | 為什麼 |
+|---|---|
+| `PythonBoot` 放 App target | XCFramework 只有 iOS slice；`WebHTVCore` 必須在 macOS 上跑那 143 條測試 |
+| 不放進 SwiftPM package | binaryTarget 會讓 macOS 解析失敗，整套測試就沒了 |
+| 之後 `PythonSpiderRuntime` 也在 App target | 它要 `import Python`；core 只留最小 seam 讓既有 routing 接得上 |
+
+### 三個實際踩到的坑（都不是猜的）
+
+1. **`import Python` 解析不到。** 上游把 module map 放在 `Python.framework/Headers/`，但 clang 找的是
+   `Modules/`。加了一個在 `Sources` **之前**執行的 `Prepare Python` phase 補上。
+2. **補上之後仍失敗**：upstream 那份是 plain module，放進 framework 必須宣告 `framework module`，
+   否則 clang 去錯的地方找 umbrella header。Prepare phase 改成 `sed` 轉寫而不是直接複製。
+3. **`install_python` 路徑重複串接**：它的參數是**相對於 `$PROJECT_DIR`**（上游註解寫明），我原本傳
+   絕對路徑。同時上游也明講這一步要在 **framework embedding 之前**跑，phase 順序照改。
+
+最終 phase 順序：`Prepare Python → Sources → Frameworks → Resources → Install Python → Embed Frameworks`。
+
+### 驗證方式，以及它為什麼可信
+
+Python 自己的 stdout **不會**進到 `simctl launch --console-pty` 抓得到的 console，所以證據是回傳碼：
+
+- 正向：`import sys, json, re` 外加一個 `assert`，讓標準庫真的做事而不只是 resolve → 回傳 0
+- **負向對照**：`raise RuntimeError(...)` → 必須回傳非 0
+
+沒有負向對照的話，一個什麼都沒執行的 `PyRun_SimpleString` 看起來會跟成功一模一樣，整個檢查就沒有意義。
+能走到 `.running` 代表兩者都如預期。
+
+`ponytail:` 用 `PYTHONHOME` 環境變數而不是 `PyConfig_InitIsolatedConfig`——後者的 `PyStatus` 在 Swift
+裡不好橋接，而兩者回答同一個問題。等到真的需要 isolation 或 argv 再換。
+
+`ponytail:` `Prepare Python` 每次建置都改寫 `third_party/python-ios/` 底下的 module map。冪等、untracked、
+理由寫在腳本裡，但更正確的家是 `scripts/fetch_python_ios.sh`；下次動那支腳本時搬過去。
+
+### 尚未開始
+
+`base/spider.py` shim、`PythonSpiderRuntime`、P3 routing 與安全邊界、P4 端到端、P5 覆蓋量測。

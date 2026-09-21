@@ -14,6 +14,9 @@
 		D1A7C0FE51B34A2E90B7E111 /* app-capabilities-showcase.html in Resources */ = {isa = PBXBuildFile; fileRef = D1A7C0FE51B34A2E90B7E110 /* app-capabilities-showcase.html */; };
 		8B273AEB71F9B7002DBB0CD2 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1DE1533ABDF1950D233084A1 /* Foundation.framework */; };
 		C1FAEFECF8AAADA1C45A7C27 /* WebHTVApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7494045C9101CB5C4F234881 /* WebHTVApp.swift */; };
+		7E10000000000000000000A2 /* Python.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000A1 /* Python.xcframework */; };
+		7E10000000000000000000A3 /* Python.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000A1 /* Python.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		7E10000000000000000000A7 /* PythonBoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000A6 /* PythonBoot.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -23,8 +26,57 @@
 		0DBE24A95C91F7C2605D4998 /* ic_logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = ic_logo.png; sourceTree = "<group>"; };
 		D1A7C0FE51B34A2E90B7E110 /* app-capabilities-showcase.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = "app-capabilities-showcase.html"; path = "../../webhome-devkit/templates/homepages/app-capabilities-showcase.html"; sourceTree = SOURCE_ROOT; };
 		7494045C9101CB5C4F234881 /* WebHTVApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WebHTVApp.swift; sourceTree = "<group>"; };
+		7E10000000000000000000A1 /* Python.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Python.xcframework; path = "../../third_party/python-ios/Python.xcframework"; sourceTree = SOURCE_ROOT; };
+		7E10000000000000000000A6 /* PythonBoot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PythonBoot.swift; sourceTree = "<group>"; };
 		AF891E7F959513A468894926 /* WebHTVApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WebHTVApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		7E10000000000000000000A4 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				7E10000000000000000000A3 /* Python.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		7E10000000000000000000A8 /* Prepare Python */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Prepare Python";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\n# The payload is fetched, not committed, so a fresh clone builds without a manual step.\n\"$SRCROOT/../../scripts/fetch_python_ios.sh\"\n# Upstream ships the module map at Python.framework/Headers/module.modulemap, but clang looks for\n# a framework's module map under Modules/. Without this, `import Python` fails to resolve.\n# Runs before Sources because module resolution happens at compile time.\nfor slice in \"$SRCROOT/../../third_party/python-ios/Python.xcframework\"/ios-*; do\n  headers=\"$slice/Python.framework/Headers/module.modulemap\"\n  [ -f \"$headers\" ] || continue\n  mkdir -p \"$slice/Python.framework/Modules\"\n# Upstream's map is a plain module, meant for -fmodule-map-file. A map living inside a\n# framework has to declare `framework module`, or clang looks for the umbrella header in the\n# wrong place and the module fails to build.\n  sed 's/^module Python {/framework module Python {/' \"$headers\" > \"$slice/Python.framework/Modules/module.modulemap\"\ndone\n";
+		};
+		7E10000000000000000000A5 /* Install Python */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Install Python";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\n# install_python is upstream's own installer: it lays the standard library out at\n# $CODESIGNING_FOLDER_PATH/python and turns lib-dynload into the signed framework form iOS\n# needs. Its argument is relative to $PROJECT_DIR, which is what its own example passes, and\n# it has to run after resources are copied but before the frameworks are embedded and signed.\nREL=../../third_party/python-ios/Python.xcframework\n. \"$PROJECT_DIR/$REL/build/utils.sh\"\ninstall_python \"$REL\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		63E5D2F726C6774B2CEE0477 /* Frameworks */ = {
@@ -33,6 +85,7 @@
 			files = (
 				8B273AEB71F9B7002DBB0CD2 /* Foundation.framework in Frameworks */,
 				03A4E1B2D21D45A42BB9BC7A /* WebHTVCore in Frameworks */,
+				7E10000000000000000000A2 /* Python.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -43,6 +96,7 @@
 			isa = PBXGroup;
 			children = (
 				7D541EC829446F480F66AB27 /* iOS */,
+				7E10000000000000000000A1 /* Python.xcframework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -62,6 +116,7 @@
 			isa = PBXGroup;
 			children = (
 				7494045C9101CB5C4F234881 /* WebHTVApp.swift */,
+				7E10000000000000000000A6 /* PythonBoot.swift */,
 			);
 			name = Sources;
 			path = Sources;
@@ -101,9 +156,12 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 6418E6276579ABAC1635EAE3 /* Build configuration list for PBXNativeTarget "WebHTVApp" */;
 			buildPhases = (
+				7E10000000000000000000A8 /* Prepare Python */,
 				7E85FC5B984C118C75AECCE8 /* Sources */,
 				63E5D2F726C6774B2CEE0477 /* Frameworks */,
 				A07407BF2CE9227A84DD00E2 /* Resources */,
+				7E10000000000000000000A5 /* Install Python */,
+				7E10000000000000000000A4 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -169,6 +227,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C1FAEFECF8AAADA1C45A7C27 /* WebHTVApp.swift in Sources */,
+				7E10000000000000000000A7 /* PythonBoot.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

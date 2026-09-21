@@ -13,6 +13,15 @@ private let configUpdatedAtKey = "configUpdatedAt"
 
 @main
 struct WebHTVApp: App {
+    init() {
+        // IOS-POC-7F: start the interpreter and say what came up. Debug-only for now — the Spider
+        // runtime will own initialisation once it exists, and nothing in a Release build needs
+        // CPython until it does.
+        #if DEBUG
+        print("[python] boot \(PythonBoot.start())")
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
             ConfigView()

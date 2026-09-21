@@ -134,7 +134,9 @@ private struct ConfigView: View {
             await refreshSpiderPack()
         }
         .onChange(of: selectedSiteID) { _, id in
-            UserDefaults.standard.set(id, forKey: selectedSiteKey)
+            // IOS-POC-10C: never the raw id. `Site.id` embeds a NUL and CFPreferences truncates
+            // there, which is what made every launch reopen on the first source.
+            UserDefaults.standard.set(id.map(SiteSelection.token(for:)), forKey: selectedSiteKey)
         }
         .alert("從網址載入設定", isPresented: $askingRemote) {
             TextField("https://…/wang-movie.json", text: $remoteText)
@@ -295,9 +297,9 @@ private struct ConfigView: View {
             // resolved against it, and resolving against the wrong base silently breaks those sites.
             let loaded = try ConfigLoader.validate(Data(contentsOf: url))
                 .drivableSites(resolvedBy: CSPSourceResolver(source: restored))
-            let key = UserDefaults.standard.string(forKey: selectedSiteKey)
+            let stored = UserDefaults.standard.string(forKey: selectedSiteKey)
             sites = loaded
-            selectedSiteID = loaded.first { $0.id == key }?.id ?? loaded.first?.id
+            selectedSiteID = SiteSelection.resolve(stored, in: loaded) ?? loaded.first?.id
         } catch {
             self.error = "已保存的設定無法載入：\(error.localizedDescription)。請重新匯入。"
         }

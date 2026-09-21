@@ -46,6 +46,20 @@ IOS-POC-8B 把它下移到 AVKit 那排之下。它永遠在畫面上。
 `Site.ID` 的型別與 `UserDefaults` 的存取是否對得上；`HomeView` 是否自己另有狀態。
 **先重現再修。**
 
+#### 結果（2026-09-21）：**已修，根因是 `UserDefaults` 在 NUL 處截斷**
+
+先重現，沒有猜。直接讀模擬器的 `com.webhtv.ios.poc.plist`，`selectedSiteKey` 存的是
+`php_无水印资源`——**長度 9，沒有 `ext`**。而 `Site.id` 是 `key + "\u{0}" + rawExtJSON`，
+**CFPreferences 把字串在 NUL 處砍斷了**。寫入看起來正常、讀取看起來正常，只有磁碟上的位元組說了實話。
+回讀對不上任何站台，於是每次都落到 `sites.first`。
+
+修法：新增 `SiteSelection`（在 core，因為 app target 沒有測試宿主），存的是 base64，
+round trip 精確。**同時接受舊的截斷值**——以 `key` 比對——讓升級後第一次啟動就能救回使用者真正的
+選擇，而不是默默把他丟回清單頂端。
+
+驗證：4 條新單元測試；模擬器實測選「天涯｜高清◎順播」→ plist 存成 `dm9kX+Wkqea2rwA=`
+（解碼為 `vod_天涯<NUL>`，NUL 完整保留）→ 冷啟動後來源列仍是「天涯｜高清◎順播」。
+
 ### 10D — 多筆設定檔來源（使用者已決定：可存多筆、能切換）
 
 **現況**：只存一個 `configSourceURL` 字串，換回舊的要重打網址。

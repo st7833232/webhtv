@@ -143,6 +143,27 @@ final class PythonSpiderRuntime: SpiderRuntime, @unchecked Sendable {
             throw SpiderError.scriptFailed("the runtime answered with something that is not an envelope")
         }
         if object["ok"] as? Bool == true { return object["value"] as? String ?? "" }
-        throw SpiderError.scriptFailed(object["error"] as? String ?? "unknown Python failure")
+        let detail = object["error"] as? String ?? "unknown Python failure"
+        // The whole traceback goes to the log, where it is worth having, and one line goes to the
+        // person, who is looking at a screen and not debugging an interpreter.
+        print("[spider] python failure\n\(detail)")
+        throw SpiderError.scriptFailed(summarised(detail))
+    }
+
+    /// One readable line out of a Python traceback.
+    ///
+    /// Without this the failure reaches `ContentUnavailableView` in full: twenty lines of frames and
+    /// absolute simulator paths, as a user-facing message. The traceback is still printed; this is
+    /// only what gets shown.
+    static func summarised(_ traceback: String) -> String {
+        let last = traceback.split(separator: "\n").last.map(String.init)?
+            .trimmingCharacters(in: .whitespaces) ?? traceback
+        // A missing module is the common case by a wide margin — 34 of the 42 configured Python
+        // sites are blocked on one (IOS-POC-7L) — and naming it is the whole of the useful answer.
+        if let range = last.range(of: "No module named ") {
+            let module = last[range.upperBound...].trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+            return "這個來源需要 \(module) 模組，App 內建的 Python 沒有它"
+        }
+        return last.isEmpty ? traceback : last
     }
 }

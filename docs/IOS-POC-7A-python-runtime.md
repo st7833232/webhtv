@@ -673,3 +673,22 @@ survey driven 1/42
 
 麒麟那 1 站仍要記得：它的 `import requests` 在方法內，所以它落在「能執行」那格是暫時的——
 走到那個方法就會變成第 23 支的同類。
+
+## IOS-POC-7N — 失敗訊息是給人看的，traceback 是給 log 的（2026-09-21）
+
+使用者選 `七味.py` 時，畫面上出現的是**整面 Python traceback**，含模擬器絕對路徑，一路排到
+`ModuleNotFoundError: No module named 'urllib3'`。
+
+**那個站本身沒有問題**——它就是 IOS-POC-7L 量到的 `missing urllib3 ×1`，是 34 個被相依性擋住的站之一，
+行為完全如預期。**有問題的是呈現**：我在 IOS-POC-7G 讓錯誤帶著完整 traceback 跨回 Swift（那是對的，
+沒有它 IOS-POC-7K 的 `sys.path` 問題根本查不出來），但忘了那個字串會直接進 `ContentUnavailableView`。
+
+修法：traceback **照樣 print 到 console**，丟給 UI 的只留一行。缺少模組是遠遠最常見的情況
+（42 站裡 34 站），所以那一行直接把模組名講出來：
+
+> Spider script error: 這個來源需要 urllib3 模組，App 內建的 Python 沒有它
+
+保留了什麼、丟掉了什麼，分得很清楚：診斷資訊一個位元沒少，只是換了去處。
+
+`ponytail:` `Spider script error:` 這個英文前綴來自 core 的 `SpiderError.scriptFailed`，所有 spider
+共用，不是這次帶進來的。要讓它也中文化是另一件事，會動到 core 的錯誤描述，不在這裡做。

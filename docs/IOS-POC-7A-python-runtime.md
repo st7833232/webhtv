@@ -253,3 +253,56 @@ repo 裡現成的 Android 版。③ 標準庫——最小 POC 的 4 支腳本只
 - P1 **完成**。
 - P2–P5 未開始。P2 會動到 Xcode 專案檔（加入 XCFramework），而那個檔案本輪已被 Xcode 自動改寫過
   兩次，要留意。
+
+---
+
+## IOS-POC-7E — P2a：payload 管線（2026-09-21）
+
+P2 的第一段：**讓 CPython payload 有一個固定、可重現的位置**，還沒有任何 Swift 程式碼。
+
+### 打包方式的決定：抓取，不提交
+
+使用者在 2026-09-21 從兩個選項中選了 fetch 腳本。判斷依據是這個 repo 裡**兩種先例性質不同**：
+
+| 先例 | 性質 | 為什麼那樣做 |
+|---|---|---|
+| `app/src/arm64_v8a/assets/mpv-libs/*.so`（43 MB，tracked） | 從 fork `FongMi/mpv-android` 某個 commit **自己編出來的** | 別處拿不到，提交是唯一能重現的方式 |
+| `third_party/sources/`（gitignored） | 外部取得的來源 | 可重抓 |
+| **Python-Apple-support** | **官方 release asset** | 可重抓，且已證實不可變 |
+
+證據不是推論：`Python-3.13-iOS-support.b15.tar.gz` 在 **2026-09-18 與 2026-09-21 各下載一次，
+sha256 完全相同**（`80175765…c5d1`，32,566,713 bytes）。為一個上游已不可變的東西在 git history
+永久加 30 MB，換不到任何重現性；而且方向可逆 —— 日後要改成提交隨時可以，反過來得改寫歷史。
+
+### 交付物
+
+| 檔案 | 作用 |
+|---|---|
+| `third_party/python-ios-lock.json` | 唯一真相：版本、URL、sha256、bytes、bundled libraries、授權、要精簡掉的路徑 |
+| `scripts/fetch_python_ios.sh` | 下載 → 驗 size + sha256 → 解壓 → 精簡 → 蓋 stamp。**fail closed**，且 idempotent |
+| `.gitignore` | `third_party/python-ios/` |
+
+### 量到的事
+
+| | |
+|---|---|
+| 下載 | 31.0 MB，sha256 驗過 |
+| 解壓精簡後 | **77 MB**（磁碟，未 tracked） |
+| 共用標準庫 | 50 MB → **10 MB**（砍掉 `test` 35 MB、`idlelib`、`ensurepip`、`tkinter`、`pydoc_data`） |
+| `lib-dynload` | 每個 arch 14 MB，**故意不砍** |
+| framework 二進位 | device 5.2 MB、simulator 10.5 MB（fat） |
+| slice | `ios-arm64`、`ios-arm64_x86_64-simulator` |
+
+`ponytail:` 不砍 `lib-dynload` 是刻意的 —— 砍掉哪個 `.so` 就會在某支腳本 import 它的時候變成執行期
+ImportError，而 payload 本來就不進 repo，磁碟很便宜。等到真的在量 App 體積時再回來。
+
+### 驗證
+
+- `./scripts/fetch_python_ios.sh` → 下載、`verified sha256 80175765…c5d1`、`ready … (77M)`
+- 再跑一次 → `already present`，沒有重抓
+- `git status --porcelain` → 只看得到 `.gitignore`、腳本、lock 三個檔，**payload 完全不可見**
+- 解壓結果有 device slice、simulator slice、標準庫三項斷言，缺一即 fail
+
+### 尚未開始
+
+`PythonSpiderRuntime`、`base/spider.py` shim、Xcode 專案連結、P3 routing、P4 端到端、P5 覆蓋量測。

@@ -35,3 +35,7 @@ plans/
 xcuserdata/
 *.xcuserstate
 ios/.swiftpm/
+
+# The CPython iOS payload: fetched by scripts/fetch_python_ios.sh, pinned by
+# third_party/python-ios-lock.json. Upstream release asset, so it is not committed (IOS-POC-7E).
+third_party/python-ios/

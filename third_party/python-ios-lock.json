@@ -1,0 +1,49 @@
+{
+  "_comment": "Provenance for the CPython iOS payload. scripts/fetch_python_ios.sh is the only thing that reads this, and third_party/python-ios/ is untracked: the artifact is an immutable upstream release, so it is fetched rather than committed. IOS-POC-7E.",
+  "upstream": {
+    "project": "Python-Apple-support",
+    "repo": "https://github.com/beeware/Python-Apple-support",
+    "release": "3.13-b15",
+    "released": "2026-09-04",
+    "artifact": "Python-3.13-iOS-support.b15.tar.gz",
+    "url": "https://github.com/beeware/Python-Apple-support/releases/download/3.13-b15/Python-3.13-iOS-support.b15.tar.gz",
+    "bytes": 32566713,
+    "sha256": "80175765a31babe43b0910395cf86ba4e8412adf1902b069d55b74d523ecc5d1",
+    "hash_evidence": "Downloaded 2026-09-18 and again 2026-09-21; both copies hash to the value above, so the release asset is immutable and re-fetching reproduces it byte for byte."
+  },
+  "contents": {
+    "python": "3.13.15",
+    "build": "b15",
+    "min_ios": "13.0",
+    "slices": ["ios-arm64", "ios-arm64_x86_64-simulator"],
+    "note": "No macOS slice. `swift test` runs on macOS and therefore cannot execute this interpreter; anything that needs CPython has to run in the Simulator.",
+    "bundled_libraries": {
+      "openssl": "3.0.22-1",
+      "libffi": "3.4.7-2",
+      "xz": "5.6.4-2",
+      "mpdecimal": "4.0.0-2",
+      "bzip2": "1.0.8-2"
+    }
+  },
+  "licences": {
+    "_note": "Recorded from the upstream project's own documentation as a starting point. This is not an independent licence audit; one belongs to whatever stage first ships a build to anyone other than the author.",
+    "Python-Apple-support": "BSD-3-Clause",
+    "CPython": "PSF-2.0",
+    "OpenSSL": "Apache-2.0",
+    "libFFI": "MIT",
+    "XZ/liblzma": "0BSD",
+    "mpdecimal": "BSD-2-Clause",
+    "bzip2": "bzip2-1.0.6"
+  },
+  "destination": "third_party/python-ios",
+  "tracked": false,
+  "trim": [
+    "Python.xcframework/lib/python3.13/test",
+    "Python.xcframework/lib/python3.13/idlelib",
+    "Python.xcframework/lib/python3.13/ensurepip",
+    "Python.xcframework/lib/python3.13/tkinter",
+    "Python.xcframework/lib/python3.13/pydoc_data",
+    "testbed"
+  ],
+  "trim_note": "Only obvious non-shippables. `test` alone is 35 MB of the 50 MB shared standard library. lib-dynload is deliberately NOT trimmed: dropping a .so there turns into an ImportError at runtime in whichever script happens to need it, and the payload is untracked anyway, so the disk it costs is cheap. Revisit when app size is the thing being measured."
+}

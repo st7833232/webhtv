@@ -796,6 +796,11 @@ private struct SettingsView: View {
             if let site = sites.first(where: { $0.id == selectedSiteID }) ?? sites.first {
                 Section("開發者") {
                     NavigationLink("WebHome 橋接驗證") { WebHomeView(site: site, sites: sites, source: source) }
+                    // IOS-POC-9C: a Debug-only surface for the MPV spike. Not a player — nothing
+                    // downstream routes here, and AVPlayer is still the only playback core.
+                    #if DEBUG
+                    NavigationLink("MPV 算繪驗證") { MPVProbeView() }
+                    #endif
                 }
             }
 

@@ -191,3 +191,104 @@ client library 看起來與成功完全相同，這是 IOS-POC-7F 已經付過�
 **等使用者決定是否繼續 9B 的第二個單元：讓 libmpv 真的把一支串流畫到畫面上**
 （`MPVEngine` + Metal layer），成功後才談 `PlayerRouter` 與 `PlaybackSession` 整合。
 在那之前不動 `PlaybackSession`、不動 `SourceClient`。
+
+---
+
+# IOS-POC-9C — 算繪：走到哪裡，以及為什麼停在這裡
+
+日期 2026-09-21，基線 HEAD `401b3076`。**結論先講：畫面沒有出來，而且原因已經收斂到一個必須在
+真機上回答的問題。** 這一節記錄每一步量到什麼，免得下一個人重跑一遍同樣的五輪。
+
+## 做了什麼
+
+`MPVProbeView`（Debug-only，設定頁「開發者」區第二列），照 **MPVKit 自己的 iOS demo** 接線，
+不自行發明路徑：`CAMetalLayer` 當 `wid`、`vo=gpu-next`、`gpu-api=vulkan`、`gpu-context=moltenvk`。
+**沒有碰 `PlaybackSession`、`SourceClient`、播放器選單，也還沒有 `PlayerRouter`。**
+
+## 一個真的缺陷：wakeup callback 不能碰 MainActor 物件
+
+第一次執行直接 **crash**，`EXC_BREAKPOINT`：
+
+```
+_dispatch_assert_queue_fail
+dispatch_assert_queue
+_swift_task_checkIsolatedSwift
+swift_task_isCurrentExecutorWithFlagsImpl
+closure #1 in MPVProbeController.start()   ← mpv 的 core_thread
+```
+
+`mpv_set_wakeup_callback` 在 mpv 自己的 core thread 上呼叫回來，而我把它接到 `UIViewController`
+上——`UIViewController` 是 `@MainActor`，於是隔離檢查在非主佇列上觸發斷言。
+
+**把方法標成 `nonisolated` 不夠，隔離檢查是針對實例而不是方法。** 正確的修法是讓 mpv 回呼的對象
+根本不是 actor-isolated：把 mpv handle 與事件泵搬進 `MPVProbeCore`（`@unchecked Sendable`），
+view controller 只留 layer。這個結構也正是未來 `MPVEngine` 該有的形狀。
+
+## 模擬器上量到的三件事
+
+| # | 量到什麼 | 判讀 |
+|---|---|---|
+| 1 | `Spent 1197.565 ms creating vulkan device (slow!)` | **MoltenVK/Vulkan 在 iOS 模擬器上建得起來**，只是很慢。這是開工前最大的未知，答案是肯定的 |
+| 2 | `FILE_LOADED` | HLS demux 成功，網路與解析鏈通 |
+| 3 | `videotoolbox_vld: hwaccel initialisation returned error` 與 `Device does not support the VK_KHR_video_decode_queue extension!` | **模擬器沒有任何硬體解碼**，而且 `hwdec=auto-safe` **不會自動回退**——它卡在 `h264: no frame!` |
+
+把 `hwdec` 改成 `no`（軟解）之後，**h264 的錯誤全部消失**，`FILE_LOADED` 乾淨。所以解碼這一層沒問題。
+
+因此探針把 `hwdec` 做成畫面上的開關，預設軟解：真機可以翻回 `auto-safe` 驗硬解，模擬器不必每次改碼。
+
+## 沒有成立的事，明講
+
+**`VIDEO_RECONFIG` 在任何一種組合下都沒有觸發，畫面始終是黑的。** 沒有任何一幀到過那個 layer。
+
+試過而且都不是原因的：`hwdec=videotoolbox`／`auto-safe`／`no` 三種解碼設定；layer 幾何確認為
+`402x874 scale 3.0`（不是零尺寸）。
+
+**不要把「Vulkan device 建起來了」讀成「算繪成立」。** 建立 device 與送出一幀是兩件事。
+
+## 為什麼停在這裡，而不是繼續試
+
+`.codex/skills/upstream-integration-governor/references/webhtv-player-gates.md` §4 寫得很直接：
+「Compilation or marker-string checks alone cannot validate Surface, fence, decoder, audio,
+lifecycle, or vendor behavior.」而 `AGENTS.md` §3 要求同一個假設失敗兩次就換路徑。
+
+模擬器的 MoltenVK 是軟體路徑，本來就是驗證算繪最差的環境。**剩下的問題只有真機能回答**，
+而真機驗證是使用者在 2026-09-21 明確延後的事項。所以這是一個需要你決定的關卡，不是一個我該繼續
+猜的技術問題。
+
+iPhone 18 Pro（`00008160-00124C8200214036`）目前 `devicectl` 回報 `available (paired)`，
+硬體是通的。
+
+## 驗證
+
+| 檢查 | 結果 |
+|---|---|
+| `swift test --package-path ios` | **151 條全過**（core 仍不連結 libmpv） |
+| `xcodebuild … Debug build`（模擬器） | **BUILD SUCCEEDED** |
+| 模擬器：mpv 初始化 | 成立 |
+| 模擬器：Vulkan device | 成立（1197 ms） |
+| 模擬器：HLS `FILE_LOADED` | 成立 |
+| 模擬器：軟解無錯誤 | 成立 |
+| **模擬器：畫面出現** | **未成立**，`VIDEO_RECONFIG` 從未觸發 |
+| crash 回歸 | 已修，同一操作不再 crash |
+
+## Ponytail（final diff）
+
+新增一支 Debug-only 檔案與設定頁一列 `NavigationLink`，其餘都是 pbxproj 登錄。
+**沒有動任何既有播放路徑**：AVPlayer、`PlaybackSession`、`SourceClient`、播放器選單一行未改。
+
+拿掉了 MPVKit demo 裡的 `wantsExtendedDynamicRangeContent` override——它只為 `target-colorspace-hint`
+存在，而這一刀沒開 HDR，留著就是死碼。保留了 `drawableSize` 的 override，因為那是 MoltenVK 的實際
+bug（上游 PR 13651），不是偏好。
+
+探針本身刻意報出 `w`/`h`/`codec`/`vo`/`hwdec`，理由與 `MPVBoot` 的負向對照相同：**黑畫面與壞掉的
+算繪器在截圖上完全一樣**，只有數字能分辨。事後證明這個決定是對的——正是這些數字把問題從
+「不知道為什麼黑」收斂到「VO 從未 reconfig」。
+
+## 下一步（唯一，需要你決定）
+
+**在 iPhone 18 Pro 上跑這個探針。** 那是唯一能回答「gpu-next + MoltenVK 在真機上會不會出畫面」
+的方法，而真機驗證被你延後過，所以我不自行啟動。裝置簽章照既有做法走命令列
+（`DEVELOPMENT_TEAM=764SVXY2B7 CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates`）。
+
+若真機也不出畫面，退路是 `vo=gpu` + `gpu-api=opengl`（iOS 上 OpenGL ES 已棄用但仍在），
+或 MPVKit demo 裡的另一條 OpenGL 路徑——**兩者都還沒試，不要當成已排除**。

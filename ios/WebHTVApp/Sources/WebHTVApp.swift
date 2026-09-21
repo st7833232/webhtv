@@ -1534,47 +1534,72 @@ private struct PlayerPickerView: View {
     }
 }
 
+/// `AVPlayerViewController` directly, rather than SwiftUI's `VideoPlayer`, for one reason: the
+/// delegate. `VideoPlayer` wraps the same controller but hands out no delegate, and the control
+/// visibility this screen needs has no other public source.
+private struct PlayerSurface: UIViewControllerRepresentable {
+    let player: AVPlayer
+    @Binding var controlsVisible: Bool
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.delegate = context.coordinator
+        return controller
+    }
+
+    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
+        // One `AVPlayer` lives for the whole app, so this normally does nothing; it matters only
+        // if the session ever swaps the player object rather than its item.
+        if controller.player !== player { controller.player = player }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(visible: $controlsVisible) }
+
+    final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
+        private let visible: Binding<Bool>
+
+        init(visible: Binding<Bool>) { self.visible = visible }
+
+        /// Ride AVKit's own animation so the button fades on the same curve and duration as the
+        /// controls it belongs to, instead of approximating them.
+        func playerViewController(
+            _ playerViewController: AVPlayerViewController,
+            willTransitionToVisibilityOfPlaybackControls isVisible: Bool,
+            with coordinator: UIViewControllerTransitionCoordinator
+        ) {
+            coordinator.animate(alongsideTransition: { [visible] _ in
+                visible.wrappedValue = isVisible
+            })
+        }
+    }
+}
+
 private struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
     /// The item is already loaded by the caller, because playback has to outlive this screen for
     /// `player.status` and `player.control` to mean anything.
     private let session = PlaybackSession.shared
 
-    /// IOS-POC-10A: the close button follows the tap, instead of sitting on the video forever.
+    /// IOS-POC-10A: the close button appears and disappears **with AVKit's own controls**.
     ///
-    /// SwiftUI's `VideoPlayer` does not expose whether AVKit's own controls are showing, and the
-    /// only ways to read that are private. So this mirrors AVKit's behaviour rather than observing
-    /// it: a tap toggles, and showing starts a timer that hides again.
+    /// The first attempt mirrored AVKit with a tap toggle and a four second timer, because
+    /// SwiftUI's `VideoPlayer` does not publish the control state. It came out inverted in use:
+    /// AVKit's controls and this button drifted out of phase, so revealing one hid the other.
     ///
-    /// The tap is attached with `simultaneousGesture`, which watches the tap **without consuming
-    /// it** — AVKit still gets the same touch and still toggles its own controls. An ordinary
-    /// `onTapGesture`, or a transparent overlay to catch taps, would swallow it and leave the
-    /// viewer unable to pause.
+    /// Guessing was the mistake, not the timing. `AVPlayerViewControllerDelegate` has
+    /// `playerViewController(_:willTransitionToVisibilityOfPlaybackControls:with:)`, which is
+    /// public and says exactly when the controls come and go. Following that signal removes the
+    /// timer, the toggle and the gesture entirely — the button can no longer be out of phase
+    /// because it is no longer keeping its own idea of the phase.
     @State private var chromeVisible = true
-    @State private var hideChrome: Task<Void, Never>?
-
-    /// `ponytail:` our own timer rather than AVKit's, so the two can drift apart by a moment.
-    /// There is no public API to synchronise with, and reaching for a private one to shave that
-    /// is not worth it. Revisit if AVKit ever publishes the state.
-    private static let chromeLinger = Duration.seconds(4)
-
-    private func setChrome(visible: Bool) {
-        hideChrome?.cancel()
-        chromeVisible = visible
-        guard visible else { return }
-        hideChrome = Task {
-            try? await Task.sleep(for: Self.chromeLinger)
-            guard !Task.isCancelled else { return }
-            chromeVisible = false
-        }
-    }
 
     var body: some View {
         ZStack {
             // The player owns the whole screen, so letterbox bars are black instead of showing
             // whatever is behind the presentation.
             Color.black.ignoresSafeArea()
-            VideoPlayer(player: session.player)
+            PlayerSurface(player: session.player, controlsVisible: $chromeVisible)
                 .ignoresSafeArea()
         }
         .overlay(alignment: .topLeading) {
@@ -1597,11 +1622,7 @@ private struct PlayerView: View {
             // Invisible must also mean untappable, or the corner keeps eating taps that the
             // viewer aimed at the video.
             .allowsHitTesting(chromeVisible)
-            .animation(.easeInOut(duration: 0.25), value: chromeVisible)
         }
-        .simultaneousGesture(TapGesture().onEnded { setChrome(visible: !chromeVisible) })
-        .onAppear { setChrome(visible: true) }
-        .onDisappear { hideChrome?.cancel() }
         .statusBarHidden()
         // Closing the screen pauses rather than tears down, so a page can read the position it
         // reached and resume it with player.control.

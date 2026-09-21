@@ -29,10 +29,23 @@ IOS-POC-8B 把它下移到 AVKit 那排之下。它永遠在畫面上。
 `ponytail:` 自行計時而不是跟 AVKit 同步，時間點可能與系統控制列差一點。
 沒有公開 API 能同步，等有了再換。
 
-#### 結果（2026-09-21）：**已實作，尚未目視驗證**
+#### 第一版做錯了，使用者回報「隱藏 X 做反了」
 
-點擊**切換**（與 AVKit 自己的行為一致），顯示後 4 秒自動淡出；隱藏時一併
-`allowsHitTesting(false)`，否則那個角落會繼續吃掉本來要點影片的觸控。
+第一版用「點擊切換＋4 秒計時器」去**模仿** AVKit，因為 SwiftUI 的 `VideoPlayer` 不公開控制列狀態。
+實際使用時兩者相位相反：叫出 AVKit 的控制列，X 反而不見。
+
+**錯的不是時間長度，是「用猜的」這個做法。**
+
+#### 第二版（採用）：跟著 AVKit 自己的訊號
+
+`AVPlayerViewControllerDelegate` 有
+`playerViewController(_:willTransitionToVisibilityOfPlaybackControls:with:)`——**公開 API**，
+明確告訴我們控制列何時進出。改用 `AVPlayerViewController` 的 `UIViewControllerRepresentable`
+（`VideoPlayer` 包的是同一個 controller，但不給 delegate），接上這個 delegate。
+
+**計時器、切換邏輯、`simultaneousGesture` 全部刪掉**——按鈕不可能再相位相反，因為它不再自己記相位。
+淡入淡出掛在 AVKit 給的 `UIViewControllerTransitionCoordinator` 上，曲線與時長與控制列完全一致，
+不是近似。隱藏時仍 `allowsHitTesting(false)`。
 
 **驗證狀態要說清楚**：`swift test` 與模擬器 build 都過，但**還沒有真的看著它淡出**——
 那需要一支正在播放的影片，而當下試的來源回 TLS 憑證錯誤。與 10B 併成一次模擬器目視驗證。

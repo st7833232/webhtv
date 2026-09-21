@@ -533,3 +533,44 @@ UnicodeEncodeError: 'ascii' codec can't encode characters in position 32-33
 ### 尚未完成
 
 缺陷 2 的修正與重跑（P4 的成功條件是 `MediaProbe` 取得 media bytes），然後 P5 覆蓋量測。
+
+## IOS-POC-7K — P4 完成：真實 Python 來源取得媒體位元組（2026-09-21）
+
+```
+[python] live OK [🏆｜銅牌｜高清] init → home(5 classes) → category(21 items) → detail
+                                → search(6 hits) → player → probe(media)
+```
+
+`皮皮虾.py`（設定檔裡的「🏆｜銅牌｜高清」，`ext` 是它的 host）在 iPhone 17 Pro 模擬器上走完
+**完整契約**，最後 `MediaProbe.classify` 回 **`.media`** —— 這是 P4 的成功條件：真的取到媒體位元組，
+不是只把 JSON 解出來。
+
+走的是 `CSPSourceResolver → SpiderSession → MediaProbe`，也就是 UI 走的同一條路。
+
+### 這一段唯一的修正
+
+IOS-POC-7J 找到的缺陷 2：`base/spider.py` 的 `_request` 沒有把 URL 百分比編碼。
+
+`requests` 會自動 quote，`urllib.request` **不會**，而腳本是把搜尋詞直接內插進 URL 的
+（`皮皮虾` 的 `searchContent` 就是），所以每一次中文搜尋都會死在
+`UnicodeEncodeError: 'ascii' codec can't encode characters`。
+
+修在 `_request` 的入口，不是修呼叫端——所有經過 `fetch`/`post` 的腳本一次都好。`%` 列為 safe，
+所以已經編碼過的 URL 不會被編第二次。四個情況都驗過：
+
+| 輸入 | 輸出 |
+|---|---|
+| `?wd=皮皮虾` | `?wd=%E7%9A%AE%E7%9A%AE%E8%99%BE` |
+| `/路徑/a.php?x=1` | `/%E8%B7%AF%E5%BE%91/a.php?x=1` |
+| `?wd=%E7%9A%AE`（已編碼） | 不變 |
+| `?a=b&c=d`（純 ASCII） | 不變 |
+
+### 現在確定成立的事
+
+從**同源下載腳本** → **CPython 執行** → **`base.spider` shim** → **dict→JSON 橋** →
+**`SpiderSession` 契約** → **`SourceClient`** → **`MediaProbe` 取得位元組**，整條鏈在真實來源上打通。
+
+### 尚未開始
+
+P5：量出 Tier-1 實際能驅動幾支，分類記錄 stdlib+base、requests、pure-Python extras、Crypto、
+lxml/pyquery、cross-origin/HTTP rejected。

@@ -48,9 +48,28 @@ class _Response:
         return f'<Response [{self.status_code}]>'
 
 
+def _encoded(url):
+    """Percent-encode a URL the way `requests` does before it goes near urllib.
+
+    `requests` quotes for you; `urllib.request` raises UnicodeEncodeError on the first non-ASCII
+    character instead. Scripts build search URLs by interpolating the term straight in — 皮皮虾's
+    searchContent does — so without this every CJK search dies. `%` stays safe so a URL that was
+    already encoded is not encoded twice.
+    """
+    parts = urllib.parse.urlsplit(url)
+    return urllib.parse.urlunsplit((
+        parts.scheme,
+        parts.netloc,
+        urllib.parse.quote(parts.path, safe="/%:@"),
+        urllib.parse.quote(parts.query, safe="=&%+,:@/?"),
+        urllib.parse.quote(parts.fragment, safe="%"),
+    ))
+
+
 def _request(method, url, params=None, data=None, json_body=None, headers=None, timeout=5):
     if params:
         url = url + ('&' if '?' in url else '?') + urllib.parse.urlencode(params)
+    url = _encoded(url)
     body = None
     headers = dict(headers or {})
     if json_body is not None:

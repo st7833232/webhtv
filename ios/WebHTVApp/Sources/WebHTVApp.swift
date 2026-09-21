@@ -23,6 +23,9 @@ struct WebHTVApp: App {
             try PythonSpiderRuntime(script: script, siteKey: siteKey)
         }
         #if DEBUG
+        // IOS-POC-9B: does libmpv link and initialise inside this app? Debug-only, and nothing
+        // downstream depends on it yet — AVPlayer is still the only playback core.
+        print("[mpv] boot \(MPVBoot.start())")
         print("[python] boot \(PythonBoot.start())")
         Task {
             print("[python] selfcheck \(await PythonBoot.selfCheck())")

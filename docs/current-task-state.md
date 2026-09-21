@@ -28,7 +28,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 | Python P2–P5 | **Done, 2026-09-21** — `docs/IOS-POC-7A-python-runtime.md` carries all of it |
 | Python `requests` vendoring (IOS-POC-7P) | **Done** — 6 of 42 sites now reach media bytes, 14 execute |
 | MPV feasibility — licence/provenance (IOS-POC-9A) | **Done, 2026-09-21** — no licensing blocker, conditional on pinning MPVKit ≥1.0.0 non-GPL; `docs/IOS-POC-9A-mpv-license-provenance.md` |
-| MPV feasibility — technical spike (IOS-POC-9B) | **Not started; needs the user's word before it begins** |
+| MPV feasibility — technical spike (IOS-POC-9B) | **First unit done, 2026-09-21** — MPVKit 1.0.0 non-GPL linked, `[mpv] boot running(version: "mpv v0.41.0-dirty", apiVersion: "2.5")` on the simulator; nothing renders yet. `docs/IOS-POC-9B-mpv-playback-core.md` |
 | Real-device baseline (IOS-POC-8) | **Partly done, and the rest deferred by the user on 2026-09-21** |
 
 The device baseline is **not** finished, and nothing here should be read as saying it is. The user
@@ -141,6 +141,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 7L/7M | **P5 done**: `scripts/audit_python_spiders.py` (static, 42 sites) and the runtime survey, reconciled | same document |
 | 7N | A Python traceback goes to the log; one readable line goes to the screen | same document |
 | 7P | `requests` + `urllib3` + `certifi` + `idna` + `charset-normalizer` vendored as pinned pure-Python wheels; sites reaching media bytes went 1 → 6, executing 4 → 14 | same document |
+| 9B | MPV first unit: MPVKit 1.0.0 (non-GPL) wired into the App target and libmpv initialising inside the app. Static linking confirmed by symbol table, not just by configure flags | `docs/IOS-POC-9B-mpv-playback-core.md` |
 | 9A | MPV second playback core: licence and provenance review. No blocker, conditional on MPVKit ≥1.0.0 non-GPL — every release before it carried `--enable-nonfree` | `docs/IOS-POC-9A-mpv-license-provenance.md` |
 | 7R | Reconciliation: the handoff anchor and the spider spec rewritten against the actual HEAD and a fresh test/build run; no functional change | this document |
 | 6A/6B | **drpy JavaScript loader**: the engine and its nine libraries fetched from the configuration's own origin, hash-pinned and verified before evaluation, running on the existing `JavaScriptSpiderRuntime` | `docs/IOS-POC-6A-drpy-loader.md` |

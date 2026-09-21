@@ -19,6 +19,7 @@
 		7E10000000000000000000C2 /* PythonLiveCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000C1 /* PythonLiveCheck.swift */; };
 		7E10000000000000000000B4 /* PythonSpiderRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000B3 /* PythonSpiderRuntime.swift */; };
 		7E10000000000000000000A7 /* PythonBoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000A6 /* PythonBoot.swift */; };
+		7E10000000000000000000D1 /* MPVBoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000D0 /* MPVBoot.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +33,7 @@
 		7E10000000000000000000C1 /* PythonLiveCheck.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PythonLiveCheck.swift; sourceTree = "<group>"; };
 		7E10000000000000000000B3 /* PythonSpiderRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PythonSpiderRuntime.swift; sourceTree = "<group>"; };
 		7E10000000000000000000A6 /* PythonBoot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PythonBoot.swift; sourceTree = "<group>"; };
+		7E10000000000000000000D0 /* MPVBoot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MPVBoot.swift; sourceTree = "<group>"; };
 		AF891E7F959513A468894926 /* WebHTVApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WebHTVApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -121,6 +123,7 @@
 			children = (
 				7494045C9101CB5C4F234881 /* WebHTVApp.swift */,
 				7E10000000000000000000A6 /* PythonBoot.swift */,
+				7E10000000000000000000D0 /* MPVBoot.swift */,
 				7E10000000000000000000B3 /* PythonSpiderRuntime.swift */,
 				7E10000000000000000000C1 /* PythonLiveCheck.swift */,
 			);
@@ -176,6 +179,7 @@
 			name = WebHTVApp;
 			packageProductDependencies = (
 				7F55C50111675904118B251E /* WebHTVCore */,
+				7F55C50111675904118B2520 /* MPVKit */,
 			);
 			productName = WebHTVApp;
 			productReference = AF891E7F959513A468894926 /* WebHTVApp.app */;
@@ -202,6 +206,7 @@
 			minimizedProjectReferenceProxies = 0;
 			packageReferences = (
 				51D5A21CF68F51CEB529E12D /* XCLocalSwiftPackageReference ".." */,
+				51D5A21CF68F51CEB529E14D /* XCRemoteSwiftPackageReference "MPVKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 9714E9BCC6842F611C477583 /* Products */;
@@ -234,6 +239,7 @@
 			files = (
 				C1FAEFECF8AAADA1C45A7C27 /* WebHTVApp.swift in Sources */,
 				7E10000000000000000000A7 /* PythonBoot.swift in Sources */,
+				7E10000000000000000000D1 /* MPVBoot.swift in Sources */,
 				7E10000000000000000000B4 /* PythonSpiderRuntime.swift in Sources */,
 				7E10000000000000000000C2 /* PythonLiveCheck.swift in Sources */,
 			);
@@ -432,11 +438,27 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		51D5A21CF68F51CEB529E14D /* XCRemoteSwiftPackageReference "MPVKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mpvkit/MPVKit.git";
+			requirement = {
+				kind = exactVersion;
+				version = 1.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		7F55C50111675904118B251E /* WebHTVCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 51D5A21CF68F51CEB529E12D /* XCLocalSwiftPackageReference ".." */;
 			productName = WebHTVCore;
+		};
+		7F55C50111675904118B2520 /* MPVKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 51D5A21CF68F51CEB529E14D /* XCRemoteSwiftPackageReference "MPVKit" */;
+			productName = MPVKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

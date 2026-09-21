@@ -110,11 +110,14 @@ shipped, and three different source counts. Detailed status: `docs/current-task-
 
 - Objective: continue the iPhone WebHomeTV port with the user's Recha `wang-movie.json`. The Google
   TV `csp_JPianAmns` repair is explicitly not active.
-- **Branch `ios-poc`, HEAD `2a177f50` (IOS-POC-7C), pushed to `origin/ios-poc` on 2026-09-18 at the
-  user's explicit instruction.** Ten commits went up in that push, from IOS-POC-5Q through the
-  Python P1 measurement. Check the actual Git state on resume; do not infer what has been pushed.
-- **Verified at this HEAD, 2026-09-18:** `WANG_MOVIE_JSON=<config> swift test --package-path ios`
-  → **143 tests, of which 142 or 143 pass**. The only one that ever fails is
+- **Branch `ios-poc`, HEAD `bb965dda` (IOS-POC-8K), pushed to `origin/ios-poc` on 2026-09-21 at the
+  user's explicit instruction — local and remote are level, 0 ahead and 0 behind.** Eight commits
+  went up in that push, `a087dd50`..`bb965dda`. No tag was created; recovery tags have been opt-in
+  since 2026-09-16. Check the actual Git state on resume; do not infer what has been pushed, and do
+  not trust the id in this line — it has been stale at `2a177f50` before.
+- **Verified at this HEAD, 2026-09-21:** `WANG_MOVIE_JSON=<config> swift test --package-path ios`
+  → **143 tests, of which 142 or 143 pass**; three runs on 2026-09-21 passed all 143. The only one
+  that ever fails is
   `reportsLiveType4SitesFromProvidedConfig`, a live-network case that depends on 88看球's state —
   it went fail, fail, pass, fail, pass across five runs on 2026-09-18 — and is **not to be
   "fixed"**. `xcodebuild … -scheme WebHTVApp -destination
@@ -213,20 +216,32 @@ shipped, and three different source counts. Detailed status: `docs/current-task-
   ships JavaScriptCore. **Neither group may be called impossible.** Audit:
   `docs/CSP_PORTABILITY_MATRIX.md`; progress: `docs/CSP_MIGRATION_STATUS.md`; Python/drpy
   measurement: `docs/IOS-TYPE3-REACHABILITY-2026-09-16.md`, whose `csp_*` section is superseded.
-- **Nothing has ever run on a real device.** The Xcode project carries no `CODE_SIGN` or
-  `DEVELOPMENT_TEAM` setting; every verification to date is simulator-only, on an iPhone 17 Pro.
+- **It has run on real hardware, and the device baseline is still incomplete.** Two runs on an
+  iPhone 16 Pro on 2026-09-18 (IOS-POC-8A found three defects, IOS-POC-8H confirmed two fixes), and
+  on 2026-09-21 the user moved to a **new iPhone 18 Pro** (`00008160-00124C8200214036`) where
+  `bb965dda` is signed and installed. The earlier device now reports `unavailable`.
+  **The Xcode project still carries no `CODE_SIGN` or `DEVELOPMENT_TEAM`** — signing is passed on the
+  command line (`DEVELOPMENT_TEAM=764SVXY2B7 CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates`,
+  free personal team, profile expires seven days after issue), so nothing personal is committed.
+  **Everything except the items listed in `docs/current-task-state.md` under "Where the roadmap
+  actually stands" is still simulator-only**, including the whole playback path and, most sharply,
+  whether `AVURLAssetHTTPHeaderFieldsKey` works on a device — the `NWListener` test that proves the
+  key runs on macOS, not on the phone. An earlier revision of this line read "Nothing has ever run on
+  a real device" and was left stale by the IOS-POC-8A commits.
 - **ATS policy changed by explicit user decision on 2026-09-15 (IOS-POC-4B).** Most configured
   sources are cleartext `http`; the user was offered a narrow per-domain exception, no change, or
   global cleartext, was told the earlier records forbid weakening ATS globally for one site, and
   chose global cleartext. `ios/WebHTVApp/Info.plist` sets `NSAllowsArbitraryLoads`. Do not broaden
   transport security further. No server-trust override was added, so HTTPS certificate evaluation
   remains the system default — reasoned from the code, not measured.
-- **The next stages are fixed, by the user on 2026-09-18**, and this replaces every earlier ranking:
-  ~~**(1) POC-3, the drpy JavaScript loader**~~ **done (IOS-POC-6A/6B/6C)**. **(2) POC-4**, the
-  Python runtime — assessed and measured, P2–P5 not started, and its open decision is how a golden
-  that needs the interpreter gets driven when `swift test` runs on macOS. **(3) the first real-device
-  verification**, as a milestone in its own right. **(4) IOS-POC-5S** and only then more `csp_*`
-  ports. **Do not prioritise XueLuo,
+- **The next stages are fixed, by the user on 2026-09-21**, and this replaces the 2026-09-18 ranking
+  that used to sit here (it put the first real-device verification second):
+  **(1) Python P2–P5**, the minimum runtime POC — assessed and measured at P1, P2–P5 not started, and
+  its open decision is how a golden that needs the interpreter gets driven, since the Python
+  XCFramework has no macOS slice and `swift test` runs on macOS. **(2) MPV feasibility**, a second
+  built-in playback core. **(3) the full real-device acceptance**, deferred out of second place on
+  2026-09-21 — the partial baseline already taken stands. **(4) IOS-POC-5S** and only then more
+  `csp_*` ports. **Do not prioritise XueLuo,
   QimaoDJ, AppDrama or any further `csp_*` class**; the IOS-POC-5N candidates stay in the backlog.
   A future Official/XPTV-style build (0 bundled sources, user-imported config, pack disabled) is an
   architecture boundary to remember, **not** something to fork the runtime for now.

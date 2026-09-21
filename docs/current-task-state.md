@@ -6,13 +6,48 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current Scope
 
-- Branch `ios-poc`. **Verified 2026-09-18 before IOS-POC-8E: HEAD `a087dd50` (IOS-POC-8D), 1 commit
-  ahead of `origin/ios-poc`, 0 behind, worktree clean.** **Re-check with `git log` rather than
-  trusting any id quoted here** — an earlier revision of this line still said "HEAD after
-  IOS-POC-5L", and the one before that "HEAD `261b5c03`".
+- Branch `ios-poc`. **Verified 2026-09-21 at IOS-POC-8L: HEAD `bb965dda` (IOS-POC-8K), 0 ahead and
+  0 behind `origin/ios-poc`, worktree clean.** **Re-check with `git log` rather than trusting any id
+  quoted here** — this one line has carried four different stale ids in turn (`261b5c03`, "HEAD after
+  IOS-POC-5L", `a087dd50`, and `2a177f50` in the handoff), each wrong by the time it was read.
 - Android `app/` is read-only for all iOS work and has never been modified: `git diff <branch-point>..HEAD -- app/` is empty, and every commit on this branch touches only `ios/`, `docs/`, `scripts/`, `AGENTS.md` and `.codex/`.
 - **The input configuration lives in the scratchpad, not `/tmp`.** `/tmp/webhtv-recha-new.wprHof/` was cleared mid-session; `wang-movie.json` was re-fetched from the user's own GitLab and its SHA-256 matches the recorded baseline byte for byte. Re-fetch it from `https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json` if it is missing. `recha-main.zip` was **not** restored, so `scripts/audit_spider_jars.py` cannot be re-run without downloading it again.
 - Stages through IOS-POC-4J have an annotated `recovery/<task-id>/*` tag; tags through `IOS-POC-1H` are on the remote. **Recovery tags became opt-in on 2026-09-16** (AGENTS.md §6), so IOS-POC-5A onwards are deliberately untagged.
+
+## Where the roadmap actually stands (2026-09-21, IOS-POC-8L)
+
+| Milestone | State |
+|---|---|
+| IOS-POC-5Q multi-quality | **Done and verified** (Q1–Q3) |
+| IOS-POC-5R WatchHistory / resume | **Done and verified** (R1–R6; R7 intro/outro skipping deferred with 5S) |
+| drpy loader | **Done and verified** (IOS-POC-6A/6B) |
+| 4 drpy sources end to end | **Done** — all four reached real media bytes |
+| Python feasibility / P1 | **Done** — measured, not implemented (`docs/IOS-POC-7A-python-runtime.md`) |
+| Python P2–P5 | **Not started** |
+| Real-device baseline (IOS-POC-8) | **Partly done, and the rest deferred by the user on 2026-09-21** |
+
+The device baseline is **not** finished, and nothing here should be read as saying it is. The user
+**deferred the remaining acceptance on 2026-09-21** and sent the main line back to Python P2–P5.
+What already ran on hardware stands and is not to be rolled back; what is listed as unverified
+stays unverified until a later device pass, which is now scheduled after the MPV stage.
+
+- **Verified on hardware:** a fresh install accepts a remote configuration; the remote configuration
+  lists 67 sources; CJK and the source names' emoji render correctly; the app icon ships from the
+  asset catalog and installs; IOS-POC-8F and 8G (search field, wallpaper) were confirmed by the user.
+- **Still unverified on hardware:** the AVKit close button in its new position; browsing and playback
+  on a CMS source; a `csp_*` spider source; a drpy source; **Bili's `Referer` + browser `User-Agent`
+  actually playing through `AVPlayer`**; whether `AVURLAssetHTTPHeaderFieldsKey` works on a device at
+  all; WatchHistory position and resume; opening Infuse / Fileball / SenPlayer / VidHub.
+- **The header question is the sharp one.** `avURLAssetSendsTheHeadersItWasGiven` stands a real
+  `NWListener` and asserts on real bytes, but **it runs on macOS**, so it is not evidence about the
+  device. The key is undocumented; a simulator or socket result must not be recorded as device-verified.
+- On 2026-09-21 the user moved to a **new iPhone 18 Pro** (`00008160-00124C8200214036`); the
+  iPhone 16 Pro of the earlier runs now reports `unavailable`. `bb965dda` is signed and installed on
+  the new device, so the next device pass starts from an installed build rather than from nothing.
+- Today's live evidence that the Bili path itself is healthy, so a future device failure is not
+  misread as a spider fault: `CSP_GOLDEN_SITE='{"key":"bili",…,"api":"csp_Bili"}' swift test
+  --filter biliOffersMultipleQualityLines` **passed on 2026-09-21**, resolving 480P and 360P lines
+  and probing the best one to `.media` with headers, on an `akamaized.net` mirror.
 
 ## Non-Negotiable Constraints
 
@@ -25,9 +60,13 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
   Java is a specification only. `docs/IOS_SPIDER_RUNTIME_SPEC.md` is the single source of truth for
   that boundary; an earlier version of this line read “No Spider runtime exists” and was left stale
   by the IOS-POC-5A/5B commits.
-- There is still **no Python runtime and no drpy JavaScript loader.** `host.js` is written to be
-  drpy-compatible (`pdfh`/`pdfa`/`pd`) and `ConfigSource` resolves `./py/` and `./drpy_libs/`
-  references, but nothing loads or executes either. Locating a resource is not running it.
+- There is still **no Python runtime** — that is the next milestone, not a property of the design.
+  **A drpy loader does exist**, since IOS-POC-6A/6B: `DrpyEngine` fetches the engine and its nine
+  libraries from the configuration's own origin, hash-pins and verifies them before evaluation, and
+  runs them on the existing `JavaScriptSpiderRuntime`; **four drpy sources were driven end to end to
+  real media bytes.** `ConfigSource` still resolves `./py/` references and nothing loads or executes
+  them — locating a resource is not running it. An earlier revision of this line said no drpy loader
+  existed and was left stale by the IOS-POC-6A/6B commits.
 
 ## Stage index
 
@@ -116,7 +155,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 
 ### Sources and browsing
 
-#### Source coverage at HEAD `261b5c03`
+#### Source coverage, counted at HEAD `261b5c03` (before the drpy sites)
 
 Counted directly from the 167-site `wang-movie.json` by
 `listsThePortedSpiderSitesAlongsideTheNativeCMSSites`, which asserts every number in this table and
@@ -247,11 +286,13 @@ without further code, which is why they are worth more than their site counts su
 
 ## Build / Test / Verification Status
 
-Everything in this section is from **HEAD `261b5c03`** unless it names an earlier stage. The three
+Everything in this section is from **HEAD `261b5c03`** unless it names another stage or date; the
+test and build lines below were re-measured at **`bb965dda` on 2026-09-21**. The three
 conflicting test counts that used to sit here (77/76, 96/95, 110/109, each from a different HEAD)
 have been collapsed into the first bullet.
 
-- **143 tests** — `WANG_MOVIE_JSON=<config> swift test --package-path ios`, measured 2026-09-18.
+- **143 tests** — `WANG_MOVIE_JSON=<config> swift test --package-path ios`, measured 2026-09-18 and
+  **re-run three times on 2026-09-21 at `f34ae805`, `67e72604` and `bb965dda`: 143 passed each time.**
   **Either 142 or 143 pass**, and which one is not a property of this code: the only test that ever
   fails is the live-network `reportsLiveType4SitesFromProvidedConfig` in the next bullet, which went
   fail, fail, pass, fail, pass across five runs on the same day. The trajectory: 96 at `d571f3a7`,

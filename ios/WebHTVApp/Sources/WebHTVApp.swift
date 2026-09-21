@@ -1180,7 +1180,10 @@ private struct VodView: View {
             // this configuration has four duplicate keys (IOS-POC-5L) and two providers must not
             // share one record.
             let record = WatchHistory(
-                key: historyKey, siteKey: site.key, siteName: site.name, vodId: summary.id,
+                key: historyKey, siteKey: site.key, siteName: site.name,
+                // IOS-POC-10E: stamp the configuration, so the history list can show only what
+                // was watched on the one that is loaded.
+                sourceID: source.identity, vodId: summary.id,
                 vodName: summary.name, vodPic: summary.picture,
                 vodFlag: flag, vodRemarks: episode.name, episodeUrl: episode.url)
             pendingPlayback = Playback(url: target.url, headers: target.headers,
@@ -1244,7 +1247,7 @@ private struct HistoryView: View {
         // .task runs again whenever the tab is re-entered, which is what keeps the list current
         // after a viewing without any notification plumbing.
         .task {
-            records = await WatchHistoryStore.shared.records()
+            records = await WatchHistoryStore.shared.records(for: source.identity)
             loaded = true
         }
     }

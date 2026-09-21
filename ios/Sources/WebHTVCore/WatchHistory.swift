@@ -17,6 +17,22 @@ public struct WatchHistory: Codable, Sendable, Equatable, Identifiable {
     /// records into one. `Site.id` is `key + ext`, which is what actually identifies a source — the
     /// same reason `SpiderSessionStore` caches on it. `androidKey` below is what leaves the app.
     public let key: String
+    /// Which configuration this was watched on — `ConfigSource.identity` (IOS-POC-10E).
+    ///
+    /// **Optional because this file already exists on people's phones.** `WatchHistory` uses the
+    /// synthesized `Codable`, which does not fall back to a property's default value: a
+    /// non-optional field would throw `keyNotFound` on every record written before this change,
+    /// and `WatchHistoryStore` treats an unreadable file as no history at all. One `?` is the
+    /// difference between adding a field and deleting somebody's viewing history.
+    ///
+    /// `nil` therefore means "written before sources were separable", and such a record is shown
+    /// whatever source is active rather than hidden behind a field it never had. It stops being
+    /// ambiguous the moment it is watched again, which rewrites it with the current source.
+    ///
+    /// Deliberately *not* part of the primary key: `Site.id` already identifies the provider, and
+    /// folding the configuration into the key would split one title's progress in two if the same
+    /// source were reached through two configurations.
+    public var sourceID: String?
     public let siteKey: String
     /// Shown in the history list; `History.getSiteName()` looks it up from the config instead.
     public var siteName: String
@@ -44,11 +60,12 @@ public struct WatchHistory: Codable, Sendable, Equatable, Identifiable {
 
     public var id: String { key }
 
-    public init(key: String, siteKey: String, siteName: String = "", vodId: String,
+    public init(key: String, siteKey: String, siteName: String = "", sourceID: String? = nil, vodId: String,
                 vodName: String = "", vodPic: String = "", vodFlag: String = "",
                 vodRemarks: String = "", episodeUrl: String = "", quality: String = "",
                 position: Double = 0, duration: Double = 0, createTime: Double = 0) {
         self.key = key
+        self.sourceID = sourceID
         self.siteKey = siteKey
         self.siteName = siteName
         self.vodId = vodId
@@ -133,6 +150,14 @@ public actor WatchHistoryStore {
     }
 
     /// Everything still in retention, newest first.
+    /// The records belonging to one configuration, newest first.
+    ///
+    /// A record with no `sourceID` predates IOS-POC-10E and is included everywhere, which is the
+    /// only behaviour that does not look like lost history to someone upgrading.
+    public func records(for sourceID: String, now: Date = .now) -> [WatchHistory] {
+        records(now: now).filter { $0.sourceID == nil || $0.sourceID == sourceID }
+    }
+
     public func records(now: Date = .now) -> [WatchHistory] {
         prune(loaded(), now: now)
     }

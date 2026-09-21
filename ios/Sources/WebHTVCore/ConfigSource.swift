@@ -12,6 +12,16 @@ public enum ConfigSource: Equatable, Sendable {
     case importedFile
     case remote(URL)
 
+    /// A stable identity for the configuration itself, used to bind watch history to the source
+    /// it was watched on (IOS-POC-10E). An imported file has no address, so every imported
+    /// configuration shares one bucket — the honest answer, since nothing distinguishes them.
+    public var identity: String {
+        switch self {
+        case .importedFile: "imported"
+        case .remote(let url): url.absoluteString
+        }
+    }
+
     /// The directory the configuration lives in, which relative references resolve against.
     public var baseURL: URL? {
         switch self {

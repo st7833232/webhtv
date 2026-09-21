@@ -202,3 +202,26 @@ private func record(_ vodId: String, siteKey: String = "s", siteID: String = "s\
 
     #expect(WebHomeBridge.historyText([]) == "[]")
 }
+
+/// IOS-POC-10E: history is bound to the configuration it was watched on, without discarding what
+/// was recorded before the field existed.
+@Suite struct WatchHistorySourceBindingTests {
+    private func record(key: String, sourceID: String?) -> WatchHistory {
+        WatchHistory(key: key, siteKey: "s", sourceID: sourceID, vodId: "v", createTime: 1)
+    }
+
+    @Test func aRecordWrittenBeforeThisFieldStillDecodes() throws {
+        // Exactly the shape already on people's phones: no sourceID at all. A non-optional field
+        // would throw here, and the store treats a throw as "no history".
+        let legacy = #"{"key":"k","siteKey":"s","siteName":"","vodId":"v","vodName":"","vodPic":"","vodFlag":"","vodRemarks":"","episodeUrl":"","quality":"","position":0,"duration":0,"createTime":1}"#
+        let decoded = try JSONDecoder().decode(WatchHistory.self, from: Data(legacy.utf8))
+        #expect(decoded.sourceID == nil)
+        #expect(decoded.key == "k")
+    }
+
+    @Test func theFieldRoundTripsWhenItIsThere() throws {
+        let one = record(key: "k", sourceID: "https://a.example/c.json")
+        let data = try JSONEncoder().encode(one)
+        #expect(try JSONDecoder().decode(WatchHistory.self, from: data).sourceID == "https://a.example/c.json")
+    }
+}

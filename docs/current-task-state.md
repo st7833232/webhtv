@@ -475,7 +475,9 @@ have been collapsed into the first bullet.
 - ~~**Nothing Python has run on a device.**~~ **Superseded 2026-09-21 (IOS-POC-9F):** on the
   iPhone 18 Pro the interpreter boots, the 13-method self-check passes, and `皮皮虾.py` runs
   `init → home → category → detail → search → player → probe(media)` end to end on device. The
-  42-site survey has still not been run on hardware.
+  42-site survey ran on hardware too: **driven 5/42**, against 6/42 on the simulator, and the
+  dependency and policy tallies are **identical** — `Crypto` 17, `lxml` 3, `pyquery` 2, `bs4` 2,
+  policy-refused 4. The one-site difference sits in the content layer, which is provider state.
 - **The payload is not in the repository.** `third_party/python-ios/` is ignored; a fresh clone must
   run `scripts/fetch_python_ios.sh` (the Xcode "Prepare Python" phase calls it, so a build does this
   by itself — but an offline machine cannot build until it has run once).

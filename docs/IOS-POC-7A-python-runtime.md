@@ -779,3 +779,23 @@ App 下次啟動就跑新的，沒有通知也沒有審核。
 跨 origin 要安全，唯一的路是內容必須符合 App 內記錄的 SHA-256——就是 IOS-POC-6B 對 drpy 那九個函式庫
 用的招數。代價是腳本一更新雜湊就不符、站就掛掉，而這四支放在別人伺服器上的理由通常正是要常更新。
 **沒有實作，列為選項而非待辦。**
+
+
+## 真機驗證（2026-09-21，IOS-POC-9F）——本文件先前的「從未在真機執行」已不成立
+
+iPhone 18 Pro `00008160-00124C8200214036`，`devicectl` 安裝後由啟動路徑取得：
+
+```
+[python] boot running(version: "3.13.15")
+[python] selfcheck 13/13 methods OK, errors propagate
+[python] live OK [🏆｜銅牌｜高清] init → home(5 classes) → category(21 items)
+                               → detail → search(1 hits) → player → probe(media)
+```
+
+**`皮皮虾.py` 在真機上走完整條鏈並取得真實媒體位元組**：同源下載腳本 → 內建 CPython 3.13.15 →
+`base` shim → dict→JSON 橋 → `SpiderSession` 契約 → `SourceClient` → `MediaProbe`。
+13 個 ABI 方法的 selfcheck 也通過，含刻意的負向對照。
+
+本文件與 `docs/AGENT_HANDOFF.md` 自 IOS-POC-7E 起反覆寫著「Nothing Python has ever run on a
+device」「全部是模擬器證據」。**那些句子到此為止。** 仍未在真機量測的是：
+42 站的 survey（本輪未跑完）、以及被相依性擋住的那 24 站（狀態不會因為換裝置而改變）。

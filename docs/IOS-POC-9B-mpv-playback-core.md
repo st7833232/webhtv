@@ -427,3 +427,60 @@ mpv 要的本來就是字串，`URL` 在這條路上只會擋事，已改成全�
 2. **若要繼續留在模擬器**，唯一還沒試的便宜隔離是**放一個本機 H.264 MP4 進 App 容器**——
    那會一次排除網路、HLS 與這個 build 缺失的解碼器。**這台 Mac 上沒有 `ffmpeg`**，所以要先產生
    樣本（用 AVFoundation 寫一支小工具，或你手邊直接給一個檔案）。
+
+---
+
+# IOS-POC-9F — 真機安裝，與兩個「第一次」
+
+日期 2026-09-21。使用者指示「先安裝在我的手機」。
+
+裝置：iPhone 18 Pro `00008160-00124C8200214036`，`connected`。
+簽章照既有做法走命令列，**專案檔仍然不含任何 `CODE_SIGN` 或 `DEVELOPMENT_TEAM`**：
+
+```
+xcodebuild -destination 'platform=iOS,id=00008160-00124C8200214036' -configuration Debug \
+  DEVELOPMENT_TEAM=764SVXY2B7 CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates build
+xcrun devicectl device install app --device 00008160-00124C8200214036 …/WebHTVApp.app
+```
+
+`** BUILD SUCCEEDED **`，22 個 MPV framework 一併簽入，安裝成功。
+**裝置版 `.app` 為 78 MB**（Debug，未瘦身；模擬器版是 80 MB）。
+描述檔是免費個人帳號，**七天後到期**，屆時要重裝。
+
+## 啟動時取得的兩件事，都是這個專案的第一次
+
+```
+[mpv] boot running(version: "mpv v0.41.0-dirty", apiVersion: "2.5")
+[python] boot running(version: "3.13.15")
+[python] selfcheck 13/13 methods OK, errors propagate
+[python] live OK [🏆｜銅牌｜高清] init → home(5 classes) → category(21 items)
+                               → detail → search(1 hits) → player → probe(media)
+```
+
+1. **libmpv 第一次在真機上初始化。** 靜態連結的 mpv/FFmpeg 在 arm64 裝置上載入並回報版本。
+2. **CPython 第一次在真機上執行——而且是走完整條鏈。** 本文件與
+   `docs/IOS-POC-7A-python-runtime.md` 從 IOS-POC-7E 起一直寫著「Nothing Python has ever run on a
+   device」「全部是模擬器證據」。**那句話從今天起不成立**：`皮皮虾.py` 在 iPhone 18 Pro 上
+   從同源下載腳本、在內建直譯器執行、經 `base` shim 與 dict→JSON 橋、走 `SpiderSession` 契約、
+   最後由 `MediaProbe` 取得**真實媒體位元組**。13 個 ABI 方法的 selfcheck 也通過，
+   含刻意的負向對照（`ValueError: boom` 如預期傳回）。
+
+**這不是本輪要找的東西**——要找的是 MPV 算繪——但它是 Python 那條線最大的未驗證缺口，順手就關掉了。
+
+## MPV 算繪在真機上的結果：**尚未取得**
+
+啟動只證明 libmpv 初始化。**算繪要人在螢幕上操作**，而實體裝置無法由本工作階段自動驅動
+（模擬器工具只能驅動模擬器）。所以這一項仍然是空的，要使用者自己點。
+
+操作路徑：**設定 → 開發者 → MPV 算繪驗證**，然後四種組合各試一次：
+
+| # | 算繪 | 硬體解碼 | 這一格要回答什麼 |
+|---|---|---|---|
+| 1 | Metal (gpu-next) | 關 | 真機的 MoltenVK 會不會出畫面 |
+| 2 | Metal (gpu-next) | 開 | VideoToolbox 在真機存在，`auto-safe` 是否正常 |
+| 3 | OpenGL (libmpv) | 關 | render API 那條路 |
+| 4 | OpenGL (libmpv) | 開 | 同上加硬解 |
+
+畫面下方的文字區會列出 `FILE_LOADED`／`VIDEO_RECONFIG` 與 `w`／`h`／`codec`／`vo`／`hwdec`。
+**`VIDEO_RECONFIG` 出現且有畫面才算成立**；只有 `FILE_LOADED` 不算。
+「本機圖片」在這個 build 上必定失敗（沒有 PNG 解碼器），不必試。

@@ -141,6 +141,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 7L/7M | **P5 done**: `scripts/audit_python_spiders.py` (static, 42 sites) and the runtime survey, reconciled | same document |
 | 7N | A Python traceback goes to the log; one readable line goes to the screen | same document |
 | 7P | `requests` + `urllib3` + `certifi` + `idna` + `charset-normalizer` vendored as pinned pure-Python wheels; sites reaching media bytes went 1 → 6, executing 4 → 14 | same document |
+| 10A–10E | **All five user-reported items done.** Close button follows AVKit's control-visibility delegate (the first attempt guessed with a timer and came out inverted); filter rows get Chinese labels from a closed table; the last source is remembered — `UserDefaults` had been truncating `Site.id` at its NUL; configuration sources are saved by name, switchable, each with its own cache; watch history binds to the configuration it was watched on | `docs/IOS-POC-10-plan-ux-and-sources.md` |
 | 10 | Plan for five user-reported UI/data items, two of them decided by the user on the spot. **MPV paused**: on device, Metal + software decode reaches `FILE_LOADED` and still never fires `VIDEO_RECONFIG`, which rules out both the simulator and the network | `docs/IOS-POC-10-plan-ux-and-sources.md` |
 | 9F | Installed on the iPhone 18 Pro. **libmpv initialises on real hardware, and so does CPython — `皮皮虾.py` runs the whole chain to real media bytes on device**, which closes the Python line's largest unverified gap. MPV rendering still needs the user to tap through the probe | `docs/IOS-POC-9B-mpv-playback-core.md` |
 | 9E | Re-test. It overturned 9D's reading that Metal reliably reaches `FILE_LOADED` — it does not, run to run — and measured two MPVKit capability facts: its FFmpeg has no `lavfi` input and no PNG decoder | `docs/IOS-POC-9B-mpv-playback-core.md` |
@@ -311,7 +312,9 @@ without further code, which is why they are worth more than their site counts su
 
 **Latest, re-measured 2026-09-21 at `7653a9fb` (IOS-POC-7R), which is the actual HEAD:**
 
-- `swift test --package-path ios` → **151 tests, all pass** (143 before IOS-POC-7H added 8).
+- `swift test --package-path ios` → **168 tests, all pass**. The trajectory since: 151 at
+  IOS-POC-7H, +4 `SiteSelectionTests` (10C), +4 `FilterNameTests` (10B), +7 `SavedSourceTests`
+  (10D), +2 `WatchHistorySourceBindingTests` (10E).
 - `xcodebuild … -destination 'platform=iOS Simulator,id=7B4E9557-4774-4EB9-B408-BB544DCC8657'`
   → **BUILD SUCCEEDED**. Device build for `platform=iOS,id=00008160-00124C8200214036` succeeded and
   installed at `bb965dda` earlier on 2026-09-21; **nothing since then has been built for a device.**

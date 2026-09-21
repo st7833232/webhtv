@@ -55,8 +55,12 @@ private struct ConfigView: View {
     /// The remote-URL prompt, which the empty state needs as much as the settings page does.
     @State private var askingRemote = false
     @State private var remoteText = ""
+    @State private var remoteName = ""
 
     @State private var source = ConfigSource.importedFile
+    /// IOS-POC-10D: the named sources the viewer kept. The active one is `source`; this is the
+    /// list they can come back to without retyping an address.
+    @State private var saved = SavedSourceList()
     @State private var updatedAt: Date?
     @State private var refreshing = false
     /// What the compatibility pack is doing, shown in settings so a refused pack is visible rather
@@ -110,9 +114,13 @@ private struct ConfigView: View {
                             refreshing: refreshing,
                             packStatus: packStatus,
                             onImport: { importing = true },
-                            onUseRemote: { text in useRemote(text) },
+                            onUseRemote: { text, name in useRemote(text, named: name) },
                             onRefresh: { Task { await refreshRemote() } },
-                            onOpenHome: { selectedTab = 0 }
+                            onOpenHome: { selectedTab = 0 },
+                            saved: saved,
+                            onUseSaved: { entry in use(entry) },
+                            onRename: { entry, name in rename(entry, to: name) },
+                            onForget: { entry in forget(entry) }
                         )
                     }
                     .tag(2)
@@ -138,12 +146,13 @@ private struct ConfigView: View {
             // there, which is what made every launch reopen on the first source.
             UserDefaults.standard.set(id.map(SiteSelection.token(for:)), forKey: selectedSiteKey)
         }
-        .alert("從網址載入設定", isPresented: $askingRemote) {
+        .alert("加入設定來源", isPresented: $askingRemote) {
+            TextField("名稱", text: $remoteName)
             TextField("https://…/wang-movie.json", text: $remoteText)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
-            Button("載入") { useRemote(remoteText) }
+            Button("載入") { useRemote(remoteText, named: remoteName) }
             Button("取消", role: .cancel) {}
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
@@ -204,13 +213,47 @@ private struct ConfigView: View {
     /// watching and can simply tap again rather than wait through the gaps.
     /// Parsing lives here rather than in the dialog because this is where the error surface is;
     /// silently doing nothing was the previous behaviour and gave the user no idea why.
-    private func useRemote(_ text: String) {
+    private func useRemote(_ text: String, named name: String = "") {
         guard let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
               url.scheme == "http" || url.scheme == "https", url.host?.isEmpty == false else {
             error = "請輸入 http:// 或 https:// 開頭的完整設定網址。"
             return
         }
+        // Remember it before fetching, so a source that is briefly unreachable is still saved and
+        // can be retried from the list instead of retyped.
+        saved.upsert(SavedSource(name: name, url: url))
+        persistSaved()
         Task { await load(remote: url) }
+    }
+
+    /// Switching to an already-saved source. No re-typing, and its own cache means a provider that
+    /// is down right now still shows what it last served rather than nothing.
+    private func use(_ entry: SavedSource) {
+        Task { await load(remote: entry.url) }
+    }
+
+    private func rename(_ entry: SavedSource, to name: String) {
+        var renamed = entry
+        renamed.name = name
+        saved.upsert(renamed)
+        persistSaved()
+    }
+
+    private func forget(_ entry: SavedSource) {
+        saved.remove(id: entry.id)
+        persistSaved()
+        // The cached copy goes with it; leaving it behind would be an orphan nobody can reach.
+        if let url = try? configURL(for: .remote(entry.url)) { try? FileManager.default.removeItem(at: url) }
+    }
+
+    private func persistSaved() {
+        guard let url = try? savedSourcesURL(), let data = try? JSONEncoder().encode(saved) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    private func savedSourcesURL() throws -> URL {
+        try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            .appendingPathComponent("saved-sources.json")
     }
 
     private func refreshRemote(quiet: Bool = false) async {
@@ -258,7 +301,7 @@ private struct ConfigView: View {
     /// A pack can add or replace a driveable class, so the listed sites are recomputed from the
     /// configuration already on disk rather than re-fetched.
     private func rebuildSites() {
-        guard let url = try? configURL(), let data = try? Data(contentsOf: url),
+        guard let url = try? configURL(for: source), let data = try? Data(contentsOf: url),
               let config = try? ConfigLoader.validate(data) else { return }
         sites = config.drivableSites(resolvedBy: CSPSourceResolver(source: source))
         selectedSiteID = sites.first { $0.id == selectedSiteID }?.id ?? selectedSiteID ?? sites.first?.id
@@ -268,7 +311,7 @@ private struct ConfigView: View {
     /// validation reaches the cached file — that is what makes a failed refresh safe.
     private func adopt(_ data: Data, config: WebHTVConfig, from source: ConfigSource) throws {
         let loaded = config.drivableSites(resolvedBy: CSPSourceResolver(source: source))
-        try data.write(to: configURL(), options: .atomic)
+        try data.write(to: configURL(for: source), options: .atomic)
         let now = Date()
         UserDefaults.standard.set(source.baseURL?.absoluteString, forKey: configSourceURLKey)
         UserDefaults.standard.set(now.timeIntervalSince1970, forKey: configUpdatedAtKey)
@@ -283,15 +326,27 @@ private struct ConfigView: View {
     }
 
     private func restore() {
+        if let url = try? savedSourcesURL(), let data = try? Data(contentsOf: url),
+           let list = try? JSONDecoder().decode(SavedSourceList.self, from: data) {
+            saved = list
+        }
         var restored = ConfigSource.importedFile
         if let stored = UserDefaults.standard.string(forKey: configSourceURLKey), let url = URL(string: stored) {
             restored = .remote(url)
             source = restored
+            // An install from before IOS-POC-10D has a remembered URL and no saved entry, so the
+            // list would come up empty for someone who is plainly using a remote source. Adopt it
+            // under its host name; they can rename it.
+            if saved.source(id: url.absoluteString) == nil {
+                saved.upsert(SavedSource(name: url.host ?? "", url: url))
+                persistSaved()
+            }
         }
         let stamp = UserDefaults.standard.double(forKey: configUpdatedAtKey)
         if stamp > 0 { updatedAt = Date(timeIntervalSince1970: stamp) }
         do {
-            let url = try configURL()
+            migrateLegacyCache(to: restored)
+            let url = try configURL(for: restored)
             guard FileManager.default.fileExists(atPath: url.path) else { return }
             // Read the local value, not the `@State` just written: a spider's relative `ext` is
             // resolved against it, and resolving against the wrong base silently breaks those sites.
@@ -305,9 +360,35 @@ private struct ConfigView: View {
         }
     }
 
-    private func configURL() throws -> URL {
-        try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            .appendingPathComponent("wang-movie.json")
+    /// Where a given source's configuration is cached.
+    ///
+    /// IOS-POC-10D gave each remote source its own file. With one shared cache, switching to B
+    /// overwrote A's copy, so the next time A was unreachable the app would have shown B's sites
+    /// under A's name. An imported file keeps the original filename, which is also what makes the
+    /// upgrade path below work.
+    private func configURL(for source: ConfigSource) throws -> URL {
+        let directory = try FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        switch source {
+        case .importedFile:
+            return directory.appendingPathComponent("wang-movie.json")
+        case .remote(let url):
+            return directory.appendingPathComponent(SavedSource(name: "", url: url).cacheFileName)
+        }
+    }
+
+    /// Carries an existing install's single cache over to its per-source home, once.
+    ///
+    /// Without this, upgrading looks like losing the configuration: the remembered URL is still
+    /// there but its cache is under the old name, so the app would start empty and re-fetch — and
+    /// show nothing at all if the provider happened to be down that minute.
+    private func migrateLegacyCache(to source: ConfigSource) {
+        guard case .remote = source,
+              let destination = try? configURL(for: source),
+              !FileManager.default.fileExists(atPath: destination.path),
+              let legacy = try? configURL(for: .importedFile),
+              FileManager.default.fileExists(atPath: legacy.path) else { return }
+        try? FileManager.default.copyItem(at: legacy, to: destination)
     }
 }
 
@@ -768,12 +849,20 @@ private struct SettingsView: View {
     let refreshing: Bool
     let packStatus: String
     let onImport: () -> Void
-    let onUseRemote: (String) -> Void
+    let onUseRemote: (String, String) -> Void
     let onRefresh: () -> Void
     let onOpenHome: () -> Void
+    /// IOS-POC-10D
+    let saved: SavedSourceList
+    let onUseSaved: (SavedSource) -> Void
+    let onRename: (SavedSource, String) -> Void
+    let onForget: (SavedSource) -> Void
 
     @State private var askingRemote = false
     @State private var remoteText = ""
+    @State private var remoteName = ""
+    @State private var renaming: SavedSource?
+    @State private var renameText = ""
 
     var body: some View {
         List {
@@ -806,14 +895,24 @@ private struct SettingsView: View {
                 }
             }
 
+            savedSection
             sourceSection
         }
-        .alert("從網址載入設定", isPresented: $askingRemote) {
+        .alert("加入設定來源", isPresented: $askingRemote) {
+            TextField("名稱", text: $remoteName)
             TextField("https://…/wang-movie.json", text: $remoteText)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-            Button("載入") { onUseRemote(remoteText) }
+            Button("載入") { onUseRemote(remoteText, remoteName) }
             Button("取消", role: .cancel) {}
+        }
+        .alert("重新命名", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("名稱", text: $renameText)
+            Button("儲存") {
+                if let entry = renaming { onRename(entry, renameText) }
+                renaming = nil
+            }
+            Button("取消", role: .cancel) { renaming = nil }
         }
         .scrollContentBackground(.hidden)
         .appWallpaper()
@@ -830,8 +929,9 @@ private extension SettingsView {
             LabeledContent("來源", value: sourceLabel)
             LabeledContent("上次更新", value: updatedLabel)
             LabeledContent("Spider 腳本", value: packStatus.isEmpty ? "內建" : packStatus)
-            Button("從網址載入設定") {
-                remoteText = source.baseURL?.absoluteString ?? ""
+            Button("加入設定來源") {
+                remoteText = ""
+                remoteName = ""
                 askingRemote = true
             }
             if isRemote {
@@ -843,6 +943,43 @@ private extension SettingsView {
         } footer: {
             Text("目前支援 \(sites.count) 個來源：type-0／type-1／type-4 CMS，已移植的 csp_* Spider，drpy 與 Python 腳本。腳本只從設定檔自己的來源、且必須是 HTTPS 才會載入。遠端更新失敗時會保留上一份可用設定。Spider 腳本可由設定檔旁的 ./spiders/manifest.json 熱更新，驗過 SHA-256 才會採用。")
         }
+    }
+
+    /// IOS-POC-10D. Names, not addresses — the address is what the viewer had to read before.
+    @ViewBuilder var savedSection: some View {
+        if !saved.sources.isEmpty {
+            Section("已存來源") {
+                ForEach(saved.sources) { entry in
+                    Button {
+                        onUseSaved(entry)
+                        onOpenHome()
+                    } label: {
+                        HStack {
+                            Text(entry.displayName).foregroundStyle(.primary)
+                            Spacer()
+                            if entry.id == activeSourceID {
+                                Image(systemName: "checkmark").foregroundStyle(appAccent)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button("刪除", role: .destructive) { onForget(entry) }
+                        Button("改名") {
+                            renameText = entry.name
+                            renaming = entry
+                        }
+                        .tint(.blue)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Which saved entry the live configuration came from, so the list can tick it.
+    var activeSourceID: SavedSource.ID? {
+        guard case .remote(let url) = source else { return nil }
+        return url.absoluteString
     }
 
     var isRemote: Bool {

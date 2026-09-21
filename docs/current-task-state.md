@@ -6,8 +6,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current Scope
 
-- Branch `ios-poc`. **Verified 2026-09-21 at IOS-POC-8L: HEAD `bb965dda` (IOS-POC-8K), 0 ahead and
-  0 behind `origin/ios-poc`, worktree clean.** **Re-check with `git log` rather than trusting any id
+- Branch `ios-poc`. **Verified 2026-09-21 at IOS-POC-7O: HEAD `9bec98f5` (IOS-POC-7N), worktree
+  clean, and 12 commits ahead of `origin/ios-poc` — `1ee5b219`..`9bec98f5`, none of them pushed.** **Re-check with `git log` rather than trusting any id
   quoted here** — this one line has carried four different stale ids in turn (`261b5c03`, "HEAD after
   IOS-POC-5L", `a087dd50`, and `2a177f50` in the handoff), each wrong by the time it was read.
 - Android `app/` is read-only for all iOS work and has never been modified: `git diff <branch-point>..HEAD -- app/` is empty, and every commit on this branch touches only `ios/`, `docs/`, `scripts/`, `AGENTS.md` and `.codex/`.
@@ -23,7 +23,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 | drpy loader | **Done and verified** (IOS-POC-6A/6B) |
 | 4 drpy sources end to end | **Done** — all four reached real media bytes |
 | Python feasibility / P1 | **Done** — measured, not implemented (`docs/IOS-POC-7A-python-runtime.md`) |
-| Python P2–P5 | **Not started** |
+| Python P2–P5 | **Done, 2026-09-21** — `docs/IOS-POC-7A-python-runtime.md` carries all of it |
+| MPV feasibility (second playback core) | **Not started; needs the user's word before it begins** |
 | Real-device baseline (IOS-POC-8) | **Partly done, and the rest deferred by the user on 2026-09-21** |
 
 The device baseline is **not** finished, and nothing here should be read as saying it is. The user
@@ -126,6 +127,15 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 8J | The episode blocks split on the printed episode number, not on position, so `1-100` ends at 第100集 on a line whose entries merge episodes | this document |
 | 8K | Pull to refresh on the listing, and the source picker opens on the source in use instead of at the top of 67 | this document |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
+| 7E | The CPython payload arrives by `scripts/fetch_python_ios.sh` + `third_party/python-ios-lock.json`, not by commit | `docs/IOS-POC-7A-python-runtime.md` |
+| 7F | **CPython 3.13.15 starts inside the app** on the simulator; Python links into the app target only, so `WebHTVCore` still builds and tests on macOS | same document |
+| 7G | `base/spider.py` shim + `PythonSpiderRuntime`; a hard-coded spider drives all 13 ABI methods and errors propagate | same document |
+| 7H | **P3 routing**: `Site.isPythonSpider`, `PythonSpiderSupport` seam, and drpy's own same-origin/HTTPS/size/fail-closed implementations reused. Sources listed went 67 → 109 | same document |
+| 7I | The shell-app/XPTV shape recorded as the product; the five ways a spider's code reaches the app | `docs/IOS_SPIDER_RUNTIME_SPEC.md` |
+| 7J | `PythonLiveCheck` drives a real Python source through the app's own path; found the `requests` gap and a URL-encoding defect | `docs/IOS-POC-7A-python-runtime.md` |
+| 7K | **P4 done**: `皮皮虾.py` runs `init → home → category → detail → search → player` and `MediaProbe` returns `.media`. The shim now percent-encodes before urllib sees a URL | same document |
+| 7L/7M | **P5 done**: `scripts/audit_python_spiders.py` (static, 42 sites) and the runtime survey, reconciled | same document |
+| 7N | A Python traceback goes to the log; one readable line goes to the screen | same document |
 | 6A/6B | **drpy JavaScript loader**: the engine and its nine libraries fetched from the configuration's own origin, hash-pinned and verified before evaluation, running on the existing `JavaScriptSpiderRuntime` | `docs/IOS-POC-6A-drpy-loader.md` |
 
 ## Important Decisions
@@ -286,6 +296,21 @@ without further code, which is why they are worth more than their site counts su
 
 ## Build / Test / Verification Status
 
+**Latest, 2026-09-21 at `9bec98f5`:**
+
+- `swift test --package-path ios` → **151 tests, all pass** (143 before IOS-POC-7H added 8).
+- `xcodebuild … -destination 'platform=iOS Simulator,id=7B4E9557-4774-4EB9-B408-BB544DCC8657'`
+  → **BUILD SUCCEEDED**. Device build for `platform=iOS,id=00008160-00124C8200214036` also succeeded
+  and installed earlier today.
+- Simulator, from the app's own launch path:
+  `[python] boot running(version: "3.13.15")`,
+  `[python] selfcheck 13/13 methods OK, errors propagate`,
+  `[python] live OK [🏆｜銅牌｜高清] init → home(5) → category(21) → detail → search(1) → player → probe(media)`,
+  `[python] survey driven 1/42`.
+- `scripts/audit_python_spiders.py --config <the user's GitLab URL>` → 42 sites classified.
+- **Not run:** any device verification of the Python runtime. Everything Python is simulator-only.
+
+
 Everything in this section is from **HEAD `261b5c03`** unless it names another stage or date; the
 test and build lines below were re-measured at **`bb965dda` on 2026-09-21**. The three
 conflicting test counts that used to sit here (77/76, 96/95, 110/109, each from a different HEAD)
@@ -427,6 +452,23 @@ have been collapsed into the first bullet.
   sources and cache intact. Launch retry proven with a local server armed to fail twice.
 
 ## Risks / Unverified
+
+**Python, added 2026-09-21:**
+
+- **Nothing Python has run on a device.** All of IOS-POC-7E–7N is simulator evidence.
+- **The payload is not in the repository.** `third_party/python-ios/` is ignored; a fresh clone must
+  run `scripts/fetch_python_ios.sh` (the Xcode "Prepare Python" phase calls it, so a build does this
+  by itself — but an offline machine cannot build until it has run once).
+- **`Prepare Python` rewrites a file under `third_party/python-ios/` on every build** (the module map
+  clang needs). Idempotent and untracked, but its proper home is the fetch script.
+- **What Tier 1 buys is small and now measured**: 4 of 42 sites execute, 1 reaches media bytes.
+  Do not quote a larger number from the P1 assessment, which estimated before any of it ran.
+- **`麒麟影视.py` counts as executing only until something calls the method its `import requests`
+  hides in.** It is not a Tier-1 site in any durable sense.
+- **The survey hammers the configuration origin** — one script fetch per site. Running it twice after
+  the audit made GitLab stop answering entirely, which read as "driven 0/42" and was false. It now
+  paces at 400 ms; do not remove that.
+
 
 - **It has now run on a real device — once, on 2026-09-18 (IOS-POC-8A).** An iPhone 16 Pro, signed
   with the personal Apple ID `st7833232@gmail.com`, team `764SVXY2B7`. **The project file still has
@@ -651,74 +693,48 @@ have been collapsed into the first bullet.
 
 ## Next Recommended Step
 
-**The order was fixed by the user on 2026-09-18 and has been followed through drpy.** Where things
-now stand against it:
+**Do not start anything below without the user saying so.** The order was set by the user and the
+first two items are finished.
 
-1. ~~**POC-3 — the drpy JavaScript loader.**~~ **Done (IOS-POC-6A/6B/6C).** All four same-origin
-   drpy sources run `home → category → detail → search → player` and reach real media bytes. The
-   fifth configured one, `bubutv`, points at a `./json/4k.js` that is a 404 in the repository.
-2. **POC-4 — the Python runtime.** Assessed and measured (IOS-POC-7A/7C); **P2–P5 not started**.
-   Two findings from P1 the user has, and which should be re-confirmed before building:
-   - the trimmed payload is **about 24 MB uncompressed**, roughly twice the plan's original estimate;
-   - the XCFramework has **iOS slices only**, so `swift test` — which runs on macOS — cannot execute
-     a Python runtime at all. **The open decision is how P4's golden gets driven**: a new iOS test
-     target in the Xcode project, or a run through the app on the simulator. Not taken yet.
-3. **The first real-device verification — still the milestone that keeps being deferred.** Signing
-   and `DEVELOPMENT_TEAM`, then remote config, CMS, spider, drpy, WKWebView/WebHome, AVPlayer
-   headers, external players and persistence re-checked on hardware.
-4. **Then IOS-POC-5S** (config `ads` blocking, `rules.script` injection, opening/ending skip) and
-   only then more `csp_*` ports.
+1. ~~**POC-3 — the drpy JavaScript loader.**~~ **Done (IOS-POC-6A/6B/6C).**
+2. ~~**POC-4 — the Python runtime, P2–P5.**~~ **Done (IOS-POC-7E–7N).** What it actually buys is
+   small and measured: Tier 1 executes 4 of 42 configured Python sites and reaches media bytes on 1.
+   34 are blocked on a dependency (`requests` 23, `Crypto` 10, `urllib3` 1) and 4 are refused by the
+   same-origin/HTTPS policy. Vendoring `requests` would add 13; a `Crypto.Cipher` shim over the AES,
+   DES, MD5, SHA and HMAC `CatVodHost` already has would address the largest block, 17 sites.
+   **Neither was done, and neither should start without the user asking.**
+3. **MPV feasibility — the next stage, and it is waiting on the user's instruction.** A second
+   built-in playback core, `PlaybackTarget → PlayerRouter → AVPlayerEngine / MPVEngine`, sharing the
+   existing `PlaybackSession`, headers, history, resume and quality. Do not rebuild `SourceClient`.
+   Do not take a framework out of Infuse, Fileball, SenPlayer or VidHub; only an SDK whose licence
+   permits embedding. A licence/provenance review of the actual `mpv`/FFmpeg/libass/dav1d build comes
+   **before** integration, and `.codex/skills/upstream-integration-governor/SKILL.md` governs it.
+4. **The real-device acceptance**, deferred by the user on 2026-09-21 with the partial baseline kept.
+5. **IOS-POC-5S**, and only then more `csp_*` ports.
 
-**Explicitly not next**, by the user's instruction: XueLuo, QimaoDJ, AppDrama or any further `csp_*`
-class. The IOS-POC-5N candidates stay in the backlog.
-
-**The cheapest next win inside POC-4** is not cross-compiling anything: 10 of the 31 Python scripts
-need only `Crypto`, and `CatVodHost` already has AES, DES, MD5, SHA and HMAC. A `Crypto.Cipher` shim
-over those is likely far cheaper than building pycryptodome for iOS.
-
-**Unchanged boundary:** `aowu-0722.jar`, `aowu.jar` and `fan-0720.jar` keep their native-encrypted
-payload and **must not be attacked**. `JPianAmns → JianPian` — an alias to a class proven to serve
-the same API — is the correct pattern for anything behind them.
-
-**Superseded 2026-09-21 — this is the product, not a future boundary.** The user settled the shape:
-**a shell app that bundles no sources, into which the user brings their own configuration** — the
-XPTV model. The app already satisfies the first half: there is no bundled `wang-movie.json` and no
-default configuration of any kind in `ios/WebHTVApp/`, so "0 bundled sources" is today's behaviour
-rather than future work.
-
-What that leaves is a **build-profile question, not a rewrite**: which mechanisms a store-bound build
-switches off. Distribution and submission are analysed in
-`docs/analysis/ios-app-store-readiness-research.md`; the architecture half — the five ways a spider's
-code can reach the app, which of them are code and which are data, and where each gate is — is in
-`docs/IOS_SPIDER_RUNTIME_SPEC.md` under "How a spider's code reaches the app". The single rule that
-keeps the gates usable: **no remote mechanism may become load-bearing.**
+**Not to be started early:** 5S ads/intro-outro, XueLuo, QimaoDJ, further `csp_*`, CarPlay,
+Official/XPTV as a separate fork.
 
 ## Resume Prompt
 
 Paste this into a new session:
 
-> 接手 `/Users/chengchenchih/GIT/webhtv` 的 `ios-poc` 分支，透過本機終端操作，不要每步停下來問我確認。用台灣繁體中文回報。
+> 接手 `/Users/chengchenchih/GIT/webhtv` 的 `ios-poc`，透過本機終端操作，不要每步停下來問我確認。用台灣繁體中文回報。
 >
-> **先確認實際狀態，不要相信以下引用的任何 ID**：2026-09-21 當時 HEAD 在 `2112a48f`（IOS-APPSTORE-READINESS 之後），**領先 `origin/ios-poc` 6 個 commit 且尚未 push**，worktree clean。這一行每次都會過期，用 `git log` 覆蓋它。未經我明確授權不得 push。
+> **先確認實際狀態，不要相信這段文字裡的任何 SHA**：2026-09-21 當時 HEAD 在 `9bec98f5`（IOS-POC-7N），**領先 `origin/ios-poc` 12 個 commit、全部尚未 push**，worktree clean。用 `git log` 與 `git rev-list --left-right --count origin/ios-poc...ios-poc` 覆蓋這一行。**未經我明確授權不得 push、tag、package、publish。**
 >
-> 動手前必讀：`AGENTS.md`、`docs/AGENT_HANDOFF.md`、`docs/current-task-state.md`、`docs/IOS_SPIDER_RUNTIME_SPEC.md`（runtime/ABI 唯一真實來源，含 compatibility pack 契約）、`docs/CSP_MIGRATION_STATUS.md`（移植進度）。要動哪個既有階段就讀那個階段的 `docs/IOS-POC-5*.md`。
+> 動手前必讀：`AGENTS.md`、`README.md`、`docs/AGENT_HANDOFF.md`、`docs/current-task-state.md`、`docs/IOS_SPIDER_RUNTIME_SPEC.md`（runtime/ABI 唯一真相，含 spider 程式碼投遞的五種方式）、`docs/IOS-POC-7A-python-runtime.md`（Python 全部階段）、`docs/analysis/ios-app-store-readiness-research.md`（發行）。
 >
-> **這個 App 現在能做什麼**：iPhone 版 WebHomeTV，**一個不內建任何來源的空殼**，使用者自帶設定檔（XPTV 模型，2026-09-21 由使用者確認為產品定位）。匯入檔設定列出 167 個來源中的 **62 個**（30 native + 32 spider），**遠端設定再多 5 個 drpy 站共 67 個，Python routing（IOS-POC-7H）之後再多 42 個共 109 個**，**可播數量自 IOS-POC-5L 之後沒有重新量過**——上一次是 2026-09-17 的 37/61，那是 5M／5P／5Q 之前的數字，不要當成現況引用。兩層分類、篩選列、分頁、搜尋、詳情、五種播放器、匯入檔或 HTTPS Raw URL 設定（schema 驗證 + LKG 快取 + 啟動重試）、WebHome bridge over WKWebView、spider compatibility pack 熱更新、播放帶來源要求的 request headers、`playerContent.url` 三形狀 + 畫質選單、以及**播放記錄／續播／記錄分頁／`app.history` 真資料**。
+> **產品定位（2026-09-21 確認）**：一個**不內建任何來源的空殼 App**，使用者自帶設定檔，走 XPTV 路線。App 已經滿足前半——沒有任何內建設定檔。上架版與個人側載版的差別是 **build profile，不是分叉**。
 >
-> **Spider 架構核心**：不在 iOS 執行 Android DEX/JAR，而是用 JavaScriptCore 重現 `Spider.java` 的 text-in/text-out 契約；反編譯的 Java 只當規格書。已移植 8 個 class（`AppGet` 5 站、`AppQi` 6、`App99` 4、`App3Q` 2、`Bili` 4、`JianPian` 1、規則引擎 `XBPQ` 7 與 `XYQHiker` 3）。共用 `CatVodHost`，**不要做第二套 runtime**。
+> **現在能做什麼**：iPhone 版 WebHomeTV。遠端設定列出 **109 個來源**（62 native+csp、5 drpy、42 Python）。兩層分類、篩選列、分頁、搜尋、詳情、五種播放器、下拉重整、來源選單定位、播放記錄／續播、WebHome bridge、request headers、畫質選單、每 100 集一個選集區段。
 >
-> **下一步照這個順序，不要自己改**：(1) ~~POC-3 drpy JavaScript loader~~ **已完成（IOS-POC-6A/6B/6C）** → (2) **POC-4 Python runtime**（42 站，不得標為 impossible；P1 已量測，P2–P5 未開始，未決事項是 `swift test` 跑在 macOS、XCFramework 只有 iOS slice，golden 要怎麼驅動）→ (3) **真機驗證**（已跑過一次 IOS-POC-8A，不等於驗證完成；免費憑證 2026-09-25 到期）→ (4) IOS-POC-5S 廣告與片頭跳過，之後才是更多 CSP。**不要優先新增 XueLuo／QimaoDJ／AppDrama。**
+> **Python 剛完成（IOS-POC-7E–7N），而且要知道它到底買到什麼**：CPython 3.13.15 在 App 內啟動，`PythonSpiderRuntime` 走既有 `SpiderRuntime` 契約，routing 沿用 `CSPSourceResolver`。但**實測 Tier-1 只有 4/42 站跑得動、1/42 拿得到媒體位元組**；34 站被相依性擋住（`requests` 23、`Crypto` 10、`urllib3` 1），4 站被同源/HTTPS 政策拒絕。**不要引用 P1 評估裡比較大的數字。** vendoring `requests` 可多解 13 站、`Crypto.Cipher` 蓋層可解 17 站，**兩者都沒做，也不要自行開始**。
 >
-> **驗證方式**：`WANG_MOVIE_JSON=<config> swift test --package-path ios` → **143 測試，142 或 143 通過**（差別只在那條即時網路案例當下的 provider 狀態）。`reportsLiveType4SitesFromProvidedConfig` 是即時網路案例（88看球），會因 provider 狀態時好時壞，**失敗時不要去修**。`xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp -destination 'platform=iOS Simulator,id=7B4E9557-4774-4EB9-B408-BB544DCC8657' -configuration Debug build` 通過——**destination 要用 id 不能用 name**，機器上有兩台同名的 iPhone 17 Pro。工具鏈是 **Xcode 27 / Swift 6.4**。
+> **下一階段是 MPV feasibility，但必須等我的指令才能開始。** 方向：`PlaybackTarget → PlayerRouter → AVPlayerEngine / MPVEngine`，共用既有 `PlaybackSession`、headers、history、resume、quality；不重造 `SourceClient`；**不得**從 Infuse/Fileball/SenPlayer/VidHub 拆 framework，只能整合授權允許嵌入的 SDK；整合前先做 license/provenance review，並遵守 `.codex/skills/upstream-integration-governor/SKILL.md`。外部播放器全部保留。
 >
-> **設定檔**從 `https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json` 取得（SHA-256 `b17576e34eb42b4c589a818ef8b5ec2655a2c7a188d626fc427c37d628897168`，167 站）。`recha-main.zip` 沒有還原，`scripts/audit_spider_jars.py` 目前無法重跑。
+> **不要提前做**：5S 廣告/片頭片尾、XueLuo、QimaoDJ、更多 `csp_*`、CarPlay、把 Official/XPTV 另外分叉。完整真機 acceptance 已由我延後。
 >
-> **踩過的坑**：① `decodeIfPresent` 對型別不符是 throw 不是回 nil；② `ScrollView` 不是 lazy 容器，判斷捲動位置要用 `LazyVGrid` cell 的生命週期；③ 測試不要用 `Task { }` 記錄再立刻讀；④ 站方的分類／篩選第一項通常已經是「全部」；⑤ **判斷某站是我方 bug 還是站方問題前，一定要對那個 site key 的實際 host 發請求**；⑥ 設定檔有 4 組重複 site key，`Site.id` 是 key+ext 不是 key——播放記錄就是靠這個才不會把兩站混在一起；⑦ `.gitignore:30` 的 `plans/` 會把 `docs/plans/` 一起忽略，task guard 的 `git add` 沒有 `-f`，所以計畫檔放 `docs/`。
+> **流程**：功能性修改前跑 Ponytail pre-review，使用 `bash .codex/scripts/task_guard.sh start`，完成 targeted verification 後跑 Ponytail final-diff review，結果寫進 durable 文件，收尾用 `finish ... --no-tag`。Android `main/` 與 `app/`、`chaquo/` 只讀。
 >
-> **規範**：每次功能變更前後各跑一次 Ponytail，結果寫進該階段 durable 文件；改動前 `bash .codex/scripts/task_guard.sh start --id <id> --mode <lane> --scope <path>...`（scope 一次宣告齊全），結束用 `finish ... --no-tag`；commit message 用檔案傳入，並以 `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>` 結尾。
->
-> **禁止**：改 Android `main` 或 `app/`（唯讀，供比對契約）；未經我明確授權不得 push；commit 不打 recovery tag；不要嘗試解密 `aowu-0722.jar`／`aowu.jar`／`fan-0720.jar` 的 native payload；不要碰 Python/JAR-DEX 直接執行、CarPlay；保留 `NSAllowsArbitraryLoads` 但不得再放寬傳輸安全；**不要為了版面問題去碰 UIKit 內部**（IOS-POC-8G 試過四種都失敗，正解在 `appWallpaper()` 的 SwiftUI 佈局裡）。
->
-> **真機狀態**：專案檔仍然沒有任何 `CODE_SIGN` / `DEVELOPMENT_TEAM`（簽章用命令列參數傳入，沒進 repo）。已在 iPhone 16 Pro 上跑過一次（IOS-POC-8A），**其餘所有結果都來自 iPhone 17 Pro 模擬器**。免費 provisioning profile 2026-09-25 到期，過期要重裝。
->
-> **尚未真機驗證的項目**：播放器 X 鍵移到 `top: 64` 之後的位置、B 站畫質線路、drpy 引擎第一次下載 1.2 MB 的耗時。（IOS-POC-8F 搜尋框與 8G 背景圖已於 2026-09-18 真機確認。）
+> **驗證現況**：`swift test --package-path ios` 151 條全過；模擬器 build 成功。**Python 完全沒在真機上跑過。** 模擬器上 `[python] live OK [🏆｜銅牌｜高清] … → probe(media)`。

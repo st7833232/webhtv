@@ -17,6 +17,11 @@ struct WebHTVApp: App {
         // IOS-POC-7F: start the interpreter and say what came up. Debug-only for now — the Spider
         // runtime will own initialisation once it exists, and nothing in a Release build needs
         // CPython until it does.
+        // IOS-POC-7H: hand core the interpreter it cannot build for itself. Until this runs, a
+        // Python site is not offered at all, which is why it happens before any view exists.
+        PythonSpiderSupport.makeRuntime = { script, siteKey in
+            try PythonSpiderRuntime(script: script, siteKey: siteKey)
+        }
         #if DEBUG
         print("[python] boot \(PythonBoot.start())")
         Task { print("[python] selfcheck \(await PythonBoot.selfCheck())") }
@@ -820,7 +825,7 @@ private extension SettingsView {
         } header: {
             Text("設定來源")
         } footer: {
-            Text("目前支援 \(sites.count) 個來源：type-0／type-1／type-4 CMS，以及已移植的 csp_* Spider。遠端更新失敗時會保留上一份可用設定。Spider 腳本可由設定檔旁的 ./spiders/manifest.json 熱更新，驗過 SHA-256 才會採用。")
+            Text("目前支援 \(sites.count) 個來源：type-0／type-1／type-4 CMS，已移植的 csp_* Spider，drpy 與 Python 腳本。腳本只從設定檔自己的來源、且必須是 HTTPS 才會載入。遠端更新失敗時會保留上一份可用設定。Spider 腳本可由設定檔旁的 ./spiders/manifest.json 熱更新，驗過 SHA-256 才會採用。")
         }
     }
 

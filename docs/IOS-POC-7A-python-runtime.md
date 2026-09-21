@@ -432,3 +432,64 @@ iOS Simulator test target；P4 需要更完整的端到端驅動時一起搬。
 
 P3（`Site.isPythonSpider`、routing、same-origin + HTTPS + size limit + fail closed）、
 P4（`皮皮虾.py` 端到端取得 media bytes）、P5（Tier-1 覆蓋量測）。
+
+## IOS-POC-7H — P3：routing 與安全邊界（2026-09-21）
+
+### 結果
+
+模擬器上來源數 **67 → 109**，正好 +42 —— 等於設定檔裡 `.py` 站的數量。`swift test` 從 143 條變
+**151 條，全過**（8 條新的都是平台中立的，跑在 macOS 上）。
+
+### 安全邊界：重用，不重述
+
+`PythonSpiderSource` 直接呼叫 `DrpyEngine.checked`（HTTPS＋同 host＋同 port）與 `DrpyEngine.download`
+（硬上限）。**不是抄一份規則，是共用同一份實作**，所以兩者不可能漂移。
+
+規則是設定檔的傳輸規則，不是某個引擎的：
+
+| 規則 | 處置 |
+|---|---|
+| 跨 origin | 拒絕。設定檔裡那 3 支（其中 2 支是明文 HTTP）維持拒絕，**覆蓋率不是放寬的理由** |
+| 明文 HTTP（腳本或設定檔任一方） | 拒絕 |
+| 超過 256 KB | 中止下載 |
+| 匯入的本機設定檔 | **直接拒絕** —— 它沒有 origin，永遠不可能通過同源檢查 |
+| 任何失敗 | fail closed，且帶具名原因 |
+
+上限 256 KB 有量測支撐：31 支同源腳本共 569 KB，最大一支 `油管-6.py` 是 93.7 KB。
+
+### 沒有 runtime 就不上架
+
+`canResolve` 對 Python 站多問一件事：這個 build 有沒有直譯器。沒有就**完全不顯示**，而不是顯示了
+再在點下去時失敗 —— 跟 registry 對未移植 `csp_*` 類別的處置一致。
+
+這需要一個 seam，因為 `WebHTVCore` 必須在 macOS 上建置，而 CPython 沒有 macOS slice：
+
+```swift
+PythonSpiderSupport.makeRuntime: ((String, String) throws -> SpiderRuntime)?
+```
+
+App 在啟動時裝上去。core 一行都不用連結直譯器。
+
+### routing 完全沿用既有的
+
+`CSPSourceResolver.session(for:)` 多一個分支，回傳的還是 `SpiderSession`；`SourceClient`、
+`WatchHistory`、UI 全部不知道底下是 Python。`ext` 走的是與所有 spider 相同的 `resolvedExtend`。
+Python 站的腳本**本身就是 spider**，所以沒有引擎要先抓——一次同源下載就齊了，比 drpy 還少一步。
+
+### 8 條新測試
+
+分類（含大小寫、`.python` 這種近似名、type 非 3 的情況）、沒 runtime 時不上架、有 runtime 時上架、
+匯入設定檔永遠不上架、跨 origin 拒絕、明文設定檔拒絕、超大腳本中止、以及腳本確實送達 runtime。
+
+`ponytail:` 這個 suite 標了 `.serialized`。`PythonSpiderSupport.makeRuntime` 是行程全域狀態——那正是
+讓 App 裝上 core 造不出的東西的機制——所以兩條測試平行跑會看到彼此的 stub 或彼此的拆除。第一次跑就
+是這樣失敗的。全域是刻意的 seam，`.serialized` 是它的代價。
+
+### 順手修掉的一個真缺陷
+
+設定頁那行「目前支援 N 個來源：…以及已移植的 csp_* Spider」在 drpy 進來之後就已經是錯的，現在更錯。
+改成把 drpy 與 Python 也講出來，並寫明腳本只從設定檔自己的來源、且必須 HTTPS 才會載入。
+
+### 尚未開始
+
+P4（`皮皮虾.py` 端到端並由 MediaProbe 取得 media bytes）、P5（Tier-1 覆蓋量測）。

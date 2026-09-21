@@ -23,7 +23,13 @@ final class PythonSpiderRuntime: SpiderRuntime, @unchecked Sendable {
 
     /// Loads the script. Throws rather than returning a half-built runtime, so a caller that gets an
     /// instance back has one that ran.
-    init(script: String, siteKey: String, cacheDirectory: URL) throws {
+    /// Where `getCache`/`setCache` keep a site's JSON file. Defaults to the app's caches directory,
+    /// which is where a derived, re-fetchable thing belongs.
+    static let defaultCacheDirectory = FileManager.default
+        .urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("python-spider")
+
+    init(script: String, siteKey: String, cacheDirectory: URL = PythonSpiderRuntime.defaultCacheDirectory) throws {
         self.handle = UUID().uuidString
         self.siteKey = siteKey
         try PythonBoot.ensureStarted()

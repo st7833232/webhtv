@@ -34,6 +34,10 @@ public struct CSPSourceResolver: Sendable {
     /// origin, so it can never satisfy the same-origin rule and is not offered at all.
     public func canResolve(_ site: Site) -> Bool {
         if site.isDrpySpider { return source.baseURL != nil }
+        // A Python site is listed only when this build actually has an interpreter. Without one it
+        // stays hidden rather than appearing and failing on the first tap — the same rule the
+        // registry applies to an unported `csp_*` class.
+        if site.isPythonSpider { return PythonSpiderSupport.isAvailable && source.baseURL != nil }
         return site.isCSPSpider && registry.canDrive(site.api)
     }
 
@@ -41,6 +45,7 @@ public struct CSPSourceResolver: Sendable {
     /// a `csp_*` site still resolves without touching the network.
     public func session(for site: Site) async throws -> SpiderSession {
         if site.isDrpySpider { return try await drpySession(for: site) }
+        if site.isPythonSpider { return try await pythonSession(for: site) }
         guard site.isCSPSpider else { throw SpiderError.notRegistered(site.api) }
         let runtime = try registry.makeRuntime(for: site.api, siteKey: site.key,
                                                defaults: defaults, session: session)
@@ -64,6 +69,15 @@ public struct CSPSourceResolver: Sendable {
             storage: SpiderStorage(siteKey: site.key, defaults: defaults),
             session: session)
         return SpiderSession(site: site, runtime: runtime, extend: rule)
+    }
+
+    /// A Python site's script **is** the spider, so there is no engine to fetch first — one
+    /// same-origin download and the interpreter has everything. `extend` travels exactly as it does
+    /// for every other spider, so a script reading its host out of `ext` needs no special case.
+    private func pythonSession(for site: Site) async throws -> SpiderSession {
+        let script = try await PythonSpiderSource.script(for: site, source: source, session: session)
+        let runtime = try PythonSpiderSupport.runtime(script: script, siteKey: site.key)
+        return SpiderSession(site: site, runtime: runtime, extend: resolvedExtend(for: site))
     }
 
     /// A rule-engine site sets `ext` to a path like `./json/农民影视.json`. Resolve it against the

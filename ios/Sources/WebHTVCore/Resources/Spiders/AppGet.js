@@ -96,7 +96,7 @@ var spider = (function () {
             return { n: label, v: label === '全部' ? '' : label };
           });
           if (!options.length) return;
-          if (options[0].v !== '') options.unshift({ n: '全部', v: '' });
+          // IOS-POC-8I: no synthetic 全部 — the row shows exactly what the source offers.
           rows.push({ key: f.name === 'sort' ? 'by' : f.name, name: FILTER_NAMES[f.name], value: options });
         });
         if (rows.length) filters[id] = rows;

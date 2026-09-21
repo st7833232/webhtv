@@ -450,16 +450,10 @@ private struct CMSView: View {
         groups.first { $0.id == selectedCategory || $0.children.contains { $0.id == selectedCategory } }
     }
 
-    /// True when the source's own category list already opens with an "all" entry, as every
-    /// 苹果CMS App-API site does (`type_id: 0, type_name: 全部`). Adding ours on top of it showed
-    /// two 全部 chips side by side.
-    private var providerSuppliesAllChip: Bool {
-        groups.first.map { $0.parent.name == "全部" || $0.parent.id == "0" } ?? false
-    }
-
     @ViewBuilder private var parentChips: some View {
-        // A type-4 home is really its first category, so it has no separate "all" listing.
-        if site.type != 4 && !providerSuppliesAllChip { chip("全部", id: nil) }
+        // IOS-POC-8I: no synthetic 全部. The row is the source's own category list and nothing else.
+        // csp_JPianAmns offers exactly five, and the app's extra chip re-listed the first of them
+        // anyway, because an empty home falls back to the first browsable category.
         ForEach(groups) { group in
             parentChip(group)
         }
@@ -814,6 +808,9 @@ private struct VodView: View {
     /// What was watched last, if anything. Marks the episode in the grid (R4) and supplies the
     /// remembered quality when the picker opens (R6).
     @State private var watched: WatchHistory?
+    /// Which 100-episode block each flag is showing. Keyed by flag name because the lines
+    /// carry different episode counts.
+    @State private var episodeChunk: [String: Int] = [:]
 
     var body: some View {
         ScrollView {
@@ -836,10 +833,29 @@ private struct VodView: View {
                     }
 
                     ForEach(detail.flags, id: \.name) { flag in
+                        let chunk = episodeChunk[flag.name] ?? defaultChunk(for: flag)
                         VStack(alignment: .leading, spacing: 12) {
                             Text(flag.name).font(.headline)
+                            // A few hundred buttons in one grid is unnavigable. Offer the 100-episode
+                            // blocks the numbering already follows, and only when there is more than one.
+                            if flag.episodes.count > episodeChunkSize {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 8) {
+                                        ForEach(Array(0..<chunkCount(of: flag)), id: \.self) { index in
+                                            let range = episodeRange(index, of: flag)
+                                            Button("\(range.lowerBound + 1)-\(range.upperBound)") {
+                                                episodeChunk[flag.name] = index
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .tint(index == chunk ? .accentColor : nil)
+                                            .fontWeight(index == chunk ? .bold : nil)
+                                            .frame(minHeight: 44)
+                                        }
+                                    }
+                                }
+                            }
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 10)], spacing: 10) {
-                                ForEach(Array(flag.episodes.enumerated()), id: \.offset) { _, episode in
+                                ForEach(Array(flag.episodes.enumerated())[episodeRange(chunk, of: flag)], id: \.offset) { _, episode in
                                     let lastWatched = watched?.vodFlag == flag.name
                                         && watched?.episodeUrl == episode.url
                                     Button(episode.name) {
@@ -890,6 +906,29 @@ private struct VodView: View {
     }
 
     private var historyKey: String { WatchHistory.key(siteID: site.id, vodId: summary.id) }
+
+    /// Episodes per block in the picker. Sources number long dramas in the hundreds, and 100 is
+    /// the step their own numbering follows.
+    private let episodeChunkSize = 100
+
+    private func chunkCount(of flag: Flag) -> Int {
+        max(1, (flag.episodes.count + episodeChunkSize - 1) / episodeChunkSize)
+    }
+
+    private func episodeRange(_ index: Int, of flag: Flag) -> Range<Int> {
+        // Clamped: a stale index survives a reload that returned fewer episodes.
+        let start = max(0, min(index, chunkCount(of: flag) - 1)) * episodeChunkSize
+        return start..<min(start + episodeChunkSize, flag.episodes.count)
+    }
+
+    /// Opens on the block holding the remembered episode, so resuming episode 380 of a 600-episode
+    /// drama does not start at the first block.
+    private func defaultChunk(for flag: Flag) -> Int {
+        guard watched?.vodFlag == flag.name,
+              let index = flag.episodes.firstIndex(where: { $0.url == watched?.episodeUrl })
+        else { return 0 }
+        return index / episodeChunkSize
+    }
 
     private func play(_ episode: Episode, flag: String) async {
         resolving = true

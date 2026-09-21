@@ -83,6 +83,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 8F | The search field goes back to hiding on scroll, at the user's request: the `.id` moves up to the whole `NavigationStack`, after three other ways of making the bar give the field back were measured and failed | this document |
 | 8G | The black band behind the tab bar is gone on every tab — `scaledToFill` never filled, so `.ignoresSafeArea()` had nothing to expand | this document |
 | 8H | 8F and 8G confirmed on the iPhone 16 Pro by the user; the second device run this project has had | this document |
+| 8I | No synthetic 全部 anywhere — the category row and the filter rows show only what the source sends; the episode picker splits a long line into 100-episode blocks | this document |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
 | 6A/6B | **drpy JavaScript loader**: the engine and its nine libraries fetched from the configuration's own origin, hash-pinned and verified before evaluation, running on the existing `JavaScriptSpiderRuntime` | `docs/IOS-POC-6A-drpy-loader.md` |
 
@@ -288,6 +289,27 @@ have been collapsed into the first bullet.
   `[线路①, 线路②]` → search 20 → `….m3u8`.
 
 ### Simulator runs (iPhone 17 Pro)
+
+- **IOS-POC-8I, 2026-09-21.** Two user requests, both confirmed on the simulator against live sources.
+  - **No synthetic 全部.** The app used to prepend its own 全部 in three places: the category row
+    (`parentChips`) and the filter rows built by `AppGet.js` and `AppQi.js`. All three are gone, so
+    the row is the source's own list. Confirmed on 紅果短劇 (`csp_JPianAmns`), whose `CLASSES` holds
+    exactly 电影/电视剧/动漫/综艺/短剧 — the row now shows those six categories and no 全部, where the
+    user's own device screenshot of 荐片 had shown an extra one. A source that **does** send its own
+    "all" entry keeps it: 王子 (`csp_AppGet`) still leads with 全部 (`type_id: 0`), and its 排序 row —
+    the one row whose API sends no 全部 — now correctly starts at 最新.
+  - **100-episode blocks.** 稀有祖宗 on 王子 has 108 episodes per line. The picker shows `1-100` and
+    `101-108` above the grid; selecting the second lists 第110集–第119集 only. The blocks are per
+    line, verified by `JS线路` sitting on `101-108` while `SB线路` stayed on `1-100`. A line with
+    ≤100 episodes gets no chip row at all, and the default block is the one holding the remembered
+    episode.
+  - Not covered: `AppQi.js` carries the identical edit but no live AppQi source was exercised; three
+    type-1 CMS sources (愛瓜, 菠菜, 360) were unreachable this session — one timeout, two invalid
+    certificates — which is a source-side fault, not a regression.
+  - Known consequence, accepted by the user: the removed chip was also the only way back to the
+    unfiltered `home()` listing. Sources whose home returns a distinct recommendation list can no
+    longer return to it after a category is picked. 荐片 is unaffected because an empty home already
+    fell back to the first category, which is what its 全部 chip had been re-listing.
 
 - **Confirmed on the real device, 2026-09-18 (IOS-POC-8H).** The iPhone 16 Pro run of `feeb1407`
   was signed and installed with the command line settings as before, and **the user confirmed both

@@ -27,7 +27,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 | Python feasibility / P1 | **Done** — measured, not implemented (`docs/IOS-POC-7A-python-runtime.md`) |
 | Python P2–P5 | **Done, 2026-09-21** — `docs/IOS-POC-7A-python-runtime.md` carries all of it |
 | Python `requests` vendoring (IOS-POC-7P) | **Done** — 6 of 42 sites now reach media bytes, 14 execute |
-| MPV feasibility (second playback core) | **Not started; needs the user's word before it begins** |
+| MPV feasibility — licence/provenance (IOS-POC-9A) | **Done, 2026-09-21** — no licensing blocker, conditional on pinning MPVKit ≥1.0.0 non-GPL; `docs/IOS-POC-9A-mpv-license-provenance.md` |
+| MPV feasibility — technical spike (IOS-POC-9B) | **Not started; needs the user's word before it begins** |
 | Real-device baseline (IOS-POC-8) | **Partly done, and the rest deferred by the user on 2026-09-21** |
 
 The device baseline is **not** finished, and nothing here should be read as saying it is. The user
@@ -140,6 +141,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 7L/7M | **P5 done**: `scripts/audit_python_spiders.py` (static, 42 sites) and the runtime survey, reconciled | same document |
 | 7N | A Python traceback goes to the log; one readable line goes to the screen | same document |
 | 7P | `requests` + `urllib3` + `certifi` + `idna` + `charset-normalizer` vendored as pinned pure-Python wheels; sites reaching media bytes went 1 → 6, executing 4 → 14 | same document |
+| 9A | MPV second playback core: licence and provenance review. No blocker, conditional on MPVKit ≥1.0.0 non-GPL — every release before it carried `--enable-nonfree` | `docs/IOS-POC-9A-mpv-license-provenance.md` |
 | 7R | Reconciliation: the handoff anchor and the spider spec rewritten against the actual HEAD and a fresh test/build run; no functional change | this document |
 | 6A/6B | **drpy JavaScript loader**: the engine and its nine libraries fetched from the configuration's own origin, hash-pinned and verified before evaluation, running on the existing `JavaScriptSpiderRuntime` | `docs/IOS-POC-6A-drpy-loader.md` |
 
@@ -719,12 +721,18 @@ first two items are finished.
    the way `requests` did; a `Crypto.Cipher` shim over the AES, DES, MD5, SHA and HMAC `CatVodHost`
    already has would address the largest block, 17 sites.
    **Neither was done, and neither should start without the user asking.**
-3. **MPV feasibility — the next stage, and it is waiting on the user's instruction.** A second
-   built-in playback core, `PlaybackTarget → PlayerRouter → AVPlayerEngine / MPVEngine`, sharing the
-   existing `PlaybackSession`, headers, history, resume and quality. Do not rebuild `SourceClient`.
-   Do not take a framework out of Infuse, Fileball, SenPlayer or VidHub; only an SDK whose licence
-   permits embedding. A licence/provenance review of the actual `mpv`/FFmpeg/libass/dav1d build comes
-   **before** integration, and `.codex/skills/upstream-integration-governor/SKILL.md` governs it.
+3. **MPV feasibility.** ~~The licence/provenance review comes first.~~ **Done — IOS-POC-9A,
+   2026-09-21: there is no licensing blocker**, conditional on pinning **MPVKit 1.0.0 or newer,
+   non-GPL variant** (every earlier release built its "LGPL" FFmpeg with `--enable-nonfree`, which
+   is not redistributable at all). mpv's own LGPL mode costs iOS nothing, because everything it
+   disables is a Linux/Windows desktop feature. Static linking is an obligation, not a blocker,
+   because this repository already publishes its whole source under GPLv3. Full record and the five
+   open gates: `docs/IOS-POC-9A-mpv-license-provenance.md`.
+   **What remains is IOS-POC-9B, the technical spike, and it is waiting on the user's instruction.**
+   A second built-in playback core, `PlaybackTarget → PlayerRouter → AVPlayerEngine / MPVEngine`,
+   sharing the existing `PlaybackSession`, headers, history, resume and quality. Do not rebuild
+   `SourceClient`. Do not take a framework out of Infuse, Fileball, SenPlayer or VidHub; only an SDK
+   whose licence permits embedding. `.codex/skills/upstream-integration-governor/SKILL.md` governs it.
 4. **The real-device acceptance**, deferred by the user on 2026-09-21 with the partial baseline kept.
 5. **IOS-POC-5S**, and only then more `csp_*` ports.
 

@@ -29,6 +29,7 @@ struct WebHTVApp: App {
             // IOS-POC-7J: give the configuration a moment to land, then drive a real source.
             try? await Task.sleep(for: .seconds(6))
             print("[python] live \(await PythonLiveCheck.run())")
+            print("[python] survey \(await PythonLiveCheck.survey())")
         }
         #endif
     }

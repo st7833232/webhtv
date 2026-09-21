@@ -574,3 +574,69 @@ IOS-POC-7J 找到的缺陷 2：`base/spider.py` 的 `_request` 沒有把 URL 百
 
 P5：量出 Tier-1 實際能驅動幾支，分類記錄 stdlib+base、requests、pure-Python extras、Crypto、
 lxml/pyquery、cross-origin/HTTP rejected。
+
+## IOS-POC-7L — P5：Tier-1 實際覆蓋量測（2026-09-21）
+
+兩個獨立量測，問的是不同問題，**結論不一樣而且都對**。
+
+### 靜態：`scripts/audit_python_spiders.py`（42 站全數）
+
+可重跑，照 `scripts/audit_spider_jars.py` 的先例。它用**App 實際打包的那份 3.13 標準庫**判定什麼算
+stdlib（不是這台 Mac 的），並套用與 App 相同的同源＋HTTPS 規則，所以稽核與 App 不會對不上。
+
+| tier | sites | distinct scripts |
+|---|---:|---:|
+| Crypto | 17 | 10 |
+| requests | 13 | 13 |
+| lxml / pyquery | 5 | 5 |
+| cross-origin / HTTP 拒絕 | 4 | — |
+| **stdlib + base** | **3** | **3** |
+
+### 執行期：`PythonLiveCheck.survey()`（42 站全數，模擬器）
+
+```
+driven 4/42: 🏆｜銅牌｜高清(5), 🏆｜蛋塔｜高清(6), ？｜麒麟｜3倍◎無廣(5), 🎡｜櫻花動漫(4)
+refused: missing requests×23, missing Crypto×10, cross-origin rejected×4, missing urllib3×1
+```
+
+### 為什麼兩邊數字不同 —— 這是重點，不是誤差
+
+- **靜態依「最壞的阻礙」分類**：一支同時需要 Crypto 和 requests 的腳本算在 Crypto，因為只補 requests
+  它還是動不了。回答的是「要讓它能跑，需要什麼」。
+- **執行期依「第一個阻礙」分類**：同一支腳本在 import 順序上先撞到 requests 就記 requests。回答的是
+  「今天是什麼擋住它」。
+
+所以 `Crypto 17 / requests 13`（靜態）與 `requests 23 / Crypto 10`（執行期）描述同一批腳本。
+
+### `init → home` 通過不等於能用 —— 麒麟這一案
+
+執行期說 driven 4，靜態說 stdlib-only 只有 3。差的是 **麒麟影视.py**：它的 `import requests` 在
+**方法內**（`def fetch` 裡），所以模組層 exec 會過、`homeContent` 也回了 5 個分類 —— 但那條路一走就炸。
+
+第一版 survey 的門檻是 `init → home`，會把它算成可驅動。**那個門檻在說謊**，已改成跑完整條鏈到
+`MediaProbe`，一個站只有拿到媒體位元組才算數。
+
+### 所以 Tier-1 現在的真實覆蓋
+
+| | |
+|---|---|
+| 已證明端到端取得媒體位元組 | **1 站**（🏆｜銅牌｜高清 / `皮皮虾.py`，IOS-POC-7K） |
+| 靜態純 stdlib、可載入可列表 | **3 站**（銅牌、蛋塔、櫻花動漫） |
+| 載入可列表但深處會斷 | 1 站（麒麟，方法內 import requests） |
+| **42 站中 Tier-1 上限** | **3** |
+
+**vendoring `requests` 會多解 13 站**（→ 16）。**Crypto 是最大單一阻礙，17 站**，而且 `CatVodHost`
+已經有 AES/DES/MD5/SHA/HMAC，一個 `Crypto.Cipher` 蓋層是最高槓桿的下一步 —— 但那超出本階段範圍。
+
+### 一個量測本身的危害，必須記下來
+
+survey 會**對設定檔來源每站抓一支腳本**。在稽核腳本剛抓完 38 支之後又連跑兩輪，GitLab 就完全停止回應
+（連 `wang-movie.json` 都是 `000`），而那會讀成「driven 0/42」—— **那是對程式碼的誣告，不是量測結果**。
+
+已在每站之間加 400 ms 間隔。全鏈版的 survey 在來源恢復後要再跑一次確認；本節的 4/42 是 home-deep
+那一輪的有效結果，1 站端到端是 IOS-POC-7K 的有效結果。
+
+### 我在稽核腳本裡犯了跟 shim 一樣的錯
+
+第一次跑回報 30 站 `unfetchable: 'ascii' codec can't encode characters` —— 腳本檔名是中文，而
+`urllib` 不會自動編碼。跟 IOS-POC-7K 修的是同一個缺陷，修法也相同。

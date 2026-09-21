@@ -63,6 +63,54 @@ enum PythonLiveCheck {
         return attempts.joined(separator: "  |  ")
     }
 
+    /// IOS-POC-7L (P5): every Python site the resolver will take, driven through the **whole**
+    /// contract, with the reason recorded when it will not go.
+    ///
+    /// The bar is the full chain rather than `init → home`, because a shallower one lies. 麒麟影视
+    /// imports `requests` inside a method: its module-level exec succeeds and its home returns five
+    /// categories, so a home-deep survey counts it as driven — and it breaks the moment that method
+    /// is called. A site only counts when it reached media bytes.
+    ///
+    /// The sites that cannot load cost nothing extra here: they fail while their script is being
+    /// executed, before any of their own network happens.
+    static func survey() async -> String {
+        guard let (config, source) = installedConfiguration() else { return "skipped: no configuration" }
+        let resolver = CSPSourceResolver(source: source)
+        let sites = config.pythonSpiderSites
+        var driven = [String](), refused = [String: Int]()
+
+        for site in sites {
+            guard resolver.canResolve(site) else {
+                refused["not offered", default: 0] += 1
+                continue
+            }
+            // Be a guest. This fetches one script per site from the configuration's origin, and a
+            // run of it immediately after the audit script got GitLab to stop answering entirely —
+            // which then reads as "0 of 42 driven" and is a lie about the code.
+            try? await Task.sleep(for: .milliseconds(400))
+            let result = await drive(site: site, resolver: resolver)
+            if let failure = result.failure {
+                refused[reason(for: failure), default: 0] += 1
+            } else {
+                driven.append(site.name)
+            }
+        }
+        let tally = refused.sorted { $0.value > $1.value }
+            .map { "\($0.key)×\($0.value)" }.joined(separator: ", ")
+        return "driven \(driven.count)/\(sites.count): \(driven.joined(separator: ", "))  |  refused: \(tally)"
+    }
+
+    /// Collapses a traceback to the thing that stopped it, so the tally counts causes not messages.
+    private static func reason(for text: String) -> String {
+        if let range = text.range(of: "ModuleNotFoundError: No module named ") {
+            return "missing " + text[range.upperBound...].prefix(while: { $0 != "\n" })
+                .trimmingCharacters(in: CharacterSet(charactersIn: "'\\\""))
+        }
+        for marker in ["Refused to load", "did not decode", "SyntaxError", "UnicodeEncodeError"]
+        where text.contains(marker) { return marker }
+        return String(text.prefix(40))
+    }
+
     /// `init → home → category → detail → search → player → bytes`. Each step records what it saw,
     /// so a failure says which one broke rather than that something did.
     private static func drive(site: Site, resolver: CSPSourceResolver) async -> Result {

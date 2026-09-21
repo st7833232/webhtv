@@ -292,3 +292,81 @@ bug（上游 PR 13651），不是偏好。
 
 若真機也不出畫面，退路是 `vo=gpu` + `gpu-api=opengl`（iOS 上 OpenGL ES 已棄用但仍在），
 或 MPVKit demo 裡的另一條 OpenGL 路徑——**兩者都還沒試，不要當成已排除**。
+
+---
+
+# IOS-POC-9D — OpenGL 退路：走得更遠，但同樣沒有畫面
+
+日期 2026-09-21，基線 HEAD `eab730fb`。使用者在 9C 的兩個選項中選了「先試 OpenGL 退路」。
+
+**結論：兩條算繪路徑在模擬器上都不出畫面，而且它們卡在不同的地方。** 這個差異本身是有用的資訊。
+
+## 做法
+
+探針加一個 **Metal / OpenGL 分段選擇器**，而不是換掉 Metal。理由很簡單：
+**「A 不行、B 可以」只有在同一個 build 裡驅動過兩者時才說得出口。**
+
+OpenGL 走的是 mpv 的 **render API**，與 Metal 那條相反：
+
+| | Metal（9C） | OpenGL（9D） |
+|---|---|---|
+| VO | `vo=gpu-next`、`gpu-api=vulkan`、`gpu-context=moltenvk` | **`vo=libmpv`** |
+| 表面歸屬 | `wid` 把 `CAMetalLayer` 交給 mpv，**mpv 驅動它** | **宿主擁有 framebuffer**，mpv 畫進去 |
+| 接法 | 設好 `wid` 再 `mpv_initialize` | `mpv_initialize` 後 `mpv_render_context_create` |
+| 觸發繪製 | mpv 自己 | `set_update_callback` → `GLKView.display()` → `mpv_render_context_render` |
+
+同樣照 MPVKit 的 iOS demo，不自行發明。**demo 自己就寫 `hwdec` 在模擬器要設 `no`**
+（`isSimulator ? "no" : "videotoolbox"`），獨立佐證了 9C 量到的「模擬器沒有硬體解碼」。
+
+## 兩條路徑卡在不同的地方
+
+| 階段 | Metal | OpenGL |
+|---|---|---|
+| `mpv_initialize` | ✔ | ✔ |
+| 算繪 context | ✔ Vulkan device（1197 ms, `slow!`） | ✔ `mpv_render_context_create` 成功 |
+| mpv 對環境的判斷 | — | `Suspected software renderer or indirect context.`／`High bit depth FBOs unsupported. Enabling dumb mode.`／`Most extended features will be disabled.` |
+| `FILE_LOADED` | ✔ | **✘ 從未觸發** |
+| `VIDEO_RECONFIG` | ✘ | ✘ |
+| 畫面 | 黑 | 黑 |
+| 結束方式 | 停在原地 | **App 在約三分鐘後自行結束**（`DiagnosticReports` 沒有新的 `.ips`，所以**不是 crash**；也查不到 jetsam 記錄） |
+
+**OpenGL 在算繪器建置上走得比 Metal 遠**——它成功建出 render context，而且 mpv 明確報出它偵測到
+軟體算繪器並自動降級。但它連 demux 都沒走完。
+
+## 判讀，以及不能過度延伸的地方
+
+mpv 那句 `Suspected software renderer or indirect context` 是**模擬器自己承認它不是真 GPU**。
+兩條路徑、兩種完全不同的表面模型、兩種不同的失敗點，指向同一件事：
+**iOS 模擬器的圖形堆疊跑不動 mpv 的算繪器。**
+
+**但這是判讀，不是證明。** 不能排除仍有第三個我沒找到的自身缺陷。能確定的只有：
+在這台機器的 iOS 26.3 模擬器上，兩條官方路徑都沒有把任何一幀送上螢幕。
+
+## 驗證
+
+| 檢查 | 結果 |
+|---|---|
+| `swift test --package-path ios` | **151 條全過** |
+| `xcodebuild … Debug build` | **BUILD SUCCEEDED** |
+| Metal 路徑 | 可初始化、Vulkan device 成立、`FILE_LOADED`、**無畫面** |
+| OpenGL 路徑 | 可初始化、render context 成立、**未到 `FILE_LOADED`**、**無畫面**、App 自行結束 |
+| 既有播放路徑 | **一行未改**，AVPlayer／`PlaybackSession`／`SourceClient`／播放器選單完全不受影響 |
+
+## Ponytail（final diff）
+
+新增的全部在 `MPVProbeView.swift` 一個檔案裡：一個分段選擇器、一個 `MPVGLSurface`／`MPVGLController`，
+以及 `MPVProbeCore` 多出的兩個進入點（`startRenderAPI`、`adopt(renderContext:)`）。
+**沒有新檔案、沒有新抽象、沒有動 pbxproj 以外的既有程式碼。**
+
+`adopt(renderContext:)` 值得說明為何存在：render context 必須在 `mpv_terminate_destroy` **之前**
+釋放，而兩個各自有 `deinit` 的物件無法保證順序。所以 context 交給 `MPVProbeCore` 持有，
+一個 `deinit` 內按正確順序釋放兩者。這不是抽象，是 use-after-free 的修法。
+
+GL 的 update callback 同樣套用 9C 學到的教訓：**在 C 回呼裡不轉型、不碰 UIKit**，
+先 `DispatchQueue.main.async` 再把 `Unmanaged` 還原成 `GLKView`。
+
+## 下一步（唯一）
+
+**真機。** 兩條路徑都試過了，模擬器這條線已經用盡。iPhone 18 Pro
+（`00008160-00124C8200214036`）目前 `available (paired)`，探針有 Metal／OpenGL 與軟／硬解四種組合
+可以一次問完。真機驗證是使用者延後過的項目，所以仍需要你的指令。

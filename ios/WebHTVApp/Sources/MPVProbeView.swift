@@ -1,3 +1,4 @@
+import GLKit
 import Libmpv
 import SwiftUI
 import UIKit
@@ -28,13 +29,33 @@ struct MPVProbeView: View {
     /// reaches the video output. So the probe asks the question instead of assuming an answer, and
     /// a device run can flip it back.
     @State private var hardwareDecode = false
+    /// IOS-POC-9D. The Metal path reached `FILE_LOADED` and never drew, so the OpenGL path is
+    /// tried beside it rather than instead of it — "A fails, B works" is only worth saying when
+    /// both were driven from the same build.
+    @State private var renderer = Renderer.metal
+
+    enum Renderer: String, CaseIterable, Identifiable {
+        case metal = "Metal (gpu-next)"
+        case openGL = "OpenGL (libmpv)"
+        var id: String { rawValue }
+    }
+
+    private var hwdec: String { hardwareDecode ? "auto-safe" : "no" }
 
     var body: some View {
         VStack(spacing: 12) {
             if let playing {
-                MPVSurface(url: playing, hwdec: hardwareDecode ? "auto-safe" : "no", report: $report)
-                    .frame(maxWidth: .infinity, minHeight: 220)
-                    .background(Color.black)
+                Group {
+                    switch renderer {
+                    case .metal:
+                        MPVSurface(url: playing, hwdec: hwdec, report: $report)
+                    case .openGL:
+                        MPVGLSurface(url: playing, hwdec: hwdec, report: $report)
+                    }
+                }
+                .id(renderer)
+                .frame(maxWidth: .infinity, minHeight: 220)
+                .background(Color.black)
             } else {
                 Color.black
                     .frame(maxWidth: .infinity, minHeight: 220)
@@ -46,6 +67,11 @@ struct MPVProbeView: View {
                 .autocorrectionDisabled()
                 .lineLimit(1 ... 3)
                 .textFieldStyle(.roundedBorder)
+
+            Picker("算繪", selection: $renderer) {
+                ForEach(Renderer.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
 
             Toggle("硬體解碼 (auto-safe)", isOn: $hardwareDecode)
 
@@ -123,13 +149,45 @@ final class MPVProbeCore: @unchecked Sendable {
     var onReport: ((String) -> Void)?
 
     private var mpv: OpaquePointer?
+    private var render: OpaquePointer?
     private let queue = DispatchQueue(label: "mpv.probe", qos: .userInitiated)
     private let lock = NSLock()
     private var lines = [String]()
     private var loaded: URL?
 
     deinit {
+        if let render { mpv_render_context_free(render) }
         if let mpv { mpv_terminate_destroy(mpv) }
+    }
+
+    /// The live handle, for the OpenGL path: `mpv_render_context_create` needs it after
+    /// `mpv_initialize`. The Metal path never exposes it, because `wid` is set before init.
+    var handle: OpaquePointer? { mpv }
+
+    /// `vo=libmpv` plus a render context, which is how mpv draws into an OpenGL framebuffer the
+    /// host owns — the opposite arrangement from `wid`, where mpv owns the surface.
+    func startRenderAPI(hwdec: String) {
+        guard let handle = mpv_create() else {
+            say("mpv_create 失敗")
+            return
+        }
+        mpv = handle
+        check(mpv_set_option_string(handle, "vo", "libmpv"), "vo")
+        check(mpv_set_option_string(handle, "hwdec", hwdec), "hwdec")
+        check(mpv_request_log_messages(handle, "warn"), "log-level")
+        guard check(mpv_initialize(handle), "mpv_initialize") else { return }
+        mpv_set_wakeup_callback(handle, { ctx in
+            guard let ctx else { return }
+            Unmanaged<MPVProbeCore>.fromOpaque(ctx).takeUnretainedValue().drainEvents()
+        }, Unmanaged.passUnretained(self).toOpaque())
+        say("mpv 初始化完成 (vo=libmpv)")
+    }
+
+    /// The render context is owned here rather than by the view, so that `deinit` can free it
+    /// **before** `mpv_terminate_destroy`. Freeing them in the other order is a use-after-free, and
+    /// two objects with independent deinit order cannot guarantee it.
+    func adopt(renderContext context: OpaquePointer) {
+        render = context
     }
 
     /// `layer` is handed to mpv as the window id, so it must outlive this call; the view controller
@@ -276,4 +334,127 @@ final class MPVProbeController: UIViewController {
     func play(_ url: URL) {
         core.play(url)
     }
+}
+
+// MARK: - IOS-POC-9D: the OpenGL fallback
+
+/// mpv's *render API* path: `vo=libmpv`, and the host draws mpv's output into a framebuffer it
+/// owns. That is the opposite arrangement from the Metal path, where `wid` hands mpv the surface
+/// and mpv drives it — which is exactly why it is worth trying when the Metal path never presents.
+///
+/// MPVKit's own iOS demo ships this, unchanged here except for the Swift 6 isolation fixes
+/// IOS-POC-9C had to make. Two caveats recorded upstream and not by me:
+/// **OpenGL ES cannot play 10-bit video correctly on iOS** (mpv issue 7846), and OpenGL ES is
+/// deprecated on iOS. Neither matters for answering "does a frame reach the screen".
+private struct MPVGLSurface: UIViewControllerRepresentable {
+    let url: URL
+    let hwdec: String
+    @Binding var report: String
+
+    func makeUIViewController(context: Context) -> MPVGLController {
+        let controller = MPVGLController()
+        controller.url = url
+        controller.hwdec = hwdec
+        controller.onReport = { text in report = text }
+        return controller
+    }
+
+    func updateUIViewController(_ controller: MPVGLController, context: Context) {
+        controller.play(url)
+    }
+}
+
+final class MPVGLController: GLKViewController {
+    var url: URL?
+    var hwdec = "no"
+    var onReport: ((String) -> Void)?
+
+    private let core = MPVProbeCore()
+    private var renderContext: OpaquePointer?
+    private var defaultFBO: GLint = -1
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+
+        guard let context = EAGLContext(api: .openGLES2) else {
+            core.note("EAGLContext 建立失敗")
+            return
+        }
+        guard EAGLContext.setCurrent(context) else {
+            core.note("EAGLContext.setCurrent 失敗")
+            return
+        }
+        (view as? GLKView)?.context = context
+
+        core.onReport = { [weak self] text in
+            guard let self else { return }
+            Task { @MainActor in self.onReport?(text) }
+        }
+        core.startRenderAPI(hwdec: hwdec)
+        guard let mpv = core.handle else { return }
+
+        let api = UnsafeMutableRawPointer(mutating: (MPV_RENDER_API_TYPE_OPENGL as NSString).utf8String)
+        var initParams = mpv_opengl_init_params(get_proc_address: { _, name in
+            openGLProcAddress(name)
+        }, get_proc_address_ctx: nil)
+
+        withUnsafeMutablePointer(to: &initParams) { initParams in
+            var params = [
+                mpv_render_param(type: MPV_RENDER_PARAM_API_TYPE, data: api),
+                mpv_render_param(type: MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, data: initParams),
+                mpv_render_param(),
+            ]
+            if mpv_render_context_create(&renderContext, mpv, &params) < 0 {
+                core.note("mpv_render_context_create 失敗")
+            }
+        }
+
+        guard let renderContext else { return }
+        // The core frees it before terminating mpv; see `adopt(renderContext:)`.
+        core.adopt(renderContext: renderContext)
+        mpv_render_context_set_update_callback(renderContext, { ctx in
+            guard let ctx else { return }
+            // Converted on the main queue, not here: this fires on mpv's render thread and
+            // `GLKView` is `@MainActor`. IOS-POC-9C died exactly once for getting this wrong.
+            DispatchQueue.main.async {
+                Unmanaged<GLKView>.fromOpaque(ctx).takeUnretainedValue().display()
+            }
+        }, Unmanaged.passUnretained(view as! GLKView).toOpaque())
+
+        core.note("render context 建立完成")
+        if let url { core.play(url) }
+    }
+
+    func play(_ url: URL) {
+        core.play(url)
+    }
+
+    override func glkView(_ view: GLKView, drawIn rect: CGRect) {
+        guard let renderContext else { return }
+        glClearColor(0, 0, 0, 0)
+        glClear(UInt32(GL_COLOR_BUFFER_BIT))
+        glGetIntegerv(UInt32(GL_FRAMEBUFFER_BINDING), &defaultFBO)
+
+        var dims: [GLint] = [0, 0, 0, 0]
+        glGetIntegerv(GLenum(GL_VIEWPORT), &dims)
+        var fbo = mpv_opengl_fbo(fbo: Int32(defaultFBO), w: dims[2], h: dims[3], internal_format: 0)
+        var flip: CInt = 1
+        withUnsafeMutablePointer(to: &flip) { flip in
+            withUnsafeMutablePointer(to: &fbo) { fbo in
+                var params = [
+                    mpv_render_param(type: MPV_RENDER_PARAM_OPENGL_FBO, data: fbo),
+                    mpv_render_param(type: MPV_RENDER_PARAM_FLIP_Y, data: flip),
+                    mpv_render_param(),
+                ]
+                mpv_render_context_render(renderContext, &params)
+            }
+        }
+    }
+}
+
+private func openGLProcAddress(_ name: UnsafePointer<Int8>?) -> UnsafeMutableRawPointer? {
+    let symbol = CFStringCreateWithCString(kCFAllocatorDefault, name, CFStringBuiltInEncodings.ASCII.rawValue)
+    let bundle = CFBundleGetBundleWithIdentifier("com.apple.opengles" as CFString)
+    return CFBundleGetFunctionPointerForName(bundle, symbol)
 }

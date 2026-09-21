@@ -370,3 +370,60 @@ GL 的 update callback 同樣套用 9C 學到的教訓：**在 C 回呼裡不轉
 **真機。** 兩條路徑都試過了，模擬器這條線已經用盡。iPhone 18 Pro
 （`00008160-00124C8200214036`）目前 `available (paired)`，探針有 Metal／OpenGL 與軟／硬解四種組合
 可以一次問完。真機驗證是使用者延後過的項目，所以仍需要你的指令。
+
+---
+
+# IOS-POC-9E — 複測，以及它推翻的一件事
+
+日期 2026-09-21，基線 HEAD `f67887f3`。使用者要求重新測試一次。**做對了**——複測推翻了 9D 寫下的
+一個結論，並且量出兩件關於 MPVKit 的能力事實。
+
+## 被推翻的：「Metal 會到 `FILE_LOADED`」不是穩定性質
+
+9D 把「Metal 到得了 `FILE_LOADED`、OpenGL 到不了」記成兩條路徑的差異。**複測時 Metal 也到不了**，
+同一個 build、同一個串流、連跑兩次各等 25 秒與 70 秒，都停在
+`log: mime type is not rfc8216 compliant` 就不動了。
+
+**所以那是跨次不穩定，不是路徑差異。** 9D 那張對照表的 `FILE_LOADED` 列要這樣讀：
+Metal 曾經到過一次，OpenGL 從未到過，而 Metal 並非每次都到。這正是本文件早就寫過的紀律——
+「provider state moves by the hour，單次結果是樣本不是判決」——只是這次輪到我自己被它抓到。
+
+## 量出來的兩件 MPVKit 能力事實
+
+想把算繪器和網路分開，就要一個不碰網路的來源。試了兩個，兩個都被 build 的功能集擋掉：
+
+| 來源 | 結果 | 意義 |
+|---|---|---|
+| `av://lavfi:testsrc=size=640x360:rate=30` | `Unknown lavf format lavfi`、`Failed to recognize file format`、`END_FILE reason=4` | **MPVKit 的 FFmpeg 沒有編入 `lavfi` 輸入** |
+| bundle 內的 `wallpaper_1.png` | `Failed to initialize a decoder for codec 'png'` | **沒有 PNG 解碼器**；但檔案被找到並正確辨識為 png，所以**本機讀檔與 demux 這一層是好的** |
+
+兩者都不是缺陷，是這個 build 刻意精簡的結果。記下來是因為它們會影響之後怎麼設計測試，
+也會影響「MPV 能放什麼」的期待——**它是個影片播放器的 build，不是萬用 FFmpeg**。
+
+順帶修掉一個自己的設計失誤：探針原本把位址包成 `URL`，而 `URL(string:)` 直接拒絕 `av://lavfi:…`。
+mpv 要的本來就是字串，`URL` 在這條路上只會擋事，已改成全程 `String`——**少一個型別、少一次轉換、
+少一類拒絕**。
+
+## 現在的狀態
+
+三種來源、兩種算繪器、兩種解碼設定，**沒有任何一次把一幀送上螢幕**。
+新的可疑點是**網路**而不是算繪：`mime type` 警告立刻出現代表 master playlist 抓到了，
+但之後的 media playlist 與 segment 有沒有到，目前沒有證據，而 `FILE_LOADED` 正是要等第一段媒體。
+
+## 驗證
+
+| 檢查 | 結果 |
+|---|---|
+| `swift test --package-path ios` | **151 條全過** |
+| `xcodebuild … Debug build` | **BUILD SUCCEEDED** |
+| Metal + HLS，複測兩次 | **未到 `FILE_LOADED`**，無畫面 |
+| Metal + `lavfi` | 輸入格式不存在 |
+| Metal + 本機 PNG | 解碼器不存在（但檔案讀得到） |
+| 既有播放路徑 | 一行未改 |
+
+## 下一步（兩條，都需要你決定）
+
+1. **真機。** 仍然是決定性的一步，而且現在多了一個理由：模擬器的網路堆疊也進了嫌疑名單。
+2. **若要繼續留在模擬器**，唯一還沒試的便宜隔離是**放一個本機 H.264 MP4 進 App 容器**——
+   那會一次排除網路、HLS 與這個 build 缺失的解碼器。**這台 Mac 上沒有 `ffmpeg`**，所以要先產生
+   樣本（用 AVFoundation 寫一支小工具，或你手邊直接給一個檔案）。

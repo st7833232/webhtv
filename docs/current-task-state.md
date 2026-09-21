@@ -141,6 +141,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 7L/7M | **P5 done**: `scripts/audit_python_spiders.py` (static, 42 sites) and the runtime survey, reconciled | same document |
 | 7N | A Python traceback goes to the log; one readable line goes to the screen | same document |
 | 7P | `requests` + `urllib3` + `certifi` + `idna` + `charset-normalizer` vendored as pinned pure-Python wheels; sites reaching media bytes went 1 → 6, executing 4 → 14 | same document |
+| 9E | Re-test. It overturned 9D's reading that Metal reliably reaches `FILE_LOADED` — it does not, run to run — and measured two MPVKit capability facts: its FFmpeg has no `lavfi` input and no PNG decoder | `docs/IOS-POC-9B-mpv-playback-core.md` |
 | 9D | The OpenGL fallback, tried beside Metal rather than instead of it. It builds its render context and mpv reports the simulator as a software renderer, but it never reaches `FILE_LOADED`. **Both paths black; the simulator line is exhausted** | `docs/IOS-POC-9B-mpv-playback-core.md` |
 | 9C | MPV rendering probe: libmpv draws through `CAMetalLayer`/`gpu-next`/MoltenVK. Vulkan device, HLS load and software decode all succeed on the simulator; **no frame ever reached the layer**, so the question moves to the device | `docs/IOS-POC-9B-mpv-playback-core.md` |
 | 9B | MPV first unit: MPVKit 1.0.0 (non-GPL) wired into the App target and libmpv initialising inside the app. Static linking confirmed by symbol table, not just by configure flags | `docs/IOS-POC-9B-mpv-playback-core.md` |

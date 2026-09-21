@@ -22,7 +22,7 @@ struct MPVProbeView: View {
     /// is about as stable as a public test stream gets; paste anything else to try it.
     @State private var address =
         "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8"
-    @State private var playing: URL?
+    @State private var playing: String?
     @State private var report = "尚未播放"
     /// Measured on the iOS 26.3 simulator: neither `videotoolbox` nor Vulkan video decode exists
     /// there, and mpv does **not** fall back on its own — it stalls on `h264: no frame!` and never
@@ -41,6 +41,18 @@ struct MPVProbeView: View {
     }
 
     private var hwdec: String { hardwareDecode ? "auto-safe" : "no" }
+
+/// The address travels as a **String**, not a `URL`. mpv takes a string, and `URL(string:)`
+    /// only got in the way: it rejected `av://lavfi:testsrc=…` outright — FFmpeg's own test
+    /// pattern, and the one input that isolates the renderer from the network. Dropping the type
+    /// removes both the rejection and a conversion.
+    private func load(_ text: String) {
+        address = text
+        report = "載入中…"
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        playing = trimmed.isEmpty ? nil : trimmed
+        if playing == nil { report = "位址是空的" }
+    }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -75,12 +87,25 @@ struct MPVProbeView: View {
 
             Toggle("硬體解碼 (auto-safe)", isOn: $hardwareDecode)
 
-            Button("播放") {
-                report = "載入中…"
-                playing = URL(string: address.trimmingCharacters(in: .whitespacesAndNewlines))
-                if playing == nil { report = "網址無法解析" }
+            HStack {
+                Button("播放") {
+                    load(address)
+                }
+                .buttonStyle(.borderedProminent)
+
+                // IOS-POC-9E. A still image already in the bundle, so there is no network and no
+                // provider state — but it still goes through demux, decode and the whole video
+                // output. If this draws and a stream does not, the renderer is fine and the fault
+                // is upstream of it; if this draws nothing, the renderer is the fault.
+                //
+                // FFmpeg's own `av://lavfi:testsrc` would have been the purer probe and was tried
+                // first: MPVKit's build answers `Unknown lavf format lavfi`, so that input simply
+                // is not compiled in. The wallpaper is the next best thing and costs nothing.
+                Button("本機圖片") {
+                    load(Bundle.main.bundlePath + "/wallpaper_1.png")
+                }
+                .buttonStyle(.bordered)
             }
-            .buttonStyle(.borderedProminent)
 
             ScrollView {
                 Text(report)
@@ -98,7 +123,7 @@ struct MPVProbeView: View {
 }
 
 private struct MPVSurface: UIViewControllerRepresentable {
-    let url: URL
+    let url: String
     let hwdec: String
     @Binding var report: String
 
@@ -153,7 +178,7 @@ final class MPVProbeCore: @unchecked Sendable {
     private let queue = DispatchQueue(label: "mpv.probe", qos: .userInitiated)
     private let lock = NSLock()
     private var lines = [String]()
-    private var loaded: URL?
+    private var loaded: String?
 
     deinit {
         if let render { mpv_render_context_free(render) }
@@ -224,11 +249,11 @@ final class MPVProbeCore: @unchecked Sendable {
         say("mpv 初始化完成")
     }
 
-    func play(_ url: URL) {
+    func play(_ url: String) {
         guard let mpv, loaded != url else { return }
         loaded = url
         queue.async {
-            url.absoluteString.withCString { address in
+            url.withCString { address in
                 var args: [UnsafePointer<CChar>?] = [
                     ("loadfile" as NSString).utf8String, address, ("replace" as NSString).utf8String, nil,
                 ]
@@ -302,7 +327,7 @@ final class MPVProbeCore: @unchecked Sendable {
 }
 
 final class MPVProbeController: UIViewController {
-    var url: URL?
+    var url: String?
     var hwdec = "no"
     var onReport: ((String) -> Void)?
 
@@ -331,7 +356,7 @@ final class MPVProbeController: UIViewController {
         metalLayer.frame = view.bounds
     }
 
-    func play(_ url: URL) {
+    func play(_ url: String) {
         core.play(url)
     }
 }
@@ -347,7 +372,7 @@ final class MPVProbeController: UIViewController {
 /// **OpenGL ES cannot play 10-bit video correctly on iOS** (mpv issue 7846), and OpenGL ES is
 /// deprecated on iOS. Neither matters for answering "does a frame reach the screen".
 private struct MPVGLSurface: UIViewControllerRepresentable {
-    let url: URL
+    let url: String
     let hwdec: String
     @Binding var report: String
 
@@ -365,7 +390,7 @@ private struct MPVGLSurface: UIViewControllerRepresentable {
 }
 
 final class MPVGLController: GLKViewController {
-    var url: URL?
+    var url: String?
     var hwdec = "no"
     var onReport: ((String) -> Void)?
 
@@ -426,7 +451,7 @@ final class MPVGLController: GLKViewController {
         if let url { core.play(url) }
     }
 
-    func play(_ url: URL) {
+    func play(_ url: String) {
         core.play(url)
     }
 

@@ -1540,6 +1540,35 @@ private struct PlayerView: View {
     /// `player.status` and `player.control` to mean anything.
     private let session = PlaybackSession.shared
 
+    /// IOS-POC-10A: the close button follows the tap, instead of sitting on the video forever.
+    ///
+    /// SwiftUI's `VideoPlayer` does not expose whether AVKit's own controls are showing, and the
+    /// only ways to read that are private. So this mirrors AVKit's behaviour rather than observing
+    /// it: a tap toggles, and showing starts a timer that hides again.
+    ///
+    /// The tap is attached with `simultaneousGesture`, which watches the tap **without consuming
+    /// it** — AVKit still gets the same touch and still toggles its own controls. An ordinary
+    /// `onTapGesture`, or a transparent overlay to catch taps, would swallow it and leave the
+    /// viewer unable to pause.
+    @State private var chromeVisible = true
+    @State private var hideChrome: Task<Void, Never>?
+
+    /// `ponytail:` our own timer rather than AVKit's, so the two can drift apart by a moment.
+    /// There is no public API to synchronise with, and reaching for a private one to shave that
+    /// is not worth it. Revisit if AVKit ever publishes the state.
+    private static let chromeLinger = Duration.seconds(4)
+
+    private func setChrome(visible: Bool) {
+        hideChrome?.cancel()
+        chromeVisible = visible
+        guard visible else { return }
+        hideChrome = Task {
+            try? await Task.sleep(for: Self.chromeLinger)
+            guard !Task.isCancelled else { return }
+            chromeVisible = false
+        }
+    }
+
     var body: some View {
         ZStack {
             // The player owns the whole screen, so letterbox bars are black instead of showing
@@ -1564,7 +1593,15 @@ private struct PlayerView: View {
             }
             .padding(.leading, 16)
             .padding(.top, 64)
+            .opacity(chromeVisible ? 1 : 0)
+            // Invisible must also mean untappable, or the corner keeps eating taps that the
+            // viewer aimed at the video.
+            .allowsHitTesting(chromeVisible)
+            .animation(.easeInOut(duration: 0.25), value: chromeVisible)
         }
+        .simultaneousGesture(TapGesture().onEnded { setChrome(visible: !chromeVisible) })
+        .onAppear { setChrome(visible: true) }
+        .onDisappear { hideChrome?.cancel() }
         .statusBarHidden()
         // Closing the screen pauses rather than tears down, so a page can read the position it
         // reached and resume it with player.control.

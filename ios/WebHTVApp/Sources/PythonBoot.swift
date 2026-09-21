@@ -116,11 +116,16 @@ enum PythonBoot {
         guard let searchPath = PySys_GetObject("path") else {
             return .failed("sys.path is missing — \(takePythonError())")
         }
-        let entry = PyUnicode_FromString(ourPython.path)
-        let inserted = PyList_Insert(searchPath, 0, entry)
-        if let entry { Py_DecRef(entry) }
-        guard inserted == 0 else {
-            return .failed("could not put \(ourPython.path) on sys.path — \(takePythonError())")
+        // Ours first, then the vendored packages: a script's `import requests` has to find the real
+        // one, and `from base.spider import Spider` has to find ours.
+        let vendored = Bundle.main.resourceURL?.appendingPathComponent("python-packages")
+        for directory in [vendored, ourPython].compactMap({ $0 }) {
+            let entry = PyUnicode_FromString(directory.path)
+            let inserted = PyList_Insert(searchPath, 0, entry)
+            if let entry { Py_DecRef(entry) }
+            guard inserted == 0 else {
+                return .failed("could not put \(directory.path) on sys.path — \(takePythonError())")
+            }
         }
         guard let runtimeModule = PyImport_ImportModule("webhtv_runtime") else {
             return .failed("webhtv_runtime did not import from \(ourPython.path) — \(takePythonError())")

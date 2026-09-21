@@ -66,6 +66,15 @@ def _encoded(url):
     ))
 
 
+try:
+    # IOS-POC-7P vendors the real thing. When it is there, `fetch`/`post` are the Android original
+    # verbatim, which is the only way a script that touches `.cookies`, `.raise_for_status()` or a
+    # `Session` behaves the way its author tested it.
+    import requests as _requests
+except ImportError:  # pragma: no cover - the fallback below is what ran before 7P
+    _requests = None
+
+
 def _request(method, url, params=None, data=None, json_body=None, headers=None, timeout=5):
     if params:
         url = url + ('&' if '?' in url else '?') + urllib.parse.urlencode(params)
@@ -142,10 +151,22 @@ class Spider(metaclass=ABCMeta):
 
     def fetch(self, url, params=None, cookies=None, headers=None, timeout=5, verify=True,
               stream=False, allow_redirects=True):
+        if _requests is not None:
+            rsp = _requests.get(url, params=params, cookies=cookies, headers=headers,
+                                timeout=timeout, verify=verify, stream=stream,
+                                allow_redirects=allow_redirects)
+            rsp.encoding = 'utf-8'
+            return rsp
         return _request('GET', url, params=params, headers=headers, timeout=timeout)
 
     def post(self, url, params=None, data=None, json=None, cookies=None, headers=None, timeout=5,
              verify=True, stream=False, allow_redirects=True):
+        if _requests is not None:
+            rsp = _requests.post(url, params=params, data=data, json=json, cookies=cookies,
+                                 headers=headers, timeout=timeout, verify=verify, stream=stream,
+                                 allow_redirects=allow_redirects)
+            rsp.encoding = 'utf-8'
+            return rsp
         return _request('POST', url, params=params, data=data, json_body=json, headers=headers,
                         timeout=timeout)
 

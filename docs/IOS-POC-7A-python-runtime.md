@@ -692,3 +692,57 @@ survey driven 1/42
 
 `ponytail:` `Spider script error:` 這個英文前綴來自 core 的 `SpiderError.scriptFailed`，所有 spider
 共用，不是這次帶進來的。要讓它也中文化是另一件事，會動到 core 的錯誤描述，不在這裡做。
+
+## IOS-POC-7P — vendoring `requests`：1 → 6 站端到端（2026-09-21）
+
+使用者在看過 IOS-POC-7L 的數字後選擇做這個。
+
+### 打包方式與直譯器一致
+
+五個 **`py3-none-any`** wheel，全部純 Python、零編譯，釘在 `third_party/python-ios-lock.json` 的
+`python_packages`（版本、URL、bytes、sha256、授權），由 `scripts/fetch_python_ios.sh` 下載、驗證、
+解壓到 untracked 的 `third_party/python-ios/site-packages`。失敗一律 fail closed。
+
+| 套件 | 版本 | wheel |
+|---|---|---:|
+| requests | 2.34.2 | 71 KB |
+| urllib3 | 2.8.0 | 133 KB |
+| certifi | 2026.7.22 | 134 KB |
+| idna | 3.20 | 68 KB |
+| charset-normalizer | 3.5.1 | 67 KB |
+| | **合計** | **472 KB**（解開後 1.6 MB） |
+
+**沒有任何東西要編譯**：內建直譯器已經帶著 `_ssl`、`_socket`、`_hashlib`、`select`，這是先查過才動手的。
+
+在 bundle 裡放 `python-packages/`，與我們自己的 `webhtv-python/` **分開**，所以哪些是我們的、哪些是
+第三方，在 bundle 裡跟在 repo 裡一樣一目瞭然。`sys.path` 兩個都掛，我們的優先。
+
+### shim 現在用真的 requests
+
+`base/spider.py` 的 `fetch`/`post` 在 `requests` 可用時就是 **Android 原版逐字照抄**；urllib 那條
+保留為 fallback。這很重要——腳本會碰 `.cookies`、`.raise_for_status()`、`Session`，只有真品才會照
+作者測過的樣子行為。我先前用 stdlib 頂替只是 `fetch` 一個函式就踩到 URL 編碼那個坑。
+
+### 結果（42 站，全鏈 survey）
+
+| | IOS-POC-7L | **IOS-POC-7P** |
+|---|---:|---:|
+| 走完全鏈取得媒體位元組 | 1 | **6** |
+| 載入並執行（含內容層失敗） | 4 | **14** |
+| 被相依性擋住 | 34 | **24** |
+| 被政策拒絕 | 4 | 4 |
+
+端到端的六站：YouTube、銅牌、鐵牌、耐看、七猫、大眾。
+
+`requests` 與 `urllib3` **從阻礙清單上完全消失**。剩下的相依性阻礙：`Crypto` 17、`lxml` 3、
+`pyquery` 2、**`bs4` 2**——最後這個是新浮現的，原本被 requests 擋在後面看不見。bs4 也是純 Python，
+用同一條路就能解，但**沒有順手做**。
+
+靜態分析當初預測「requests 解 13 站」，實際是執行數 4 → 14（+10）。差額就是那 2 支 bs4 與 1 支
+`TypeError`，都是被 requests 遮住的第二層問題。預測與實測的落差本身是有用的資訊，不是誤差。
+
+### 一個第二次踩到的坑
+
+`fetch_python_ios.sh --force` 會 `rm -rf` 整個 payload，連 `Prepare Python` 建的 module map 一起，
+而 Xcode 在 `Products/` 裡的 `Python.framework` 副本是**陳舊的**，於是 `import Python` 解析失敗。
+清掉那份副本重建即可。Prepare phase 修得了來源，修不了 Xcode 已經複製走的東西。

@@ -84,5 +84,27 @@ tar xzf "$TMP/payload.tar.gz" -C "$DEST"
 [[ -d "$DEST/Python.xcframework/ios-arm64_x86_64-simulator/Python.framework" ]] || die "unpacked payload has no simulator slice"
 [[ -f "$DEST/Python.xcframework/lib/python3.13/os.py" ]] || die "unpacked payload has no standard library"
 
+# The pure-Python wheels a spider's `import requests` needs. Same discipline as the interpreter:
+# every one pinned by size and hash in the lock, every failure closed. Nothing here compiles — the
+# interpreter already carries _ssl, _socket, _hashlib and select.
+PACKAGES="$DEST/site-packages"
+mkdir -p "$PACKAGES"
+/usr/bin/python3 -c 'import json,sys
+for w in json.load(open(sys.argv[1]))["python_packages"]["wheels"]:
+    print(w["name"], w["version"], w["bytes"], w["sha256"], w["url"])' "$LOCK" |
+  while read -r name version bytes sha url; do
+    wheel="$TMP/$name.whl"
+    printf 'fetch_python_ios: %s %s\n' "$name" "$version"
+    curl -fL --retry 3 -o "$wheel" "$url" || die "download failed: $url"
+    got_bytes="$(wc -c < "$wheel" | tr -d ' ')"
+    [[ "$got_bytes" == "$bytes" ]] || die "$name size mismatch: got $got_bytes, lock says $bytes"
+    got_sha="$(shasum -a 256 "$wheel" | awk '{print $1}')"
+    [[ "$got_sha" == "$sha" ]] || die "$name sha256 mismatch: got $got_sha, lock says $sha"
+    # A wheel is a zip. Its `.dist-info` is metadata for an installer there is none of here.
+    /usr/bin/unzip -q -o "$wheel" -d "$PACKAGES" || die "could not unpack $name"
+  done
+rm -rf "$PACKAGES"/*.dist-info
+[[ -f "$PACKAGES/requests/__init__.py" ]] || die "requests did not unpack"
+
 printf '%s' "$WANT_SHA" > "$STAMP"
 printf 'fetch_python_ios: %s ready at %s (%s)\n' "$RELEASE" "$DEST" "$(du -sh "$DEST" | awk '{print $1}')"

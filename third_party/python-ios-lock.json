@@ -15,7 +15,10 @@
     "python": "3.13.15",
     "build": "b15",
     "min_ios": "13.0",
-    "slices": ["ios-arm64", "ios-arm64_x86_64-simulator"],
+    "slices": [
+      "ios-arm64",
+      "ios-arm64_x86_64-simulator"
+    ],
     "note": "No macOS slice. `swift test` runs on macOS and therefore cannot execute this interpreter; anything that needs CPython has to run in the Simulator.",
     "bundled_libraries": {
       "openssl": "3.0.22-1",
@@ -45,5 +48,55 @@
     "Python.xcframework/lib/python3.13/pydoc_data",
     "testbed"
   ],
-  "trim_note": "Only obvious non-shippables. `test` alone is 35 MB of the 50 MB shared standard library. lib-dynload is deliberately NOT trimmed: dropping a .so there turns into an ImportError at runtime in whichever script happens to need it, and the payload is untracked anyway, so the disk it costs is cheap. Revisit when app size is the thing being measured."
+  "trim_note": "Only obvious non-shippables. `test` alone is 35 MB of the 50 MB shared standard library. lib-dynload is deliberately NOT trimmed: dropping a .so there turns into an ImportError at runtime in whichever script happens to need it, and the payload is untracked anyway, so the disk it costs is cheap. Revisit when app size is the thing being measured.",
+  "python_packages": {
+    "_comment": "Pure-Python wheels vendored so a spider's `import requests` resolves. IOS-POC-7P. Every one is py3-none-any: nothing here compiles, and the interpreter already carries the C extensions they need (_ssl, _socket, _hashlib, select). Unpacked into third_party/python-ios/site-packages, which is untracked like the rest.",
+    "why": "Measured at IOS-POC-7L: `requests` is the only thing blocking 13 of the 42 configured Python sites, and `urllib3` blocks one more on its own — which this covers for free, since urllib3 is requests' own dependency.",
+    "destination": "third_party/python-ios/site-packages",
+    "wheels": [
+      {
+        "name": "requests",
+        "version": "2.34.2",
+        "bytes": 73075,
+        "url": "https://files.pythonhosted.org/packages/a0/f4/c67b0b3f1b9245e8d266f0f112c500d50e5b4e83cb6f3b71b6528104182a/requests-2.34.2-py3-none-any.whl",
+        "sha256": "2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0"
+      },
+      {
+        "name": "urllib3",
+        "version": "2.8.0",
+        "bytes": 135717,
+        "url": "https://files.pythonhosted.org/packages/92/9d/c4e665119135114480843e7ab388fa94d8480650450e6f8e26b70d323a4c/urllib3-2.8.0-py3-none-any.whl",
+        "sha256": "0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3"
+      },
+      {
+        "name": "certifi",
+        "version": "2026.7.22",
+        "bytes": 136983,
+        "url": "https://files.pythonhosted.org/packages/0b/a7/71ac2cff56fec219ed242bb11b8efb69fcc4bec75db06fb7bfe35de520e6/certifi-2026.7.22-py3-none-any.whl",
+        "sha256": "62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775"
+      },
+      {
+        "name": "idna",
+        "version": "3.20",
+        "bytes": 69583,
+        "url": "https://files.pythonhosted.org/packages/58/a2/bb081bab032533a855d44de1d56f8e8426114ff1ba5d1f07a438a0a654f8/idna-3.20-py3-none-any.whl",
+        "sha256": "ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c"
+      },
+      {
+        "name": "charset-normalizer",
+        "version": "3.5.1",
+        "bytes": 68658,
+        "url": "https://files.pythonhosted.org/packages/cc/61/d01fc49b8dea277640b55a9e15960dbca9fdc8c9fde18e572d39c59f4019/charset_normalizer-3.5.1-py3-none-any.whl",
+        "sha256": "6df0ec430f9a831772c23ca5a224cba36517a58a84bb32c32bb59a9fa67c47f6"
+      }
+    ],
+    "licences": {
+      "_note": "From each project's own metadata; not an independent audit.",
+      "requests": "Apache-2.0",
+      "urllib3": "MIT",
+      "certifi": "MPL-2.0",
+      "idna": "BSD-3-Clause",
+      "charset-normalizer": "MIT"
+    }
+  }
 }

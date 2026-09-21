@@ -292,8 +292,43 @@ private struct HomeView: View {
     /// `./json/农民影视.json` against the configuration's own directory.
     let source: ConfigSource
 
+    @State private var picking = false
+
     private var selectedSite: Site {
         sites.first { $0.id == selectedSiteID } ?? sites[0]
+    }
+
+    /// The source list, opened on the source in use. `scrollTo` runs from `onAppear` on the list
+    /// itself, which is after the rows exist — doing it on the sheet would scroll nothing.
+    private var sourcePicker: some View {
+        NavigationStack {
+            ScrollViewReader { proxy in
+                List(sites) { site in
+                    Button {
+                        selectedSiteID = site.id
+                        picking = false
+                    } label: {
+                        HStack {
+                            Text(site.name.displayName).foregroundStyle(.primary)
+                            Spacer()
+                            if site.id == selectedSite.id {
+                                Image(systemName: "checkmark").foregroundStyle(appAccent)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .id(site.id)
+                }
+                .onAppear { proxy.scrollTo(selectedSite.id, anchor: .center) }
+            }
+            .navigationTitle("內容來源")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("關閉") { picking = false }
+                }
+            }
+        }
     }
 
     var body: some View {
@@ -301,18 +336,11 @@ private struct HomeView: View {
             CMSView(site: selectedSite, source: source)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Menu {
-                            ForEach(sites) { site in
-                                Button {
-                                    selectedSiteID = site.id
-                                } label: {
-                                    if site.id == selectedSite.id {
-                                        Label(site.name.displayName, systemImage: "checkmark")
-                                    } else {
-                                        Text(site.name.displayName)
-                                    }
-                                }
-                            }
+                        // A sheet rather than a `Menu`: a menu is a `UIMenu` and cannot be scrolled
+                        // to an item, so with 67 sources it always opened at the first one and the
+                        // source in use was somewhere off screen.
+                        Button {
+                            picking = true
                         } label: {
                             HStack(spacing: 8) {
                                 Text(selectedSite.name.displayName).font(.headline)
@@ -325,6 +353,7 @@ private struct HomeView: View {
                         .accessibilityLabel("切換內容來源，目前為 \(selectedSite.name)")
                     }
                 }
+                .sheet(isPresented: $picking) { sourcePicker }
         }
         // The identity sits on the whole `NavigationStack`, not on `CMSView` inside it, and that is
         // what lets the search field keep hiding on scroll.
@@ -413,6 +442,13 @@ private struct CMSView: View {
                 if loadingMore { ProgressView().padding(.bottom, 16) }
             }
             .overlay(alignment: .bottomTrailing) { topButton(proxy) }
+            // Refetches whatever is on screen — the search results while searching, otherwise the
+            // listed category, or the home listing when none is picked. `loadMore`'s paging state
+            // is reset by `load` itself, so a refresh also drops back to page one.
+            .refreshable {
+                if searching, !query.isEmpty { await load(search: query) }
+                else { await load(category: selectedCategory) }
+            }
         }
         .appWallpaper()
         .overlay {

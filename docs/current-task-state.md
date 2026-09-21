@@ -85,6 +85,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 8H | 8F and 8G confirmed on the iPhone 16 Pro by the user; the second device run this project has had | this document |
 | 8I | No synthetic 全部 anywhere — the category row and the filter rows show only what the source sends; the episode picker splits a long line into 100-episode blocks | this document |
 | 8J | The episode blocks split on the printed episode number, not on position, so `1-100` ends at 第100集 on a line whose entries merge episodes | this document |
+| 8K | Pull to refresh on the listing, and the source picker opens on the source in use instead of at the top of 67 | this document |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
 | 6A/6B | **drpy JavaScript loader**: the engine and its nine libraries fetched from the configuration's own origin, hash-pinned and verified before evaluation, running on the existing `JavaScriptSpiderRuntime` | `docs/IOS-POC-6A-drpy-loader.md` |
 
@@ -290,6 +291,20 @@ have been collapsed into the first bullet.
   `[线路①, 线路②]` → search 20 → `….m3u8`.
 
 ### Simulator runs (iPhone 17 Pro)
+
+- **IOS-POC-8K, 2026-09-21.** Two requests.
+  - **The source picker opens on the source in use.** It was a `Menu`, which is a `UIMenu` and
+    cannot be scrolled to an item, so with 67 sources it always opened at the first one. It is now
+    a sheet holding a `List` inside a `ScrollViewReader`, and `onAppear` scrolls the selected id to
+    centre. **Confirmed:** with 王子 selected — 40-odd rows down — the sheet opens with 王子 and its
+    checkmark in the middle of the screen, not at 無水.
+  - **Pull to refresh on the listing.** `.refreshable` on `CMSView`'s `ScrollView`, calling the same
+    `load` the category chips use: the search results while searching, otherwise the listed
+    category, otherwise the home listing. `load` already resets `page` and `canLoadMore`, so a
+    refresh also drops paging back to page one.
+  - **Partly verified.** The modifier is on the `ScrollView` and the gesture leaves the screen
+    correct, but the spinner is transient and no screenshot caught it, so the refresh was not
+    watched happening. One pull on the device settles it.
 
 - **IOS-POC-8J, 2026-09-21.** 8I's blocks were cut by **position**, and the user caught it on the
   device: the block labelled `1-100` ran to 第109集. The cause is that a source may merge episodes

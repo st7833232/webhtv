@@ -6,8 +6,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current Scope
 
-- Branch `ios-poc`. **Verified 2026-09-21 at IOS-POC-7O: HEAD `9bec98f5` (IOS-POC-7N), worktree
-  clean, and 12 commits ahead of `origin/ios-poc` — `1ee5b219`..`9bec98f5`, none of them pushed.** **Re-check with `git log` rather than trusting any id
+- Branch `ios-poc`. **Verified 2026-09-21 at IOS-POC-7Q: HEAD `85fb4e6a` (IOS-POC-7P), worktree
+  clean. Pushed to `origin/ios-poc` at the user's explicit instruction on 2026-09-21.** **Re-check with `git log` rather than trusting any id
   quoted here** — this one line has carried four different stale ids in turn (`261b5c03`, "HEAD after
   IOS-POC-5L", `a087dd50`, and `2a177f50` in the handoff), each wrong by the time it was read.
 - Android `app/` is read-only for all iOS work and has never been modified: `git diff <branch-point>..HEAD -- app/` is empty, and every commit on this branch touches only `ios/`, `docs/`, `scripts/`, `AGENTS.md` and `.codex/`.
@@ -24,6 +24,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 | 4 drpy sources end to end | **Done** — all four reached real media bytes |
 | Python feasibility / P1 | **Done** — measured, not implemented (`docs/IOS-POC-7A-python-runtime.md`) |
 | Python P2–P5 | **Done, 2026-09-21** — `docs/IOS-POC-7A-python-runtime.md` carries all of it |
+| Python `requests` vendoring (IOS-POC-7P) | **Done** — 6 of 42 sites now reach media bytes, 14 execute |
 | MPV feasibility (second playback core) | **Not started; needs the user's word before it begins** |
 | Real-device baseline (IOS-POC-8) | **Partly done, and the rest deferred by the user on 2026-09-21** |
 
@@ -136,6 +137,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 7K | **P4 done**: `皮皮虾.py` runs `init → home → category → detail → search → player` and `MediaProbe` returns `.media`. The shim now percent-encodes before urllib sees a URL | same document |
 | 7L/7M | **P5 done**: `scripts/audit_python_spiders.py` (static, 42 sites) and the runtime survey, reconciled | same document |
 | 7N | A Python traceback goes to the log; one readable line goes to the screen | same document |
+| 7P | `requests` + `urllib3` + `certifi` + `idna` + `charset-normalizer` vendored as pinned pure-Python wheels; sites reaching media bytes went 1 → 6, executing 4 → 14 | same document |
 | 6A/6B | **drpy JavaScript loader**: the engine and its nine libraries fetched from the configuration's own origin, hash-pinned and verified before evaluation, running on the existing `JavaScriptSpiderRuntime` | `docs/IOS-POC-6A-drpy-loader.md` |
 
 ## Important Decisions
@@ -461,8 +463,12 @@ have been collapsed into the first bullet.
   by itself — but an offline machine cannot build until it has run once).
 - **`Prepare Python` rewrites a file under `third_party/python-ios/` on every build** (the module map
   clang needs). Idempotent and untracked, but its proper home is the fetch script.
-- **What Tier 1 buys is small and now measured**: 4 of 42 sites execute, 1 reaches media bytes.
-  Do not quote a larger number from the P1 assessment, which estimated before any of it ran.
+- **What the Python line buys is measured, and still modest**: after IOS-POC-7P vendored `requests`,
+  **14 of 42 sites execute and 6 reach media bytes** (it was 4 and 1 before). Do not quote a larger
+  number from the P1 assessment, which estimated before any of it ran.
+- **Still blocked on a dependency: 24 sites** — `Crypto` 17, `lxml` 3, `pyquery` 2, `bs4` 2. `bs4` is
+  pure Python and would go the same way `requests` did; `Crypto` is the big one and `CatVodHost`
+  already has AES, DES, MD5, SHA and HMAC to shim over. **Neither was started.**
 - **`麒麟影视.py` counts as executing only until something calls the method its `import requests`
   hides in.** It is not a Tier-1 site in any durable sense.
 - **The survey hammers the configuration origin** — one script fetch per site. Running it twice after
@@ -721,7 +727,7 @@ Paste this into a new session:
 
 > 接手 `/Users/chengchenchih/GIT/webhtv` 的 `ios-poc`，透過本機終端操作，不要每步停下來問我確認。用台灣繁體中文回報。
 >
-> **先確認實際狀態，不要相信這段文字裡的任何 SHA**：2026-09-21 當時 HEAD 在 `9bec98f5`（IOS-POC-7N），**領先 `origin/ios-poc` 12 個 commit、全部尚未 push**，worktree clean。用 `git log` 與 `git rev-list --left-right --count origin/ios-poc...ios-poc` 覆蓋這一行。**未經我明確授權不得 push、tag、package、publish。**
+> **先確認實際狀態，不要相信這段文字裡的任何 SHA**：2026-09-21 當時 HEAD 在 `85fb4e6a`（IOS-POC-7P），**已依我的指示 push 到 `origin/ios-poc`**，worktree clean。用 `git log` 與 `git rev-list --left-right --count origin/ios-poc...ios-poc` 覆蓋這一行。**未經我明確授權不得 push、tag、package、publish。**
 >
 > 動手前必讀：`AGENTS.md`、`README.md`、`docs/AGENT_HANDOFF.md`、`docs/current-task-state.md`、`docs/IOS_SPIDER_RUNTIME_SPEC.md`（runtime/ABI 唯一真相，含 spider 程式碼投遞的五種方式）、`docs/IOS-POC-7A-python-runtime.md`（Python 全部階段）、`docs/analysis/ios-app-store-readiness-research.md`（發行）。
 >
@@ -729,7 +735,7 @@ Paste this into a new session:
 >
 > **現在能做什麼**：iPhone 版 WebHomeTV。遠端設定列出 **109 個來源**（62 native+csp、5 drpy、42 Python）。兩層分類、篩選列、分頁、搜尋、詳情、五種播放器、下拉重整、來源選單定位、播放記錄／續播、WebHome bridge、request headers、畫質選單、每 100 集一個選集區段。
 >
-> **Python 剛完成（IOS-POC-7E–7N），而且要知道它到底買到什麼**：CPython 3.13.15 在 App 內啟動，`PythonSpiderRuntime` 走既有 `SpiderRuntime` 契約，routing 沿用 `CSPSourceResolver`。但**實測 Tier-1 只有 4/42 站跑得動、1/42 拿得到媒體位元組**；34 站被相依性擋住（`requests` 23、`Crypto` 10、`urllib3` 1），4 站被同源/HTTPS 政策拒絕。**不要引用 P1 評估裡比較大的數字。** vendoring `requests` 可多解 13 站、`Crypto.Cipher` 蓋層可解 17 站，**兩者都沒做，也不要自行開始**。
+> **Python 剛完成（IOS-POC-7E–7P），而且要知道它到底買到什麼**：CPython 3.13.15 在 App 內啟動，`PythonSpiderRuntime` 走既有 `SpiderRuntime` 契約，routing 沿用 `CSPSourceResolver`，`requests` 等五個純 Python 套件已 vendored。**實測 42 站裡 14 站跑得動、6 站拿得到媒體位元組**（vendoring 前是 4 與 1）。剩下 24 站被相依性擋住：`Crypto` 17、`lxml` 3、`pyquery` 2、`bs4` 2；4 站被同源/HTTPS 政策拒絕。**不要引用 P1 評估裡比較大的數字。** `bs4` 純 Python、走 `requests` 同一條路即可；`Crypto` 是最大宗且 `CatVodHost` 已有 AES/DES/MD5/SHA/HMAC 可蓋層——**兩者都沒做，也不要自行開始**。
 >
 > **下一階段是 MPV feasibility，但必須等我的指令才能開始。** 方向：`PlaybackTarget → PlayerRouter → AVPlayerEngine / MPVEngine`，共用既有 `PlaybackSession`、headers、history、resume、quality；不重造 `SourceClient`；**不得**從 Infuse/Fileball/SenPlayer/VidHub 拆 framework，只能整合授權允許嵌入的 SDK；整合前先做 license/provenance review，並遵守 `.codex/skills/upstream-integration-governor/SKILL.md`。外部播放器全部保留。
 >

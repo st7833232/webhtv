@@ -314,7 +314,11 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   **Still owed before this can be called an acceptance:** CMS browsing and playback, a `csp_*`
   source, a drpy source, Bili's `Referer` + browser `User-Agent` through `AVPlayer`, whether
   `AVURLAssetHTTPHeaderFieldsKey` works on a device at all, WatchHistory and resume, opening
-  Infuse / Fileball / SenPlayer / VidHub, Picture in Picture, and MPV rendering if it is fixed.
+  Infuse / Fileball / SenPlayer / VidHub, and MPV rendering if it is fixed.
+  **Picture in Picture is no longer merely unverified: the user confirmed a real-device bug on
+  2026-09-22.** After entering PiP and returning to WebHTV, PiP stays active instead of handing
+  playback back to the normal in-app player. Treat `docs/bugs/IOS-PIP-foreground-restore.md` as a
+  PiP acceptance blocker until fixed and re-tested on hardware.
   **麻豆 playing settles none of the header question**: its only header is a `User-Agent` and that
   stream answers `HTTP 200` with or without one, measured with `curl` both ways.
   **The user installs through SideStore since 2026-09-22**, so a build reaches the phone as a

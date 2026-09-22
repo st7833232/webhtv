@@ -132,8 +132,13 @@ unverified until a later device pass.
   on a **CMS** source; a **`csp_*`** spider source; a **drpy** source; **Bili's `Referer` + browser
   `User-Agent` actually playing through `AVPlayer`**; whether `AVURLAssetHTTPHeaderFieldsKey` works
   on a device at all; WatchHistory position and resume; opening Infuse / Fileball / SenPlayer /
-  VidHub; Picture in Picture; the player's volume and brightness drags; the line-picker row; and
-  **MPV rendering**.
+  VidHub; the player's volume and brightness drags; the line-picker row; and **MPV rendering**.
+- **Confirmed real-device PiP bug (2026-09-22):** entering Picture in Picture and then returning to
+  WebHTV leaves PiP active instead of dismissing it and restoring the normal in-app player surface.
+  This is now an acceptance blocker for PiP, not merely an unverified item. Fix must preserve the
+  existing `PlaybackSession`, current item, position, rate and playing/paused state; it must not
+  create a second player or duplicate audio. Repeated PiP → app → PiP cycles must also remain clean.
+  Durable bug record: `docs/bugs/IOS-PIP-foreground-restore.md`.
 - **麻豆 playing does not settle the header question.** Its only header is a `User-Agent`, and that
   stream answers `HTTP 200` with and without one — measured with `curl` both ways on 2026-09-22.
 - **The header question is the sharp one.** `avURLAssetSendsTheHeadersItWasGiven` stands a real

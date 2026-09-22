@@ -76,17 +76,29 @@ public struct Site: Decodable, Identifiable, Sendable {
     ///
     /// IOS-POC-10N. This configuration carries two shapes and the code only understood one:
     ///
-    /// - four sites give `api` the engine (`./drpy_libs/drpy2.min.js`) and put the rule in `ext`;
-    /// - `步步｜4K` gives `api` the rule itself (`./json/4k.js`) and has **no `ext` at all`**.
+    /// - the common shape gives `api` the engine (`./drpy_libs/drpy2.min.js`) and the rule to `ext`;
+    /// - `步步｜4K` gives `api` the rule itself (`./json/4k.js`) and has **no `ext` at all**;
+    /// - `麻豆(js)` gives `api` the rule and sets `"ext": {}` — **an empty object, which is not an
+    ///   empty string**. IOS-POC-10N only checked for emptiness, so this one got `"{}"` as its
+    ///   reference and failed just as opaquely as the shape it fixed.
     ///
-    /// Reading `ext` unconditionally handed the second shape an empty string, which surfaced as
-    /// 「設定檔裡的參照無法解析：」 with nothing after the colon — a message that blamed the
-    /// reference for being unresolvable when the real story was that we had looked in the wrong
-    /// field. `api` is the fallback because for a `.js` site it *is* the script; the engine is
-    /// implied, exactly as it is for a `csp_*` class name.
+    /// So the test is not "is `ext` present" but **"is `ext` something `resourceURL` could
+    /// resolve"** — a relative path or an absolute address. Anything else is configuration noise,
+    /// and the rule is the `api`: for a `.js` site that field *is* the script, with the engine
+    /// implied, exactly as a `csp_*` class name implies its runtime.
     public var drpyRuleReference: String {
-        let ext = rawExtJSON.trimmingCharacters(in: .whitespacesAndNewlines)
-        return ext.isEmpty ? api : ext
+        Self.isResourceReference(rawExtJSON) ? rawExtJSON.trimmingCharacters(in: .whitespaces) : api
+    }
+
+    /// Mirrors what `ConfigSource.resourceURL(for:)` will accept. Kept deliberately narrow: a
+    /// value that cannot become a URL there must not be handed to it, or the failure arrives one
+    /// layer later wearing the wrong name.
+    static func isResourceReference(_ value: String) -> Bool {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return false }
+        if text.hasPrefix("./") || text.hasPrefix("../") { return true }
+        guard let scheme = URL(string: text)?.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
     }
 
     /// A type-3 site whose `api` is a Python script — `./py/皮皮虾.py`. The script is the spider,

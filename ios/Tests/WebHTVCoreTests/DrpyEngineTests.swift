@@ -313,4 +313,26 @@ private func playURL(_ value: Any?) -> [String] {
     @Test func whitespaceOnlyExtIsTreatedAsAbsent() throws {
         #expect(try site(api: "./json/4k.js", ext: "   ").drpyRuleReference == "./json/4k.js")
     }
+
+    /// 麻豆(js), verbatim from `wang-sex.json`: the rule is the api and `ext` is an empty **object**.
+    /// IOS-POC-10N's emptiness check passed `"{}"` straight through as if it were a path.
+    @Test func anEmptyExtObjectIsNotAReference() throws {
+        let json = #"{"key":"js_madou","name":"麻豆","type":3,"api":"./drpy_js/麻豆.min.js","ext":{}}"#
+        let one = try JSONDecoder().decode(Site.self, from: Data(json.utf8))
+        #expect(one.isDrpySpider)
+        #expect(one.rawExtJSON == "{}", "the raw form is what fooled the emptiness check")
+        #expect(one.drpyRuleReference == "./drpy_js/麻豆.min.js")
+    }
+
+    @Test func onlyThingsResourceURLCouldResolveCountAsReferences() throws {
+        #expect(Site.isResourceReference("./drpy_js/a.js"))
+        #expect(Site.isResourceReference("../a.js"))
+        #expect(Site.isResourceReference("https://x.example/a.js"))
+        // Configuration noise, every one of which used to be taken for a path.
+        #expect(!Site.isResourceReference("{}"))
+        #expect(!Site.isResourceReference("[]"))
+        #expect(!Site.isResourceReference(""))
+        #expect(!Site.isResourceReference("   "))
+        #expect(!Site.isResourceReference("{\"key\":\"value\"}"))
+    }
 }

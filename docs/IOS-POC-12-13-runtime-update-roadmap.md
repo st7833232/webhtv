@@ -16,12 +16,16 @@ to chase implementation details and would turn ordinary refactors into compatibi
 Entry order is therefore:
 
 1. Finish IOS-POC-5S (5S-2 opening/ending, then 5S-3 config rules).
-2. Complete the **core** real-device acceptance and close correctness defects that would alter public
-   runtime contracts.
-3. Record an explicit **MPV keep/drop decision** for the first stable product. MPV rendering may
+2. Run the **core real-device playback baseline** first: startup latency, buffer-ahead, stall/rebuffer
+   events, observed/indicated bitrate or equivalent throughput evidence, and next-episode handoff
+   time. Close correctness defects before performance tuning.
+3. IOS-POC-15 — Playback Buffering / Preload. Tune AVPlayer from those measurements and re-run the
+   same device measurements; do not substitute a large fixed cache target for evidence.
+4. Finish the remaining core real-device acceptance after 15.
+5. Record an explicit **MPV keep/drop decision** for the first stable product. MPV rendering may
    remain deferred; the decision is what matters for freezing the native playback boundary.
-4. IOS-POC-12 — Runtime Architecture Reconciliation.
-5. IOS-POC-13 — Runtime Hot Update.
+6. IOS-POC-12 — Runtime Architecture Reconciliation.
+7. IOS-POC-13 — Runtime Hot Update.
 
 Portable CSP expansion, Python Crypto/lxml/pyquery/bs4 work, CarPlay and automatic AVPlayer↔MPV
 fallback stay behind this sequence unless the user explicitly reprioritises them.

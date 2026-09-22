@@ -369,6 +369,16 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   installed App already knows. Swift/SwiftUI executable behaviour, native playback/runtime code,
   MPV/FFmpeg, CPython XCFramework/native dependencies, entitlements and Info.plist capabilities
   still require an IPA. SideStore remains the native-App update path.
+- **IOS-POC-15 Playback Buffering / Preload is planned, not started.** It belongs after a first
+  real-device playback baseline and before the MPV keep/drop decision / IOS-POC-12 contract freeze.
+  It is AVPlayer-first: measure startup latency, buffer-ahead, rebuffer/stall events, throughput and
+  next-episode handoff time; then test a bounded forward-buffer target (initial candidate 60 s),
+  leave `preferredPeakBitRate` unrestricted unless measurements justify a cap, keep
+  `automaticallyWaitsToMinimizeStalling` behaviour explicit, add diagnostics, and pre-resolve the
+  **next episode's PlaybackTarget** (URL + headers, including playerContent/sniff when required)
+  without starting a second player or downloading the next whole episode. Persistent/offline HLS
+  downloading is explicitly a later, separate decision. Record:
+  `docs/IOS-POC-15-playback-buffering-preload.md`.
 - Per-stage records: `docs/IOS-POC-1E-config-persistence.md`, `docs/IOS-POC-1F-config-sources.md`,
   `docs/IOS-POC-2B-webhome-bridge.md`, `docs/IOS-POC-2D-webhome-bridge-ui-info.md`,
   `docs/IOS-POC-2E-webhome-bridge-playback.md`, `docs/IOS-POC-4A-type4-sources.md`,

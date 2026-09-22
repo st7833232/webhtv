@@ -46,7 +46,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 | IOS-POC-5S-1 ads blocking | **Done, 2026-09-22** — 62 literal ad domains compile into a `WKContentRuleList` scoped only to the sniffer WebView; one whole-URL entry stays inert to preserve Android semantics. **Not device-verified** |
 | IOS-POC-5S-2 opening / ending | **Done, 2026-09-22.** `WatchHistory.opening`/`ending` as optional milliseconds so a history file without them still decodes; start position is `max(opening, resume)`; the ending rides the existing five-second sampler into the existing `finished()` path. **Not device-verified** |
 | IOS-POC-5S-3 config `rules` → sniffer | **Next functional unit.** Preserve Android host→exclude/regex/script precedence; no invented m3u8 ad-rewrite semantics |
-| IOS-POC-12 Runtime Architecture Reconciliation | **Planned, not started.** Begins only after 5S is complete, the core real-device acceptance is closed enough to freeze contracts, and the MPV keep/drop decision for the first stable product is recorded |
+| IOS-POC-15 Playback Buffering / Preload | **Planned, not started.** After the first core real-device playback baseline, tune AVPlayer forward buffering and add next-episode target pre-resolution; measure before/after rather than guessing cache sizes |
+| IOS-POC-12 Runtime Architecture Reconciliation | **Planned, not started.** Begins only after 5S is complete, core real-device acceptance plus IOS-POC-15 are closed enough to freeze playback contracts, and the MPV keep/drop decision for the first stable product is recorded |
 | IOS-POC-13 Runtime Hot Update | **Planned, not started.** Begins only after IOS-POC-12 freezes the Native Core / Dynamic Layer boundary and update manifest contract |
 | More `csp_*`, Python dependency shims, CarPlay, automatic AVPlayer↔MPV fallback | **Backlog.** Do not let these pre-empt 5S, core acceptance, or the 12→13 refactor/update sequence |
 
@@ -58,7 +59,13 @@ path, but **not by replacing its signed native executable**. The sequencing is i
 `5S-2 → 5S-3 → core real-device acceptance → MPV keep/drop decision → IOS-POC-12 → IOS-POC-13`.
 
 **5S-2 closed on 2026-09-22**, so the remaining sequence is
-`5S-3 → core real-device acceptance → MPV keep/drop decision → IOS-POC-12 → IOS-POC-13`.
+`5S-3 → core real-device playback baseline → IOS-POC-15 Playback Buffering / Preload → finish core
+real-device acceptance → MPV keep/drop decision → IOS-POC-12 → IOS-POC-13`.
+
+IOS-POC-15 deliberately comes **after a real-device playback baseline** so buffering work is driven
+by measured startup time, buffer-ahead, rebuffer/stall events, throughput and next-episode handoff
+latency rather than by choosing a large cache value blindly. It remains before the Native Core
+contract-freeze because it can still change AVPlayer item/session behaviour.
 
 ### IOS-POC-12 — Runtime Architecture Reconciliation
 

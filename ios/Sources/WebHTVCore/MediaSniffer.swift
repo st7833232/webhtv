@@ -66,7 +66,50 @@ public final class MediaSniffer {
 
     private var collector: Collector?
 
+    /// The **active configuration's** ad rules, or nil for none (IOS-POC-5S-1).
+    ///
+    /// Set when a configuration is adopted and cleared when it has no `ads`, so switching source
+    /// A → B → A can never leave A's rules on B's web view: the property carries one list at a time
+    /// and its identity is derived from the rules themselves.
+    ///
+    /// **This is the only web view these rules ever reach.** They are added to the `Collector`'s own
+    /// `WKWebViewConfiguration`, which is built per sniff and thrown away with it — not to the
+    /// WebHome bridge's web view, not to any shared configuration, and not to a process-wide default.
+    public var adBlockList: AdBlockList? {
+        didSet { if adBlockList != oldValue { compiled = nil } }
+    }
+
+    /// The last compiled list, kept so a sniff does not recompile the same rules every time.
+    /// Cleared whenever `adBlockList` changes, which is what stops a stale list surviving a switch.
+    /// Internal rather than private so a test can assert that clearing actually happens — the whole
+    /// point of configuration-scoped rules is that A → B → A never runs B's list on A's web view.
+    var compiled: WKContentRuleList?
+
     public init() {}
+
+    /// Compiles the active list once, and answers nil for every reason that should mean
+    /// "no blocking" rather than "no sniffing": no list, or a compile this build cannot do.
+    ///
+    /// A compile failure is deliberately not an error. The sniffer's job is to find a stream; losing
+    /// the ad rules costs some wasted requests, while refusing to sniff would cost the source.
+    /// ponytail: a compiled list stays in `WKContentRuleListStore` after the configuration that
+    /// needed it is gone, so the store grows by one entry per distinct `ads` set ever seen. That is
+    /// a few kilobytes per configuration and it is what makes switching back free, so it is left
+    /// alone; sweep `getAvailableIdentifiers` for the `webhtv-ads-` prefix if a user ever
+    /// accumulates enough configurations for it to matter.
+    private func contentRules() async -> WKContentRuleList? {
+        guard let adBlockList else { return nil }
+        if let compiled { return compiled }
+        let store = WKContentRuleListStore.default()
+        let list = try? await store?.compileContentRuleList(forIdentifier: adBlockList.identifier,
+                                                            encodedContentRuleList: adBlockList.json)
+        compiled = list
+        return list
+    }
+
+    /// The same compile the sniffer performs, reachable from a test. Exists because the caching is
+    /// the part that can be wrong, and it is unobservable from `sniff` without a network.
+    func compiledRulesForTesting() async -> WKContentRuleList? { await contentRules() }
 
     /// Whether a URL the page mentioned is the stream itself.
     ///
@@ -140,7 +183,8 @@ public final class MediaSniffer {
         // One sniff at a time: a second concurrent web view competes for the main actor and the
         // network, and no caller needs it.
         if let live = collector { live.cancel() }
-        let collector = Collector(keywords: keywords, exclusions: exclusions)
+        let rules = await contentRules()
+        let collector = Collector(keywords: keywords, exclusions: exclusions, rules: rules)
         self.collector = collector
         defer { if self.collector === collector { self.collector = nil } }
 
@@ -157,9 +201,13 @@ public final class MediaSniffer {
         private var continuation: CheckedContinuation<URL?, Never>?
         private var timeoutTask: Task<Void, Never>?
 
-        init(keywords: [String], exclusions: [String]) {
+        /// `rules` is the active configuration's ad blocker, or nil for none.
+        private let rules: WKContentRuleList?
+
+        init(keywords: [String], exclusions: [String], rules: WKContentRuleList?) {
             self.keywords = keywords.map { $0.lowercased() }
             self.exclusions = exclusions.map { $0.lowercased() }
+            self.rules = rules
         }
 
         func run(page: URL, referer: String?, timeout: Duration) async -> URL? {
@@ -167,6 +215,8 @@ public final class MediaSniffer {
                 self.continuation = continuation
 
                 let configuration = WKWebViewConfiguration()
+                // The ad rules, on this sniff's own configuration and nowhere else.
+                if let rules { configuration.userContentController.add(rules) }
                 configuration.userContentController.add(self, name: Self.channel)
                 configuration.userContentController.addUserScript(
                     WKUserScript(source: Self.hook, injectionTime: .atDocumentStart, forMainFrameOnly: false)

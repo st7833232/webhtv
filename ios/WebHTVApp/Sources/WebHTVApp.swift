@@ -325,7 +325,18 @@ private struct ConfigView: View {
         guard let url = try? configURL(for: source), let data = try? Data(contentsOf: url),
               let config = try? ConfigLoader.validate(data) else { return }
         sites = config.drivableSites(resolvedBy: CSPSourceResolver(source: source))
+        adoptAdBlocking(from: config)
         selectedSiteID = sites.first { $0.id == selectedSiteID }?.id ?? selectedSiteID ?? sites.first?.id
+    }
+
+    /// Point the sniffer at **this** configuration's ad rules, and at nothing else (IOS-POC-5S-1).
+    ///
+    /// Called from every path that adopts a configuration — the launch restore, a fetched refresh
+    /// and a pack rebuild — because the rules belong to whichever configuration is active, and a
+    /// source switch that left the previous one's rules behind would block the wrong hosts. A
+    /// configuration with no `ads` sets nil, which is the same as having no blocker at all.
+    private func adoptAdBlocking(from config: WebHTVConfig) {
+        MediaSniffer.shared.adBlockList = AdBlockList.make(ads: config.ads)
     }
 
     /// Write, then publish. Callers validate first and hand the result in, so nothing that failed
@@ -339,6 +350,7 @@ private struct ConfigView: View {
         self.source = source
         updatedAt = now
         sites = loaded
+        adoptAdBlocking(from: config)
         // Reclaim the spider sessions this configuration orphaned. Correctness does not depend on
         // this landing first — `SpiderSessionStore` keys on the site's `ext`, so a redefined site
         // misses the cache regardless.
@@ -371,10 +383,11 @@ private struct ConfigView: View {
             guard FileManager.default.fileExists(atPath: url.path) else { return }
             // Read the local value, not the `@State` just written: a spider's relative `ext` is
             // resolved against it, and resolving against the wrong base silently breaks those sites.
-            let loaded = try ConfigLoader.validate(Data(contentsOf: url))
-                .drivableSites(resolvedBy: CSPSourceResolver(source: restored))
+            let restoredConfig = try ConfigLoader.validate(Data(contentsOf: url))
+            let loaded = restoredConfig.drivableSites(resolvedBy: CSPSourceResolver(source: restored))
             let stored = UserDefaults.standard.string(forKey: selectedSiteKey)
             sites = loaded
+            adoptAdBlocking(from: restoredConfig)
             selectedSiteID = SiteSelection.resolve(stored, in: loaded) ?? loaded.first?.id
         } catch {
             self.error = "已保存的設定無法載入：\(error.localizedDescription)。請重新匯入。"

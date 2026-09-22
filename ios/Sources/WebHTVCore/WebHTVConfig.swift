@@ -2,6 +2,20 @@ import Foundation
 
 public struct WebHTVConfig: Decodable, Sendable {
     public let sites: [Site]
+    /// The configuration's ad host blocklist (IOS-POC-5S-1). Absent in most configurations, so it
+    /// decodes to an empty array rather than failing — and an empty array means no blocker at all.
+    /// `AdBlockList` is what turns it into rules, and records why one entry of the 63 cannot be one.
+    public let ads: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case sites, ads
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        sites = try values.decode([Site].self, forKey: .sites)
+        ads = (try? values.decodeIfPresent([String].self, forKey: .ads)) as? [String] ?? []
+    }
 
     public var nativeCMSSites: [Site] {
         sites.filter(\.isNativeCMS)

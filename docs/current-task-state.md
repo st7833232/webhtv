@@ -6,14 +6,12 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current Scope
 
-- Branch `ios-poc`. **Verified 2026-09-22 at IOS-POC-11B: HEAD `20c4bd53`
-  (`release(ios): publish WebHTV 0.1.1 (2)`, written by the release workflow), worktree clean, and
-  `git rev-list --left-right --count origin/ios-poc...ios-poc` answered `0 0`** — level with the
-  remote. The branch was pushed twice on 2026-09-22 at the user's explicit instruction, and the
-  release workflow pushed `source.json` itself.
-  **Re-check with `git log` rather than trusting any id quoted here** — this one line has carried
-  six different stale ids in turn (`261b5c03`, "HEAD after IOS-POC-5L", `a087dd50`, `2a177f50`,
-  `bb965dda` and `a076ab51`), each wrong by the time it was read.
+- Branch `ios-poc`. **The functional baseline immediately before the runtime-roadmap update is
+  `7b7ad584` (IOS-POC-5S-1, ads blocking).** That commit is on the remote branch and records
+  **197 tests passing** plus a successful simulator build. The previous release remains WebHTV
+  `0.1.1 (2)`; this roadmap-only update does not package or publish a new IPA.
+  **Always re-check Git rather than trusting a quoted SHA** — this line is a recovery anchor, not a
+  substitute for `git log` / ahead-behind / worktree checks.
 - Android `app/` is read-only for all iOS work and has never been modified: `git diff <branch-point>..HEAD -- app/` is empty, and every commit on this branch touches only `ios/`, `docs/`, `scripts/`, `AGENTS.md` and `.codex/`.
 - **The input configuration lives in the scratchpad, not `/tmp`.** `/tmp/webhtv-recha-new.wprHof/` was cleared mid-session; `wang-movie.json` was re-fetched from the user's own GitLab and its SHA-256 matches the recorded baseline byte for byte. Re-fetch it from `https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json` if it is missing. `recha-main.zip` was **not** restored, so `scripts/audit_spider_jars.py` cannot be re-run without downloading it again.
 - Stages through IOS-POC-4J have an annotated `recovery/<task-id>/*` tag; tags through `IOS-POC-1H` are on the remote. **Recovery tags became opt-in on 2026-09-16** (AGENTS.md §6), so IOS-POC-5A onwards are deliberately untagged.
@@ -38,8 +36,67 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 | SideStore release pipeline (IOS-POC-11) | **Done** — `.github/workflows/ios-sidestore-release.yml` and `source.json` exist and have published twice |
 | Current release | **WebHTV `0.1.1 (2)`**, tag `ios-v0.1.1-b2`. **`0.1 (1)` is not current.** |
 | Real-device acceptance (IOS-POC-8) | **Partial.** Several runs on hardware; the list below is what is and is not confirmed. Not to be recorded as complete |
-| IOS-POC-5S ads / opening / ending | **Not started** — the next functional stage |
-| More `csp_*`, Crypto/lxml shims, CarPlay, AVPlayer↔MPV fallback | **Backlog, not started** |
+| IOS-POC-5S-1 ads blocking | **Done, 2026-09-22** — 62 literal ad domains compile into a `WKContentRuleList` scoped only to the sniffer WebView; one whole-URL entry stays inert to preserve Android semantics. 197 tests pass |
+| IOS-POC-5S-2 opening / ending | **Next functional unit.** Reuse `WatchHistory` / `PlaybackSession`; Android stores user-set millisecond offsets in History rather than config |
+| IOS-POC-5S-3 config `rules` → sniffer | **Planned after 5S-2.** Preserve Android host→exclude/regex/script precedence; no invented m3u8 ad-rewrite semantics |
+| IOS-POC-12 Runtime Architecture Reconciliation | **Planned, not started.** Begins only after 5S is complete, the core real-device acceptance is closed enough to freeze contracts, and the MPV keep/drop decision for the first stable product is recorded |
+| IOS-POC-13 Runtime Hot Update | **Planned, not started.** Begins only after IOS-POC-12 freezes the Native Core / Dynamic Layer boundary and update manifest contract |
+| More `csp_*`, Python dependency shims, CarPlay, automatic AVPlayer↔MPV fallback | **Backlog.** Do not let these pre-empt 5S, core acceptance, or the 12→13 refactor/update sequence |
+
+## Post-core roadmap: refactor first, then runtime hot update
+
+The user decided on 2026-09-22 that WebHTV should eventually support an **in-app runtime update**
+path, but **not by replacing its signed native executable**. The sequencing is intentional:
+
+`5S-2 → 5S-3 → core real-device acceptance → MPV keep/drop decision → IOS-POC-12 → IOS-POC-13`.
+
+### IOS-POC-12 — Runtime Architecture Reconciliation
+
+This is a **bounded refactor / contract-freeze stage**, not the updater itself. It starts only when the
+first stable product shape is known. Its job is to:
+
+- freeze the Native Core contracts that dynamic content depends on: `ConfigSource`, `SourceClient`,
+  `PlaybackTarget`, `PlaybackSession`, `SpiderRuntime` / resolver boundaries, `WatchHistory`
+  persistence semantics, and the WebHome bridge ABI;
+- inventory hard-coded source mappings, bundled scripts/rules/resources, and source-specific branches,
+  then decide which are genuinely volatile and can move out of Swift without changing behaviour;
+- separate a **Native Core** from a **Dynamic Layer**. The Native Core remains IPA-delivered; the
+  Dynamic Layer is the only future hot-update surface;
+- define a versioned runtime-pack manifest contract, compatibility gates (including minimum App
+  version / runtime ABI), per-file type/size/hash metadata, origin/authenticity policy, configuration
+  isolation, activation semantics and rollback/LKG rules;
+- preserve the existing fail-closed security model. Moving code out of the bundle must not weaken
+  same-origin/HTTPS/size/hash checks or turn a provider failure into executable fallback;
+- keep this stage behaviour-preserving. Do **not** add the downloader, activator or update UI here.
+
+### IOS-POC-13 — Runtime Hot Update
+
+Only after IOS-POC-12 freezes the boundary, implement:
+
+`manifest → download to staging → size/hash/authenticity verification → compatibility check →
+atomic activation → session/cache invalidation → rollback to last-known-good`.
+
+A failed or partial update must leave the previous active generation intact. Runtime generations must
+be isolated from one another and from saved configuration caches; activation is a pointer/swap after
+every file verifies, never an in-place mutation of the working generation.
+
+**Intended hot-update surface:** compatibility packs, CatVod/JS spiders, Python `.py` spiders,
+drpy/rule scripts where the existing security policy allows them, XBPQ/XYQ-style rules, source/host
+mappings, ads/rules data, images/resources, text, and **schema/data-driven UI properties that an
+already-shipped native renderer understands** (for example labels, order, visibility and predefined
+layout parameters).
+
+**Still requires a new IPA:** Swift / SwiftUI executable logic, new native views or navigation
+behaviour, `SourceClient` / `CatVodHost` native primitives, AVPlayer integration, MPVKit/FFmpeg,
+the CPython interpreter/XCFramework or compiled Python dependencies, native frameworks, App
+entitlements, `Info.plist` capabilities, signing changes and any new native ABI the active App does
+not already understand. UI is therefore not categorically non-updatable: **data-driven UI can move
+with the runtime pack; new compiled UI behaviour cannot.**
+
+The SideStore pipeline remains the native-App update path. IOS-POC-13 is for the high-churn runtime
+and compatibility layer so ordinary source repairs do not require an IPA release.
+
+Full design record: `docs/IOS-POC-12-13-runtime-update-roadmap.md`.
 
 The device acceptance is **not** finished, and nothing here should be read as saying it is. What
 already ran on hardware stands and is not to be rolled back; what is listed as unverified stays
@@ -347,18 +404,15 @@ without further code, which is why they are worth more than their site counts su
 
 ## Build / Test / Verification Status
 
-**Latest, re-measured 2026-09-22 at `20c4bd53` (IOS-POC-11B), which is the actual HEAD. Every number
-below was taken in that session; none is copied forward from an earlier one:**
+**Latest functional verification, 2026-09-22 at `7b7ad584` (IOS-POC-5S-1):**
 
-- `swift test --package-path ios` → **188 tests, one failing**. The failure is
-  `reportsLiveType4SitesFromProvidedConfig`, which drives live type-4 providers and today finds
-  `88看球` answering with an embed page rather than a media address. **It is provider state and is
-  not to be "fixed"** — it passed earlier the same day, and it was confirmed pre-existing on
-  2026-09-22 by stashing the day's changes and re-running. The trajectory: 181 at IOS-POC-7R,
-  +1 order test (10S), +3 JS-spider runtime tests (10T), +2 JianPian golden tests (10W/10X),
-  +1 session-reset test (10Z). This line read "181 tests, all pass" until IOS-POC-11B.
-- `xcodebuild … -destination 'platform=iOS Simulator,id=7B4E9557-4774-4EB9-B408-BB544DCC8657'
-  -configuration Debug build` → **BUILD SUCCEEDED**.
+- `swift test --package-path ios` → **197 tests, all pass**. Nine new 5S-1 tests cover the real
+  63-entry ads data set (62 literal domains + one intentionally inert whole URL), real
+  `WKContentRuleListStore` compilation, top-document safety, blocked subresources, unrelated
+  resources, A→B→A active-configuration switching and empty-ads behaviour.
+- Simulator Debug build → **BUILD SUCCEEDED**.
+- The most recent recorded device build remains the earlier IOS-POC-11B build at `20c4bd53`;
+  IOS-POC-5S-1 itself was not claimed as device-verified.
 - `xcodebuild … -destination 'platform=iOS,id=00008160-00124C8200214036' -configuration Debug
   DEVELOPMENT_TEAM=764SVXY2B7 CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates build` →
   **BUILD SUCCEEDED**. The device reports `connected`.

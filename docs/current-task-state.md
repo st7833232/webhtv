@@ -790,7 +790,7 @@ Paste this into a new session:
 
 > 接手 `/Users/chengchenchih/GIT/webhtv` 的 `ios-poc`，透過本機終端操作，不要每步停下來問我確認。用台灣繁體中文回報。
 >
-> **先確認實際狀態，不要相信這段文字裡的任何 SHA**：2026-09-22 當時 HEAD 在 `59ebf11`（IOS-POC-10P），**領先 `origin/ios-poc` 九個 commit、尚未 push**，worktree clean。用 `git log` 與 `git rev-list --left-right --count origin/ios-poc...ios-poc` 覆蓋這一行。**未經我明確授權不得 push、tag、package、publish。**
+> **先確認實際狀態，不要相信這段文字裡的任何 SHA**：2026-09-22 當時 HEAD 在 `e85e773a`（IOS-POC-10R），**領先 `origin/ios-poc` 7 個 commit、尚未 push**，worktree clean。用 `git log` 與 `git rev-list --left-right --count origin/ios-poc...ios-poc` 覆蓋這一行。**未經我明確授權不得 push、tag、package、publish。**
 >
 > 動手前必讀：`AGENTS.md`、`docs/AGENT_HANDOFF.md`、`docs/current-task-state.md`、`docs/IOS-POC-10-plan-ux-and-sources.md`（最近兩天的全部修改與驗證限度）、`docs/IOS-POC-9B-mpv-playback-core.md`（MPV 現況）、`docs/IOS_SPIDER_RUNTIME_SPEC.md`（spider runtime 唯一真相）。
 >

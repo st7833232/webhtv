@@ -25,12 +25,23 @@ public struct WebHTVConfig: Decodable, Sendable {
     /// The `csp_*` sites a registry can actually run. This is the routing change that stops type-3
     /// being rejected on classification alone: membership is decided by the registry, not the type.
     public func spiderSites(resolvedBy resolver: CSPSourceResolver) -> [Site] {
-        (cspSpiderSites + drpySpiderSites + pythonSpiderSites).filter(resolver.canResolve)
+        sites.filter { $0.isSpiderShape && resolver.canResolve($0) }
     }
 
-    /// Everything browsable today — native CMS plus any spider the registry can drive.
+    /// Everything browsable today — native CMS plus any spider the registry can drive, **in the
+    /// order the configuration lists them**.
+    ///
+    /// IOS-POC-10S. This used to be `supportedSites + spiderSites(…)`, and each of those was itself
+    /// a concatenation of per-kind filters, so the picker showed four blocks — native CMS, then
+    /// `csp_*`, then drpy, then Python — rather than the file's own order. The author's ordering is
+    /// information: `wang-sex.json` puts 麻豆(js) seventh and the app buried it among the drpy
+    /// sites. One filter over `sites` keeps every site exactly where its author put it.
     public func drivableSites(resolvedBy resolver: CSPSourceResolver) -> [Site] {
-        supportedSites + spiderSites(resolvedBy: resolver)
+        sites.filter { isSupported($0) || ($0.isSpiderShape && resolver.canResolve($0)) }
+    }
+
+    private func isSupported(_ site: Site) -> Bool {
+        site.isNativeCMS && (site.type == 0 || site.type == 1 || site.type == 4)
     }
 }
 
@@ -100,6 +111,11 @@ public struct Site: Decodable, Identifiable, Sendable {
         guard let scheme = URL(string: text)?.scheme?.lowercased() else { return false }
         return scheme == "http" || scheme == "https"
     }
+
+    /// Any of the three type-3 shapes a spider can arrive in. Exists so one pass over `sites` can
+    /// answer "is this a spider at all" without concatenating three per-kind filters and losing the
+    /// configuration's order in the process (IOS-POC-10S).
+    public var isSpiderShape: Bool { isCSPSpider || isDrpySpider || isPythonSpider }
 
     /// A type-3 site whose `api` is a Python script — `./py/皮皮虾.py`. The script is the spider,
     /// the way a `csp_*` class name is, and `ext` is what reaches its `init`.

@@ -560,3 +560,58 @@ drpy2 找不到 `rule`，每個方法都回空——畫面就是「沒有內容�
 好消息是 runtime 大半已經在：`JavaScriptSpiderRuntime` 與 `host.js`（`req`／`pdfh`／`pdfa`／`local`）
 正是這類腳本需要的 SDK，形狀上更接近既有的 `csp_*` 移植而不是另造一套。
 **需要你決定要不要開這個階段。**
+
+
+## 10S — 來源清單的順序要跟設定檔一樣（使用者 2026-09-22）
+
+### 現況不是「排序錯了」，是被分組串接
+
+`WebHTVConfig.drivableSites` 過去是：
+
+```swift
+supportedSites + spiderSites(resolvedBy: resolver)          // 原生 CMS 全部在前
+spiderSites = (cspSpiderSites + drpySpiderSites + pythonSpiderSites).filter(...)
+```
+
+三個 accessor 各自 `sites.filter(...)` 再**串接**，所以清單被切成四段：
+原生 CMS → `csp_*` → drpy → Python。設定檔自己的順序整個被丟掉。
+
+**作者排的順序是資訊。** `wang-sex.json` 把 `🔞麻豆(js)` 放在第 7 筆（index 6），
+App 卻把它推到 drpy 那一段去，使用者要捲很久才找得到。
+
+### 修法：一次 filter，不串接
+
+```swift
+public func drivableSites(resolvedBy resolver: CSPSourceResolver) -> [Site] {
+    sites.filter { isSupported($0) || ($0.isSpiderShape && resolver.canResolve($0)) }
+}
+```
+
+新增 `Site.isSpiderShape`（`isCSPSpider || isDrpySpider || isPythonSpider`），
+存在的理由只有一個：讓「這是不是 spider」能在**單一趟** `sites` 掃描裡回答。
+`spiderSites(resolvedBy:)` 同樣改成單趟 filter，順序一併修正。
+
+判定條件一個都沒改，所以**哪些站被列出完全不變**，只有順序變。
+
+### 驗證
+
+| 檢查 | 結果 |
+|---|---|
+| `listsSitesInTheOrderTheConfigurationWroteThem`（新增） | 通過；本機／遠端兩種 `ConfigSource` 都比對 `config.sites` 的原始順序 |
+| 同一條測試跑在**舊行為**上 | **3 個 issue 失敗** — 這條測試抓得到這個缺陷 |
+| `listsThePortedSpiderSitesAlongsideTheNativeCMSSites` | 通過，仍是 `62 = 30 native + 32 spider` |
+| 全套 | 182 條，1 條失敗，見下 |
+
+測試特地斷言 `firstSpider < lastNative`：這份設定檔真的是交錯的，
+所以「分組後的清單」與「原始順序的清單」必然不同——不是一條永遠會過的測試。
+
+### 這一輪唯一的失敗，與本修正無關
+
+`reportsLiveType4SitesFromProvidedConfig` 在 `CMSClientTests.swift:212` 失敗：
+`88看球` 這一站今天回的是 `https://embed.st/embed/admin/ppv-…/1`，一個**網頁**而不是媒體位址，
+於是 `CMSClient.isDirectMedia` 斷言不成立。
+
+**在 stash 掉本次改動、回到 `0cc565a3` 的乾淨狀態下重跑，同一條測試以同一個原因失敗**——
+先確認過才敢這樣說。這是 provider 狀態（本文件與 `current-task-state.md` 早就記著
+type-4 的直連媒體判定是路徑副檔名啟發法，標了 `ponytail:`），不是本次修改造成的迴歸，
+依 AGENTS.md §2 只報不修。交接文件寫的「181 條全過」是 2026-09-21 的量測，今天不再成立。

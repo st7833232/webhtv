@@ -285,6 +285,32 @@ private final class OneShotHTTPServer: @unchecked Sendable {
     print("[sources] app list: \(drivable.count) = \(native.count) native + \(spiders.count) spider")
 }
 
+/// IOS-POC-10S: the picker must list sites **in the configuration's own order**.
+///
+/// `drivableSites` used to be `supportedSites + spiderSites(…)`, each of those a concatenation of
+/// per-kind filters, so the list arrived in four blocks and the author's ordering was thrown away.
+/// A count assertion cannot see that, which is why this test exists beside the one above: it
+/// compares the listed sites against the same sites read straight off `config.sites`.
+@Test func listsSitesInTheOrderTheConfigurationWroteThem() throws {
+    guard let path = ProcessInfo.processInfo.environment["WANG_MOVIE_JSON"] else { return }
+    let config = try JSONDecoder().decode(WebHTVConfig.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+    let remote = ConfigSource.remote(URL(string: "https://example.invalid/raw/main/wang-movie.json")!)
+
+    for resolver in [CSPSourceResolver(), CSPSourceResolver(source: remote)] {
+        let listed = config.drivableSites(resolvedBy: resolver)
+        let expected = config.sites.filter { site in listed.contains { $0.id == site.id } }
+        #expect(listed.map(\.id) == expected.map(\.id),
+                "the app list must follow the configuration's order, not group by kind")
+    }
+
+    // The defect this pins, stated as data rather than as prose: the old grouping put every native
+    // CMS site ahead of every spider, so the first spider's position in the file was irrelevant.
+    let listed = config.drivableSites(resolvedBy: CSPSourceResolver(source: remote))
+    let firstSpider = try #require(listed.firstIndex { $0.isSpiderShape })
+    let lastNative = try #require(listed.lastIndex { !$0.isSpiderShape })
+    #expect(firstSpider < lastNative, "this configuration interleaves them; a grouped list would not")
+}
+
 /// Sweeps **every source the app lists** — native CMS and ported spider alike — through
 /// `SourceClient`, the same path the app itself uses, and reports where each one stops.
 ///

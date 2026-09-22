@@ -1,6 +1,8 @@
 # IOS-POC-5R — 播放記錄、續播與 `app.history`
 
-- 狀態：**R1–R6 已實作並驗證**。**R7（片頭／片尾跳過）依使用者 2026-09-18 指示 deferred**，與整個 IOS-POC-5S 一起。
+- 狀態：**R1–R6 已實作並驗證**。R7（片頭／片尾跳過）在 5R 當下依使用者 2026-09-18 指示 deferred，
+  **但它已於 2026-09-22 以 IOS-POC-5S-2 實作完成**——記錄在 `docs/IOS-POC-5S-ads-and-skip.md`，
+  不在本文件。本文以下所有寫著「R7 未實作／deferred」的句子都只描述 5R 當時的狀態。
 - 分支 `ios-poc`，基線 HEAD `0ab06a3c`（IOS-POC-5Q 之後）
 - 計畫：`docs/IOS-POC-5Q-5R-plan-playback-quality-and-history.md`
 - 日期：2026-09-18
@@ -87,7 +89,7 @@ iOS 現在回傳同樣的 17 個欄位。填不了的照這個 bridge 既有的�
 | 欄位 | 值 | 理由 |
 |---|---|---|
 | `wallPic`、`revSort`、`revPlay` | `""` / `false` | iOS 沒有對應概念 |
-| `opening`、`ending` | `0` | R7 deferred。Android 的未設定值是 `C.TIME_UNSET`（一個很大的負數），對頁面任何 `> 0` 的判斷來說 0 讀起來一樣 |
+| `opening`、`ending` | `0` | R7 deferred。Android 的未設定值是 `C.TIME_UNSET`（一個很大的負數），對頁面任何 `> 0` 的判斷來說 0 讀起來一樣。**IOS-POC-5S-2 之後這兩欄改送實際值，未設定仍送 `0`** |
 | `speed`、`scale` | `1`、`-1` | Android 自己的預設值 |
 | `cid` | `0` | iOS 的設定檔沒有 id，跟 `config.info` 一致 |
 
@@ -106,7 +108,7 @@ iOS 現在回傳同樣的 17 個欄位。填不了的照這個 bridge 既有的�
 
 | 項目 | 計畫 | 實作 | 原因 |
 |---|---|---|---|
-| R7 片頭／片尾 | 在 5R 範圍內 | **未實作** | 使用者 2026-09-18 指示與 IOS-POC-5S 一起 deferred |
+| R7 片頭／片尾 | 在 5R 範圍內 | **5R 當下未實作** | 使用者 2026-09-18 指示與 IOS-POC-5S 一起 deferred。**後來由 IOS-POC-5S-2 完成**，`WatchHistory` 多了 `opening`／`ending` 兩個可選毫秒欄位 |
 | 記錄的刪除 | 計畫只寫「列出看過的片」 | 多了滑動刪除與「清除」 | **這是超出 R4 字面的東西**，明白標示在這裡。理由：store 有 500 筆上限與 60 天保留，若沒有任何移除手段，使用者對自己的記錄唯一的控制方式是等 60 天。共 9 行。不要就說一聲，砍掉即可 |
 | `siteName` 存進記錄 | 計畫沒提 | 存 | Android 的 `getSiteName()` 是回設定檔查的；store 沒有站清單，而且「站已經不在設定檔裡」那一列正需要它才顯示得出東西 |
 
@@ -185,7 +187,7 @@ IOS-POC-5Q 的 `PlaybackQuality.defaultIndex` 已經把偏好做成參數，R6 �
 builder、App target 串身分與取樣。
 
 刻意不做：跨裝置同步（Android 走它自己的本機 HTTP server，iOS 無等價物）、外部播放器回寫（不可能）、
-`opening`/`ending`（使用者 defer）、獨立的 progress 寫入路徑（一個 `save` 就夠）。
+`opening`/`ending`（使用者 defer；**後於 IOS-POC-5S-2 實作**）、獨立的 progress 寫入路徑（一個 `save` 就夠）。
 
 **final diff 軸。** 檢查過新增的每個 public 成員都有呼叫端（`siteName`／`remove`／`clear`／
 `canSave`／`androidKey`／`resumePosition`／`isNearEnding` 全部有）。`persist(onlyWhilePlaying:)`

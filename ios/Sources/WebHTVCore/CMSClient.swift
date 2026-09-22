@@ -273,10 +273,20 @@ struct PlayResponse: Decodable, Sendable {
     let url: PlayURL
 }
 
-public enum CMSClientError: Error, Equatable {
+/// IOS-POC-10K: same reason as `DrpyError` — without `LocalizedError` these reach the screen as
+/// `(WebHTVCore.CMSClientError error 1.)`, which tells the viewer nothing at all.
+public enum CMSClientError: Error, Equatable, LocalizedError {
     case unsupportedSiteType(Int)
     case invalidURL
     case invalidHTTPStatus(Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case .unsupportedSiteType(let type): "這個來源的類型（type \(type)）不是內建 CMS 能驅動的。"
+        case .invalidURL: "來源的位址無法解析成有效網址。"
+        case .invalidHTTPStatus(let status): "來源回應 HTTP \(status)。"
+        }
+    }
 }
 
 public struct CMSClient: Sendable {

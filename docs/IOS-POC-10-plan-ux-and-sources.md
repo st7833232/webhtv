@@ -296,3 +296,40 @@ round trip 精確。**同時接受舊的截斷值**——以 `key` 比對——�
 
 **沒抓到 HUD 這件事本身不是缺陷，是我的驗證手段有限**——`touch_path` 送出的是完整手勢，
 截圖只能在手指離開之後。真機由使用者肉眼確認。
+
+
+## 10K — 讓錯誤說人話（使用者 2026-09-22 回報）
+
+使用者在 麻豆 (js) 上看到：
+
+> 載入失敗
+> The operation couldn't be completed. (WebHTVCore.DrpyError error 0.)
+
+### 原因
+
+`DrpyError` 有 `CustomStringConvertible`，訊息寫得很好——**但畫面看的不是它**。
+`description` 是 `print` 用的；`localizedDescription` 才是螢幕用的，而 Swift **不會**把前者橋到後者。
+沒有 `LocalizedError` 就退回「模組名＋型別名＋case 序號」。
+
+`error 0` 就是第一個 case，`noRemoteConfiguration`。
+
+### 這是漏網，不是慣例
+
+盤點 core 的七個錯誤型別：`ConfigLoaderError`、`WebHomeBridgeError`、`SpiderError`、
+`PythonSpiderSource.Failure`、`SpiderPackError` **五個都已經實作 `LocalizedError`**；
+只有 `DrpyError` 與 `CMSClientError` 沒有。兩個都補上，中文，因為那是給使用者看的。
+
+**英文的 `description` 原封不動**——它進 log，而 log 用英文是這個 codebase 的慣例。
+`SpiderError` 那個 `Spider script error:` 英文前綴仍然沒動：IOS-POC-7N 已經把它記成另一件事。
+
+### 測試釘住的是什麼
+
+不是「訊息內容等於某個字串」，而是**「不再是 Swift 的通用退路」**——
+斷言 `localizedDescription` 不含 `couldn't be completed`。這個缺陷很容易重新引入而且在 code review
+裡看不出來：一個有完美 `description` 的 enum，畫面上照樣顯示 `error 0`。
+
+### 尚未查明
+
+**`noRemoteConfiguration` 為什麼會在遠端設定下發生。** 列出 drpy 站的條件就是
+`source.baseURL != nil`，所以它被列出來時來源是遠端的；到了內容呼叫卻說沒有。
+**下次再發生時畫面會直接說出原因**，這正是修這個訊息的價值。

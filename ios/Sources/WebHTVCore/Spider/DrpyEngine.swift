@@ -344,7 +344,17 @@ public enum DrpyEngine {
     }
 }
 
-public enum DrpyError: Error, Equatable, CustomStringConvertible {
+/// IOS-POC-10K: `LocalizedError`, not merely `CustomStringConvertible`.
+///
+/// `description` is what a `print` shows; `localizedDescription` is what the **screen** shows, and
+/// Swift does not bridge one to the other. Without this conformance every one of these failures
+/// reached the viewer as `The operation couldn't be completed. (WebHTVCore.DrpyError error 0.)` —
+/// a type name and a case index, which says nothing to the person holding the phone and not much
+/// more to whoever is debugging it.
+///
+/// The English `description` above is kept as it was: it goes to logs, where English is the rest
+/// of this codebase's language. The Chinese below is for the screen.
+public enum DrpyError: Error, Equatable, CustomStringConvertible, LocalizedError {
     case noRemoteConfiguration
     case unresolvable(String)
     case insecureURL(String)
@@ -372,6 +382,27 @@ public enum DrpyError: Error, Equatable, CustomStringConvertible {
             "drpy refuses \(file): expected SHA-256 \(expected), got \(actual)"
         case .notText(let file):
             "drpy refuses \(file): not valid UTF-8"
+        }
+    }
+
+    public var errorDescription: String? {
+        switch self {
+        case .noRemoteConfiguration:
+            "這個來源需要遠端設定檔：匯入的本機檔案沒有來源位址，drpy 的引擎無從載入。"
+        case .unresolvable(let reference):
+            "設定檔裡的參照無法解析：\(reference)"
+        case .insecureURL(let url):
+            "drpy 只接受 HTTPS，這個位址不是：\(url)"
+        case .crossOrigin(let url):
+            "drpy 只從設定檔自己的來源載入，這個位址不在同一個來源：\(url)"
+        case .transport(let file, let status):
+            "抓取 \(file) 失敗，伺服器回應 HTTP \(status)。"
+        case .tooLarge(let file, let bytes, let limit):
+            "\(file) 太大：\(bytes) 位元組，上限是 \(limit)。"
+        case .hashMismatch(let file, _, _):
+            "\(file) 的 SHA-256 與內建的不符，已拒絕載入。"
+        case .notText(let file):
+            "\(file) 不是文字檔，無法當成腳本執行。"
         }
     }
 }

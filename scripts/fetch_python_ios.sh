@@ -48,7 +48,20 @@ WANT_BYTES="$(field bytes)"
 RELEASE="$(field release)"
 STAMP="$DEST/.payload-sha256"
 
+prepare_module_maps() {
+  local slice headers
+  for slice in "$DEST/Python.xcframework"/ios-*; do
+    [[ -d "$slice" ]] || continue
+    headers="$slice/Python.framework/Headers/module.modulemap"
+    [[ -f "$headers" ]] || continue
+    mkdir -p "$slice/Python.framework/Modules"
+    sed 's/^module Python {/framework module Python {/' "$headers" \
+      > "$slice/Python.framework/Modules/module.modulemap"
+  done
+}
+
 if [[ $FORCE -eq 0 && -f "$STAMP" && "$(cat "$STAMP")" == "$WANT_SHA" ]]; then
+  prepare_module_maps
   printf 'fetch_python_ios: %s already present (%s)\n' "$RELEASE" "$DEST"
   exit 0
 fi
@@ -83,6 +96,7 @@ tar xzf "$TMP/payload.tar.gz" -C "$DEST"
 [[ -d "$DEST/Python.xcframework/ios-arm64/Python.framework" ]] || die "unpacked payload has no device slice"
 [[ -d "$DEST/Python.xcframework/ios-arm64_x86_64-simulator/Python.framework" ]] || die "unpacked payload has no simulator slice"
 [[ -f "$DEST/Python.xcframework/lib/python3.13/os.py" ]] || die "unpacked payload has no standard library"
+prepare_module_maps
 
 # The pure-Python wheels a spider's `import requests` needs. Same discipline as the interpreter:
 # every one pinned by size and hash in the lock, every failure closed. Nothing here compiles — the

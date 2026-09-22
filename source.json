@@ -1,0 +1,16 @@
+{
+  "name": "WebHTV SideStore Source",
+  "identifier": "com.webhtv.sidestore.source",
+  "sourceURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/source.json",
+  "apps": [
+    {
+      "name": "WebHTV",
+      "bundleIdentifier": "com.webhtv.ios.poc",
+      "developerName": "WebHTV",
+      "subtitle": "WebHTV iOS 用戶端",
+      "localizedDescription": "WebHTV 的 iOS 版本，由 SideStore 在裝置端重新簽署安裝。",
+      "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
+      "versions": []
+    }
+  ]
+}

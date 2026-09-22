@@ -205,6 +205,43 @@ private func playURL(_ value: Any?) -> [String] {
     #expect(registry.canDrive("csp_NotAThing") == false)
 }
 
+/// IOS-POC-10W: 荐片's posters must point at an image host that is actually alive, and its filter
+/// rows must survive one failed fetch.
+///
+/// Both were reported from a phone: every poster drew the placeholder film icon, and the filter
+/// rows appeared only after switching source and back. The causes are separate but share a shape —
+/// **a value taken once and never questioned**. `resourceDomainConfig` answers a *list* of image
+/// domains and the class took `[0]`; measured 2026-09-22 the first two of four did not connect at
+/// all while the last two served the same JPEG. And `cfg.filters` was fetched once in `init`, so a
+/// single flaky request cost the site its rows until `SpiderSessionStore` dropped the session.
+///
+///     CSP_GOLDEN_SITE='{"key":"薦片","name":"荐片","type":3,"api":"csp_JPianAmns",
+///       "ext":"https://raw.githubusercontent.com/…/jianpian.json"}' \
+///       swift test --package-path ios --filter jianPianPosters
+@Test func jianPianPostersResolveAndFiltersSurvive() async throws {
+    guard let site = try goldenSite(), site.api.contains("JPian") || site.api.contains("JianPian")
+    else { return }
+    let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver())
+    let home = try await client.home()
+
+    #expect(!home.filters.isEmpty, "the filter rows the category chips sit above")
+    print("[golden] 荐片 filter rows: \(home.filters.keys.sorted())")
+
+    let poster = try #require(home.list.first(where: { !$0.picture.isEmpty })?.picture)
+    let url = try #require(URL(string: poster))
+    print("[golden] 荐片 poster: \(poster)")
+
+    // The point of the fix: the address has to serve an image, not merely exist. A dead host here
+    // is what the phone was showing as a grid of placeholders.
+    var request = URLRequest(url: url)
+    request.timeoutInterval = 15
+    let (data, response) = try await URLSession.webHTV.data(for: request)
+    let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+    #expect(status == 200, "poster host \(url.host() ?? "?") answered \(status)")
+    #expect(data.count > 1000, "poster came back as \(data.count) bytes")
+    print("[golden] 荐片 poster served \(data.count) bytes from \(url.host() ?? "?")")
+}
+
 /// IOS-POC-5Q Q2, and the gate for its success condition S3: a bilibili episode must offer more
 /// than one quality, each as its own line carrying its own `qn`, best first — and the best one must
 /// actually serve bytes.

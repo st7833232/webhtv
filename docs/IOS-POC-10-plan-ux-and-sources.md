@@ -747,3 +747,77 @@ User-Agent: Mozilla/5.0 → HTTP 200  2217B  application/vnd.apple.mpegurl
 
 其他沒觀察到的：裝置上的 `search` 與 `homeVod`、麻豆是否恰好排在第 7 個。
 沒看到就是沒看到。
+
+
+## 10W — 荐片：海報全是佔位圖，篩選列要切換來源才出現（使用者 2026-09-22）
+
+兩個回報，兩個不同的缺陷，但**形狀相同：一個值取一次就再也不質疑**。
+
+### 先確定資料是對的
+
+把 `SourceClient.home()` 對 荐片 跑兩輪（`CSPSourceResolver`，與 App 同一條路）：
+
+```
+round 1: 12345ms classes=5 list=15 filterKeys=["1","2","3","4","67"] firstPic=https://img.cdgbq.com/...
+round 2: 13013ms classes=5 list=15 filterKeys=["1","2","3","4","67"] firstPic=https://img.cdgbq.com/...
+```
+
+清單的前三筆標題（欢迎来龙餐馆、奥德赛、蜘蛛侠：崭新之日）與使用者截圖**完全一致**，
+所以資料層沒問題。注意 `init` 要 **12.3 秒**——第一個 API 網域 `hzhnl.com` 根本連不上，
+探測要耗掉 10 秒才換下一個。
+
+### 缺陷一：海報指向一個死掉的圖片網域（**已證實**）
+
+`/api/v2/settings/resourceDomainConfig` 回的是一份**清單**：
+
+```
+img.cdgbq.com,img.cqkgy.com,img.cqykm.com,img.szrnp.com
+```
+
+原始 class 取 `[0]`，移植照抄。當場逐一 `curl`：
+
+| 網域 | 結果 |
+|---|---|
+| `img.cdgbq.com` | **連不上**（12 秒逾時） |
+| `img.cqkgy.com` | **連不上** |
+| `img.cqykm.com` | HTTP 200, 27934 B, `image/jpeg` |
+| `img.szrnp.com` | HTTP 200, 27934 B, `image/jpeg` |
+
+**前兩個都死了**，所以 App 拿到的每一個海報網址都指向連不上的主機，格子畫的是佔位膠卷圖示。
+**這不是正常的，是本專案的缺陷。**
+
+這個 class **本來就會**逐一探測它的 API 網域直到有人回應；圖片網域少了同一道手續。
+修法就是把同一個模式補上（`firstAnswering`），不是發明新機制。
+
+### 缺陷二：篩選列的一次性抓取，失敗就永久失效
+
+`cfg.filters` 只在 `init` 抓一次。`SpiderSessionStore` **把 session 快取到設定檔重新載入為止**
+（`sessions[site.id]`，沒有淘汰），所以**單一次失敗的請求會讓這個站在整個 session 生命週期裡都沒有篩選列**。
+使用者找到的 workaround「切換到別的站台再切回來」，正是設定檔重載後 `reset()` 丟掉 session、
+`init` 重跑一次的結果——**那個 workaround 本身就是這個根因的證據**。
+
+在 macOS 上重現不出來（`raw.githubusercontent.com` 這裡每次都秒回），
+所以沒有把「手機網路上那次抓取失敗」寫成已證實。**但「一次失敗就永久失效」這件事本身就是缺陷**，
+與是什麼導致那次失敗無關。修法：`homeContent` 發現 `cfg.filters` 還是 null 就重抓一次。
+
+### 排除掉的假設，記下來免得有人重走
+
+- **`SpiderSession.start()` 的競態**（`started = true` 寫在 `await` 之前）：實測兩個併發 `home()`
+  都拿到完整篩選列。`JavaScriptSpiderRuntime` 的 serial `DispatchQueue` 讓 `homeContent` 排在
+  `init` 後面，競態到不了。**不要去「修」那一行**。
+- **第一次 load 被取消**（SwiftUI `.task` 隨 view 重建而取消）：實測在 init 進行中取消，
+  下一次 `home()` 仍然拿到完整篩選列。
+
+### 驗證
+
+| 檢查 | 結果 |
+|---|---|
+| `jianPianPostersResolveAndFiltersSurvive`（新增，對真實來源） | **通過**：篩選列 `["1","2","3","4","67"]`，海報改指 `img.cqykm.com` 並**實際取回 27934 bytes** |
+| 全套 | **186 條，1 條失敗** |
+| 模擬器 build | BUILD SUCCEEDED |
+| 真機 build | **本輪未執行**——裝置在這一刻變成 `unavailable`（斷線），不是失敗，是沒跑 |
+
+這次失敗的是 `completesLiveCMSFlowFromProvidedConfig`，與 荐片 無關：
+它驅動 `cj.rycjapi.com`，而該站今天第一筆節目的 `vod_play_url` 是 `"$$$"`（空的），
+當場 `curl` 確認。**同一輪裡昨天失敗的 `reportsLiveType4SitesFromProvidedConfig` 反而通過了**
+——這兩條 live 測試追的是 provider 的天氣，不是本專案的狀態。

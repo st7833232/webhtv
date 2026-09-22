@@ -23,7 +23,37 @@ var spider = (function () {
   var CLASSES = [['1', '电影'], ['2', '电视剧'], ['3', '动漫'], ['4', '综艺'], ['67', '短剧']];
   var SHORT = '67';
 
-  var cfg = { url: '', img: '', filters: null };
+  var cfg = { url: '', img: '', filters: null, ext: '' };
+
+  /** Does this host answer at all? Any HTTP status does; only a transport failure is `status: 0`. */
+  function reachable(url, timeout) {
+    return host.get(url, { headers: { 'User-Agent': UA }, timeout: timeout || 5000 }).status !== 0;
+  }
+
+  /**
+   * The first entry of a comma-separated domain list **that actually answers**.
+   *
+   * IOS-POC-10W. The original takes `[0]` blindly and the port copied that. Measured 2026-09-22,
+   * `resourceDomainConfig` answered
+   * `img.cdgbq.com,img.cqkgy.com,img.cqykm.com,img.szrnp.com` and **the first two did not connect
+   * at all** while the last two served the same 27 KB JPEG — so every poster in the app was a URL
+   * pointing at a dead host, and the grid drew placeholders. The class already probes its *API*
+   * domains this way; the image list needed the same treatment and never got it.
+   */
+  function firstAnswering(list) {
+    var entries = String(list || '').split(',');
+    for (var i = 0; i < entries.length; i++) {
+      var domain = entries[i].trim();
+      if (domain && reachable('https://' + domain, 5000)) return domain;
+    }
+    return (entries[0] || '').trim();
+  }
+
+  /** The filter rows this configuration publishes beside the site, or null if they cannot be had. */
+  function fetchFilters() {
+    if (!/^https?:\/\//.test(String(cfg.ext || ''))) return null;
+    return host.get(String(cfg.ext), { timeout: 15000 }).json || null;
+  }
 
   function api(path) {
     var res = host.get(cfg.url + path, { headers: { 'User-Agent': UA }, timeout: 20000 });
@@ -60,17 +90,22 @@ var spider = (function () {
         if (host.get(candidate, { timeout: 10000 }).status === 200) { cfg.url = candidate; break; }
       }
       var settings = api('/api/v2/settings/resourceDomainConfig').data || {};
-      cfg.img = String(settings.imgDomain || '').split(',')[0];
+      cfg.img = firstAnswering(settings.imgDomain);
       // The class hard-codes its filter rows; this configuration supplies the same rows as a JSON
       // file through `ext`, so fetch that instead of carrying 4 KB of constants that would go stale.
-      if (/^https?:\/\//.test(String(extend || ''))) {
-        cfg.filters = host.get(String(extend), { timeout: 15000 }).json || null;
-      }
+      cfg.ext = String(extend || '');
+      cfg.filters = fetchFilters();
       return '';
     },
 
     homeContent: function () {
       var classes = CLASSES.map(function (c) { return { type_id: c[0], type_name: c[1] }; });
+      // Retry the rows when `init` could not get them. One failed request must not cost this site
+      // its filter rows for the whole life of the session — and it did: `SpiderSessionStore` caches
+      // a session until the configuration reloads, so a single flaky fetch of the rule file left
+      // the category chips with no rows under them until the user switched source and back. That is
+      // exactly the workaround the defect was reported with (IOS-POC-10W).
+      if (!cfg.filters) { cfg.filters = fetchFilters(); }
       return host.result.home(classes, [], cfg.filters || undefined);
     },
 
@@ -143,7 +178,7 @@ var spider = (function () {
 
     isVideoFormat: function (url) { return /\.(m3u8|mp4|mkv|flv)(\?|$)/i.test(String(url)); },
     manualVideoCheck: function () { return false; },
-    destroy: function () { cfg = { url: '', img: '', filters: null }; }
+    destroy: function () { cfg = { url: '', img: '', filters: null, ext: '' }; }
   };
 })();
 

@@ -255,7 +255,13 @@ private final class OneShotHTTPServer: @unchecked Sendable {
 @Test func listsThePortedSpiderSitesAlongsideTheNativeCMSSites() throws {
     guard let path = ProcessInfo.processInfo.environment["WANG_MOVIE_JSON"] else { return }
     let config = try JSONDecoder().decode(WebHTVConfig.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
-    let resolver = CSPSourceResolver()
+    // One registry snapshot for every count below. `SpiderRegistry.active()` reads the
+    // process-wide `InstalledSpiderPack.shared`, which `SpiderPackStore.refresh` writes — so a pack
+    // test running in parallel used to be able to change the registry *between* two of the calls
+    // here and break their relationship. Taking the snapshot once makes these counts describe one
+    // registry instead of whichever one each call happened to observe (IOS-POC-10Y).
+    let registry = SpiderRegistry.bundled()
+    let resolver = CSPSourceResolver(registry: registry)
 
     let native = config.supportedSites
     let drivable = config.drivableSites(resolvedBy: resolver)
@@ -266,7 +272,7 @@ private final class OneShotHTTPServer: @unchecked Sendable {
     // file is a 404 in the repository — a missing resource, counted here because listing is about
     // shape, and refused at session build like any other unreachable engine.
     let remote = ConfigSource.remote(URL(string: "https://example.invalid/raw/main/wang-movie.json")!)
-    let withOrigin = config.drivableSites(resolvedBy: CSPSourceResolver(source: remote))
+    let withOrigin = config.drivableSites(resolvedBy: CSPSourceResolver(registry: registry, source: remote))
     #expect(config.drpySpiderSites.count == 5)
     #expect(withOrigin.count == drivable.count + 5,
             "a remote configuration also lists the drpy sources")
@@ -296,7 +302,9 @@ private final class OneShotHTTPServer: @unchecked Sendable {
     let config = try JSONDecoder().decode(WebHTVConfig.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
     let remote = ConfigSource.remote(URL(string: "https://example.invalid/raw/main/wang-movie.json")!)
 
-    for resolver in [CSPSourceResolver(), CSPSourceResolver(source: remote)] {
+    let registry = SpiderRegistry.bundled()
+    for resolver in [CSPSourceResolver(registry: registry),
+                     CSPSourceResolver(registry: registry, source: remote)] {
         let listed = config.drivableSites(resolvedBy: resolver)
         let expected = config.sites.filter { site in listed.contains { $0.id == site.id } }
         #expect(listed.map(\.id) == expected.map(\.id),

@@ -1623,7 +1623,8 @@ private struct PlayerPickerView: View {
     /// is never created twice or seeked after it is already running.
     private var resumeTo: Double?
     private var sampler: Task<Void, Never>?
-    /// The playback speed the viewer chose, carried across an episode change (IOS-POC-14A).
+    /// The playback speed the viewer chose, carried across an episode change **of the same title**
+    /// (IOS-POC-14A, narrowed at the user's request in IOS-POC-14B).
     ///
     /// **Why the last non-zero `rate` and not `defaultRate`.** Measured on 2026-09-22:
     /// `defaultRate` survives `replaceCurrentItem` and `play()` honours it, so if AVKit's speed menu
@@ -1663,6 +1664,12 @@ private struct PlayerPickerView: View {
     /// stopped. The near-ending rule usually hides that; a source with no duration would not.
     func open(url: URL, headers: [String: String] = [:], title: String, artwork: String = "",
               history: WatchHistory? = nil, resuming: Bool = true) {
+        // The chosen speed belongs to the **title**, not to the app session (IOS-POC-14B). The
+        // history key is site plus vod, so it is exactly the identity "the same film or series" —
+        // which means a hand-picked episode carries the speed the same way an auto-advance does,
+        // while opening something else starts at 1× the way it always did. No key at all (a bare
+        // URL from the bridge) carries nothing, because there is no title to carry it within.
+        if history?.key == nil || history?.key != record?.key { chosenRate = 1 }
         items = [.init(name: "", url: url)]
         self.headers = headers
         self.title = title
@@ -1687,6 +1694,8 @@ private struct PlayerPickerView: View {
     /// Not recorded: an inline vod is a page's own playlist addressed under the pseudo-site
     /// `webhome_inline`, so it has no site or vod identity the history could be keyed on.
     func open(_ vod: WebHomeBridge.InlineVod) {
+        // A page's own playlist has no title identity the speed could belong to (IOS-POC-14B).
+        chosenRate = 1
         items = vod.items
         title = vod.title
         artwork = vod.picture

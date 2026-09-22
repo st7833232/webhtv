@@ -24,6 +24,12 @@ struct WebHTVApp: App {
         } catch {
             print("[audio] session unavailable: \(error.localizedDescription)")
         }
+        // IOS-POC-10M. IOS-POC-10L stopped this app caching HTTP responses, which leaves whatever
+        // the old configuration already wrote sitting in `Cache.db` — read by nothing, deletable
+        // by nobody short of reinstalling the app. Clearing it here hands that back rather than
+        // making it the viewer's problem. After the first launch it is a no-op, because nothing
+        // writes there any more. Only this app's own cache is touched; the sandbox sees to that.
+        URLCache.shared.removeAllCachedResponses()
         // Says out loud whether PiP can arm at all. The simulator does not implement it, so an
         // absent PiP button there is the platform rather than a defect — and without this line
         // that is a guess every time somebody looks.

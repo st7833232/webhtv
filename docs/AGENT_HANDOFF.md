@@ -229,10 +229,11 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   bridge over `WKWebView` + `WKScriptMessageHandler`** covering the network, cache, UI, navigation,
   information and playback methods on one persistent `PlaybackSession`.
 - **Not implemented:** the 23 portable-but-unported `csp_*` sites, the `Crypto`/`lxml`/`pyquery`/
-  `bs4` shims the remaining 24 Python sites need, `CatVodHost` RSA and `proxy` plumbing, the
-  configuration's `ads`/`rules` and the rest of IOS-POC-5S including opening/ending skip,
+  `bs4` shims the remaining 24 Python sites need, `CatVodHost` RSA and `proxy` plumbing,
+  IOS-POC-5S-2 opening/ending skip, IOS-POC-5S-3 config `rules` integration,
   `player.preloadArtwork`, `pan.*`, `app.open*`, `net.resourceUrl` proxying, and
-  `ui.setChrome`/`restoreChrome`.
+  `ui.setChrome`/`restoreChrome`. **The configuration's `ads` host blocking came off this list
+  in IOS-POC-5S-1**: it is implemented with a sniffer-only `WKContentRuleList`.
   **Three things came off this list and must not be written back onto it.** The Python runtime left
   on 2026-09-21 (IOS-POC-7E–7P). **The SideStore/IPA release pipeline left on 2026-09-22**
   (IOS-POC-11): the workflow, `source.json` and two published releases exist.
@@ -299,21 +300,33 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   remains the system default — reasoned from the code, not measured.
 - **The next stages, restated by the user on 2026-09-22.** ~~Python P2–P5~~ **done**
   (IOS-POC-7E–7P). ~~The CatVod JS spider contract~~ **done** (10T/10V). ~~The SideStore release
-  pipeline~~ **done** (11). **MPV is started and paused with rendering unresolved** — it is neither
-  a future stage nor a finished one, and it resumes only when the user says so, from the
-  `FILE_LOADED → VIDEO_RECONFIG` gap. **The next functional stage is IOS-POC-5S** — ads, opening and
-  ending — **and it has not started**; its first action is to measure the real shape of the
-  configuration's `ads`/`rules` and any opening/ending data against the Android contract rather than
-  guessing a schema, and the user's constraints for it are recorded in
-  `docs/current-task-state.md`. The **full real-device acceptance** remains owed. **Do not
-  prioritise XueLuo, QimaoDJ, AppDrama or any further `csp_*` class**, the Python `Crypto`/`bs4`/
-  `lxml`/`pyquery` shims, `CatVodHost` RSA/`proxy`, CarPlay, an automatic AVPlayer↔MPV fallback, or
-  any new release version; all of those stay in the backlog until the user asks.
+  pipeline~~ **done** (11). ~~IOS-POC-5S-1 ads blocking~~ **done** at `7b7ad584`, with 197 tests
+  passing. **The next functional unit is IOS-POC-5S-2 opening/ending**, followed by **5S-3 config
+  `rules` → sniffer**. After 5S, close the core real-device acceptance sufficiently to freeze the
+  product contracts, then record the **MPV keep/drop decision** for the first stable product; MPV is
+  still paused at the `FILE_LOADED → VIDEO_RECONFIG` gap and must not silently become a blocker
+  unless the user chooses to include it. Only then begin **IOS-POC-12 Runtime Architecture
+  Reconciliation**, a behaviour-preserving refactor/contract-freeze stage, followed by
+  **IOS-POC-13 Runtime Hot Update**. IOS-POC-13 owns manifest/version/hash/authenticity checks,
+  staging, atomic activation, rollback/LKG and runtime-generation isolation; it does **not** replace
+  signed Swift/native code. The detailed boundary and entry gates are in
+  `docs/IOS-POC-12-13-runtime-update-roadmap.md`. **Do not prioritise XueLuo, QimaoDJ, AppDrama or
+  any further `csp_*` class**, the Python `Crypto`/`bs4`/`lxml`/`pyquery` shims, `CatVodHost`
+  RSA/`proxy`, CarPlay, an automatic AVPlayer↔MPV fallback, or a new release version ahead of this
+  sequence unless the user explicitly changes priorities.
   **The Official/XPTV shape stopped being hypothetical on 2026-09-21**: the user settled it as the
   product — a shell that bundles no sources and takes the user's own configuration. The app already
   bundles none. What remains is a build profile, not a fork: see
   `docs/analysis/ios-app-store-readiness-research.md` for distribution and submission, and
   `docs/IOS_SPIDER_RUNTIME_SPEC.md` for which spider delivery mechanisms are code and which are data.
+- **Post-core refactor / in-app runtime update is now an explicit future roadmap, not current work.**
+  IOS-POC-12 freezes the Native Core/Dynamic Layer boundary and removes avoidable hard-coded
+  volatility from Swift without changing behaviour. IOS-POC-13 then adds the runtime updater.
+  Intended hot-update content includes compatibility packs, JS/Python source scripts, drpy/rules,
+  mappings, ads/rules data and resources; schema/data-driven UI may update only within renderers the
+  installed App already knows. Swift/SwiftUI executable behaviour, native playback/runtime code,
+  MPV/FFmpeg, CPython XCFramework/native dependencies, entitlements and Info.plist capabilities
+  still require an IPA. SideStore remains the native-App update path.
 - Per-stage records: `docs/IOS-POC-1E-config-persistence.md`, `docs/IOS-POC-1F-config-sources.md`,
   `docs/IOS-POC-2B-webhome-bridge.md`, `docs/IOS-POC-2D-webhome-bridge-ui-info.md`,
   `docs/IOS-POC-2E-webhome-bridge-playback.md`, `docs/IOS-POC-4A-type4-sources.md`,

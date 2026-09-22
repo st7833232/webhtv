@@ -10,7 +10,16 @@
       "subtitle": "WebHTV iOS 用戶端",
       "localizedDescription": "WebHTV 的 iOS 版本，由 SideStore 在裝置端重新簽署安裝。",
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
-      "versions": []
+      "versions": [
+        {
+          "version": "0.1",
+          "date": "2026-09-22",
+          "localizedDescription": "Automated SideStore release.",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1-b1/WebHTV-0.1-1.ipa",
+          "size": 24563162,
+          "minOSVersion": "17.0"
+        }
+      ]
     }
   ]
 }

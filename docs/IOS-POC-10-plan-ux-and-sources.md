@@ -886,3 +886,85 @@ img.cdgbq.com,img.cqkgy.com,img.cqykm.com,img.szrnp.com
 `InstalledSpiderPack.shared`，平行跑的 pack 測試剛好插在那兩次呼叫中間，把註冊表換掉了。
 **既有的測試隔離缺陷，被這次的時間變化照出來而已**（stash 掉本次改動重跑，186 條全過）。
 在 IOS-POC-10Y 單獨修掉。
+
+
+## 10Z — 真正的根因：`reset()` 摧毀了別人正在用的 session（使用者 2026-09-22）
+
+使用者：**「模擬器就會發生了，都需要切換來源才會出現篩選列。」**
+10W 與 10X 都沒修到這個。兩次都是我在猜成因，這次追到底。
+
+### 我先前的兩個誤判，寫下來
+
+- **10W**：以為是「一次失敗就永久失效」，加了立即重試。**幾毫秒後的重試面對同一個網路**，形狀就錯。
+- **10X**：以為是手機網路讓 `raw.githubusercontent.com` 抓不到，改成快取上次結果。
+  那個修正**本身是有價值的**（12.3 秒 → 1.5 秒，實測），但**不是這個缺陷的成因**。
+
+兩次我都沒有真的看過畫面，只看 stdout。**看到 `activeFilterRows=4` 就宣布 App 層沒問題，是錯的**
+——那一輪剛好沒踩到競態。使用者說模擬器也會，我才去截圖，一次就重現。
+
+### 追到底的過程
+
+在模擬器上逐層下探針，最後把 spider 回傳的原始 JSON 與每一個 HTTP 請求並排印出來：
+
+```
+13: [http] status=200  https://36ko2e.hzhnl.com                    ← session #1 的 init 開始
+14: [store] reset(): destroying 1 session(s)                        ← init 還在跑就被 reset
+15: [session] destroy 薦片
+16: [http] status=200  .../api/v2/settings/resourceDomainConfig     ← init 繼續
+17: [http] status=403  https://img.cqykm.com
+18: [http] status=200 bytes=16116 .../jianpian.json                 ← 規則檔抓到了
+19: [raw-home] {"class":[...],"list":[]}                            ← 卻沒有 filters
+```
+
+**規則檔 HTTP 200 抓成功，緊接著的 `homeContent` 卻沒有篩選列，而且沒有再發任何請求。**
+唯一可能是 `cfg` 在兩者之間被清空——而清空 `cfg` 的只有 `destroy()`。
+
+### 根因
+
+`destroy()` 是一個 **spider 呼叫**，每個移植的 class 都用它清掉 `init` 建立的狀態。
+`SpiderSessionStore.reset()` 會對每個快取的 session 呼叫它——**包括已經交給別人、對方還在用的那些**。
+
+`SourceClient` 拿到一個 session 之後會連續呼叫好幾次。而 `SpiderSession` 是**可重入的 actor**：
+
+```swift
+public func home(filter: Bool = true) async throws -> String {
+    try await start()                                // init 跑完，started = true
+    let home = try await runtime.homeContent(...)    // ← destroy 在這個空隙插進來
+```
+
+兩個 `await` 之間，另一個 actor method 就能執行。而啟動時的設定檔重新整理會呼叫 `reset()`，
+所以這個空隙**每次冷啟動都會被打到**。`SpiderSession.destroy()` 確實會把 `started = false`，
+但那救不了一個已經越過自己 `start()` 的呼叫。
+
+**這不是 荐片 專屬的缺陷。任何在 `init` 建立狀態的 spider 都會中**——荐片只是 `init` 最慢
+（本來 12.3 秒），所以幾乎每次都輸掉這場競賽。
+
+### 修法：刪掉那一行
+
+```swift
+public func reset() async {
+    sessions.removeAll()          // 只放手，不摧毀
+}
+```
+
+丟掉參照本來就是這個方法唯一該做的事。ARC 會在最後一個持有者放手時釋放 `JSContext`，
+那正是正確的時機——**刻意比這個方法晚**。`destroy()` 仍然保留給真正擁有 session 的呼叫端
+（`PythonLiveCheck` 就是自己建、自己銷毀，不受影響）。生產程式碼裡只有 `reset()` 會去銷毀別人的 session。
+
+### 驗證
+
+| 檢查 | 結果 |
+|---|---|
+| **模擬器冷啟動截圖** | **四列篩選（類型／地區／年代／排序）直接出現，海報也都在** |
+| `aResetDoesNotDestroyASessionItHandedOut`（新增） | 通過 |
+| 同一條測試跑在**舊行為**上 | **失敗**——spider 自己數 `destroy` 被呼叫幾次，不可能矇對 |
+| 全套 | **188 條，1 條失敗** |
+
+唯一失敗是 `reportsLiveType4SitesFromProvidedConfig`（`88看球` 今天又回網頁而非媒體位址）。
+`AGENT_HANDOFF.md` 早已註明這條依賴 provider 狀態、**不要去修**；今天稍早它還通過過一次。
+
+### 教訓
+
+**「印出來對了」不等於「畫面上對了」。** 我看到 `activeFilterRows=4` 就宣布 App 層沒問題，
+但那是一次沒踩到競態的執行。使用者說模擬器也會重現之後，**第一張截圖就推翻了我的結論**。
+有畫面可看的時候，先看畫面。

@@ -319,6 +319,49 @@ private final class OneShotHTTPServer: @unchecked Sendable {
     #expect(firstSpider < lastNative, "this configuration interleaves them; a grouped list would not")
 }
 
+/// IOS-POC-10Z: `reset()` must not `destroy()` a session somebody is still holding.
+///
+/// `destroy()` is a **spider** call, and every ported class implements it by clearing what `init`
+/// built. `SourceClient` takes a session and then makes several calls on it, and `SpiderSession` is
+/// a reentrant actor — `home()` awaits `start()` and then awaits `homeContent()`, so another
+/// actor method can run in the gap. The launch configuration refresh calls `reset()`, so that gap
+/// was being hit routinely.
+///
+/// Traced on the simulator with 荐片: `init` began, `reset()` ran while it was still fetching, the
+/// runtime's serial queue put `destroy` between `init` and `homeContent`, and `homeContent`
+/// answered from a cleared state — **no filter rows, right after a rule-file fetch that had
+/// returned HTTP 200**. Switching source and back appeared to fix it only because the replacement
+/// session had no reset racing it. `SpiderSession.destroy()` does set `started = false`, but that
+/// cannot rescue a call already past its own `start()`.
+///
+/// Asserted as the invariant rather than by re-running the race: a reset does not destroy what it
+/// handed out. The spider counts the calls, so this cannot pass by accident.
+@Test func aResetDoesNotDestroyASessionItHandedOut() async throws {
+    let script = """
+    var destroys = 0;
+    module.exports = {
+      init: function () {},
+      homeContent: function () { return JSON.stringify({ destroys: destroys }); },
+      destroy: function () { destroys = destroys + 1; }
+    };
+    """
+    let registry = SpiderRegistry(entries: ["Probe": .init(script: script, portability: .httpJSON,
+                                                           origin: "test", source: .bundled)],
+                                  prelude: SpiderRegistry.bundled().prelude)
+    let site = try JSONDecoder().decode(Site.self, from: Data(
+        #"{"key":"probe","name":"probe","type":3,"api":"csp_Probe","ext":null}"#.utf8))
+    let store = SpiderSessionStore()
+    let held = try await store.session(for: site, resolver: CSPSourceResolver(registry: registry))
+
+    await store.reset()
+
+    #expect(try await held.home().contains(#""destroys":0"#),
+            "the reset destroyed a session its caller was still using")
+    // And the store really did drop it, which is what reset is actually for.
+    let replacement = try await store.session(for: site, resolver: CSPSourceResolver(registry: registry))
+    #expect(replacement !== held)
+}
+
 /// Sweeps **every source the app lists** — native CMS and ported spider alike — through
 /// `SourceClient`, the same path the app itself uses, and reports where each one stops.
 ///

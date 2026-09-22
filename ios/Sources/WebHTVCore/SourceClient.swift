@@ -236,9 +236,24 @@ public actor SpiderSessionStore {
 
     /// Drops every cached session. This reclaims the sessions a reloaded configuration orphaned; it
     /// is not what makes the reload correct — the cache key already is.
+    ///
+    /// **It must not `destroy()` them, and used to (IOS-POC-10Z).** A caller that already holds a
+    /// session goes on using it: `SourceClient` takes one, then calls `home()`, `category()` and the
+    /// rest on that value. The launch configuration refresh calls this method, so a reset routinely
+    /// lands in the middle of somebody's first listing — and `destroy()` is a **spider** call, which
+    /// every ported class implements by clearing the state `init` just built.
+    ///
+    /// Traced on the simulator, 荐片: `init` began, `reset()` ran while it was still fetching, the
+    /// serial queue put `destroy` between `init` and `homeContent`, and `homeContent` then answered
+    /// from a wiped `cfg` — no filter rows, after a rule-file fetch that had returned HTTP 200. The
+    /// screen showed category chips with nothing under them, and switching source and back "fixed"
+    /// it only because the second session had no reset racing it. Any spider that keeps state in
+    /// `init` could lose it the same way; JianPian was merely the one slow enough to lose the race
+    /// nearly every launch.
+    ///
+    /// Dropping the references is all this ever needed to do. ARC frees the `JSContext` when the
+    /// last holder lets go, which is exactly the right moment — later than this method, on purpose.
     public func reset() async {
-        let live = sessions.values
         sessions.removeAll()
-        for session in live { await session.destroy() }
     }
 }

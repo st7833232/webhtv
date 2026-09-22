@@ -113,29 +113,39 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
 
 - Objective: continue the iPhone WebHomeTV port with the user's Recha `wang-movie.json`. The Google
   TV `csp_JPianAmns` repair is explicitly not active.
-- **Branch `ios-poc`, HEAD `20c4bd53`, worktree clean, and `git rev-list --left-right --count
-  origin/ios-poc...ios-poc` answered `0 0` on 2026-09-22** — level with the remote. The branch was
-  pushed twice that day at the user's explicit instruction, and the release workflow pushed
-  `source.json` itself; no recovery tag was created, and recovery tags have been opt-in since
+- **Branch `ios-poc`, HEAD `616e182e`, worktree clean, and `git rev-list --left-right --count
+  origin/ios-poc...ios-poc` answered `0 1` on 2026-09-22** — one commit ahead. The branch has been
+  pushed several times that day, each at the user's explicit instruction, and the release workflow
+  pushes `source.json` itself; no recovery tag was created, and recovery tags have been opt-in since
   2026-09-16. The only tags on this line are the release ones the workflow makes.
-  **Do not trust the id in this line.** It has been stale at `2a177f50`, `bb965dda`, `7653a9fb` and
-  `a076ab51` before; run `git log` and the `rev-list` above on resume instead of reading it here.
-- **Re-measured at `20c4bd53` on 2026-09-22 (IOS-POC-11B), every number taken in that session:**
-  `swift test --package-path ios` → **188 tests, one failing**. `xcodebuild … -scheme WebHTVApp
+  **Do not trust the id in this line.** It has been stale at `2a177f50`, `bb965dda`, `7653a9fb`,
+  `a076ab51` and `20c4bd53` before; run `git log` and the `rev-list` above on resume instead of
+  reading it here.
+- **Re-measured at `616e182e` on 2026-09-22 (IOS-POC-11F), every number taken in that session:**
+  `swift test --package-path ios` → **203 tests, all pass**. `xcodebuild … -scheme WebHTVApp
   -destination 'platform=iOS Simulator,id=7B4E9557-4774-4EB9-B408-BB544DCC8657' -configuration Debug
-  build` → **BUILD SUCCEEDED**, and so did the iPhone 18 Pro (`00008160-00124C8200214036`) with
-  `DEVELOPMENT_TEAM=764SVXY2B7 CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates`.
-  **The destination must be an id now**: an iOS 27.0 runtime appeared on this machine, so
+  build` → **BUILD SUCCEEDED**. **No device build**: the iPhone 18 Pro reported `unavailable`, and
+  the user installs through SideStore now, so a build reaches the phone as a published IPA.
+  **The destination must be an id**: an iOS 27.0 runtime appeared on this machine, so
   `name=iPhone 17 Pro` matches two devices and xcodebuild refuses to choose.
-  **The failing one is `reportsLiveType4SitesFromProvidedConfig`, and it is not to be "fixed"** —
-  it depends on 88看球's state, which today answers with an embed page rather than a media address.
-  Confirmed pre-existing by stashing the day's changes and re-running at an earlier HEAD; it also
-  passed earlier the same day. Earlier revisions of this line read "151 tests, all pass" and then
-  "185 tests, one failing"; both are superseded.
-- **The current release is `WebHTV 0.1.1 (2)`**, tag `ios-v0.1.1-b2`, built unsigned by the workflow
-  and re-signed on the device by SideStore. **`0.1 (1)` is not current.** The Xcode project carries
-  `MARKETING_VERSION = 0.1.1` and `CURRENT_PROJECT_VERSION = 2`, so the workflow's blank-input
-  default resolves to the version actually published.
+  **Two live tests are weather, not gates.** `reportsLiveType4SitesFromProvidedConfig` and
+  `completesLiveCMSFlowFromProvidedConfig` have each failed and passed on the same day — one of them
+  with a TLS error `curl` could not reproduce a minute later. **Neither is to be "fixed."**
+  Earlier revisions of this line read "151 tests, all pass", "185 tests, one failing" and
+  "188 tests, one failing"; all are superseded.
+- **The current release is `WebHTV 0.1.4 (5)`**, tag `ios-v0.1.4-b5`, built unsigned by the workflow
+  from `81eef32f` and re-signed on the device by SideStore. **`0.1 (1)`, `0.1.1 (2)`, `0.1.2 (3)` and
+  `0.1.3 (4)` are all superseded.** The Xcode project carries `MARKETING_VERSION = 0.1.4` and
+  `CURRENT_PROJECT_VERSION = 5`, so the workflow's blank-input default resolves to the version
+  actually published. **Do not install to the device directly** — produce an IPA, or trigger
+  `ios-sidestore-release.yml` once the user authorises it.
+- **An episode that ends starts the next one since IOS-POC-14, and the user confirmed it on the
+  device.** `PlaybackSession.finished()` always advanced; the app's own path opens one resolved
+  address, so there was never a next item to reach — while the WebHome bridge's inline playlist did
+  advance. A season cannot be resolved up front, so the detail screen keeps the list and the player
+  asks. The playback speed carries **within one title** (14A/14B), keyed on `WatchHistory.key`, so
+  switching source resets it — a decision the user took rather than a gap (14C). Subtitle and audio
+  tracks are deliberately not carried. `docs/IOS-POC-14-autoplay-next-episode.md`.
 - **The app lists 62 of 167 sources from an imported file and 109 from a remote URL.** The 62 are
   30 native (2 type-0, 22 type-1, 6 type-4) and 32 `csp_*` spider. A remote configuration adds the
   5 drpy sources, which need the configuration's own origin to load their engine from, and — since
@@ -275,7 +285,9 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   confirmed two fixes); on 2026-09-21 the user moved to a **new iPhone 18 Pro**
   (`00008160-00124C8200214036`), where IOS-POC-9F started CPython and libmpv; and on 2026-09-22 the
   user confirmed **麻豆(js) listed and playing** (10V) and **荐片's filter rows on a cold start**
-  from a SideStore install of `0.1.1 (2)`. The earlier device now reports `unavailable`.
+  from a SideStore install of `0.1.1 (2)`, and **an episode that ends starting the next one** from a
+  `0.1.2 (3)` install (IOS-POC-14). The device reports `unavailable` between sessions, which is
+  normal now that the user installs through SideStore rather than over a cable.
   **Still owed before this can be called an acceptance:** CMS browsing and playback, a `csp_*`
   source, a drpy source, Bili's `Referer` + browser `User-Agent` through `AVPlayer`, whether
   `AVURLAssetHTTPHeaderFieldsKey` works on a device at all, WatchHistory and resume, opening
@@ -300,9 +312,16 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   remains the system default — reasoned from the code, not measured.
 - **The next stages, restated by the user on 2026-09-22.** ~~Python P2–P5~~ **done**
   (IOS-POC-7E–7P). ~~The CatVod JS spider contract~~ **done** (10T/10V). ~~The SideStore release
-  pipeline~~ **done** (11). ~~IOS-POC-5S-1 ads blocking~~ **done** at `7b7ad584`, with 197 tests
-  passing. **The next functional unit is IOS-POC-5S-2 opening/ending**, followed by **5S-3 config
-  `rules` → sniffer**. After 5S, close the core real-device acceptance sufficiently to freeze the
+  pipeline~~ **done** (11). ~~IOS-POC-5S-1 ads blocking~~ **done** and released.
+  ~~IOS-POC-14 auto-advance~~ **done, and confirmed on the device by the user**, with the playback
+  speed carried within one title (14A/14B).
+  **The next functional unit is IOS-POC-5S-2 opening/ending**, followed by **5S-3 config
+  `rules` → sniffer**. Two things the 5S-1 measurement settled and that 5S-2/5S-3 must not
+  re-litigate: **the m3u8 ad-stripping rules in the configuration have no consumer in this Android
+  app at all** — `Rule.getRegex/getExclude/getScript` is read only by `Sniffer` — so there is no
+  contract to port and inventing one is forbidden; and **opening/ending are not in the configuration**
+  but in `History` as user-set millisecond offsets, consumed in exactly two places
+  (`position = max(opening, position)` and `ending + position >= duration → checkEnded`). After 5S, close the core real-device acceptance sufficiently to freeze the
   product contracts, then record the **MPV keep/drop decision** for the first stable product; MPV is
   still paused at the `FILE_LOADED → VIDEO_RECONFIG` gap and must not silently become a blocker
   unless the user chooses to include it. Only then begin **IOS-POC-12 Runtime Architecture

@@ -32,7 +32,7 @@
 
 ## Recovery anchor
 
-- 狀態：完成，且已發過兩個版本。
+- 狀態：完成，且已發過**五個**版本，最新是 `0.1.4 (5)`。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
 - 發布結果：`WebHTV-0.1-1.ipa`，24,563,162 bytes，GitHub asset SHA-256 `fcbf1531d9480f678ee0fac7ec5ce49010f3de51fc11b79f0ba88372e85812ed`；IPA plist 為 `com.webhtv.ios.poc`、`0.1`、build `1`、minimum iOS `17.0`。
@@ -55,3 +55,21 @@
   `com.webhtv.ios.poc`；`JianPian.js` 與 `js-spider.js` 與 HEAD **逐位元組相同**。
 - 使用者以 SideStore 安裝此版並確認荐片冷啟動即有篩選列。
 - **自 2026-09-22 起，不要直接把 App 裝到使用者手機**；需要上機時產 IPA 或在授權後觸發此 workflow。
+
+## 後續版本（2026-09-22）
+
+每一版都是 `workflow_dispatch`，帶明確的 version／build／中文 release notes，並在觸發前把
+`project.pbxproj` 的 `MARKETING_VERSION`／`CURRENT_PROJECT_VERSION` 一併改掉——
+否則 workflow 的「輸入留空就讀專案值」會指向一個已經發布過的版號。
+
+| 版本 | tag | build 自 | 內容 | 大小 |
+|---|---|---|---|---:|
+| `0.1.2 (3)` | `ios-v0.1.2-b3` | `98d4ecfb` | 5S-1 廣告封鎖、IOS-POC-14 自動接下一集 | 24,576,193 |
+| `0.1.3 (4)` | `ios-v0.1.3-b4` | `0ab59ecf` | 換集沿用播放速度（當時是跨影片沿用） | 24,576,894 |
+| `0.1.4 (5)` | `ios-v0.1.4-b5` | `81eef32f` | 播放速度收窄成只在同一部片內沿用 | 24,577,093 |
+
+每一版都**下載回來驗過** `Info.plist` 的版本與 build 號；`0.1.2` 另外確認了
+`AdBlockList` 型別與 `ContentRuleList` 參照確實在二進位裡。
+
+**使用者已確認**：`0.1.2 (3)` 的自動接下一集在真機上可用。
+**尚未確認**：廣告封鎖在 App 裡真的擋到東西、播放速度是否跟著換集。

@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.3",
+          "date": "2026-09-22",
+          "localizedDescription": "換下一集時沿用剛才選的播放速度。原本每換一集都會回到 1 倍，因為換片源時播放速度會被重置，而一集播完時速度早已歸零、來不及讀取。\n\n字幕與音軌不會沿用：那是針對單一影片檔的選擇，下一集的軌道編號與語言標記不保證對得上，選錯軌比回到預設更糟。\n\n播放速度目前是跨影片沿用，不只跨集。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.3-b4/WebHTV-0.1.3-4.ipa",
+          "size": 24576894,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.2",
           "date": "2026-09-22",
           "localizedDescription": "一集播完會自動接著播下一集；整條線播完後播放器會自己關閉。原本 App 自己的播放路徑只交出單一位址，所以續播永遠無事可做。外部播放器沒有這個行為，因為 URL scheme 沒有回程。\n\n依設定檔的 ads 清單，在嗅探網頁時阻擋已知的廣告與分析主機請求。使用宣告式的系統封鎖器，不刪 DNS 節點、不做猜測式辨識、不改動 m3u8。要嗅探的頁面本身永遠不會被規則擋掉，規則也只作用在嗅探用的網頁檢視。\n\n切換設定檔時，廣告規則會跟著切換，不會沿用前一份設定檔的。",

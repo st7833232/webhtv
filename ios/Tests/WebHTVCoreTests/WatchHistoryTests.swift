@@ -194,8 +194,10 @@ private func record(_ vodId: String, siteKey: String = "s", siteID: String = "s\
     #expect(item["wallPic"] as? String == "")
     #expect(item["revSort"] as? Bool == false)
     #expect(item["revPlay"] as? Bool == false)
-    #expect(item["opening"] as? Int == 0)
-    #expect(item["ending"] as? Int == 0)
+    // Unset stays zero, which is what a page written against Android's `C.TIME_UNSET` already
+    // reads as unset. `openingAndEndingReachAppHistory` below covers the set case.
+    #expect(item["opening"] as? Double == 0)
+    #expect(item["ending"] as? Double == 0)
     #expect(item["cid"] as? Int == 0)
     // `quality` has no Android counterpart and must not leak into a reproduction of its payload.
     #expect(item["quality"] == nil)
@@ -223,5 +225,263 @@ private func record(_ vodId: String, siteKey: String = "s", siteID: String = "s\
         let one = record(key: "k", sourceID: "https://a.example/c.json")
         let data = try JSONEncoder().encode(one)
         #expect(try JSONDecoder().decode(WatchHistory.self, from: data).sourceID == "https://a.example/c.json")
+    }
+}
+
+// MARK: - IOS-POC-5S-2: the opening and the ending
+
+/// The viewer's own millisecond offsets, ported from `History.opening` / `History.ending` and the
+/// four places `VideoActivity` and `PlayerManager` consume them. Nothing here comes from the
+/// configuration: IOS-POC-5S measured `ads` and `rules` and neither carries an intro or an outro.
+@Suite struct WatchHistoryOpeningEndingTests {
+    private func watched(opening: Double? = nil, ending: Double? = nil,
+                         position: Double = 60_000, duration: Double = 2_400_000) -> WatchHistory {
+        WatchHistory(key: "k", siteKey: "s", vodId: "v",
+                     position: position, duration: duration, opening: opening, ending: ending)
+    }
+
+    // MARK: Migration
+
+    @Test func aHistoryFileWrittenBeforeTheseFieldsStillDecodes() throws {
+        // Byte for byte the shape already on people's phones. The synthesized `Codable` throws
+        // `keyNotFound` on a missing non-optional, and `WatchHistoryStore` reads a throw as "no
+        // history at all" — so this assertion is the difference between adding two fields and
+        // deleting somebody's viewing record.
+        let legacy = #"{"key":"k","siteKey":"s","siteName":"","vodId":"v","vodName":"","vodPic":"","vodFlag":"","vodRemarks":"","episodeUrl":"","quality":"","position":44292,"duration":2796399,"createTime":1}"#
+        let decoded = try JSONDecoder().decode(WatchHistory.self, from: Data(legacy.utf8))
+        #expect(decoded.opening == nil)
+        #expect(decoded.ending == nil)
+        #expect(decoded.openingOffset == 0)
+        #expect(decoded.endingOffset == 0)
+        // Everything the record already carried survives untouched.
+        #expect(decoded.position == 44292)
+        #expect(decoded.duration == 2796399)
+    }
+
+    @Test func aWholeLegacyListStillDecodes() throws {
+        // The store decodes `[WatchHistory]`, not one record, and one throw loses the whole file.
+        let legacy = #"[{"key":"a","siteKey":"s","siteName":"","vodId":"1","vodName":"","vodPic":"","vodFlag":"","vodRemarks":"","episodeUrl":"","quality":"","position":1,"duration":2,"createTime":1},{"key":"b","siteKey":"s","siteName":"","vodId":"2","vodName":"","vodPic":"","vodFlag":"","vodRemarks":"","episodeUrl":"","quality":"","position":3,"duration":4,"createTime":2}]"#
+        let decoded = try JSONDecoder().decode([WatchHistory].self, from: Data(legacy.utf8))
+        #expect(decoded.count == 2)
+        #expect(decoded.allSatisfy { $0.opening == nil && $0.ending == nil })
+    }
+
+    @Test func bothFieldsRoundTripThroughTheStore() async throws {
+        let (store, _) = try scratchStore("op-ed")
+        await store.save(watched(opening: 91_000, ending: 45_000))
+
+        let saved = try #require(await store.record(forKey: "k"))
+        #expect(saved.opening == 91_000)
+        #expect(saved.ending == 45_000)
+        #expect(saved.openingOffset == 91_000)
+        #expect(saved.endingOffset == 45_000)
+    }
+
+    // MARK: The start position — `VideoActivity.setPosition()`
+
+    @Test func theOpeningWinsWhenItIsPastWhereTheViewerStopped() {
+        // `max(getOpening(), getPosition())`. Watched 60 s in, opening marked at 91 s.
+        #expect(watched(opening: 91_000, position: 60_000).startPosition() == 91_000)
+    }
+
+    @Test func whereTheViewerStoppedWinsWhenItIsPastTheOpening() {
+        #expect(watched(opening: 91_000, position: 600_000).startPosition() == 600_000)
+    }
+
+    @Test func anUnsetOpeningChangesNothingAboutResuming() {
+        let record = watched(position: 600_000)
+        #expect(record.startPosition() == record.resumePosition)
+        #expect(record.startPosition() == 600_000)
+        // And under D4's ten-second floor the answer is still "from the beginning".
+        #expect(watched(position: 4_000).startPosition() == 0)
+        #expect(watched(position: 4_000).resumePosition == nil)
+    }
+
+    @Test func aNegativeOrNonFiniteOpeningIsIgnoredRatherThanSeekedTo() {
+        #expect(watched(opening: -5_000, position: 600_000).startPosition() == 600_000)
+        #expect(watched(opening: .nan, position: 4_000).startPosition() == 0)
+        #expect(watched(opening: .infinity, position: 4_000).startPosition() == 0)
+    }
+
+    @Test func theNextEpisodeTakesTheOpeningButNotThePreviousEpisodePosition() {
+        // IOS-POC-14: one record covers a whole title, so an auto-advance must not resume into the
+        // new episode — but the opening belongs to the title and still applies.
+        let record = watched(opening: 91_000, position: 600_000)
+        #expect(record.startPosition(resuming: false) == 91_000)
+        #expect(watched(position: 600_000).startPosition(resuming: false) == 0)
+    }
+
+    @Test func aTitleWatchedToTheEndReplaysFromItsOpening() {
+        // `isNearEnding` kills the resume; the opening is all that is left, exactly as Android's
+        // `setPosition` computes it after `resetPlaybackPosition`.
+        let record = watched(opening: 91_000, position: 2_395_000, duration: 2_400_000)
+        #expect(record.isNearEnding)
+        #expect(record.resumePosition == nil)
+        #expect(record.startPosition() == 91_000)
+    }
+
+    // MARK: The ending — `VideoActivity.onTimeChanged()`
+
+    @Test func theEndingFiresOnAndroidsOwnFormula() {
+        // `ending + position >= duration`: 45 s of ending on a 40-minute episode means 39:15.
+        let record = watched(ending: 45_000, duration: 2_400_000)
+        #expect(record.hasReachedEnding(position: 2_354_000, duration: 2_400_000) == false)
+        #expect(record.hasReachedEnding(position: 2_355_000, duration: 2_400_000))
+        #expect(record.hasReachedEnding(position: 2_399_000, duration: 2_400_000))
+    }
+
+    @Test func anUnsetEndingNeverFires() {
+        #expect(watched().hasReachedEnding(position: 2_399_999, duration: 2_400_000) == false)
+        #expect(watched(ending: 0).hasReachedEnding(position: 2_399_999, duration: 2_400_000) == false)
+        #expect(watched(ending: -45_000).hasReachedEnding(position: 2_399_999, duration: 2_400_000) == false)
+    }
+
+    @Test func anUnknownDurationNeverFires() {
+        // A live stream reports no runtime, and `PlaybackSession.milliseconds` answers 0 for a
+        // non-finite `CMTime`. Without an end there is nothing to measure the ending back from.
+        let record = watched(ending: 45_000)
+        #expect(record.hasReachedEnding(position: 600_000, duration: 0) == false)
+        #expect(record.hasReachedEnding(position: 600_000, duration: -1) == false)
+        #expect(record.hasReachedEnding(position: 0, duration: 0) == false)
+    }
+
+    // MARK: Marking — `PlayerManager.canSetOpening` / `canSetEnding`, `Constant.getOpEdLimit`
+
+    @Test func theMarkableWindowFollowsTheRuntime() {
+        #expect(WatchHistory.openingEndingLimit(duration: 10 * 60_000) == 3 * 60_000)
+        #expect(WatchHistory.openingEndingLimit(duration: 20 * 60_000) == 6 * 60_000)
+        #expect(WatchHistory.openingEndingLimit(duration: 40 * 60_000) == 10 * 60_000)
+
+        // A 40-minute episode: an opening may be marked in the first ten minutes, and an ending in
+        // the last ten.
+        #expect(WatchHistory.canSetOpening(position: 91_000, duration: 2_400_000))
+        #expect(WatchHistory.canSetOpening(position: 1_200_000, duration: 2_400_000) == false)
+        #expect(WatchHistory.canSetEnding(position: 2_355_000, duration: 2_400_000))
+        #expect(WatchHistory.canSetEnding(position: 1_200_000, duration: 2_400_000) == false)
+        // Nothing is markable before playback has a position or a runtime.
+        #expect(WatchHistory.canSetOpening(position: 0, duration: 2_400_000) == false)
+        #expect(WatchHistory.canSetEnding(position: 91_000, duration: 0) == false)
+    }
+
+    // MARK: Clamping
+
+    @Test func anOpeningCannotBeMarkedPastTheEnd() {
+        // Android floors at zero and never caps, so holding its remote's up key walks the opening
+        // past the runtime and `setPosition` then seeks beyond the end.
+        var record = watched(duration: 2_400_000)
+        record.setOpening(9_999_000, duration: 2_400_000)
+        #expect(record.openingOffset == 2_400_000)
+        #expect(record.startPosition() == 2_400_000)
+    }
+
+    @Test func anEndingCannotEatTheOpening() {
+        // `duration - ending` must stay above the opening, or the episode would skip the instant it
+        // started.
+        var record = watched(opening: 91_000, duration: 2_400_000)
+        record.setEnding(9_999_000, duration: 2_400_000)
+        #expect(record.endingOffset == 2_400_000 - 91_000)
+        #expect(record.hasReachedEnding(position: 91_000, duration: 2_400_000))
+        #expect(record.hasReachedEnding(position: 90_999, duration: 2_400_000) == false)
+    }
+
+    @Test func anOpeningCannotBeMarkedInsideTheEnding() {
+        var record = watched(ending: 45_000, duration: 2_400_000)
+        record.setOpening(2_400_000, duration: 2_400_000)
+        #expect(record.openingOffset == 2_400_000 - 45_000)
+    }
+
+    @Test func bothClampAtZeroTheWayAndroidsResetDoes() {
+        // `max(0, max(0, opening) - 1000)` from the last second, and the reset button's plain 0.
+        var record = watched(opening: 500, ending: 500, duration: 2_400_000)
+        record.setOpening(record.openingOffset - 1000, duration: 2_400_000)
+        record.setEnding(record.endingOffset - 1000, duration: 2_400_000)
+        #expect(record.openingOffset == 0)
+        #expect(record.endingOffset == 0)
+        #expect(record.startPosition(resuming: false) == 0)
+        #expect(record.hasReachedEnding(position: 2_399_999, duration: 2_400_000) == false)
+    }
+
+    @Test func anUnknownRuntimeClampsOnlyAtZero() {
+        // The runtime is not known while the item is still loading, and refusing the edit outright
+        // would lose it. The ceiling arrives with the duration on the next write.
+        var record = watched(duration: 0)
+        record.setOpening(91_000, duration: 0)
+        record.setEnding(-1, duration: 0)
+        #expect(record.openingOffset == 91_000)
+        #expect(record.endingOffset == 0)
+    }
+
+    @Test func aNonFiniteEditIsRefusedRatherThanStored() {
+        var record = watched(duration: 2_400_000)
+        record.setOpening(.nan, duration: 2_400_000)
+        record.setEnding(.infinity, duration: .nan)
+        #expect(record.openingOffset == 0)
+        #expect(record.endingOffset == 0)
+    }
+
+    // MARK: Nothing crosses a title, an episode or a source
+
+    @Test func theSettingsBelongToOneRecordAndDoNotCrossToAnother() async throws {
+        // `WatchHistory.key` is `Site.id` plus vod, so two titles, two providers of the same title,
+        // or the same title on two configurations are different records — and the store is keyed on
+        // exactly that. A second title must read its own zero, not the first one's 91 s.
+        let (store, _) = try scratchStore("op-ed-isolation")
+        await store.save(WatchHistory(key: WatchHistory.key(siteID: "siteA", vodId: "1"),
+                                      siteKey: "a", sourceID: "configA", vodId: "1",
+                                      position: 60_000, duration: 2_400_000,
+                                      opening: 91_000, ending: 45_000))
+        await store.save(WatchHistory(key: WatchHistory.key(siteID: "siteB", vodId: "1"),
+                                      siteKey: "b", sourceID: "configB", vodId: "1",
+                                      position: 60_000, duration: 2_400_000))
+
+        let first = try #require(await store.record(forKey: WatchHistory.key(siteID: "siteA", vodId: "1")))
+        let second = try #require(await store.record(forKey: WatchHistory.key(siteID: "siteB", vodId: "1")))
+        #expect(first.openingOffset == 91_000)
+        #expect(first.endingOffset == 45_000)
+        #expect(second.openingOffset == 0)
+        #expect(second.endingOffset == 0)
+        #expect(second.startPosition(resuming: false) == 0)
+    }
+
+    @Test func oneRecordCoversEveryEpisodeAndLineOfItsTitle() async throws {
+        // Switching episode or line inside a title keeps the key, so the setting follows the viewer
+        // from 第1集 to 第2集 — the Android behaviour, and the reason the record is not keyed on the
+        // episode. The upsert that records 第2集 must not drop what 第1集 set.
+        let (store, _) = try scratchStore("op-ed-episodes")
+        let key = WatchHistory.key(siteID: "siteA", vodId: "1")
+        await store.save(WatchHistory(key: key, siteKey: "a", vodId: "1", vodFlag: "普快线路",
+                                      vodRemarks: "01", position: 60_000, duration: 2_400_000,
+                                      opening: 91_000, ending: 45_000))
+
+        // What the detail screen would hand over for the next episode: the same key, a fresh
+        // template with neither field set.
+        var next = WatchHistory(key: key, siteKey: "a", vodId: "1", vodFlag: "极速线路",
+                                vodRemarks: "02", position: 7_000, duration: 2_400_000)
+        let stored = try #require(await store.record(forKey: key))
+        next.opening = stored.opening
+        next.ending = stored.ending
+        await store.save(next)
+
+        let after = try #require(await store.record(forKey: key))
+        #expect(after.vodRemarks == "02")
+        #expect(after.vodFlag == "极速线路")
+        #expect(after.openingOffset == 91_000)
+        #expect(after.endingOffset == 45_000)
+    }
+
+    // MARK: The payload
+
+    @Test func openingAndEndingReachAppHistory() throws {
+        // Android declares both fields, so filling them in is completing its payload rather than
+        // extending it with something iOS invented.
+        let text = WebHomeBridge.historyText([watched(opening: 91_000, ending: 45_000)])
+        let items = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [[String: Any]])
+        let item = try #require(items.first)
+        #expect(item["opening"] as? Double == 91_000)
+        #expect(item["ending"] as? Double == 45_000)
+        // A value that was never set reads zero rather than a negative sentinel.
+        let bare = WebHomeBridge.historyText([watched(opening: -1)])
+        let bareItems = try #require(try JSONSerialization.jsonObject(with: Data(bare.utf8)) as? [[String: Any]])
+        #expect(bareItems.first?["opening"] as? Double == 0)
     }
 }

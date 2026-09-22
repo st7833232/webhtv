@@ -113,15 +113,20 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
 
 - Objective: continue the iPhone WebHomeTV port with the user's Recha `wang-movie.json`. The Google
   TV `csp_JPianAmns` repair is explicitly not active.
-- **Branch `ios-poc`, HEAD `616e182e`, worktree clean, and `git rev-list --left-right --count
-  origin/ios-poc...ios-poc` answered `0 1` on 2026-09-22** — one commit ahead. The branch has been
-  pushed several times that day, each at the user's explicit instruction, and the release workflow
-  pushes `source.json` itself; no recovery tag was created, and recovery tags have been opt-in since
-  2026-09-16. The only tags on this line are the release ones the workflow makes.
+- **Branch `ios-poc`. At the start of IOS-POC-5S-2 on 2026-09-22 the base HEAD was `eba5346c`, the
+  worktree was clean, and `git rev-list --left-right --count HEAD...origin/ios-poc` answered `0 0`** —
+  level with the remote. The branch has been pushed several times that day, each at the user's
+  explicit instruction, and the release workflow pushes `source.json` itself; no recovery tag was
+  created, and recovery tags have been opt-in since 2026-09-16. The only tags on this line are the
+  release ones the workflow makes.
   **Do not trust the id in this line.** It has been stale at `2a177f50`, `bb965dda`, `7653a9fb`,
-  `a076ab51` and `20c4bd53` before; run `git log` and the `rev-list` above on resume instead of
-  reading it here.
-- **Re-measured at `616e182e` on 2026-09-22 (IOS-POC-11F), every number taken in that session:**
+  `a076ab51`, `20c4bd53` and `616e182e` before, and a handoff arriving with **`035ad0bf` as "the
+  latest on GitHub" was sixteen commits behind** — that commit is the roadmap-only one, an ancestor
+  rather than the tip. Run `git log` and the `rev-list` above on resume instead of reading it here.
+- **Re-measured at `eba5346c` on 2026-09-22 (IOS-POC-5S-2):** `swift test --package-path ios` →
+  **225 tests, all pass**, and the simulator Debug build succeeds. The 22 new ones are 5S-2's;
+  **203 and 197 are both superseded.**
+- **Measured earlier the same day at `616e182e` (IOS-POC-11F):**
   `swift test --package-path ios` → **203 tests, all pass**. `xcodebuild … -scheme WebHTVApp
   -destination 'platform=iOS Simulator,id=7B4E9557-4774-4EB9-B408-BB544DCC8657' -configuration Debug
   build` → **BUILD SUCCEEDED**. **No device build**: the iPhone 18 Pro reported `unavailable`, and
@@ -183,6 +188,22 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   otherwise. `Bili` expresses its qualities as **one line per quality**, because every `qn` costs its
   own `playurl` call. No configured source returns a `url` array, so the menu has never been
   triggered by real data. `docs/IOS-POC-5Q-playback-quality.md`.
+- **The viewer can set an opening and an ending since IOS-POC-5S-2.** They are `History.opening` /
+  `History.ending` — **millisecond offsets the viewer sets themselves, not anything in the
+  configuration**: IOS-POC-5S measured `ads` and `rules` and neither carries an intro or an outro,
+  and the nine m3u8 ad-stripping regexes in `wang-sex.json` have no consumer in the Android app at
+  all. They live on the existing `WatchHistory` as **optional** `Double` milliseconds, because the
+  synthesized `Codable` throws `keyNotFound` on a missing non-optional and the store reads a throw as
+  "no history" — the same `?` `sourceID` carries, and the reason nobody's records are lost. Playback
+  starts at `max(opening, resume)`, and `ending + position >= duration` hands off through the
+  **existing** `finished()` path on the **existing** five-second sampler, so there is no second
+  playback state and no second ended pipeline. One record covers a whole title, so the setting
+  follows the viewer across episodes and lines and cannot cross a title, a site or a configuration.
+  `app.history` now carries both — Android declares the fields, so this fills them in rather than
+  exposing anything iOS invented. The controls are two `Menu`s on the player's trailing edge
+  (設為目前位置 / +1 秒 / −1 秒 / 清除), because **AVKit's control bar cannot be extended on iOS** —
+  `transportBarCustomMenuItems` is tvOS. **Not device-verified.**
+  `docs/IOS-POC-5S-ads-and-skip.md`.
 - **The app remembers what was watched since IOS-POC-5R.** `WatchHistory` follows Android's
   `History.java` field for field, including `isNearEnding()`'s formula, and is keyed on **`Site.id`
   rather than `siteKey`** because this configuration has four duplicate keys. One JSON file in
@@ -240,10 +261,12 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   information and playback methods on one persistent `PlaybackSession`.
 - **Not implemented:** the 23 portable-but-unported `csp_*` sites, the `Crypto`/`lxml`/`pyquery`/
   `bs4` shims the remaining 24 Python sites need, `CatVodHost` RSA and `proxy` plumbing,
-  IOS-POC-5S-2 opening/ending skip, IOS-POC-5S-3 config `rules` integration,
+  IOS-POC-5S-3 config `rules` integration,
   `player.preloadArtwork`, `pan.*`, `app.open*`, `net.resourceUrl` proxying, and
   `ui.setChrome`/`restoreChrome`. **The configuration's `ads` host blocking came off this list
-  in IOS-POC-5S-1**: it is implemented with a sniffer-only `WKContentRuleList`.
+  in IOS-POC-5S-1**: it is implemented with a sniffer-only `WKContentRuleList`. **IOS-POC-5S-2
+  opening/ending came off it too** — see its own bullet above; the line that listed it as missing is
+  superseded, and 5S-3 is the only part of 5S still open.
   **Three things came off this list and must not be written back onto it.** The Python runtime left
   on 2026-09-21 (IOS-POC-7E–7P). **The SideStore/IPA release pipeline left on 2026-09-22**
   (IOS-POC-11): the workflow, `source.json` and two published releases exist.

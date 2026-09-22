@@ -6,12 +6,15 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current Scope
 
-- Branch `ios-poc`. **Verified 2026-09-22 at IOS-POC-11F: HEAD `616e182e`, worktree clean, one
-  commit ahead of the remote.** Since the runtime-roadmap update the branch has shipped
-  IOS-POC-5S-1 (ads blocking), IOS-POC-14 (auto-advance) and 14A/14B (the playback speed carried
-  within one title), and **three releases: `0.1.2 (3)`, `0.1.3 (4)` and `0.1.4 (5)`**. The line
-  above used to read "`7b7ad584` … 197 tests … the previous release remains `0.1.1 (2)`; this
-  roadmap-only update does not package or publish a new IPA" — all four of those are now stale.
+- Branch `ios-poc`. **Verified 2026-09-22 at IOS-POC-5S-2: base HEAD `eba5346c`, worktree clean,
+  and level with `origin/ios-poc` (`git rev-list --left-right --count HEAD...origin/ios-poc` → `0 0`)
+  before this stage's own commit.** Since the runtime-roadmap update the branch has shipped
+  IOS-POC-5S-1 (ads blocking), IOS-POC-14 (auto-advance), 14A/14B (the playback speed carried within
+  one title) and **IOS-POC-5S-2 (the viewer's opening and ending)**, plus **three releases:
+  `0.1.2 (3)`, `0.1.3 (4)` and `0.1.4 (5)`**. The line above used to read "`7b7ad584` … 197 tests …
+  the previous release remains `0.1.1 (2)`", and before that `616e182e` / 203 tests; all of those
+  are stale. **A handoff naming `035ad0bf` as the remote tip is stale by sixteen commits** — that
+  was the roadmap-only commit, and it is an ancestor of this HEAD, not the tip.
   **Always re-check Git rather than trusting a quoted SHA** — this line is a recovery anchor, not a
   substitute for `git log` / ahead-behind / worktree checks.
 - Android `app/` is read-only for all iOS work and has never been modified: `git diff <branch-point>..HEAD -- app/` is empty, and every commit on this branch touches only `ios/`, `docs/`, `scripts/`, `AGENTS.md` and `.codex/`.
@@ -23,7 +26,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 | Milestone | State |
 |---|---|
 | IOS-POC-5Q multi-quality | **Done and verified** (Q1–Q3) |
-| IOS-POC-5R WatchHistory / resume | **Done and verified** (R1–R6; R7 intro/outro skipping deferred with 5S) |
+| IOS-POC-5R WatchHistory / resume | **Done and verified** (R1–R6). **R7 intro/outro skipping is no longer deferred — it shipped as IOS-POC-5S-2** |
 | drpy loader | **Done and verified** (IOS-POC-6A/6B) |
 | 4 drpy sources end to end | **Done** — all four reached real media bytes |
 | Python feasibility / P1 | **Done** — measured, not implemented (`docs/IOS-POC-7A-python-runtime.md`) |
@@ -41,8 +44,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 | IOS-POC-14A/14B playback speed | **Done, not device-verified.** The chosen speed carries across episodes **of the same title** — keyed on `WatchHistory.key`, so switching source resets it, which the user decided to leave (14C) |
 | Real-device acceptance (IOS-POC-8) | **Partial.** Several runs on hardware; the list below is what is and is not confirmed. Not to be recorded as complete |
 | IOS-POC-5S-1 ads blocking | **Done, 2026-09-22** — 62 literal ad domains compile into a `WKContentRuleList` scoped only to the sniffer WebView; one whole-URL entry stays inert to preserve Android semantics. **Not device-verified** |
-| IOS-POC-5S-2 opening / ending | **Next functional unit.** Reuse `WatchHistory` / `PlaybackSession`; Android stores user-set millisecond offsets in History rather than config |
-| IOS-POC-5S-3 config `rules` → sniffer | **Planned after 5S-2.** Preserve Android host→exclude/regex/script precedence; no invented m3u8 ad-rewrite semantics |
+| IOS-POC-5S-2 opening / ending | **Done, 2026-09-22.** `WatchHistory.opening`/`ending` as optional milliseconds so a history file without them still decodes; start position is `max(opening, resume)`; the ending rides the existing five-second sampler into the existing `finished()` path. **Not device-verified** |
+| IOS-POC-5S-3 config `rules` → sniffer | **Next functional unit.** Preserve Android host→exclude/regex/script precedence; no invented m3u8 ad-rewrite semantics |
 | IOS-POC-12 Runtime Architecture Reconciliation | **Planned, not started.** Begins only after 5S is complete, the core real-device acceptance is closed enough to freeze contracts, and the MPV keep/drop decision for the first stable product is recorded |
 | IOS-POC-13 Runtime Hot Update | **Planned, not started.** Begins only after IOS-POC-12 freezes the Native Core / Dynamic Layer boundary and update manifest contract |
 | More `csp_*`, Python dependency shims, CarPlay, automatic AVPlayer↔MPV fallback | **Backlog.** Do not let these pre-empt 5S, core acceptance, or the 12→13 refactor/update sequence |
@@ -53,6 +56,9 @@ The user decided on 2026-09-22 that WebHTV should eventually support an **in-app
 path, but **not by replacing its signed native executable**. The sequencing is intentional:
 
 `5S-2 → 5S-3 → core real-device acceptance → MPV keep/drop decision → IOS-POC-12 → IOS-POC-13`.
+
+**5S-2 closed on 2026-09-22**, so the remaining sequence is
+`5S-3 → core real-device acceptance → MPV keep/drop decision → IOS-POC-12 → IOS-POC-13`.
 
 ### IOS-POC-12 — Runtime Architecture Reconciliation
 
@@ -201,6 +207,8 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 5P | A spider's request headers reach `AVPlayer`, the probe and the sniffer | `docs/IOS-POC-5P-player-request-headers.md` |
 | 5Q | `playerContent`'s `url` reads all three CatVod shapes; `Bili` offers one line per quality; a quality menu in the player picker | `docs/IOS-POC-5Q-playback-quality.md` |
 | 5R | Watch history, resume, the 記錄 tab, the detail screen's last-episode mark, and `app.history` answering real data | `docs/IOS-POC-5R-watch-history.md` |
+| 5S-1 | The configuration's `ads` hosts compiled into a `WKContentRuleList` scoped to the sniffer WebView only; the one whole-URL entry stays inert because it is inert on Android too | `docs/IOS-POC-5S-ads-and-skip.md` |
+| 5S-2 | **The viewer's own opening and ending**, in milliseconds, on `WatchHistory` — Android's `History.opening`/`ending`, not anything from the configuration. Start position becomes `max(opening, resume)`; the ending hands off through the existing `finished()` path on the existing sampler; two `Menu`s on the player carry Android's four operations. Old history files without the fields still decode | `docs/IOS-POC-5S-ads-and-skip.md` |
 | 5U | Reconciliation: the live handoff documents rewritten against the actual HEAD and test run | this document |
 | 5V | Debug-only simulator display fix for the font set the runtime is missing; no behaviour change | this document |
 | 7A/7C | Assessment and P1 measurement for a Python runtime: what it would cost, measured rather than estimated | `docs/IOS-POC-7A-python-runtime.md` |
@@ -410,8 +418,24 @@ without further code, which is why they are worth more than their site counts su
 
 ## Build / Test / Verification Status
 
-**Latest, re-measured 2026-09-22 at `616e182e` (IOS-POC-11F). Every number below was taken in that
-session; none is copied forward from an earlier one:**
+**Latest, re-measured 2026-09-22 at base HEAD `eba5346c` (IOS-POC-5S-2):**
+
+- `swift test --package-path ios` → **225 tests, all pass** (203 before this stage). The +22 are
+  IOS-POC-5S-2's: an old history file with neither field still decoding, as one record and as a whole
+  list; both fields round-tripping through the store; the start position on either side of
+  `max(opening, resume)`; an unset opening leaving resume untouched; a watched-to-the-end title
+  replaying from its opening; the next episode taking the opening but not the previous episode's
+  position; the ending threshold either side of the boundary; an unset, zero or negative ending never
+  firing; an unknown duration never firing; `getOpEdLimit`'s three bands and the markable window;
+  four clamp cases (opening past the end, an ending eating the opening, an opening inside the ending,
+  both floored at zero); an unknown runtime clamping only at zero; `NaN`/`Infinity` refused; nothing
+  crossing a title, a site or a configuration; one record covering every episode and line of its
+  title; and `app.history` carrying both set and unset values.
+  **The live provider tests passed in this run.**
+- Simulator Debug build (`7B4E9557-4774-4EB9-B408-BB544DCC8657`) → **BUILD SUCCEEDED**, re-run after
+  the Ponytail final-diff fixes rather than before them.
+
+**Previously, at `616e182e` (IOS-POC-11F):**
 
 - `swift test --package-path ios` → **203 tests, all pass**. The trajectory since IOS-POC-11B's 188:
   +9 for IOS-POC-5S-1 (the real 63-entry ads data set as 62 literal domains plus one intentionally
@@ -585,6 +609,27 @@ have been collapsed into the first bullet.
   sources and cache intact. Launch retry proven with a local server armed to fail twice.
 
 ## Risks / Unverified
+
+**IOS-POC-5S-2 opening / ending, added 2026-09-22 — all of it is simulator-and-unit-test evidence:**
+
+- **No device run.** Every claim below rests on `swift test` and a simulator build.
+- **The player overlay's placement has not been seen on hardware.** The trailing edge, vertically
+  centred, was chosen because it is the part of `AVPlayerViewController`'s full-screen layout that
+  neither the top bar (Done / PiP / AirPlay) nor the transport bar occupies — **reasoned from the
+  layout, not measured against a real device**. If it collides with anything, moving it is one
+  `alignment:` argument.
+- **The `Menu` sits over the volume-drag half of the screen.** The drag needs 12 pt of movement and
+  a tap should be consumed by the button, but that interaction has not been exercised by a finger.
+- **The five-second sampler means up to five seconds of the ending can play before the skip.**
+  Android's clock is one second. Whether the lag is acceptable is a subjective device question. The
+  `ponytail:` note names the two upgrade paths (`addPeriodicTimeObserver` at 1 s, or
+  `AVPlayerItem.forwardPlaybackEndTime` once the duration is known).
+- **The ending firing while Picture in Picture holds the video was not tested.**
+- **No real WebHome page has read a non-zero `app.history.opening`/`ending`** — bridge unit tests
+  only, which is the same gap IOS-POC-5R recorded for the rest of that payload.
+- **The migration is asserted, not observed on a real phone's file.** The tests decode the exact
+  legacy JSON shape, including a whole array, but nobody has upgraded a device that already had
+  history and watched it survive.
 
 **Python, added 2026-09-21:**
 
@@ -836,18 +881,27 @@ have been collapsed into the first bullet.
 
 ## Next Recommended Step
 
-### The next functional stage is IOS-POC-5S, and it has not started
+### The next functional stage is IOS-POC-5S-3, and it has not started
 
-**Nothing functional may begin without the user saying so.** 5S is ads / opening / ending, and its
-first action is **not** code: re-read the configuration and the Android contract and **measure** the
-real shape of `ads`, `rules` and any opening/ending data, rather than guessing a schema. The
-constraints the user set for it:
+**Nothing functional may begin without the user saying so.** **5S-1 (ads) and 5S-2 (opening/ending)
+are both done**; what is left of 5S is **5S-3: the configuration's `rules` reaching the sniffer**.
+Its contract is already measured in `docs/IOS-POC-5S-ads-and-skip.md` — `Sniffer.getRule(uri)`
+matches on **host** (the URI's own, or the host of its `url=` query parameter), **first hit wins**,
+then `exclude` → not a video, `regex` → a video, and only an unmatched URI falls through to the
+built-in `SNIFFER` pattern; `script` feeds the injected JS. **The nine m3u8 ad-stripping regexes in
+`wang-sex.json` have no consumer in the Android app at all** and must not be given invented
+semantics.
+
+After 5S-3 the order the user fixed is: **core real-device acceptance → MPV keep/drop decision →
+IOS-POC-12 refactor → IOS-POC-13 runtime hot update**.
+
+The constraints the user set for 5S as a whole, which still bind 5S-3:
 
 - prefer the configuration's own verifiable `ads` / `rules`;
 - block known ad hosts or requests at the WebView / sniffer / network layer;
 - **no** broad DOM-selector deletion and no "looks like an ad" heuristics;
 - opening/ending skip reuses `PlaybackSession`, `WatchHistory` and the player's own
-  position/duration — **no second playback state**;
+  position/duration — **no second playback state** (satisfied by 5S-2);
 - reuse any portable Android data model or rule contract rather than inventing one;
 - burned-in watermarks are out of scope; no image recognition or OCR;
 - HLS mid-stream ads stay unimplemented until there is a reliable, verifiable rule;
@@ -860,7 +914,9 @@ Six stages, all on the remote: **10S** source order, **10T** the CatVod JS spide
 **10V** the device confirmation, **10W–10X** 荐片's poster host and remembered state,
 **10Z** the session-reset defect, **11** the SideStore release pipeline, **5S-1** ad blocking and
 **14/14A/14B/14C** auto-advance with the playback speed carried within one title. Five releases have
-gone out, through **`0.1.4 (5)`**.
+gone out, through **`0.1.4 (5)`**. **IOS-POC-5S-2 (the viewer's opening and ending) landed on the
+same day and is not yet on the remote** — the user authorises each push separately, and none was
+authorised for it.
 
 **The JS spider blocker turned out not to be `__jsEvalReturn` at all — it was `async`.** drpy2
 contains no `async` anywhere, so `JavaScriptSpiderRuntime` never had to settle a promise; a JS

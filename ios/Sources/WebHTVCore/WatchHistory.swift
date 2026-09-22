@@ -54,6 +54,22 @@ public struct WatchHistory: Codable, Sendable, Equatable, Identifiable {
     /// Milliseconds, as Media3 and the playback bridge report them.
     public var position: Double
     public var duration: Double
+    /// How much of the start to skip, in milliseconds, or `nil`/`<= 0` when the viewer has set none.
+    /// `History.opening`, which the viewer sets themselves on the player — it is **not** read from
+    /// the configuration's `ads` or `rules` (IOS-POC-5S measured both; neither carries these).
+    ///
+    /// **Optional for the reason `sourceID` above is**: the synthesized `Codable` throws
+    /// `keyNotFound` on a history file written before this field existed, and an unreadable file is
+    /// no history at all. Android's own unset value is `C.TIME_UNSET`, a large negative, but every
+    /// consumer there tests `> 0` and its reset button writes `0` — so "not positive" is already
+    /// the unset state on both sides, and `openingOffset` below is the one place that decides it.
+    /// The Android constant itself is deliberately not reproduced: it would put a sentinel into the
+    /// Swift API that nothing here can read back out.
+    public var opening: Double?
+    /// How much of the end to skip, in milliseconds, measured **backwards from the end** the way
+    /// `History.ending` is — `duration - position` at the moment the viewer marks it, not an
+    /// absolute timestamp. `nil`/`<= 0` is unset, as for `opening`.
+    public var ending: Double?
     /// Milliseconds since 1970, rewritten on every save — this is what the 60-day prune and the
     /// list's ordering both read. Android's `createTime` behaves the same way.
     public var createTime: Double
@@ -63,7 +79,8 @@ public struct WatchHistory: Codable, Sendable, Equatable, Identifiable {
     public init(key: String, siteKey: String, siteName: String = "", sourceID: String? = nil, vodId: String,
                 vodName: String = "", vodPic: String = "", vodFlag: String = "",
                 vodRemarks: String = "", episodeUrl: String = "", quality: String = "",
-                position: Double = 0, duration: Double = 0, createTime: Double = 0) {
+                position: Double = 0, duration: Double = 0, createTime: Double = 0,
+                opening: Double? = nil, ending: Double? = nil) {
         self.key = key
         self.sourceID = sourceID
         self.siteKey = siteKey
@@ -78,6 +95,8 @@ public struct WatchHistory: Codable, Sendable, Equatable, Identifiable {
         self.position = position
         self.duration = duration
         self.createTime = createTime
+        self.opening = opening
+        self.ending = ending
     }
 
     /// The internal primary key. Never split it: `Site.id` embeds the site's whole `ext`, which may
@@ -111,6 +130,88 @@ public struct WatchHistory: Codable, Sendable, Equatable, Identifiable {
     public var resumePosition: Double? {
         guard position > 10_000, !isNearEnding else { return nil }
         return position
+    }
+
+    // MARK: - IOS-POC-5S-2: the opening and the ending
+
+    /// The opening as every Android consumer reads it: a positive number of milliseconds, or zero.
+    ///
+    /// `VideoActivity` tests `getOpening() > 0` at each of its four sites and `History.copyTo` only
+    /// carries the value on when it is positive, so `nil`, `0` and a negative left over from a bad
+    /// write all mean the same thing — unset. Collapsing them here is what keeps that decision in
+    /// one place instead of at every call site.
+    public var openingOffset: Double { Self.offset(opening) }
+
+    /// The ending, read the same way. Milliseconds **from the end**, not a timestamp.
+    public var endingOffset: Double { Self.offset(ending) }
+
+    private static func offset(_ value: Double?) -> Double {
+        guard let value, value.isFinite, value > 0 else { return 0 }
+        return value
+    }
+
+    /// Where playback should start, in milliseconds. Zero means "from the beginning".
+    ///
+    /// `VideoActivity.setPosition()` is `max(getOpening(), getPosition())` after the near-ending
+    /// reset, and `resumePosition` is this project's version of that same right-hand side — it
+    /// already applies the near-ending rule and D4's ten-second floor. `resuming` is false when the
+    /// **next** episode is starting (IOS-POC-14): one record covers a whole title, so the previous
+    /// episode's position must not be resumed into it, but the opening still belongs to the title
+    /// and still applies.
+    public func startPosition(resuming: Bool = true) -> Double {
+        max(openingOffset, resuming ? (resumePosition ?? 0) : 0)
+    }
+
+    /// `VideoActivity.onTimeChanged()`: `ending > 0 && duration > 0 && ending + position >= duration`.
+    ///
+    /// The `duration > 0` term is what keeps a live stream or an item whose runtime has not been
+    /// reported yet from skipping the moment it starts — with an unknown duration there is no end
+    /// to measure the ending back from.
+    public func hasReachedEnding(position: Double, duration: Double) -> Bool {
+        endingOffset > 0 && duration > 0 && endingOffset + position >= duration
+    }
+
+    /// `Constant.getOpEdLimit`: how far into a runtime an opening, or back from it an ending, may be
+    /// marked from the current position. Three minutes under a quarter of an hour, six under half,
+    /// ten above. Internal — the two predicates below are the whole public surface it serves.
+    static func openingEndingLimit(duration: Double) -> Double {
+        if duration < 15 * 60_000 { return 3 * 60_000 }
+        if duration < 30 * 60_000 { return 6 * 60_000 }
+        return 10 * 60_000
+    }
+
+    /// `PlayerManager.canSetOpening`: whether "the opening ends here" is a sane thing to say about
+    /// the position the viewer is at.
+    public static func canSetOpening(position: Double, duration: Double) -> Bool {
+        position > 0 && duration > 0 && position <= openingEndingLimit(duration: duration)
+    }
+
+    /// `PlayerManager.canSetEnding`, the same test measured from the other end.
+    public static func canSetEnding(position: Double, duration: Double) -> Bool {
+        position > 0 && duration > 0 && duration - position <= openingEndingLimit(duration: duration)
+    }
+
+    /// Applies a new opening, clamped so it can never place the start past the end or inside the
+    /// ending.
+    ///
+    /// Android floors at zero (`max(0, max(0, opening) + 1000)`) and does not clamp the top at all,
+    /// so holding its remote's up key walks the opening past the runtime and `setPosition` then
+    /// seeks beyond the end. That is a defect rather than a contract, so the ceiling is added here.
+    /// `duration <= 0` means the runtime is not known yet and only the floor applies.
+    public mutating func setOpening(_ value: Double, duration: Double) {
+        opening = Self.clamped(value, ceiling: duration > 0 ? max(0, duration - endingOffset) : nil)
+    }
+
+    /// Applies a new ending, clamped so it can never cut back past the opening — which would leave
+    /// a negative playable span and skip the episode the instant it started.
+    public mutating func setEnding(_ value: Double, duration: Double) {
+        ending = Self.clamped(value, ceiling: duration > 0 ? max(0, duration - openingOffset) : nil)
+    }
+
+    private static func clamped(_ value: Double, ceiling: Double?) -> Double {
+        let floored = value.isFinite ? max(0, value) : 0
+        guard let ceiling else { return floored }
+        return min(floored, ceiling)
     }
 }
 

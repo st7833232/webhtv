@@ -1618,10 +1618,17 @@ private struct PlayerPickerView: View {
 
     /// What this playback writes into the watch history, with the position kept up to date. Nil for
     /// a path that names no title: `player.playUrl` and an inline vod both hand over bare media.
-    private var record: WatchHistory?
+    ///
+    /// Readable since IOS-POC-5S-2 so the player's opening/ending controls can show what this title
+    /// is already set to. The setter stays private: `setOpening`/`setEnding` below are the only ways
+    /// in, because they clamp and persist.
+    private(set) var record: WatchHistory?
     /// Where to resume to, consumed by the next `load`. Resolved before playback starts so the item
     /// is never created twice or seeked after it is already running.
     private var resumeTo: Double?
+    /// Whether the last sample was already past the viewer's ending, so the handoff fires once per
+    /// crossing rather than once every five seconds while the advance resolves.
+    private var endingReached = false
     private var sampler: Task<Void, Never>?
     /// The playback speed the viewer chose, carried across an episode change **of the same title**
     /// (IOS-POC-14A, narrowed at the user's request in IOS-POC-14B).
@@ -1675,18 +1682,77 @@ private struct PlayerPickerView: View {
         self.title = title
         self.artwork = artwork
         record = history
-        guard resuming, let history else {
+        guard let history else {
             resumeTo = nil
             start(at: 0)
             return
         }
-        // Resuming has to know where the last viewing stopped, and the store is an actor. Resolve
-        // it first and start afterwards: the read is from an in-memory cache, and starting first
-        // would mean seeking a stream that has already begun.
+        // The store has to be read before playback begins, and it is an actor. Resolve first and
+        // start afterwards: the read is from an in-memory cache, and starting first would mean
+        // seeking a stream that has already begun.
+        //
+        // **The read happens whether or not this is a resume** (IOS-POC-5S-2). The caller builds its
+        // record template fresh from the detail screen, so the opening and ending the viewer set for
+        // this title exist only in the stored copy. Carrying them over here is what stops `persist()`
+        // writing the empty template back over them, and it is the one place that covers both the
+        // reopen and the auto-advance — which is also why the next episode inherits the same title's
+        // settings and cannot inherit the previous title's.
         Task { @MainActor in
-            resumeTo = await WatchHistoryStore.shared.record(forKey: history.key)?.resumePosition
+            var merged = history
+            if let stored = await WatchHistoryStore.shared.record(forKey: history.key) {
+                merged.opening = stored.opening
+                merged.ending = stored.ending
+                // `startPosition` reads these through `resumePosition`, which is what this call used
+                // to ask the stored record for directly.
+                merged.position = stored.position
+                merged.duration = stored.duration
+            }
+            record = merged
+            let from = merged.startPosition(resuming: resuming)
+            resumeTo = from > 0 ? from : nil
             start(at: 0)
         }
+    }
+
+    /// Marks how much of this title's start to skip — Android's OP button, in the same milliseconds
+    /// (IOS-POC-5S-2). The value is clamped against the runtime by `WatchHistory`.
+    ///
+    /// Written through `persist()` rather than saved directly, because the store drops a record with
+    /// no position (`History.canSave()`) and this copy only learns the position from the player.
+    func setOpening(_ value: Double) {
+        guard var record else { return }
+        record.setOpening(value, duration: status().duration)
+        self.record = record
+        Task { @MainActor in await persist() }
+    }
+
+    /// The same for the end — Android's ED button. Milliseconds counted back from the runtime.
+    func setEnding(_ value: Double) {
+        guard var record else { return }
+        record.setEnding(value, duration: status().duration)
+        self.record = record
+        Task { @MainActor in await persist() }
+    }
+
+    /// `VideoActivity.onOpening()`: mark the opening at wherever playback is **now**.
+    ///
+    /// The live read belongs here rather than in the view. A SwiftUI body is evaluated when the
+    /// layout needs it, not when the viewer taps, so a position captured there is however old the
+    /// last render is. `PlayerManager.canSetOpening` then refuses a position too deep into the
+    /// runtime to be an opening, and the caller sees the refusal as a value that did not move.
+    func markOpening() {
+        let status = status()
+        guard WatchHistory.canSetOpening(position: status.position, duration: status.duration)
+        else { return }
+        setOpening(status.position)
+    }
+
+    /// `VideoActivity.onEnding()`: `duration - position`, measured now and guarded the same way.
+    func markEnding() {
+        let status = status()
+        guard WatchHistory.canSetEnding(position: status.position, duration: status.duration)
+        else { return }
+        setEnding(status.duration - status.position)
     }
 
     /// A whole inline vod, so `control("next")` and `("prev")` have somewhere to go.
@@ -1730,8 +1796,37 @@ private struct PlayerPickerView: View {
                 try? await Task.sleep(for: .seconds(5))
                 if Task.isCancelled { return }
                 await PlaybackSession.shared.persist(onlyWhilePlaying: true)
+                // The viewer's ending is reached on the same tick that records the position, which
+                // is exactly where Android checks it (IOS-POC-5S-2). `finished()` is the existing
+                // end-of-episode path, so the ending gets the auto-advance, the history write and
+                // the player close that a real end already got — there is no second ended pipeline.
+                if PlaybackSession.shared.reachedEnding() { PlaybackSession.shared.finished() }
             }
         }
+    }
+
+    /// Whether the viewer's ending has *just* been reached — `VideoActivity.onTimeChanged()`'s
+    /// `ending > 0 && duration > 0 && ending + position >= duration`, on this project's five-second
+    /// sampler instead of Android's one-second clock.
+    ///
+    /// True on the rising edge only. Handing off is asynchronous — resolving the next episode costs
+    /// a `playerContent` call and sometimes a sniff — so without the edge a second sample five
+    /// seconds later would ask for the episode after that one. Replaying or advancing puts the
+    /// position back below the threshold, which clears the flag by itself, so looping still works.
+    ///
+    /// ponytail: up to five seconds of the ending can play before the skip, because this rides the
+    /// sampler that was already measuring both numbers. A one-second `addPeriodicTimeObserver`, or
+    /// `AVPlayerItem.forwardPlaybackEndTime` set once the duration is known, buys exact timing if
+    /// that lag is ever worth its own machinery.
+    private func reachedEnding() -> Bool {
+        guard let record, started, player.rate > 0, let item = player.currentItem else {
+            endingReached = false
+            return false
+        }
+        let reached = record.hasReachedEnding(position: milliseconds(player.currentTime()),
+                                              duration: milliseconds(item.duration))
+        defer { endingReached = reached }
+        return reached && !endingReached
     }
 
     func control(_ action: String) {
@@ -1920,6 +2015,10 @@ private struct PlayerView: View {
     /// rather than accumulating rounding from frame to frame.
     @State private var dragOrigin: Double = 0
     @State private var hud: String?
+    /// The title's opening and ending, mirrored for the labels (IOS-POC-5S-2). `PlaybackSession` is
+    /// a plain class every other screen drives imperatively; making it observable so two capsules
+    /// could redraw would put a dependency on every one of those callers.
+    @State private var watching: WatchHistory?
 
     private enum DragKind { case seek, volume, brightness }
 
@@ -1949,6 +2048,7 @@ private struct PlayerView: View {
                     .allowsHitTesting(false)
             }
         }
+        .overlay(alignment: .trailing) { skipControls.padding(.trailing, 12) }
         // IOS-POC-10J. `simultaneousGesture` again, for the reason IOS-POC-10A2 found: AVKit's
         // recognisers live in the UIKit view underneath and a plain SwiftUI gesture loses to
         // them. Observing alongside means the scrubber still works if the viewer grabs it.
@@ -1971,6 +2071,72 @@ private struct PlayerView: View {
             // record where the viewer actually got to.
             Task { await session.persist() }
         }
+        .task {
+            // The session merges the stored opening and ending in a task of its own, so ask the
+            // store rather than racing it. The session's record is already keyed by then, because
+            // `open` sets that part synchronously.
+            guard let key = session.record?.key else { return }
+            watching = await WatchHistoryStore.shared.record(forKey: key) ?? session.record
+        }
+    }
+
+    // MARK: - IOS-POC-5S-2: the opening and the ending
+
+    /// Android's OP and ED buttons.
+    ///
+    /// They live in an overlay because AVKit's control bar cannot be extended on iOS —
+    /// `transportBarCustomMenuItems` is tvOS only — and on the **trailing edge, vertically centred**,
+    /// which is the one part of `AVPlayerViewController`'s full-screen layout that neither its top
+    /// bar (Done, PiP, AirPlay) nor its transport bar occupies. A menu rather than the TV's
+    /// click / up / down / long-press, because a touch screen has no D-pad: the same four
+    /// operations, one control each.
+    ///
+    /// Hidden entirely when the playback has no title identity — `player.playUrl` and a page's
+    /// inline playlist have no history record for the setting to belong to.
+    @ViewBuilder private var skipControls: some View {
+        if watching != nil {
+            VStack(alignment: .trailing, spacing: 8) {
+                skipMenu("片頭", offset: \.openingOffset,
+                         mark: session.markOpening, apply: session.setOpening)
+                skipMenu("片尾", offset: \.endingOffset,
+                         mark: session.markEnding, apply: session.setEnding)
+            }
+        }
+    }
+
+    /// One control, carrying Android's four operations. `mark` reads the live position itself — the
+    /// session owns that, because a body is rendered when SwiftUI needs it rather than when the
+    /// viewer taps.
+    private func skipMenu(_ name: String, offset: KeyPath<WatchHistory, Double>,
+                          mark: @escaping () -> Void,
+                          apply: @escaping (Double) -> Void) -> some View {
+        let current = watching?[keyPath: offset] ?? 0
+        return Menu {
+            Button("設為目前位置") { edit(name, offset, mark) }
+            Button("+1 秒") { edit(name, offset) { apply(current + 1000) } }
+            Button("−1 秒") { edit(name, offset) { apply(current - 1000) } }
+            if current > 0 { Button("清除", role: .destructive) { edit(name, offset) { apply(0) } } }
+        } label: {
+            Text(current > 0 ? "\(name) \(Self.clock(current / 1000))" : name)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(.black.opacity(0.55), in: Capsule())
+        }
+    }
+
+    /// Runs one edit, re-reads what the session actually kept, and says so through the readout the
+    /// drag gestures already use.
+    ///
+    /// The confirmation is not decoration: the clamp can store a smaller number than the one asked
+    /// for, and `markOpening`/`markEnding` can refuse the position outright — without it, a menu
+    /// item Android would silently ignore looks like a dead control.
+    private func edit(_ name: String, _ offset: KeyPath<WatchHistory, Double>, _ change: () -> Void) {
+        change()
+        watching = session.record
+        let now = watching?[keyPath: offset] ?? 0
+        flashHUD(now > 0 ? "\(name) \(Self.clock(now / 1000))" : "\(name)未設定")
     }
 
     // MARK: - IOS-POC-10J gestures
@@ -2011,8 +2177,13 @@ private struct PlayerView: View {
                                 toleranceBefore: .zero, toleranceAfter: .zero)
         }
         drag = nil
-        // Leave the readout up for a moment; vanishing the instant the finger lifts reads as a
-        // glitch rather than a confirmation.
+        flashHUD()
+    }
+
+    /// Shows a readout, or leaves the one already up, and takes it away a moment later. Vanishing
+    /// the instant the finger lifts reads as a glitch rather than a confirmation.
+    private func flashHUD(_ text: String? = nil) {
+        if let text { hud = text }
         let shown = hud
         Task {
             try? await Task.sleep(for: .seconds(0.6))

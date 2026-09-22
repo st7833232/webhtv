@@ -419,8 +419,10 @@ public struct WebHomeBridge: Sendable {
     /// zero, empty or false rather than being omitted:
     ///
     /// - `wallPic`, `revSort`, `revPlay` — no equivalent concept here;
-    /// - `opening` / `ending` — IOS-POC-5S, deferred; Android's unset value is `C.TIME_UNSET`, a
-    ///   large negative, and zero reads the same to any `> 0` test a page makes;
+    /// - `opening` / `ending` carry what the viewer set on the player since IOS-POC-5S-2. These are
+    ///   Android's own fields being filled in rather than new ones being invented; unset stays `0`,
+    ///   because Android's `C.TIME_UNSET` is a large negative that reads the same to any `> 0` test
+    ///   a page makes, and its own reset button writes `0`;
     /// - `speed` and `scale` carry Android's own defaults, 1 and -1;
     /// - `cid` is 0 because an iOS configuration has no id, exactly as `config.info` reports.
     ///
@@ -439,8 +441,8 @@ public struct WebHomeBridge: Sendable {
                 "revSort": false,
                 "revPlay": false,
                 "createTime": record.createTime,
-                "opening": 0,
-                "ending": 0,
+                "opening": record.openingOffset,
+                "ending": record.endingOffset,
                 "position": record.position,
                 "duration": record.duration,
                 "speed": 1,

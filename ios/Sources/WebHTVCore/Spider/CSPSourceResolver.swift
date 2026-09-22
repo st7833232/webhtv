@@ -61,7 +61,7 @@ public struct CSPSourceResolver: Sendable {
         // inactivity ceiling than the 10 s a content request gets. The spider itself still runs on
         // the content session, so nothing about its own HTTP changes.
         let prelude = try await DrpyEngineStore.shared.prelude(source: source, host: registry.prelude)
-        let rule = try await DrpyEngine.rule(at: site.rawExtJSON, source: source)
+        let rule = try await DrpyEngine.rule(at: site.drpyRuleReference, source: source)
         let runtime = try JavaScriptSpiderRuntime(
             name: "drpy-\(site.key)",
             script: registry.drpyBridge,

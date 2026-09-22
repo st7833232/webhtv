@@ -286,3 +286,31 @@ private func playURL(_ value: Any?) -> [String] {
 
     await session.destroy()
 }
+
+/// IOS-POC-10N: a drpy site's rule script is not always in `ext`.
+@Suite struct DrpyRuleReferenceTests {
+    private func site(api: String, ext: String?) throws -> Site {
+        let extField = ext.map { #","ext":"\#($0)""# } ?? ""
+        let json = #"{"key":"k","name":"n","type":3,"api":"\#(api)"\#(extField)}"#
+        return try JSONDecoder().decode(Site.self, from: Data(json.utf8))
+    }
+
+    @Test func theEngineAndRuleShapeReadsItsExt() throws {
+        let one = try site(api: "./drpy_libs/drpy2.min.js", ext: "./drpy_js/去看吧.js")
+        #expect(one.isDrpySpider)
+        #expect(one.drpyRuleReference == "./drpy_js/去看吧.js")
+    }
+
+    /// 步步｜4K, verbatim from the user's configuration: the rule is the api and there is no ext.
+    /// Before this, that produced an empty reference and an error message with nothing in it.
+    @Test func theRuleAsApiShapeFallsBackToTheApi() throws {
+        let one = try site(api: "./json/4k.js", ext: nil)
+        #expect(one.isDrpySpider)
+        #expect(one.drpyRuleReference == "./json/4k.js")
+        #expect(!one.drpyRuleReference.isEmpty, "an empty reference is what caused the blank error")
+    }
+
+    @Test func whitespaceOnlyExtIsTreatedAsAbsent() throws {
+        #expect(try site(api: "./json/4k.js", ext: "   ").drpyRuleReference == "./json/4k.js")
+    }
+}

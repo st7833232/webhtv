@@ -227,7 +227,7 @@ public struct Flag: Equatable, Sendable {
     public let name: String
     public let episodes: [Episode]
 
-    /// The episode after this one on the same line, or nil when it is the last (IOS-POC-12A).
+    /// The episode after this one on the same line, or nil when it is the last (IOS-POC-14).
     ///
     /// Matched on the episode's **address**, not its name or its index: a source is free to repeat a
     /// name (a line that merges episodes prints 第01-02集 twice in this configuration) and the

@@ -213,7 +213,7 @@ private func site(key: String, type: Int, api: String, ext: String = "null") thr
     }
 }
 
-/// IOS-POC-12A: what plays after this episode, and when there is nothing left.
+/// IOS-POC-14: what plays after this episode, and when there is nothing left.
 ///
 /// The rule matches on the episode's **address**. A name cannot be trusted — this configuration has
 /// a line that merges episodes and prints the same label twice (IOS-POC-8J) — and an index held by

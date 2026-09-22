@@ -1043,7 +1043,7 @@ private struct VodView: View {
     @State private var error: String?
     @State private var playbackError: String?
     /// The episode the built-in player is on, so an auto-advance knows where it is in the line
-    /// (IOS-POC-12A). Held here rather than in `PlaybackSession`, which deliberately knows nothing
+    /// (IOS-POC-14). Held here rather than in `PlaybackSession`, which deliberately knows nothing
     /// about sites, flags or how an episode becomes a URL.
     @State private var playingEpisode: Episode?
     @State private var resolving = false
@@ -1274,7 +1274,7 @@ private struct VodView: View {
                                        defaultIndex: target.defaultIndex,
                                        preferredQuality: watched?.quality ?? "", history: record)
             // What the player asks when this episode ends. This screen owns the episode list and
-            // the resolving, so it is the only place that can answer (IOS-POC-12A).
+            // the resolving, so it is the only place that can answer (IOS-POC-14).
             playingEpisode = episode
             PlaybackSession.shared.advance = { await playNext(flag: flag) }
         } catch {
@@ -1520,7 +1520,7 @@ private struct PlayerPickerView: View {
 
                 Button {
                     // Closing the player is the presenting view's to do, so the session asks rather
-                    // than reaching for a dismiss it has no handle on (IOS-POC-12A).
+                    // than reaching for a dismiss it has no handle on (IOS-POC-14).
                     PlaybackSession.shared.onPlaylistFinished = { playing = false }
                     PlaybackSession.shared.open(url: playURL, headers: headers, title: title,
                                                 artwork: artwork, history: record)
@@ -1604,7 +1604,7 @@ private struct PlayerPickerView: View {
     /// Resolves an episode the page kept for itself. Set while a WebHome page owns the web view.
     var resolveEpisode: ((String) async -> URL?)?
 
-    /// What to play when this item ends and the session has no playlist of its own (IOS-POC-12A).
+    /// What to play when this item ends and the session has no playlist of its own (IOS-POC-14).
     ///
     /// The app's own path opens **one** resolved address — a site's episode needs a `playerContent`
     /// call and possibly a sniff to become a URL, so a whole season cannot be handed over up front.
@@ -1643,7 +1643,7 @@ private struct PlayerPickerView: View {
     /// The item carries no name: the caller's title already names the episode, and `status()`
     /// appends the item name, which would otherwise report it twice.
     /// `resuming` is false when the caller is starting the **next** episode rather than reopening a
-    /// title (IOS-POC-12A). One record covers a whole title — `WatchHistory.key` is site plus vod,
+    /// title (IOS-POC-14). One record covers a whole title — `WatchHistory.key` is site plus vod,
     /// not the episode — so resuming there would seek the new episode to where the previous one
     /// stopped. The near-ending rule usually hides that; a source with no duration would not.
     func open(url: URL, headers: [String: String] = [:], title: String, artwork: String = "",
@@ -1762,7 +1762,7 @@ private struct PlayerPickerView: View {
         Task { @MainActor in
             // Record the end **before** moving on, and await it. The comment here always claimed
             // this ordering; the code did not, and an un-awaited write races whatever reads the
-            // store next — which since IOS-POC-12A includes the resume lookup for the episode about
+            // store next — which since IOS-POC-14 includes the resume lookup for the episode about
             // to start.
             await persist()
             // An inline playlist knows its own next item. This is the WebHome bridge's path and is

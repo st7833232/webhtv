@@ -1,6 +1,9 @@
-# IOS-POC-12A — 一集播完自動播下一集，整條線播完就關閉播放器
+# IOS-POC-14 — 一集播完自動播下一集，整條線播完就關閉播放器
 
 - 狀態：**已實作**，尚未有人在 App 裡看著它發生。
+- **編號更正**：本階段原先寫成 `IOS-POC-12A`，與 `docs/IOS-POC-12-13-runtime-update-roadmap.md`
+  已經佔用的 12／13 相撞。實作的 commit message 仍寫著 `IOS-POC-12A`——commit 訊息不改寫，
+  這一行就是兩者的對照。
 - 基線 HEAD `7b7ad584`
 - 來源：使用者 2026-09-22 回報「當該集播完應該要自動播放下一集；如果全部播完，可以返回關閉播放器」
 
@@ -57,7 +60,7 @@ near-ending 規則通常會蓋掉這個問題，但**一個沒有 duration 的�
 
 `finished()` 原本寫著「Record the end before moving on」，但程式是
 `Task { @MainActor in await persist() }` 後**沒有等**就往下走。
-註解宣稱的順序與程式碼不符，而且自 IOS-POC-12A 起，緊接著就會有人去讀那份記錄（resume 查詢）。
+註解宣稱的順序與程式碼不符，而且自 IOS-POC-14 起，緊接著就會有人去讀那份記錄（resume 查詢）。
 現在整段在同一個 `Task` 裡依序執行。
 
 ## 生命週期

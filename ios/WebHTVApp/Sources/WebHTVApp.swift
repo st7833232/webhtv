@@ -1623,8 +1623,23 @@ private struct PlayerPickerView: View {
     /// is never created twice or seeked after it is already running.
     private var resumeTo: Double?
     private var sampler: Task<Void, Never>?
+    /// The playback speed the viewer chose, carried across an episode change (IOS-POC-14A).
+    ///
+    /// **Why the last non-zero `rate` and not `defaultRate`.** Measured on 2026-09-22:
+    /// `defaultRate` survives `replaceCurrentItem` and `play()` honours it, so if AVKit's speed menu
+    /// set that property the speed would already carry over — and the viewer reported that it does
+    /// not. So the chosen speed is only ever visible as `rate` while something is playing, and the
+    /// end of an episode has already put that back to zero by the time the next one is asked for.
+    /// Observing it is the only place the value can be caught.
+    private var chosenRate: Float = 1
+    private var rateObserver: NSKeyValueObservation?
 
     private init() {
+        rateObserver = player.observe(\.rate, options: [.new]) { player, _ in
+            let rate = player.rate
+            guard rate > 0 else { return }
+            Task { @MainActor in PlaybackSession.shared.chosenRate = rate }
+        }
         NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -1794,6 +1809,10 @@ private struct PlayerPickerView: View {
         self.url = url.absoluteString
         started = true
         player.replaceCurrentItem(with: AVPlayerItem(asset: Self.asset(for: url, headers: headers)))
+        // Carry the viewer's speed into the next episode. `defaultRate` is what `play()` reads, and
+        // setting it before the call is what makes the new item start at that speed rather than
+        // starting at 1× and being corrected a moment later.
+        player.defaultRate = chosenRate
         if let resumeTo {
             self.resumeTo = nil
             // A seek issued now is honoured once the item is ready, which is why it goes before
@@ -1801,6 +1820,9 @@ private struct PlayerPickerView: View {
             player.seek(to: CMTime(value: CMTimeValue(resumeTo), timescale: 1000))
         }
         player.play()
+        // `play()` uses `defaultRate`, but AVKit is free to set `rate` directly, so state it once
+        // more against the player that is now running.
+        if chosenRate != 1 { player.rate = chosenRate }
         startSampling()
     }
 

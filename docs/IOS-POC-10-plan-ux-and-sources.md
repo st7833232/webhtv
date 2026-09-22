@@ -713,3 +713,37 @@ JS spider **不下載 drpy 的 1.2 MB 引擎**——它不用。
 好處是成本也只有一支 bridge，而 promise 結算那一塊對任何 async spider 都有效。
 關閉開關不變：`CSPSourceResolver.canResolve` 的 `isDrpySpider` 那一行。
 `IOS_SPIDER_RUNTIME_SPEC.md` 的「遠端機制不可成為承重結構」照舊適用。
+
+
+## 10V — 使用者在真機上確認：麻豆列得出來，也播得動（2026-09-22）
+
+10S 與 10T 的目視驗證由使用者在 **iPhone 18 Pro**（`00008160-00124C8200214036`）完成。
+安裝的是 `164dc271` 這版；`js-spider.js` 在 bundle 裡，與 commit 的原始碼逐字元比對過
+（第一次裝的是 Ponytail trim 之前的 build，發現後重 build 重裝）。
+
+### 確認到的
+
+| 項目 | 由什麼證實 |
+|---|---|
+| **JS spider 契約在真機上可用** | 麻豆(js) 出現在來源清單、點得進去、有內容 |
+| `home` / `category` / `detail` / `play` 在裝置上跑得通 | 使用者一路點到播放成功 |
+| **真機上第一次有 JS spider 播出畫面** | 同上 |
+| 順序修正（10S）已生效 | 使用者在清單裡找得到麻豆——修正前它被推到 drpy 那一段 |
+| 遠端設定檔 + 同源腳本載入在裝置上成立 | 麻豆的腳本只能從設定檔自己的來源抓 |
+
+### **不能**由這一次推論出來的事
+
+**這不是 `AVURLAssetHTTPHeaderFieldsKey` 在真機上有效的證據。** 麻豆的 `play` 回的 header 只有
+`User-Agent: Mozilla/5.0`，而那條串流**不帶 UA 也照樣回 200**——當場用 `curl` 兩邊各驗一次：
+
+```
+無 User-Agent      → HTTP 200  2217B  application/vnd.apple.mpegurl
+User-Agent: Mozilla/5.0 → HTTP 200  2217B  application/vnd.apple.mpegurl
+```
+
+所以播得動只證明位址可播，沒有證明 header 有送到 `AVPlayer`。
+**那個問題仍然懸著**，而且它真正的考題是 Bili（同時需要 `Referer` 與瀏覽器 `User-Agent`），
+不是這一站。`current-task-state.md` 的「the header question is the sharp one」不要因此劃掉。
+
+其他沒觀察到的：裝置上的 `search` 與 `homeVod`、麻豆是否恰好排在第 7 個。
+沒看到就是沒看到。

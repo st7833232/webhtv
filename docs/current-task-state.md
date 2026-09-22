@@ -38,7 +38,10 @@ stays unverified until a later device pass, which is now scheduled after the MPV
 
 - **Verified on hardware:** a fresh install accepts a remote configuration; the remote configuration
   lists 67 sources; CJK and the source names' emoji render correctly; the app icon ships from the
-  asset catalog and installs; IOS-POC-8F and 8G (search field, wallpaper) were confirmed by the user.
+  asset catalog and installs; IOS-POC-8F and 8G (search field, wallpaper) were confirmed by the user;
+  and **since 2026-09-22 (IOS-POC-10V) a CatVod JS spider source — 麻豆(js) from `wang-sex.json` —
+  is listed and plays**, which also puts a spider source, a remote configuration and a
+  same-origin script download on the verified side.
 - **Still unverified on hardware:** the AVKit close button in its new position; browsing and playback
   on a CMS source; a `csp_*` spider source; a drpy source; **Bili's `Referer` + browser `User-Agent`
   actually playing through `AVPlayer`**; whether `AVURLAssetHTTPHeaderFieldsKey` works on a device at
@@ -143,6 +146,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 7P | `requests` + `urllib3` + `certifi` + `idna` + `charset-normalizer` vendored as pinned pure-Python wheels; sites reaching media bytes went 1 → 6, executing 4 → 14 | same document |
 | 10F–10Q | **Eleven more user-reported items, 2026-09-22.** Player gestures (seek / volume / brightness); the close button removed and Picture in Picture enabled; `DrpyError` and `CMSClientError` made readable; pull to refresh was being answered by `URLCache` and no longer is; three drpy configuration shapes reconciled; and **麻豆(js) diagnosed as a CatVod JS spider this app does not implement** | `docs/IOS-POC-10-plan-ux-and-sources.md` |
 | 10S | The source list follows the configuration's own order — `drivableSites` was four concatenated per-kind filters, so 麻豆(js), seventh in the file, was buried among the drpy sites | `docs/IOS-POC-10-plan-ux-and-sources.md` |
+| 10V | **麻豆 confirmed on the iPhone 18 Pro by the user** — listed and playing. Does **not** settle the `AVURLAssetHTTPHeaderFieldsKey` question: that stream serves without a `User-Agent` | `docs/IOS-POC-10-plan-ux-and-sources.md` |
 | 10T | **The CatVod JS spider contract implemented.** The blocker was `async`, not `__jsEvalReturn`: drpy2 has no `async` at all, so the runtime never settled a promise and all thirteen methods answered `{}` with no error. 麻豆 now runs to real media bytes | `docs/IOS-POC-10-plan-ux-and-sources.md`, `docs/IOS_SPIDER_RUNTIME_SPEC.md` |
 | 10A–10E | **All five user-reported items done.** Close button follows AVKit's control-visibility delegate (the first attempt guessed with a timer and came out inverted); filter rows get Chinese labels from a closed table; the last source is remembered — `UserDefaults` had been truncating `Site.id` at its NUL; configuration sources are saved by name, switchable, each with its own cache; watch history binds to the configuration it was watched on | `docs/IOS-POC-10-plan-ux-and-sources.md` |
 | 10 | Plan for five user-reported UI/data items, two of them decided by the user on the spot. **MPV paused**: on device, Metal + software decode reaches `FILE_LOADED` and still never fires `VIDEO_RECONFIG`, which rules out both the simulator and the network | `docs/IOS-POC-10-plan-ux-and-sources.md` |
@@ -757,8 +761,17 @@ category 30 → detail → search 30 → player `parse=0` → `SourceClient` to 
 headers. `UAA`, a real drpy site in the same configuration, still passes the same gate, so nothing
 was mis-routed. Suite **185, one failing**; simulator and iPhone 18 Pro builds both succeeded.
 
-**Not verified: nobody has watched it play in the app.** The gate drives `SourceClient`, the same
-path the app uses, and ends in media bytes — but that is not the same as a tap on a phone.
+**Verified on the device by the user, 2026-09-22 (IOS-POC-10V): 麻豆 is in the source list and it
+plays.** The build installed is `164dc271`, and its bundled `js-spider.js` was compared byte for byte
+against the committed source first — the first install had been a pre-trim build and was replaced.
+That confirms the JS spider contract, `home`/`category`/`detail`/`play`, remote-configuration
+same-origin script loading, and IOS-POC-10S's ordering, all on real hardware.
+
+**It is not evidence that `AVURLAssetHTTPHeaderFieldsKey` works on a device**, and that line below
+must not be struck through on the strength of it. 麻豆's only header is `User-Agent: Mozilla/5.0`,
+and its stream answers `HTTP 200` with **or without** one — measured with `curl` both ways at the
+time. The real test of that key is still Bili, which needs a `Referer` too. Also not observed on the
+device: `search`, `homeVod`, and whether 麻豆 sits at exactly position 7.
 
 **The one failing test is not this work and is not to be "fixed".** `reportsLiveType4SitesFromProvidedConfig`
 fails at `CMSClientTests.swift:212` because `88看球` answers with an embed page today rather than a
@@ -841,7 +854,9 @@ Paste this into a new session:
 >
 > **那 1 條失敗不是這次造成的、也不要去「修」**：`reportsLiveType4SitesFromProvidedConfig` 在 `CMSClientTests.swift:212` 失敗，因為 `88看球` 今天回的是一個網頁而不是媒體位址。已經 stash 掉改動、回到 `0cc565a3` 重跑確認同樣失敗。`AGENT_HANDOFF.md` 早就寫明這條依賴 provider 狀態。**交接文件裡「181 條全過」是 2026-09-21 的量測，已經不成立。**
 >
-> **還沒有人確認過的**（只有 build＋測試證據）：麻豆在手機上實際點開播放、來源清單的新順序、播放器的音量／亮度拖曳、真機 PiP、篩選列中文標籤、線路選擇列。
+> **使用者已在 iPhone 18 Pro 上確認（IOS-POC-10V）**：麻豆列得出來、也播得動，順序修正也生效。**但這不證明真機上 `AVURLAssetHTTPHeaderFieldsKey` 有效**——麻豆那條串流不帶 `User-Agent` 也回 200，當場用 `curl` 兩邊都驗過。那個問題的真正考題是 Bili。
+>
+> **還沒有人確認過的**（只有 build＋測試證據）：播放器的音量／亮度拖曳、真機 PiP、篩選列中文標籤、線路選擇列、裝置上的 `search` 與 `homeVod`。
 >
 > **裝置簽章走命令列**：`DEVELOPMENT_TEAM=764SVXY2B7 CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates`，免費描述檔七天到期。模擬器 destination 必須用 id 不能用 name（`iPhone 17 Pro` = `E0A41D48-2210-46B8-B18C-9432B77DECC4`），真機是 `00008160-00124C8200214036`。
 >

@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.2",
+          "date": "2026-09-22",
+          "localizedDescription": "一集播完會自動接著播下一集；整條線播完後播放器會自己關閉。原本 App 自己的播放路徑只交出單一位址，所以續播永遠無事可做。外部播放器沒有這個行為，因為 URL scheme 沒有回程。\n\n依設定檔的 ads 清單，在嗅探網頁時阻擋已知的廣告與分析主機請求。使用宣告式的系統封鎖器，不刪 DNS 節點、不做猜測式辨識、不改動 m3u8。要嗅探的頁面本身永遠不會被規則擋掉，規則也只作用在嗅探用的網頁檢視。\n\n切換設定檔時，廣告規則會跟著切換，不會沿用前一份設定檔的。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.2-b3/WebHTV-0.1.2-3.ipa",
+          "size": 24576193,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.1",
           "date": "2026-09-22",
           "localizedDescription": "修正冷啟動時篩選列不出現：設定檔重新整理會銷毀正在使用中的來源連線，把 init 建立的狀態清掉。任何在 init 建立狀態的來源都可能中招。\n\n修正荐片的海報全是佔位圖：伺服器回傳的圖片網域清單裡，排最前面的兩個都連不上，程式卻只取第一個。現在會挑第一個真的有回應的。\n\n荐片載入大幅加快：記住上次可用的 API 網域，不再每次啟動都對已失效的網域等滿 10 秒。實測 20.0 秒降到 1.5 秒。\n\n支援 CatVod／TVBox 的 JS spider 契約（__jsEvalReturn），來源清單改為依設定檔原本的順序顯示。",

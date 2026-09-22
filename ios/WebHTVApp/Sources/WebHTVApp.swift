@@ -14,6 +14,17 @@ private let configUpdatedAtKey = "configUpdatedAt"
 @main
 struct WebHTVApp: App {
     init() {
+        // IOS-POC-10H. Picture in Picture will not start without an active `.playback` session,
+        // and it is also what lets audio continue when the app is not in front. Failing here is
+        // not fatal — playback still works, PiP simply will not arm — so it is reported rather
+        // than trapped.
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("[audio] session unavailable: \(error.localizedDescription)")
+        }
+
         // IOS-POC-7F: start the interpreter and say what came up. Debug-only for now — the Spider
         // runtime will own initialisation once it exists, and nothing in a Release build needs
         // CPython until it does.
@@ -1712,12 +1723,19 @@ private struct PlayerPickerView: View {
 /// visibility this screen needs has no other public source.
 private struct PlayerSurface: UIViewControllerRepresentable {
     let player: AVPlayer
-    @Binding var controlsVisible: Bool
+    /// True while AVKit has the video in a Picture in Picture window. The screen must not tear
+    /// playback down in that state — the whole point of PiP is that it outlives this view.
+    @Binding var pictureInPicture: Bool
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.delegate = context.coordinator
+        // IOS-POC-10H. Both flags are needed and they do different jobs: the first puts the PiP
+        // button in AVKit's control bar, the second hands the video to a PiP window when the
+        // viewer leaves the app instead of freezing it.
+        controller.allowsPictureInPicturePlayback = true
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
         return controller
     }
 
@@ -1727,23 +1745,29 @@ private struct PlayerSurface: UIViewControllerRepresentable {
         if controller.player !== player { controller.player = player }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(visible: $controlsVisible) }
+    func makeCoordinator() -> Coordinator { Coordinator(active: $pictureInPicture) }
 
     final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
-        private let visible: Binding<Bool>
+        private let active: Binding<Bool>
 
-        init(visible: Binding<Bool>) { self.visible = visible }
+        init(active: Binding<Bool>) { self.active = active }
 
-        /// Ride AVKit's own animation so the button fades on the same curve and duration as the
-        /// controls it belongs to, instead of approximating them.
+        func playerViewControllerWillStartPictureInPicture(_ controller: AVPlayerViewController) {
+            active.wrappedValue = true
+        }
+
+        func playerViewControllerDidStopPictureInPicture(_ controller: AVPlayerViewController) {
+            active.wrappedValue = false
+        }
+
+        /// Tapping the PiP window's restore button. The player screen is still presented
+        /// underneath — closing it is the viewer's business, not PiP's — so there is nothing to
+        /// rebuild and the honest answer is that the interface is already right.
         func playerViewController(
-            _ playerViewController: AVPlayerViewController,
-            willTransitionToVisibilityOfPlaybackControls isVisible: Bool,
-            with coordinator: UIViewControllerTransitionCoordinator
+            _ controller: AVPlayerViewController,
+            restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completion: @escaping (Bool) -> Void
         ) {
-            coordinator.animate(alongsideTransition: { [visible] _ in
-                visible.wrappedValue = isVisible
-            })
+            completion(true)
         }
     }
 }
@@ -1754,52 +1778,41 @@ private struct PlayerView: View {
     /// `player.status` and `player.control` to mean anything.
     private let session = PlaybackSession.shared
 
-    /// IOS-POC-10A: the close button appears and disappears **with AVKit's own controls**.
+    /// IOS-POC-10H: AVKit has the video in a PiP window.
     ///
-    /// The first attempt mirrored AVKit with a tap toggle and a four second timer, because
-    /// SwiftUI's `VideoPlayer` does not publish the control state. It came out inverted in use:
-    /// AVKit's controls and this button drifted out of phase, so revealing one hid the other.
-    ///
-    /// Guessing was the mistake, not the timing. `AVPlayerViewControllerDelegate` has
-    /// `playerViewController(_:willTransitionToVisibilityOfPlaybackControls:with:)`, which is
-    /// public and says exactly when the controls come and go. Following that signal removes the
-    /// timer, the toggle and the gesture entirely — the button can no longer be out of phase
-    /// because it is no longer keeping its own idea of the phase.
-    @State private var chromeVisible = true
+    /// IOS-POC-10A's close button used to live here. It is gone at the viewer's request, along
+    /// with the control-visibility plumbing that existed only to fade it.
+    @State private var pictureInPicture = false
 
     var body: some View {
         ZStack {
             // The player owns the whole screen, so letterbox bars are black instead of showing
             // whatever is behind the presentation.
             Color.black.ignoresSafeArea()
-            PlayerSurface(player: session.player, controlsVisible: $chromeVisible)
+            PlayerSurface(player: session.player, pictureInPicture: $pictureInPicture)
                 .ignoresSafeArea()
         }
-        .overlay(alignment: .topLeading) {
-            // A full-screen cover has no navigation bar, so it needs its own way out.
-            //
-            // Sat level with AVKit's own top row until IOS-POC-8B, where the device put its video
-            // output control in the same corner and the two crowded each other. The simulator lays
-            // that row out differently, so it only showed on hardware. Dropped below the row rather
-            // than moved to another corner, because AVKit owns both top corners and the bottom.
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-                    .background(.black.opacity(0.55), in: Circle())
-            }
-            .padding(.leading, 16)
-            .padding(.top, 64)
-            .opacity(chromeVisible ? 1 : 0)
-            // Invisible must also mean untappable, or the corner keeps eating taps that the
-            // viewer aimed at the video.
-            .allowsHitTesting(chromeVisible)
-        }
+        // The close button is gone, so this is the way out. A downward drag is the gesture iOS
+        // uses to dismiss full-screen video everywhere else, and `fullScreenCover` does not
+        // provide it. Thresholded on distance so it cannot fire while the viewer is scrubbing.
+        // `simultaneousGesture`, not `gesture`: AVKit's own recognisers sit in a UIKit view below
+        // and a plain SwiftUI gesture loses to them, which would leave the screen with no exit at
+        // all now that the button is gone. Observing alongside cannot lose that argument.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 30)
+                .onEnded { move in
+                    // Long, downward and roughly vertical, so scrubbing and the volume/brightness
+                    // drags cannot be mistaken for leaving.
+                    if move.translation.height > 80, abs(move.translation.width) < 120 { dismiss() }
+                }
+        )
         .statusBarHidden()
         // Closing the screen pauses rather than tears down, so a page can read the position it
         // reached and resume it with player.control.
         .onDisappear {
+            // Unless PiP has the video: pausing there would stop the little window the viewer
+            // just asked for, which is the one thing PiP must survive.
+            guard !pictureInPicture else { return }
             session.player.pause()
             // The sampler skips a paused player, so the moment of leaving is the last chance to
             // record where the viewer actually got to.

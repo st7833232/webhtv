@@ -182,3 +182,41 @@ round trip 精確。**同時接受舊的截斷值**——以 `key` 比對——�
 同一條規則。
 
 驗證：`swift test` 168 條全過、模擬器 build 成功。**目視未驗**（同樣卡在來源狀態）。
+
+
+## 10H — 拿掉 X，加上子母畫面（使用者 2026-09-22 追加）
+
+使用者圈出播放畫面左上角那顆 X 並要求拿掉，同時要支援子母畫面（PiP）。
+
+### 拿掉 X，連同它的整套機制
+
+`chromeVisible`、控制列可見度的 delegate 方法、`opacity`／`allowsHitTesting` 全部刪除——
+它們存在的唯一理由就是讓那顆按鈕淡入淡出。**刪掉的比加上的多。**
+
+### 但那樣就沒有出口了，所以補了下滑手勢
+
+`fullScreenCover` 沒有導覽列，AVKit 在內嵌模式也不提供 Done 鈕，所以按鈕一拿掉就真的關不掉。
+補上下滑關閉——那是 iOS 各處關閉全螢幕影片的既有手勢。
+
+**用 `simultaneousGesture` 而不是 `gesture`**：AVKit 自己的辨識器在下層的 UIKit view，
+普通 SwiftUI 手勢會輸給它，那樣就會變成完全沒有出口。門檻設為「下移 > 80、水平 < 120」，
+所以拖曳進度條與音量／亮度都不會被誤判成離開。
+
+`ponytail:` 若之後覺得手勢不夠明顯，替代方案是改用 UIKit 自己 modal present
+`AVPlayerViewController`，那樣 AVKit 會給它自己的 Done 鈕——但那要動整條呈現路徑，這一刀不做。
+
+### PiP 要三件事同時成立，缺一不動
+
+| 需要 | 做了什麼 |
+|---|---|
+| AVKit 開啟 PiP | `allowsPictureInPicturePlayback = true`（控制列出現 PiP 鈕）與 `canStartPictureInPictureAutomaticallyFromInline = true`（離開 App 時自動進 PiP 而不是凍住） |
+| 音訊工作階段 | App 啟動時 `AVAudioSession` 設為 `.playback` / `.moviePlayback` 並啟用。失敗不致命（照樣能播，只是 PiP 不會武裝），所以是回報而不是中止 |
+| 背景模式 | `Info.plist` 加 `UIBackgroundModes = [audio]`。**沒有這個 PiP 一離開 App 就會停** |
+
+### 一個容易漏掉的正確性問題
+
+`onDisappear` 原本無條件 `player.pause()`。進 PiP 之後畫面會消失，那行就會把使用者剛叫出來的
+小視窗停掉——**PiP 唯一必須活過的就是這個時刻**。改成 PiP 啟用時直接跳過暫停與存檔。
+
+驗證：`swift test` 168 條全過、模擬器 build 成功。**PiP 本身尚未實測**——它需要真機與一支能播的
+影片，交給使用者這一輪。

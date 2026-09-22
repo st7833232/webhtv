@@ -226,6 +226,21 @@ public extension Array where Element == Vod {
 public struct Flag: Equatable, Sendable {
     public let name: String
     public let episodes: [Episode]
+
+    /// The episode after this one on the same line, or nil when it is the last (IOS-POC-12A).
+    ///
+    /// Matched on the episode's **address**, not its name or its index: a source is free to repeat a
+    /// name (a line that merges episodes prints 第01-02集 twice in this configuration) and the
+    /// caller's index can be stale by the time an auto-advance asks. The address is what actually
+    /// identifies what is playing.
+    ///
+    /// A repeated address answers on its first occurrence, which is the only reading available when
+    /// the same stream appears twice on one line.
+    public func episode(after current: Episode) -> Episode? {
+        guard let index = episodes.firstIndex(where: { $0.url == current.url }) else { return nil }
+        let next = episodes.index(after: index)
+        return episodes.indices.contains(next) ? episodes[next] : nil
+    }
 }
 
 public struct Episode: Equatable, Sendable {

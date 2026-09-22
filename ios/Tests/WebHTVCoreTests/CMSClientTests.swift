@@ -212,3 +212,50 @@ private func site(key: String, type: Int, api: String, ext: String = "null") thr
         if let resolved { #expect(CMSClient.isDirectMedia(resolved)) }
     }
 }
+
+/// IOS-POC-12A: what plays after this episode, and when there is nothing left.
+///
+/// The rule matches on the episode's **address**. A name cannot be trusted — this configuration has
+/// a line that merges episodes and prints the same label twice (IOS-POC-8J) — and an index held by
+/// the caller can be stale by the time the player asks for the next one.
+@Suite struct NextEpisodeTests {
+    private func flag(_ pairs: [(String, String)]) -> Flag {
+        Flag(name: "line", episodes: pairs.map { Episode(name: $0.0, url: $0.1) })
+    }
+
+    @Test func theNextEpisodeOnTheSameLine() {
+        let line = flag([("第01集", "https://a/1.m3u8"), ("第02集", "https://a/2.m3u8"),
+                         ("第03集", "https://a/3.m3u8")])
+        #expect(line.episode(after: line.episodes[0])?.name == "第02集")
+        #expect(line.episode(after: line.episodes[1])?.name == "第03集")
+    }
+
+    /// The last episode is what ends the player, so this answering nil is the whole close path.
+    @Test func theLastEpisodeHasNoNext() {
+        let line = flag([("第01集", "https://a/1.m3u8"), ("第02集", "https://a/2.m3u8")])
+        #expect(line.episode(after: line.episodes[1]) == nil)
+    }
+
+    @Test func aSingleEpisodeLineEndsImmediately() {
+        let line = flag([("全集", "https://a/1.m3u8")])
+        #expect(line.episode(after: line.episodes[0]) == nil)
+    }
+
+    /// An episode from a different line, or one the source has since dropped, must not silently
+    /// start something unrelated — there is no position to advance from.
+    @Test func anEpisodeThatIsNotOnThisLineHasNoNext() {
+        let line = flag([("第01集", "https://a/1.m3u8"), ("第02集", "https://a/2.m3u8")])
+        #expect(line.episode(after: Episode(name: "第01集", url: "https://elsewhere/1.m3u8")) == nil)
+    }
+
+    /// Repeated names are real in this configuration; the address is what tells them apart.
+    @Test func repeatedNamesDoNotConfuseIt() {
+        let line = flag([("第01-02集", "https://a/1.m3u8"), ("第01-02集", "https://a/2.m3u8"),
+                         ("第03集", "https://a/3.m3u8")])
+        #expect(line.episode(after: line.episodes[1])?.name == "第03集")
+    }
+
+    @Test func anEmptyLineHasNothingToAdvanceTo() {
+        #expect(flag([]).episode(after: Episode(name: "x", url: "https://a/1.m3u8")) == nil)
+    }
+}

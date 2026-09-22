@@ -1042,6 +1042,10 @@ private struct VodView: View {
     @State private var pendingPlayback: Playback?
     @State private var error: String?
     @State private var playbackError: String?
+    /// The episode the built-in player is on, so an auto-advance knows where it is in the line
+    /// (IOS-POC-12A). Held here rather than in `PlaybackSession`, which deliberately knows nothing
+    /// about sites, flags or how an episode becomes a URL.
+    @State private var playingEpisode: Episode?
     @State private var resolving = false
     /// What was watched last, if anything. Marks the episode in the grid (R4) and supplies the
     /// remembered quality when the picker opens (R6).
@@ -1153,7 +1157,13 @@ private struct VodView: View {
                 detail = try await client.detail(id: summary.id)
             } catch { self.error = error.localizedDescription }
         }
-        .sheet(item: $pendingPlayback, onDismiss: { Task { watched = await WatchHistoryStore.shared.record(forKey: historyKey) } }) {
+        .sheet(item: $pendingPlayback, onDismiss: {
+            // The hook belongs to this playback. Cancelling the picker, or handing the episode to an
+            // external player, must not leave this screen answering for a player it does not own.
+            PlaybackSession.shared.advance = nil
+            playingEpisode = nil
+            Task { watched = await WatchHistoryStore.shared.record(forKey: historyKey) }
+        }) {
             PlayerPickerView(mediaURL: $0.url, headers: $0.headers, title: $0.title, artwork: $0.artwork,
                              qualities: $0.qualities, position: $0.position, defaultIndex: $0.defaultIndex,
                              preferredQuality: $0.preferredQuality, history: $0.history)
@@ -1234,6 +1244,20 @@ private struct VodView: View {
         return episodeBlocks(of: flag).firstIndex { $0.contains(index) } ?? 0
     }
 
+    /// The watch-history record for one episode of this title.
+    ///
+    /// One builder, because both the first play and an auto-advance need the identical nine fields
+    /// and a copy that drifted in one of them would be invisible until a record went to the wrong
+    /// title. `Site.id` rather than `site.key`: this configuration has four duplicate keys
+    /// (IOS-POC-5L) and two providers must not share one record. `sourceID` stamps the configuration
+    /// so the history list can show only what was watched on the one that is loaded (IOS-POC-10E).
+    private func record(for episode: Episode, flag: String) -> WatchHistory {
+        WatchHistory(key: historyKey, siteKey: site.key, siteName: site.name,
+                     sourceID: source.identity, vodId: summary.id,
+                     vodName: summary.name, vodPic: summary.picture,
+                     vodFlag: flag, vodRemarks: episode.name, episodeUrl: episode.url)
+    }
+
     private func play(_ episode: Episode, flag: String) async {
         resolving = true
         defer { resolving = false }
@@ -1243,23 +1267,42 @@ private struct VodView: View {
                 playbackError = "這一集沒有可播放的網址。"
                 return
             }
-            // The identity the watch history is keyed on. `Site.id` rather than `site.key`, because
-            // this configuration has four duplicate keys (IOS-POC-5L) and two providers must not
-            // share one record.
-            let record = WatchHistory(
-                key: historyKey, siteKey: site.key, siteName: site.name,
-                // IOS-POC-10E: stamp the configuration, so the history list can show only what
-                // was watched on the one that is loaded.
-                sourceID: source.identity, vodId: summary.id,
-                vodName: summary.name, vodPic: summary.picture,
-                vodFlag: flag, vodRemarks: episode.name, episodeUrl: episode.url)
+            let record = record(for: episode, flag: flag)
             pendingPlayback = Playback(url: target.url, headers: target.headers,
                                        title: "\(summary.name) \(episode.name)", artwork: summary.picture,
                                        qualities: target.qualities, position: target.position,
                                        defaultIndex: target.defaultIndex,
                                        preferredQuality: watched?.quality ?? "", history: record)
+            // What the player asks when this episode ends. This screen owns the episode list and
+            // the resolving, so it is the only place that can answer (IOS-POC-12A).
+            playingEpisode = episode
+            PlaybackSession.shared.advance = { await playNext(flag: flag) }
         } catch {
             playbackError = error.localizedDescription
+        }
+    }
+
+    /// Resolves and starts the episode after the one playing, or answers false when the line is
+    /// finished. **False is what closes the player**, so a failure to resolve must answer false too:
+    /// stopping on a dead episode with the player still up would look like a freeze.
+    private func playNext(flag: String) async -> Bool {
+        guard let current = playingEpisode,
+              let line = detail?.flags.first(where: { $0.name == flag }),
+              let next = line.episode(after: current) else { return false }
+        do {
+            let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
+            guard let target = try await client.playbackURL(for: next, flag: flag) else { return false }
+            let record = record(for: next, flag: flag)
+            playingEpisode = next
+            // `resuming: false` — this is a new episode, not a reopened title, and the two share one
+            // history record.
+            PlaybackSession.shared.open(url: target.url, headers: target.headers,
+                                        title: "\(summary.name) \(next.name)",
+                                        artwork: summary.picture, history: record, resuming: false)
+            watched = await WatchHistoryStore.shared.record(forKey: historyKey)
+            return true
+        } catch {
+            return false
         }
     }
 }
@@ -1476,6 +1519,9 @@ private struct PlayerPickerView: View {
                 }
 
                 Button {
+                    // Closing the player is the presenting view's to do, so the session asks rather
+                    // than reaching for a dismiss it has no handle on (IOS-POC-12A).
+                    PlaybackSession.shared.onPlaylistFinished = { playing = false }
                     PlaybackSession.shared.open(url: playURL, headers: headers, title: title,
                                                 artwork: artwork, history: record)
                     playing = true
@@ -1503,7 +1549,9 @@ private struct PlayerPickerView: View {
         }
         // Full screen rather than a push inside this sheet: a page sheet is inset and rounded, so the
         // player inherited those bounds and the app wallpaper showed through around the video.
-        .fullScreenCover(isPresented: $playing) { PlayerView() }
+        .fullScreenCover(isPresented: $playing, onDismiss: {
+            PlaybackSession.shared.onPlaylistFinished = nil
+        }) { PlayerView() }
     }
 
     /// The history entry this playback would write, with the quality actually chosen. Nil for a
@@ -1556,6 +1604,18 @@ private struct PlayerPickerView: View {
     /// Resolves an episode the page kept for itself. Set while a WebHome page owns the web view.
     var resolveEpisode: ((String) async -> URL?)?
 
+    /// What to play when this item ends and the session has no playlist of its own (IOS-POC-12A).
+    ///
+    /// The app's own path opens **one** resolved address — a site's episode needs a `playerContent`
+    /// call and possibly a sniff to become a URL, so a whole season cannot be handed over up front.
+    /// The detail screen owns the episode list and the resolving, and answers here: `true` when it
+    /// started the next one, `false` when there was none. Nil means the caller never had a list,
+    /// which is the WebHome bridge's inline playlist and the bare-URL paths.
+    var advance: (() async -> Bool)?
+
+    /// How the presenting view closes the player once nothing is left to play.
+    var onPlaylistFinished: (() -> Void)?
+
     /// What this playback writes into the watch history, with the position kept up to date. Nil for
     /// a path that names no title: `player.playUrl` and an inline vod both hand over bare media.
     private var record: WatchHistory?
@@ -1582,14 +1642,18 @@ private struct PlayerPickerView: View {
     /// One media URL: the CMS path, `player.playUrl`, and an episode picked in `VodView`.
     /// The item carries no name: the caller's title already names the episode, and `status()`
     /// appends the item name, which would otherwise report it twice.
+    /// `resuming` is false when the caller is starting the **next** episode rather than reopening a
+    /// title (IOS-POC-12A). One record covers a whole title — `WatchHistory.key` is site plus vod,
+    /// not the episode — so resuming there would seek the new episode to where the previous one
+    /// stopped. The near-ending rule usually hides that; a source with no duration would not.
     func open(url: URL, headers: [String: String] = [:], title: String, artwork: String = "",
-              history: WatchHistory? = nil) {
+              history: WatchHistory? = nil, resuming: Bool = true) {
         items = [.init(name: "", url: url)]
         self.headers = headers
         self.title = title
         self.artwork = artwork
         record = history
-        guard let history else {
+        guard resuming, let history else {
             resumeTo = nil
             start(at: 0)
             return
@@ -1694,10 +1758,20 @@ private struct PlayerPickerView: View {
     }
 
     private func finished() {
-        // Record the end before moving on, so a title watched through reads as near-ending rather
-        // than as stopped wherever the last sample happened to land.
-        Task { @MainActor in await persist() }
-        if looping { control("replay") } else { start(at: index + 1) }
+        if looping { control("replay"); return }
+        Task { @MainActor in
+            // Record the end **before** moving on, and await it. The comment here always claimed
+            // this ordering; the code did not, and an un-awaited write races whatever reads the
+            // store next — which since IOS-POC-12A includes the resume lookup for the episode about
+            // to start.
+            await persist()
+            // An inline playlist knows its own next item. This is the WebHome bridge's path and is
+            // unchanged.
+            if items.indices.contains(index + 1) { start(at: index + 1); return }
+            // Otherwise ask whoever opened the player. No answer, or no next episode, ends it.
+            if await advance?() == true { return }
+            onPlaylistFinished?()
+        }
     }
 
     private func start(at index: Int) {

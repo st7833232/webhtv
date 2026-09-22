@@ -1,6 +1,14 @@
 # IOS-POC-9B — MPV 第二播放核心：技術可行性
 
-- 狀態：**進行中**。使用者於 2026-09-21 指示「開始 IOS-POC-9B」。
+- 狀態：**已開始、部分完成、算繪未解、暫停中**（2026-09-22 於 IOS-POC-11B 校正措辭）。
+  「進行中」不足以描述現況，因為它同時被讀成「還沒動」與「快好了」，兩者都錯。
+  - **已完成**：9A 授權審查；MPVKit 1.0.0（非 GPL）接進 App target；靜態連結以 symbol table 證實；
+    **libmpv 在模擬器與 iPhone 18 Pro 都初始化成功**。
+  - **未完成**：**算繪**。真機 Metal＋軟解到得了 `FILE_LOADED`，`VIDEO_RECONFIG` 從未觸發，畫面全黑。
+  - **不存在第二個播放核心。** `PlaybackTarget → PlayerRouter → AVPlayerEngine / MPVEngine` 是設計，
+    不是現況；沒有任何播放會被導離 `AVPlayer`。
+  - 恢復條件：**使用者明確指示**。恢復後從 `FILE_LOADED → VIDEO_RECONFIG` 這一段接續，
+    **不要**從 MPVKit 安裝重來，**不要**重做 9A（除非 MPVKit 或其相依真的改版）。
 - 分支 `ios-poc`，基線 HEAD `4cc36ed9`（IOS-POC-9A）
 - 前置：`docs/IOS-POC-9A-mpv-license-provenance.md`（授權審查，結論是沒有阻斷條件）
 - Lane：`upstream`（動到相依與二進位歸屬）
@@ -517,3 +525,20 @@ xcrun devicectl device install app --device 00008160-00124C8200214036 …/WebHTV
 
 本輪暫停 MPV，優先處理使用者提出的五項 UI／資料問題（`docs/IOS-POC-10-plan-ux-and-sources.md`）。
 恢復時的第一個動作是**真機跑 OpenGL 那一格**，那是目前最能分辨病因的一次點擊。
+
+## 狀態複核（2026-09-22，IOS-POC-11B，純文件校正）
+
+自 2026-09-21 以來 MPV **沒有任何程式碼變動**，本輪也沒有跑算繪。這一節只是把狀態釘住，
+因為 `docs/AGENT_HANDOFF.md` 當時仍把 MPV 列在「Not implemented」裡，
+與本文件記錄的「libmpv 已在真機初始化」互相矛盾——那個矛盾已經修掉。
+
+未關閉的技術關卡，依可鑑別性排序：
+
+| # | 關卡 | 狀態 |
+|---|---|---|
+| 1 | 真機 **OpenGL**（軟解） | **未試**，最能分辨病因：宿主擁有 framebuffer，與 `wid` 那條路完全不同 |
+| 2 | `wid` + `CAMetalLayer` 的接線 | **最可疑，未驗證** |
+| 3 | 真機 Metal＋硬解（VideoToolbox） | 未試 |
+| 4 | 真機 OpenGL＋硬解 | 未試 |
+
+已排除：模擬器的軟體 MoltenVK（真機一樣黑）、網路取不到媒體（真機 `FILE_LOADED` 成立）。

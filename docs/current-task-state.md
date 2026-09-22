@@ -6,17 +6,19 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current Scope
 
-- Branch `ios-poc`. **Verified 2026-09-22 at IOS-POC-10U: HEAD `a076ab51` (IOS-POC-10T), worktree
-  clean, and `git rev-list --left-right --count origin/ios-poc...ios-poc` answered `0 10`** — ten
-  commits ahead of the remote and **not pushed**; the last push was on 2026-09-21 at `7653a9fb`.
+- Branch `ios-poc`. **Verified 2026-09-22 at IOS-POC-11B: HEAD `20c4bd53`
+  (`release(ios): publish WebHTV 0.1.1 (2)`, written by the release workflow), worktree clean, and
+  `git rev-list --left-right --count origin/ios-poc...ios-poc` answered `0 0`** — level with the
+  remote. The branch was pushed twice on 2026-09-22 at the user's explicit instruction, and the
+  release workflow pushed `source.json` itself.
   **Re-check with `git log` rather than trusting any id quoted here** — this one line has carried
-  five different stale ids in turn (`261b5c03`, "HEAD after IOS-POC-5L", `a087dd50`, `2a177f50` and
-  `bb965dda` in the handoff), each wrong by the time it was read.
+  six different stale ids in turn (`261b5c03`, "HEAD after IOS-POC-5L", `a087dd50`, `2a177f50`,
+  `bb965dda` and `a076ab51`), each wrong by the time it was read.
 - Android `app/` is read-only for all iOS work and has never been modified: `git diff <branch-point>..HEAD -- app/` is empty, and every commit on this branch touches only `ios/`, `docs/`, `scripts/`, `AGENTS.md` and `.codex/`.
 - **The input configuration lives in the scratchpad, not `/tmp`.** `/tmp/webhtv-recha-new.wprHof/` was cleared mid-session; `wang-movie.json` was re-fetched from the user's own GitLab and its SHA-256 matches the recorded baseline byte for byte. Re-fetch it from `https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json` if it is missing. `recha-main.zip` was **not** restored, so `scripts/audit_spider_jars.py` cannot be re-run without downloading it again.
 - Stages through IOS-POC-4J have an annotated `recovery/<task-id>/*` tag; tags through `IOS-POC-1H` are on the remote. **Recovery tags became opt-in on 2026-09-16** (AGENTS.md §6), so IOS-POC-5A onwards are deliberately untagged.
 
-## Where the roadmap actually stands (2026-09-21, IOS-POC-8L)
+## Where the roadmap actually stands (2026-09-22, IOS-POC-11B)
 
 | Milestone | State |
 |---|---|
@@ -25,34 +27,47 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 | drpy loader | **Done and verified** (IOS-POC-6A/6B) |
 | 4 drpy sources end to end | **Done** — all four reached real media bytes |
 | Python feasibility / P1 | **Done** — measured, not implemented (`docs/IOS-POC-7A-python-runtime.md`) |
-| Python P2–P5 | **Done, 2026-09-21** — `docs/IOS-POC-7A-python-runtime.md` carries all of it |
-| Python `requests` vendoring (IOS-POC-7P) | **Done** — 6 of 42 sites now reach media bytes, 14 execute |
-| MPV feasibility — licence/provenance (IOS-POC-9A) | **Done, 2026-09-21** — no licensing blocker, conditional on pinning MPVKit ≥1.0.0 non-GPL; `docs/IOS-POC-9A-mpv-license-provenance.md` |
-| MPV feasibility — technical spike (IOS-POC-9B/9C/9D) | **Blocked on a device run, 2026-09-21.** Both renderers tried — Metal/gpu-next/MoltenVK and OpenGL/libmpv — and both stay black on the simulator, failing at different stages. mpv reports the simulator as a software renderer in so many words. `docs/IOS-POC-9B-mpv-playback-core.md` |
-| Real-device baseline (IOS-POC-8) | **Partly done, and the rest deferred by the user on 2026-09-21** |
+| Python P2–P5 | **Done** — `docs/IOS-POC-7A-python-runtime.md` carries all of it: `PythonSpiderRuntime`, the `base/spider.py` shim, routing through `CSPSourceResolver`, the same-origin/HTTPS/size gates, a real-source golden and the 42-site survey |
+| CPython starts on iOS | **Done on the simulator (7F) and on the iPhone 18 Pro (9F)** — 3.13.15 both times |
+| Python `requests` Tier-1 vendoring (IOS-POC-7P) | **Done** — measured **14 of 42 sites execute, 6 reach media bytes** |
+| Python `Crypto` / `lxml` / `pyquery` / `bs4` | **Not started** — 24 sites wait on these (`Crypto` 17, `lxml` 3, `pyquery` 2, `bs4` 2) |
+| CatVod JS spider contract (IOS-POC-10T) | **Done** — `__jsEvalReturn` mapped onto the ABI on the existing runtime; **麻豆(js) listed and playing on the iPhone 18 Pro** (10V) |
+| MPV licence / provenance (IOS-POC-9A) | **Done** — no licensing blocker, conditional on pinning MPVKit ≥1.0.0 non-GPL; `docs/IOS-POC-9A-mpv-license-provenance.md` |
+| MPV technical feasibility (IOS-POC-9B/9C/9D/9F) | **Started, implemented, and not finished.** MPVKit is wired into the App target, static linking is confirmed by symbol table, and **libmpv initialises on the simulator and on the iPhone 18 Pro**. This row is **not** "not started" |
+| **MPV rendering** | **NOT DONE — PAUSED — UNRESOLVED.** On the device, Metal + software decode reaches `FILE_LOADED` and **`VIDEO_RECONFIG` never fires; the picture stays black**. A second playback core does **not** exist. `docs/IOS-POC-9B-mpv-playback-core.md` |
+| SideStore release pipeline (IOS-POC-11) | **Done** — `.github/workflows/ios-sidestore-release.yml` and `source.json` exist and have published twice |
+| Current release | **WebHTV `0.1.1 (2)`**, tag `ios-v0.1.1-b2`. **`0.1 (1)` is not current.** |
+| Real-device acceptance (IOS-POC-8) | **Partial.** Several runs on hardware; the list below is what is and is not confirmed. Not to be recorded as complete |
+| IOS-POC-5S ads / opening / ending | **Not started** — the next functional stage |
+| More `csp_*`, Crypto/lxml shims, CarPlay, AVPlayer↔MPV fallback | **Backlog, not started** |
 
-The device baseline is **not** finished, and nothing here should be read as saying it is. The user
-**deferred the remaining acceptance on 2026-09-21** and sent the main line back to Python P2–P5.
-What already ran on hardware stands and is not to be rolled back; what is listed as unverified
-stays unverified until a later device pass, which is now scheduled after the MPV stage.
+The device acceptance is **not** finished, and nothing here should be read as saying it is. What
+already ran on hardware stands and is not to be rolled back; what is listed as unverified stays
+unverified until a later device pass.
 
 - **Verified on hardware:** a fresh install accepts a remote configuration; the remote configuration
-  lists 67 sources; CJK and the source names' emoji render correctly; the app icon ships from the
+  lists its sources; CJK and the source names' emoji render correctly; the app icon ships from the
   asset catalog and installs; IOS-POC-8F and 8G (search field, wallpaper) were confirmed by the user;
-  and **since 2026-09-22 (IOS-POC-10V) a CatVod JS spider source — 麻豆(js) from `wang-sex.json` —
-  is listed and plays**, which also puts a spider source, a remote configuration and a
-  same-origin script download on the verified side.
+  **a CatVod JS spider source — 麻豆(js) from `wang-sex.json` — is listed and plays** (IOS-POC-10V),
+  which also puts a spider source, a remote configuration and a same-origin script download on the
+  verified side; **CPython runs the whole chain to real media bytes** (IOS-POC-9F); **libmpv
+  initialises** (9F); and **荐片's filter rows appear on a cold start** after IOS-POC-10Z, confirmed
+  by the user from a SideStore install of `0.1.1 (2)`.
 - **Still unverified on hardware:** the AVKit close button in its new position; browsing and playback
-  on a CMS source; a `csp_*` spider source; a drpy source; **Bili's `Referer` + browser `User-Agent`
-  actually playing through `AVPlayer`**; whether `AVURLAssetHTTPHeaderFieldsKey` works on a device at
-  all; WatchHistory position and resume; opening Infuse / Fileball / SenPlayer / VidHub.
+  on a **CMS** source; a **`csp_*`** spider source; a **drpy** source; **Bili's `Referer` + browser
+  `User-Agent` actually playing through `AVPlayer`**; whether `AVURLAssetHTTPHeaderFieldsKey` works
+  on a device at all; WatchHistory position and resume; opening Infuse / Fileball / SenPlayer /
+  VidHub; Picture in Picture; the player's volume and brightness drags; the line-picker row; and
+  **MPV rendering**.
+- **麻豆 playing does not settle the header question.** Its only header is a `User-Agent`, and that
+  stream answers `HTTP 200` with and without one — measured with `curl` both ways on 2026-09-22.
 - **The header question is the sharp one.** `avURLAssetSendsTheHeadersItWasGiven` stands a real
   `NWListener` and asserts on real bytes, but **it runs on macOS**, so it is not evidence about the
   device. The key is undocumented; a simulator or socket result must not be recorded as device-verified.
-- On 2026-09-21 the user moved to a **new iPhone 18 Pro** (`00008160-00124C8200214036`); the
-  iPhone 16 Pro of the earlier runs now reports `unavailable`. `bb965dda` is signed and installed on
-  the new device, so the next device pass starts from an installed build rather than from nothing.
-- Today's live evidence that the Bili path itself is healthy, so a future device failure is not
+- The device is the **iPhone 18 Pro** (`00008160-00124C8200214036`); the iPhone 16 Pro of the earlier
+  runs reports `unavailable`. **Since 2026-09-22 the user installs through SideStore**, so builds
+  reach the phone as a published IPA rather than by `devicectl install`.
+- Live evidence that the Bili path itself is healthy, so a future device failure is not
   misread as a spider fault: `CSP_GOLDEN_SITE='{"key":"bili",…,"api":"csp_Bili"}' swift test
   --filter biliOffersMultipleQualityLines` **passed on 2026-09-21**, resolving 480P and 360P lines
   and probing the best one to `.media` with headers, on an `akamaized.net` mirror.
@@ -68,7 +83,13 @@ stays unverified until a later device pass, which is now scheduled after the MPV
   Java is a specification only. `docs/IOS_SPIDER_RUNTIME_SPEC.md` is the single source of truth for
   that boundary; an earlier version of this line read “No Spider runtime exists” and was left stale
   by the IOS-POC-5A/5B commits.
-- There is still **no Python runtime** — that is the next milestone, not a property of the design.
+- **A Python runtime exists and has run on a device.** This line read "There is still no Python
+  runtime — that is the next milestone" until IOS-POC-11B, which was left stale by IOS-POC-7E–7P
+  (the runtime) and by 9F (the device run). CPython 3.13.15 starts inside the app on the simulator
+  **and on the iPhone 18 Pro**, `PythonSpiderRuntime` answers the same `SpiderRuntime` contract as
+  every other spider, and `皮皮虾.py` ran `init → home → category → detail → search → player →
+  probe(media)` to real media bytes on hardware. What remains unbuilt is the `Crypto`, `lxml`,
+  `pyquery` and `bs4` shims the other 24 sites need — a dependency gap, not a missing runtime.
   **A drpy loader does exist**, since IOS-POC-6A/6B: `DrpyEngine` fetches the engine and its nine
   libraries from the configuration's own origin, hash-pins and verifies them before evaluation, and
   runs them on the existing `JavaScriptSpiderRuntime`; **four drpy sources were driven end to end to
@@ -145,6 +166,8 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 7N | A Python traceback goes to the log; one readable line goes to the screen | same document |
 | 7P | `requests` + `urllib3` + `certifi` + `idna` + `charset-normalizer` vendored as pinned pure-Python wheels; sites reaching media bytes went 1 → 6, executing 4 → 14 | same document |
 | 10F–10Q | **Eleven more user-reported items, 2026-09-22.** Player gestures (seek / volume / brightness); the close button removed and Picture in Picture enabled; `DrpyError` and `CMSClientError` made readable; pull to refresh was being answered by `URLCache` and no longer is; three drpy configuration shapes reconciled; and **麻豆(js) diagnosed as a CatVod JS spider this app does not implement** | `docs/IOS-POC-10-plan-ux-and-sources.md` |
+| 11 | **SideStore release pipeline.** `.github/workflows/ios-sidestore-release.yml` builds an unsigned device IPA on GitHub `macos-26`, validates it against SideStore's own schema, publishes a Release and updates `source.json` on this branch. **Shipped `0.1 (1)` and then `0.1.1 (2)`** | `docs/IOS-POC-11-sidestore-release.md` |
+| 10W–10Z | **荐片's posters and filter rows, and the defect underneath them.** The poster host was the first entry of a list whose first two were dead; the filter rows were missing because `SpiderSessionStore.reset()` called `destroy()` on a session its caller still held, wiping what `init` had built between `start()` and `homeContent()`. **Not specific to one spider** | `docs/IOS-POC-10-plan-ux-and-sources.md` |
 | 10S | The source list follows the configuration's own order — `drivableSites` was four concatenated per-kind filters, so 麻豆(js), seventh in the file, was buried among the drpy sites | `docs/IOS-POC-10-plan-ux-and-sources.md` |
 | 10V | **麻豆 confirmed on the iPhone 18 Pro by the user** — listed and playing. Does **not** settle the `AVURLAssetHTTPHeaderFieldsKey` question: that stream serves without a `User-Agent` | `docs/IOS-POC-10-plan-ux-and-sources.md` |
 | 10T | **The CatVod JS spider contract implemented.** The blocker was `async`, not `__jsEvalReturn`: drpy2 has no `async` at all, so the runtime never settled a promise and all thirteen methods answered `{}` with no error. 麻豆 now runs to real media bytes | `docs/IOS-POC-10-plan-ux-and-sources.md`, `docs/IOS_SPIDER_RUNTIME_SPEC.md` |
@@ -186,11 +209,12 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 
 ### Sources and browsing
 
-#### Source coverage, counted at HEAD `261b5c03` (before the drpy sites)
+#### Source coverage, from the 167-site `wang-movie.json`
 
-Counted directly from the 167-site `wang-movie.json` by
-`listsThePortedSpiderSitesAlongsideTheNativeCMSSites`, which asserts every number in this table and
-passes at this HEAD. Earlier revisions of this section said 45 and 61; both are stale.
+Counted by `listsThePortedSpiderSitesAlongsideTheNativeCMSSites`, which asserts every number in this
+table and passes at the current HEAD. Earlier revisions of this section said 45, 61 and 67; all are
+stale. **The heading used to pin this table to `261b5c03`, "before the drpy sites"** — it is not
+pinned to that HEAD any more, because the test is.
 
 | group | sites | status |
 |---|---:|---|
@@ -198,12 +222,18 @@ passes at this HEAD. Earlier revisions of this section said 45 and 61; both are 
 | type-1 MacCMS JSON | 22 | listed |
 | type-4 CatVod remote API | 6 | listed |
 | type-3 `csp_*` spiders | 90 | **32 listed** through 8 ported classes |
-| type-3 Python (`./py/*.py`) | 42 | not implemented — no Python runtime |
+| type-3 Python (`./py/*.py`) | 42 | **listed and driven since IOS-POC-7H/7P** under a remote configuration; 14 execute and 6 reach media bytes (this row said "not implemented — no Python runtime" until IOS-POC-11B) |
 | type-3 drpy JavaScript | 5 | **listed and driven since IOS-POC-6B — but only under a remote configuration**, because the engine must come from the configuration's own origin |
-| **total** | **167** | **62 listed from an imported file, 67 from a remote URL** |
+| **total** | **167** | **62 listed from an imported file, 109 from a remote URL** |
 
-**Listing is not working, and the playable count is currently unmeasured.** The last coherent
-sweep was **37 of 61 playable on 2026-09-17** (26 of 30 native, 11 of 31 spider), and it predates
+62 + 5 drpy + 42 Python = 109. **This row said "67 from a remote URL" until IOS-POC-11B** and was
+left stale by IOS-POC-7H, which put the Python sources in the picker; the handoff had already been
+corrected on 2026-09-21 while this table had not.
+
+**Listing is not playing, and the playable count is still unmeasured for everything except the
+Python sources.** IOS-POC-7P measured those end to end — **14 of 42 execute, 6 reach media bytes** —
+and IOS-POC-9F confirmed the same dependency and policy counts on the device. For the rest, the last
+coherent sweep was **37 of 61 playable on 2026-09-17** (26 of 30 native, 11 of 31 spider), and it predates
 three stages that change the answer: IOS-POC-5M added 薦片, IOS-POC-5P gave the player the request
 headers the four `Bili` sites were failing without, and IOS-POC-5Q changed how `Bili` reports its
 episodes. **Do not quote 37 of 61 as current** — quote 62 listed, and say the playable count has not
@@ -317,26 +347,36 @@ without further code, which is why they are worth more than their site counts su
 
 ## Build / Test / Verification Status
 
-**Latest, re-measured 2026-09-21 at `7653a9fb` (IOS-POC-7R), which is the actual HEAD:**
+**Latest, re-measured 2026-09-22 at `20c4bd53` (IOS-POC-11B), which is the actual HEAD. Every number
+below was taken in that session; none is copied forward from an earlier one:**
 
-- `swift test --package-path ios` → **181 tests, all pass**. The trajectory since: 151 at
-  IOS-POC-7H, +4 `SiteSelectionTests` (10C), +4 `FilterNameTests` (10B), +7 `SavedSourceTests`
-  (10D), +2 `WatchHistorySourceBindingTests` (10E).
-- `xcodebuild … -destination 'platform=iOS Simulator,id=7B4E9557-4774-4EB9-B408-BB544DCC8657'`
-  → **BUILD SUCCEEDED**. Device build for `platform=iOS,id=00008160-00124C8200214036` succeeded and
-  installed at `bb965dda` earlier on 2026-09-21; **nothing since then has been built for a device.**
+- `swift test --package-path ios` → **188 tests, one failing**. The failure is
+  `reportsLiveType4SitesFromProvidedConfig`, which drives live type-4 providers and today finds
+  `88看球` answering with an embed page rather than a media address. **It is provider state and is
+  not to be "fixed"** — it passed earlier the same day, and it was confirmed pre-existing on
+  2026-09-22 by stashing the day's changes and re-running. The trajectory: 181 at IOS-POC-7R,
+  +1 order test (10S), +3 JS-spider runtime tests (10T), +2 JianPian golden tests (10W/10X),
+  +1 session-reset test (10Z). This line read "181 tests, all pass" until IOS-POC-11B.
+- `xcodebuild … -destination 'platform=iOS Simulator,id=7B4E9557-4774-4EB9-B408-BB544DCC8657'
+  -configuration Debug build` → **BUILD SUCCEEDED**.
+- `xcodebuild … -destination 'platform=iOS,id=00008160-00124C8200214036' -configuration Debug
+  DEVELOPMENT_TEAM=764SVXY2B7 CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates build` →
+  **BUILD SUCCEEDED**. The device reports `connected`.
+- **The release pipeline builds it too.** `ios-sidestore-release.yml` ran on GitHub `macos-26` and
+  produced `WebHTV-0.1.1-2.ipa` (24,563,735 bytes) unsigned, which SideStore re-signs on the device.
+  That is a third, independent build of the same commit on a machine with no local state.
 - `third_party/python-ios/` is present (78 MB) with the five vendored wheels in `site-packages`, so
   the Python path is buildable on this machine without a re-fetch.
-- **The iPhone 18 Pro `00008160-00124C8200214036` reports `available (paired)` to `devicectl`**, so
-  the deferred device pass is blocked only by the user's decision, not by the hardware. The
-  iPhone 16 Pro still reports `unavailable`.
 - Simulator, from the app's own launch path:
   `[python] boot running(version: "3.13.15")`,
   `[python] selfcheck 13/13 methods OK, errors propagate`,
-  `[python] live OK [🏆｜銅牌｜高清] init → home(5) → category(21) → detail → search(1) → player → probe(media)`,
-  `[python] survey driven 1/42`.
+  `[python] live OK [🏆｜銅牌｜高清] init → home(5) → category(21) → detail → search(1) → player → probe(media)`.
 - `scripts/audit_python_spiders.py --config <the user's GitLab URL>` → 42 sites classified.
-- **Not run:** any device verification of the Python runtime. Everything Python is simulator-only.
+- **Device verification of the Python runtime has been run** (IOS-POC-9F): `皮皮虾.py` ran the whole
+  chain to real media bytes on the iPhone 18 Pro, and the 42-site survey ran there too with the same
+  dependency and policy counts as the simulator. This bullet read "Not run: any device verification
+  of the Python runtime. Everything Python is simulator-only" until IOS-POC-11B, contradicting a
+  section further down this same document.
 
 
 Everything in this section is from **HEAD `261b5c03`** unless it names another stage or date; the
@@ -388,7 +428,8 @@ have been collapsed into the first bullet.
 
 - **IOS-POC-8K, 2026-09-21.** Two requests.
   - **The source picker opens on the source in use.** It was a `Menu`, which is a `UIMenu` and
-    cannot be scrolled to an item, so with 67 sources it always opened at the first one. It is now
+    cannot be scrolled to an item, so with a long list it always opened at the first one — 67 at the
+    time of that fix, **109 since IOS-POC-7H**. It is now
     a sheet holding a `List` inside a `ScrollViewReader`, and `onAppear` scrolls the selected id to
     centre. **Confirmed:** with 王子 selected — 40-odd rows down — the sheet opens with 王子 and its
     checkmark in the middle of the screen, not at 無水.
@@ -445,7 +486,7 @@ have been collapsed into the first bullet.
   → 菠菜 lists from the top **with the search field back**, and it still hides on the next scroll.
   The three failed attempts above were each driven through this same sequence and each left the
   field gone, which is what makes them worth recording rather than re-trying.
-- **IOS-POC-8E, 2026-09-18, on the remote configuration (67 sources).** Before the fix: 愛瓜 scrolled
+- **IOS-POC-8E, 2026-09-18, on the remote configuration (67 sources at the time; 109 today).** Before the fix: 愛瓜 scrolled
   down → source menu → 菠菜 listed from the top **with no search field**, and it came back only on an
   over-scroll. After the fix the same sequence keeps the field, and so does 荐片 → 愛瓜. 荐片 renders
   its category row and all four filter rows clear of the field at rest, while scrolled, and with the
@@ -520,8 +561,9 @@ have been collapsed into the first bullet.
 - **Confirmed on that device run:** Chinese and the site names' emoji render correctly, which
   settles that the simulator's `.notdef` boxes are the runtime's missing font set and not this app
   (IOS-POC-5V's Debug-only workaround is therefore correctly scoped). A remote configuration loaded
-  and the app listed **67 sources**, which is only reachable through the remote path and so also
-  confirms the five drpy sites route correctly on device.
+  and the app listed **67 sources — the count on 2026-09-18, before IOS-POC-7H added the 42 Python
+  sources; the same run today would list 109**. Either way it is only reachable through the remote
+  path, so it also confirms the five drpy sites route correctly on device.
 - **Found by the device run and fixed the same day — three defects, each hidden for a different
   reason.**
   1. **A fresh install could only ever import a file.** The remote-URL entry lives in the settings
@@ -730,54 +772,53 @@ have been collapsed into the first bullet.
 
 ## Next Recommended Step
 
-### Done 2026-09-22: `麻豆(js)` now runs — and the source list keeps the file's order
+### The next functional stage is IOS-POC-5S, and it has not started
 
-Two commits, both beyond `0cc565a3`:
+**Nothing functional may begin without the user saying so.** 5S is ads / opening / ending, and its
+first action is **not** code: re-read the configuration and the Android contract and **measure** the
+real shape of `ads`, `rules` and any opening/ending data, rather than guessing a schema. The
+constraints the user set for it:
 
-- **IOS-POC-10S `dcdd4da0`** — `drivableSites` was `supportedSites + spiderSites(…)`, and each of
-  those was itself a concatenation of per-kind filters, so the picker showed four blocks (native
-  CMS, `csp_*`, drpy, Python) instead of the configuration's own order. `wang-sex.json` puts
-  麻豆(js) seventh and the app buried it. Now one filter over `sites`. **Which** sites are listed
-  did not change — only their order. Pinned by a test that fails with 3 issues on the old grouping.
-- **IOS-POC-10T `a076ab51`** — the CatVod JS spider contract, implemented. 10P had only named it.
+- prefer the configuration's own verifiable `ads` / `rules`;
+- block known ad hosts or requests at the WebView / sniffer / network layer;
+- **no** broad DOM-selector deletion and no "looks like an ad" heuristics;
+- opening/ending skip reuses `PlaybackSession`, `WatchHistory` and the player's own
+  position/duration — **no second playback state**;
+- reuse any portable Android data model or rule contract rather than inventing one;
+- burned-in watermarks are out of scope; no image recognition or OCR;
+- HLS mid-stream ads stay unimplemented until there is a reliable, verifiable rule;
+- no ad rule may break a working media URL, subtitle, poster, API or sniffer unwrap;
+- smallest verifiable unit first.
 
-**The blocker turned out not to be `__jsEvalReturn` at all — it was `async`.** drpy2 contains no
-`async` anywhere, so `JavaScriptSpiderRuntime` never had to settle a promise; a JS spider writes
-every method `async`, `invokeMethod` returned the promise itself and `JSON.stringify` made it `{}`.
-Thirteen methods answering nothing, with **no error anywhere**. That is the whole reason the screen
-said 「沒有內容」. Settling the promise is the one change in shared code and it is what the new
-offline tests fail on, with the message `an error was expected but none was thrown and "{}" was
-returned`.
+### Everything shipped on 2026-09-22
 
-The rest was already here, which is why the diff is ~120 lines of Swift and a 77-line bridge:
-`DrpyEngine.moduleRuntime` had supplied `req` (with `res.content`) and `pdfh`/`pdfa`/`local`/`print`
-to drpy sites all along, `DrpyEngine.rewritten` already turns ES-module syntax into script, and the
-origin/HTTPS/size checks are the same ones. **No second runtime, no new native primitive, and a JS
-spider does not download drpy's 1.2 MB engine** because it does not use one. Contract:
+Six stages, all on the remote: **10S** source order, **10T** the CatVod JS spider contract,
+**10V** the device confirmation, **10W–10X** 荐片's poster host and remembered state,
+**10Z** the session-reset defect, and **11** the SideStore release pipeline shipping `0.1.1 (2)`.
+
+**The JS spider blocker turned out not to be `__jsEvalReturn` at all — it was `async`.** drpy2
+contains no `async` anywhere, so `JavaScriptSpiderRuntime` never had to settle a promise; a JS
+spider writes every method `async`, `invokeMethod` returned the promise itself and `JSON.stringify`
+made it `{}`. Thirteen methods answering nothing, with **no error anywhere**. Settling the promise is
+the one change in shared code. No second runtime, no new native primitive, and a JS spider does not
+download drpy's 1.2 MB engine because it does not use one. Contract:
 `docs/IOS_SPIDER_RUNTIME_SPEC.md`; record: `docs/IOS-POC-10-plan-ux-and-sources.md` §10T.
 
-**Verified:** 麻豆 through the `DRPY_GOLDEN_*` gate against its live provider — home 20 classes →
-category 30 → detail → search 30 → player `parse=0` → `SourceClient` to **real media bytes** with
-headers. `UAA`, a real drpy site in the same configuration, still passes the same gate, so nothing
-was mis-routed. Suite **185, one failing**; simulator and iPhone 18 Pro builds both succeeded.
+**The filter-row defect was the sharpest lesson of the day, and it was mine.** I twice announced a
+cause from a log line — "the fetch failed", then "one failure is permanent" — without ever looking
+at the screen. Both were wrong. `SpiderSessionStore.reset()` was calling `destroy()` on a session its
+caller still held, and `destroy()` is a **spider** call that clears what `init` built;
+`SpiderSession` is a reentrant actor, so it landed between `start()` and `homeContent()`. The
+rule-file fetch had returned HTTP 200 and the rows were thrown away afterwards. **When there is a
+screen to look at, look at the screen first** (§10Z).
 
-**Verified on the device by the user, 2026-09-22 (IOS-POC-10V): 麻豆 is in the source list and it
-plays.** The build installed is `164dc271`, and its bundled `js-spider.js` was compared byte for byte
-against the committed source first — the first install had been a pre-trim build and was replaced.
-That confirms the JS spider contract, `home`/`category`/`detail`/`play`, remote-configuration
-same-origin script loading, and IOS-POC-10S's ordering, all on real hardware.
+### Confirmed on the device by the user, and what it does not prove
 
-**It is not evidence that `AVURLAssetHTTPHeaderFieldsKey` works on a device**, and that line below
-must not be struck through on the strength of it. 麻豆's only header is `User-Agent: Mozilla/5.0`,
-and its stream answers `HTTP 200` with **or without** one — measured with `curl` both ways at the
-time. The real test of that key is still Bili, which needs a `Referer` too. Also not observed on the
-device: `search`, `homeVod`, and whether 麻豆 sits at exactly position 7.
-
-**The one failing test is not this work and is not to be "fixed".** `reportsLiveType4SitesFromProvidedConfig`
-fails at `CMSClientTests.swift:212` because `88看球` answers with an embed page today rather than a
-media address. Confirmed by stashing the change and re-running at `0cc565a3`, where it fails for the
-same reason. `AGENT_HANDOFF.md` already said this test is provider-dependent. **The handoff's "181
-tests all pass" was a 2026-09-21 measurement and no longer holds.**
+- **麻豆(js) is listed and plays** (10V), and **荐片's filter rows appear on a cold start** from a
+  SideStore install of `0.1.1 (2)`.
+- **Neither is evidence that `AVURLAssetHTTPHeaderFieldsKey` works on a device.** 麻豆's only header
+  is a `User-Agent` and its stream answers `HTTP 200` with or without one, measured with `curl` both
+  ways. The real test of that key is still Bili, which needs a `Referer` too.
 
 ### Reported and deliberately not fixed
 
@@ -787,46 +828,58 @@ tests all pass" was a 2026-09-21 measurement and no longer holds.**
   per-source caches made this reachable more often. Same family as IOS-POC-10C, different defect.
 - **Switching source leaves the previous source's error text on screen.**
 - `SpiderError`'s English `Spider script error:` prefix, deferred since IOS-POC-7N.
+- **荐片's own API host list also leads with a dead domain**, so a first launch with no remembered
+  host still pays a 10-second probe. IOS-POC-10X removed the cost on every launch after the first;
+  the first one was left alone.
 
 ### Verified by the user, and not
 
-- **Not confirmed by anyone yet:** the volume and brightness drags, Picture in Picture on the
-  device, the Chinese filter-row labels, and the line-picker row. All are build- and test-verified
-  only; every attempt to watch them on the simulator was blocked either by provider failures or by
-  the simulator not implementing the feature. The device build is installed and current.
+- **Confirmed on hardware by the user:** 麻豆(js) listed and playing; 荐片's filter rows on a cold
+  start; IOS-POC-8F and 8G.
+- **Not confirmed by anyone yet:** the volume and brightness drags, Picture in Picture, the Chinese
+  filter-row labels, and the line-picker row — build- and test-verified only. Every attempt to watch
+  them on the simulator was blocked either by provider failures or by the simulator not implementing
+  the feature.
 
-**Do not start anything below without the user saying so.** The order was set by the user and the
-first two items are finished.
+**Do not start anything below without the user saying so.** The order is the user's, restated on
+2026-09-22. Items 0–2 are finished; the numbering is kept so older references still resolve.
 
-0. ~~**The CatVod JS spider contract.**~~ **Done (IOS-POC-10T).** Confirmed reach is **one site**,
-   麻豆(js); the other four `.js` sites in `wang-sex.json` are genuine drpy rules.
-
+0. ~~**The CatVod JS spider contract.**~~ **Done (IOS-POC-10T), and confirmed on the device (10V).**
+   Confirmed reach is **one site**, 麻豆(js); the other four `.js` sites in `wang-sex.json` are
+   genuine drpy rules.
 1. ~~**POC-3 — the drpy JavaScript loader.**~~ **Done (IOS-POC-6A/6B/6C).**
-2. ~~**POC-4 — the Python runtime, P2–P5.**~~ **Done (IOS-POC-7E–7P).** What it actually buys is
-   modest and measured: **14 of 42 configured Python sites execute and 6 reach media bytes** (it was
-   4 and 1 before IOS-POC-7P vendored `requests`; this paragraph quoted those pre-vendoring numbers
-   until 2026-09-21). **24 are still blocked on a dependency** — `Crypto` 17, `lxml` 3, `pyquery` 2,
-   `bs4` 2 — and 4 are refused by the same-origin/HTTPS policy. `bs4` is pure Python and would go
-   the way `requests` did; a `Crypto.Cipher` shim over the AES, DES, MD5, SHA and HMAC `CatVodHost`
-   already has would address the largest block, 17 sites.
-   **Neither was done, and neither should start without the user asking.**
-3. **MPV feasibility.** ~~The licence/provenance review comes first.~~ **Done — IOS-POC-9A,
-   2026-09-21: there is no licensing blocker**, conditional on pinning **MPVKit 1.0.0 or newer,
-   non-GPL variant** (every earlier release built its "LGPL" FFmpeg with `--enable-nonfree`, which
-   is not redistributable at all). mpv's own LGPL mode costs iOS nothing, because everything it
-   disables is a Linux/Windows desktop feature. Static linking is an obligation, not a blocker,
-   because this repository already publishes its whole source under GPLv3. Full record and the five
-   open gates: `docs/IOS-POC-9A-mpv-license-provenance.md`.
-   **What remains is IOS-POC-9B, the technical spike, and it is waiting on the user's instruction.**
-   A second built-in playback core, `PlaybackTarget → PlayerRouter → AVPlayerEngine / MPVEngine`,
-   sharing the existing `PlaybackSession`, headers, history, resume and quality. Do not rebuild
-   `SourceClient`. Do not take a framework out of Infuse, Fileball, SenPlayer or VidHub; only an SDK
-   whose licence permits embedding. `.codex/skills/upstream-integration-governor/SKILL.md` governs it.
-4. **The real-device acceptance**, deferred by the user on 2026-09-21 with the partial baseline kept.
-5. **IOS-POC-5S**, and only then more `csp_*` ports.
+2. ~~**POC-4 — the Python runtime, P2–P5.**~~ **Done (IOS-POC-7E–7P), and run on a device (9F).**
+   What it buys is modest and measured: **14 of 42 configured Python sites execute and 6 reach media
+   bytes** (4 and 1 before IOS-POC-7P vendored `requests`). **24 are still blocked on a
+   dependency** — `Crypto` 17, `lxml` 3, `pyquery` 2, `bs4` 2 — and 4 are refused by the
+   same-origin/HTTPS policy. `bs4` is pure Python and would go the way `requests` did; a
+   `Crypto.Cipher` shim over the AES, DES, MD5, SHA and HMAC `CatVodHost` already has would address
+   the largest block, 17 sites. **Neither shim has been started, and neither should start without
+   the user asking.**
+3. **MPV — started, and paused with rendering unresolved.** Not a future stage and not a finished
+   one. **Done:** the licence/provenance review (9A, no blocker, conditional on MPVKit ≥1.0.0
+   non-GPL), MPVKit wired into the App target with static linking confirmed by symbol table, and
+   **libmpv initialising on the simulator and on the iPhone 18 Pro** (9B/9C/9D/9F).
+   **Not done:** rendering. On the device, Metal + software decode reaches `FILE_LOADED` and
+   **`VIDEO_RECONFIG` never fires; the picture stays black.** There is **no second playback core** —
+   `PlaybackTarget → PlayerRouter → AVPlayerEngine / MPVEngine` was the design, not the state.
+   **When the user resumes it**, start from that unresolved point — the `FILE_LOADED → VIDEO_RECONFIG`
+   gap, with the untried **OpenGL on device** cell as the cheapest discriminator — **not** from
+   MPVKit installation, and do not redo 9A unless MPVKit or its dependencies actually change. Do not
+   guess a third render path, do not build an AVPlayer↔MPV fallback, and do not add subtitle or
+   audio-track UI. `docs/IOS-POC-9B-mpv-playback-core.md`.
+4. **The full real-device acceptance.** Partial today. Still owed, at least: CMS browsing and
+   playback; a `csp_*` source; a drpy source; Bili's `Referer` + browser `User-Agent` through
+   `AVPlayer`; whether `AVURLAssetHTTPHeaderFieldsKey` works on a device at all; WatchHistory and
+   resume; opening Infuse / Fileball / SenPlayer / VidHub; Picture in Picture; and MPV rendering if
+   it is fixed by then. **The runs already done are not a completed acceptance.**
+5. **IOS-POC-5S — ads, opening and ending. The next functional stage, not started.** Its shape and
+   constraints are recorded under "Next Recommended Step" above.
 
-**Not to be started early:** 5S ads/intro-outro, XueLuo, QimaoDJ, further `csp_*`, CarPlay,
-Official/XPTV as a separate fork.
+**Backlog, not to be started:** the Python `Crypto` / `bs4` / `lxml` / `pyquery` shims; further
+portable `csp_*` ports; XueLuo, QimaoDJ and AppDrama; `CatVodHost` RSA and `proxy` plumbing; CarPlay;
+an automatic AVPlayer↔MPV fallback; extra work for an Official/App Store profile; and **any new
+release version**.
 
 ## Resume Prompt
 
@@ -834,32 +887,22 @@ Paste this into a new session:
 
 > 接手 `/Users/chengchenchih/GIT/webhtv` 的 `ios-poc`，透過本機終端操作，不要每步停下來問我確認。用台灣繁體中文回報。
 >
-> **先確認實際狀態，不要相信這段文字裡的任何 SHA**：2026-09-22 當時 HEAD 在 `a076ab51`（IOS-POC-10T），**領先 `origin/ios-poc` 10 個 commit、尚未 push**，worktree clean。用 `git log` 與 `git rev-list --left-right --count origin/ios-poc...ios-poc` 覆蓋這一行。**未經我明確授權不得 push、tag、package、publish。**
+> **先確認實際狀態，不要相信這段文字裡的任何 SHA**：2026-09-22 當時 HEAD 在 `20c4bd53`，**與 `origin/ios-poc` 同步（`0 0`）**，worktree clean。用 `git log` 與 `git rev-list --left-right --count origin/ios-poc...ios-poc` 覆蓋這一行。**未經我明確授權不得 push、tag、package、publish 或發新的 SideStore release。**
 >
-> 動手前必讀：`AGENTS.md`、`docs/AGENT_HANDOFF.md`、`docs/current-task-state.md`、`docs/IOS-POC-10-plan-ux-and-sources.md`（最近三天的全部修改與驗證限度）、`docs/IOS-POC-9B-mpv-playback-core.md`（MPV 現況）、`docs/IOS_SPIDER_RUNTIME_SPEC.md`（spider runtime 唯一真相）。
+> 動手前必讀：`AGENTS.md`、`README.md`、`docs/AGENT_HANDOFF.md`、`docs/current-task-state.md`、`docs/IOS-POC-7A-python-runtime.md`、`docs/IOS-POC-9A-mpv-license-provenance.md`、`docs/IOS-POC-9B-mpv-playback-core.md`、`docs/IOS-POC-10-plan-ux-and-sources.md`、`docs/IOS-POC-11-sidestore-release.md`、`docs/IOS_SPIDER_RUNTIME_SPEC.md`。
 >
-> **上一輪（2026-09-22）做完的兩件事，都還沒有人在手機上看過：**
+> **已完成、不要當成未開始的事**：drpy loader（4 個來源 E2E 到真實媒體位元組）；Python P1–P5（`PythonSpiderRuntime`、`base/spider.py`、routing、安全 gate、真實來源 golden、42 站 survey 都已存在）；**CPython 3.13.15 在模擬器與 iPhone 真機都啟動過**；`requests` Tier-1 vendoring（**42 站中 14 站可執行、6 站到媒體位元組**）；CatVod JS spider 契約（**麻豆(js) 已在真機列出並播放**）；5Q multi-quality；5R WatchHistory／resume；**SideStore 發佈流程**（workflow 與 `source.json` 都在，已發過兩版）。
 >
-> 1. **IOS-POC-10S `dcdd4da0`** — 來源清單改成照設定檔自己的順序。以前是四段串接（原生 CMS → `csp_*` → drpy → Python），所以 `wang-sex.json` 裡排第 7 的 `麻豆(js)` 被埋到很後面。**列出哪些站完全沒變，只有順序變。**
-> 2. **IOS-POC-10T `a076ab51`** — CatVod／TVBox 的 **JS spider 契約**實作完成，麻豆(js) 可以跑了。真正的阻礙不是 `__jsEvalReturn` 而是 **`async`**：drpy2 全檔沒有一個 `async`，所以 runtime 從來不必結算 Promise；JS spider 每個方法都是 async，`JSON.stringify` 把 Promise 變成 `{}`，十三個方法全回空且毫無錯誤。沒有第二套 runtime，沒有新的 native 能力，JS spider 也不下載 drpy 的 1.2 MB 引擎。
+> **目前最新版本是 `0.1.1 (2)`**（tag `ios-v0.1.1-b2`）。**`0.1 (1)` 不是最新。**
 >
-> **驗證到哪裡**：麻豆走 `DRPY_GOLDEN_BASE`／`DRPY_GOLDEN_SITE` 閘門對真實來源跑完 home 20 類 → category 30 → detail → search 30 → player `parse=0` → `SourceClient` 取到**真實媒體位元組**；同設定檔的真 drpy 站 UAA 同一條閘門仍完整通過。全套 **185 條、1 條失敗**；模擬器與 iPhone 18 Pro build 都成功。
+> **MPV：已經開始且有實作，但沒做完。** libmpv 在模擬器與真機都初始化成功；**算繪未完成、暫停中、未解**——真機 Metal＋軟解到得了 `FILE_LOADED`，`VIDEO_RECONFIG` 從未觸發，畫面全黑。**不存在第二個播放核心。** 恢復時從 `FILE_LOADED → VIDEO_RECONFIG` 那段繼續，真機 OpenGL 那一格還沒試，是最便宜的鑑別；不要從 MPVKit 安裝重來，不要重做 9A。
 >
-> 驅動麻豆的指令：
-> ```
-> DRPY_GOLDEN_BASE='https://gitlab.com/st7833232/recha/-/raw/main/wang-sex.json' \
-> DRPY_GOLDEN_SITE='{"key":"js_madou","name":"麻豆(js)","type":3,"api":"./drpy_js/麻豆.min.js","ext":{}}' \
->   swift test --package-path ios --filter drpyDrivesARealSourceEndToEnd
-> ```
+> **真機驗收是 partial，不要寫成完整完成。** 已確認：麻豆(js) 列出並播放、荐片冷啟動有篩選列、CPython 走完整條鏈、libmpv 初始化、8F／8G。**仍未確認**：CMS 來源、`csp_*` 來源、drpy 來源、Bili 的 `Referer`＋瀏覽器 UA 經 `AVPlayer`、`AVURLAssetHTTPHeaderFieldsKey` 在真機是否真的生效、WatchHistory／resume、外部播放器、PiP、MPV 算繪。
 >
-> **那 1 條失敗不是這次造成的、也不要去「修」**：`reportsLiveType4SitesFromProvidedConfig` 在 `CMSClientTests.swift:212` 失敗，因為 `88看球` 今天回的是一個網頁而不是媒體位址。已經 stash 掉改動、回到 `0cc565a3` 重跑確認同樣失敗。`AGENT_HANDOFF.md` 早就寫明這條依賴 provider 狀態。**交接文件裡「181 條全過」是 2026-09-21 的量測，已經不成立。**
+> **下一個 functional stage 是 IOS-POC-5S（ads／片頭／片尾），尚未開始。** 第一個動作不是寫程式，是量測設定檔與 Android 契約裡 `ads`／`rules`／片頭片尾資料的真實形狀，不准猜 schema。`Crypto`／`lxml`／`pyquery`／`bs4`、更多 CSP、CarPlay 全部是 backlog。
 >
-> **使用者已在 iPhone 18 Pro 上確認（IOS-POC-10V）**：麻豆列得出來、也播得動，順序修正也生效。**但這不證明真機上 `AVURLAssetHTTPHeaderFieldsKey` 有效**——麻豆那條串流不帶 `User-Agent` 也回 200，當場用 `curl` 兩邊都驗過。那個問題的真正考題是 Bili。
+> **驗證現況（2026-09-22 在 `20c4bd53` 重新量的，不是抄舊數字）**：`swift test --package-path ios` → **188 條、1 條失敗**；那一條是 `reportsLiveType4SitesFromProvidedConfig`，`88看球` 今天回網頁而非媒體位址，**是 provider 狀態，不要去修**。模擬器（`7B4E9557-4774-4EB9-B408-BB544DCC8657`）與 iPhone 18 Pro（`00008160-00124C8200214036`）build 都成功。
 >
-> **還沒有人確認過的**（只有 build＋測試證據）：播放器的音量／亮度拖曳、真機 PiP、篩選列中文標籤、線路選擇列、裝置上的 `search` 與 `homeVod`。
->
-> **裝置簽章走命令列**：`DEVELOPMENT_TEAM=764SVXY2B7 CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates`，免費描述檔七天到期。模擬器 destination 必須用 id 不能用 name（`iPhone 17 Pro` = `E0A41D48-2210-46B8-B18C-9432B77DECC4`），真機是 `00008160-00124C8200214036`。
->
-> **MPV 暫停中**：真機 Metal＋軟解到得了 `FILE_LOADED`、但 `VIDEO_RECONFIG` 從未觸發、畫面全黑；Metal 與 OpenGL 兩條路都試過都黑。最可疑的是 `wid` + `CAMetalLayer` 的接線，**真機上的 OpenGL 那一格還沒試**。沒有我的指令不要重啟 MPV。
+> **我現在用 SideStore 安裝，不要直接把 App 裝到我手機上。** 需要上機時產 IPA 給我，或在我授權後觸發 `ios-sidestore-release.yml`。裝置簽章走命令列：`DEVELOPMENT_TEAM=764SVXY2B7 CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates`。模擬器 destination 必須用 id 不能用 name。
 >
 > **流程**：功能性修改前跑 Ponytail pre-review，用 `bash .codex/scripts/task_guard.sh start`，完成 targeted verification 後跑 Ponytail final-diff review，結果寫進 durable 文件，收尾用 `finish ... --no-tag`。Android `main/`、`app/`、`chaquo/` 只讀。

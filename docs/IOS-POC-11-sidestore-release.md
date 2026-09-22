@@ -32,9 +32,26 @@
 
 ## Recovery anchor
 
-- 狀態：完成。
+- 狀態：完成，且已發過兩個版本。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
 - 發布結果：`WebHTV-0.1-1.ipa`，24,563,162 bytes，GitHub asset SHA-256 `fcbf1531d9480f678ee0fac7ec5ce49010f3de51fc11b79f0ba88372e85812ed`；IPA plist 為 `com.webhtv.ios.poc`、`0.1`、build `1`、minimum iOS `17.0`。
 - Source URL：`https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/source.json`。
 - 下一步：無；使用者可在 SideStore 加入 Source URL。
+
+## 第二次發布（2026-09-22，`0.1.1 (2)`）
+
+**目前最新版是 `0.1.1 (2)`，不是 `0.1 (1)`。** 上面的 Recovery anchor 記的是首發，保留不動。
+
+- 觸發方式：`workflow_dispatch`，輸入 `version=0.1.1`、`build_number=2` 與中文 release notes。
+  使用者明確授權了這一次 push 與這一次觸發。
+- 專案檔一併改成 `MARKETING_VERSION = 0.1.1`、`CURRENT_PROJECT_VERSION = 2`（commit `0d18b25c`），
+  否則 workflow 的「輸入留空就讀專案值」會指向一個已經發布過的版號。
+- run `35698143404` 在 `macos-26` 上 **success，2 分 57 秒，11 個步驟全綠**。
+- 產物：`WebHTV-0.1.1-2.ipa`，**24,563,735 bytes**，tag `ios-v0.1.1-b2`。
+- workflow 自行把 `source.json` 推回 `ios-poc`（commit `20c4bd53`），`versions` 現在有兩筆，
+  最新的在第一筆。
+- **下載回來逐項驗過**，不是只看 CI 綠燈：`Info.plist` 為 `0.1.1` / build `2` /
+  `com.webhtv.ios.poc`；`JianPian.js` 與 `js-spider.js` 與 HEAD **逐位元組相同**。
+- 使用者以 SideStore 安裝此版並確認荐片冷啟動即有篩選列。
+- **自 2026-09-22 起，不要直接把 App 裝到使用者手機**；需要上機時產 IPA 或在授權後觸發此 workflow。

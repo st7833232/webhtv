@@ -24,6 +24,10 @@ struct WebHTVApp: App {
         } catch {
             print("[audio] session unavailable: \(error.localizedDescription)")
         }
+        // Says out loud whether PiP can arm at all. The simulator does not implement it, so an
+        // absent PiP button there is the platform rather than a defect — and without this line
+        // that is a guess every time somebody looks.
+        print("[pip] supported \(AVPictureInPictureController.isPictureInPictureSupported())")
 
         // IOS-POC-7F: start the interpreter and say what came up. Debug-only for now — the Spider
         // runtime will own initialisation once it exists, and nothing in a Release build needs
@@ -1792,20 +1796,11 @@ private struct PlayerView: View {
             PlayerSurface(player: session.player, pictureInPicture: $pictureInPicture)
                 .ignoresSafeArea()
         }
-        // The close button is gone, so this is the way out. A downward drag is the gesture iOS
-        // uses to dismiss full-screen video everywhere else, and `fullScreenCover` does not
-        // provide it. Thresholded on distance so it cannot fire while the viewer is scrubbing.
-        // `simultaneousGesture`, not `gesture`: AVKit's own recognisers sit in a UIKit view below
-        // and a plain SwiftUI gesture loses to them, which would leave the screen with no exit at
-        // all now that the button is gone. Observing alongside cannot lose that argument.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 30)
-                .onEnded { move in
-                    // Long, downward and roughly vertical, so scrubbing and the volume/brightness
-                    // drags cannot be mistaken for leaving.
-                    if move.translation.height > 80, abs(move.translation.width) < 120 { dismiss() }
-                }
-        )
+        // No swipe-to-dismiss and no button of our own. IOS-POC-10H added a downward drag on the
+        // assumption that removing the custom X left no exit; driving it on the simulator showed
+        // that assumption was wrong — **AVKit's own control row carries an X and it dismisses
+        // this screen**. A second way out that can misfire against a vertical drag is worse than
+        // no second way out, so the gesture is gone.
         .statusBarHidden()
         // Closing the screen pauses rather than tears down, so a page can read the position it
         // reached and resume it with player.control.

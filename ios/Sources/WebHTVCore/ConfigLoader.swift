@@ -6,6 +6,21 @@ public extension URLSession {
     static let webHTV: URLSession = {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 10
+        // IOS-POC-10L: no HTTP cache on this session, and that is measured rather than assumed.
+        //
+        // The user asked whether pull to refresh actually runs, because it returned instantly and
+        // nothing changed. It ran — but `URLSessionConfiguration.default` carries a `URLCache`,
+        // and the simulator's cache held **67 listing requests**, `api/crumb/list?…&page=1` among
+        // them. The refresh was being answered from disk.
+        //
+        // Every request on this session is live content or code: CMS listings, a spider's own
+        // HTTP, the configuration JSON, drpy's engine and the compatibility pack. Caching any of
+        // them buys a little bandwidth and costs correctness — and for the hash-pinned downloads
+        // it is worse than that, because a stale cached copy fails the pin and refuses the site
+        // outright. AVPlayer does not use this session, so video is unaffected.
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        // Not storing either. Keeping a cache that is never read is just disk.
+        configuration.urlCache = nil
         return URLSession(configuration: configuration)
     }()
 }

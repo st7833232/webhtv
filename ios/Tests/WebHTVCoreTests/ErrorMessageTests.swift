@@ -49,3 +49,14 @@ import Testing
         #expect(DrpyError.noRemoteConfiguration.description.contains("drpy needs a remote configuration"))
     }
 }
+
+
+/// IOS-POC-10L: pull to refresh has to reach the network.
+@Suite struct SessionCacheTests {
+    /// A one-line regression guard for a bug that is invisible from the call site: every caller
+    /// says `URLSession.webHTV.data(from:)` and looks correct whether or not a cache answers it.
+    @Test func theSharedSessionNeverAnswersFromTheHTTPCache() {
+        #expect(URLSession.webHTV.configuration.requestCachePolicy == .reloadIgnoringLocalCacheData)
+        #expect(URLSession.webHTV.configuration.urlCache == nil)
+    }
+}

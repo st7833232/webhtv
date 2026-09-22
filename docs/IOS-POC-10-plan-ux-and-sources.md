@@ -333,3 +333,50 @@ round trip 精確。**同時接受舊的截斷值**——以 `key` 比對——�
 **`noRemoteConfiguration` 為什麼會在遠端設定下發生。** 列出 drpy 站的條件就是
 `source.baseURL != nil`，所以它被列出來時來源是遠端的；到了內容呼叫卻說沒有。
 **下次再發生時畫面會直接說出原因**，這正是修這個訊息的價值。
+
+
+## 10L — 下拉重整「有跑，但被快取回答了」（使用者 2026-09-22 提問）
+
+> 下拉重整真的有執行嗎？反應速度很快，但又沒什麼改變。
+
+### 先確認它有執行
+
+`.refreshable` 裡是 `await load(...)`，與分類 chip 走同一條路徑，**確實會執行也確實被等待**。
+所以問題不在有沒有跑。
+
+### 再量出它為什麼看起來沒動
+
+**直接讀模擬器上 App 的 `Library/Caches/.../Cache.db`**，不是推論：
+
+```
+cached responses: 157
+listing-ish (ac= / api / vod): 67
+…/api/crumb/list?fcate_pid=3&category_id=&area=2&year=162&type=&sort=&page=1
+```
+
+**分類清單就在快取裡。** `URLSessionConfiguration.default` 自帶 `URLCache`，而 core 從來沒有設過
+cache policy，所以重整被磁碟回答了——快、而且內容一模一樣。
+
+### 修法：這條 session 不快取
+
+`URLSession.webHTV` 加 `requestCachePolicy = .reloadIgnoringLocalCacheData` 與 `urlCache = nil`。
+
+走這條 session 的**全部都是即時內容或程式碼**：CMS 清單、spider 自己的 HTTP、設定檔 JSON、
+drpy 引擎、相容性套件。快取它們省下一點頻寬，換掉的是正確性——
+**而且對 hash-pinned 的下載更糟**：一份過期的快取副本會對不上釘住的雜湊，直接把該站拒絕掉。
+AVPlayer 不走這條 session，影片播放不受影響。
+
+### 驗證
+
+| 步驟 | 結果 |
+|---|---|
+| 修改前，瀏覽後看快取 | `crumb/list` 有 **10 筆** |
+| 刪掉 `Cache.db`、裝新版、重跑並瀏覽 | **`Cache.db` 根本沒有被重建** |
+
+加一條單元測試釘住 session 設定——這個缺陷從呼叫端完全看不出來，每個呼叫都寫
+`URLSession.webHTV.data(from:)`，有沒有被快取回答長得一模一樣。
+
+### 誠實的但書
+
+這解決的是「重整被快取回答」。**它不保證畫面一定會變**——provider 的清單本來就可能好幾個小時
+都一樣。差別在於：現在沒變是因為來源真的沒變，不是因為我們沒去問。

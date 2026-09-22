@@ -506,3 +506,57 @@ home 回空是來源行為，與本修正無關。
 `selectedSiteID` 仍是 nil；接著 `adopt` 只保留「記憶體裡的」值，never 回頭看存下來的 token，
 於是落到 `loaded.first`。10D 讓每個來源各自快取之後，這個狀況變得比以前常見
 （新增來源、或切到還沒抓過的來源）。**與 10C 同一個家族，但不是同一個缺陷**，沒有在這一刀處理。
+
+
+## 10P — 麻豆(js) 不是 drpy，是另一種 JS spider（使用者：Android TV 上可以用）
+
+### 為什麼 Android 可以而這裡不行
+
+把麻豆丟進既有的 `DRPY_GOLDEN_SITE` 閘門測試（而不是繼續看截圖），拿到第一個線索：
+
+```
+[spider] undefined
+[spider] p:undefined
+home returned no categories → classes == []
+```
+
+抓下腳本本體對照，答案就清楚了。`drpy_js/麻豆.min.js` 的結尾是：
+
+```js
+…['category']=category, …=detail, …=play, …['search']=search; return …;   // 全部包在 __jsEvalReturn 裡
+```
+
+**那是 CatVod／TVBox 的「JS spider」契約，不是 drpy 規則。** 對照組：同一份設定檔裡的
+`drpy_js/UAA[密].js`（真 drpy 規則）完全沒有 `__jsEvalReturn`。
+
+兩者的入口不同：drpy 規則對引擎暴露一個 `rule` 物件；JS spider 定義 `__jsEvalReturn()`，
+回傳 `{init, home, homeVod, category, detail, play, search}`。
+
+`isDrpySpider` 只看「type 3 且 api 以 .js 結尾」，於是把 JS spider 餵給 drpy2，
+drpy2 找不到 `rule`，每個方法都回空——畫面就是「沒有內容」。
+**TVBox 有兩套 JavaScript runtime，這個 App 只實作了其中一套。**
+
+### 這一刀只做診斷，不做實作
+
+偵測 `__jsEvalReturn` 並丟出具名錯誤：
+「麻豆.min.js 是 CatVod JS spider（__jsEvalReturn），不是 drpy 規則腳本；本 App 目前只實作 drpy。」
+
+**沒有實作那套契約**——那是新能力，依 `AGENTS.md` §7 要先經使用者核可。
+靜靜地顯示空清單是所有結果裡最糟的一個，先把它換成一句真話。
+
+### 驗證
+
+| 檢查 | 結果 |
+|---|---|
+| 麻豆(js) 走 golden | **具名失敗**：`麻豆.min.js is a CatVod JS spider (__jsEvalReturn), not a drpy rule` |
+| UAA（同設定檔的真 drpy 站）走 golden | **完整通過**：home 3 類 → category 32 筆 → detail → search 32 筆 → player `parse=0` → 播放位址帶 headers |
+| 全套 | 181 條通過 |
+
+沒有誤傷真正的 drpy 站，這是加這個偵測時唯一要擔心的事。
+
+### 如果要做，值多少
+
+目前確認的 JS spider 只有麻豆**一站**（`wang-sex.json` 5 個 `.js` 站裡，4 個是 drpy）。
+好消息是 runtime 大半已經在：`JavaScriptSpiderRuntime` 與 `host.js`（`req`／`pdfh`／`pdfa`／`local`）
+正是這類腳本需要的 SDK，形狀上更接近既有的 `csp_*` 移植而不是另造一套。
+**需要你決定要不要開這個階段。**

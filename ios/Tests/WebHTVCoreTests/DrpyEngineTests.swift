@@ -336,3 +336,23 @@ private func playURL(_ value: Any?) -> [String] {
         #expect(!Site.isResourceReference("{\"key\":\"value\"}"))
     }
 }
+
+/// IOS-POC-10P: two JavaScript spider contracts share the `.js` extension.
+@Suite struct JavaScriptSpiderDetectionTests {
+    /// The tail of `drpy_js/麻豆.min.js`, which is what an obfuscated TVBox JS spider looks like.
+    @Test func theJsSpiderEntryPointIsRecognised() {
+        let script = "function __jsEvalReturn(){var o={};o['category']=category;o['search']=search;return o;}"
+        #expect(DrpyEngine.isJavaScriptSpider(script))
+    }
+
+    @Test func aDrpyRuleIsNot() {
+        #expect(!DrpyEngine.isJavaScriptSpider("var rule = { title: 'x', host: 'https://a.example' }"))
+        #expect(!DrpyEngine.isJavaScriptSpider(""))
+    }
+
+    @Test func theFailureSaysWhichContractItIs() {
+        let shown = (DrpyError.notADrpyRule("麻豆.min.js") as Error).localizedDescription
+        #expect(shown.contains("__jsEvalReturn"))
+        #expect(!shown.contains("couldn’t be completed"))
+    }
+}

@@ -340,7 +340,29 @@ public enum DrpyEngine {
         guard let text = String(data: data, encoding: .utf8) else {
             throw DrpyError.notText(url.lastPathComponent)
         }
+        guard !isJavaScriptSpider(text) else {
+            throw DrpyError.notADrpyRule(url.lastPathComponent)
+        }
         return text
+    }
+
+    /// Does this script speak the **CatVod JS spider** contract rather than drpy's?
+    ///
+    /// IOS-POC-10P. `wang-sex.json`'s 麻豆(js) is `type 3` with a `.js` api, which is all
+    /// `isDrpySpider` looks at — so it went to drpy2, which found no `rule` object and answered
+    /// every method with nothing. The screen said 「沒有內容」, while the same source plays on
+    /// Android TV, because TVBox routes a script like this to its **other** JavaScript runtime.
+    ///
+    /// The entry point tells them apart. A drpy rule exposes a `rule` object for the engine to
+    /// read; a JS spider defines `__jsEvalReturn()` returning
+    /// `{init, home, homeVod, category, detail, play, search}` — which is exactly how 麻豆.min.js
+    /// ends. Matching that one name is deliberately narrow: it is the function the host has to
+    /// call, so a script carrying it is not a drpy rule whatever else is in it.
+    ///
+    /// **This names the situation; it does not implement the contract.** Quietly showing an empty
+    /// list was the worst of the outcomes available.
+    static func isJavaScriptSpider(_ script: String) -> Bool {
+        script.contains("__jsEvalReturn")
     }
 }
 
@@ -363,6 +385,9 @@ public enum DrpyError: Error, Equatable, CustomStringConvertible, LocalizedError
     case tooLarge(String, Int, Int)
     case hashMismatch(String, expected: String, actual: String)
     case notText(String)
+    /// The script is a CatVod/TVBox **JS spider**, not a drpy rule — a different runtime
+    /// contract that this app does not implement. See `DrpyEngine.isJavaScriptSpider`.
+    case notADrpyRule(String)
 
     public var description: String {
         switch self {
@@ -382,6 +407,8 @@ public enum DrpyError: Error, Equatable, CustomStringConvertible, LocalizedError
             "drpy refuses \(file): expected SHA-256 \(expected), got \(actual)"
         case .notText(let file):
             "drpy refuses \(file): not valid UTF-8"
+        case .notADrpyRule(let file):
+            "\(file) is a CatVod JS spider (__jsEvalReturn), not a drpy rule"
         }
     }
 
@@ -403,6 +430,8 @@ public enum DrpyError: Error, Equatable, CustomStringConvertible, LocalizedError
             "\(file) 的 SHA-256 與內建的不符，已拒絕載入。"
         case .notText(let file):
             "\(file) 不是文字檔，無法當成腳本執行。"
+        case .notADrpyRule(let file):
+            "\(file) 是 CatVod JS spider（__jsEvalReturn），不是 drpy 規則腳本；本 App 目前只實作 drpy。"
         }
     }
 }

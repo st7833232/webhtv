@@ -1788,6 +1788,24 @@ private struct PlayerView: View {
     /// with the control-visibility plumbing that existed only to fade it.
     @State private var pictureInPicture = false
 
+    /// IOS-POC-10J: what the current drag is doing. Decided once, on the first few points of
+    /// movement, and held until the finger lifts — an axis that can change mid-drag makes the
+    /// gesture feel like it is fighting back.
+    @State private var drag: DragKind?
+    /// The value the drag started from, so the whole gesture is measured against one origin
+    /// rather than accumulating rounding from frame to frame.
+    @State private var dragOrigin: Double = 0
+    @State private var hud: String?
+
+    private enum DragKind { case seek, volume, brightness }
+
+    /// A full screen-width drag moves two minutes. Chosen so a thumb-width nudge is a few seconds
+    /// — fine enough to skip an advert, coarse enough to cross an episode.
+    private static let seekSpan: Double = 120
+    /// A full screen-height drag covers the whole 0…1 range, halved so the usable part of the
+    /// screen is enough.
+    private static let levelSpan: Double = 400
+
     var body: some View {
         ZStack {
             // The player owns the whole screen, so letterbox bars are black instead of showing
@@ -1796,11 +1814,27 @@ private struct PlayerView: View {
             PlayerSurface(player: session.player, pictureInPicture: $pictureInPicture)
                 .ignoresSafeArea()
         }
-        // No swipe-to-dismiss and no button of our own. IOS-POC-10H added a downward drag on the
-        // assumption that removing the custom X left no exit; driving it on the simulator showed
-        // that assumption was wrong — **AVKit's own control row carries an X and it dismisses
-        // this screen**. A second way out that can misfire against a vertical drag is worse than
-        // no second way out, so the gesture is gone.
+        .overlay {
+            if let hud {
+                Text(hud)
+                    .font(.system(.title3, design: .rounded).weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .background(.black.opacity(0.65), in: Capsule())
+                    .allowsHitTesting(false)
+            }
+        }
+        // IOS-POC-10J. `simultaneousGesture` again, for the reason IOS-POC-10A2 found: AVKit's
+        // recognisers live in the UIKit view underneath and a plain SwiftUI gesture loses to
+        // them. Observing alongside means the scrubber still works if the viewer grabs it.
+        //
+        // No swipe-to-dismiss here — AVKit's own X does that, as IOS-POC-10I measured.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 12)
+                .onChanged { move in dragChanged(move) }
+                .onEnded { move in dragEnded(move) }
+        )
         .statusBarHidden()
         // Closing the screen pauses rather than tears down, so a page can read the position it
         // reached and resume it with player.control.
@@ -1813,6 +1847,88 @@ private struct PlayerView: View {
             // record where the viewer actually got to.
             Task { await session.persist() }
         }
+    }
+
+    // MARK: - IOS-POC-10J gestures
+
+    private func dragChanged(_ move: DragGesture.Value) {
+        let kind = drag ?? classify(move)
+        if drag == nil {
+            drag = kind
+            switch kind {
+            case .seek: dragOrigin = session.player.currentTime().seconds
+            case .volume: dragOrigin = Double(session.player.volume)
+            case .brightness: dragOrigin = Double(UIScreen.main.brightness)
+            }
+        }
+        switch kind {
+        case .seek:
+            // Shown, not applied: seeking on every frame of the drag makes a network stream
+            // stutter for the whole gesture. The seek happens once, when the finger lifts.
+            hud = seekLabel(for: seekTarget(move))
+        case .volume:
+            let value = level(from: move)
+            session.player.volume = Float(value)
+            hud = "🔊 \(Int(value * 100))%"
+        case .brightness:
+            // Floored rather than allowed to reach zero. A downward drag that blacks the screen
+            // leaves the viewer unable to see the gesture that would undo it — Control Center can
+            // go that dark because it is deliberate and reversible; a swipe is neither.
+            let value = max(level(from: move), 0.05)
+            UIScreen.main.brightness = CGFloat(value)
+            hud = "☀️ \(Int(value * 100))%"
+        }
+    }
+
+    private func dragEnded(_ move: DragGesture.Value) {
+        if drag == .seek {
+            let target = seekTarget(move)
+            session.player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
+                                toleranceBefore: .zero, toleranceAfter: .zero)
+        }
+        drag = nil
+        // Leave the readout up for a moment; vanishing the instant the finger lifts reads as a
+        // glitch rather than a confirmation.
+        let shown = hud
+        Task {
+            try? await Task.sleep(for: .seconds(0.6))
+            if hud == shown { hud = nil }
+        }
+    }
+
+    /// Horizontal or vertical, and if vertical, which half of the screen the finger started in.
+    ///
+    /// The half is decided by where the drag **began**, not where it is now, so a gesture that
+    /// wanders across the middle does not switch from brightness to volume underneath the viewer.
+    private func classify(_ move: DragGesture.Value) -> DragKind {
+        if abs(move.translation.width) > abs(move.translation.height) { return .seek }
+        return move.startLocation.x < UIScreen.main.bounds.width / 2 ? .brightness : .volume
+    }
+
+    private func seekTarget(_ move: DragGesture.Value) -> Double {
+        let duration = session.player.currentItem?.duration.seconds ?? 0
+        let span = duration.isFinite && duration > 0 ? duration : .greatestFiniteMagnitude
+        let moved = move.translation.width / UIScreen.main.bounds.width * Self.seekSpan
+        return min(max(dragOrigin + moved, 0), span)
+    }
+
+    /// Up is more, which means subtracting: a drag upward has a negative height.
+    private func level(from move: DragGesture.Value) -> Double {
+        min(max(dragOrigin - move.translation.height / Self.levelSpan, 0), 1)
+    }
+
+    private func seekLabel(for target: Double) -> String {
+        let delta = target - dragOrigin
+        let sign = delta < 0 ? "−" : "+"
+        return "\(Self.clock(target))  \(sign)\(Int(abs(delta).rounded()))s"
+    }
+
+    private static func clock(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "--:--" }
+        let total = Int(seconds.rounded())
+        let hours = total / 3600
+        let formatted = String(format: "%02d:%02d", (total % 3600) / 60, total % 60)
+        return hours > 0 ? "\(hours):\(formatted)" : formatted
     }
 }
 

@@ -32,7 +32,9 @@
 
 ## Recovery anchor
 
-- 狀態：本地實作與驗證完成，待提交及 GitHub workflow。
-- 已驗證：shell／Python／JSON／workflow YAML 靜態檢查；SideStore 官方 schema；Xcode 27.0 無 Apple secrets 的 fresh device Release build；IPA `Payload/WebHTVApp.app/Info.plist` 為 `com.webhtv.ios.poc`、`0.1`、build `1`；IPA 為 25,122,382 bytes，SHA-256 `a1b7acce84755994742f33547eac7bde617db737a49015e59bd65fe6abddad90`。
-- 尚待：提交、push、實際 `macos-26` workflow、Release 與公開 URL 驗證。
-- 下一步：以 task guard 建立原子 commit 並 push `ios-poc`。
+- 狀態：完成。
+- 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
+- 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
+- 發布結果：`WebHTV-0.1-1.ipa`，24,563,162 bytes，GitHub asset SHA-256 `fcbf1531d9480f678ee0fac7ec5ce49010f3de51fc11b79f0ba88372e85812ed`；IPA plist 為 `com.webhtv.ios.poc`、`0.1`、build `1`、minimum iOS `17.0`。
+- Source URL：`https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/source.json`。
+- 下一步：無；使用者可在 SideStore 加入 Source URL。

@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.1",
+          "date": "2026-09-22",
+          "localizedDescription": "修正冷啟動時篩選列不出現：設定檔重新整理會銷毀正在使用中的來源連線，把 init 建立的狀態清掉。任何在 init 建立狀態的來源都可能中招。\n\n修正荐片的海報全是佔位圖：伺服器回傳的圖片網域清單裡，排最前面的兩個都連不上，程式卻只取第一個。現在會挑第一個真的有回應的。\n\n荐片載入大幅加快：記住上次可用的 API 網域，不再每次啟動都對已失效的網域等滿 10 秒。實測 20.0 秒降到 1.5 秒。\n\n支援 CatVod／TVBox 的 JS spider 契約（__jsEvalReturn），來源清單改為依設定檔原本的順序顯示。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.1-b2/WebHTV-0.1.1-2.ipa",
+          "size": 24563735,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1",
           "date": "2026-09-22",
           "localizedDescription": "Automated SideStore release.",

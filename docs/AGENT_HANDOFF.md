@@ -113,19 +113,23 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
 
 - Objective: continue the iPhone WebHomeTV port with the user's Recha `wang-movie.json`. The Google
   TV `csp_JPianAmns` repair is explicitly not active.
-- **Branch `ios-poc`, HEAD `7653a9fb` (IOS-POC-7Q), worktree clean, level with `origin/ios-poc`
-  — `git rev-list --left-right --count origin/ios-poc...ios-poc` answered `0 0` on 2026-09-21.**
-  Pushed at the user's explicit instruction; no tag was created, and recovery tags have been opt-in
-  since 2026-09-16. **Do not trust the id in this line.** It has been stale at `2a177f50` and at
-  `bb965dda` before; run `git log` and the `rev-list` above on resume instead of reading it here.
-- **Re-measured at `7653a9fb` on 2026-09-21 (IOS-POC-7R):** `swift test --package-path ios` →
-  **151 tests, all pass** (IOS-POC-7H's 8 routing tests took it from 143). `xcodebuild … -scheme
-  WebHTVApp -destination 'platform=iOS Simulator,id=7B4E9557-4774-4EB9-B408-BB544DCC8657'
-  -configuration Debug build` → **BUILD SUCCEEDED**. **The destination must be an id now**: an
-  iOS 27.0 runtime appeared on this machine, so `name=iPhone 17 Pro` matches two devices and
-  xcodebuild refuses to choose. The one test that has ever failed here is the live-network
-  `reportsLiveType4SitesFromProvidedConfig`, which depends on 88看球's state and is **not to be
-  "fixed"**; it passed in this run.
+- **Branch `ios-poc`, HEAD `a076ab51` (IOS-POC-10T), worktree clean, and `git rev-list
+  --left-right --count origin/ios-poc...ios-poc` answered `0 10` on 2026-09-22** — ten commits
+  ahead and **not pushed**. The last push was `7653a9fb` on 2026-09-21, at the user's explicit
+  instruction; no tag was created, and recovery tags have been opt-in since 2026-09-16.
+  **Do not trust the id in this line.** It has been stale at `2a177f50`, `bb965dda` and `7653a9fb`
+  before; run `git log` and the `rev-list` above on resume instead of reading it here.
+- **Re-measured at `a076ab51` on 2026-09-22 (IOS-POC-10U):** `swift test --package-path ios` →
+  **185 tests, one failing**. `xcodebuild … -scheme WebHTVApp -destination 'platform=iOS
+  Simulator,id=E0A41D48-2210-46B8-B18C-9432B77DECC4' -configuration Debug build` → **BUILD
+  SUCCEEDED**, and so did the iPhone 18 Pro (`00008160-00124C8200214036`) with
+  `DEVELOPMENT_TEAM=764SVXY2B7 CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates`.
+  **The destination must be an id now**: an iOS 27.0 runtime appeared on this machine, so
+  `name=iPhone 17 Pro` matches two devices and xcodebuild refuses to choose.
+  **The failing one is `reportsLiveType4SitesFromProvidedConfig`, and it is not to be "fixed"** —
+  it depends on 88看球's state, which today answers with an embed page rather than a media address.
+  Confirmed pre-existing by stashing the day's changes and re-running at `0cc565a3`. An earlier
+  revision of this line read "151 tests, all pass"; that was 2026-09-21 and does not hold.
 - **The app lists 62 of 167 sources from an imported file and 109 from a remote URL.** The 62 are
   30 native (2 type-0, 22 type-1, 6 type-4) and 32 `csp_*` spider. A remote configuration adds the
   5 drpy sources, which need the configuration's own origin to load their engine from, and — since

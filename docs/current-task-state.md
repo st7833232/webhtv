@@ -6,9 +6,9 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current Scope
 
-- Branch `ios-poc`. **Verified 2026-09-21 at IOS-POC-7R: HEAD `7653a9fb` (IOS-POC-7Q), worktree
-  clean, and `git rev-list --left-right --count origin/ios-poc...ios-poc` answered `0 0`** — level
-  with the remote, which was pushed at the user's explicit instruction on 2026-09-21.
+- Branch `ios-poc`. **Verified 2026-09-22 at IOS-POC-10U: HEAD `a076ab51` (IOS-POC-10T), worktree
+  clean, and `git rev-list --left-right --count origin/ios-poc...ios-poc` answered `0 10`** — ten
+  commits ahead of the remote and **not pushed**; the last push was on 2026-09-21 at `7653a9fb`.
   **Re-check with `git log` rather than trusting any id quoted here** — this one line has carried
   five different stale ids in turn (`261b5c03`, "HEAD after IOS-POC-5L", `a087dd50`, `2a177f50` and
   `bb965dda` in the handoff), each wrong by the time it was read.
@@ -142,6 +142,8 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 7N | A Python traceback goes to the log; one readable line goes to the screen | same document |
 | 7P | `requests` + `urllib3` + `certifi` + `idna` + `charset-normalizer` vendored as pinned pure-Python wheels; sites reaching media bytes went 1 → 6, executing 4 → 14 | same document |
 | 10F–10Q | **Eleven more user-reported items, 2026-09-22.** Player gestures (seek / volume / brightness); the close button removed and Picture in Picture enabled; `DrpyError` and `CMSClientError` made readable; pull to refresh was being answered by `URLCache` and no longer is; three drpy configuration shapes reconciled; and **麻豆(js) diagnosed as a CatVod JS spider this app does not implement** | `docs/IOS-POC-10-plan-ux-and-sources.md` |
+| 10S | The source list follows the configuration's own order — `drivableSites` was four concatenated per-kind filters, so 麻豆(js), seventh in the file, was buried among the drpy sites | `docs/IOS-POC-10-plan-ux-and-sources.md` |
+| 10T | **The CatVod JS spider contract implemented.** The blocker was `async`, not `__jsEvalReturn`: drpy2 has no `async` at all, so the runtime never settled a promise and all thirteen methods answered `{}` with no error. 麻豆 now runs to real media bytes | `docs/IOS-POC-10-plan-ux-and-sources.md`, `docs/IOS_SPIDER_RUNTIME_SPEC.md` |
 | 10A–10E | **All five user-reported items done.** Close button follows AVKit's control-visibility delegate (the first attempt guessed with a timer and came out inverted); filter rows get Chinese labels from a closed table; the last source is remembered — `UserDefaults` had been truncating `Site.id` at its NUL; configuration sources are saved by name, switchable, each with its own cache; watch history binds to the configuration it was watched on | `docs/IOS-POC-10-plan-ux-and-sources.md` |
 | 10 | Plan for five user-reported UI/data items, two of them decided by the user on the spot. **MPV paused**: on device, Metal + software decode reaches `FILE_LOADED` and still never fires `VIDEO_RECONFIG`, which rules out both the simulator and the network | `docs/IOS-POC-10-plan-ux-and-sources.md` |
 | 9F | Installed on the iPhone 18 Pro. **libmpv initialises on real hardware, and so does CPython — `皮皮虾.py` runs the whole chain to real media bytes on device**, which closes the Python line's largest unverified gap. MPV rendering still needs the user to tap through the probe | `docs/IOS-POC-9B-mpv-playback-core.md` |
@@ -724,19 +726,45 @@ have been collapsed into the first bullet.
 
 ## Next Recommended Step
 
-### The live question, 2026-09-22: `麻豆(js)` needs a runtime this app does not have
+### Done 2026-09-22: `麻豆(js)` now runs — and the source list keeps the file's order
 
-The user's `wang-sex.json` has a site whose script is a **CatVod/TVBox JS spider** — it defines
-`__jsEvalReturn()` returning `{init, home, homeVod, category, detail, play, search}` — not a drpy
-rule, which exposes a `rule` object instead. `Site.isDrpySpider` only checks `type == 3` and a
-`.js` api, so it was handed to drpy2, which found no rule and answered everything with nothing.
-The same source plays on Android TV because **TVBox has two JavaScript runtimes and this app
-implements one**. IOS-POC-10P makes it fail by name instead of showing a blank list; the contract
-itself is **not implemented and needs the user's approval** (`AGENTS.md` §7).
+Two commits, both beyond `0cc565a3`:
 
-Worth knowing before quoting a cost: `JavaScriptSpiderRuntime` and `host.js` already provide the
-SDK such a script expects (`req`, `pdfh`, `pdfa`, `local`), so the shape is closer to the existing
-`csp_*` ports than to a second runtime. Confirmed reach today is **one site**.
+- **IOS-POC-10S `dcdd4da0`** — `drivableSites` was `supportedSites + spiderSites(…)`, and each of
+  those was itself a concatenation of per-kind filters, so the picker showed four blocks (native
+  CMS, `csp_*`, drpy, Python) instead of the configuration's own order. `wang-sex.json` puts
+  麻豆(js) seventh and the app buried it. Now one filter over `sites`. **Which** sites are listed
+  did not change — only their order. Pinned by a test that fails with 3 issues on the old grouping.
+- **IOS-POC-10T `a076ab51`** — the CatVod JS spider contract, implemented. 10P had only named it.
+
+**The blocker turned out not to be `__jsEvalReturn` at all — it was `async`.** drpy2 contains no
+`async` anywhere, so `JavaScriptSpiderRuntime` never had to settle a promise; a JS spider writes
+every method `async`, `invokeMethod` returned the promise itself and `JSON.stringify` made it `{}`.
+Thirteen methods answering nothing, with **no error anywhere**. That is the whole reason the screen
+said 「沒有內容」. Settling the promise is the one change in shared code and it is what the new
+offline tests fail on, with the message `an error was expected but none was thrown and "{}" was
+returned`.
+
+The rest was already here, which is why the diff is ~120 lines of Swift and a 77-line bridge:
+`DrpyEngine.moduleRuntime` had supplied `req` (with `res.content`) and `pdfh`/`pdfa`/`local`/`print`
+to drpy sites all along, `DrpyEngine.rewritten` already turns ES-module syntax into script, and the
+origin/HTTPS/size checks are the same ones. **No second runtime, no new native primitive, and a JS
+spider does not download drpy's 1.2 MB engine** because it does not use one. Contract:
+`docs/IOS_SPIDER_RUNTIME_SPEC.md`; record: `docs/IOS-POC-10-plan-ux-and-sources.md` §10T.
+
+**Verified:** 麻豆 through the `DRPY_GOLDEN_*` gate against its live provider — home 20 classes →
+category 30 → detail → search 30 → player `parse=0` → `SourceClient` to **real media bytes** with
+headers. `UAA`, a real drpy site in the same configuration, still passes the same gate, so nothing
+was mis-routed. Suite **185, one failing**; simulator and iPhone 18 Pro builds both succeeded.
+
+**Not verified: nobody has watched it play in the app.** The gate drives `SourceClient`, the same
+path the app uses, and ends in media bytes — but that is not the same as a tap on a phone.
+
+**The one failing test is not this work and is not to be "fixed".** `reportsLiveType4SitesFromProvidedConfig`
+fails at `CMSClientTests.swift:212` because `88看球` answers with an embed page today rather than a
+media address. Confirmed by stashing the change and re-running at `0cc565a3`, where it fails for the
+same reason. `AGENT_HANDOFF.md` already said this test is provider-dependent. **The handoff's "181
+tests all pass" was a 2026-09-21 measurement and no longer holds.**
 
 ### Reported and deliberately not fixed
 
@@ -756,6 +784,9 @@ SDK such a script expects (`req`, `pdfh`, `pdfa`, `local`), so the shape is clos
 
 **Do not start anything below without the user saying so.** The order was set by the user and the
 first two items are finished.
+
+0. ~~**The CatVod JS spider contract.**~~ **Done (IOS-POC-10T).** Confirmed reach is **one site**,
+   麻豆(js); the other four `.js` sites in `wang-sex.json` are genuine drpy rules.
 
 1. ~~**POC-3 — the drpy JavaScript loader.**~~ **Done (IOS-POC-6A/6B/6C).**
 2. ~~**POC-4 — the Python runtime, P2–P5.**~~ **Done (IOS-POC-7E–7P).** What it actually buys is
@@ -790,17 +821,29 @@ Paste this into a new session:
 
 > 接手 `/Users/chengchenchih/GIT/webhtv` 的 `ios-poc`，透過本機終端操作，不要每步停下來問我確認。用台灣繁體中文回報。
 >
-> **先確認實際狀態，不要相信這段文字裡的任何 SHA**：2026-09-22 當時 HEAD 在 `e85e773a`（IOS-POC-10R），**領先 `origin/ios-poc` 7 個 commit、尚未 push**，worktree clean。用 `git log` 與 `git rev-list --left-right --count origin/ios-poc...ios-poc` 覆蓋這一行。**未經我明確授權不得 push、tag、package、publish。**
+> **先確認實際狀態，不要相信這段文字裡的任何 SHA**：2026-09-22 當時 HEAD 在 `a076ab51`（IOS-POC-10T），**領先 `origin/ios-poc` 10 個 commit、尚未 push**，worktree clean。用 `git log` 與 `git rev-list --left-right --count origin/ios-poc...ios-poc` 覆蓋這一行。**未經我明確授權不得 push、tag、package、publish。**
 >
-> 動手前必讀：`AGENTS.md`、`docs/AGENT_HANDOFF.md`、`docs/current-task-state.md`、`docs/IOS-POC-10-plan-ux-and-sources.md`（最近兩天的全部修改與驗證限度）、`docs/IOS-POC-9B-mpv-playback-core.md`（MPV 現況）、`docs/IOS_SPIDER_RUNTIME_SPEC.md`（spider runtime 唯一真相）。
+> 動手前必讀：`AGENTS.md`、`docs/AGENT_HANDOFF.md`、`docs/current-task-state.md`、`docs/IOS-POC-10-plan-ux-and-sources.md`（最近三天的全部修改與驗證限度）、`docs/IOS-POC-9B-mpv-playback-core.md`（MPV 現況）、`docs/IOS_SPIDER_RUNTIME_SPEC.md`（spider runtime 唯一真相）。
 >
-> **現在的問題，優先處理**：我的設定檔 `https://gitlab.com/st7833232/recha/-/raw/main/wang-sex.json?ref_type=heads` 裡的 `麻豆(js)`，**在 Android TV 上可以用，在這個 App 上顯示不出內容**。已經查明原因（IOS-POC-10P）：它的腳本 `./drpy_js/麻豆.min.js` 是 **CatVod／TVBox 的 JS spider**（定義 `__jsEvalReturn()` 回傳 `{init, home, homeVod, category, detail, play, search}`），**不是 drpy 規則**（drpy 規則是暴露一個 `rule` 物件）。`Site.isDrpySpider` 只看「type 3 且 api 以 `.js` 結尾」，就把它餵給 drpy2，於是每個方法都回空。TVBox 有兩套 JavaScript runtime，這個 App 只實作了 drpy 那套。目前已改成具名失敗而不是顯示空白清單，**契約本身還沒實作**。
+> **上一輪（2026-09-22）做完的兩件事，都還沒有人在手機上看過：**
 >
-> **我要的是：評估並實作這套 JS spider 契約。** 先給我評估（依 `AGENTS.md` §7 的設計研究關卡）再動手：既有的 `JavaScriptSpiderRuntime` 與 `host.js`（`req`／`pdfh`／`pdfa`／`local`）已經是這類腳本需要的 SDK，所以形狀可能接近既有的 `csp_*` 移植而不是另造一套 runtime。可以用 `DRPY_GOLDEN_BASE` / `DRPY_GOLDEN_SITE` 那組閘門測試驅動真實來源，不要只看截圖。
+> 1. **IOS-POC-10S `dcdd4da0`** — 來源清單改成照設定檔自己的順序。以前是四段串接（原生 CMS → `csp_*` → drpy → Python），所以 `wang-sex.json` 裡排第 7 的 `麻豆(js)` 被埋到很後面。**列出哪些站完全沒變，只有順序變。**
+> 2. **IOS-POC-10T `a076ab51`** — CatVod／TVBox 的 **JS spider 契約**實作完成，麻豆(js) 可以跑了。真正的阻礙不是 `__jsEvalReturn` 而是 **`async`**：drpy2 全檔沒有一個 `async`，所以 runtime 從來不必結算 Promise；JS spider 每個方法都是 async，`JSON.stringify` 把 Promise 變成 `{}`，十三個方法全回空且毫無錯誤。沒有第二套 runtime，沒有新的 native 能力，JS spider 也不下載 drpy 的 1.2 MB 引擎。
 >
-> **驗證現況**：`swift test --package-path ios` 181 條全過；模擬器與 iPhone 18 Pro（`00008160-00124C8200214036`）build 都成功，裝置上已安裝最新版。裝置簽章走命令列：`DEVELOPMENT_TEAM=764SVXY2B7 CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates`，免費描述檔七天到期。
+> **驗證到哪裡**：麻豆走 `DRPY_GOLDEN_BASE`／`DRPY_GOLDEN_SITE` 閘門對真實來源跑完 home 20 類 → category 30 → detail → search 30 → player `parse=0` → `SourceClient` 取到**真實媒體位元組**；同設定檔的真 drpy 站 UAA 同一條閘門仍完整通過。全套 **185 條、1 條失敗**；模擬器與 iPhone 18 Pro build 都成功。
 >
-> **還沒有人確認過的**（只有 build＋測試通過）：播放器的音量／亮度拖曳、真機 PiP、篩選列中文標籤、線路選擇列。模擬器上驗不到的原因都記在 plan 文件裡。
+> 驅動麻豆的指令：
+> ```
+> DRPY_GOLDEN_BASE='https://gitlab.com/st7833232/recha/-/raw/main/wang-sex.json' \
+> DRPY_GOLDEN_SITE='{"key":"js_madou","name":"麻豆(js)","type":3,"api":"./drpy_js/麻豆.min.js","ext":{}}' \
+>   swift test --package-path ios --filter drpyDrivesARealSourceEndToEnd
+> ```
+>
+> **那 1 條失敗不是這次造成的、也不要去「修」**：`reportsLiveType4SitesFromProvidedConfig` 在 `CMSClientTests.swift:212` 失敗，因為 `88看球` 今天回的是一個網頁而不是媒體位址。已經 stash 掉改動、回到 `0cc565a3` 重跑確認同樣失敗。`AGENT_HANDOFF.md` 早就寫明這條依賴 provider 狀態。**交接文件裡「181 條全過」是 2026-09-21 的量測，已經不成立。**
+>
+> **還沒有人確認過的**（只有 build＋測試證據）：麻豆在手機上實際點開播放、來源清單的新順序、播放器的音量／亮度拖曳、真機 PiP、篩選列中文標籤、線路選擇列。
+>
+> **裝置簽章走命令列**：`DEVELOPMENT_TEAM=764SVXY2B7 CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates`，免費描述檔七天到期。模擬器 destination 必須用 id 不能用 name（`iPhone 17 Pro` = `E0A41D48-2210-46B8-B18C-9432B77DECC4`），真機是 `00008160-00124C8200214036`。
 >
 > **MPV 暫停中**：真機 Metal＋軟解到得了 `FILE_LOADED`、但 `VIDEO_RECONFIG` 從未觸發、畫面全黑；Metal 與 OpenGL 兩條路都試過都黑。最可疑的是 `wid` + `CAMetalLayer` 的接線，**真機上的 OpenGL 那一格還沒試**。沒有我的指令不要重啟 MPV。
 >

@@ -49,10 +49,35 @@ var spider = (function () {
     return (entries[0] || '').trim();
   }
 
-  /** The filter rows this configuration publishes beside the site, or null if they cannot be had. */
+  /**
+   * Remember what worked, and try it before anything else (IOS-POC-10X).
+   *
+   * Both of this class's slow spots are the same shape: a list of candidates where the entries that
+   * work are not the ones at the front, re-discovered from scratch on every launch. `host.local` is
+   * this site's own namespaced storage, so the answer survives a restart.
+   */
+  function remembered(key) { return host.local.get('jp_' + key) || ''; }
+  function remember(key, value) { if (value) host.local.set('jp_' + key, String(value)); }
+
+  /**
+   * The filter rows, falling back to the last set that arrived.
+   *
+   * The rows live in a file beside the configuration, on a **different host from everything else
+   * here**, and one failed request used to cost the site its filter rows entirely: the category
+   * chips rendered with nothing under them. IOS-POC-10W added an immediate retry, which was the
+   * wrong shape — a retry milliseconds later meets the same network. Caching the last good copy is
+   * what actually survives, because the rows change about as often as the category list does.
+   *
+   * **Not reproduced on macOS**, where this file has never failed to load; what is fixed here is
+   * that a transient failure is no longer permanent, not a diagnosis of why it fails on a phone.
+   */
   function fetchFilters() {
     if (!/^https?:\/\//.test(String(cfg.ext || ''))) return null;
-    return host.get(String(cfg.ext), { timeout: 15000 }).json || null;
+    var fresh = host.get(String(cfg.ext), { timeout: 15000 }).json;
+    if (fresh) { remember('filters', JSON.stringify(fresh)); return fresh; }
+    var saved = remembered('filters');
+    if (!saved) return null;
+    try { return JSON.parse(saved); } catch (e) { return null; }
   }
 
   function api(path) {
@@ -79,18 +104,34 @@ var spider = (function () {
 
   return {
     init: function (extend) {
-      // The host list is published as a DNS TXT record, and each domain answers on any subdomain.
-      var answer = (host.get(DOH, { timeout: 15000 }).json || {}).Answer || [];
-      var domains = String((answer[0] || {}).data || '').replace(/^"|"$/g, '').split(',');
-      for (var i = 0; i < domains.length; i++) {
-        var domain = domains[i].trim();
-        if (!domain) continue;
-        var candidate = /^https?:\/\//.test(domain) ? domain : 'https://' + host.random(6) + '.' + domain;
-        if (!cfg.url) cfg.url = candidate;           // the original's fallback: the first one
-        if (host.get(candidate, { timeout: 10000 }).status === 200) { cfg.url = candidate; break; }
+      // Whichever API host answered last time, tried first. Measured 2026-09-22, the DNS list led
+      // with `hzhnl.com`, which does not connect at all, so **every launch burned its full 10-second
+      // probe before reaching a live domain** — `init` took 12.3 s and the site felt broken before
+      // it had done anything wrong. A remembered host skips all of that; when it has died too, the
+      // loop below runs exactly as it always did.
+      var saved = remembered('host');
+      if (saved && reachable(saved, 6000)) { cfg.url = saved; }
+
+      if (!cfg.url) {
+        // The host list is published as a DNS TXT record, and each domain answers on any subdomain.
+        var answer = (host.get(DOH, { timeout: 15000 }).json || {}).Answer || [];
+        var domains = String((answer[0] || {}).data || '').replace(/^"|"$/g, '').split(',');
+        for (var i = 0; i < domains.length; i++) {
+          var domain = domains[i].trim();
+          if (!domain) continue;
+          var candidate = /^https?:\/\//.test(domain) ? domain : 'https://' + host.random(6) + '.' + domain;
+          if (!cfg.url) cfg.url = candidate;         // the original's fallback: the first one
+          if (host.get(candidate, { timeout: 10000 }).status === 200) { cfg.url = candidate; break; }
+        }
       }
+      remember('host', cfg.url);
+
       var settings = api('/api/v2/settings/resourceDomainConfig').data || {};
-      cfg.img = firstAnswering(settings.imgDomain);
+      // Same treatment for the image host: the remembered one first, the published list after.
+      var savedImage = remembered('img');
+      cfg.img = savedImage && reachable('https://' + savedImage, 6000)
+        ? savedImage : firstAnswering(settings.imgDomain);
+      remember('img', cfg.img);
       // The class hard-codes its filter rows; this configuration supplies the same rows as a JSON
       // file through `ext`, so fetch that instead of carrying 4 KB of constants that would go stale.
       cfg.ext = String(extend || '');
@@ -100,11 +141,10 @@ var spider = (function () {
 
     homeContent: function () {
       var classes = CLASSES.map(function (c) { return { type_id: c[0], type_name: c[1] }; });
-      // Retry the rows when `init` could not get them. One failed request must not cost this site
-      // its filter rows for the whole life of the session — and it did: `SpiderSessionStore` caches
-      // a session until the configuration reloads, so a single flaky fetch of the rule file left
-      // the category chips with no rows under them until the user switched source and back. That is
-      // exactly the workaround the defect was reported with (IOS-POC-10W).
+      // One failed request must not cost this site its filter rows for the whole life of the
+      // session — `SpiderSessionStore` caches a session until the configuration reloads, so the
+      // category chips sat with nothing under them until the user switched source and back. The
+      // retry is cheap because `fetchFilters` now answers from storage when the network will not.
       if (!cfg.filters) { cfg.filters = fetchFilters(); }
       return host.result.home(classes, [], cfg.filters || undefined);
     },

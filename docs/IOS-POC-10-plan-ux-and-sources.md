@@ -821,3 +821,68 @@ img.cdgbq.com,img.cqkgy.com,img.cqykm.com,img.szrnp.com
 它驅動 `cj.rycjapi.com`，而該站今天第一筆節目的 `vod_play_url` 是 `"$$$"`（空的），
 當場 `curl` 確認。**同一輪裡昨天失敗的 `reportsLiveType4SitesFromProvidedConfig` 反而通過了**
 ——這兩條 live 測試追的是 provider 的天氣，不是本專案的狀態。
+
+
+## 10X — 荐片：記住上次有效的東西（使用者 2026-09-22，10W 沒修好）
+
+使用者回報：**裝了 10W 之後，直接重啟 App 停在荐片，篩選列還是出不來。**
+而且順便要求把 12 秒的 `init` 一起處理。
+
+### 10W 的修法形狀就是錯的
+
+10W 讓 `homeContent` 在 `cfg.filters` 還是空的時候重抓一次。
+**幾毫秒之後的重試面對的是同一個網路。** 這不叫修好，這叫多試一次。
+
+### 先證明 App 層是對的，不要再猜
+
+在模擬器上把設定來源改成 `wang-movie.json`、選定荐片（直接改容器裡的 plist 再停掉 `cfprefsd`，
+就是 10O 學到的那個正確手法），加上暫時的 debug 輸出，冷啟動：
+
+```
+[dbg] load site=薦片 search=- category=- resp.classes=5 resp.filters=["1","2","3","4","67"] selectedCategory(before)=nil searching=false
+[dbg] after: selectedCategory=1 filterRows=["1","2","3","4","67"] groups=["1","2","3","4","67"] activeFilterRows=4
+```
+
+**`activeFilterRows=4`。** 冷啟動第一次 load 就算得出四列。
+所以 App 層沒有缺陷，`load()`／`activeFilterRows`／`selectedCategory` 全部正確——
+**在使用者手機上 `resp.filters` 是空的**，也就是那支腳本抓不到規則檔。
+（debug 輸出用完即刪，沒有留在程式碼裡。）
+
+### 修法：記住上次有效的東西
+
+這個 class 的兩個慢點是同一個形狀：**一份候選清單，能用的不在前面，而且每次啟動都從頭重找**。
+`host.local` 是這個站自己的命名空間儲存，答案可以跨重啟活下來。
+
+| 記住什麼 | 修掉什麼 |
+|---|---|
+| 上次有回應的 API 網域 | DNS 清單開頭是 `hzhnl.com`，**根本連不上**，每次啟動都要燒滿 10 秒探測才走到活的網域 |
+| 上次有回應的圖片網域 | 同 10W，少一次探測 |
+| **上次成功取回的篩選列** | 一次失敗的請求不再等於整個 session 沒有篩選列 |
+
+規則檔的變動頻率跟分類清單差不多，所以快取上一份好的內容是安全的。
+
+### 驗證
+
+| 檢查 | 結果 |
+|---|---|
+| `jianPianRemembersWhatWorked`（新增，對真實來源） | **通過** |
+| 冷啟動 `init` | **20074 ms** |
+| 第二次啟動（同一份 storage） | **1521 ms** — 快 13 倍 |
+| 第二次啟動時把規則檔指向 `https://offline.invalid/` | **仍然回傳完整篩選列** `["1","2","3","4","67"]`——這就是修正本身 |
+| `jianPianPostersResolveAndFiltersSurvive` | 通過，海報仍取回 27934 bytes |
+
+### 誠實的界線
+
+**手機上那次抓取為什麼失敗，沒有查明，也沒有重現過**——`raw.githubusercontent.com` 在這台 Mac 上
+從來沒有失敗過。這裡修掉的是「**一次失敗變成永久失效**」，不是失敗的成因。
+另外要注意：快取需要**先成功一次**才有東西可退回，所以裝上這版之後的第一次啟動如果又失敗，
+還是會沒有篩選列；成功一次之後就不會再發生。
+
+### 這次改動害全套變紅，但不是產品缺陷
+
+新增的測試要跑 20 秒，改變了 Swift Testing 的平行排程，於是
+`listsThePortedSpiderSitesAlongsideTheNativeCMSSites` 開始失敗：
+它連續兩次呼叫 `drivableSites`，而 `SpiderPackStore.refresh` 會寫入**行程層級**的
+`InstalledSpiderPack.shared`，平行跑的 pack 測試剛好插在那兩次呼叫中間，把註冊表換掉了。
+**既有的測試隔離缺陷，被這次的時間變化照出來而已**（stash 掉本次改動重跑，186 條全過）。
+在 IOS-POC-10Y 單獨修掉。

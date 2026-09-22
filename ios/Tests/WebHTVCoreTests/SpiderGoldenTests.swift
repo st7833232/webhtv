@@ -242,6 +242,43 @@ private func playURL(_ value: Any?) -> [String] {
     print("[golden] 荐片 poster served \(data.count) bytes from \(url.host() ?? "?")")
 }
 
+/// IOS-POC-10X: what 荐片 learned last launch has to survive the next one.
+///
+/// Two launches over one `SpiderStorage`, the second with the rule file made unreachable. The
+/// second must still answer with filter rows, because the first remembered them — that is the whole
+/// fix. IOS-POC-10W's immediate retry was the wrong shape: a retry milliseconds later meets the
+/// same network, and the phone kept showing category chips with nothing under them.
+///
+/// The first launch is also timed, so the cost the remembered API host removes is on the record.
+@Test func jianPianRemembersWhatWorked() async throws {
+    guard let site = try goldenSite(), site.api.contains("JPian") || site.api.contains("JianPian")
+    else { return }
+    let suite = "jianpian-memory-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let resolver = CSPSourceResolver(defaults: defaults)
+
+    let cold = Date()
+    let first = try await SourceClient.make(site: site, resolver: resolver).home()
+    let coldMs = Int(Date().timeIntervalSince(cold) * 1000)
+    #expect(!first.filters.isEmpty, "the first launch has to actually fetch the rows")
+    print("[golden] 荐片 cold init: \(coldMs) ms, rows \(first.filters.keys.sorted())")
+
+    // Second launch, same storage, rule file unreachable. Everything else is untouched, so a site
+    // that now answers with rows is answering from what the first launch stored.
+    await SpiderSessionStore.shared.reset()
+    let offline = "https://offline.invalid/jianpian.json"
+    let blinded = try JSONDecoder().decode(Site.self, from: Data("""
+        {"key":"\(site.key)","name":"\(site.name)","type":3,"api":"\(site.api)","ext":"\(offline)"}
+        """.utf8))
+    let warm = Date()
+    let second = try await SourceClient.make(site: blinded, resolver: resolver).home()
+    let warmMs = Int(Date().timeIntervalSince(warm) * 1000)
+    print("[golden] 荐片 warm init: \(warmMs) ms, rows \(second.filters.keys.sorted())")
+    #expect(second.filters.keys.sorted() == first.filters.keys.sorted(),
+            "an unreachable rule file must fall back to the rows that already arrived")
+}
+
 /// IOS-POC-5Q Q2, and the gate for its success condition S3: a bilibili episode must offer more
 /// than one quality, each as its own line carrying its own `qn`, best first — and the best one must
 /// actually serve bytes.

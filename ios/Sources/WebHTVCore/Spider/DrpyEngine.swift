@@ -327,10 +327,13 @@ public enum DrpyEngine {
         return parts.joined(separator: "\n;\n")
     }
 
-    /// A site's own rule script: same origin, same HTTPS rule, its own size cap, **not** hash-pinned.
+    /// A site's own script: same origin, same HTTPS rule, its own size cap, **not** hash-pinned.
     /// It is the spider-equivalent here — see the note at the top of this file.
-    public static func rule(at reference: String, source: ConfigSource,
-                            session: URLSession = downloadSession) async throws -> String {
+    ///
+    /// Answers the file name alongside the text because the caller has to say *which* file failed,
+    /// and by the time the contract is known the URL is out of reach.
+    static func script(at reference: String, source: ConfigSource,
+                       session: URLSession = downloadSession) async throws -> (name: String, text: String) {
         guard let origin = source.baseURL else { throw DrpyError.noRemoteConfiguration }
         guard let resolved = source.resourceURL(for: reference) else {
             throw DrpyError.unresolvable(reference)
@@ -340,9 +343,16 @@ public enum DrpyEngine {
         guard let text = String(data: data, encoding: .utf8) else {
             throw DrpyError.notText(url.lastPathComponent)
         }
-        guard !isJavaScriptSpider(text) else {
-            throw DrpyError.notADrpyRule(url.lastPathComponent)
-        }
+        return (url.lastPathComponent, text)
+    }
+
+    /// The same download, held to the drpy contract. A JS spider reaching here is a routing mistake
+    /// upstream — `CSPSourceResolver` branches before this — so it stays an error rather than
+    /// becoming a silent fall-through to the other runtime.
+    public static func rule(at reference: String, source: ConfigSource,
+                            session: URLSession = downloadSession) async throws -> String {
+        let (name, text) = try await script(at: reference, source: source, session: session)
+        guard !isJavaScriptSpider(text) else { throw DrpyError.notADrpyRule(name) }
         return text
     }
 
@@ -359,8 +369,10 @@ public enum DrpyEngine {
     /// ends. Matching that one name is deliberately narrow: it is the function the host has to
     /// call, so a script carrying it is not a drpy rule whatever else is in it.
     ///
-    /// **This names the situation; it does not implement the contract.** Quietly showing an empty
-    /// list was the worst of the outcomes available.
+    /// **IOS-POC-10P named the situation; IOS-POC-10T implements it.** This predicate is now the
+    /// router: `CSPSourceResolver.drpySession` asks it once, after the one download both contracts
+    /// need, and builds either a drpy session or a JS-spider one. `DrpyError.notADrpyRule` survives
+    /// as the guard on `rule(at:source:)`, for anything that reaches the drpy path by another route.
     static func isJavaScriptSpider(_ script: String) -> Bool {
         script.contains("__jsEvalReturn")
     }

@@ -615,3 +615,101 @@ public func drivableSites(resolvedBy resolver: CSPSourceResolver) -> [Site] {
 先確認過才敢這樣說。這是 provider 狀態（本文件與 `current-task-state.md` 早就記著
 type-4 的直連媒體判定是路徑副檔名啟發法，標了 `ponytail:`），不是本次修改造成的迴歸，
 依 AGENTS.md §2 只報不修。交接文件寫的「181 條全過」是 2026-09-21 的量測，今天不再成立。
+
+
+## 10T — 實作 CatVod／TVBox JS spider 契約（10P 的後續，使用者核可）
+
+10P 只把靜默換成具名失敗。這一刀把契約做出來。
+
+### 評估（AGENTS.md §7）：先把腳本跑起來，不是讀截圖
+
+用 Node 的 `vm` 把 `drpy_js/麻豆.min.js` 載進一個**空 context**，讓 `ReferenceError`
+自己指認缺什麼，再接真的 HTTP 驅動整條鏈。量到的事實：
+
+| 問題 | 答案 |
+|---|---|
+| 載入時需要的 global | **零個** |
+| 呼叫時需要的 global | **只有 `req`** |
+| 從 `req` 的回應讀走的欄位 | **只有 `.content`** |
+| `__jsEvalReturn()` 回傳 | `{init, home, homeVod, category, detail, play, search}` |
+| 七個方法 | **全部 `async`**，回傳 JSON 字串 |
+| `init(extend)` | 收**物件**（它寫 `extend.stype='3'`） |
+| `detail(id)` | 收**單一字串**，不是 `Spider.java` 的陣列 |
+| `play()` | 不發請求，直接回 `{url:id, parse:0, jx:0, header:{User-Agent}}` |
+| 實際端點 | `https://19q.cc/api.php/provide/vod` — 一個標準苹果CMS JSON API |
+
+`req` 與 `.content` 的映射**早就存在**：`DrpyEngine.moduleRuntime` 為 drpy 站寫的
+`res.content = res.body` 就是這個。`pdfh`／`pdfa`／`pd`／`local`／`print` 也已在那裡。
+
+### 真正的阻礙不是 `__jsEvalReturn`，是 `async`
+
+`drpy2.min.js` 全檔 **0 個 `async`**——這正是 `JavaScriptSpiderRuntime`
+從來不必處理 Promise 也能動的原因，也是這個缺口一直沒被發現的原因。
+麻豆七個方法全是 async，`invokeMethod` 拿回 Promise 本身，`JSON.stringify` 把它變成 `{}`。
+**十三個方法全部回 `{}`，而且沒有任何錯誤**——畫面上就是「沒有內容」。
+
+用 JavaScriptCore 實測（獨立的 `jsc.swift` 探針）：
+
+```
+naive result isString=false desc=[object Promise]       ← 修正前
+after drain rounds=0 out={"got":{"ok":1,"u":"x"},"f":true}
+```
+
+掛上 `.then` 把結果存進 global 後，**不需要任何額外的 drain 次數**：
+`CatVodHost` 的 HTTP 是同步的，spider 的 promise 沒有真正的暫停點，
+JSC 在 native→JS 呼叫收攤時就把微任務排空了。
+
+### 做法：接上去，不是另造一套
+
+`IOS_SPIDER_RUNTIME_SPEC.md` 明文「There must never be two JS runtimes」。
+上游 TVBox 那套是為 QuickJS 寫的，帶自己的 HTTP／WebView／`js2proxy`／`getProxy`，**拒絕原樣移植**。
+這裡做的是把它的**入口契約**接到既有 runtime 上，與 `drpy-bridge.js` 完全同形。
+
+| 檔案 | 改動 |
+|---|---|
+| `JavaScriptSpiderRuntime.settled(_:)` | 回傳是 thenable 就結算；rejected 變具名錯誤。**所有 JS spider 共用** |
+| `Resources/Spiders/js-spider.js`（新，77 行） | 七方法 → 十三方法 ABI |
+| `CSPSourceResolver.drpySession` | 一次下載服務兩種契約，看 bytes 決定走哪條 |
+| `DrpyEngine.script(at:source:)` | 從 `rule(at:source:)` 拆出共用的下載＋同源檢查 |
+| `SpiderRegistry.jsSpiderBridge` | 與 `drpyBridge` 同樣 bundled、同樣不可被 pack 取代 |
+
+Swift 淨增 **118 行**（含註解），JS 77 行。**新增的 native 能力：零。**
+JS spider **不下載 drpy 的 1.2 MB 引擎**——它不用。
+
+### 兩處刻意的設計決定
+
+**`init` 傳物件而非文字。** 這是兩套契約唯一真正的差異。`Spider.java` 給字串，drpy2 收字串，
+但 JS spider 收的是解析後的 `ext` 而且會寫進去。字串 primitive 在 sloppy mode 下靜默無效、
+在 strict 下丟 TypeError。所以 bridge 先 parse；不是 JSON 就包成 `{ext: <原文>}`。
+
+**bridge 不寫 `isVideoFormat`／`manualVideoCheck`／`liveContent`／`destroy`。**
+`JavaScriptSpiderRuntime` 對缺少的方法本來就回 base class 的預設值，
+寫出來只是把下一層做的事再講一次。（第一版寫了，final-diff review 砍掉。）
+
+### 驗證
+
+| 檢查 | 結果 |
+|---|---|
+| **麻豆 走 `DRPY_GOLDEN_*` 閘門（真實來源）** | **通過**：home 20 類 → category 30 筆 → detail → search 30 筆 → player `parse=0` → `SourceClient` 取到真實媒體位元組，帶 1 個 header |
+| **UAA（同設定檔的真 drpy 站）走同一條閘門** | **通過**：home 3 類 → category 32 → detail → search 32 → 播放位址。**沒有誤傷** |
+| `JavaScriptSpiderRuntimeTests`（新，3 條離線） | 通過 |
+| 同 3 條跑在**未結算 promise** 的舊行為上 | **全部失敗**，訊息是 `an error was expected but none was thrown and "{}" was returned`——正是使用者看到的症狀 |
+| 全套 | **185 條，1 條失敗** |
+| 模擬器 build（iPhone 17 Pro `E0A41D48…`） | BUILD SUCCEEDED |
+| 真機 build（iPhone 18 Pro `00008160-00124C8200214036`） | BUILD SUCCEEDED |
+
+唯一失敗仍是 `reportsLiveType4SitesFromProvidedConfig`（`88看球` 今天回一個網頁而非媒體位址）。
+`AGENT_HANDOFF.md` 已寫明這條「**不要去「修」**」，且已確認在 `0cc565a3` 的乾淨狀態下以同一原因失敗。
+
+### 還沒有人親眼看過的
+
+**App 裡沒有目視確認。** 上面全部是測試與 build 證據——但閘門測試走的是
+`SourceClient`，跟 App 自己用的是同一條路，而且斷到真實媒體位元組，不是只看 URL 存在。
+**真機上實際點開麻豆播放，仍需使用者確認。**
+
+### 代價
+
+確認的 JS spider 只有麻豆**一站**（`wang-sex.json` 的 5 個 `.js` 站裡，4 個是 drpy）。
+好處是成本也只有一支 bridge，而 promise 結算那一塊對任何 async spider 都有效。
+關閉開關不變：`CSPSourceResolver.canResolve` 的 `isDrpySpider` 那一行。
+`IOS_SPIDER_RUNTIME_SPEC.md` 的「遠端機制不可成為承重結構」照舊適用。

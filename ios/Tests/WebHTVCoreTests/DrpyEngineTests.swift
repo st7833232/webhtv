@@ -350,9 +350,102 @@ private func playURL(_ value: Any?) -> [String] {
         #expect(!DrpyEngine.isJavaScriptSpider(""))
     }
 
+    /// `rule(at:source:)` still refuses one, because the branch that routes a JS spider happens in
+    /// `CSPSourceResolver` — anything reaching the drpy path by another route is a mistake, not a
+    /// silent fall-through to the other runtime.
     @Test func theFailureSaysWhichContractItIs() {
         let shown = (DrpyError.notADrpyRule("麻豆.min.js") as Error).localizedDescription
         #expect(shown.contains("__jsEvalReturn"))
         #expect(!shown.contains("couldn’t be completed"))
+    }
+}
+
+// MARK: - IOS-POC-10T: the JS spider contract, offline
+
+/// The two facts that made 麻豆 answer nothing, pinned without a network.
+///
+/// The live gate is `drpyDrivesARealSourceEndToEnd` driven with 麻豆's site JSON; these are the
+/// units underneath it, so a regression names itself instead of arriving as an empty screen.
+@Suite struct JavaScriptSpiderRuntimeTests {
+    /// The real blocker: **every JS spider method is `async`.** drpy2 contains no `async` at all, so
+    /// the runtime never had to settle a promise — `invokeMethod` handed back the promise itself and
+    /// `JSON.stringify` made it `{}`. Thirteen methods answering nothing, no error anywhere. This
+    /// drives the whole path: bridge, `__jsEvalReturn`, async methods, and a **synchronous** host
+    /// call inside them, exactly as `host.req` is synchronous.
+    @Test func anAsyncSpiderMethodReachesTheAbiAsItsValue() async throws {
+        let script = """
+        export function __jsEvalReturn() {
+          return {
+            init: async function (ext) { globalThis.__seen = ext; },
+            home: async function (filter) {
+              var stamp = host.md5('x');
+              return JSON.stringify({ class: [{ type_id: '1', type_name: 'a' }],
+                                      filter: filter, stamp: stamp.length });
+            },
+            detail: async function (id) { return JSON.stringify({ list: [{ vod_id: id }] }); }
+          };
+        }
+        """
+        let runtime = try runtimeDriving(script)
+        try await runtime.initialize(extend: #"{"stype":"3"}"#)
+
+        let home = try await runtime.homeContent(filter: true)
+        #expect(home.contains("type_name"), "an async method must not arrive as an empty promise")
+        #expect(home.contains(#""filter":true"#))
+        #expect(home.contains(#""stamp":32"#), "the host is reachable from inside the promise")
+
+        // `detail` takes one id, not the array `Spider.java` passes — the bridge unwraps it.
+        let detail = try await runtime.detailContent(ids: ["77"])
+        #expect(detail.contains(#""vod_id":"77""#))
+    }
+
+    /// The second difference: **`init` is handed an object, not text.** 麻豆's `init` writes
+    /// `extend.stype = '3'`; on a string primitive that is a silent no-op in sloppy mode and a
+    /// TypeError in strict, which is why the bridge parses before it calls.
+    @Test func initReceivesAnObjectItCanWriteTo() async throws {
+        let script = """
+        export function __jsEvalReturn() {
+          return {
+            init: async function (ext) { ext.stype = '3'; globalThis.__seen = ext; },
+            home: async function () { return JSON.stringify(globalThis.__seen); }
+          };
+        }
+        """
+        let runtime = try runtimeDriving(script)
+        try await runtime.initialize(extend: #"{"site":"a"}"#)
+        let seen = try await runtime.homeContent(filter: false)
+        #expect(seen.contains(#""stype":"3""#), "init must be able to write to what it was given")
+        #expect(seen.contains(#""site":"a""#))
+
+        // A plain-string `ext` is not JSON, and must still arrive as something writable.
+        let plain = try runtimeDriving(script)
+        try await plain.initialize(extend: "https://example.invalid/")
+        let wrapped = try await plain.homeContent(filter: false)
+        #expect(wrapped.contains("https://example.invalid/"))
+    }
+
+    /// A rejected promise must surface as a named failure, not as an empty list — the whole point of
+    /// IOS-POC-10P was that silence is the worst available outcome.
+    @Test func aRejectedPromiseBecomesAnError() async throws {
+        let script = """
+        export function __jsEvalReturn() {
+          return { home: async function () { throw new Error('provider said no'); } };
+        }
+        """
+        let runtime = try runtimeDriving(script)
+        await #expect(throws: (any Error).self) { try await runtime.homeContent(filter: true) }
+    }
+
+    /// Builds the runtime the way `CSPSourceResolver.jsSpiderSession` does, out of the same bundled
+    /// pieces — so this exercises the wiring rather than a copy of it.
+    private func runtimeDriving(_ script: String) throws -> JavaScriptSpiderRuntime {
+        let registry = SpiderRegistry.bundled()
+        #expect(!registry.jsSpiderBridge.isEmpty, "js-spider.js must be bundled")
+        let prelude = [registry.prelude, DrpyEngine.moduleRuntime,
+                       #"globalThis.__jsSpiderModule = "probe";"#,
+                       DrpyEngine.rewritten(script, named: "probe")].joined(separator: "\n;\n")
+        return try JavaScriptSpiderRuntime(
+            name: "jsspider-test", script: registry.jsSpiderBridge, prelude: prelude,
+            storage: SpiderStorage(siteKey: "jsspider-test", defaults: .standard))
     }
 }

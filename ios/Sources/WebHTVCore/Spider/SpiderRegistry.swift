@@ -35,11 +35,16 @@ public struct SpiderRegistry: Sendable {
     /// `host.js` and, like it, **not packable**: it is part of the SDK a drpy rule runs against,
     /// not a spider a compatibility pack may replace.
     public let drpyBridge: String
+    /// The **CatVod JS spider** adapter (IOS-POC-10T), the sibling of `drpyBridge` for TVBox's other
+    /// JavaScript contract. Bundled and not packable for exactly the same reason.
+    public let jsSpiderBridge: String
 
-    public init(entries: [String: Entry], prelude: String, drpyBridge: String = "") {
+    public init(entries: [String: Entry], prelude: String, drpyBridge: String = "",
+                jsSpiderBridge: String = "") {
         self.entries = entries
         self.prelude = prelude
         self.drpyBridge = drpyBridge
+        self.jsSpiderBridge = jsSpiderBridge
     }
 
     /// Adding a port is a new `.js` resource plus one line here — never a Swift rewrite.
@@ -98,7 +103,8 @@ public struct SpiderRegistry: Sendable {
             entries[alias] = entry
         }
         registry = SpiderRegistry(entries: entries, prelude: registry.prelude,
-                                  drpyBridge: registry.drpyBridge)
+                                  drpyBridge: registry.drpyBridge,
+                                  jsSpiderBridge: registry.jsSpiderBridge)
         return registry
     }
 
@@ -116,7 +122,8 @@ public struct SpiderRegistry: Sendable {
                 entries[name] = Entry(script: script, portability: meta.0, origin: meta.1, source: .bundled)
             }
         }
-        return SpiderRegistry(entries: entries, prelude: load("host"), drpyBridge: load("drpy-bridge"))
+        return SpiderRegistry(entries: entries, prelude: load("host"), drpyBridge: load("drpy-bridge"),
+                              jsSpiderBridge: load("js-spider"))
     }
 
     public var portedClasses: [String] { entries.keys.sorted() }

@@ -68,7 +68,14 @@ public final class JavaScriptSpiderRuntime: SpiderRuntime, @unchecked Sendable {
                 }
                 // A spider may return a JSON string, like the Java original, or a plain object,
                 // which is far more natural to write in JavaScript. Both arrive as the same JSON.
-                guard let result, !result.isUndefined, !result.isNull else {
+                guard let value = result.map(settled) else {
+                    continuation.resume(returning: ""); return
+                }
+                if let failure = value.error {
+                    continuation.resume(throwing: SpiderError.scriptFailed("\(method): \(failure)"))
+                    return
+                }
+                guard let result = value.value, !result.isUndefined, !result.isNull else {
                     continuation.resume(returning: ""); return
                 }
                 if result.isString {
@@ -78,6 +85,45 @@ public final class JavaScriptSpiderRuntime: SpiderRuntime, @unchecked Sendable {
                     .invokeMethod("stringify", withArguments: [result])?.toString() ?? ""
                 continuation.resume(returning: encoded)
             }
+        }
+    }
+
+    /// Settles a promise a spider handed back, so an `async` method reaches the ABI as its value.
+    ///
+    /// IOS-POC-10T. drpy2 contains **no `async` at all**, which is why this was never needed and why
+    /// its absence went unnoticed: a CatVod JS spider like `麻豆.min.js` writes every method
+    /// `async`, `invokeMethod` returned the promise itself, and `JSON.stringify` turned it into
+    /// `{}` — thirteen methods answering nothing, with no error anywhere.
+    ///
+    /// There is no run loop to pump and none is needed. `CatVodHost`'s HTTP is **synchronous**, so a
+    /// spider's promise has no real suspension point; JavaScriptCore drains its microtask queue when
+    /// a native→JS call unwinds, so by the time the handler below is attached the promise has
+    /// normally already settled and the handler runs inside that same `evaluateScript`. Measured:
+    /// zero extra passes needed. The bounded loop is insurance for a chain that adds a further hop,
+    /// **not** a way to wait on real I/O — a spider that genuinely suspends will return empty rather
+    /// than block this queue forever.
+    private func settled(_ value: JSValue) -> (value: JSValue?, error: String?) {
+        guard value.isObject, value.hasProperty("then") else { return (value, nil) }
+        context.setObject(value, forKeyedSubscript: "__pending" as NSString)
+        context.evaluateScript("""
+        var __settled = 0, __value, __reason;
+        __pending.then(function (v) { __settled = 1; __value = v; },
+                       function (e) { __settled = 2; __reason = String(e && e.message || e); });
+        """)
+        var passes = 0
+        while context.objectForKeyedSubscript("__settled")?.toInt32() == 0, passes < 8 {
+            context.evaluateScript("0;")
+            passes += 1
+        }
+        let state = context.objectForKeyedSubscript("__settled")?.toInt32() ?? 0
+        defer { context.evaluateScript("__pending = __value = __reason = undefined;") }
+        switch state {
+        case 1: return (context.objectForKeyedSubscript("__value"), nil)
+        case 2: return (nil, context.objectForKeyedSubscript("__reason")?.toString() ?? "rejected")
+        // Never observed, and deliberately not an error: a promise that has not settled after the
+        // microtask queue is empty is waiting on something this runtime cannot provide, and an
+        // empty answer is what every other unimplemented method here returns.
+        default: return (nil, nil)
         }
     }
 

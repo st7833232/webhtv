@@ -81,6 +81,7 @@ There must never be two JS runtimes. Native half in `Spider/Host/*.swift`, JavaS
 | area | API | status |
 |---|---|---|
 | HTTP | `host.req/get/post` — method, headers, body, timeout, redirect control, form encoding | done |
+| Async | a spider method returning a promise is settled before serialisation (IOS-POC-10T); CatVod JS spiders write every method `async` | done |
 | Cookies | per-host jar, auto attach and capture, per-session isolation | done |
 | HTML | `host.pdfh` / `pdfa` / `pd`, CSS selectors incl. `.class` `#id` `[attr^=v]` `>` `:eq(n)`, `&&Text` / `&&Html` / `&&attr` | done |
 | JSON | native `JSON`, plus `host.result.{list,page,home,detail,play}` builders | done |
@@ -135,6 +136,40 @@ a `SpiderSession` behind the five methods the app already called, and `ConfigVie
 `drivableSites(resolvedBy:)`. A spider is stateful, so `SpiderSessionStore` keeps one session per
 site — a rule engine downloads its rule file during `init`, and the app builds a client per call.
 See `docs/IOS-POC-5D-spider-sites-in-app.md`.
+
+## The second JavaScript contract: CatVod JS spiders
+
+TVBox carries **two** JavaScript contracts and they share the `.js` extension, which is why
+`wang-sex.json`'s 麻豆(js) played on Android TV and showed nothing here (IOS-POC-10P/10T).
+
+|  | drpy rule | CatVod JS spider |
+|---|---|---|
+| entry point | exposes a `rule` object for an engine to read | defines `__jsEvalReturn()` |
+| answers | — | `{init, home, homeVod, category, detail, play, search}` |
+| engine | `drpy_libs/drpy2.min.js`, 1.2 MB, hash-pinned | **none — the script is the spider** |
+| synchronous? | yes, drpy2 contains no `async` at all | **no, every method is `async`** |
+
+**This is not a third runtime either.** Same `JSContext`, same `CatVodHost`, same cookie jar, same
+storage namespace, no new native primitive. `js-spider.js` is the sibling of `drpy-bridge.js` and
+maps the seven methods onto the thirteen above; the script is fetched, origin-checked and rewritten
+out of ES-module syntax by the same `DrpyEngine` code drpy's own libraries go through, and
+`CSPSourceResolver` chooses between the two contracts from the bytes, after one download.
+
+Measured against `drpy_js/麻豆.min.js`: it needs **one** global, `req`, and reads **one** field off
+the answer, `content` — both of which `DrpyEngine.moduleRuntime` already supplied to drpy sites.
+
+Two things differ from every other spider and are handled in the bridge:
+
+- **`init` receives an object, not text.** 麻豆's `init` writes `extend.stype = '3'`, which on a
+  string primitive is a silent no-op in sloppy mode and a TypeError in strict.
+- **Methods are `async`.** `JavaScriptSpiderRuntime` settles a returned promise before serialising
+  it. Nothing is pumped and nothing needs to be: the host's HTTP is synchronous, so a spider's
+  promise has no real suspension point and JavaScriptCore drains its microtask queue when a
+  native→JS call unwinds. Before this, `JSON.stringify` turned the promise into `{}` and all
+  thirteen methods answered nothing with no error anywhere.
+
+Off switch: the same `isDrpySpider` branch in `CSPSourceResolver.canResolve`, which gates both.
+Contract: `docs/IOS-POC-10-plan-ux-and-sources.md`, sections 10P and 10T.
 
 ## drpy sites run on this same runtime
 

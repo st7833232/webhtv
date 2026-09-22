@@ -57,18 +57,57 @@ public struct CSPSourceResolver: Sendable {
     /// `extend` handed to `init` is the site's rule script text rather than a path, because the
     /// engine must not do its own fetching outside the origin check.
     private func drpySession(for site: Site) async throws -> SpiderSession {
+        // One download serves both contracts, and which one it is can only be known from the bytes:
+        // `type 3` with a `.js` api is all the configuration says, and both TVBox runtimes wear it.
+        let (name, text) = try await DrpyEngine.script(at: site.drpyRuleReference, source: source)
+        if DrpyEngine.isJavaScriptSpider(text) {
+            return try jsSpiderSession(for: site, named: name, script: text)
+        }
         // The engine downloads on its own session: a megabyte of libraries needs a longer
         // inactivity ceiling than the 10 s a content request gets. The spider itself still runs on
         // the content session, so nothing about its own HTTP changes.
         let prelude = try await DrpyEngineStore.shared.prelude(source: source, host: registry.prelude)
-        let rule = try await DrpyEngine.rule(at: site.drpyRuleReference, source: source)
         let runtime = try JavaScriptSpiderRuntime(
             name: "drpy-\(site.key)",
             script: registry.drpyBridge,
             prelude: prelude,
             storage: SpiderStorage(siteKey: site.key, defaults: defaults),
             session: session)
-        return SpiderSession(site: site, runtime: runtime, extend: rule)
+        return SpiderSession(site: site, runtime: runtime, extend: text)
+    }
+
+    /// A **CatVod/TVBox JS spider** (IOS-POC-10T): the script *is* the spider, so unlike drpy there
+    /// is no engine to fetch — and none to download, which is the point. 麻豆's script needs exactly
+    /// one global, `req`, and `moduleRuntime` has supplied it (and `pdfh`/`pdfa`/`local`/`print`) to
+    /// the drpy sites all along. So the prelude is `host.js` + those globals + the script itself,
+    /// rewritten out of ES-module syntax by the same rewriter drpy's libraries go through, and the
+    /// bridge is the twenty lines mapping `__jsEvalReturn()`'s seven methods onto the ABI.
+    ///
+    /// `extend` stays the site's raw `ext`, exactly as every other spider receives it — the script
+    /// is already in the prelude, so nothing has to travel through `init` to get there.
+    private func jsSpiderSession(for site: Site, named name: String,
+                                 script: String) throws -> SpiderSession {
+        let module = (name as NSString).deletingPathExtension
+        let prelude = [registry.prelude,
+                       DrpyEngine.moduleRuntime,
+                       "globalThis.__jsSpiderModule = \(jsonString(module));",
+                       DrpyEngine.rewritten(script, named: module)].joined(separator: "\n;\n")
+        let runtime = try JavaScriptSpiderRuntime(
+            name: "jsspider-\(site.key)",
+            script: registry.jsSpiderBridge,
+            prelude: prelude,
+            storage: SpiderStorage(siteKey: site.key, defaults: defaults),
+            session: session)
+        return SpiderSession(site: site, runtime: runtime, extend: resolvedExtend(for: site))
+    }
+
+    /// The module name reaches JavaScript as a literal, and these names are the configuration's own
+    /// file names — `麻豆.min`, quotes and backslashes included in principle. Let the JSON encoder
+    /// escape it rather than interpolating it raw.
+    private func jsonString(_ value: String) -> String {
+        (try? JSONSerialization.data(withJSONObject: [value]))
+            .map { String(decoding: $0, as: UTF8.self).dropFirst().dropLast() }
+            .map(String.init) ?? "\"\""
     }
 
     /// A Python site's script **is** the spider, so there is no engine to fetch first — one

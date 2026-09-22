@@ -1,0 +1,194 @@
+name: iOS SideStore Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "CFBundleShortVersionString; blank uses the Xcode project value"
+        required: false
+        type: string
+      build_number:
+        description: "CFBundleVersion; blank uses the Xcode project value"
+        required: false
+        type: string
+      release_notes:
+        description: "Release notes"
+        required: false
+        default: "Automated SideStore release."
+        type: string
+  push:
+    tags:
+      - "ios-v*-b*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-sidestore-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_BUILD: ${{ inputs.build_number }}
+        run: |
+          set -euo pipefail
+          PROJECT=ios/WebHTVApp/WebHTVApp.xcodeproj/project.pbxproj
+          default_version="$(sed -n 's/^[[:space:]]*MARKETING_VERSION = \([^;]*\);/\1/p' "$PROJECT" | sort -u)"
+          default_build="$(sed -n 's/^[[:space:]]*CURRENT_PROJECT_VERSION = \([^;]*\);/\1/p' "$PROJECT" | sort -u)"
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            if [[ "${GITHUB_REF_NAME}" =~ ^ios-v([0-9]+(\.[0-9]+){1,2})-b([0-9]+)$ ]]; then
+              version="${BASH_REMATCH[1]}"
+              build="${BASH_REMATCH[3]}"
+              tag="${GITHUB_REF_NAME}"
+            else
+              echo "::error title=Invalid iOS tag::Expected ios-v<version>-b<build>"
+              exit 1
+            fi
+          else
+            version="${INPUT_VERSION:-$default_version}"
+            build="${INPUT_BUILD:-$default_build}"
+            tag="ios-v${version}-b${build}"
+          fi
+
+          [[ "$version" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]] || { echo "Invalid version: $version"; exit 1; }
+          [[ "$build" =~ ^[0-9]+$ ]] || { echo "Invalid build number: $build"; exit 1; }
+          asset="WebHTV-${version}-${build}.ipa"
+          {
+            echo "version=$version"
+            echo "build=$build"
+            echo "tag=$tag"
+            echo "asset=$asset"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Prepare CPython payload
+        run: scripts/fetch_python_ios.sh
+
+      - name: Build unsigned device app
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios/WebHTVApp/WebHTVApp.xcodeproj \
+            -scheme WebHTVApp \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DerivedData \
+            MARKETING_VERSION='${{ steps.meta.outputs.version }}' \
+            CURRENT_PROJECT_VERSION='${{ steps.meta.outputs.build }}' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            EXPANDED_CODE_SIGN_IDENTITY=- \
+            EXPANDED_CODE_SIGN_IDENTITY_NAME='Ad Hoc' \
+            build
+
+      - name: Package and validate IPA
+        env:
+          ASSET: ${{ steps.meta.outputs.asset }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          BUILD: ${{ steps.meta.outputs.build }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          RELEASE_NOTES: ${{ inputs.release_notes || 'Automated SideStore release.' }}
+        run: |
+          set -euo pipefail
+          mkdir -p package/Payload dist
+          ditto build/DerivedData/Build/Products/Release-iphoneos/WebHTVApp.app package/Payload/WebHTVApp.app
+          (cd package && ditto -c -k --sequesterRsrc --keepParent Payload "../dist/$ASSET")
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ASSET}"
+          cp source.json "$RUNNER_TEMP/source.json"
+          python3 scripts/update_sidestore_source.py \
+            --source "$RUNNER_TEMP/source.json" \
+            --ipa "dist/$ASSET" \
+            --download-url "$url" \
+            --date "$(date -u +%F)" \
+            --description "$RELEASE_NOTES" \
+            --expected-version "$VERSION" \
+            --expected-build "$BUILD"
+          curl -fsSL https://raw.githubusercontent.com/SideStore/sidestore-source-types/main/schema.json -o "$RUNNER_TEMP/sidestore-schema.json"
+          npx --yes ajv-cli@5.0.0 validate --strict=false \
+            -s "$RUNNER_TEMP/sidestore-schema.json" \
+            -d "$RUNNER_TEMP/source.json"
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          ASSET: ${{ steps.meta.outputs.asset }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          BUILD: ${{ steps.meta.outputs.build }}
+          RELEASE_NOTES: ${{ inputs.release_notes || 'Automated SideStore release.' }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "WebHTV $VERSION ($BUILD)" --notes "$RELEASE_NOTES"
+            gh release upload "$TAG" "dist/$ASSET" --clobber
+          else
+            gh release create "$TAG" "dist/$ASSET" \
+              --target "$GITHUB_SHA" \
+              --title "WebHTV $VERSION ($BUILD)" \
+              --notes "$RELEASE_NOTES"
+          fi
+
+      - name: Verify public Release URL
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          ASSET: ${{ steps.meta.outputs.asset }}
+        run: |
+          set -euo pipefail
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ASSET}"
+          curl --retry 5 --retry-all-errors -fsSL "$url" -o "$RUNNER_TEMP/released.ipa"
+          cmp "dist/$ASSET" "$RUNNER_TEMP/released.ipa"
+
+      - name: Publish source.json on ios-poc
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          BUILD: ${{ steps.meta.outputs.build }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          ASSET: ${{ steps.meta.outputs.asset }}
+          RELEASE_NOTES: ${{ inputs.release_notes || 'Automated SideStore release.' }}
+        run: |
+          set -euo pipefail
+          git fetch origin ios-poc
+          git switch -C ios-poc origin/ios-poc
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ASSET}"
+          python3 scripts/update_sidestore_source.py \
+            --source source.json \
+            --ipa "dist/$ASSET" \
+            --download-url "$url" \
+            --date "$(date -u +%F)" \
+            --description "$RELEASE_NOTES" \
+            --expected-version "$VERSION" \
+            --expected-build "$BUILD"
+          npx --yes ajv-cli@5.0.0 validate --strict=false \
+            -s "$RUNNER_TEMP/sidestore-schema.json" \
+            -d source.json
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add source.json
+          if ! git diff --cached --quiet; then
+            git commit -m "release(ios): publish WebHTV $VERSION ($BUILD)"
+            git push origin HEAD:ios-poc
+          fi
+
+      - name: Release summary
+        run: |
+          {
+            echo "### SideStore release"
+            echo "- IPA: https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ steps.meta.outputs.tag }}/${{ steps.meta.outputs.asset }}"
+            echo "- Source: https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/ios-poc/source.json"
+          } >> "$GITHUB_STEP_SUMMARY"

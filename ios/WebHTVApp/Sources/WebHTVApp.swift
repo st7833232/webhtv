@@ -911,9 +911,36 @@ private struct SettingsView: View {
     @State private var remoteName = ""
     @State private var renaming: SavedSource?
     @State private var renameText = ""
+    /// IOS-POC-17: `globalDefaultEngine`. Mirrored here only so the checkmark redraws.
+    @State private var defaultEngine = PlaybackSession.shared.globalDefaultEngine
 
     var body: some View {
         List {
+            // IOS-POC-17. Where a new playback starts; the player's own bar can switch one session
+            // without touching this. An engine that is not offered yet is listed but not choosable.
+            Section {
+                ForEach(PlaybackEngineKind.allCases, id: \.self) { kind in
+                    let available = PlaybackSession.shared.isEngineAvailable(kind)
+                    Button {
+                        PlaybackSession.shared.setGlobalDefaultEngine(kind)
+                        defaultEngine = kind
+                    } label: {
+                        HStack {
+                            Text(available ? kind.displayName : "\(kind.displayName)（尚未開放）")
+                                .foregroundStyle(available ? .primary : .secondary)
+                            Spacer()
+                            if kind == defaultEngine {
+                                Image(systemName: "checkmark").foregroundStyle(appAccent)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .disabled(!available)
+                }
+            } header: {
+                Text("預設播放器")
+            }
+
             Section("內容來源") {
                 ForEach(sites) { site in
                     Button {
@@ -1755,11 +1782,6 @@ private struct PlayerPickerView: View {
             guard rate > 0 else { return }
             Task { @MainActor in PlaybackSession.shared.chosenRate = rate }
         }
-        NotificationCenter.default.addObserver(
-            forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.finished() }
-        }
         // The 5-second sampler cannot be relied on for the last few seconds before the app is
         // suspended, and those are the ones a viewer notices losing.
         NotificationCenter.default.addObserver(
@@ -1767,6 +1789,49 @@ private struct PlayerPickerView: View {
         ) { _ in
             Task { @MainActor in await PlaybackSession.shared.persist() }
         }
+        // IOS-POC-17. The engines sit under this session, not beside it: everything above — the
+        // record, resume, the ending, auto-next, the prefetch — stays here and asks `engine`.
+        // The end-of-item observer that used to be registered here lives in `AVPlayerEngine` now,
+        // so an ended item reaches `finished()` the same way whichever engine played it.
+        router = PlayerRouter(globalDefault: PlaybackEnginePreference().globalDefaultEngine,
+                              available: PlaybackEngines.offered) { [unowned self] kind in
+            kind == .native ? AVPlayerEngine(session: self) as PlaybackEngine : MPVEngine()
+        }
+        router.onEnded = { [weak self] in self?.finished() }
+        router.onEngineChange = { [weak self] kind in self?.onEngineChange?(kind) }
+        router.onUnrecoverable = { [weak self] failure in self?.onFailure?(failure) }
+    }
+
+    // MARK: - IOS-POC-17: the engine under the session
+
+    private(set) var router: PlayerRouter!
+    /// The player screen's hooks: which engine is drawing, and a failure to show.
+    var onEngineChange: ((PlaybackEngineKind) -> Void)?
+    var onFailure: ((PlaybackFailure) -> Void)?
+
+    var engine: PlaybackEngine? { router.engine }
+    /// The engine actually playing — what the control bar shows, never the configured default.
+    var engineKind: PlaybackEngineKind { router.selection.currentSessionEngine }
+    var globalDefaultEngine: PlaybackEngineKind { router.selection.globalDefaultEngine }
+    func isEngineAvailable(_ kind: PlaybackEngineKind) -> Bool { router.selection.isAvailable(kind) }
+    /// The control bar's switch: this session only.
+    func selectEngine(_ kind: PlaybackEngineKind) { router.select(kind) }
+    /// The settings page's choice, stored for the next session.
+    func setGlobalDefaultEngine(_ kind: PlaybackEngineKind) {
+        PlaybackEnginePreference().setGlobalDefaultEngine(kind)
+        router.setGlobalDefault(kind)
+    }
+    /// The player screen closed (and is not in Picture in Picture): the session override ends.
+    func closePlayer() { router.endSession() }
+
+    /// Seconds, from whichever engine is playing. Zero when nothing is loaded.
+    var position: Double { engine?.currentTime ?? 0 }
+    var duration: Double { engine?.duration ?? 0 }
+    var isPlaying: Bool { engine?.isPlaying ?? false }
+    var bufferedUntil: Double? { engine?.bufferedUntil }
+    var volume: Float {
+        get { engine?.volume ?? 1 }
+        set { engine?.volume = newValue }
     }
 
     /// One media URL: the CMS path, `player.playUrl`, and an episode picked in `VodView`.
@@ -1844,8 +1909,7 @@ private struct PlayerPickerView: View {
     /// observer only ever sees a **non-zero** rate and a paused player never produces one.
     func setRate(_ value: Float) {
         chosenRate = value
-        player.defaultRate = value
-        if player.rate > 0 { player.rate = value }
+        router.setRate(value)
     }
 
     /// Seeks, in seconds, clamped to the item. The control bar's scrubber and its ±10 s.
@@ -1853,11 +1917,9 @@ private struct PlayerPickerView: View {
     /// Exact tolerances: a scrubber that lands somewhere other than where it was dropped reads as
     /// broken, and the ±10 s buttons are the one place a viewer counts.
     func seek(toSeconds seconds: Double) {
-        guard let item = player.currentItem else { return }
-        let duration = item.duration.seconds
-        let limit = duration.isFinite && duration > 0 ? duration : .greatestFiniteMagnitude
-        player.seek(to: CMTime(seconds: min(max(seconds, 0), limit), preferredTimescale: 600),
-                    toleranceBefore: .zero, toleranceAfter: .zero)
+        guard let engine, engine.isLoaded else { return }
+        let limit = engine.duration > 0 ? engine.duration : .greatestFiniteMagnitude
+        engine.seek(toSeconds: min(max(seconds, 0), limit))
     }
 
     /// The same for the end — Android's ED button. Milliseconds counted back from the runtime.
@@ -1912,12 +1974,12 @@ private struct PlayerPickerView: View {
     /// ponytail: whole-file writes at 5 s are fine for a few hundred records. Coalesce them, or
     /// flush only on pause and background, if the file ever grows enough to matter.
     func persist(onlyWhilePlaying: Bool = false) async {
-        guard var record, started, let item = player.currentItem else { return }
-        if onlyWhilePlaying, player.rate == 0 { return }
-        let position = milliseconds(player.currentTime())
+        guard var record, started, let engine, engine.isLoaded else { return }
+        if onlyWhilePlaying, engine.rate == 0 { return }
+        let position = Self.milliseconds(engine.currentTime)
         guard position > 0 else { return }
         record.position = position
-        record.duration = milliseconds(item.duration)
+        record.duration = Self.milliseconds(engine.duration)
         self.record = record
         await WatchHistoryStore.shared.save(record)
     }
@@ -1956,7 +2018,9 @@ private struct PlayerPickerView: View {
     /// Takes one reading of the player, feeds it to the state model, and writes back whatever the
     /// model asks for.
     private func observeNetwork() {
-        guard started, let item = player.currentItem else { return }
+        // IOS-POC-15's policy is AVPlayer's own: it writes AVPlayerItem properties. mpv keeps its
+        // own demuxer cache and is left to it.
+        guard started, engineKind == .native, let item = player.currentItem else { return }
         let runtime = item.duration.seconds
         // The last access-log event is the platform's own throughput evidence: what was actually
         // observed off the wire, and what the variant currently selected costs.
@@ -2060,10 +2124,10 @@ private struct PlayerPickerView: View {
     /// Asks the screen that owns the episode list to resolve the next one — once per item, only
     /// when this one is stable and only when the handoff is close.
     private func prefetchNextIfDue() async {
-        guard started, let prefetchNext, let item = player.currentItem else { return }
+        guard started, let prefetchNext, let engine, engine.isLoaded else { return }
         guard PlaybackPrefetchGate.shouldPrefetch(
-            position: player.currentTime().seconds,
-            duration: item.duration.seconds,
+            position: engine.currentTime,
+            duration: engine.duration,
             // The viewer's own ending is where this episode actually hands over (IOS-POC-5S-2), so
             // it is what the lead window is measured back from.
             endingSeconds: (record?.endingOffset ?? 0) / 1000,
@@ -2100,45 +2164,44 @@ private struct PlayerPickerView: View {
     /// `AVPlayerItem.forwardPlaybackEndTime` set once the duration is known, buys exact timing if
     /// that lag is ever worth its own machinery.
     private func reachedEnding() -> Bool {
-        guard let record, started, player.rate > 0, let item = player.currentItem else {
+        guard let record, started, let engine, engine.rate > 0, engine.isLoaded else {
             endingReached = false
             return false
         }
-        let reached = record.hasReachedEnding(position: milliseconds(player.currentTime()),
-                                              duration: milliseconds(item.duration))
+        let reached = record.hasReachedEnding(position: Self.milliseconds(engine.currentTime),
+                                              duration: Self.milliseconds(engine.duration))
         defer { endingReached = reached }
         return reached && !endingReached
     }
 
     func control(_ action: String) {
         switch action {
-        case "play": player.play()
-        case "pause": player.pause()
+        case "play": engine?.play()
+        case "pause": engine?.pause()
         case "stop":
             // No foreground service to stop, so the equivalent is to drop what is loaded.
             Task { @MainActor in await persist() }
             sampler?.cancel()
-            player.pause()
-            player.replaceCurrentItem(with: nil)
+            router.stop()
             started = false
         case "prev": start(at: index - 1)
         case "next": start(at: index + 1)
         case "loop": looping.toggle()
         case "replay":
-            player.seek(to: .zero)
-            player.play()
+            engine?.seek(toSeconds: 0)
+            engine?.play()
         default: break
         }
     }
 
     /// `server/process/Media.java`. Durations and positions are milliseconds, as Media3 reports them.
     func status() -> WebHomeBridge.PlaybackStatus {
-        guard started, let item = player.currentItem else { return .idleStatus }
+        guard started, let engine, engine.isLoaded else { return .idleStatus }
         return .init(
-            state: state(of: item),
-            speed: Double(player.rate),
-            duration: milliseconds(item.duration),
-            position: milliseconds(player.currentTime()),
+            state: Self.androidState(engine.state),
+            speed: Double(engine.rate),
+            duration: Self.milliseconds(engine.duration),
+            position: Self.milliseconds(engine.currentTime),
             url: url,
             title: [title, items.indices.contains(index) ? items[index].name : ""]
                 .filter { !$0.isEmpty }.joined(separator: " "),
@@ -2146,15 +2209,18 @@ private struct PlayerPickerView: View {
         )
     }
 
-    private func state(of item: AVPlayerItem) -> Int {
-        if player.timeControlStatus == .playing { return 3 }
-        if player.timeControlStatus == .waitingToPlayAtSpecifiedRate { return 6 }
-        return item.status == .readyToPlay ? 2 : 1
+    /// Media3's state numbers, which is what `player.status` reports.
+    private static func androidState(_ state: PlaybackEngineState) -> Int {
+        switch state {
+        case .playing: return 3
+        case .buffering: return 6
+        case .ready: return 2
+        case .idle, .preparing: return 1
+        }
     }
 
-    private func milliseconds(_ time: CMTime) -> Double {
-        let seconds = time.seconds
-        return seconds.isFinite ? (seconds * 1000).rounded() : 0
+    private static func milliseconds(_ seconds: Double) -> Double {
+        seconds.isFinite ? (seconds * 1000).rounded() : 0
     }
 
     private func finished() {
@@ -2190,10 +2256,24 @@ private struct PlayerPickerView: View {
         }
     }
 
+    /// IOS-POC-17: what every path opens, engine-agnostic. The engine the router picks does the
+    /// media part; the position to resume at and the speed travel in the request.
     private func load(_ url: URL) {
         self.url = url.absoluteString
         started = true
-        let asset = Self.asset(for: url, headers: headers)
+        prefetchRequested = false
+        let start = resumeTo.map { $0 / 1000 } ?? 0
+        resumeTo = nil
+        router.open(PlaybackLoadRequest(target: PlaybackTarget(url: url, headers: headers),
+                                        startSeconds: start, rate: chosenRate, title: title,
+                                        history: record))
+        startSampling()
+    }
+
+    /// The AVPlayer half of what `load` used to do, unchanged apart from reading the request.
+    /// `AVPlayerEngine.load` is its only caller.
+    fileprivate func loadNative(_ request: PlaybackLoadRequest) {
+        let asset = Self.asset(for: request.target.url, headers: request.target.headers)
         let item = AVPlayerItem(asset: asset)
 
         // **The viewer's silent 2.5× and 3×, reported 2026-09-23.**
@@ -2223,25 +2303,24 @@ private struct PlayerPickerView: View {
         appliedPolicy = nil
         variantCount = 0
         stalls = 0
-        prefetchRequested = false
 
         player.replaceCurrentItem(with: item)
         loadVariantCount(of: asset)
         // Carry the viewer's speed into the next episode. `defaultRate` is what `play()` reads, and
         // setting it before the call is what makes the new item start at that speed rather than
         // starting at 1× and being corrected a moment later.
-        player.defaultRate = chosenRate
-        if let resumeTo {
-            self.resumeTo = nil
+        player.defaultRate = request.rate
+        if request.startSeconds > 0 {
             // A seek issued now is honoured once the item is ready, which is why it goes before
             // play() rather than behind a readiness observer.
-            player.seek(to: CMTime(value: CMTimeValue(resumeTo), timescale: 1000))
+            player.seek(to: CMTime(seconds: request.startSeconds, preferredTimescale: 1000))
         }
+        // A manual engine switch from a paused player loads paused (IOS-POC-17).
+        guard request.autoplay else { return }
         player.play()
         // `play()` uses `defaultRate`, but AVKit is free to set `rate` directly, so state it once
         // more against the player that is now running.
-        if chosenRate != 1 { player.rate = chosenRate }
-        startSampling()
+        if request.rate != 1 { player.rate = request.rate }
     }
 
     /// `AVPlayer` sends request headers only through `AVURLAsset` options, and the key for them —
@@ -2252,6 +2331,140 @@ private struct PlayerPickerView: View {
     private static func asset(for url: URL, headers: [String: String]) -> AVURLAsset {
         guard !headers.isEmpty else { return AVURLAsset(url: url) }
         return AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+    }
+}
+
+/// IOS-POC-17 §11 — which engines a viewer may be offered.
+///
+/// MPV reached its first frame on the simulator (IOS-POC-9G) and **not yet on a device**, so a
+/// release build — the only kind SideStore ever delivers — offers AVPlayer alone: nobody can pick
+/// an engine that might still show them a black screen. Debug builds offer both, so switching and
+/// fallback can be exercised on the simulator.
+/// ponytail: add `.mpv` to the release set once the device first-frame gate in IOS-POC-17 passes.
+enum PlaybackEngines {
+    #if DEBUG
+    static let offered: Set<PlaybackEngineKind> = [.native, .mpv]
+    #else
+    static let offered: Set<PlaybackEngineKind> = [.native]
+    #endif
+}
+
+/// IOS-POC-17 — AVPlayer as an engine: the one `AVPlayer` `PlaybackSession` has always owned.
+///
+/// **A thin adapter on purpose.** Item creation, the 2.5×/3× audio fix and IOS-POC-15's buffer
+/// policy stay in `PlaybackSession.loadNative` and its sampler exactly where they were; this answers
+/// the engine contract with the same `AVPlayer` calls the session used to make directly.
+@MainActor
+final class AVPlayerEngine: PlaybackEngine {
+    let kind = PlaybackEngineKind.native
+    var onFailure: ((Error, Int?) -> Void)?
+    var onEnded: (() -> Void)?
+
+    private unowned let session: PlaybackSession
+    private var player: AVPlayer { session.player }
+    private var observers = [NSObjectProtocol]()
+    private var itemStatus: NSKeyValueObservation?
+    /// `.failed` is terminal and the failure notification can follow it: one report per item.
+    private weak var reportedItem: AVPlayerItem?
+
+    init(session: PlaybackSession) {
+        self.session = session
+        let center = NotificationCenter.default
+        // Moved here from `PlaybackSession.init`, unchanged: any item of the one player ending.
+        observers.append(center.addObserver(
+            forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.onEnded?() }
+        })
+        // Until IOS-POC-17 a failed item was a silent black screen. Now it is classified: shown,
+        // or — when it is the media AVFoundation cannot handle — handed to the other engine.
+        observers.append(center.addObserver(
+            forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let error = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+            Task { @MainActor in self?.report(error) }
+        })
+        itemStatus = session.player.observe(\.currentItem?.status, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor in
+                guard let self, self.player.currentItem?.status == .failed else { return }
+                self.report(self.player.currentItem?.error)
+            }
+        }
+    }
+
+    func load(_ request: PlaybackLoadRequest) { session.loadNative(request) }
+    func play() { player.play() }
+    func pause() { player.pause() }
+
+    /// Exact tolerances, as the control bar's scrubber and ±10 s always had.
+    func seek(toSeconds seconds: Double) {
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600),
+                    toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
+    var currentTime: Double {
+        let seconds = player.currentTime().seconds
+        return seconds.isFinite ? seconds : 0
+    }
+
+    var duration: Double {
+        guard let seconds = player.currentItem?.duration.seconds, seconds.isFinite, seconds > 0
+        else { return 0 }
+        return seconds
+    }
+
+    var rate: Float { player.rate }
+
+    /// `defaultRate` is what `play()` reads, so it is set whether or not anything is playing.
+    func setRate(_ rate: Float) {
+        player.defaultRate = rate
+        if player.rate > 0 { player.rate = rate }
+    }
+
+    var volume: Float {
+        get { player.volume }
+        set { player.volume = newValue }
+    }
+
+    var isLoaded: Bool { player.currentItem != nil }
+    var isPlaying: Bool { player.timeControlStatus == .playing }
+
+    var state: PlaybackEngineState {
+        guard let item = player.currentItem else { return .idle }
+        if player.timeControlStatus == .playing { return .playing }
+        if player.timeControlStatus == .waitingToPlayAtSpecifiedRate { return .buffering }
+        return item.status == .readyToPlay ? .ready : .preparing
+    }
+
+    /// The loaded range **containing the playhead**, as IOS-POC-15 established.
+    var bufferedUntil: Double? {
+        let now = player.currentTime()
+        return player.currentItem?.loadedTimeRanges
+            .map(\.timeRangeValue)
+            .first { $0.containsTime(now) }
+            .map { ($0.start + $0.duration).seconds }
+    }
+
+    func teardown() {
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        observers.removeAll()
+        itemStatus?.invalidate()
+        itemStatus = nil
+        onFailure = nil
+        onEnded = nil
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+    }
+
+    /// The failure and the HTTP status the item's error log holds, if any — the evidence that
+    /// keeps a 403 served as an HTML page from reading as "format not recognized".
+    private func report(_ error: Error?) {
+        guard let item = player.currentItem, item !== reportedItem else { return }
+        reportedItem = item
+        let status = item.errorLog()?.events.reversed().lazy
+            .compactMap { PlaybackFailure.httpStatus(statusCode: $0.errorStatusCode, comment: $0.errorComment) }
+            .first
+        onFailure?(error ?? item.error ?? NSError(domain: "AVFoundationErrorDomain", code: -11800), status)
     }
 }
 
@@ -2278,6 +2491,10 @@ private struct PlayerControlBar: View {
     /// The title's opening/ending, mirrored by `PlayerView`.
     let watching: WatchHistory?
     let media: MediaSelection
+    /// IOS-POC-17: the engine **actually** playing — not the settings page's default.
+    let engine: PlaybackEngineKind
+    let isAvailable: (PlaybackEngineKind) -> Bool
+    let selectEngine: (PlaybackEngineKind) -> Void
     /// Any control being touched restarts the auto-hide countdown, so the bar cannot vanish under
     /// a finger that is using it.
     let interacted: () -> Void
@@ -2353,15 +2570,21 @@ private struct PlayerControlBar: View {
 
             Spacer()
 
-            mediaMenu("字幕", systemImage: "captions.bubble", selection: media.legible)
-            mediaMenu("音軌", systemImage: "waveform", selection: media.audible)
+            // What the running engine cannot do is not drawn, rather than drawn and dead.
+            if engine.capabilities.trackSelection {
+                mediaMenu("字幕", systemImage: "captions.bubble", selection: media.legible)
+                mediaMenu("音軌", systemImage: "waveform", selection: media.audible)
+            }
             speedMenu
+            engineMenu
 
             // AirPlay. `AVRoutePickerView` is public and is the whole control, so there is nothing
             // to reimplement — AVKit's bar was only ever hosting the same view.
-            RoutePickerButton()
-                .frame(width: 36, height: 36)
-                .accessibilityLabel("AirPlay")
+            if engine.capabilities.airPlay {
+                RoutePickerButton()
+                    .frame(width: 36, height: 36)
+                    .accessibilityLabel("AirPlay")
+            }
         }
     }
 
@@ -2443,6 +2666,29 @@ private struct PlayerControlBar: View {
                 .frame(minWidth: 36, minHeight: 36)
         }
         .accessibilityLabel("播放速度")
+    }
+
+    /// IOS-POC-17. The label is the engine playing now; choosing changes this session only and
+    /// carries the position, speed, target and episode across. An engine that is not offered yet
+    /// is listed but cannot be picked, so nobody lands on a black screen.
+    private var engineMenu: some View {
+        Menu {
+            ForEach(PlaybackEngineKind.allCases, id: \.self) { kind in
+                Button {
+                    interacted()
+                    selectEngine(kind)
+                } label: {
+                    Label(isAvailable(kind) ? kind.displayName : "\(kind.displayName)（尚未開放）",
+                          systemImage: kind == engine ? "checkmark" : "")
+                }
+                .disabled(!isAvailable(kind))
+            }
+        } label: {
+            Text(engine.shortName)
+                .font(.footnote.weight(.semibold))
+                .frame(minWidth: 36, minHeight: 36)
+        }
+        .accessibilityLabel("播放器：\(engine.displayName)")
     }
 
     /// Subtitles and audio. Shown only when the media actually offers a choice — a menu with one
@@ -2774,6 +3020,11 @@ private struct PlayerView: View {
     @State private var rate: Float = 1
     @State private var media = MediaSelection()
     @State private var timeObserver: Any?
+    /// IOS-POC-17: which engine is drawing, and what failed if nothing can.
+    @State private var engineKind = PlaybackEngineKind.native
+    @State private var failure: String?
+    /// MPV has no periodic observer to hand; the bar reads its snapshot on the same quarter second.
+    @State private var engineTicker: Task<Void, Never>?
 
     private enum DragKind { case seek, volume, brightness }
 
@@ -2789,8 +3040,29 @@ private struct PlayerView: View {
             // The player owns the whole screen, so letterbox bars are black instead of showing
             // whatever is behind the presentation.
             Color.black.ignoresSafeArea()
-            PlayerSurface(player: session.player, pictureInPicture: $pictureInPicture)
-                .ignoresSafeArea()
+            if engineKind == .mpv, let mpv = session.engine as? MPVEngine {
+                MPVVideoSurface(engine: mpv)
+                    .id(ObjectIdentifier(mpv))
+                    .ignoresSafeArea()
+            } else {
+                PlayerSurface(player: session.player, pictureInPicture: $pictureInPicture)
+                    .ignoresSafeArea()
+            }
+        }
+        .overlay {
+            // The real reason, classified — IOS-POC-17. A failed item used to be a silent black
+            // screen with the bar still offering play.
+            if let failure {
+                Text(failure)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 12))
+                    .padding(32)
+                    .allowsHitTesting(false)
+            }
         }
         .overlay {
             if let hud {
@@ -2819,6 +3091,9 @@ private struct PlayerView: View {
             PlayerControlBar(
                 session: session, position: position, duration: duration, buffered: buffered,
                 playing: playing, rate: rate, watching: watching, media: media,
+                engine: engineKind,
+                isAvailable: { session.isEngineAvailable($0) },
+                selectEngine: { session.selectEngine($0) },
                 interacted: { scheduleHide() },
                 skipEdited: {
                     watching = session.record
@@ -2856,15 +3131,30 @@ private struct PlayerView: View {
             // Unless PiP has the video: pausing there would stop the little window the viewer
             // just asked for, which is the one thing PiP must survive.
             guard !pictureInPicture else { return }
-            session.player.pause()
+            session.control("pause")
             // The sampler skips a paused player, so the moment of leaving is the last chance to
-            // record where the viewer actually got to.
-            Task { await session.persist() }
+            // record where the viewer actually got to. The session ends only after that write:
+            // ending it can release an MPV engine, and its position with it.
+            Task {
+                await session.persist()
+                session.closePlayer()
+            }
             // One `AVPlayer` outlives this screen, so an observer left on it would outlive it too.
             stopObserving()
             hideTimer?.cancel()
+            session.onEngineChange = nil
+            session.onFailure = nil
         }
         .task {
+            engineKind = session.engineKind
+            failure = session.router.failure?.message
+            session.onEngineChange = { kind in
+                engineKind = kind
+                failure = nil
+                startObserving()
+                Task { media = await MediaSelection.load(from: session.player.currentItem) }
+            }
+            session.onFailure = { failure = $0.message }
             startObserving()
             scheduleHide()
             media = await MediaSelection.load(from: session.player.currentItem)
@@ -2882,6 +3172,20 @@ private struct PlayerView: View {
     /// that it costs nothing — AVKit's own bar reads about the same.
     private func startObserving() {
         stopObserving()
+        // IOS-POC-17. The AVPlayer path below is unchanged; MPV is read on the same cadence.
+        if engineKind == .mpv {
+            engineTicker = Task { @MainActor in
+                while !Task.isCancelled {
+                    position = session.position
+                    duration = session.duration
+                    playing = session.isPlaying
+                    rate = session.rate
+                    buffered = session.bufferedUntil
+                    try? await Task.sleep(for: .seconds(0.25))
+                }
+            }
+            return
+        }
         timeObserver = session.player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
         ) { time in
@@ -2914,6 +3218,8 @@ private struct PlayerView: View {
     private func stopObserving() {
         if let timeObserver { session.player.removeTimeObserver(timeObserver) }
         timeObserver = nil
+        engineTicker?.cancel()
+        engineTicker = nil
     }
 
     private func toggleControls() {
@@ -2932,7 +3238,7 @@ private struct PlayerView: View {
         hideTimer?.cancel()
         hideTimer = Task { @MainActor in
             try? await Task.sleep(for: .seconds(5))
-            guard !Task.isCancelled, session.player.timeControlStatus == .playing else { return }
+            guard !Task.isCancelled, session.isPlaying else { return }
             controlsVisible = false
         }
     }
@@ -2944,8 +3250,8 @@ private struct PlayerView: View {
         if drag == nil {
             drag = kind
             switch kind {
-            case .seek: dragOrigin = session.player.currentTime().seconds
-            case .volume: dragOrigin = Double(session.player.volume)
+            case .seek: dragOrigin = session.position
+            case .volume: dragOrigin = Double(session.volume)
             case .brightness: dragOrigin = Double(UIScreen.main.brightness)
             }
         }
@@ -2956,7 +3262,7 @@ private struct PlayerView: View {
             hud = seekLabel(for: seekTarget(move))
         case .volume:
             let value = level(from: move)
-            session.player.volume = Float(value)
+            session.volume = Float(value)
             hud = "🔊 \(Int(value * 100))%"
         case .brightness:
             // Floored rather than allowed to reach zero. A downward drag that blacks the screen
@@ -2970,9 +3276,7 @@ private struct PlayerView: View {
 
     private func dragEnded(_ move: DragGesture.Value) {
         if drag == .seek {
-            let target = seekTarget(move)
-            session.player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
-                                toleranceBefore: .zero, toleranceAfter: .zero)
+            session.seek(toSeconds: seekTarget(move))
         }
         drag = nil
         flashHUD()
@@ -2999,8 +3303,8 @@ private struct PlayerView: View {
     }
 
     private func seekTarget(_ move: DragGesture.Value) -> Double {
-        let duration = session.player.currentItem?.duration.seconds ?? 0
-        let span = duration.isFinite && duration > 0 ? duration : .greatestFiniteMagnitude
+        let duration = session.duration
+        let span = duration > 0 ? duration : .greatestFiniteMagnitude
         let moved = move.translation.width / UIScreen.main.bounds.width * Self.seekSpan
         return min(max(dragOrigin + moved, 0), span)
     }

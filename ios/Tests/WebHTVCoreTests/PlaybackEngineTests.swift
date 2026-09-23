@@ -1,0 +1,349 @@
+import Foundation
+import Testing
+@testable import WebHTVCore
+
+// IOS-POC-17. The router and the selection are driven here against engines that only record what
+// they were asked, so every rule below is the real `PlayerRouter`, not a copy of its logic.
+
+@MainActor
+private final class FakeEngine: PlaybackEngine {
+    let kind: PlaybackEngineKind
+    var loads = [PlaybackLoadRequest]()
+    var tornDown = false
+    var currentTime: Double = 0
+    var duration: Double = 0
+    var rate: Float = 0
+    var chosenRate: Float = 1
+    var volume: Float = 1
+    var isLoaded = false
+    var isPlaying = false
+    var state: PlaybackEngineState = .idle
+    var bufferedUntil: Double?
+    var onFailure: ((Error, Int?) -> Void)?
+    var onEnded: (() -> Void)?
+
+    init(kind: PlaybackEngineKind) { self.kind = kind }
+    func load(_ request: PlaybackLoadRequest) {
+        loads.append(request)
+        isLoaded = true
+        isPlaying = request.autoplay
+        currentTime = request.startSeconds
+        chosenRate = request.rate
+    }
+    func play() { isPlaying = true }
+    func pause() { isPlaying = false }
+    func seek(toSeconds seconds: Double) { currentTime = seconds }
+    func setRate(_ rate: Float) { chosenRate = rate }
+    func teardown() { tornDown = true; isLoaded = false; isPlaying = false }
+    func fail(_ error: Error, httpStatus: Int? = nil) { onFailure?(error, httpStatus) }
+}
+
+@MainActor
+private final class Harness {
+    var made = [FakeEngine]()
+    lazy var router = PlayerRouter(globalDefault: globalDefault, available: available) { [unowned self] kind in
+        let engine = FakeEngine(kind: kind)
+        made.append(engine)
+        return engine
+    }
+    let globalDefault: PlaybackEngineKind
+    let available: Set<PlaybackEngineKind>
+    init(globalDefault: PlaybackEngineKind = .native, available: Set<PlaybackEngineKind> = [.native, .mpv]) {
+        self.globalDefault = globalDefault
+        self.available = available
+    }
+    var engine: FakeEngine { router.engine as! FakeEngine }
+}
+
+private let episode = WatchHistory(key: "site@@@vod", siteKey: "site", vodId: "vod", vodName: "片名",
+                                   vodFlag: "線路2", vodRemarks: "EP08",
+                                   episodeUrl: "https://example.com/ep8", quality: "1080p")
+private let target = PlaybackTarget(
+    url: URL(string: "https://cdn.example.com/ep8/index.m3u8")!,
+    headers: ["Referer": "https://www.bilibili.com/", "User-Agent": "Mozilla/5.0 (KHTML, like Gecko)",
+              "Cookie": "SESSDATA=x"],
+    qualities: [PlaybackQuality(name: "1080p", url: URL(string: "https://cdn.example.com/ep8/index.m3u8")!),
+                PlaybackQuality(name: "720p", url: URL(string: "https://cdn.example.com/ep8/720.m3u8")!)])
+private let request = PlaybackLoadRequest(target: target, rate: 1.5, title: "片名 EP08", history: episode)
+
+private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
+    NSError(domain: "AVFoundationErrorDomain", code: code,
+            userInfo: underlying.map { [NSUnderlyingErrorKey: $0] } ?? [:])
+}
+
+// MARK: - Defaults and persistence
+
+@Test func theDefaultEngineIsAVPlayerWhenNothingIsStored() throws {
+    let defaults = try #require(UserDefaults(suiteName: "engine-empty-\(UUID())"))
+    #expect(PlaybackEnginePreference(defaults: defaults).globalDefaultEngine == .native)
+    defaults.set("vlc", forKey: PlaybackEnginePreference.key)
+    #expect(PlaybackEnginePreference(defaults: defaults).globalDefaultEngine == .native)
+}
+
+@Test func theGlobalDefaultPersists() throws {
+    let suite = "engine-persist-\(UUID())"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    PlaybackEnginePreference(defaults: defaults).setGlobalDefaultEngine(.mpv)
+    let again = try #require(UserDefaults(suiteName: suite))
+    #expect(PlaybackEnginePreference(defaults: again).globalDefaultEngine == .mpv)
+}
+
+@MainActor @Test func anAVPlayerDefaultStartsTheSessionOnAVPlayer() {
+    let harness = Harness(globalDefault: .native)
+    harness.router.open(request)
+    #expect(harness.engine.kind == .native)
+    #expect(harness.router.selection.currentSessionEngine == .native)
+}
+
+@MainActor @Test func anMPVDefaultStartsTheSessionOnMPV() {
+    let harness = Harness(globalDefault: .mpv)
+    harness.router.open(request)
+    #expect(harness.engine.kind == .mpv)
+}
+
+@MainActor @Test func anUnavailableMPVIsNeverUsedAndNeverSelectable() {
+    let harness = Harness(globalDefault: .mpv, available: [.native])
+    harness.router.open(request)
+    #expect(harness.engine.kind == .native)
+    #expect(harness.router.selection.isAvailable(.mpv) == false)
+    #expect(harness.router.select(.mpv) == false)
+    #expect(harness.made.count == 1)
+    // The stored default is kept; it is only not used until MPV is available.
+    #expect(harness.router.selection.globalDefaultEngine == .mpv)
+}
+
+@MainActor @Test func anAvailableMPVCanBeSelected() {
+    let harness = Harness()
+    harness.router.open(request)
+    #expect(harness.router.select(.mpv))
+    #expect(harness.engine.kind == .mpv)
+}
+
+// MARK: - Session override
+
+@MainActor @Test func aSessionOverrideLeavesTheGlobalDefaultAlone() {
+    let harness = Harness(globalDefault: .native)
+    harness.router.open(request)
+    harness.router.select(.mpv)
+    #expect(harness.router.selection.sessionOverride == .mpv)
+    #expect(harness.router.selection.currentSessionEngine == .mpv)
+    #expect(harness.router.selection.globalDefaultEngine == .native)
+}
+
+@MainActor @Test func closingThePlayerClearsTheOverrideAndTheNextTitleStartsFromTheDefault() {
+    let harness = Harness(globalDefault: .native)
+    harness.router.open(request)
+    harness.router.select(.mpv)
+    let mpv = harness.engine
+    harness.router.endSession()
+    #expect(harness.router.selection.sessionOverride == nil)
+    #expect(mpv.tornDown, "an engine the next session will not use is released")
+    harness.router.open(request)
+    #expect(harness.engine.kind == .native)
+}
+
+@MainActor @Test func theNextEpisodeStaysOnTheSessionsEngine() {
+    let harness = Harness(globalDefault: .native)
+    harness.router.open(request)
+    harness.router.select(.mpv)
+    harness.router.open(request)   // auto-advance inside the same session
+    #expect(harness.engine.kind == .mpv)
+    #expect(harness.made.count == 2)
+}
+
+@MainActor @Test func aDefaultChangedWhilePlayingWaitsForTheNextSession() {
+    let harness = Harness(globalDefault: .native)
+    harness.router.open(request)
+    harness.router.setGlobalDefault(.mpv)
+    harness.router.open(request)
+    #expect(harness.engine.kind == .native)
+    harness.router.endSession()
+    harness.router.open(request)
+    #expect(harness.engine.kind == .mpv)
+}
+
+// MARK: - Manual switch keeps everything
+
+@MainActor @Test func switchingAVPlayerToMPVKeepsTheTargetPositionRateAndIdentity() throws {
+    let harness = Harness()
+    harness.router.open(request)
+    let native = harness.engine
+    native.currentTime = 23 * 60 + 41
+    harness.router.select(.mpv)
+    let mpv = harness.engine
+    #expect(native.tornDown)
+    #expect(mpv.kind == .mpv)
+    let loaded = try #require(mpv.loads.last)
+    #expect(loaded.target == target)                        // same PlaybackTarget, URL and qualities
+    #expect(loaded.target.headers == target.headers)        // every header, Cookie included
+    #expect(loaded.history?.vodRemarks == "EP08")           // episode
+    #expect(loaded.history?.vodFlag == "線路2")             // line
+    #expect(loaded.history?.quality == "1080p")             // quality
+    #expect(loaded.history?.episodeUrl == episode.episodeUrl)
+    #expect(loaded.startSeconds == 23 * 60 + 41)            // position
+    #expect(loaded.rate == 1.5)                             // rate
+    #expect(loaded.autoplay)
+}
+
+@MainActor @Test func switchingMPVToAVPlayerKeepsTheSameThings() throws {
+    let harness = Harness(globalDefault: .mpv)
+    harness.router.open(request)
+    harness.engine.currentTime = 600
+    harness.router.setRate(2.5)
+    harness.router.select(.native)
+    let loaded = try #require(harness.engine.loads.last)
+    #expect(harness.engine.kind == .native)
+    #expect(loaded.target == target)
+    #expect(loaded.history == episode)
+    #expect(loaded.startSeconds == 600)
+    #expect(loaded.rate == 2.5)
+}
+
+@MainActor @Test func aPausedPlayerIsStillPausedOnTheOtherEngine() throws {
+    let harness = Harness()
+    harness.router.open(request)
+    harness.engine.currentTime = 42
+    harness.engine.pause()
+    harness.router.select(.mpv)
+    #expect(try #require(harness.engine.loads.last).autoplay == false)
+}
+
+// MARK: - Classification
+
+@Test func formatCodecAndDecoderFailuresAreEngineCapabilityFailures() {
+    for code in [-11828, -11829, -11833, -11821] {
+        #expect(PlaybackFailure.classify(avError(code)).allowsEngineFallback, "AVError \(code)")
+    }
+    for code in [-14, -15, -17, -18, PlaybackFailure.mpvNoFirstFrame] {
+        let error = NSError(domain: PlaybackFailure.mpvDomain, code: code)
+        #expect(PlaybackFailure.classify(error).allowsEngineFallback, "mpv \(code)")
+    }
+}
+
+@Test func networkSourceAndUnknownFailuresNeverFallBack() {
+    let cases: [(String, PlaybackFailure)] = [
+        ("403 behind a format error", .classify(avError(-11828), httpStatus: 403)),
+        ("404", .classify(avError(-11800), httpStatus: 404)),
+        ("5xx", .classify(avError(-11800), httpStatus: 503)),
+        ("timeout", .classify(avError(-11800, underlying: NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)))),
+        ("DNS", .classify(NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotFindHost))),
+        ("DNS lookup", .classify(NSError(domain: NSURLErrorDomain, code: NSURLErrorDNSLookupFailed))),
+        ("TLS", .classify(NSError(domain: NSURLErrorDomain, code: NSURLErrorSecureConnectionFailed))),
+        ("certificate", .classify(NSError(domain: NSURLErrorDomain, code: NSURLErrorServerCertificateUntrusted))),
+        ("AVError unknown", .classify(avError(-11800))),
+        ("DRM", .classify(avError(-11831))),
+        ("mpv loading failed", .classify(NSError(domain: PlaybackFailure.mpvDomain, code: -13))),
+        ("mpv nothing to play", .classify(NSError(domain: PlaybackFailure.mpvDomain, code: -16))),
+        ("resolver", .source("這一集沒有可播放的網址")),
+        ("sniffer", .source("嗅探逾時")),
+        ("spider", .source("Spider script error")),
+    ]
+    for (name, failure) in cases {
+        #expect(!failure.allowsEngineFallback, "\(name) must not change engines")
+    }
+    #expect(PlaybackFailure.classify(avError(-11828), httpStatus: 403) == .network("HTTP 403"))
+}
+
+@Test func theHTTPStatusIsReadFromAnAVPlayerErrorLogEvent() {
+    #expect(PlaybackFailure.httpStatus(statusCode: -12660, comment: "HTTP 403: Forbidden") == 403)
+    #expect(PlaybackFailure.httpStatus(statusCode: -12938, comment: "HTTP 404: File Not Found") == 404)
+    #expect(PlaybackFailure.httpStatus(statusCode: 410, comment: nil) == 410)
+    #expect(PlaybackFailure.httpStatus(statusCode: -12642, comment: "Playlist parse error") == nil)
+    #expect(PlaybackFailure.httpStatus(statusCode: 0, comment: "HTTP 200") == nil)
+}
+
+// MARK: - Automatic fallback
+
+@MainActor @Test func aCapabilityFailureFallsBackOnceKeepingPositionAndTarget() throws {
+    let harness = Harness()
+    harness.router.open(request)
+    harness.engine.currentTime = 90
+    harness.engine.fail(avError(-11828))
+    #expect(harness.engine.kind == .mpv)
+    #expect(harness.router.selection.currentSessionEngine == .mpv)   // the bar shows the real one
+    #expect(harness.router.selection.globalDefaultEngine == .native)
+    let loaded = try #require(harness.engine.loads.last)
+    #expect(loaded.target == target)
+    #expect(loaded.startSeconds == 90)
+    #expect(harness.router.failure == nil)
+}
+
+@MainActor @Test func theFallbackEngineFailingDoesNotBounceBack() {
+    let harness = Harness()
+    var shown: PlaybackFailure?
+    harness.router.onUnrecoverable = { shown = $0 }
+    harness.router.open(request)
+    harness.engine.fail(avError(-11833))
+    let mpv = harness.engine
+    mpv.fail(NSError(domain: PlaybackFailure.mpvDomain, code: -17))
+    #expect(harness.engine === mpv, "no second switch")
+    #expect(harness.made.count == 2)
+    #expect(shown?.allowsEngineFallback == true)
+    #expect(harness.router.failure != nil)
+}
+
+@MainActor @Test func mpvFallsBackToAVPlayerToo() {
+    let harness = Harness(globalDefault: .mpv)
+    harness.router.open(request)
+    harness.engine.fail(NSError(domain: PlaybackFailure.mpvDomain, code: PlaybackFailure.mpvNoFirstFrame))
+    #expect(harness.engine.kind == .native)
+}
+
+@MainActor @Test func aNetworkFailureIsShownNotFallenBackFrom() {
+    let harness = Harness()
+    var shown: PlaybackFailure?
+    harness.router.onUnrecoverable = { shown = $0 }
+    harness.router.open(request)
+    harness.engine.fail(avError(-11800), httpStatus: 403)
+    #expect(harness.engine.kind == .native)
+    #expect(harness.made.count == 1)
+    #expect(shown == .network("HTTP 403"))
+}
+
+@MainActor @Test func theNextEpisodeGetsItsOwnFallback() {
+    let harness = Harness()
+    harness.router.open(request)
+    harness.engine.fail(avError(-11828))          // native → mpv
+    harness.router.open(request)                   // next episode, a new attempt on mpv
+    harness.engine.fail(NSError(domain: PlaybackFailure.mpvDomain, code: -17))
+    #expect(harness.engine.kind == .native)
+}
+
+@MainActor @Test func withoutASecondEngineACapabilityFailureIsShown() {
+    let harness = Harness(available: [.native])
+    var shown: PlaybackFailure?
+    harness.router.onUnrecoverable = { shown = $0 }
+    harness.router.open(request)
+    harness.engine.fail(avError(-11828))
+    #expect(harness.engine.kind == .native)
+    #expect(shown?.allowsEngineFallback == true)
+}
+
+@MainActor @Test func aRetiredEngineCannotReportIntoTheRouter() {
+    let harness = Harness()
+    harness.router.open(request)
+    let native = harness.engine
+    harness.router.select(.mpv)
+    native.fail(avError(-11828))                   // late callback from the torn-down engine
+    #expect(harness.engine.kind == .mpv)
+    #expect(harness.made.count == 2)
+}
+
+@MainActor @Test func theRouterNeverAsksForASecondResolution() {
+    let harness = Harness()
+    harness.router.open(request)
+    harness.router.select(.mpv)
+    harness.router.select(.native)
+    // Every load is the one target the session handed over — nothing resolved it again.
+    #expect(harness.made.flatMap(\.loads).allSatisfy { $0.target == target })
+}
+
+// MARK: - MPV headers
+
+@Test func everyHeaderReachesMPVAsOneField() {
+    let fields = MPVRequestHeaders.fields(target.headers)
+    #expect(fields == ["Cookie: SESSDATA=x", "Referer: https://www.bilibili.com/",
+                       "User-Agent: Mozilla/5.0 (KHTML, like Gecko)"])
+    #expect(MPVRequestHeaders.fields(["X-Bad": "a\r\nHost: evil"]).isEmpty)
+    #expect(MPVRequestHeaders.fields([:]).isEmpty)
+}

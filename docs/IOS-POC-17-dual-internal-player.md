@@ -124,7 +124,63 @@ Simulator Debug build → **BUILD SUCCEEDED**。全套 `swift test` 留到 17B �
 （截圖與 event 序列見 `docs/IOS-POC-9B-mpv-playback-core.md` 9G 節）。**真機 first frame：尚未取得**——
 本輪沒有可上機的 Debug build。**Stop condition 未觸發，VLCKit spike 不需要。**
 
+## 十、17B — 雙核心本體（完成；MPV 在正式版仍 disabled）
+
+### 契約（`ios/Sources/WebHTVCore/PlaybackEngine.swift`，純 core，macOS 可測）
+
+| 型別 | 內容 |
+|---|---|
+| `PlaybackEngineKind` | `.native`（原生播放器／「原生」）、`.mpv`（MPV）；`capabilities`：native 有 AirPlay 與字幕／音軌選單，MPV 第一階段兩者皆無（PiP 只可能在 AVKit surface 上發生） |
+| `PlaybackEnginePreference` | `globalDefaultEngine`，存在既有 `UserDefaults`（key `webhtv.playback.defaultEngine`），讀不懂或沒存 → `.native` |
+| `PlaybackEngineSelection` | `globalDefaultEngine`／`sessionOverride`／`currentSessionEngine`／`fallbackSpent`。`startSession`（從關閉狀態開播：回到全域預設）、`beginAttempt`（同 session 下一集：保留 engine、重置 fallback 額度）、`choose`（手動：只改本 session）、`fallback(after:)`（只收 capability failure、每 attempt 一次、目標必須 available）、`endSession`（清 override） |
+| `PlaybackFailure` | `engineCapability`／`network`／`source`／`unclassified`；只有第一種 `allowsEngineFallback`。分類順序：**HTTP 狀態先看**（403 回 HTML 也會讓 AVFoundation 說 format not recognized）→ NSURLError（DNS／timeout／TLS／憑證／離線）→ AVError allowlist `-11821/-11828/-11829/-11833` → mpv allowlist `-14/-15/-17/-18`＋自訂「沒有 first frame」→ 其他一律 `unclassified`（不 fallback）。`httpStatus(statusCode:comment:)` 是唯一的字串解析 |
+| `PlaybackLoadRequest` | `PlaybackTarget`（url＋headers＋qualities 原封不動）＋`startSeconds`＋`rate`＋`autoplay`＋`title`＋`history`（WatchHistory：站、片、線路、集、畫質） |
+| `PlaybackEngine`（`@MainActor` protocol） | `kind`、`load`、`play`、`pause`、`seek`、`currentTime`、`duration`、`rate`／`setRate`、`volume`、`isLoaded`、`isPlaying`、`state`、`bufferedUntil`、`onFailure(Error, httpStatus?)`、`onEnded`、`teardown` |
+| `PlayerRouter` | `open`（新 session 或新 attempt）、`select`（手動切換：以當下 position、記住的 rate、播放／暫停狀態，把**同一個** request 交給另一個 engine）、engine 回報 → 分類 → 最多一次 fallback 或 `onUnrecoverable`、`endSession`（下一個 session 不會用的 engine 會被釋放）、`stop`。**不解析任何東西**；舊 engine 的遲到回報被丟棄 |
+| `MPVRequestHeaders.fields` | 所有 header（含 UA／Referer）放進 mpv 的 `http-header-fields`；FFmpeg 看到自訂 UA／Referer 就不加自己的，HLS demuxer 會把同一組 header 帶到每個 playlist／segment；含 CR／LF 的 header 丟棄 |
+
+### App 端
+
+- `PlaybackSession`（不動它上層的一切）：新增 `router`；`load(url)` 變成組 request → `router.open`；
+  原本建 `AVPlayerItem` 的那段改名 `loadNative(_:)`，只由 `AVPlayerEngine` 呼叫，內容不變
+  （`.timeDomain`、`preferredPeakBitRate = 0`、IOS-POC-15 的重置、variant 計數、`defaultRate`、續播 seek、play）。
+  `persist`／`reachedEnding`／`prefetchNextIfDue`／`status`／`control`／`setRate`／`seek` 改讀 engine；
+  **IOS-POC-15 的 policy 只在 native 執行**。end-of-item observer 從 session 搬進 `AVPlayerEngine`。
+- `AVPlayerEngine`：同一個 `AVPlayer` 的薄轉接；新增 item `.failed`／`failedToPlayToEndTime` 的回報，
+  附帶 error log 裡的 HTTP 狀態——**以前失敗是無聲黑畫面，現在會顯示真正原因**。
+- `MPVEngine`（新檔 `ios/WebHTVApp/Sources/MPVEngine.swift`）：view 的 layer 就是 mpv 的 `wid`（demo 的 Metal 路徑）；
+  wakeup callback 只排程（9G 的規則）；所有 mpv 呼叫在自己的 queue，主執行緒只讀 snapshot；
+  `FILE_LOADED` 後 10 秒沒有 `VIDEO_RECONFIG` → `mpv` 自訂碼「沒有 first frame」→ capability failure → 回 AVPlayer；
+  模擬器 `hwdec=no`、真機 `auto-safe`（真機未量）；背景時 `vid=no`、前景 `vid=auto`（demo 的黑畫面修法）。
+- `PlaybackEngines.offered`：**Release 只有 `[.native]`**，Debug 有 `[.native, .mpv]`（SideStore 只發 Release）。
+- 設定頁「預設播放器」：原生播放器／MPV，不可用者顯示「（尚未開放）」且不能點。
+- 控制列：速度右邊新增 engine 選單，**標籤是目前實際在跑的 engine**；AirPlay、字幕／音軌依 capability 隱藏。
+- 播放畫面：`engineKind` 決定畫 `PlayerSurface`（AVKit）或 `MPVVideoSurface`；MPV 用 0.25 秒 tick 讀 snapshot；
+  失敗時顯示分類後的訊息；關閉時先 `persist` 再 `closePlayer()`（override 清除，MPV 釋放）。
+
+### 驗證
+
+| 檢查 | 結果 | 證據等級 |
+|---|---|---|
+| `swift test --package-path ios`（`WANG_MOVIE_JSON` 為使用者設定） | **322 tests，全部通過**（297 − 1 移除 + 1 移除檢查 + 25 新增）；`reportsLiveType4SitesFromProvidedConfig` 本輪也通過（天氣） | macOS |
+| 25 條雙核心測試 | 對應使用者 32 項中的 1–28 與 32（29–31 由 17A 的移除測試涵蓋） | macOS，真 `PlayerRouter`＋假 engine |
+| 測試抓到的真缺陷 | `MPVRequestHeaders` 的 CR／LF 防注入原本用 `Character` 比對，Swift 把 `"\r\n"` 當成一個 grapheme，**擋不住**；改成比 unicode scalar | macOS |
+| Simulator Debug build | **BUILD SUCCEEDED**；`WebHTVApp.swift` 的 7 條 warning 與 IOS-POC-15 記錄的既有 warning 相同，`MPVEngine.swift` 無 warning | 模擬器 |
+| 模擬器實操（荐片《欢迎来龙餐馆》TC国语，iOS 26.3） | 設定頁出現「預設播放器」；播放選單只剩「播放」；AVPlayer 播放，控制列顯示「原生」；1.5×、暫停於 03:59 → 切 MPV：標籤變「MPV」、1.5× 與 03:59 與暫停保留、AirPlay 隱藏、畫面由 MPV 畫出；按播放從 03:59 前進到 04:07 → 切回原生：「原生」、1.5×、暫停保留、AirPlay 回來，位置 04:00 | **模擬器，不是真機** |
+| 已知差異 | 切回 AVPlayer 時位置落在關鍵影格（04:07 → 04:00）：`loadNative` 的續播 seek 本來就用預設容差，與既有 resume 同一行為，沒有為切換另外改成精確 seek | — |
+
+### Ponytail
+
+- **pre-review**：見第四節；blocking finding（把整個 `PlaybackSession` 改走 protocol 會動到 IOS-POC-15）已先縮減。
+- **final-diff review（`ponytail-review`，2026-09-23）**：一條——`PlaybackEngineCapabilities.pictureInPicture` 沒有任何讀者，
+  **已刪**（`net: -3 lines`）。`PlaybackLoadRequest.title` 目前兩個 engine 都沒讀，但屬使用者契約要求的 media metadata，保留。其餘皆有呼叫端或明確需求。
+
+### 沒有驗到的
+
+- **真機一次都沒跑**：MPV first frame、MPV headers 真的送出、`auto-safe` 硬解、fallback 在真實失敗上觸發、背景／前景。
+- 自動 fallback 在模擬器上**沒有被真實失敗觸發過**（只有單元測試）；因為 Release 沒有 MPV，正式版的 native 失敗只會顯示訊息。
+
 ## Recovery anchor
 
-- 已完成：17A 外部播放器移除；9G MPV 算繪根因修正（模擬器 first frame）。
-- 下一步（唯一）：17B 雙核心（core model＋router＋fallback＋MPVEngine＋設定與控制列）。
+- 已完成：17A、9G、17B（commit 見 git log）。
+- 下一步（唯一）：17C——依使用者 2026-09-23 追加要求，拿掉「播放」選單頁，點集數直接進播放畫面；之後 17D 文件整理。

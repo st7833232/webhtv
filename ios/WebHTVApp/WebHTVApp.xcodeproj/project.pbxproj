@@ -21,6 +21,7 @@
 		7E10000000000000000000A7 /* PythonBoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000A6 /* PythonBoot.swift */; };
 		7E10000000000000000000D1 /* MPVBoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000D0 /* MPVBoot.swift */; };
 		7E10000000000000000000D3 /* MPVProbeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000D2 /* MPVProbeView.swift */; };
+		7E10000000000000000000D5 /* MPVEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000D4 /* MPVEngine.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -36,6 +37,7 @@
 		7E10000000000000000000A6 /* PythonBoot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PythonBoot.swift; sourceTree = "<group>"; };
 		7E10000000000000000000D0 /* MPVBoot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MPVBoot.swift; sourceTree = "<group>"; };
 		7E10000000000000000000D2 /* MPVProbeView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MPVProbeView.swift; sourceTree = "<group>"; };
+		7E10000000000000000000D4 /* MPVEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MPVEngine.swift; sourceTree = "<group>"; };
 		AF891E7F959513A468894926 /* WebHTVApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WebHTVApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -127,6 +129,7 @@
 				7E10000000000000000000A6 /* PythonBoot.swift */,
 				7E10000000000000000000D0 /* MPVBoot.swift */,
 				7E10000000000000000000D2 /* MPVProbeView.swift */,
+				7E10000000000000000000D4 /* MPVEngine.swift */,
 				7E10000000000000000000B3 /* PythonSpiderRuntime.swift */,
 				7E10000000000000000000C1 /* PythonLiveCheck.swift */,
 			);
@@ -244,6 +247,7 @@
 				7E10000000000000000000A7 /* PythonBoot.swift in Sources */,
 				7E10000000000000000000D1 /* MPVBoot.swift in Sources */,
 				7E10000000000000000000D3 /* MPVProbeView.swift in Sources */,
+				7E10000000000000000000D5 /* MPVEngine.swift in Sources */,
 				7E10000000000000000000B4 /* PythonSpiderRuntime.swift in Sources */,
 				7E10000000000000000000C2 /* PythonLiveCheck.swift in Sources */,
 			);

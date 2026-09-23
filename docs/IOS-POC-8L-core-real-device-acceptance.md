@@ -48,7 +48,7 @@ seek 後 buffered bar 修正）。所以**除了 ① 以外的項目，現在手
 | 項目 | 規劃 |
 |---|---|
 | 版本 | `MARKETING_VERSION = 0.1.8`、`CURRENT_PROJECT_VERSION = 9`（目前專案是 `0.1.7`／`8`；`source.json` 最新一筆是 `0.1.7`；`0.1.8`／`9` 未被使用過） |
-| 內容 | 最新 `ios-poc` HEAD：**5S-3 + 5S-1 + 5S-2 + IOS-POC-15 + 2.5×／3× 音訊修正 + PiP foreground restore + IOS-POC-16**，**加上 IOS-POC-17**（外部播放器移除、雙核心架構與播放器選擇、點集數直接播放、AVPlayer 失敗顯示原因）。**注意：Release 版的 MPV 選項是「尚未開放」**——MPV 真機 first frame 未驗前不讓正式使用者點進去 |
+| 內容 | 最新 `ios-poc` HEAD：**5S-3 + 5S-1 + 5S-2 + IOS-POC-15 + 2.5×／3× 音訊修正 + PiP foreground restore + IOS-POC-16**，**加上 IOS-POC-17**（外部播放器移除、雙核心架構與播放器選擇、點集數直接播放、AVPlayer 失敗顯示原因）。**MPV 已依使用者 2026-09-23 決定在正式版開放**（17E），真機 first frame 尚未驗證，保護是 10 秒 first-frame watchdog 自動回原生；畫質選單移進控制列 |
 | tag / asset | `ios-v0.1.8-b9` / `WebHTV-0.1.8-9.ipa`（workflow 依 input 自動命名） |
 | 本輪已做的預檢（**在 `63040bb3` 的 tree 上做的；IOS-POC-17 之後尚未重跑 iphoneos Release 預建置**） | **本機 unsigned `iphoneos` Release build，`BUILD SUCCEEDED`**（旗標與 workflow 相同，以命令列覆寫 `MARKETING_VERSION=0.1.8 CURRENT_PROJECT_VERSION=9`，**沒有改專案檔**）。產物 `Info.plist`：`com.webhtv.ios.poc` / `0.1.8` / build `9` / minimum iOS `17.0`；主執行檔 36,684,144 bytes，`strings` 找得到 `SnifferRules`／`snifferRules`。62 條 warning 分布在 `MPVProbeView.swift` 13、`WebHTVApp.swift` 7、`HTTPHost.swift` 7 等檔，與 IOS-POC-15／5S-3 記錄過的既有 warning 同檔，**本輪沒有逐條對 base 比對** |
 | 本輪**沒有**做 | 版號 commit、tag、push、`workflow_dispatch`、GitHub Release、`source.json` 更新、IPA 下載回驗 |
@@ -74,8 +74,10 @@ WebHTV 0.1.8 (9) — 驗收候選版（未經真機驗收）
   script 只在嗅探用的 WebView 內執行。沒有規則命中時行為與先前相同。
 - 只使用 App 內建播放器：移除 Infuse／Fileball／SenPlayer／VidHub。
 - 點選集數直接進入播放畫面（不再經過「選擇播放器」頁）。
-- 設定頁新增「預設播放器」；播放控制列顯示目前使用的播放器。
-  MPV 仍在驗證中，本版顯示為「尚未開放」。
+- 新增 MPV 播放器：設定頁「預設播放器」可選原生播放器或 MPV，播放控制列顯示並可切換目前使用的播放器，
+  切換時保留位置、速度與集數。MPV 為新加入的相容播放器，尚未完成真機驗收；
+  若 MPV 載入後 10 秒內沒有畫面，會自動切回原生播放器。
+- 畫質選單移到播放控制列（來源提供多個畫質時才出現）。
 - 播放失敗時顯示原因（網路、HTTP 狀態、格式不支援），不再只有黑畫面。
 
 沿用並一併帶上
@@ -89,8 +91,7 @@ WebHTV 0.1.8 (9) — 驗收候選版（未經真機驗收）
   字幕／音軌（多於一個選項時才出現）、AirPlay。
 
 已知限制
-- MPV 播放核心已在模擬器上出畫面，真機尚未驗證，本版不開放。
-- 同一集有多個畫質網址的來源，開播時使用記住的或預設的畫質，暫不提供手動挑選。
+- MPV 暫不支援子母畫面、AirPlay 與字幕／音軌選單（選 MPV 時這些按鈕會隱藏）。
 - 本版為驗收用候選版，真機驗收結果尚未回報。
 ```
 
@@ -202,14 +203,13 @@ WebHome site，所以真機上沒有 WebHome 頁面可以拿來對照。
 | ⑬ | 既有功能 bounded 回歸 | 開播用記住的或預設畫質（`Playback.start()`，IOS-POC-17C 起選單頁已移除）；速度沿用 `chosenRate` 以 `WatchHistory.key` 為鍵（`:1814`）；PiP 自動進入 `canStartPictureInPictureAutomaticallyFromInline`（`:2681`）；AirPlay | 同上 | 詳情頁線路列可切換；同一部片換集速度沿用、換來源重設（14C 決定）；離開 App 自動進 PiP；AirPlay 可投（若手邊有裝置） | 每項 ✅／❌ |
 | ⑭ ★ | IOS-POC-15 最基本 smoke（**不是效能驗收**） | `PlaybackBufferPolicy`、`PlaybackTargetPrefetch` | 任一 | 影片能播、2.5×／3× 有聲（與⑤重疊）、播放一段時間沒有明顯 crash | ✅／❌ |
 | ⑮ | 點集數直接播放（17C） | `Playback.start()`；`VodView` 的 `fullScreenCover(item:)` | 任一 | 點集數 → 直接進播放畫面（沒有中間頁）→ 續播位置正確 → X 回到詳情頁 → 再點另一集正常 | ✅／❌ |
-| ⑯ | 「預設播放器」設定與控制列標籤（17B） | `PlaybackEnginePreference`；`SettingsView` 的「預設播放器」；`PlayerControlBar.engineMenu` | — | 設定頁有「原生播放器 ✓／MPV（尚未開放）」；播放時控制列顯示「原生」；MPV 那一項不能點 | ✅／❌ |
+| ⑯ | 「預設播放器」設定與控制列標籤（17B／17E） | `PlaybackEnginePreference`；`SettingsView` 的「預設播放器」；`PlayerControlBar.engineMenu` | — | 設定頁有「原生播放器 ✓／MPV」且兩者都能選；選 MPV 後新開的影片從 MPV 開始；控制列顯示實際的播放器；關閉再開回到預設 | ✅／❌ |
 | ⑰ | AVPlayer 失敗顯示原因（17B） | `AVPlayerEngine.report`；`PlaybackFailure.classify`；播放畫面的失敗訊息 | 一個已知會 403／404 的來源（若遇到） | 失敗時畫面中央出現「網路錯誤：HTTP 403」一類的訊息，而不是只有黑畫面 | 訊息原文 |
 | ⑱ | **MPV 真機 first frame**（9G） | `MPVProbeView`（「範例」三個串流）；`MPVEngine` | Apple 測試串流 | Metal／OpenGL × 軟解／硬解四格：`VIDEO_RECONFIG`＋`PLAYBACK_RESTART` 出現**且有畫面** | 每格：事件序列＋有無畫面 |
 | ⑲ | **MPV 真機切換與 fallback**（17B） | `PlayerRouter.select`／`engineFailed`；`MPVRequestHeaders` | 一般來源＋Bili（驗 headers） | 原生 ↔ MPV 切換保留位置／速度／暫停／集數／線路；Bili 在 MPV 能播＝headers 送到；MPV 播不出畫面時 10 秒內自動回原生 | 每項 ✅／❌ |
 
-**⑱⑲ 需要一個能在手機上開 MPV 的 build，而 SideStore 發的 Release 版 MPV 是「尚未開放」。**
-可行的路有兩條，都要使用者決定：(a) 打一個含 Debug 探針與 MPV 的 device IPA 交給使用者用 SideStore 安裝
-（需授權 package）；(b) 使用者同意後，在 Release 版加一個隱藏的開發者開關。本輪兩者都沒有做。
+**⑱⑲ 自 `0.1.8 (9)` 起可直接在正式版測**：使用者 2026-09-23 決定開放 MPV（17E）。⑱ 的四格探針仍是 Debug-only；
+在正式版上以「設定 → 預設播放器 → MPV」或播放中的控制列切到 MPV，看有沒有畫面即可。
 
 **建議操作順序**（風險高的先做，任何一項卡住不影響其他項）：⑤關閉鈕 → ④PiP ×2 → ⑤其餘 →
 ⑮直接播放 → ⑨Bili → ⑥CMS → ⑦csp → ⑧drpy → ⑩resume → ③片頭片尾 → ⑫⑬⑭⑯⑰ → ①a②a →（有 MPV build 時）⑱⑲。

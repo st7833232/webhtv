@@ -1,7 +1,8 @@
 # IOS-POC-17 — 雙內部播放核心（AVPlayer + MPV）
 
-- 狀態（2026-09-23）：**17A／9G／17B／17C／17D 完成。MPV rendering 在模擬器已解；真機仍未驗證**——
-  所以正式版（Release）的 MPV 維持「尚未開放」，不可宣稱 MPVEngine 已完成真機驗收。
+- 狀態（2026-09-23）：**17A／9G／17B／17C／17D／17E 完成。MPV rendering 在模擬器已解；真機仍未驗證。**
+  **使用者 2026-09-23 決定直接開放 MPV**（17E）：正式版現在可選 MPV；防黑畫面的只剩 `MPVEngine` 的
+  first-frame watchdog（10 秒沒畫面 → 回 AVPlayer）。不可宣稱 MPVEngine 已完成真機驗收。
 - 開始：2026-09-23 16:48 CST，起始 HEAD `2a46c3fb22e533588bee93cc0ac15d55c15736ca`
   （`git fetch` 後與 `origin/ios-poc` `0 0`，worktree clean）
 - Lane：`standard`（功能開發）；MPV 算繪那一段屬 IOS-POC-9 家族，記為 **IOS-POC-9G**，
@@ -206,6 +207,26 @@ Simulator Debug build → **BUILD SUCCEEDED**。全套 `swift test` 留到 17B �
 歷史文件加上 `Superseded by dual internal-player decision, 2026-09-23` 標記、內容不刪：IOS-POC-2E、5P、
 5Q、5Q-5R 計畫、5R、9A、14、15、`IOS-PORTING-HANDOFF-2026-09-13.md`、`analysis/ios-app-store-readiness-research.md`。
 
+## 十二之一、17E — MPV 直接開放＋畫質選單進控制列（使用者 2026-09-23 決定，完成）
+
+使用者：「直接將MPV開放然後畫質選單放進控制列，修改完成直接PUSH 發佈」。
+
+- `PlaybackEngines.offered` 在所有 build 都是 `[.native, .mpv]`（原本 Release 只有 `.native`）。
+  **風險明記**：MPV 在真機上尚未看過 first frame。保護只剩 `MPVEngine` 的 watchdog——
+  `FILE_LOADED` 後 10 秒沒有 `VIDEO_RECONFIG` 就是 capability failure，router 把同一個 target 交回 AVPlayer；
+  沒走到 `FILE_LOADED` 的失敗（網路、格式）則照分類顯示或 fallback。
+- 畫質選單：新增 core `PlaybackQualityChoice`（`PlayURL.swift`）——起始＝記住的畫質否則來源預設；
+  預設項目播放它經 probe/sniff 解析過的位址，其他項目照來源原樣開（原選單頁的不對稱，`ponytail:` 註記搬過來）。
+  `PlaybackSession.open(_ target:preferredQuality:…)` 建立它並寫進 record；`selectQuality(_:)` 以當下位置、
+  播放／暫停狀態重開同一集的另一個項目，並寫回 record，所以歷史會記住。控制列在速度左邊顯示畫質選單，
+  **只有來源給兩個以上項目時才出現**。自動下一集改用 store 裡剛持久化的畫質（`finished()` 先 persist）。
+- 驗證：`theQualityChoiceStartsRememberedAndOpensTheResolvedDefault`（新）通過；Simulator Debug build
+  **BUILD SUCCEEDED**（7 條既有 warning）；全套 `WANG_MOVIE_JSON=<config> swift test` → **323 tests，全部通過**。
+  **畫質選單的 UI 沒有在模擬器上被真實資料觸發**：使用者設定檔裡沒有任何來源回傳多個網址（Bili 是一線路一畫質，
+  在詳情頁的線路列選）。
+- Ponytail：pre-review——沿用 `PlaybackQuality.defaultIndex` 與原選單頁的規則，不新增 resolver；final-diff——
+  `+147／−31`，唯一保留的不可達分支是「（尚未開放）」兩行，理由是日後若重新限制 MPV，不會變成無聲的死按鈕。
+
 ## 十三、正式 roadmap（2026-09-23 起）
 
 ```
@@ -217,7 +238,8 @@ remove external players            ✓ 17A
 → session engine selector          ✓ 17B
 → manual engine switching          ✓ 17B（模擬器實測）
 → classified automatic fallback    ✓ 17B（單元測試；真實失敗未觸發過）
-→ core real-device acceptance      ← 下一步（8L；含 ⑱⑲ MPV 真機）
+→ MPV opened in release + quality menu in the bar  ✓ 17E（使用者決定）
+→ core real-device acceptance      ← 下一步（8L；含 ⑱⑲ MPV 真機，`0.1.8 (9)` 起可在正式版測）
 → IOS-POC-12
 → IOS-POC-13
 ```

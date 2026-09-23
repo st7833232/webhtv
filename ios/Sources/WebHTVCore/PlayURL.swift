@@ -100,6 +100,45 @@ public struct PlayURL: Decodable, Sendable, Equatable {
     }
 }
 
+/// The quality menu of what is playing now — the control bar's since the 播放 page went
+/// (IOS-POC-17E) — and which entry is on screen.
+///
+/// **Only the source's default entry went through the probe and the sniffer**, so it is the one
+/// played from its *resolved* address; any other entry is opened exactly as the source gave it.
+/// ponytail: that asymmetry is the cost of resolving one URL instead of every one. Resolve the chosen
+/// entry through `SourceClient` if a real multi-value source ever needs the hop on a non-default one.
+public struct PlaybackQualityChoice: Sendable, Equatable {
+    public let qualities: [PlaybackQuality]
+    public private(set) var selected: Int
+    private let resolvedIndex: Int
+    private let resolvedURL: URL
+
+    /// Starts on the remembered quality, else the source's default (IOS-POC-5Q D8, 5R R6).
+    public init(target: PlaybackTarget, preferred: String) {
+        qualities = target.qualities
+        resolvedIndex = target.defaultIndex
+        resolvedURL = target.url
+        selected = PlaybackQuality.defaultIndex(in: target.qualities, position: target.position,
+                                                preferred: preferred.isEmpty ? nil : preferred)
+    }
+
+    /// A menu with one entry decides nothing, so the bar shows it only when there is a choice.
+    public var offersChoice: Bool { qualities.count > 1 }
+    public var name: String { qualities.indices.contains(selected) ? qualities[selected].name : "" }
+    public var url: URL {
+        guard selected != resolvedIndex, qualities.indices.contains(selected) else { return resolvedURL }
+        return qualities[selected].url
+    }
+
+    /// Returns whether the choice actually changed.
+    @discardableResult
+    public mutating func select(_ index: Int) -> Bool {
+        guard qualities.indices.contains(index), index != selected else { return false }
+        selected = index
+        return true
+    }
+}
+
 /// One selectable stream: what a source called it, and where it is.
 public struct PlaybackQuality: Sendable, Equatable {
     /// The source's own label. Empty for a single-URL source, which names nothing.

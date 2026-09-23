@@ -133,3 +133,34 @@ private func menu(_ names: [String]) -> [PlaybackQuality] {
     #expect(target.defaultIndex == 0)
     #expect(target.headers.isEmpty)
 }
+
+// IOS-POC-17E. The control bar's quality menu: where it starts, which address each entry opens,
+// and that a single-URL source offers no menu at all.
+@Test func theQualityChoiceStartsRememberedAndOpensTheResolvedDefault() throws {
+    let resolved = try #require(URL(string: "https://cdn.example.com/sniffed/1080.m3u8"))
+    let raw1080 = try #require(URL(string: "https://page.example.com/1080"))
+    let raw720 = try #require(URL(string: "https://cdn.example.com/720.m3u8"))
+    let target = PlaybackTarget(url: resolved,
+                                qualities: [PlaybackQuality(name: "1080P", url: raw1080),
+                                            PlaybackQuality(name: "720P", url: raw720)],
+                                position: 0, defaultIndex: 0)
+
+    var choice = PlaybackQualityChoice(target: target, preferred: "")
+    #expect(choice.offersChoice)
+    #expect(choice.name == "1080P")
+    #expect(choice.url == resolved, "the default entry plays from its probed/sniffed address")
+    let switched = choice.select(1)
+    #expect(switched)
+    #expect(choice.url == raw720, "any other entry opens as the source gave it")
+    let again = choice.select(1)
+    let outOfRange = choice.select(9)
+    #expect(!again, "choosing what is already on screen changes nothing")
+    #expect(!outOfRange)
+
+    let remembered = PlaybackQualityChoice(target: target, preferred: "720P")
+    #expect(remembered.name == "720P" && remembered.url == raw720)
+
+    let single = PlaybackQualityChoice(target: PlaybackTarget(url: resolved), preferred: "")
+    #expect(!single.offersChoice)
+    #expect(single.url == resolved)
+}

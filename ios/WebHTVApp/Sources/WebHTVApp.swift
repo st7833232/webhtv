@@ -1417,9 +1417,11 @@ private struct VodView: View {
                                                   episode: next.name)
             let record = record(for: next, flag: flag)
             playingEpisode = next
+            // The quality the viewer last chose in the bar, which `finished()` has just persisted.
+            let remembered = await WatchHistoryStore.shared.record(forKey: historyKey)?.quality ?? ""
             // `resuming: false` — this is a new episode, not a reopened title, and the two share one
             // history record.
-            PlaybackSession.shared.open(url: target.url, headers: target.headers,
+            PlaybackSession.shared.open(target, preferredQuality: remembered,
                                         title: "\(summary.name) \(next.name)",
                                         artwork: summary.picture, history: record, resuming: false)
             watched = await WatchHistoryStore.shared.record(forKey: historyKey)
@@ -1575,23 +1577,14 @@ private struct Playback: Identifiable {
 }
 
 extension Playback {
-    /// Starts this playback on the session — what the picker page's 播放 button did, without the
-    /// page. The quality is the one this title was last watched at, else the source's own default:
-    /// the same core function the page's menu opened on (IOS-POC-5Q D8, 5R R6).
-    ///
-    /// The default entry is the one that went through the probe and the sniffer, so it is handed on
-    /// resolved; a remembered other entry is opened exactly as the source gave it.
-    /// ponytail: with the page gone a multi-URL source plays its remembered or default quality and
-    /// offers no manual choice. No source in this configuration returns more than one URL; put a
-    /// quality menu in the control bar if one ever does.
+    /// Starts this playback on the session — what the 播放 page's button did, without the page.
+    /// The quality menu, and its remembered-or-default start, now belong to the control bar
+    /// (IOS-POC-17E, `PlaybackQualityChoice`).
     @MainActor func start() {
-        let chosen = PlaybackQuality.defaultIndex(in: qualities, position: position,
-                                                  preferred: preferredQuality.isEmpty ? nil : preferredQuality)
-        let playURL = chosen != defaultIndex && qualities.indices.contains(chosen) ? qualities[chosen].url : url
-        var record = history
-        record?.quality = qualities.indices.contains(chosen) ? qualities[chosen].name : ""
-        PlaybackSession.shared.open(url: playURL, headers: headers, title: title, artwork: artwork,
-                                    history: record)
+        PlaybackSession.shared.open(
+            PlaybackTarget(url: url, headers: headers, qualities: qualities, position: position,
+                           defaultIndex: defaultIndex),
+            preferredQuality: preferredQuality, title: title, artwork: artwork, history: history)
     }
 }
 
@@ -1767,7 +1760,9 @@ extension Playback {
     /// not the episode — so resuming there would seek the new episode to where the previous one
     /// stopped. The near-ending rule usually hides that; a source with no duration would not.
     func open(url: URL, headers: [String: String] = [:], title: String, artwork: String = "",
-              history: WatchHistory? = nil, resuming: Bool = true) {
+              history: WatchHistory? = nil, resuming: Bool = true,
+              quality: PlaybackQualityChoice? = nil) {
+        self.quality = quality
         // The chosen speed belongs to the **title**, not to the app session (IOS-POC-14B). The
         // history key is site plus vod, so it is exactly the identity "the same film or series" —
         // which means a hand-picked episode carries the speed the same way an auto-advance does,
@@ -1809,6 +1804,34 @@ extension Playback {
             resumeTo = from > 0 ? from : nil
             start(at: 0)
         }
+    }
+
+    /// A resolved episode: its quality menu goes to the control bar (IOS-POC-17E), starting on the
+    /// remembered quality or the source's default.
+    func open(_ target: PlaybackTarget, preferredQuality: String, title: String, artwork: String = "",
+              history: WatchHistory?, resuming: Bool = true) {
+        let choice = PlaybackQualityChoice(target: target, preferred: preferredQuality)
+        var record = history
+        record?.quality = choice.name
+        open(url: choice.url, headers: target.headers, title: title, artwork: artwork,
+             history: record, resuming: resuming, quality: choice)
+    }
+
+    /// What the control bar's quality menu shows. Nil for a bare URL, which has no menu.
+    private(set) var quality: PlaybackQualityChoice?
+
+    /// The control bar's quality menu: the same episode, another entry, from where it is now and
+    /// in the same play/pause state. The choice is written into the record, so the history
+    /// remembers it the way the old 播放 page's menu did (5R R6).
+    func selectQuality(_ entry: Int) {
+        guard started, var quality, quality.select(entry) else { return }
+        self.quality = quality
+        record?.quality = quality.name
+        resumeTo = position > 0 ? position * 1000 : nil
+        let playing = isPlaying
+        items = [.init(name: "", url: quality.url)]
+        index = 0
+        load(quality.url, autoplay: playing)
     }
 
     /// Marks how much of this title's start to skip — Android's OP button, in the same milliseconds
@@ -1883,6 +1906,7 @@ extension Playback {
     func open(_ vod: WebHomeBridge.InlineVod) {
         // A page's own playlist has no title identity the speed could belong to (IOS-POC-14B).
         chosenRate = 1
+        quality = nil
         items = vod.items
         title = vod.title
         artwork = vod.picture
@@ -2183,15 +2207,15 @@ extension Playback {
 
     /// IOS-POC-17: what every path opens, engine-agnostic. The engine the router picks does the
     /// media part; the position to resume at and the speed travel in the request.
-    private func load(_ url: URL) {
+    private func load(_ url: URL, autoplay: Bool = true) {
         self.url = url.absoluteString
         started = true
         prefetchRequested = false
         let start = resumeTo.map { $0 / 1000 } ?? 0
         resumeTo = nil
         router.open(PlaybackLoadRequest(target: PlaybackTarget(url: url, headers: headers),
-                                        startSeconds: start, rate: chosenRate, title: title,
-                                        history: record))
+                                        startSeconds: start, rate: chosenRate, autoplay: autoplay,
+                                        title: title, history: record))
         startSampling()
     }
 
@@ -2259,19 +2283,15 @@ extension Playback {
     }
 }
 
-/// IOS-POC-17 §11 — which engines a viewer may be offered.
+/// IOS-POC-17 — which engines a viewer may be offered.
 ///
-/// MPV reached its first frame on the simulator (IOS-POC-9G) and **not yet on a device**, so a
-/// release build — the only kind SideStore ever delivers — offers AVPlayer alone: nobody can pick
-/// an engine that might still show them a black screen. Debug builds offer both, so switching and
-/// fallback can be exercised on the simulator.
-/// ponytail: add `.mpv` to the release set once the device first-frame gate in IOS-POC-17 passes.
+/// **Both, in every build, at the user's decision on 2026-09-23 (IOS-POC-17E).** Until then a
+/// release build offered AVPlayer alone because MPV's first frame had been seen on the simulator
+/// (IOS-POC-9G) and not on a device. What still guards a viewer from a black screen is
+/// `MPVEngine`'s first-frame watchdog: a file that loads without a frame is a capability failure,
+/// and the router hands the same target back to AVPlayer.
 enum PlaybackEngines {
-    #if DEBUG
     static let offered: Set<PlaybackEngineKind> = [.native, .mpv]
-    #else
-    static let offered: Set<PlaybackEngineKind> = [.native]
-    #endif
 }
 
 /// IOS-POC-17 — AVPlayer as an engine: the one `AVPlayer` `PlaybackSession` has always owned.
@@ -2500,6 +2520,7 @@ private struct PlayerControlBar: View {
                 mediaMenu("字幕", systemImage: "captions.bubble", selection: media.legible)
                 mediaMenu("音軌", systemImage: "waveform", selection: media.audible)
             }
+            qualityMenu
             speedMenu
             engineMenu
 
@@ -2591,6 +2612,31 @@ private struct PlayerControlBar: View {
                 .frame(minWidth: 36, minHeight: 36)
         }
         .accessibilityLabel("播放速度")
+    }
+
+    /// IOS-POC-17E. The source's quality menu, moved here from the 播放 page that no longer exists.
+    /// Shown only when the source offers more than one entry, the rule the page had.
+    @ViewBuilder
+    private var qualityMenu: some View {
+        if let quality = session.quality, quality.offersChoice {
+            Menu {
+                ForEach(Array(quality.qualities.enumerated()), id: \.offset) { entry, option in
+                    Button {
+                        interacted()
+                        session.selectQuality(entry)
+                    } label: {
+                        Label(option.name.isEmpty ? "畫質 \(entry + 1)" : option.name,
+                              systemImage: entry == quality.selected ? "checkmark" : "")
+                    }
+                }
+            } label: {
+                Text(quality.name.isEmpty ? "畫質" : quality.name)
+                    .font(.footnote.weight(.semibold))
+                    .lineLimit(1)
+                    .frame(maxWidth: 80, minHeight: 36)
+            }
+            .accessibilityLabel("畫質：\(quality.name)")
+        }
     }
 
     /// IOS-POC-17. The label is the engine playing now; choosing changes this session only and

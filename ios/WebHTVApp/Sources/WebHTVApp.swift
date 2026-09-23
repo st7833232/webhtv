@@ -1997,9 +1997,18 @@ private struct PlayerControlBar: View {
     /// Seconds, while a drag owns the scrubber. Nil means the observer's value is authoritative.
     @State private var scrubbing: Double?
 
-    /// Android's own list. `AVPlaybackSpeed.systemDefaultSpeeds` is AVKit's and is not reachable
-    /// once its bar is gone.
-    private static let speeds: [Float] = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
+    /// The speeds the viewer picked (2026-09-23). `AVPlaybackSpeed.systemDefaultSpeeds` is AVKit's
+    /// and is not reachable once its bar is gone, so this list is ours to choose.
+    private static let speeds: [Float] = [0.5, 1, 1.25, 1.5, 2, 2.5, 3]
+
+    /// `2` rather than `2.0`, `1.25` rather than `1.2500001`.
+    ///
+    /// Interpolating a `Float` prints its own idea of the value — `2.0×` for a whole number, and
+    /// binary-rounding artefacts for anything that is not exact. Two fraction digits at most, and
+    /// no trailing zeros.
+    private static func label(_ speed: Float) -> String {
+        speed.formatted(.number.precision(.fractionLength(0...2))) + "×"
+    }
 
     private var shown: Double { scrubbing ?? position }
 
@@ -2127,12 +2136,12 @@ private struct PlayerControlBar: View {
                     session.setRate(speed)
                     edited()
                 } label: {
-                    Label(speed == 1 ? "正常" : "\(speed)×",
+                    Label(speed == 1 ? "正常" : Self.label(speed),
                           systemImage: session.rate == speed ? "checkmark" : "")
                 }
             }
         } label: {
-            Text(session.rate == 1 ? "1×" : "\(session.rate)×")
+            Text(Self.label(session.rate))
                 .font(.footnote.weight(.semibold))
                 .frame(minWidth: 36, minHeight: 36)
         }

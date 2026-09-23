@@ -123,6 +123,14 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   `a076ab51`, `20c4bd53` and `616e182e` before, and a handoff arriving with **`035ad0bf` as "the
   latest on GitHub" was sixteen commits behind** — that commit is the roadmap-only one, an ancestor
   rather than the tip. Run `git log` and the `rev-list` above on resume instead of reading it here.
+- **Core real-device acceptance is prepared (IOS-POC-8L, 2026-09-23), not performed.** HEAD was
+  `f0495b8b` = `origin/ios-poc`, `0 0`, clean; everything after `63040bb3` is docs-only, so the
+  measurement below still describes the functional tree and was **cited, not re-run**. The
+  matrix — 已驗證／這輪要驗／延後驗證／不適用, with the source, steps and report format for each
+  of the 14 user-run items — is `docs/IOS-POC-8L-core-real-device-acceptance.md`. Read its §4–§5
+  before judging 5S on a phone: `wang-movie.json` has no source reaching either `script` rule host
+  or its one ad host, and the sniffer web view and all `print` diagnostics are invisible on a
+  SideStore Release install.
 - **Latest measurement — macOS at `63040bb3` (IOS-POC-5S-3) on 2026-09-23:**
   `swift test --package-path ios` → **297 tests, 296 pass, 1 fails**, and the simulator Debug build
   (`id=7B4E9557-4774-4EB9-B408-BB544DCC8657`) → **BUILD SUCCEEDED**. The failure is the same
@@ -166,8 +174,13 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   2.5×/3× audio fix and the seek-time buffered-bar fix. The binary was checked to contain all five
   IOS-POC-15 types and the four AVPlayer setters, not just a bumped version number.
   **`0.1 (1)` through `0.1.6 (7)` are all superseded.**
-  The Xcode project carries `MARKETING_VERSION = 0.1.6` and `CURRENT_PROJECT_VERSION = 7`, so the
-  workflow's blank-input default resolves to the version actually published. **Do not install to the device directly** — produce an IPA, or trigger
+  The Xcode project carries `MARKETING_VERSION = 0.1.7` and `CURRENT_PROJECT_VERSION = 8`
+  (re-read 2026-09-23; this line said `0.1.6`/`7` and was left stale by `add58007`), so the
+  workflow's blank-input default resolves to the version actually published.
+  **`0.1.7 (8)` does not contain 5S-3** (`63040bb3` is not an ancestor of `add58007`). **The next
+  acceptance release candidate is `0.1.8 (9)`** — planned, pre-flight `iphoneos` Release build
+  succeeded with the version overridden on the command line, **not published**; the publish
+  sequence and release-notes draft are in `docs/IOS-POC-8L-core-real-device-acceptance.md` §3. **Do not install to the device directly** — produce an IPA, or trigger
   `ios-sidestore-release.yml` once the user authorises it.
 - **An episode that ends starts the next one since IOS-POC-14, and the user confirmed it on the
   device.** `PlaybackSession.finished()` always advanced; the app's own path opens one resolved

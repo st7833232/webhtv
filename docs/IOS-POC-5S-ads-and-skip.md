@@ -497,6 +497,14 @@ handoff 明文記載是 provider 天氣、不要修。本輪**沒有新增任何
 - **那 10 條規則點名的 host，一個都沒有在真機上實測過**——
   其中 `yeslivetv.com` 與 `www.maolvys.com`（唯二有 `script` 的）最值得看。
 - 上面「誠實的風險」那一節的情境**沒有在真實資料上發生過，也沒有被排除過**。
+- **2026-09-23 IOS-POC-8L 盤點（桌面檢查，未 live）**：`wang-movie.json` 的全部 site 欄位與
+  它引用的 40 個 config-relative 資源裡，**沒有任何來源會碰到 `yeslivetv.com` 或
+  `www.maolvys.com`**，所以兩條 `script` rule 在這份設定檔上沒有可測的來源。唯一沾得上的是
+  `农民嗅探`（`toutiaovod.com`，regex `video/tos/cn`）對 `🥇｜农民｜高清`（XYQHiker），
+  但內建關鍵字本來就含 `video/tos`，規則命中與否**不會改變可見結果**。
+  `ads` 在這份設定檔只有 `mozai.4gtv.tv`，同樣沒有來源會請求它。
+  嗅探 WebView 不可見、`print` 診斷在 SideStore 安裝上看不到，所以 5S-1／5S-3 的正向行為在真機上
+  只能驗非回歸。完整矩陣：`docs/IOS-POC-8L-core-real-device-acceptance.md`。
 
 ### 5S-3 回滾
 

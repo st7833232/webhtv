@@ -6,9 +6,11 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current Scope
 
-- Branch `ios-poc`. **Re-verified 2026-09-23 at the start of IOS-POC-15: base HEAD `ecebeaa3`,
-  identical to `origin/ios-poc` (`git rev-list --left-right --count HEAD...origin/ios-poc` → `0 0`),
-  worktree clean.** `61f2d6fd` is an ancestor and is superseded.** Since the
+- Branch `ios-poc`. **Re-verified 2026-09-23 16:04 CST at the start of IOS-POC-8L (after
+  `git fetch`): HEAD `f0495b8b`, identical to `origin/ios-poc`
+  (`git rev-list --left-right --count HEAD...origin/ios-poc` → `0 0`), worktree clean; the last
+  functional commit is `63040bb3` and everything after it is docs-only.** The earlier
+  `ecebeaa3` (IOS-POC-15 start) and `61f2d6fd` readings are ancestors and superseded. Since the
   runtime-roadmap update the branch has shipped IOS-POC-5S-1 (ads blocking), IOS-POC-14
   (auto-advance), 14A/14B (the playback speed carried within one title), **IOS-POC-5S-2 (the
   viewer's opening and ending)** and the **PiP foreground-restore fix**, plus **four releases:
@@ -44,7 +46,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 | Current release | **WebHTV `0.1.7 (8)`**, tag `ios-v0.1.7-b8`, built from `add58007`, published 2026-09-23 (`WebHTV-0.1.7-8.ipa`, 24,689,841 bytes, SHA-256 `338a4943...`, run `35827470170`). **It carries IOS-POC-15** plus the 2.5×/3× audio fix and the seek-time buffered-bar fix. The project carries `MARKETING_VERSION = 0.1.7` / `CURRENT_PROJECT_VERSION = 8`. Downloaded back and verified: one `.app` in `Payload/`, `com.webhtv.ios.poc` / `0.1.7` / build `8` / minimum iOS 17.0, and all five IOS-POC-15 types plus the four AVPlayer setters are in the binary. `0.1 (1)` through **`0.1.6 (7)`** are all superseded. |
 | IOS-POC-14 auto-advance | **Done and confirmed on the device by the user.** An episode that ends starts the next one on the same line; the last one closes the player |
 | IOS-POC-14A/14B playback speed | **Done, not device-verified.** The chosen speed carries across episodes **of the same title** — keyed on `WatchHistory.key`, so switching source resets it, which the user decided to leave (14C) |
-| Real-device acceptance (IOS-POC-8) | **Partial.** Several runs on hardware; the list below is what is and is not confirmed. Not to be recorded as complete |
+| Real-device acceptance (IOS-POC-8) | **Partial.** Several runs on hardware; the list below is what is and is not confirmed. Not to be recorded as complete. **IOS-POC-8L (2026-09-23) prepared the core acceptance: `docs/IOS-POC-8L-core-real-device-acceptance.md` is the matrix** (已驗證／這輪要驗／延後驗證／不適用, 14 user-run items). Two findings it recorded: `wang-movie.json` has **no source** that reaches either `script` rule host (`yeslivetv.com`, `www.maolvys.com`) and none that requests its only ad host `mozai.4gtv.tv`; and the sniffer web view and every `print` diagnostic are **invisible on a SideStore Release install** — so 5S-1/5S-3's positive behaviour has no on-device observation channel, only non-regression |
+| Acceptance release candidate | **`0.1.8 (9)` planned, not published.** Must be built from the latest `ios-poc` HEAD (functional tree = `63040bb3`), so it carries 5S-3 as well as everything `0.1.7 (8)` has. An unsigned `iphoneos` Release pre-flight with `MARKETING_VERSION=0.1.8 CURRENT_PROJECT_VERSION=9` on the command line **BUILD SUCCEEDED** on 2026-09-23 (project file untouched). No version commit, tag, push, dispatch or Release was made; the four-step publish sequence and the release-notes draft are in the 8L document §3 and wait for the user's explicit authorisation |
 | IOS-POC-5S-1 ads blocking | **Done, 2026-09-22** — 62 literal ad domains compile into a `WKContentRuleList` scoped only to the sniffer WebView; one whole-URL entry stays inert to preserve Android semantics. **Not device-verified** |
 | IOS-POC-5S-2 opening / ending | **Done, 2026-09-22.** `WatchHistory.opening`/`ending` as optional milliseconds so a history file without them still decodes; start position is `max(opening, resume)`; the ending rides the existing five-second sampler into the existing `finished()` path. **Not device-verified** |
 | IOS-POC-5S-3 config `rules` → sniffer | **Done in code, 2026-09-23. Not device-verified.** `SnifferRules` in core is pure: host extraction, rule selection, `exclude`/`regex` precedence and the `script` lookup are all driven by `swift test`, and the WebKit layer only calls in. Ported from the Java rather than a summary, which corrected two things: the host haystack is **one comma-joined string** of direct + `url=` host, so **neither takes precedence** — configuration order does, first match wins; and each of `exclude`/`regex` runs a **literal pass over every entry, then a pattern pass**, so a literal hit on a later entry beats a pattern hit on an earlier one. `exclude` outranks `regex`, both outrank the built-in candidate test, and when no rule matches, behaviour is byte-for-byte what it was. `script` is evaluated with `evaluateJavaScript` on `didFinish` — **not** `WKUserScript`, which would persist and stack across navigations — selected by the **page's** host while accept/reject is selected by the **candidate's**. The whole iOS tree builds exactly two `WKWebView`s and the rules reach only the sniffer's. The 9 playlist-shaped regexes stay inert: no playlist is ever opened, and a test pins that. **297 tests / 296 pass** (+31), simulator build succeeds |
@@ -257,6 +260,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 8I | No synthetic 全部 anywhere — the category row and the filter rows show only what the source sends; the episode picker splits a long line into 100-episode blocks | this document |
 | 8J | The episode blocks split on the printed episode number, not on position, so `1-100` ends at 第100集 on a line whose entries merge episodes | this document |
 | 8K | Pull to refresh on the listing, and the source picker opens on the source in use instead of at the top of 67 | this document |
+| 8L | **Core real-device acceptance preparation** — the acceptance matrix, the `wang-movie.json` rules/ads inventory, and the `0.1.8 (9)` release-candidate plan with a Release pre-flight build. Docs only; nothing was device-verified by it | `docs/IOS-POC-8L-core-real-device-acceptance.md` |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
 | 7E | The CPython payload arrives by `scripts/fetch_python_ios.sh` + `third_party/python-ios-lock.json`, not by commit | `docs/IOS-POC-7A-python-runtime.md` |
 | 7F | **CPython 3.13.15 starts inside the app** on the simulator; Python links into the app target only, so `WebHTVCore` still builds and tests on macOS | same document |
@@ -953,6 +957,10 @@ is code complete.**
    **Mind which build carries what:** the published `0.1.7 (8)` was built from `add58007` and
    therefore **does not contain 5S-3**, which landed afterwards in `63040bb3`. Verifying 5S-3 on a
    device needs a later build; everything else in the list is verifiable on `0.1.7 (8)` today.
+   **Prepared by IOS-POC-8L on 2026-09-23:** the full matrix, the per-item sources, steps and
+   report format are in `docs/IOS-POC-8L-core-real-device-acceptance.md`, and the candidate that
+   carries 5S-3 is `0.1.8 (9)` (planned, pre-flight built, **not published**). What is waiting is
+   the user: either authorise `0.1.8 (9)`, or report the ★ items from `0.1.7 (8)` first.
 2. **MPV keep/drop decision** for the first stable product.
 3. **IOS-POC-12 Runtime Architecture Reconciliation.**
 4. **IOS-POC-13 Runtime Hot Update.**
@@ -1085,9 +1093,11 @@ Paste this into a new session:
 
 > 接手 `/Users/chengchenchih/GIT/webhtv` 的 `ios-poc`，透過本機終端操作，不要每步停下來問我確認。用台灣繁體中文回報。
 >
-> **先確認實際狀態，不要相信這段文字裡的任何 SHA**：2026-09-22 當時 HEAD 在 `616e182e`，**領先 `origin/ios-poc` 1 個**，worktree clean。用 `git log` 與 `git rev-list --left-right --count origin/ios-poc...ios-poc` 覆蓋這一行。**未經我明確授權不得 push、tag、package、publish 或發新的 SideStore release。**
+> **先確認實際狀態，不要相信這段文字裡的任何 SHA**：2026-09-23 IOS-POC-8L 開始時 HEAD 在 `f0495b8b`，與 `origin/ios-poc` `0 0`，worktree clean（最後一個 functional commit 是 `63040bb3`）；IOS-POC-8L 本身再加一個 docs-only commit。用 `git fetch`、`git log` 與 `git rev-list --left-right --count HEAD...origin/ios-poc` 覆蓋這一行。**未經我明確授權不得 push、tag、package、publish 或發新的 SideStore release。**
 >
-> 動手前必讀：`AGENTS.md`、`README.md`、`docs/AGENT_HANDOFF.md`、`docs/current-task-state.md`、`docs/IOS-POC-7A-python-runtime.md`、`docs/IOS-POC-9A-mpv-license-provenance.md`、`docs/IOS-POC-9B-mpv-playback-core.md`、`docs/IOS-POC-10-plan-ux-and-sources.md`、`docs/IOS-POC-11-sidestore-release.md`、`docs/IOS_SPIDER_RUNTIME_SPEC.md`。
+> 動手前必讀：`AGENTS.md`、`README.md`、`docs/AGENT_HANDOFF.md`、`docs/current-task-state.md`、**`docs/IOS-POC-8L-core-real-device-acceptance.md`（目前這一階段的驗收矩陣與 `0.1.8 (9)` RC 計畫）**、`docs/IOS-POC-5S-ads-and-skip.md`、`docs/IOS-POC-15-playback-buffering-preload.md`、`docs/IOS-POC-16-custom-player-controls.md`、`docs/bugs/IOS-PIP-foreground-restore.md`、`docs/IOS-POC-9B-mpv-playback-core.md`、`docs/IOS-POC-11-sidestore-release.md`。
+>
+> **目前這一階段是 core real-device acceptance，不是新功能。** 驗收由我在手機上操作並回報；收到回報就逐列填進 8L 文件 7.2、通過的移到 7.1。`0.1.8 (9)` 已規劃、iphoneos Release 預建置成功，**尚未發布**，等我授權。
 >
 > **已完成、不要當成未開始的事**：drpy loader（4 個來源 E2E 到真實媒體位元組）；Python P1–P5（`PythonSpiderRuntime`、`base/spider.py`、routing、安全 gate、真實來源 golden、42 站 survey 都已存在）；**CPython 3.13.15 在模擬器與 iPhone 真機都啟動過**；`requests` Tier-1 vendoring（**42 站中 14 站可執行、6 站到媒體位元組**）；CatVod JS spider 契約（**麻豆(js) 已在真機列出並播放**）；5Q multi-quality；5R WatchHistory／resume；**SideStore 發佈流程**（workflow 與 `source.json` 都在，已發過兩版）。
 >

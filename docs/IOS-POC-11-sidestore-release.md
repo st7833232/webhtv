@@ -129,3 +129,17 @@
 
 **尚未確認**：本版的效能改善全部沒有真機數字。驗收項目見
 `docs/IOS-POC-15-playback-buffering-preload.md` 第八節。
+
+## 第九次發布：`0.1.8 (9)`（**已規劃，尚未發布**，2026-09-23）
+
+- 目的：**核心真機驗收用的候選版**。`0.1.7 (8)` 建自 `add58007`，**不含 5S-3**（`63040bb3`
+  不是它的祖先），所以無法在手機上驗 config `rules` → sniffer。
+- 內容：最新 `ios-poc` HEAD（functional tree 與 `63040bb3` 相同）——5S-3、5S-1、5S-2、
+  IOS-POC-15、2.5×／3× 音訊修正、PiP foreground restore、IOS-POC-16。
+- **本機預檢**：unsigned `iphoneos` Release build，旗標與 workflow 相同、以命令列覆寫
+  `MARKETING_VERSION=0.1.8 CURRENT_PROJECT_VERSION=9`，`BUILD SUCCEEDED`；產物 `Info.plist`
+  為 `com.webhtv.ios.poc` / `0.1.8` / build `9` / minimum iOS `17.0`。**專案檔未改。**
+- **本輪沒有**：版號 commit、push、tag、`workflow_dispatch`、GitHub Release、`source.json` 更新。
+  注意 `ios-v*-b*` tag 一推上去就會觸發本 workflow，所以不要手動建 tag。
+- 發布序列（需使用者另外明確授權）與中文 release notes 草稿：
+  `docs/IOS-POC-8L-core-real-device-acceptance.md` 第三節。

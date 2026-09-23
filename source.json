@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.5",
+          "date": "2026-09-23",
+          "localizedDescription": "修正啟用子母畫面後返回 WebHTV 時，PiP 未解除且一般播放器未恢復的問題。此版本用於真機驗證 PiP foreground restore。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.5-b6/WebHTV-0.1.5-6.ipa",
+          "size": 24601187,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.4",
           "date": "2026-09-22",
           "localizedDescription": "播放速度改成只在同一部片內沿用。上一版 0.1.3 是跨影片沿用，開一部新片也會維持先前的倍速；現在打開另一部片會回到 1 倍。\n\n自動接下一集，以及在同一部片裡手動點另一集，都會沿用剛才選的速度。",

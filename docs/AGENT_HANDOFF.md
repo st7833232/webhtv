@@ -214,12 +214,17 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   **AVKit's transport bar genuinely cannot be extended on iOS**, confirmed against the iOS 27 SDK
   header on 2026-09-23: `transportBarCustomMenuItems`, `customOverlayViewController`,
   `contextualActions` and `infoViewActions` are every one of them `API_UNAVAILABLE(ios)`. What *is*
-  available is `playerViewController(_:willTransitionToVisibilityOfPlaybackControls:with:)` — a
-  Swift-only delegate method that compiles against `-target arm64-apple-ios17.0`, and one **this
-  project already built and shipped in IOS-POC-10A**. It was deleted in 10H only because the close
-  button it faded was deleted, not because it misbehaved. That is the route if the viewer wants
-  these controls to appear and disappear with AVKit's own bar instead of sitting on the video.
-  `docs/IOS-POC-5S-ads-and-skip.md`.
+  **Nor can iOS observe when AVKit's controls are showing.** The real delegate method is
+  `willTransitionToVisibilityOfTransportBar` and it is `API_UNAVAILABLE(ios)` as well. IOS-POC-10A
+  recorded `...VisibilityOfPlaybackControls` as "a public API" and it **is not a method of
+  `AVPlayerViewControllerDelegate` at all** — every member of that protocol is ObjC-optional, so an
+  unrelated method on a conforming type compiles silently and is never called. A deliberately
+  nonsense method name typechecks identically; that was measured. So `chromeVisible` stayed `true`
+  forever and **the close button sat on the video permanently**, which is what the user reported on
+  2026-09-23 and the real reason 10H removed it. **Do not trust a delegate method because Swift
+  compiled it** — check the header for protocol membership and platform.
+  The consequence is **IOS-POC-16**: the control bar has to be ours.
+  `docs/IOS-POC-5S-ads-and-skip.md`, `docs/IOS-POC-16-custom-player-controls.md`.
 - **The app remembers what was watched since IOS-POC-5R.** `WatchHistory` follows Android's
   `History.java` field for field, including `isNearEnding()`'s formula, and is keyed on **`Site.id`
   rather than `siteKey`** because this configuration has four duplicate keys. One JSON file in

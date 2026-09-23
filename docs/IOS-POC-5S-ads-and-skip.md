@@ -224,6 +224,12 @@ auto-advance／history 寫入／關閉播放器。
 
 ### UI
 
+> **2026-09-23 更新：這一節描述的位置已被使用者否決，改由 IOS-POC-16 取代。**
+> 使用者要求控制不要浮在影片上。查證結果是 iOS **既不能插入 AVKit 的 transport bar，也無法得知
+> 它何時顯示**（`willTransitionToVisibilityOfTransportBar` 同樣是 tvOS 專用），所以「跟著控制列
+> 淡入淡出」這條路不存在。決定自建整條控制列：`docs/IOS-POC-16-custom-player-controls.md`。
+> **下面的描述仍然是目前 `0.1.5 (6)` 的實際行為**，在 16 落地前不變。
+
 **AVKit 在 iOS 上的控制列不能擴充**——`transportBarCustomMenuItems` 是 tvOS 的。所以 OP/ED 只能做成
 overlay，放在**右側邊緣、垂直置中**：那是 `AVPlayerViewController` 全螢幕版面裡上方列
 （Done／PiP／AirPlay）與下方 transport bar 都不佔的一塊。

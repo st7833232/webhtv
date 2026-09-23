@@ -1984,14 +1984,25 @@ private struct PlayerControlBar: View {
     /// Seconds already buffered ahead, or nil when nothing has been reported yet.
     let buffered: Double?
     let playing: Bool
+    /// The chosen speed, observed rather than read from the session on each render: a plain class
+    /// publishes nothing, so a label reading it directly would only refresh when something else
+    /// happened to redraw the body.
+    let rate: Float
     /// The title's opening/ending, mirrored by `PlayerView`.
     let watching: WatchHistory?
     let media: MediaSelection
     /// Any control being touched restarts the auto-hide countdown, so the bar cannot vanish under
     /// a finger that is using it.
     let interacted: () -> Void
-    /// What an edit changed, for the readout and to refresh the mirrors.
-    let edited: () -> Void
+    /// An opening/ending edit landed — refresh the mirror and say what was actually kept.
+    ///
+    /// **Only the skip menus call this.** Speed and subtitle changes used to as well, purely to
+    /// force a redraw, which made every speed change announce 「片頭 … 片尾 …」 at the viewer
+    /// (reported 2026-09-23). Those two now have their own paths.
+    let skipEdited: () -> Void
+    /// A subtitle or audio track was selected; the loaded selection has to be read again for the
+    /// checkmark to move.
+    let mediaChanged: () -> Void
     let close: () -> Void
 
     /// Seconds, while a drag owns the scrubber. Nil means the observer's value is authoritative.
@@ -2134,14 +2145,13 @@ private struct PlayerControlBar: View {
                 Button {
                     interacted()
                     session.setRate(speed)
-                    edited()
                 } label: {
                     Label(speed == 1 ? "正常" : Self.label(speed),
-                          systemImage: session.rate == speed ? "checkmark" : "")
+                          systemImage: rate == speed ? "checkmark" : "")
                 }
             }
         } label: {
-            Text(Self.label(session.rate))
+            Text(Self.label(rate))
                 .font(.footnote.weight(.semibold))
                 .frame(minWidth: 36, minHeight: 36)
         }
@@ -2159,7 +2169,7 @@ private struct PlayerControlBar: View {
                     Button {
                         interacted()
                         session.player.currentItem?.select(option.option, in: selection.group)
-                        edited()
+                        mediaChanged()
                     } label: {
                         Label(option.name,
                               systemImage: option.option == selection.selected ? "checkmark" : "")
@@ -2180,11 +2190,11 @@ private struct PlayerControlBar: View {
                           apply: @escaping (Double) -> Void) -> some View {
         let current = watching?[keyPath: offset] ?? 0
         return Menu {
-            Button("設為目前位置") { interacted(); mark(); edited() }
-            Button("+1 秒") { interacted(); apply(current + 1000); edited() }
-            Button("−1 秒") { interacted(); apply(current - 1000); edited() }
+            Button("設為目前位置") { interacted(); mark(); skipEdited() }
+            Button("+1 秒") { interacted(); apply(current + 1000); skipEdited() }
+            Button("−1 秒") { interacted(); apply(current - 1000); skipEdited() }
             if current > 0 {
-                Button("清除", role: .destructive) { interacted(); apply(0); edited() }
+                Button("清除", role: .destructive) { interacted(); apply(0); skipEdited() }
             }
         } label: {
             Text(current > 0 ? "\(name) \(PlayerView.clock(current / 1000))" : name)
@@ -2472,6 +2482,9 @@ private struct PlayerView: View {
     @State private var duration: Double = 0
     @State private var buffered: Double?
     @State private var playing = false
+    /// The chosen speed. Observed alongside position, because `PlaybackSession` is a plain class
+    /// and the speed can also change without the menu — `load` re-applies it on the next episode.
+    @State private var rate: Float = 1
     @State private var media = MediaSelection()
     @State private var timeObserver: Any?
 
@@ -2518,17 +2531,19 @@ private struct PlayerView: View {
         .overlay {
             PlayerControlBar(
                 session: session, position: position, duration: duration, buffered: buffered,
-                playing: playing, watching: watching, media: media,
+                playing: playing, rate: rate, watching: watching, media: media,
                 interacted: { scheduleHide() },
-                edited: {
+                skipEdited: {
                     watching = session.record
                     // The clamp and Android's markable window can both answer with a different
                     // number than the one asked for, so say what was actually kept.
                     if let watching {
-                        flashHUD("片頭 \(Self.clock(watching.openingOffset / 1000))  片尾 "
-                                 + (watching.endingOffset > 0
-                                    ? Self.clock(watching.endingOffset / 1000) : "未設定"))
+                        flashHUD("片頭 \(Self.skipLabel(watching.openingOffset))"
+                                 + "  片尾 \(Self.skipLabel(watching.endingOffset))")
                     }
+                },
+                mediaChanged: {
+                    Task { media = await MediaSelection.load(from: session.player.currentItem) }
                 },
                 close: { dismiss() }
             )
@@ -2588,6 +2603,9 @@ private struct PlayerView: View {
                 // dragged value itself and prefers it over this one until the finger lifts.
                 position = time.seconds.isFinite ? time.seconds : 0
                 playing = session.player.timeControlStatus == .playing
+                // The session's remembered speed, not `player.rate`: a paused player reports zero
+                // and the menu must still show what the viewer picked.
+                rate = session.rate
                 guard let item = session.player.currentItem else { return }
                 let length = item.duration.seconds
                 duration = length.isFinite && length > 0 ? length : 0
@@ -2704,6 +2722,12 @@ private struct PlayerView: View {
         let delta = target - dragOrigin
         let sign = delta < 0 ? "−" : "+"
         return "\(Self.clock(target))  \(sign)\(Int(abs(delta).rounded()))s"
+    }
+
+    /// An opening or ending for the readout: a clock, or plainly unset. Zero is not `0:00` here —
+    /// `0:00` reads like a value somebody chose.
+    private static func skipLabel(_ milliseconds: Double) -> String {
+        milliseconds > 0 ? clock(milliseconds / 1000) : "未設定"
     }
 
     /// Shared with `PlayerControlBar`, which is why it is not private.

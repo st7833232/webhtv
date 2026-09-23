@@ -1,7 +1,8 @@
 # IOS-POC-16 — 自建播放控制列
 
-- 狀態：**方案 C 已實作，建置與測試通過，但「一行視覺驗證都沒有」。** 見第十節。
-  使用者 2026-09-23 選擇方案 C，並指示**不要畫手動 PiP 按鈕**。
+- 狀態：**方案 C 已實作。控制列本身已在模擬器上目視確認渲染正確**（截圖為證，見第十節），
+  **但互動逐項測試沒有完成**——工具來回比自動隱藏視窗還長，做不到。使用者 2026-09-23 接手 UI 測試。
+  使用者選擇方案 C，並指示**不要畫手動 PiP 按鈕**。
 - 基線 HEAD `38df1710`（2026-09-23）
 - Lane：`standard`（實作時）；本文件本身是 `assessment`
 - 起因：IOS-POC-5S-2 把片頭／片尾控制放在影片上，使用者要求移到調整 Bar、不要直接出現在影片上。
@@ -206,7 +207,24 @@ MPV、IOS-POC-15 的緩衝調校。
 | Ponytail final-diff | 新增的每個型別與方法都有呼叫端；debug 殘留為 0 |
 | **這條 bar 長什麼樣子** | **完全沒有驗過。一次都沒有。** |
 
-### 為什麼沒驗到：一個會坑死人的陷阱
+### 已在模擬器上確認的（2026-09-23，wang-movie 設定、荐片來源、《交锋》第1集）
+
+| 項目 | 結果 |
+|---|---|
+| **AVKit 控制列消失** | **確認**。`showsPlaybackControls = false` 生效，畫面上沒有 AVKit 的 X／AirPlay／靜音／進度條 |
+| **影片播放中畫面乾淨** | **確認**。自動隱藏後整個畫面沒有任何我們畫的東西——使用者要的就是這個 |
+| **控制列完整渲染** | **確認**。把 `opacity` 暫時強制成 1 拍到：X、`1×`、AirPlay、`⏪10 / ⏸ / ⏩10`、進度條（thumb 在正確位置）、`02:49 … 片頭 片尾 … 46:37`。版面與設計一致 |
+| **自動隱藏會動** | **確認**（反覆觀察到畫面自己變乾淨） |
+| **點擊會切換** | **確認**（bar 反覆被叫回來） |
+
+### 沒能逐項測到的原因：工具來回比自動隱藏還長
+
+自動隱藏是 5 秒，而模擬器控制工具每一次 tap／screenshot 的來回約 5 秒。
+於是「點一下叫出 bar」→「再點某個按鈕」這種兩步操作，第二步永遠落在 bar 已經隱藏之後，
+第二次點擊只會再次把 bar 叫出來。**這是工具限制，不是產品缺陷**，但它讓逐項互動測試做不到。
+自動隱藏從 4 秒改為 5 秒是對齊 AVKit 並考量「關閉鈕是唯一出口」的產品決定，不是為了遷就工具。
+
+### 另一個會坑死人的陷阱（已修正安裝流程）
 
 本輪花了很長時間在模擬器上「觀察」這條 bar，得到一連串結論——AVKit 控制列還在、
 bar 只畫得出一個 X、版面塌掉——**那些結論全部是假的**。
@@ -227,30 +245,59 @@ bar 只畫得出一個 X、版面塌掉——**那些結論全部是假的**。
 陷阱找出來並修正安裝路徑之後，真正的新 build 有裝進去，但當時可用的設定檔是使用者指明
 **不要用來測試**的那一份，所以驗證停在這裡，沒有繼續。
 
-### 還沒驗的（全部）
+### 還沒驗的，交給使用者
 
-1. **bar 長什麼樣、位置對不對**。
-2. **`showsPlaybackControls = false` 是否真的把 AVKit 控制列關掉**——
-   在 `updateUIViewController` 重申是防禦性的，尚未證實必要或足夠。
-3. **點擊能不能叫出／收起 bar**，`simultaneousGesture` 是否真的贏得過 AVKit 的辨識器。
-4. **四秒自動隱藏**、暫停時不隱藏。
-5. **關閉鈕能不能關掉播放器**——這是最高風險項，壞了使用者會被關在播放畫面裡。
-6. 進度條拖曳、緩衝區段顯示、±10 秒、速度、字幕／音軌、AirPlay。
-7. **片頭／片尾四個操作在新位置仍然正確**。
-8. 既有行為無回歸：續播、自動播下一集、跨集速度、PiP 自動進入。
-9. **真機一次都沒有。**
+**最高風險先測**：
 
-### 下一步（唯一）
+1. **關閉鈕（X）能不能關掉播放器。** 這是唯一出口——AVKit 的 X 已經不存在，10I 又刪掉了下滑手勢。
+   若它壞了，使用者會被關在播放畫面裡，只能砍掉 App。**這一項不過就不要發布。**
+2. **暫停時控制列不隱藏**（`timeControlStatus != .playing` 才不隱藏）。
+3. **片頭／片尾四個操作**：設為目前位置／+1 秒／−1 秒／清除，以及設定後的實際跳轉。
+4. `⏪10` / `⏸` / `⏩10`。
+5. **進度條拖曳**（放開才 seek）與**已緩衝區段**顯示。
+6. **速度選單**，以及 14A/14B 的跨集速度沿用沒有壞。
+7. **字幕／音軌選單**（只有多於一個選項才會出現；這次的來源只有單軌，所以沒看到是正常的）。
+8. **AirPlay**（模擬器沒有裝置可投，要真機）。
+9. **PiP 自動進入**（離開 App 時）——手動 PiP 鈕依使用者指示不畫。
+10. 既有行為無回歸：續播、自動播下一集、多畫質、觀看紀錄。
+11. **真機一次都沒有。**
 
-用 `wang-movie.json` 走一次模擬器實測，逐項對照第六節的驗收標準。
-**安裝前務必比對 binary。**
+### 一個已修正的安裝陷阱
+
+本輪稍早花了很長時間在模擬器上「觀察」，得到一連串結論——AVKit 控制列還在、bar 只畫得出一個 X、
+版面塌掉——**那些全部是假的**。
+
+`xcodebuild` 的產物在
+`~/Library/Developer/Xcode/DerivedData/WebHTVApp-*/Build/Products/Debug-iphonesimulator/`，
+而 repo 裡的 `ios/.build/out/Build/Products/Debug-iphonesimulator/WebHTVApp.app` 是
+**2026-09-21 留下的舊產物**。安裝腳本挑了後者，所以每一次「重建→安裝→觀察」都是在看兩天前的 App。
+`BUILD SUCCEEDED` 照樣印出來，因為建置本身確實成功了，只是寫到別處。
+
+> **驗證前先比對 binary 的 SHA-256。**
+> ```bash
+> xcodebuild ... -showBuildSettings | grep BUILT_PRODUCTS_DIR   # 產物在哪
+> xcrun simctl get_app_container <udid> <bundle-id>              # 裝的是哪一份
+> ```
+> 兩者的 `WebHTVApp` 必須是同一個檔。不同就是在看舊 build，任何觀察都不作數。
+
+### 怎麼把測試環境準備好（避免用錯設定檔）
+
+模擬器上直接餵 `.importedFile` 路徑最乾淨，不必在 UI 裡捲很長的來源清單：
+
+```bash
+xcrun simctl terminate <udid> com.webhtv.ios.poc
+DATA=$(xcrun simctl get_app_container <udid> com.webhtv.ios.poc data)
+rm -f "$DATA/Library/Preferences/com.webhtv.ios.poc.plist" "$DATA/Library/Application Support"/*.json
+cp wang-movie.json "$DATA/Library/Application Support/wang-movie.json"
+xcrun simctl launch <udid> com.webhtv.ios.poc
+```
 
 ## 十一、Recovery anchor
 
 - 目標：把 5S-2 的片頭／片尾控制從「永遠浮在影片上」移進一條自建控制列。
-- 已完成：設計調查、方案比較、**方案 C 的實作**、建置與測試。
-  **視覺驗證零**——原因與陷阱寫在第十節，不要重踩。
+- 已完成：設計調查、方案比較、**方案 C 的實作**、建置與測試、**控制列渲染的模擬器目視確認**。
+  互動逐項測試未完成（工具來回 > 自動隱藏視窗），已交給使用者。
 - 已量測並可直接引用，不需重查：第一節那兩張 API 表、虛構方法名的對照實驗、
   `AVPlayerViewController` 無公開 start/stop PiP、`ContentSource` 在 iOS 只吃 `AVPlayerLayer`、
   `AVPlayerViewController` 不暴露 `playerLayer`、`showsPlaybackControls` 在 iOS 可用。
-- 下一步（唯一）：用 `wang-movie.json` 做模擬器視覺驗證，**安裝前先比對 binary 的 SHA-256**。
+- 下一步（唯一）：**使用者自己做 UI 功能測試**，清單見第十節「還沒驗的，交給使用者」。

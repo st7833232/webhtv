@@ -2495,6 +2495,18 @@ private struct PlayerView: View {
             }
         }
         .overlay {
+            // Our own tap surface, above AVKit's view rather than beside it.
+            //
+            // A `simultaneousGesture` on the composed view was **measured not to work** on
+            // 2026-09-23: with `showsPlaybackControls = false` AVKit draws nothing, but its view
+            // still swallows the touch, so the bar could never be summoned back and the player had
+            // no way out at all. A transparent SwiftUI layer in the overlay sits above that view
+            // and gets the tap first, which is a placement rather than a gesture-priority fight.
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { toggleControls() }
+        }
+        .overlay {
             PlayerControlBar(
                 session: session, position: position, duration: duration, buffered: buffered,
                 playing: playing, watching: watching, media: media,
@@ -2516,14 +2528,6 @@ private struct PlayerView: View {
             .allowsHitTesting(controlsVisible)
             .animation(.easeInOut(duration: 0.25), value: controlsVisible)
         }
-        // Tap anywhere to summon or dismiss the bar, the way AVKit's own bar behaved.
-        //
-        // **`simultaneousGesture`, not `onTapGesture`.** IOS-POC-10A2 and 10J both measured it:
-        // AVKit's recognisers live in the UIKit view underneath and a plain SwiftUI gesture loses
-        // to them. Hiding AVKit's *controls* does not remove its *recognisers*, so the lesson still
-        // applies — a plain tap here is simply never delivered, and the bar can never come back.
-        .contentShape(Rectangle())
-        .simultaneousGesture(TapGesture().onEnded { toggleControls() })
         // IOS-POC-10J. `simultaneousGesture` again, for the reason IOS-POC-10A2 found: AVKit's
         // recognisers live in the UIKit view underneath and a plain SwiftUI gesture loses to
         // them. Observing alongside means the scrubber still works if the viewer grabs it.
@@ -2598,8 +2602,9 @@ private struct PlayerView: View {
         if controlsVisible { scheduleHide() } else { hideTimer?.cancel() }
     }
 
-    /// Four seconds, restarted by every interaction — AVKit's own behaviour, and now ours to state
-    /// rather than to guess at.
+    /// Five seconds, restarted by every interaction — close to AVKit's own, and now ours to state
+    /// rather than to guess at. The longer end of the usual 3–5 s because the close button lives in
+    /// this bar and is the only way out of the player.
     ///
     /// **A paused player keeps its bar.** Hiding the controls of something that is not moving
     /// leaves a still frame with no way to tell it is paused.
@@ -2607,7 +2612,7 @@ private struct PlayerView: View {
         controlsVisible = true
         hideTimer?.cancel()
         hideTimer = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(4))
+            try? await Task.sleep(for: .seconds(5))
             guard !Task.isCancelled, session.player.timeControlStatus == .playing else { return }
             controlsVisible = false
         }

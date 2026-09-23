@@ -224,8 +224,13 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   2026-09-23 and the real reason 10H removed it. **Do not trust a delegate method because Swift
   compiled it** — check the header for protocol membership and platform.
   The consequence is **IOS-POC-16**: the control bar has to be ours. It is implemented — AVKit
-  draws nothing and `PlayerControlBar` draws the lot, owning its own four-second auto-hide — and
-  **nobody has looked at it yet**, on a simulator or a device.
+  draws nothing and `PlayerControlBar` draws the lot, owning its own five-second auto-hide.
+  **Confirmed on the simulator**: AVKit's controls are gone, the video is clean while the bar is
+  hidden, and the bar renders complete and correctly laid out. **Not confirmed: any individual
+  control, including the close button — which is now the only way out of the player**, because
+  AVKit's X went with its bar and IOS-POC-10I had already deleted the swipe-to-dismiss. The
+  simulator tooling's round-trip is longer than the auto-hide, so "summon the bar, then press
+  something" can never land; the user took the UI testing on 2026-09-23.
   **A trap that invalidated a whole session of simulator observation, 2026-09-23:** `xcodebuild`
   writes to `~/Library/Developer/Xcode/DerivedData/WebHTVApp-*/Build/Products/…`, while
   `ios/.build/out/Build/Products/Debug-iphonesimulator/WebHTVApp.app` is a **stale artifact from

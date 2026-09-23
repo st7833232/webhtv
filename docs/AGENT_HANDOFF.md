@@ -123,7 +123,13 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   `a076ab51`, `20c4bd53` and `616e182e` before, and a handoff arriving with **`035ad0bf` as "the
   latest on GitHub" was sixteen commits behind** — that commit is the roadmap-only one, an ancestor
   rather than the tip. Run `git log` and the `rev-list` above on resume instead of reading it here.
-- **Re-measured on macOS at `ecebeaa3` + IOS-POC-15 on 2026-09-23:** `swift test --package-path ios`
+- **Latest measurement — macOS at `63040bb3` (IOS-POC-5S-3) on 2026-09-23:**
+  `swift test --package-path ios` → **297 tests, 296 pass, 1 fails**, and the simulator Debug build
+  (`id=7B4E9557-4774-4EB9-B408-BB544DCC8657`) → **BUILD SUCCEEDED**. The failure is the same
+  provider-weather test named below. **266, 228, 225, 203 and 197 are all superseded** — this list is
+  newest-first, so read this line and not the ones under it.
+- **Superseded, kept for the trajectory — at `ecebeaa3` + IOS-POC-15 on 2026-09-23:**
+  `swift test --package-path ios`
   → **266 tests, 265 pass, 1 fails**, and the simulator Debug build
   (`id=7B4E9557-4774-4EB9-B408-BB544DCC8657`) → **BUILD SUCCEEDED**. The one failure is
   `reportsLiveType4SitesFromProvidedConfig`, which the bullet below classifies as weather rather
@@ -306,12 +312,13 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   information and playback methods on one persistent `PlaybackSession`.
 - **Not implemented:** the 23 portable-but-unported `csp_*` sites, the `Crypto`/`lxml`/`pyquery`/
   `bs4` shims the remaining 24 Python sites need, `CatVodHost` RSA and `proxy` plumbing,
-  IOS-POC-5S-3 config `rules` integration,
   `player.preloadArtwork`, `pan.*`, `app.open*`, `net.resourceUrl` proxying, and
   `ui.setChrome`/`restoreChrome`. **The configuration's `ads` host blocking came off this list
   in IOS-POC-5S-1**: it is implemented with a sniffer-only `WKContentRuleList`. **IOS-POC-5S-2
-  opening/ending came off it too** — see its own bullet above; the line that listed it as missing is
-  superseded, and 5S-3 is the only part of 5S still open.
+  opening/ending came off it too**, and **IOS-POC-5S-3 config `rules` integration came off it on
+  2026-09-23** (`63040bb3`) — this line listed all three as missing and every one of those readings
+  is superseded. **No part of IOS-POC-5S is still open in code**; what is open is its device
+  acceptance.
   **Three things came off this list and must not be written back onto it.** The Python runtime left
   on 2026-09-21 (IOS-POC-7E–7P). **The SideStore/IPA release pipeline left on 2026-09-22**
   (IOS-POC-11): the workflow, `source.json` and two published releases exist.
@@ -466,8 +473,10 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   performance verification is still owed.** This bullet read "planned, not started" until
   2026-09-23. Base HEAD was `ecebeaa3`. **Do not record it as closed** — every number behind it is a
   unit test or a simulator build, and the user asked for it before a device baseline existed.
-  **User decision 2026-09-23:** defer the IOS-POC-15 real-device performance pass until later; keep it pending rather
-  than closed, but do **not** hold the roadmap here. Continue with IOS-POC-5S-3 as the next functional unit.
+  **User decision 2026-09-23:** defer the IOS-POC-15 real-device performance pass until later; keep it
+  pending rather than closed, but do **not** hold the roadmap here. That decision named IOS-POC-5S-3
+  as the next functional unit, and **5S-3 shipped the same day** (`63040bb3`), so the unit that
+  follows is **core real-device acceptance**, not another pass at 15.
   What is built: a `good/normal/risk/poor` model in `ios/Sources/WebHTVCore/PlaybackNetworkPolicy.swift`
   over buffer-ahead, `isPlaybackLikelyToKeepUp`, `isPlaybackBufferEmpty`, `timeControlStatus`,
   stalls and `AVPlayerItemAccessLog`'s observed/indicated bitrate. **No single sample may move the

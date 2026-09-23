@@ -50,7 +50,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 | IOS-POC-5S-3 config `rules` → sniffer | **Done in code, 2026-09-23. Not device-verified.** `SnifferRules` in core is pure: host extraction, rule selection, `exclude`/`regex` precedence and the `script` lookup are all driven by `swift test`, and the WebKit layer only calls in. Ported from the Java rather than a summary, which corrected two things: the host haystack is **one comma-joined string** of direct + `url=` host, so **neither takes precedence** — configuration order does, first match wins; and each of `exclude`/`regex` runs a **literal pass over every entry, then a pattern pass**, so a literal hit on a later entry beats a pattern hit on an earlier one. `exclude` outranks `regex`, both outrank the built-in candidate test, and when no rule matches, behaviour is byte-for-byte what it was. `script` is evaluated with `evaluateJavaScript` on `didFinish` — **not** `WKUserScript`, which would persist and stack across navigations — selected by the **page's** host while accept/reject is selected by the **candidate's**. The whole iOS tree builds exactly two `WKWebView`s and the rules reach only the sniffer's. The 9 playlist-shaped regexes stay inert: no playlist is ever opened, and a test pins that. **297 tests / 296 pass** (+31), simulator build succeeds |
 | IOS-POC-5S overall | **Code complete, 2026-09-23** (5S-1 ads, 5S-2 opening/ending, 5S-3 rules). **Not real-device acceptance** — no part of 5S has been watched working on hardware |
 | IOS-POC-16 Custom player controls | **Implemented; the bar is confirmed to render correctly on the simulator; per-control interaction testing handed to the user 2026-09-23.** AVKit draws no controls; `PlayerControlBar` draws close / subtitles / audio / speed / AirPlay / ±10 s / play / scrubber-with-buffer / opening / ending, and owns its own four-second auto-hide. Confirmed on the simulator: AVKit's controls are gone, the video is clean while the bar is hidden, and the bar renders complete and correctly laid out. **Not confirmed: any individual control, including the close button, which is now the only way out of the player** — the tooling round-trip is longer than the five-second auto-hide, so a two-step "summon then press" can never land. **Compare the installed binary before believing any simulator observation:** `ios/.build/out/...` holds a stale artifact while `xcodebuild` writes to DerivedData. `docs/IOS-POC-16-custom-player-controls.md` |
-| IOS-POC-15 Playback Buffering / Preload | **Code implemented 2026-09-23 / real-device performance verification pending.** A hysteretic `good/normal/risk/poor` model over buffer-ahead, `likelyToKeepUp`, `bufferEmpty`, `timeControlStatus`, stalls and the access log drives `preferredForwardBufferDuration` 60/90/120 s for VOD, leaves live and unknown-duration playback system-managed, and caps resolution to 1080p/720p **only** when `AVURLAsset.variants` reports more than one. `preferredPeakBitRate` stays 0 in every state and a test asserts it. The next episode's `PlaybackTarget` is pre-resolved **once**, through the same `SourceClient.playbackURL` pipeline, inside the last 90 s before the handoff, and the existing `playNext` consumes it or resolves normally. **266 tests / 265 pass** (+38), simulator build succeeds. **No device numbers exist**: startup latency, buffer-ahead, rebuffer counts, throughput and next-episode handoff are all unmeasured. `docs/IOS-POC-15-playback-buffering-preload.md` **User decision 2026-09-23: device performance testing is deferred until later and must not block IOS-POC-5S-3.** |
+| IOS-POC-15 Playback Buffering / Preload | **Code implemented 2026-09-23 / real-device performance verification pending.** A hysteretic `good/normal/risk/poor` model over buffer-ahead, `likelyToKeepUp`, `bufferEmpty`, `timeControlStatus`, stalls and the access log drives `preferredForwardBufferDuration` 60/90/120 s for VOD, leaves live and unknown-duration playback system-managed, and caps resolution to 1080p/720p **only** when `AVURLAsset.variants` reports more than one. `preferredPeakBitRate` stays 0 in every state and a test asserts it. The next episode's `PlaybackTarget` is pre-resolved **once**, through the same `SourceClient.playbackURL` pipeline, inside the last 90 s before the handoff, and the existing `playNext` consumes it or resolves normally. **266 tests / 265 pass** (+38), simulator build succeeds. **No device numbers exist**: startup latency, buffer-ahead, rebuffer counts, throughput and next-episode handoff are all unmeasured. `docs/IOS-POC-15-playback-buffering-preload.md` **User decision 2026-09-23: device performance testing is deferred until later and must not block the roadmap.** It did not block 5S-3, which shipped the same day in `63040bb3`; it must not block core real-device acceptance either. |
 | 2.5×/3× silent audio | **Fixed in code, not heard on a device.** `AVAudioTimePitchAlgorithmLowQualityZeroLatency` supports exactly 0.5/0.666/0.8/1/1.25/1.5/2 and drops audio at every other rate — which is precisely the two speeds IOS-POC-16 added. `AVPlayerItem.audioTimePitchAlgorithm = .timeDomain`. Reported by the user 2026-09-23; **not part of IOS-POC-15's charter**, fixed because its root cause is the item-creation site that stage was already editing |
 | IOS-POC-12 Runtime Architecture Reconciliation | **Planned, not started.** Begins only after 5S is complete, core real-device acceptance plus IOS-POC-15 are closed enough to freeze playback contracts, and the MPV keep/drop decision for the first stable product is recorded |
 | IOS-POC-13 Runtime Hot Update | **Planned, not started.** Begins only after IOS-POC-12 freezes the Native Core / Dynamic Layer boundary and update manifest contract |
@@ -63,16 +63,22 @@ path, but **not by replacing its signed native executable**. The sequencing is i
 
 `5S-2 → 5S-3 → core real-device acceptance → MPV keep/drop decision → IOS-POC-12 → IOS-POC-13`.
 
-**5S-2 closed on 2026-09-22**, so the remaining sequence is
-`5S-3 → core real-device playback baseline → IOS-POC-15 Playback Buffering / Preload → finish core
-real-device acceptance → MPV keep/drop decision → IOS-POC-12 → IOS-POC-13`.
+**That line is the historical plan and is kept for context.** Two things happened out of that order,
+both at the user's explicit instruction, so the sequence below is what actually remains.
 
-**IOS-POC-15's code landed on 2026-09-23 ahead of that baseline, at the user's explicit instruction.**
-The stage therefore owes the baseline *and* the post-change comparison together: the seven
-measurements in `docs/IOS-POC-15-playback-buffering-preload.md` §8 are what close it. What the stage
-did build is the ability to take those measurements — bounded diagnostics that name which of
-「來源解析慢／AVPlayer buffer 不足／CDN throughput 不足／selected bitrate 太高」is limiting playback —
-so the baseline run is now cheap. **Do not record IOS-POC-15 as closed on simulator evidence.**
+**5S-2 closed on 2026-09-22 and 5S-3 on 2026-09-23** (`63040bb3`), so **IOS-POC-5S is code
+complete**. **IOS-POC-15's code also landed on 2026-09-23, ahead of the device baseline it was
+supposed to follow** — and the user then decided to defer its real-device performance pass and run
+it themselves later. The stage still owes the baseline *and* the post-change comparison together
+(the seven measurements in `docs/IOS-POC-15-playback-buffering-preload.md` §8 are what close it),
+and what it did build is the ability to take them: bounded diagnostics that name which of
+「來源解析慢／AVPlayer buffer 不足／CDN throughput 不足／selected bitrate 太高」is limiting playback.
+**Do not record IOS-POC-15 as closed on simulator evidence, and do not go back and redo it either.**
+
+The remaining sequence is therefore
+`core real-device acceptance → MPV keep/drop decision → IOS-POC-12 → IOS-POC-13`,
+with **IOS-POC-15's device performance pass folded in whenever the user chooses to run it** rather
+than standing in front of the acceptance work.
 
 IOS-POC-15 deliberately comes **after a real-device playback baseline** so buffering work is driven
 by measured startup time, buffer-ahead, rebuffer/stall events, throughput and next-episode handoff
@@ -923,21 +929,40 @@ have been collapsed into the first bullet.
 
 ## Next Recommended Step
 
-### The next functional stage is IOS-POC-5S-3, and it has not started
+### IOS-POC-5S is code complete. The next stage is core real-device acceptance
 
-**Nothing functional may begin without the user saying so.** **5S-1 (ads) and 5S-2 (opening/ending)
-are both done**; what is left of 5S is **5S-3: the configuration's `rules` reaching the sniffer**.
-Its contract is already measured in `docs/IOS-POC-5S-ads-and-skip.md` — `Sniffer.getRule(uri)`
-matches on **host** (the URI's own, or the host of its `url=` query parameter), **first hit wins**,
-then `exclude` → not a video, `regex` → a video, and only an unmatched URI falls through to the
-built-in `SNIFFER` pattern; `script` feeds the injected JS. **The nine m3u8 ad-stripping regexes in
-`wang-sex.json` have no consumer in the Android app at all** and must not be given invented
-semantics.
+**This heading read "The next functional stage is IOS-POC-5S-3, and it has not started" until
+2026-09-23 and was left stale by commit `63040bb3`.** 5S-3 shipped in that commit: the
+configuration's `rules` now reach the sniffer, ported from `Sniffer.java` itself. So
+**5S-1 (ads), 5S-2 (opening/ending) and 5S-3 (rules) are all done in code, and IOS-POC-5S as a whole
+is code complete.**
 
-After 5S-3 the order the user fixed is: **core real-device acceptance → MPV keep/drop decision →
-IOS-POC-12 refactor → IOS-POC-13 runtime hot update**.
+**Code complete is not acceptance.** No part of 5S has been watched working on hardware.
 
-The constraints the user set for 5S as a whole, which still bind 5S-3:
+**Nothing functional may begin without the user saying so.**
+
+#### The next stage, as the user fixed it on 2026-09-23
+
+1. **Core real-device acceptance / smoke verification** — the stage that is actually next. Verify
+   what the currently installed build can show, rather than waiting for a full matrix:
+   5S-3's rules against a real source that has one, 5S-1 ad blocking, 5S-2 opening/ending, the PiP
+   foreground restore, IOS-POC-16's player controls, and the long-standing unconfirmed items — CMS
+   browsing/playback, a `csp_*` source, a drpy source, Bili's `Referer` + browser `User-Agent`
+   through `AVPlayer`, whether `AVURLAssetHTTPHeaderFieldsKey` works on a device at all,
+   WatchHistory and resume, and the external players.
+   **Mind which build carries what:** the published `0.1.7 (8)` was built from `add58007` and
+   therefore **does not contain 5S-3**, which landed afterwards in `63040bb3`. Verifying 5S-3 on a
+   device needs a later build; everything else in the list is verifiable on `0.1.7 (8)` today.
+2. **MPV keep/drop decision** for the first stable product.
+3. **IOS-POC-12 Runtime Architecture Reconciliation.**
+4. **IOS-POC-13 Runtime Hot Update.**
+
+**IOS-POC-15 is not a blocker and must not be written back in as one.** Its code is implemented and
+the user decided on 2026-09-23 to defer its real-device performance pass and run it themselves
+later. It stays `device verification pending` — never `closed` — and the acceptance work above does
+not wait for it. Do **not** go back and redo IOS-POC-15.
+
+The constraints the user set for 5S as a whole, which 5S-3 was built under:
 
 - prefer the configuration's own verifiable `ads` / `rules`;
 - block known ad hosts or requests at the WebView / sniffer / network layer;
@@ -1059,17 +1084,17 @@ Paste this into a new session:
 >
 > **已完成、不要當成未開始的事**：drpy loader（4 個來源 E2E 到真實媒體位元組）；Python P1–P5（`PythonSpiderRuntime`、`base/spider.py`、routing、安全 gate、真實來源 golden、42 站 survey 都已存在）；**CPython 3.13.15 在模擬器與 iPhone 真機都啟動過**；`requests` Tier-1 vendoring（**42 站中 14 站可執行、6 站到媒體位元組**）；CatVod JS spider 契約（**麻豆(js) 已在真機列出並播放**）；5Q multi-quality；5R WatchHistory／resume；**SideStore 發佈流程**（workflow 與 `source.json` 都在，已發過兩版）。
 >
-> **目前最新版本是 `0.1.6 (7)`**（tag `ios-v0.1.6-b7`，2026-09-23）。前面六版都已被取代。**我用 SideStore 安裝，不要直接把 App 裝到我手機上**；需要上機時產 IPA 或在我授權後觸發 `ios-sidestore-release.yml`。
+> **目前最新版本是 `0.1.7 (8)`**（tag `ios-v0.1.7-b8`，2026-09-23，build 自 `add58007`）。前面七版都已被取代。**這一版不含 5S-3**——5S-3 的 commit `63040bb3` 在它之後。**我用 SideStore 安裝，不要直接把 App 裝到我手機上**；需要上機時產 IPA 或在我授權後觸發 `ios-sidestore-release.yml`。
 >
 > **MPV：已經開始且有實作，但沒做完。** libmpv 在模擬器與真機都初始化成功；**算繪未完成、暫停中、未解**——真機 Metal＋軟解到得了 `FILE_LOADED`，`VIDEO_RECONFIG` 從未觸發，畫面全黑。**不存在第二個播放核心。** 恢復時從 `FILE_LOADED → VIDEO_RECONFIG` 那段繼續，真機 OpenGL 那一格還沒試，是最便宜的鑑別；不要從 MPVKit 安裝重來，不要重做 9A。
 >
 > **真機驗收是 partial，不要寫成完整完成。** 已確認：麻豆(js) 列出並播放、荐片冷啟動有篩選列、CPython 走完整條鏈、libmpv 初始化、8F／8G。**仍未確認**：CMS 來源、`csp_*` 來源、drpy 來源、Bili 的 `Referer`＋瀏覽器 UA 經 `AVPlayer`、`AVURLAssetHTTPHeaderFieldsKey` 在真機是否真的生效、WatchHistory／resume、外部播放器、PiP、MPV 算繪。
 >
-> **5S-1（ads 封鎖）已完成並發佈**；量測階段發現兩件事寫在 `docs/IOS-POC-5S-ads-and-skip.md`：**m3u8 廣告規則在 Android 這個 app 裡沒有任何消費者**（所以沒有契約可移植），而**片頭片尾根本不在設定檔裡**——它們在 `History` 的 `opening`／`ending`，毫秒，由使用者自己設。
+> **IOS-POC-5S 已 code complete**：5S-1（ads 封鎖）、5S-2（片頭片尾）、5S-3（設定檔 `rules` 接進 sniffer）三部分程式都完成。量測階段的兩個結論寫在 `docs/IOS-POC-5S-ads-and-skip.md`：**m3u8 廣告規則在 Android 這個 app 裡沒有任何消費者**（所以沒有契約可移植），而**片頭片尾根本不在設定檔裡**——它們在 `History` 的 `opening`／`ending`，毫秒，由使用者自己設。**但 5S 沒有任何一部分在真機上被驗收過。**
 >
-> **下一個 functional unit 是 IOS-POC-5S-2（片頭片尾），尚未開始**，之後是 5S-3（把設定檔的 `rules` 接進 sniffer）。`Crypto`／`lxml`／`pyquery`／`bs4`、更多 CSP、CarPlay、IOS-POC-12／13 的 runtime hot update 全部是 backlog。
+> **下一階段不是再做 5S-3，而是 core real-device acceptance／smoke verification**，之後才是 **MPV keep/drop 決定 → IOS-POC-12 → IOS-POC-13**。**IOS-POC-15 已實作，真機效能驗收由我決定延後自行進行——它不是 blocker，維持 `device verification pending`，不要標成 closed，也不要回頭重做。** `Crypto`／`lxml`／`pyquery`／`bs4`、更多 CSP、CarPlay 全部是 backlog。
 >
-> **驗證現況（2026-09-22 在 `616e182e` 重新量的，不是抄舊數字）**：`swift test --package-path ios` → **203 條全過**。兩條 live 測試（`reportsLiveType4SitesFromProvidedConfig`、`completesLiveCMSFlowFromProvidedConfig`）同一天內各自失敗過也通過過，其中一次是 `curl` 一分鐘後就重現不出來的 TLS 錯誤——**那是 provider 天氣，不要去修**。模擬器 build 成功；**本輪沒有真機 build**，裝置顯示 `unavailable`。
+> **驗證現況（2026-09-23 在 `63040bb3` 重新量的，不是抄舊數字）**：`swift test --package-path ios` → **297 條，296 通過**；唯一失敗是既有的 `reportsLiveType4SitesFromProvidedConfig`（88看球 解析成 HTML `qq-kbs.html`）。**203、225、228、266 全部已被取代。**兩條 live 測試（`reportsLiveType4SitesFromProvidedConfig`、`completesLiveCMSFlowFromProvidedConfig`）同一天內各自失敗過也通過過，其中一次是 `curl` 一分鐘後就重現不出來的 TLS 錯誤——**那是 provider 天氣，不要去修**。模擬器 build 成功；**本輪沒有真機 build**，裝置顯示 `unavailable`。
 >
 > **使用者已在真機確認**：麻豆(js) 列出並播放、荐片冷啟動有篩選列、**一集播完會自動接下一集**。**仍未確認**：廣告封鎖在 App 裡真的擋到東西、播放速度是否跟著換集、CMS／`csp_*`／drpy 來源、Bili 的 header、`AVURLAssetHTTPHeaderFieldsKey` 真機是否生效、WatchHistory／resume、外部播放器、PiP、MPV 算繪。
 >

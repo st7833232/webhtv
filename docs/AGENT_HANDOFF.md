@@ -123,11 +123,16 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   `a076ab51`, `20c4bd53` and `616e182e` before, and a handoff arriving with **`035ad0bf` as "the
   latest on GitHub" was sixteen commits behind** — that commit is the roadmap-only one, an ancestor
   rather than the tip. Run `git log` and the `rev-list` above on resume instead of reading it here.
-- **Re-measured on macOS at `61f2d6fd` on 2026-09-23:** `swift test --package-path ios` →
-  **228 tests, 227 pass, 1 fails**, and the simulator Debug build
+- **Re-measured on macOS at `ecebeaa3` + IOS-POC-15 on 2026-09-23:** `swift test --package-path ios`
+  → **266 tests, 265 pass, 1 fails**, and the simulator Debug build
   (`id=7B4E9557-4774-4EB9-B408-BB544DCC8657`) → **BUILD SUCCEEDED**. The one failure is
   `reportsLiveType4SitesFromProvidedConfig`, which the bullet below classifies as weather rather
-  than a gate. **225, 203 and 197 are all superseded.**
+  than a gate — it failed the same way at `61f2d6fd` earlier the same day, and `88看球` was observed
+  resolving to `http://nba.toutiaozb.com/qq/qq-kbs.html?…`, an HTML page. **228, 225, 203 and 197
+  are all superseded.**
+  The input configuration was re-fetched from the user's own GitLab for this run and its SHA-256
+  matches the recorded baseline `b17576e3…` byte for byte.
+  **The earlier 228-test line is kept in spirit below because its lesson stands:**
   **This run closed a real gap**: the session that wrote the PiP foreground-restore fix and its
   three tests ran on a **Linux host with neither `swift` nor `xcodebuild`**, so that code was
   committed — and `0.1.5 (6)` published from it — without ever being compiled or tested locally.
@@ -381,8 +386,10 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   pipeline~~ **done** (11). ~~IOS-POC-5S-1 ads blocking~~ **done** and released.
   ~~IOS-POC-14 auto-advance~~ **done, and confirmed on the device by the user**, with the playback
   speed carried within one title (14A/14B).
-  **The next functional unit is IOS-POC-5S-2 opening/ending**, followed by **5S-3 config
-  `rules` → sniffer**. Two things the 5S-1 measurement settled and that 5S-2/5S-3 must not
+  ~~**The next functional unit is IOS-POC-5S-2 opening/ending**~~ **done**, followed by **5S-3 config
+  `rules` → sniffer**, which is still open. **IOS-POC-15's code landed out of this order on
+  2026-09-23 at the user's explicit instruction** — do not re-plan it; see its own bullet for what it
+  built and what it still owes. Two things the 5S-1 measurement settled and that 5S-2/5S-3 must not
   re-litigate: **the m3u8 ad-stripping rules in the configuration have no consumer in this Android
   app at all** — `Rule.getRegex/getExclude/getScript` is read only by `Sniffer` — so there is no
   contract to port and inventing one is forbidden; and **opening/ending are not in the configuration**
@@ -412,16 +419,54 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   installed App already knows. Swift/SwiftUI executable behaviour, native playback/runtime code,
   MPV/FFmpeg, CPython XCFramework/native dependencies, entitlements and Info.plist capabilities
   still require an IPA. SideStore remains the native-App update path.
-- **IOS-POC-15 Playback Buffering / Preload is planned, not started.** It belongs after a first
-  real-device playback baseline and before the MPV keep/drop decision / IOS-POC-12 contract freeze.
-  It is AVPlayer-first: measure startup latency, buffer-ahead, rebuffer/stall events, throughput and
-  next-episode handoff time; then test a bounded forward-buffer target (initial candidate 60 s),
-  leave `preferredPeakBitRate` unrestricted unless measurements justify a cap, keep
-  `automaticallyWaitsToMinimizeStalling` behaviour explicit, add diagnostics, and pre-resolve the
-  **next episode's PlaybackTarget** (URL + headers, including playerContent/sniff when required)
-  without starting a second player or downloading the next whole episode. Persistent/offline HLS
-  downloading is explicitly a later, separate decision. Record:
-  `docs/IOS-POC-15-playback-buffering-preload.md`.
+- **IOS-POC-15 Playback Buffering / Preload: the code is implemented and the real-device
+  performance verification is still owed.** This bullet read "planned, not started" until
+  2026-09-23. Base HEAD was `ecebeaa3`. **Do not record it as closed** — every number behind it is a
+  unit test or a simulator build, and the user asked for it before a device baseline existed.
+  What is built: a `good/normal/risk/poor` model in `ios/Sources/WebHTVCore/PlaybackNetworkPolicy.swift`
+  over buffer-ahead, `isPlaybackLikelyToKeepUp`, `isPlaybackBufferEmpty`, `timeControlStatus`,
+  stalls and `AVPlayerItemAccessLog`'s observed/indicated bitrate. **No single sample may move the
+  state** — two consecutive readings to step down, six to step **one** rung up, and only an actual
+  stall or an empty buffer bypasses that. It sets `preferredForwardBufferDuration` to **60/90/120 s**
+  for VOD, leaves **live and unknown-duration playback system-managed (0)**, and caps
+  `preferredMaximumResolution` to **1080p/720p only when `AVURLAsset.variants` reports more than
+  one** — a direct MP4 and a single-variant HLS are never capped. **`preferredPeakBitRate` is 0 in
+  every state and `noStateEverCapsPeakBitRate` asserts it**: it is a download ceiling, not an
+  accelerator. The policy type holds **no URL and no quality**, so it cannot move the viewer off a
+  line they chose (IOS-POC-5Q); AVPlayer only ever picks within the one HLS asset's own variants.
+  **Thresholds are all in `PlaybackNetworkThresholds` and nothing compares against a number declared
+  elsewhere.**
+  **It added no timer**: the policy rides the five-second sampler `PlaybackSession` already runs, and
+  that loop's `record != nil` guard is gone so bridge and bare-URL playback get the policy too.
+  **15C pre-resolves exactly one next episode**, through the **same `SourceClient.playbackURL`**
+  pipeline (so playerContent/CSP/Python/drpy/sniff/headers/quality are reused, not reimplemented),
+  and only once playback is stable (≥20 s, state ≥ `normal`) **and the handoff is within 90 s** —
+  which is the whole defence against short-lived addresses, since **no source here publishes a TTL**.
+  A 5-minute `maximumAge` is the second layer for a long pause. Any change of configuration, site,
+  title, line, episode or quality invalidates it, and `take` consumes it either way. **A prefetch
+  failure is an optimization miss**: `playNext` resolves normally, so auto-advance cannot fail
+  because of it. Diagnostics name which of four things is limiting playback — slow source
+  resolution, too little forward buffer, CDN throughput, or too high a selected variant — and log
+  **only the first policy application and subsequent state transitions**, which the hysteresis
+  itself throttles. No telemetry server, no media cache, no playlist rewrite, no second player.
+  **Also fixed in the same change, and deliberately not part of 15's charter:** the viewer's report
+  that **2.5× and 3× play silently**. `AVAudioTimePitchAlgorithmLowQualityZeroLatency` supports
+  exactly 0.5/0.666/0.8/1/1.25/1.5/2 and **drops audio at every other rate** — precisely the two
+  speeds IOS-POC-16 added. One line: `item.audioTimePitchAlgorithm = .timeDomain`. **Nobody has
+  heard it on a device.** The companion 「畫面會跳轉」 is only half addressed: the cushion is measured
+  in **playback** seconds (`bufferAhead / rate`), so 3× pushes the state down by itself and raises
+  the buffer target — whether that is enough is a device question.
+  **Measured 2026-09-23 on macOS:** `swift test --package-path ios` → **266 tests, 265 pass** (+38
+  new), the one failure being the standing `reportsLiveType4SitesFromProvidedConfig` weather test
+  (88看球 resolved to `qq-kbs.html`), which **cannot** be affected by this change because
+  `swift test` never compiles `WebHTVApp.swift`. Simulator Debug build → **BUILD SUCCEEDED**, and the
+  seven `WebHTVApp.swift` warnings in that log were **measured to be pre-existing** by rebuilding the
+  file at base HEAD. Persistent/offline HLS downloading remains a later, separate decision.
+  **Still owed, and the only thing that can close this stage** — on one device, same source, same
+  episode, before and after: startup latency to first frame; buffer-ahead at 30 s and 60 s;
+  stall/rebuffer count over 5–10 minutes; weak-network recovery without flapping; HLS quality step
+  down and back up; next-episode time from the ending to actual playback; and whether 2.5×/3× now
+  have sound. Record: `docs/IOS-POC-15-playback-buffering-preload.md` §8.
 - Per-stage records: `docs/IOS-POC-1E-config-persistence.md`, `docs/IOS-POC-1F-config-sources.md`,
   `docs/IOS-POC-2B-webhome-bridge.md`, `docs/IOS-POC-2D-webhome-bridge-ui-info.md`,
   `docs/IOS-POC-2E-webhome-bridge-playback.md`, `docs/IOS-POC-4A-type4-sources.md`,

@@ -1057,6 +1057,12 @@ private struct VodView: View {
     /// full grid, so a title with four lines and eighty episodes meant scrolling past three
     /// hundred buttons to reach the bottom one.
     @State private var selectedFlag: String?
+    /// IOS-POC-15C: the next episode, already resolved to an address and its headers.
+    ///
+    /// Held **here** rather than in `PlaybackSession`, for the same reason `advance` is a closure:
+    /// the session deliberately knows nothing about sites, lines or how an episode becomes a URL,
+    /// and this screen owns all three.
+    @State private var prefetch = PlaybackTargetPrefetch()
 
     var body: some View {
         ScrollView {
@@ -1161,6 +1167,10 @@ private struct VodView: View {
             // The hook belongs to this playback. Cancelling the picker, or handing the episode to an
             // external player, must not leave this screen answering for a player it does not own.
             PlaybackSession.shared.advance = nil
+            // IOS-POC-15C follows `advance` exactly: same owner, same lifetime. Anything resolved
+            // ahead belongs to a playback that is over, so it goes with it.
+            PlaybackSession.shared.prefetchNext = nil
+            prefetch.invalidate()
             playingEpisode = nil
             Task { watched = await WatchHistoryStore.shared.record(forKey: historyKey) }
         }) {
@@ -1258,15 +1268,33 @@ private struct VodView: View {
                      vodFlag: flag, vodRemarks: episode.name, episodeUrl: episode.url)
     }
 
+    /// What has to still be true for a pre-resolved next episode to be the right one (IOS-POC-15C).
+    ///
+    /// Every field is an identity this project already has: the configuration, `Site.id` rather than
+    /// the site key because four keys in this configuration are duplicated, the title, the line, the
+    /// episode's **address** (IOS-POC-14's rule, because a line here may print one name twice), and
+    /// the quality remembered for this title.
+    private func identity(for episode: Episode, flag: String) -> PlaybackTargetIdentity {
+        PlaybackTargetIdentity(configID: source.identity, siteID: site.id, vodId: summary.id,
+                               flag: flag, episodeURL: episode.url,
+                               quality: watched?.quality ?? "")
+    }
+
     private func play(_ episode: Episode, flag: String) async {
         resolving = true
         defer { resolving = false }
+        // A new episode, line or quality was picked by hand, so anything resolved for the old one is
+        // about a playback that is no longer happening.
+        prefetch.invalidate()
+        let began = Date()
         do {
             let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
             guard let target = try await client.playbackURL(for: episode, flag: flag) else {
                 playbackError = "這一集沒有可播放的網址。"
                 return
             }
+            PlaybackSession.shared.noteResolution(seconds: Date().timeIntervalSince(began),
+                                                  prefetched: false, episode: episode.name)
             let record = record(for: episode, flag: flag)
             pendingPlayback = Playback(url: target.url, headers: target.headers,
                                        title: "\(summary.name) \(episode.name)", artwork: summary.picture,
@@ -1277,8 +1305,42 @@ private struct VodView: View {
             // the resolving, so it is the only place that can answer (IOS-POC-14).
             playingEpisode = episode
             PlaybackSession.shared.advance = { await playNext(flag: flag) }
+            // IOS-POC-15C. The session decides *when* — it holds the position, the runtime and the
+            // network state; this screen decides *what*, because it holds the episode list.
+            PlaybackSession.shared.prefetchNext = { await prefetchNextEpisode(flag: flag) }
         } catch {
             playbackError = error.localizedDescription
+        }
+    }
+
+    /// Resolves the episode after the one playing, in the background, and keeps the result.
+    ///
+    /// **The same pipeline as a real play, not a copy of it.** `SourceClient.playbackURL` is the one
+    /// place an episode becomes an address, so this gets `playerContent`, the CSP/Python/drpy
+    /// routing, the probe, the sniff, the quality menu and the request headers by using it rather
+    /// than by reimplementing any of them.
+    ///
+    /// Nothing is played, nothing is downloaded, and a failure is silent: `playNext` resolves
+    /// normally when the episode actually ends.
+    private func prefetchNextEpisode(flag: String) async {
+        guard let current = playingEpisode,
+              let line = detail?.flags.first(where: { $0.name == flag }),
+              let next = line.episode(after: current) else { return }
+        let wanted = identity(for: next, flag: flag)
+        guard prefetch.beginResolving(for: wanted) else { return }
+        let began = Date()
+        do {
+            let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
+            guard let target = try await client.playbackURL(for: next, flag: flag) else {
+                prefetch.failed()
+                return
+            }
+            prefetch.store(NextPlaybackTarget(identity: wanted, target: target,
+                                              episodeName: next.name))
+            print("[playback] prefetched \(next.name) in "
+                  + "\(Int(Date().timeIntervalSince(began) * 1000))ms")
+        } catch {
+            prefetch.failed()
         }
     }
 
@@ -1289,9 +1351,25 @@ private struct VodView: View {
         guard let current = playingEpisode,
               let line = detail?.flags.first(where: { $0.name == flag }),
               let next = line.episode(after: current) else { return false }
+        let began = Date()
         do {
-            let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
-            guard let target = try await client.playbackURL(for: next, flag: flag) else { return false }
+            // IOS-POC-15C. `take` hands the address back only when every part of the identity still
+            // matches and it is still fresh, and consumes it either way — a target for an episode we
+            // are no longer about to play is simply wrong. A miss costs nothing but the resolution
+            // this line was always going to do.
+            let wanted = identity(for: next, flag: flag)
+            let prefetched = prefetch.take(matching: wanted)?.target
+            let target: PlaybackTarget
+            if let prefetched {
+                target = prefetched
+            } else {
+                let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
+                guard let resolved = try await client.playbackURL(for: next, flag: flag) else { return false }
+                target = resolved
+            }
+            PlaybackSession.shared.noteResolution(seconds: Date().timeIntervalSince(began),
+                                                  prefetched: prefetched != nil,
+                                                  episode: next.name)
             let record = record(for: next, flag: flag)
             playingEpisode = next
             // `resuming: false` — this is a new episode, not a reopened title, and the two share one
@@ -1642,7 +1720,50 @@ private struct PlayerPickerView: View {
     private var chosenRate: Float = 1
     private var rateObserver: NSKeyValueObservation?
 
+    // MARK: IOS-POC-15 — what the network is doing, and what was done about it
+
+    /// The state model. Reset with every item, because none of one stream's evidence applies to
+    /// the next one.
+    private var network = PlaybackNetworkMonitor()
+    /// The last policy written to the item, so an unchanged one is not written again every tick.
+    private var appliedPolicy: PlaybackBufferPolicy?
+    /// How many variants the current asset really offers. Zero until `AVURLAsset` answers, which is
+    /// the conservative reading: no resolution ceiling may be applied.
+    private var variantCount = 0
+    /// Stalls on the current item, from `AVPlayerItem.playbackStalledNotification` — the platform's
+    /// own signal rather than anything inferred from the buffer.
+    private var stalls = 0
+    /// Whether the next episode has already been asked for on this item. One per item is the whole
+    /// of IOS-POC-15C's "pre-resolve **one**".
+    private var prefetchRequested = false
+
+    /// How long the last episode-to-address resolution took. Kept so the diagnostics can say the
+    /// viewer was waiting on `playerContent`/probe/sniff rather than on the network.
+    ///
+    /// **Consumed by the first reading that uses it**, rather than held: it describes how this
+    /// episode started, so once the first state transition has reported it the number has said
+    /// everything it can. Left standing it would still be claiming, twenty minutes in, that a slow
+    /// `playerContent` is what the buffer is short of — and it would leak into the bridge's bare-URL
+    /// playback, which never sets one.
+    private var lastResolutionSeconds: Double?
+
+    /// Resolves the next episode in the background and keeps the result. Set by the screen that owns
+    /// the episode list, alongside `advance`, and nil for every path that has no list.
+    ///
+    /// It answers nothing: a prefetch that fails is an optimization miss, and `advance` still
+    /// resolves normally when the episode actually ends.
+    var prefetchNext: (() async -> Void)?
+
     private init() {
+        // IOS-POC-15A. Stated rather than inherited: the player may wait for enough media to play
+        // through, which is the behaviour every source here wants. `preferredForwardBufferDuration`
+        // is deliberately **not** set at this point — see `load`.
+        player.automaticallyWaitsToMinimizeStalling = true
+        NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.playbackStalledNotification, object: nil, queue: .main
+        ) { _ in
+            Task { @MainActor in PlaybackSession.shared.stalls += 1 }
+        }
         rateObserver = player.observe(\.rate, options: [.new]) { player, _ in
             let rate = player.rate
             guard rate > 0 else { return }
@@ -1815,14 +1936,26 @@ private struct PlayerPickerView: View {
         await WatchHistoryStore.shared.save(record)
     }
 
+    /// The one timer this playback has. IOS-POC-15 rides it rather than adding a second.
+    ///
+    /// **The `record != nil` guard is gone (IOS-POC-15).** It stood here while the loop's only job
+    /// was writing history, and a bare URL has no title to write. The loop now also carries the
+    /// buffering policy, which the WebHome bridge's inline playlist and `player.playUrl` need every
+    /// bit as much as a titled episode does. Nothing extra is written: `persist()` and
+    /// `reachedEnding()` each already refuse without a record, and `prefetchNextIfDue()` does
+    /// nothing without a `prefetchNext` closure, which only the detail screen sets.
     private func startSampling() {
         sampler?.cancel()
-        guard record != nil else { return }
         sampler = Task { @MainActor in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
                 if Task.isCancelled { return }
                 await PlaybackSession.shared.persist(onlyWhilePlaying: true)
+                // IOS-POC-15A/15B: one reading of the player, into the policy, onto the item.
+                PlaybackSession.shared.observeNetwork()
+                // IOS-POC-15C, before the ending check so the tick that hands over is never also
+                // the tick that starts resolving.
+                await PlaybackSession.shared.prefetchNextIfDue()
                 // The viewer's ending is reached on the same tick that records the position, which
                 // is exactly where Android checks it (IOS-POC-5S-2). `finished()` is the existing
                 // end-of-episode path, so the ending gets the auto-advance, the history write and
@@ -1830,6 +1963,141 @@ private struct PlayerPickerView: View {
                 if PlaybackSession.shared.reachedEnding() { PlaybackSession.shared.finished() }
             }
         }
+    }
+
+    // MARK: - IOS-POC-15A/15B: measure, decide, apply
+
+    /// Takes one reading of the player, feeds it to the state model, and writes back whatever the
+    /// model asks for.
+    private func observeNetwork() {
+        guard started, let item = player.currentItem else { return }
+        let runtime = item.duration.seconds
+        // The last access-log event is the platform's own throughput evidence: what was actually
+        // observed off the wire, and what the variant currently selected costs.
+        let event = item.accessLog()?.events.last
+        let sample = PlaybackNetworkSample(
+            kind: runtime.isFinite && runtime > 0 ? .onDemand : .liveOrUnknown,
+            bufferAhead: bufferAhead(of: item),
+            likelyToKeepUp: item.isPlaybackLikelyToKeepUp,
+            bufferEmpty: item.isPlaybackBufferEmpty,
+            playing: player.timeControlStatus == .playing,
+            waitingToPlay: player.timeControlStatus == .waitingToPlayAtSpecifiedRate,
+            // A paused player reports zero, but the speed the viewer chose is what the cushion will
+            // be spent at the moment they press play again.
+            rate: Double(player.rate > 0 ? player.rate : chosenRate),
+            observedBitrate: event?.observedBitrate ?? 0,
+            indicatedBitrate: event?.indicatedBitrate ?? 0,
+            stalls: stalls,
+            variantCount: variantCount
+        )
+
+        let was = network.state
+        let hadPolicy = appliedPolicy != nil
+        apply(network.ingest(sample), to: item)
+
+        // **The first application, then transitions only.** A line every tick would be a permanent
+        // verbose network logger in release; a transition has to get through the hysteresis first,
+        // so even a genuinely flapping source cannot produce one more often than every two samples.
+        // The first line is worth its place on its own: it is the only record that the VOD policy
+        // was applied at all, and which of `onDemand`/`liveOrUnknown` this item was read as.
+        guard !hadPolicy || network.state != was, let policy = appliedPolicy else { return }
+        // Consumed: it describes how this episode started, and the next transition is not about that.
+        let resolution = lastResolutionSeconds
+        lastResolutionSeconds = nil
+        let limit = PlaybackNetworkMonitor.limit(of: sample, resolutionSeconds: resolution)
+        print("[playback] \(was) → \(network.state) \(sample.kind) limit=\(limit)"
+              + " buffer=\(Self.oneDecimal(sample.bufferAhead))s"
+              + "/\(Self.oneDecimal(sample.bufferAheadPlaybackSeconds))s@\(Self.oneDecimal(sample.rate))x"
+              + " keepUp=\(sample.likelyToKeepUp) stalls=\(sample.stalls)"
+              + " observed=\(Self.kbps(sample.observedBitrate))"
+              + " indicated=\(Self.kbps(sample.indicatedBitrate))"
+              + " variants=\(sample.variantCount)"
+              + " → forward=\(Int(policy.forwardBufferSeconds))s"
+              + " cap=\(policy.maximumResolutionHeight.map { "\($0)p" } ?? "none")")
+    }
+
+    /// Seconds of media held in front of the playhead.
+    ///
+    /// The loaded range **containing the playhead**, not `loadedTimeRanges.first`. After a seek the
+    /// player keeps more than one range, and the first is often the part already watched — which
+    /// would report a comfortable cushion at the exact moment there is none.
+    private func bufferAhead(of item: AVPlayerItem) -> Double {
+        let now = player.currentTime()
+        guard let range = item.loadedTimeRanges
+            .map(\.timeRangeValue)
+            .first(where: { $0.containsTime(now) }) else { return 0 }
+        let ahead = (range.end - now).seconds
+        return ahead.isFinite && ahead > 0 ? ahead : 0
+    }
+
+    /// Writes a changed policy onto the item. An unchanged one is not rewritten every five seconds.
+    private func apply(_ policy: PlaybackBufferPolicy, to item: AVPlayerItem) {
+        guard policy != appliedPolicy else { return }
+        appliedPolicy = policy
+        item.preferredForwardBufferDuration = policy.forwardBufferSeconds
+        item.preferredPeakBitRate = policy.peakBitRate
+        // `preferredMaximumResolution` is a pixel box, so a height ceiling is written as the width
+        // 16:9 implies. AVPlayer picks the largest variant that **fits inside** the box, so a 4:3
+        // variant of the same height (960×720 inside 1280×720) is still allowed — the ceiling stays
+        // a ceiling on height, which is what the policy means.
+        item.preferredMaximumResolution = policy.maximumResolutionHeight
+            .map { CGSize(width: CGFloat($0) * 16 / 9, height: CGFloat($0)) } ?? .zero
+    }
+
+    /// How many variants this asset genuinely offers — the only thing that may unlock a resolution
+    /// ceiling, and the platform's own answer rather than a guess from the URL or a parse of the
+    /// playlist.
+    ///
+    /// Asked once per item, and **only the count crosses back**: `AVAssetVariant` is not `Sendable`
+    /// and the policy needs nothing else from it. Until it answers the count stays zero, which is
+    /// the conservative reading — a direct MP4 and a single-variant HLS are never capped.
+    private func loadVariantCount(of asset: AVURLAsset) {
+        Task { @MainActor in
+            let count = (try? await asset.load(.variants))?.count ?? 0
+            // The viewer may have moved on while the playlist loaded.
+            guard player.currentItem?.asset === asset else { return }
+            variantCount = count
+            print("[playback] item variants=\(count) "
+                  + (count > 1 ? "adaptive, a ceiling may apply" : "single stream, never capped"))
+        }
+    }
+
+    /// Records how long an episode took to become an address, for the diagnostics (IOS-POC-15B).
+    func noteResolution(seconds: Double, prefetched: Bool, episode: String) {
+        lastResolutionSeconds = seconds
+        print("[playback] resolve \(episode) \(prefetched ? "prefetched" : "live")"
+              + " \(Int(seconds * 1000))ms")
+    }
+
+    // MARK: - IOS-POC-15C: ask for the next episode, once
+
+    /// Asks the screen that owns the episode list to resolve the next one — once per item, only
+    /// when this one is stable and only when the handoff is close.
+    private func prefetchNextIfDue() async {
+        guard started, let prefetchNext, let item = player.currentItem else { return }
+        guard PlaybackPrefetchGate.shouldPrefetch(
+            position: player.currentTime().seconds,
+            duration: item.duration.seconds,
+            // The viewer's own ending is where this episode actually hands over (IOS-POC-5S-2), so
+            // it is what the lead window is measured back from.
+            endingSeconds: (record?.endingOffset ?? 0) / 1000,
+            state: network.state,
+            // One gate, not two: "already asked on this item" is what `alreadyHolding` means, and
+            // the tested rule is the one running.
+            alreadyHolding: prefetchRequested
+        ) else { return }
+        // Set before awaiting: this loop ticks again in five seconds, and a slow source would
+        // otherwise be asked twice.
+        prefetchRequested = true
+        await prefetchNext()
+    }
+
+    private static func kbps(_ bits: Double) -> String {
+        bits.isFinite && bits > 0 ? "\(Int(bits / 1000))k" : "?"
+    }
+
+    private static func oneDecimal(_ value: Double) -> String {
+        value.isFinite ? String(format: "%.1f", value) : "?"
     }
 
     /// Whether the viewer's ending has *just* been reached — `VideoActivity.onTimeChanged()`'s
@@ -1939,7 +2207,40 @@ private struct PlayerPickerView: View {
     private func load(_ url: URL) {
         self.url = url.absoluteString
         started = true
-        player.replaceCurrentItem(with: AVPlayerItem(asset: Self.asset(for: url, headers: headers)))
+        let asset = Self.asset(for: url, headers: headers)
+        let item = AVPlayerItem(asset: asset)
+
+        // **The viewer's silent 2.5× and 3×, reported 2026-09-23.**
+        //
+        // `AVAudioTimePitchAlgorithmLowQualityZeroLatency` supports exactly 0.5, 0.666, 0.8, 1,
+        // 1.25, 1.5 and 2 — and **drops the audio entirely at any other rate**. That list is the
+        // viewer's report: the speeds that go silent are precisely the two IOS-POC-16 added which
+        // are not on it. `.timeDomain` covers 1/32× to 32×, keeps pitch, and is the cheaper of the
+        // two algorithms that do, which matters for speech at 3× on a phone.
+        //
+        // Set on the item because that is where the property lives; a player-level default would
+        // not survive `replaceCurrentItem`.
+        item.audioTimePitchAlgorithm = .timeDomain
+
+        // IOS-POC-15A. `preferredPeakBitRate` is **0 and stays 0**: it is a ceiling on what AVPlayer
+        // may download, not a way to make it download faster, so a fixed low value would pin a good
+        // connection to a bad picture for the whole episode. Nothing `PlaybackBufferPolicy` returns
+        // can raise it off zero — `noStateEverCapsPeakBitRate` is that assertion.
+        item.preferredPeakBitRate = 0
+        // `preferredForwardBufferDuration` is deliberately **not** set here. Until the item is ready
+        // its duration is unknown, and live playback must not inherit a minute of VOD buffering; the
+        // first sampler tick applies the policy once the runtime can actually be read. That also
+        // keeps the start-up path exactly as it was, so nothing that opened before can open slower.
+
+        // A new item is a new network. None of the previous stream's evidence applies to it.
+        network = PlaybackNetworkMonitor()
+        appliedPolicy = nil
+        variantCount = 0
+        stalls = 0
+        prefetchRequested = false
+
+        player.replaceCurrentItem(with: item)
+        loadVariantCount(of: asset)
         // Carry the viewer's speed into the next episode. `defaultRate` is what `play()` reads, and
         // setting it before the call is what makes the new item start at that speed rather than
         // starting at 1× and being corrected a moment later.
@@ -2609,12 +2910,17 @@ private struct PlayerView: View {
                 guard let item = session.player.currentItem else { return }
                 let length = item.duration.seconds
                 duration = length.isFinite && length > 0 ? length : 0
-                // What is already on the device. The same `loadedTimeRanges` IOS-POC-15 will
-                // measure buffer-ahead from, which is why the bar draws it rather than hiding it.
-                buffered = item.loadedTimeRanges.first.map {
-                    let range = $0.timeRangeValue
-                    return (range.start + range.duration).seconds
-                }
+                // What is already on the device — the same `loadedTimeRanges` IOS-POC-15's policy
+                // reads, which is why the bar draws it rather than hiding it.
+                //
+                // The range **containing the playhead**, not `.first`. After a seek the player keeps
+                // more than one range and the first is often the part already watched, so the bar
+                // drew a comfortable cushion at the exact moment there was none. Reading it the same
+                // way the policy does is also what stops the bar and the policy disagreeing.
+                buffered = item.loadedTimeRanges
+                    .map(\.timeRangeValue)
+                    .first { $0.containsTime(time) }
+                    .map { ($0.start + $0.duration).seconds }
             }
         }
     }

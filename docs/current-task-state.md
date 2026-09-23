@@ -6,8 +6,9 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current Scope
 
-- Branch `ios-poc`. **Verified 2026-09-23: HEAD `61f2d6fd`, identical to `origin/ios-poc`
-  (`git rev-list --left-right --count HEAD...origin/ios-poc` → `0 0`), worktree clean.** Since the
+- Branch `ios-poc`. **Re-verified 2026-09-23 at the start of IOS-POC-15: base HEAD `ecebeaa3`,
+  identical to `origin/ios-poc` (`git rev-list --left-right --count HEAD...origin/ios-poc` → `0 0`),
+  worktree clean.** `61f2d6fd` is an ancestor and is superseded.** Since the
   runtime-roadmap update the branch has shipped IOS-POC-5S-1 (ads blocking), IOS-POC-14
   (auto-advance), 14A/14B (the playback speed carried within one title), **IOS-POC-5S-2 (the
   viewer's opening and ending)** and the **PiP foreground-restore fix**, plus **four releases:
@@ -48,7 +49,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 | IOS-POC-5S-2 opening / ending | **Done, 2026-09-22.** `WatchHistory.opening`/`ending` as optional milliseconds so a history file without them still decodes; start position is `max(opening, resume)`; the ending rides the existing five-second sampler into the existing `finished()` path. **Not device-verified** |
 | IOS-POC-5S-3 config `rules` → sniffer | **Next functional unit.** Preserve Android host→exclude/regex/script precedence; no invented m3u8 ad-rewrite semantics |
 | IOS-POC-16 Custom player controls | **Implemented; the bar is confirmed to render correctly on the simulator; per-control interaction testing handed to the user 2026-09-23.** AVKit draws no controls; `PlayerControlBar` draws close / subtitles / audio / speed / AirPlay / ±10 s / play / scrubber-with-buffer / opening / ending, and owns its own four-second auto-hide. Confirmed on the simulator: AVKit's controls are gone, the video is clean while the bar is hidden, and the bar renders complete and correctly laid out. **Not confirmed: any individual control, including the close button, which is now the only way out of the player** — the tooling round-trip is longer than the five-second auto-hide, so a two-step "summon then press" can never land. **Compare the installed binary before believing any simulator observation:** `ios/.build/out/...` holds a stale artifact while `xcodebuild` writes to DerivedData. `docs/IOS-POC-16-custom-player-controls.md` |
-| IOS-POC-15 Playback Buffering / Preload | **Planned, not started.** After the first core real-device playback baseline, tune AVPlayer forward buffering and add next-episode target pre-resolution; measure before/after rather than guessing cache sizes |
+| IOS-POC-15 Playback Buffering / Preload | **Code implemented 2026-09-23 / real-device performance verification pending.** A hysteretic `good/normal/risk/poor` model over buffer-ahead, `likelyToKeepUp`, `bufferEmpty`, `timeControlStatus`, stalls and the access log drives `preferredForwardBufferDuration` 60/90/120 s for VOD, leaves live and unknown-duration playback system-managed, and caps resolution to 1080p/720p **only** when `AVURLAsset.variants` reports more than one. `preferredPeakBitRate` stays 0 in every state and a test asserts it. The next episode's `PlaybackTarget` is pre-resolved **once**, through the same `SourceClient.playbackURL` pipeline, inside the last 90 s before the handoff, and the existing `playNext` consumes it or resolves normally. **266 tests / 265 pass** (+38), simulator build succeeds. **No device numbers exist**: startup latency, buffer-ahead, rebuffer counts, throughput and next-episode handoff are all unmeasured. `docs/IOS-POC-15-playback-buffering-preload.md` |
+| 2.5×/3× silent audio | **Fixed in code, not heard on a device.** `AVAudioTimePitchAlgorithmLowQualityZeroLatency` supports exactly 0.5/0.666/0.8/1/1.25/1.5/2 and drops audio at every other rate — which is precisely the two speeds IOS-POC-16 added. `AVPlayerItem.audioTimePitchAlgorithm = .timeDomain`. Reported by the user 2026-09-23; **not part of IOS-POC-15's charter**, fixed because its root cause is the item-creation site that stage was already editing |
 | IOS-POC-12 Runtime Architecture Reconciliation | **Planned, not started.** Begins only after 5S is complete, core real-device acceptance plus IOS-POC-15 are closed enough to freeze playback contracts, and the MPV keep/drop decision for the first stable product is recorded |
 | IOS-POC-13 Runtime Hot Update | **Planned, not started.** Begins only after IOS-POC-12 freezes the Native Core / Dynamic Layer boundary and update manifest contract |
 | More `csp_*`, Python dependency shims, CarPlay, automatic AVPlayer↔MPV fallback | **Backlog.** Do not let these pre-empt 5S, core acceptance, or the 12→13 refactor/update sequence |
@@ -63,6 +65,13 @@ path, but **not by replacing its signed native executable**. The sequencing is i
 **5S-2 closed on 2026-09-22**, so the remaining sequence is
 `5S-3 → core real-device playback baseline → IOS-POC-15 Playback Buffering / Preload → finish core
 real-device acceptance → MPV keep/drop decision → IOS-POC-12 → IOS-POC-13`.
+
+**IOS-POC-15's code landed on 2026-09-23 ahead of that baseline, at the user's explicit instruction.**
+The stage therefore owes the baseline *and* the post-change comparison together: the seven
+measurements in `docs/IOS-POC-15-playback-buffering-preload.md` §8 are what close it. What the stage
+did build is the ability to take those measurements — bounded diagnostics that name which of
+「來源解析慢／AVPlayer buffer 不足／CDN throughput 不足／selected bitrate 太高」is limiting playback —
+so the baseline run is now cheap. **Do not record IOS-POC-15 as closed on simulator evidence.**
 
 IOS-POC-15 deliberately comes **after a real-device playback baseline** so buffering work is driven
 by measured startup time, buffer-ahead, rebuffer/stall events, throughput and next-episode handoff

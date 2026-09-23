@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.7",
+          "date": "2026-09-23",
+          "localizedDescription": "IOS-POC-15 播放緩衝與下一集預解析。\n\n- 弱網時 AVPlayer 會多含一點：VOD 前置緩衝 60 秒，偵測到吃緊升到 90 秒，發生 rebuffer 升到 120 秒；恢復時一次只降一級，不會來回抖。直播與長度未知的來源維持系統管理，不套用這個策略。\n- 只有真的提供多條 variant 的 HLS，才會在弱網時限制畫質（吃緊 1080p、很差 720p），恢復時先回 1080p 再解除。direct MP4 與單一 variant 的來源永遠不會被降畫質。\n- 不會把你選的線路或畫質換掉，也沒有設任何下載速率上限。\n- 下一集會在本集最後 90 秒內先解析好位址（含 Referer/User-Agent），換集時通常可以直接開始播。換集／換線路／換畫質／換來源都會讓它失效，預解析失敗也只是回到原本的解析流程，不會害自動續播失敗。\n\n順帶修掉：2.5 倍與 3 倍速沒有聲音（AVPlayer 預設的音高演算法只支援到 2 倍，其餘速率會直接丟掉聲音，已改用支援 1/32～32 倍的演算法）。\n\n另外修掉進度條的已緩衝範圍在 seek 之後會顯示錯誤的問題。\n\n本版的效能改善尚未在真機量測過，請實際試用。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.7-b8/WebHTV-0.1.7-8.ipa",
+          "size": 24689841,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.6",
           "date": "2026-09-23",
           "localizedDescription": "自建播放控制列：AVKit 的控制列在 iOS 無法擴充，改由 App 自己畫。片頭／片尾移進控制列，跟著控制列一起出現與隱藏，影片上不再常駐任何控制。控制列含關閉、字幕／音軌、速度、AirPlay、±10 秒、播放暫停、含緩衝區段的進度條，五秒自動隱藏、暫停時不隱藏。速度選單改為 0.5/1/1.25/1.5/2/2.5/3，標籤不再出現多餘小數。修正切換速度會誤報片頭片尾的問題。",

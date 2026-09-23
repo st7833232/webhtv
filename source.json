@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.6",
+          "date": "2026-09-23",
+          "localizedDescription": "自建播放控制列：AVKit 的控制列在 iOS 無法擴充，改由 App 自己畫。片頭／片尾移進控制列，跟著控制列一起出現與隱藏，影片上不再常駐任何控制。控制列含關閉、字幕／音軌、速度、AirPlay、±10 秒、播放暫停、含緩衝區段的進度條，五秒自動隱藏、暫停時不隱藏。速度選單改為 0.5/1/1.25/1.5/2/2.5/3，標籤不再出現多餘小數。修正切換速度會誤報片頭片尾的問題。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.6-b7/WebHTV-0.1.6-7.ipa",
+          "size": 24650445,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.5",
           "date": "2026-09-23",
           "localizedDescription": "修正啟用子母畫面後返回 WebHTV 時，PiP 未解除且一般播放器未恢復的問題。此版本用於真機驗證 PiP foreground restore。",

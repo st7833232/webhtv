@@ -1954,6 +1954,7 @@ private struct PlayerSurface: UIViewControllerRepresentable {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.delegate = context.coordinator
+        context.coordinator.attach(controller)
         // IOS-POC-10H. Both flags are needed and they do different jobs: the first puts the PiP
         // button in AVKit's control bar, the second hands the video to a PiP window when the
         // viewer leaves the app instead of freezing it.
@@ -1970,22 +1971,62 @@ private struct PlayerSurface: UIViewControllerRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(active: $pictureInPicture) }
 
-    final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
+    @MainActor final class Coordinator: NSObject, @preconcurrency AVPlayerViewControllerDelegate {
         private let active: Binding<Bool>
+        private weak var playerViewController: AVPlayerViewController?
+        private var foregroundRestore = PictureInPictureForegroundRestoreState()
 
-        init(active: Binding<Bool>) { self.active = active }
+        init(active: Binding<Bool>) {
+            self.active = active
+            super.init()
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(appDidBecomeActive),
+                name: UIApplication.didBecomeActiveNotification,
+                object: nil
+            )
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(
+                self,
+                name: UIApplication.didBecomeActiveNotification,
+                object: nil
+            )
+        }
+
+        func attach(_ controller: AVPlayerViewController) {
+            playerViewController = controller
+        }
+
+        @objc private func appDidBecomeActive() {
+            guard let controller = playerViewController,
+                  foregroundRestore.consumeForegroundRequest(
+                    isPictureInPictureActive: active.wrappedValue
+                  ) else { return }
+
+            // AVPlayerViewController has no public stopPictureInPicture(). Toggling its public
+            // entitlement off asks AVKit to end the active session; restore it on the next main
+            // runloop so later PiP sessions remain available. The controller keeps the same player.
+            controller.allowsPictureInPicturePlayback = false
+            DispatchQueue.main.async { [weak controller] in
+                controller?.allowsPictureInPicturePlayback = true
+            }
+        }
 
         func playerViewControllerWillStartPictureInPicture(_ controller: AVPlayerViewController) {
+            foregroundRestore.pictureInPictureWillStart()
             active.wrappedValue = true
         }
 
         func playerViewControllerDidStopPictureInPicture(_ controller: AVPlayerViewController) {
+            foregroundRestore.pictureInPictureDidStop()
             active.wrappedValue = false
         }
 
-        /// Tapping the PiP window's restore button. The player screen is still presented
-        /// underneath — closing it is the viewer's business, not PiP's — so there is nothing to
-        /// rebuild and the honest answer is that the interface is already right.
+        /// AVKit calls this while an already-stopping PiP asks where to restore its UI. The player
+        /// screen remains presented underneath, so no controller needs rebuilding. Returning to
+        /// the app is a separate lifecycle path handled by `appDidBecomeActive()` above.
         func playerViewController(
             _ controller: AVPlayerViewController,
             restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completion: @escaping (Bool) -> Void

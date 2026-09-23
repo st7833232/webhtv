@@ -1,6 +1,6 @@
 # iOS PiP bug — returning to WebHTV does not restore the normal player
 
-- Status: **open / confirmed on real device**.
+- Status: **code fix implemented / device verification pending**.
 - Reported: 2026-09-22.
 - Area: AVKit / Picture in Picture / playback presentation lifecycle.
 - This record documents the bug only; it does not authorize a functional fix by itself.
@@ -30,7 +30,34 @@ When WebHTV returns to the foreground while its own playback session is still ac
 - do not create a second player or duplicate audio;
 - do not disturb WatchHistory, opening/ending skip, auto-advance, or playback-speed state.
 
-## Constraints for the future fix
+## Implemented code fix
+
+- `PlayerSurface.Coordinator` keeps a weak reference to its existing `AVPlayerViewController` and
+  observes `UIApplication.didBecomeActiveNotification` for the lifetime of that Coordinator.
+- A foreground event is consumed only while the existing `pictureInPicture` binding is true, and
+  only once per active PiP session.
+- Because `AVPlayerViewController` has no public `stopPictureInPicture()`, the Coordinator briefly
+  sets `allowsPictureInPicturePlayback` to `false`, then restores it to `true` on the next main
+  runloop. AVKit's existing `playerViewControllerDidStopPictureInPicture` callback clears the
+  binding.
+- The observer is removed when the Coordinator is released. The controller reference is weak, so
+  neither the observer nor the workaround retains a retired player surface.
+- No playback command is issued: the same `PlaybackSession.shared.player`, current item, position,
+  rate, playing/paused state, line/quality and history state remain untouched.
+- A pure-state seam covers non-PiP foreground, one request for an active PiP foreground, and two
+  repeated PiP cycles without accumulated restore state.
+
+## Verification state
+
+- Ponytail pre-review: `Lean already. Ship.`
+- Ponytail final-diff review: `Lean already. Ship.` (`net: -0 lines possible.`)
+- Three focused Swift tests were added for the lifecycle gate.
+- `swift test --package-path ios` and the Simulator Debug build still need to run on a macOS/Swift
+  toolchain. The current execution host is Linux and has neither `swift` nor `xcodebuild`; this is an
+  environment blocker, not a passing result.
+- No package, publish, SideStore release, or device install was performed.
+
+## Fix constraints
 
 - Treat this as an AVKit/PiP presentation-lifecycle problem first.
 - Do not introduce a second playback state or second AVPlayer to solve it.
@@ -40,7 +67,7 @@ When WebHTV returns to the foreground while its own playback session is still ac
 
 ## Acceptance
 
-A future fix closes this bug only when all of the following pass on a real device:
+This bug closes only when all of the following pass on a real device:
 
 - built-in player → PiP → return to WebHTV dismisses PiP and restores the normal player;
 - playback continues at the same position without duplicate audio;

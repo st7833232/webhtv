@@ -133,12 +133,15 @@ unverified until a later device pass.
   `User-Agent` actually playing through `AVPlayer`**; whether `AVURLAssetHTTPHeaderFieldsKey` works
   on a device at all; WatchHistory position and resume; opening Infuse / Fileball / SenPlayer /
   VidHub; the player's volume and brightness drags; the line-picker row; and **MPV rendering**.
-- **Confirmed real-device PiP bug (2026-09-22):** entering Picture in Picture and then returning to
-  WebHTV leaves PiP active instead of dismissing it and restoring the normal in-app player surface.
-  This is now an acceptance blocker for PiP, not merely an unverified item. Fix must preserve the
-  existing `PlaybackSession`, current item, position, rate and playing/paused state; it must not
-  create a second player or duplicate audio. Repeated PiP → app → PiP cycles must also remain clean.
-  Durable bug record: `docs/bugs/IOS-PIP-foreground-restore.md`.
+- **PiP foreground restore (2026-09-22): code fix implemented / device verification pending.**
+  `PlayerSurface.Coordinator` observes the app becoming active, and only while its existing PiP
+  binding is true it briefly disables `allowsPictureInPicturePlayback`, restoring it on the next
+  main runloop. This asks AVKit to stop PiP without touching `PlaybackSession.shared.player`, its
+  item, position, rate or playing/paused state. A small state gate permits one request per active
+  PiP session and resets for the next cycle; three focused tests cover the gate. The current Linux
+  host has no Swift/Xcode toolchain, so the full Swift suite and Simulator build remain unrun here.
+  Real-device closure still requires the repeated-cycle acceptance in
+  `docs/bugs/IOS-PIP-foreground-restore.md`.
 - **麻豆 playing does not settle the header question.** Its only header is a `User-Agent`, and that
   stream answers `HTTP 200` with and without one — measured with `curl` both ways on 2026-09-22.
 - **The header question is the sharp one.** `avURLAssetSendsTheHeadersItWasGiven` stands a real

@@ -2,6 +2,8 @@
 
 - 狀態：**程式已實作，真機效能驗收未完成（code implemented / real-device performance
   verification pending）**。本文件所有數字都來自單元測試與模擬器建置，**沒有任何一項是真機量測**。
+- **使用者決定（2026-09-23）：真機效能驗收延後，由使用者之後自行測試。** 在收到真機結果前維持 pending，
+  不得標記 closed；但這個延後驗收**不阻塞下一個 functional unit IOS-POC-5S-3**。
 - 基線 HEAD `ecebeaa3`（2026-09-23，`origin/ios-poc` 同步，worktree 乾淨）
 - Lane：`standard`
 - 前身：本文件在 2026-09-22 是一份 **plan only**，明寫「authorizes no functional implementation」。

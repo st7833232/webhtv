@@ -423,6 +423,8 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   performance verification is still owed.** This bullet read "planned, not started" until
   2026-09-23. Base HEAD was `ecebeaa3`. **Do not record it as closed** — every number behind it is a
   unit test or a simulator build, and the user asked for it before a device baseline existed.
+  **User decision 2026-09-23:** defer the IOS-POC-15 real-device performance pass until later; keep it pending rather
+  than closed, but do **not** hold the roadmap here. Continue with IOS-POC-5S-3 as the next functional unit.
   What is built: a `good/normal/risk/poor` model in `ios/Sources/WebHTVCore/PlaybackNetworkPolicy.swift`
   over buffer-ahead, `isPlaybackLikelyToKeepUp`, `isPlaybackBufferEmpty`, `timeControlStatus`,
   stalls and `AVPlayerItemAccessLog`'s observed/indicated bitrate. **No single sample may move the

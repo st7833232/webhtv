@@ -1,5 +1,7 @@
 # IOS-POC-5Q — 多畫質選擇
 
+> **Superseded by dual internal-player decision, 2026-09-23** — for every mention of third-party players here (Infuse / Fileball / SenPlayer / VidHub, URL-scheme handoff, "external player"): they were removed from the product; WebHTV plays only with its own AVPlayer and MPV engines. See `docs/IOS-POC-17-dual-internal-player.md`. The rest of this record stands as written.
+
 - 狀態：**Q1 / Q2 / Q3 已實作並驗證**
 - 分支 `ios-poc`，基線 HEAD `d571f3a7`（IOS-POC-5P 之後）
 - 計畫：`docs/IOS-POC-5Q-5R-plan-playback-quality-and-history.md`（Ready for Dev，`PASS`）

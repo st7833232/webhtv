@@ -1,5 +1,7 @@
 # IOS-POC-14 — 一集播完自動播下一集，整條線播完就關閉播放器
 
+> **Superseded by dual internal-player decision, 2026-09-23** — for every mention of third-party players here (Infuse / Fileball / SenPlayer / VidHub, URL-scheme handoff, "external player"): they were removed from the product; WebHTV plays only with its own AVPlayer and MPV engines. See `docs/IOS-POC-17-dual-internal-player.md`. The rest of this record stands as written.
+
 - 狀態：**已實作**，尚未有人在 App 裡看著它發生。
 - **編號更正**：本階段原先寫成 `IOS-POC-12A`，與 `docs/IOS-POC-12-13-runtime-update-roadmap.md`
   已經佔用的 12／13 相撞。實作的 commit message 仍寫著 `IOS-POC-12A`——commit 訊息不改寫，

@@ -1,5 +1,7 @@
 # IOS-POC-5R — 播放記錄、續播與 `app.history`
 
+> **Superseded by dual internal-player decision, 2026-09-23** — for every mention of third-party players here (Infuse / Fileball / SenPlayer / VidHub, URL-scheme handoff, "external player"): they were removed from the product; WebHTV plays only with its own AVPlayer and MPV engines. See `docs/IOS-POC-17-dual-internal-player.md`. The rest of this record stands as written.
+
 - 狀態：**R1–R6 已實作並驗證**。R7（片頭／片尾跳過）在 5R 當下依使用者 2026-09-18 指示 deferred，
   **但它已於 2026-09-22 以 IOS-POC-5S-2 實作完成**——記錄在 `docs/IOS-POC-5S-ads-and-skip.md`，
   不在本文件。本文以下所有寫著「R7 未實作／deferred」的句子都只描述 5R 當時的狀態。

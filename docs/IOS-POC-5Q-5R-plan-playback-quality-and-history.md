@@ -1,5 +1,7 @@
 # Plan — IOS-POC-5Q 多畫質選擇 + IOS-POC-5R 播放記錄 + IOS-POC-5S 嗅探層廣告與站點規則
 
+> **Superseded by dual internal-player decision, 2026-09-23** — for every mention of third-party players here (Infuse / Fileball / SenPlayer / VidHub, URL-scheme handoff, "external player"): they were removed from the product; WebHTV plays only with its own AVPlayer and MPV engines. See `docs/IOS-POC-17-dual-internal-player.md`. The rest of this record stands as written.
+
 - 狀態：**5Q 與 5R（R1–R6）已實作**（2026-09-18）。**IOS-POC-5S 與 5R 的 R7 由使用者
   2026-09-18 明確指示 deferred**——設計保留在本文件中，不刪除，但不在目前主線。
 - 建立：2026-09-18

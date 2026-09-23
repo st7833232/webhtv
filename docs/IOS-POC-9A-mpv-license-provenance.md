@@ -1,5 +1,7 @@
 # IOS-POC-9A — iOS MPV 第二播放核心：授權與來源（license / provenance）審查
 
+> **Superseded by dual internal-player decision, 2026-09-23** — for every mention of third-party players here (Infuse / Fileball / SenPlayer / VidHub, URL-scheme handoff, "external player"): they were removed from the product; WebHTV plays only with its own AVPlayer and MPV engines. See `docs/IOS-POC-17-dual-internal-player.md`. The rest of this record stands as written.
+
 - 狀態：**評估限定（assessment-only）**。**未改任何 production 程式碼、lock、build script 或二進位。**
 - 分支 `ios-poc`，基線 HEAD `7aa5f980`
 - 日期：2026-09-21

@@ -1,5 +1,7 @@
 # IOS-POC-15 — 播放緩衝與下一集預解析
 
+> **Superseded by dual internal-player decision, 2026-09-23** — for every mention of third-party players here (Infuse / Fileball / SenPlayer / VidHub, URL-scheme handoff, "external player"): they were removed from the product; WebHTV plays only with its own AVPlayer and MPV engines. See `docs/IOS-POC-17-dual-internal-player.md`. The rest of this record stands as written.
+
 - 狀態：**程式已實作，真機效能驗收未完成（code implemented / real-device performance
   verification pending）**。本文件所有數字都來自單元測試與模擬器建置，**沒有任何一項是真機量測**。
 - **使用者決定（2026-09-23）：真機效能驗收延後，由使用者之後自行測試。** 在收到真機結果前維持 pending，

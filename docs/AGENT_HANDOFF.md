@@ -123,6 +123,20 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   `a076ab51`, `20c4bd53` and `616e182e` before, and a handoff arriving with **`035ad0bf` as "the
   latest on GitHub" was sixteen commits behind** — that commit is the roadmap-only one, an ancestor
   rather than the tip. Run `git log` and the `rev-list` above on resume instead of reading it here.
+- **IOS-POC-17 — the app plays with its own two engines (2026-09-23, user decision).** Started at
+  `2a46c3fb` (= `origin/ios-poc`, `0 0`, clean); commits `ecb0c4d0` 17A, `cf076e79` 9G, `7d679d68`
+  17B, `a1750b8c` 17C, then 17D docs — **none pushed**. External players are gone (17A). **MPV's
+  black screen was our probe**: it drained mpv's events inside the wakeup callback, which
+  `client.h` forbids and which deadlocks on the playloop at `FILE_LOADED`; fixed as MPVKit's demo
+  does it, and **both Metal and OpenGL draw on the simulator** (9G). **Device: not re-run.** Core now
+  has `PlaybackEngine` / `PlayerRouter` / `PlaybackEngineSelection` / `PlaybackFailure`;
+  `AVPlayerEngine` is a thin adapter over the unchanged AVPlayer code (IOS-POC-15's policy runs only
+  on AVPlayer), `MPVEngine` is the demo's Metal path; 「預設播放器」 in settings; the control bar
+  shows the engine actually playing and switches it for the session; only engine-capability
+  failures fall back, once per attempt, either way (17B). An episode opens the player directly
+  (17C). **Release builds offer AVPlayer only** until MPV's device first frame; Debug builds offer
+  both. **322 tests, all pass**; simulator build succeeds. VLCKit only after the MPV stop condition,
+  never a third engine. `docs/IOS-POC-17-dual-internal-player.md`.
 - **Core real-device acceptance is prepared (IOS-POC-8L, 2026-09-23), not performed.** HEAD was
   `f0495b8b` = `origin/ios-poc`, `0 0`, clean; everything after `63040bb3` is docs-only, so the
   measurement below still describes the functional tree and was **cited, not re-run**. The
@@ -131,7 +145,9 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   before judging 5S on a phone: `wang-movie.json` has no source reaching either `script` rule host
   or its one ad host, and the sniffer web view and all `print` diagnostics are invisible on a
   SideStore Release install.
-- **Latest measurement — macOS at `63040bb3` (IOS-POC-5S-3) on 2026-09-23:**
+- **Latest measurement — IOS-POC-17B on 2026-09-23:** `swift test` → **322 tests, all pass**;
+  simulator Debug build → **BUILD SUCCEEDED**. The 297/296 line below is superseded.
+- **Earlier — macOS at `63040bb3` (IOS-POC-5S-3) on 2026-09-23:**
   `swift test --package-path ios` → **297 tests, 296 pass, 1 fails**, and the simulator Debug build
   (`id=7B4E9557-4774-4EB9-B408-BB544DCC8657`) → **BUILD SUCCEEDED**. The failure is the same
   provider-weather test named below. **266, 228, 225, 203 and 197 are all superseded** — this list is
@@ -216,8 +232,8 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
 - **Playback carries the source's request headers since IOS-POC-5P.** `SourceClient.playbackURL`
   returns a `PlaybackTarget`; the probe, the sniffer and `AVURLAsset` all use them. bilibili's CDN
   requires **both** a `Referer` and a browser `User-Agent` (measured 2026-09-18: browser UA +
-  Referer → 206, everything else → 403). External players still cannot be told about headers — a URL
-  scheme is their whole interface. `AVURLAssetHTTPHeaderFieldsKey` is undocumented;
+  Referer → 206, everything else → 403). (External players could never be told about headers — one of the
+  reasons they were removed; superseded by dual internal-player decision, 2026-09-23.) `AVURLAssetHTTPHeaderFieldsKey` is undocumented;
   `avURLAssetSendsTheHeadersItWasGiven` observes it working against a real socket.
 - **`playerContent`'s `url` reads all three CatVod shapes since IOS-POC-5Q.** `PlayURL` is the only
   decoder for it on **both** the spider and the CMS path — reading it as a `String` used to throw on
@@ -316,7 +332,8 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   dependency and policy counts as the simulator. Full record:
   `docs/IOS-POC-7A-python-runtime.md`.
 - **Also implemented:** native Swift config/CMS core; SwiftUI iPhone shell with Android-like
-  wallpaper and settings; AVPlayer plus Infuse, Fileball, SenPlayer and VidHub; type-0, type-1 and
+  wallpaper and settings; AVPlayer and MPV as the app's own two engines (Infuse, Fileball, SenPlayer and VidHub were
+  removed on 2026-09-23); type-0, type-1 and
   type-4 sources; two-level category browsing, CatVod filter rows, scrolling category rows, a Top
   button and collapsible child rows; pagination; configuration from an imported file **or any HTTPS
   Raw URL** with schema validation, last-known-good caching, atomic replace, last-update status,
@@ -337,7 +354,8 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   (IOS-POC-11): the workflow, `source.json` and two published releases exist.
   **MPV is not on this list either, and is not finished** — it is started and paused; see the MPV
   bullet below. A source-specific DNS or TLS error does not prove a global iOS network bug.
-- **MPV: started, implemented in part, rendering unresolved and paused.** MPVKit 1.0.0 (non-GPL) is
+- **Superseded 2026-09-23 by IOS-POC-9G/17 — see the IOS-POC-17 bullet above.** The rest of this
+  bullet is the pre-9G record: **MPV: started, implemented in part, rendering unresolved and paused.** MPVKit 1.0.0 (non-GPL) is
   wired into the App target, static linking is confirmed by symbol table rather than by configure
   flags, and **libmpv initialises on the simulator and on the iPhone 18 Pro** (IOS-POC-9B/9C/9D/9F).
   **Rendering does not work.** On the device, Metal + software decode reaches `FILE_LOADED` and
@@ -378,8 +396,9 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   normal now that the user installs through SideStore rather than over a cable.
   **Still owed before this can be called an acceptance:** CMS browsing and playback, a `csp_*`
   source, a drpy source, Bili's `Referer` + browser `User-Agent` through `AVPlayer`, whether
-  `AVURLAssetHTTPHeaderFieldsKey` works on a device at all, WatchHistory and resume, opening
-  Infuse / Fileball / SenPlayer / VidHub, and MPV rendering if it is fixed.
+  `AVURLAssetHTTPHeaderFieldsKey` works on a device at all, WatchHistory and resume, and MPV on a
+  device (first frame, switching, fallback — 8L ⑱⑲). ~~Opening Infuse / Fileball / SenPlayer /
+  VidHub~~ is superseded: they were removed on 2026-09-23.
   **Picture in Picture foreground restore has a code fix and still needs device verification.**
   `PlayerSurface.Coordinator` now consumes one foreground request per active PiP session and uses
   the smallest public AVKit workaround: disable `allowsPictureInPicturePlayback`, then restore it on
@@ -420,9 +439,8 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   contract to port and inventing one is forbidden; and **opening/ending are not in the configuration**
   but in `History` as user-set millisecond offsets, consumed in exactly two places
   (`position = max(opening, position)` and `ending + position >= duration → checkEnded`). After 5S, close the core real-device acceptance sufficiently to freeze the
-  product contracts, then record the **MPV keep/drop decision** for the first stable product; MPV is
-  still paused at the `FILE_LOADED → VIDEO_RECONFIG` gap and must not silently become a blocker
-  unless the user chooses to include it. Only then begin **IOS-POC-12 Runtime Architecture
+  product contracts, then — ~~record the MPV keep/drop decision~~ (**made 2026-09-23: MPV is kept**, and its
+  device first frame is now part of core acceptance, IOS-POC-17) — only then begin **IOS-POC-12 Runtime Architecture
   Reconciliation**, a behaviour-preserving refactor/contract-freeze stage, followed by
   **IOS-POC-13 Runtime Hot Update**. IOS-POC-13 owns manifest/version/hash/authenticity checks,
   staging, atomic activation, rollback/LKG and runtime-generation isolation; it does **not** replace

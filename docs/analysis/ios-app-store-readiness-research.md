@@ -1,5 +1,7 @@
 # iOS 發行可行性研究
 
+> **Superseded by dual internal-player decision, 2026-09-23** — for every mention of third-party players here (Infuse / Fileball / SenPlayer / VidHub, URL-scheme handoff, "external player"): they were removed from the product; WebHTV plays only with its own AVPlayer and MPV engines. See `docs/IOS-POC-17-dual-internal-player.md`. The rest of this record stands as written.
+
 日期：2026-09-21
 範圍：目前 `ios-poc` 的 App Store 送審風險，以及不經 App Store、自行簽署 IPA 的替代路線。
 

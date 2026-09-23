@@ -1,5 +1,7 @@
 # IOS-POC-2E — WebHome bridge: the playback half
 
+> **Superseded by dual internal-player decision, 2026-09-23** — for every mention of third-party players here (Infuse / Fileball / SenPlayer / VidHub, URL-scheme handoff, "external player"): they were removed from the product; WebHTV plays only with its own AVPlayer and MPV engines. See `docs/IOS-POC-17-dual-internal-player.md`. The rest of this record stands as written.
+
 ## Recovery anchor
 
 - Branch `ios-poc`, baseline HEAD `e1db99d8`, clean worktree, level with `origin/ios-poc` (2026-09-16 13:50 CST).

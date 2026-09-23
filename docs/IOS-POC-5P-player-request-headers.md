@@ -1,5 +1,7 @@
 # IOS-POC-5P — the headers travel with the URL
 
+> **Superseded by dual internal-player decision, 2026-09-23** — for every mention of third-party players here (Infuse / Fileball / SenPlayer / VidHub, URL-scheme handoff, "external player"): they were removed from the product; WebHTV plays only with its own AVPlayer and MPV engines. See `docs/IOS-POC-17-dual-internal-player.md`. The rest of this record stands as written.
+
 A spider has always attached request headers to its play result. The app threw them away between
 resolving a stream and opening it, so a CDN that checks `Referer` produced a URL that looked fine and
 then refused to play. This closes that gap from the spider all the way to `AVPlayer`.

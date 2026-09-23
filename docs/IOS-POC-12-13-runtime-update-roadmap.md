@@ -13,22 +13,36 @@ The updater must be built around contracts that are stable enough to freeze. Bui
 `SourceClient`, playback, Spider ABI or persistence are still moving would force the update format
 to chase implementation details and would turn ordinary refactors into compatibility breaks.
 
-Entry order is therefore:
+Entry order — **replaced 2026-09-23 by the user's dual internal-player decision**
+(`docs/IOS-POC-17-dual-internal-player.md`). The earlier order ended in
+"MPV keep/drop decision → IOS-POC-12"; that decision is made — MPV is kept as the second internal
+engine — so the order is now:
 
-1. Finish IOS-POC-5S (5S-2 opening/ending, then 5S-3 config rules).
-2. Run the **core real-device playback baseline** first: startup latency, buffer-ahead, stall/rebuffer
-   events, observed/indicated bitrate or equivalent throughput evidence, and next-episode handoff
-   time. Close correctness defects before performance tuning.
-3. IOS-POC-15 — Playback Buffering / Preload. Tune AVPlayer from those measurements and re-run the
-   same device measurements; do not substitute a large fixed cache target for evidence.
-4. Finish the remaining core real-device acceptance after 15.
-5. Record an explicit **MPV keep/drop decision** for the first stable product. MPV rendering may
-   remain deferred; the decision is what matters for freezing the native playback boundary.
-6. IOS-POC-12 — Runtime Architecture Reconciliation.
-7. IOS-POC-13 — Runtime Hot Update.
+1. ~~Remove external players~~ **done** (IOS-POC-17A).
+2. ~~MPV rendering recovery~~ **done on the simulator** (IOS-POC-9G: both Metal and OpenGL draw);
+   **the real-device first frame is still owed**.
+3. ~~Minimal `MPVEngine`~~, ~~AVPlayer + MPV dual-engine integration~~, ~~global default engine
+   setting~~, ~~session engine selector~~, ~~manual engine switching~~, ~~classified automatic
+   fallback~~ — **implemented** (IOS-POC-17B); MPV stays disabled in release builds until its
+   device gate passes.
+4. **Core real-device acceptance** (`docs/IOS-POC-8L-core-real-device-acceptance.md`), now including
+   MPV's device first frame, switching and fallback.
+5. IOS-POC-12 — Runtime Architecture Reconciliation.
+6. IOS-POC-13 — Runtime Hot Update.
 
-Portable CSP expansion, Python Crypto/lxml/pyquery/bs4 work, CarPlay and automatic AVPlayer↔MPV
-fallback stay behind this sequence unless the user explicitly reprioritises them.
+Only if MPV reaches the stop condition in IOS-POC-17 §5 on a device and is proven unsuitable:
+`MPV stop → minimal VLCKit replacement spike → decision AVPlayer + VLC` — never three engines.
+KSPlayer stays a secondary contingency and GStreamer / a custom FFmpeg+VideoToolbox player are not
+pursued. IOS-POC-15's device performance pass stays deferred at the user's decision and is not a
+gate.
+
+**Superseded, kept for the record** — the 2026-09-22 order was: finish 5S; device playback
+baseline; IOS-POC-15; the rest of core acceptance; MPV keep/drop decision; 12; 13. Its line
+"automatic AVPlayer↔MPV fallback stay behind this sequence" is superseded by the same decision:
+classified fallback is now part of the playback contract IOS-POC-12 freezes.
+
+Portable CSP expansion, Python Crypto/lxml/pyquery/bs4 work and CarPlay stay behind this sequence
+unless the user explicitly reprioritises them.
 
 ## IOS-POC-12 — Runtime Architecture Reconciliation
 
@@ -44,6 +58,9 @@ At minimum audit and freeze the externally meaningful semantics of:
 - `ConfigSource` and configuration identity / per-source cache isolation;
 - `SourceClient` and `PlaybackTarget` including request headers;
 - `PlaybackSession` state and control semantics;
+- the playback engine boundary (IOS-POC-17): `PlaybackEngine`, `PlayerRouter`,
+  `PlaybackEngineSelection` (global default / session override / current engine), and
+  `PlaybackFailure`'s classification and one-fallback rule;
 - `SpiderRuntime`, `CSPSourceResolver`, CatVod JS / Python / drpy routing and host primitives;
 - `WatchHistory` persistence, source binding, opening/ending fields after 5S-2, resume behaviour;
 - WebHome bridge ABI and Android-shaped payload compatibility;
@@ -191,5 +208,6 @@ Info.plist capabilities or native ABI still require a new IPA through SideStore.
 ## Recovery anchor
 
 When this roadmap resumes, do **not** start by writing a downloader. Re-read the current Git state,
-5S results, real-device acceptance, the MPV decision and this document. IOS-POC-12 is first; only
+5S results, real-device acceptance, IOS-POC-17 (the MPV decision is made: MPV is kept) and this
+document. IOS-POC-12 is first; only
 after its contract-freeze acceptance is complete may IOS-POC-13 begin.

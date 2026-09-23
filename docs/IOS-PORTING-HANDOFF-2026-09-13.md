@@ -1,5 +1,7 @@
 # WebHTV iPhone / iOS Porting Handoff — 2026-09-13
 
+> **Superseded by dual internal-player decision, 2026-09-23** — for every mention of third-party players here (Infuse / Fileball / SenPlayer / VidHub, URL-scheme handoff, "external player"): they were removed from the product; WebHTV plays only with its own AVPlayer and MPV engines. See `docs/IOS-POC-17-dual-internal-player.md`. The rest of this record stands as written.
+
 This document is the durable handoff for the iPhone/iOS work discussed on 2026-09-13. It is intended to let a new ChatGPT/Work/Codex session continue without reconstructing the conversation.
 
 > Scope note: this document began as an assessment/architecture handoff. Functional iOS POC stages are now recorded in its recovery anchor below; each bounded change remains gated by Ponytail review as described in `docs/AGENT_HANDOFF.md`.

@@ -1,5 +1,7 @@
 # IOS-POC-8L — Core Real-Device Acceptance Matrix（核心真機驗收矩陣）
 
+- **2026-09-23 更新（IOS-POC-17）**：外部播放器已從產品移除（⑪ 移到 7.4）、雙內部播放核心落地
+  （新增 ⑮–⑲）、點集數直接進播放畫面。RC 內容與 release notes 草稿已同步更新（第三節）。
 - 狀態：**驗收準備完成；真機驗收尚未開始**。本文件只整理「要驗什麼、用哪個 build、用哪個來源、
   怎麼判定」，**沒有任何一項因為本文件而變成已驗證**。
 - 日期：2026-09-23（CST）
@@ -46,9 +48,9 @@ seek 後 buffered bar 修正）。所以**除了 ① 以外的項目，現在手
 | 項目 | 規劃 |
 |---|---|
 | 版本 | `MARKETING_VERSION = 0.1.8`、`CURRENT_PROJECT_VERSION = 9`（目前專案是 `0.1.7`／`8`；`source.json` 最新一筆是 `0.1.7`；`0.1.8`／`9` 未被使用過） |
-| 內容 | 最新 `ios-poc` HEAD（functional tree ＝ `63040bb3`）：**5S-3 + 5S-1 + 5S-2 + IOS-POC-15 + 2.5×／3× 音訊修正 + PiP foreground restore + IOS-POC-16** |
+| 內容 | 最新 `ios-poc` HEAD：**5S-3 + 5S-1 + 5S-2 + IOS-POC-15 + 2.5×／3× 音訊修正 + PiP foreground restore + IOS-POC-16**，**加上 IOS-POC-17**（外部播放器移除、雙核心架構與播放器選擇、點集數直接播放、AVPlayer 失敗顯示原因）。**注意：Release 版的 MPV 選項是「尚未開放」**——MPV 真機 first frame 未驗前不讓正式使用者點進去 |
 | tag / asset | `ios-v0.1.8-b9` / `WebHTV-0.1.8-9.ipa`（workflow 依 input 自動命名） |
-| 本輪已做的預檢 | **本機 unsigned `iphoneos` Release build，`BUILD SUCCEEDED`**（旗標與 workflow 相同，以命令列覆寫 `MARKETING_VERSION=0.1.8 CURRENT_PROJECT_VERSION=9`，**沒有改專案檔**）。產物 `Info.plist`：`com.webhtv.ios.poc` / `0.1.8` / build `9` / minimum iOS `17.0`；主執行檔 36,684,144 bytes，`strings` 找得到 `SnifferRules`／`snifferRules`。62 條 warning 分布在 `MPVProbeView.swift` 13、`WebHTVApp.swift` 7、`HTTPHost.swift` 7 等檔，與 IOS-POC-15／5S-3 記錄過的既有 warning 同檔，**本輪沒有逐條對 base 比對** |
+| 本輪已做的預檢（**在 `63040bb3` 的 tree 上做的；IOS-POC-17 之後尚未重跑 iphoneos Release 預建置**） | **本機 unsigned `iphoneos` Release build，`BUILD SUCCEEDED`**（旗標與 workflow 相同，以命令列覆寫 `MARKETING_VERSION=0.1.8 CURRENT_PROJECT_VERSION=9`，**沒有改專案檔**）。產物 `Info.plist`：`com.webhtv.ios.poc` / `0.1.8` / build `9` / minimum iOS `17.0`；主執行檔 36,684,144 bytes，`strings` 找得到 `SnifferRules`／`snifferRules`。62 條 warning 分布在 `MPVProbeView.swift` 13、`WebHTVApp.swift` 7、`HTTPHost.swift` 7 等檔，與 IOS-POC-15／5S-3 記錄過的既有 warning 同檔，**本輪沒有逐條對 base 比對** |
 | 本輪**沒有**做 | 版號 commit、tag、push、`workflow_dispatch`、GitHub Release、`source.json` 更新、IPA 下載回驗 |
 
 **發布時（需要使用者另外明確授權）的最短序列**，與 `0.1.6`／`0.1.7` 相同：
@@ -70,6 +72,11 @@ WebHTV 0.1.8 (9) — 驗收候選版（未經真機驗收）
 新增
 - 設定檔的 rules 接進嗅探：依規則的 hosts 決定 exclude／regex 是否接受候選網址，
   script 只在嗅探用的 WebView 內執行。沒有規則命中時行為與先前相同。
+- 只使用 App 內建播放器：移除 Infuse／Fileball／SenPlayer／VidHub。
+- 點選集數直接進入播放畫面（不再經過「選擇播放器」頁）。
+- 設定頁新增「預設播放器」；播放控制列顯示目前使用的播放器。
+  MPV 仍在驗證中，本版顯示為「尚未開放」。
+- 播放失敗時顯示原因（網路、HTTP 狀態、格式不支援），不再只有黑畫面。
 
 沿用並一併帶上
 - 設定檔 ads 網域封鎖（只作用在嗅探 WebView）。
@@ -82,9 +89,8 @@ WebHTV 0.1.8 (9) — 驗收候選版（未經真機驗收）
   字幕／音軌（多於一個選項時才出現）、AirPlay。
 
 已知限制
-- MPV 播放核心仍未完成（畫面不出來），本版不使用。
-- 外部播放器（Infuse／Fileball／SenPlayer／VidHub）只收得到網址，收不到 request headers，
-  也不會回傳播放位置。
+- MPV 播放核心已在模擬器上出畫面，真機尚未驗證，本版不開放。
+- 同一集有多個畫質網址的來源，開播時使用記住的或預設的畫質，暫不提供手動挑選。
 - 本版為驗收用候選版，真機驗收結果尚未回報。
 ```
 
@@ -153,6 +159,7 @@ WebHome site，所以真機上沒有 WebHome 頁面可以拿來對照。
 | 檢查 | 結果 | 證據等級 |
 |---|---|---|
 | `swift test --package-path ios` | **297 tests / 296 pass**；唯一失敗 `reportsLiveType4SitesFromProvidedConfig`（88看球 解析成 HTML `qq-kbs.html`，provider 天氣，**不修**） | **引用** `63040bb3` 2026-09-23 的量測；HEAD functional tree 與它相同，所以仍成立。**本輪未重跑** |
+| **更新 2026-09-23，IOS-POC-17B 之後** `WANG_MOVIE_JSON=<使用者設定> swift test --package-path ios` | **322 tests，全部通過**（297 − 1 移除 + 1 移除檢查 + 25 雙核心）；那條天氣測試這次也通過 | 本輪實測，macOS |
 | Simulator Debug build（`id=7B4E9557-4774-4EB9-B408-BB544DCC8657`） | **BUILD SUCCEEDED** | **引用**，同上 |
 | iphoneos Release unsigned build（RC 預檢，`0.1.8`／`9` 覆寫） | **BUILD SUCCEEDED**，Info.plist 版本正確 | **本輪實測**（2026-09-23 16:06–16:07 CST） |
 | Ponytail | **本輪沒有跑 functional Ponytail**，因為沒有 functional diff。不宣稱執行過 | — |
@@ -190,20 +197,29 @@ WebHome site，所以真機上沒有 WebHome 頁面可以拿來對照。
 | ⑧ | drpy 來源播放 | `DrpyEngine` + `JavaScriptSpiderRuntime` | **遠端設定**下的 `🎡｜去看动漫`、`🎡｜爱动漫`、`🎡｜七色番动漫`（6B 四站都到過媒體位元組） | 同上 | 同上 |
 | ⑨ | Bili：`Referer` + 瀏覽器 UA 經 AVPlayer | `PlaybackTarget.headers` → `AVURLAsset(url:options: ["AVURLAssetHTTPHeaderFieldsKey": headers])`（`WebHTVApp.swift:2282`） | `🎖︎｜bilbil合集｜`（`csp_Bili`） | 選集 → 內建播放器**能播**＝headers 在真機生效（bilibili CDN 缺 Referer 或瀏覽器 UA 會回 403，2026-09-18 以 curl 量過）。**這一項同時回答 `AVURLAssetHTTPHeaderFieldsKey` 在真機是否生效**；麻豆的成功不算，因為它沒有 header 也回 200 | 能播／不能播；不能播時錯誤訊息原文 |
 | ⑩ | WatchHistory／resume | `WatchHistoryStore`；`PlaybackSession.open`（`WebHTVApp.swift:1808`，`startPosition(resuming:)` `:1846`）；`persist` `:1942` | 任一 CMS 或 `csp_*` 來源 | 播放 > 10 秒 → 關閉 → 記錄分頁出現「看到 m:ss / 總長」→ 從記錄或詳情再開：**從上次位置續播**（>10 秒且不在片尾區才續）；詳情頁標出上一集；線路／集數與記錄一致；看完的片重播從片頭（或 0） | 續播秒數、記錄文字、詳情頁標記 |
-| ⑪ | 外部播放器 URL handoff | `ExternalPlayer.playbackURL`（`ios/Sources/WebHTVCore/ExternalPlayer.swift`：`infuse://x-callback-url/play`、`filebox://play`、`senplayer://x-callback-url/play`、`open-vidhub://x-callback-url/play`，只帶 `url`）；`PlayerPickerView`（`WebHTVApp.swift:1547`） | 一個**不需要 headers** 的 CMS 來源 | 播放器選單選 Infuse／Fileball／SenPlayer／VidHub（手機上有裝的）→ 對方 App 打開並開始播。**既有限制（不算失敗）**：headers 傳不過去（Bili 類必失敗）、位置不會回傳、不寫 WatchHistory | 每個 App：有沒有打開、有沒有播 |
+| ~~⑪~~ | ~~外部播放器 URL handoff~~ | **Superseded by dual internal-player decision, 2026-09-23**：外部播放器已從產品移除（IOS-POC-17A），不再是驗收項目，見 7.4 | — | — | — |
 | ⑫ ★ | auto-next 回歸 smoke | `playNext`（`WebHTVApp.swift:1364`）；`finished()` `:2188` | 多集來源 | 播到結尾 → 自動接下一集；最後一集關閉 | ✅／❌ |
-| ⑬ ★ | 既有功能 bounded 回歸 | 畫質選單只有 `qualities.count > 1` 才出現（`PlayerPickerView.offersChoice`）；速度沿用 `chosenRate` 以 `WatchHistory.key` 為鍵（`:1814`）；PiP 自動進入 `canStartPictureInPictureAutomaticallyFromInline`（`:2681`）；AirPlay | 同上 | 詳情頁線路列可切換；同一部片換集速度沿用、換來源重設（14C 決定）；離開 App 自動進 PiP；AirPlay 可投（若手邊有裝置） | 每項 ✅／❌ |
+| ⑬ | 既有功能 bounded 回歸 | 開播用記住的或預設畫質（`Playback.start()`，IOS-POC-17C 起選單頁已移除）；速度沿用 `chosenRate` 以 `WatchHistory.key` 為鍵（`:1814`）；PiP 自動進入 `canStartPictureInPictureAutomaticallyFromInline`（`:2681`）；AirPlay | 同上 | 詳情頁線路列可切換；同一部片換集速度沿用、換來源重設（14C 決定）；離開 App 自動進 PiP；AirPlay 可投（若手邊有裝置） | 每項 ✅／❌ |
 | ⑭ ★ | IOS-POC-15 最基本 smoke（**不是效能驗收**） | `PlaybackBufferPolicy`、`PlaybackTargetPrefetch` | 任一 | 影片能播、2.5×／3× 有聲（與⑤重疊）、播放一段時間沒有明顯 crash | ✅／❌ |
+| ⑮ | 點集數直接播放（17C） | `Playback.start()`；`VodView` 的 `fullScreenCover(item:)` | 任一 | 點集數 → 直接進播放畫面（沒有中間頁）→ 續播位置正確 → X 回到詳情頁 → 再點另一集正常 | ✅／❌ |
+| ⑯ | 「預設播放器」設定與控制列標籤（17B） | `PlaybackEnginePreference`；`SettingsView` 的「預設播放器」；`PlayerControlBar.engineMenu` | — | 設定頁有「原生播放器 ✓／MPV（尚未開放）」；播放時控制列顯示「原生」；MPV 那一項不能點 | ✅／❌ |
+| ⑰ | AVPlayer 失敗顯示原因（17B） | `AVPlayerEngine.report`；`PlaybackFailure.classify`；播放畫面的失敗訊息 | 一個已知會 403／404 的來源（若遇到） | 失敗時畫面中央出現「網路錯誤：HTTP 403」一類的訊息，而不是只有黑畫面 | 訊息原文 |
+| ⑱ | **MPV 真機 first frame**（9G） | `MPVProbeView`（「範例」三個串流）；`MPVEngine` | Apple 測試串流 | Metal／OpenGL × 軟解／硬解四格：`VIDEO_RECONFIG`＋`PLAYBACK_RESTART` 出現**且有畫面** | 每格：事件序列＋有無畫面 |
+| ⑲ | **MPV 真機切換與 fallback**（17B） | `PlayerRouter.select`／`engineFailed`；`MPVRequestHeaders` | 一般來源＋Bili（驗 headers） | 原生 ↔ MPV 切換保留位置／速度／暫停／集數／線路；Bili 在 MPV 能播＝headers 送到；MPV 播不出畫面時 10 秒內自動回原生 | 每項 ✅／❌ |
+
+**⑱⑲ 需要一個能在手機上開 MPV 的 build，而 SideStore 發的 Release 版 MPV 是「尚未開放」。**
+可行的路有兩條，都要使用者決定：(a) 打一個含 Debug 探針與 MPV 的 device IPA 交給使用者用 SideStore 安裝
+（需授權 package）；(b) 使用者同意後，在 Release 版加一個隱藏的開發者開關。本輪兩者都沒有做。
 
 **建議操作順序**（風險高的先做，任何一項卡住不影響其他項）：⑤關閉鈕 → ④PiP ×2 → ⑤其餘 →
-⑨Bili → ⑥CMS → ⑦csp → ⑧drpy → ⑩resume → ③片頭片尾 → ⑫⑬⑭ → ①a②a → ⑪外部播放器。
+⑮直接播放 → ⑨Bili → ⑥CMS → ⑦csp → ⑧drpy → ⑩resume → ③片頭片尾 → ⑫⑬⑭⑯⑰ → ①a②a →（有 MPV build 時）⑱⑲。
 
 ### 7.3 延後驗證（依使用者決定，不是本輪 blocker）
 
 | 項目 | 原因 |
 |---|---|
 | **IOS-POC-15 完整效能量測**：startup latency、30／60 秒 buffer-ahead、60／90／120 policy 生效、stall／rebuffer、throughput、ABR 降級與恢復、下一集 handoff 耗時 | 使用者 2026-09-23 決定延後自行做。**不是本輪 release blocker**；狀態維持 `device verification pending`，不得寫 closed。另見第四節：SideStore 安裝看不到 `[playback]` log |
-| **MPV rendering** | paused／unresolved：真機 Metal＋軟解到 `FILE_LOADED`、`VIDEO_RECONFIG` 不來、畫面黑。本輪不修，列為 unresolved；**core contract 凍結後才做 keep/drop decision**。`docs/IOS-POC-9B-mpv-playback-core.md` |
+| ~~MPV rendering~~ | **Superseded 2026-09-23**：使用者決定保留 MPV 為第二內部核心（沒有 keep/drop decision 了）；黑畫面根因已找到並修正，模擬器 Metal／OpenGL 都出畫面（IOS-POC-9G）。真機驗證改為 ⑱⑲ |
 | 片尾與 PiP 同時發生、真實 WebHome 頁讀帶值的 `app.history.opening/ending`、舊手機既有 history 升級後仍在 | 5S-2 記錄的殘留缺口，不在本輪 14 項內；有機會順手看，不強制 |
 | 鎖定畫面／控制中心 now-playing | IOS-POC-16 風險 4，非核心 |
 
@@ -214,15 +230,18 @@ WebHome site，所以真機上沒有 WebHome 頁面可以拿來對照。
 | ①b／②b 的**正向**真機觀察 | 第五節：`wang-movie.json` 沒有會碰到 `script` rule host 或 ad host 的來源；嗅探 WebView 不可見且無 log 管道 |
 | WebHome 頁面對照「不受 rules 影響」 | `wang-movie.json` 沒有 WebHome site；結構事實見第五節 |
 | 手動 PiP 按鈕 | 使用者決定不畫（IOS-POC-16 §八） |
+| 外部播放器（Infuse／Fileball／SenPlayer／VidHub） | **Superseded by dual internal-player decision, 2026-09-23**：已從產品移除（IOS-POC-17A） |
+| MPV 的 PiP／AirPlay／字幕音軌選單 | MPV 第一階段不提供（capability 關閉），第二階段才補 |
 | Python `Crypto`／`lxml`／`pyquery`／`bs4` 那 24 站、未移植的 23 個 `csp_*`、被 native 加密保護的 34 站 | backlog，不在核心驗收範圍 |
 
 ## 八、凍結核心 playback／runtime contract 需要的最小集合
 
 IOS-POC-12 要凍結的是 `ConfigSource`、`SourceClient`、`PlaybackTarget`、`PlaybackSession`、
-spider/resolver 邊界、`WatchHistory`、WebHome bridge ABI。**足以凍結**的最小證據是
+spider/resolver 邊界、`WatchHistory`、WebHome bridge ABI，**以及 IOS-POC-17 的 engine 邊界**
+（`PlaybackEngine`、`PlayerRouter`、`PlaybackEngineSelection`、`PlaybackFailure`）。**足以凍結**的最小證據是
 7.2 裡 ④⑤（播放器外殼與唯一出口）、⑥⑦⑧（三種解析路徑）、⑨（headers → AVPlayer）、⑩（history）
-全部 ✅，且 ①a②a③⑫ 沒有回歸。①b②b 與 7.3 不在凍結門檻內。
-**凍結之後**才做 MPV keep/drop decision，再進 IOS-POC-12、IOS-POC-13。
+全部 ✅，且 ①a②a③⑫⑮ 沒有回歸，**加上 ⑱⑲（MPV 真機 first frame 與切換）**——MPV 已確定保留，
+它的真機證據是凍結 engine 邊界的前提。①b②b 與 7.3 不在凍結門檻內。之後進 IOS-POC-12、IOS-POC-13。
 
 ## 九、回滾
 
@@ -234,6 +253,8 @@ spider/resolver 邊界、`WatchHistory`、WebHome bridge ABI。**足以凍結**�
 - 已完成：Git 核對（HEAD＝origin＝`f0495b8b`、`0 0`、clean）；`0.1.7 (8)`＝`add58007` 不含
   `63040bb3` 的證明；`wang-movie.json` rules／ads 盤點（第五節）；`0.1.8 (9)` iphoneos Release
   預建置成功；本矩陣。
-- 未完成：7.2 全部 14 項真機結果（**等使用者回報**）；`0.1.8 (9)` 的發布（**等使用者授權**）。
+- 未完成：7.2 全部真機結果（**等使用者回報**；⑪ 已 superseded，⑮–⑲ 為 IOS-POC-17 新增）；
+  `0.1.8 (9)` 的發布（**等使用者授權**；IOS-POC-17 之後要先重跑一次 iphoneos Release 預建置）；
+  ⑱⑲ 需要能開 MPV 的 device build（使用者決定走 IPA 或開發者開關）。
 - 下一個動作（唯一）：使用者授權發布 `0.1.8 (9)` 後，依第三節四步發布；或使用者直接在
   `0.1.7 (8)` 上先回報 ★ 項目。收到回報後把結果逐列填進 7.2，並把通過的列移到 7.1。

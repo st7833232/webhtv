@@ -1,6 +1,7 @@
 # IOS-POC-17 — 雙內部播放核心（AVPlayer + MPV）
 
-- 狀態：**實作中**（本節在每個單元完成時更新，見文末 Recovery anchor）
+- 狀態（2026-09-23）：**17A／9G／17B／17C／17D 完成。MPV rendering 在模擬器已解；真機仍未驗證**——
+  所以正式版（Release）的 MPV 維持「尚未開放」，不可宣稱 MPVEngine 已完成真機驗收。
 - 開始：2026-09-23 16:48 CST，起始 HEAD `2a46c3fb22e533588bee93cc0ac15d55c15736ca`
   （`git fetch` 後與 `origin/ios-poc` `0 0`，worktree clean）
 - Lane：`standard`（功能開發）；MPV 算繪那一段屬 IOS-POC-9 家族，記為 **IOS-POC-9G**，
@@ -197,8 +198,40 @@ Simulator Debug build → **BUILD SUCCEEDED**。全套 `swift test` 留到 17B �
 - Ponytail pre-review：刪除優先，無新抽象。final-diff：`+50 / −118`（淨 −68 行）；兩個呼叫端各三行
   「設定 `onPlaylistFinished`＋`start()`＋指派」沒有再抽 helper（抽了要多傳 binding，反而更長）。Lean already.
 
+## 十二、17D — 文件整理（完成）
+
+更新：`docs/current-task-state.md`、`docs/AGENT_HANDOFF.md`、`docs/IOS-POC-8L-core-real-device-acceptance.md`
+（⑪ superseded、新增 ⑮–⑲、RC 內容與 release notes 草稿）、`docs/IOS-POC-12-13-runtime-update-roadmap.md`
+（新的進入順序）、`docs/IOS-POC-11-sidestore-release.md`（RC 內容）、`docs/IOS-POC-9B-mpv-playback-core.md`（9G）。
+歷史文件加上 `Superseded by dual internal-player decision, 2026-09-23` 標記、內容不刪：IOS-POC-2E、5P、
+5Q、5Q-5R 計畫、5R、9A、14、15、`IOS-PORTING-HANDOFF-2026-09-13.md`、`analysis/ios-app-store-readiness-research.md`。
+
+## 十三、正式 roadmap（2026-09-23 起）
+
+```
+remove external players            ✓ 17A
+→ MPV rendering recovery           ✓ 9G（模擬器；真機待跑）
+→ minimal MPVEngine                ✓ 17B
+→ AVPlayer + MPV dual-engine       ✓ 17B
+→ global/default engine setting    ✓ 17B
+→ session engine selector          ✓ 17B
+→ manual engine switching          ✓ 17B（模擬器實測）
+→ classified automatic fallback    ✓ 17B（單元測試；真實失敗未觸發過）
+→ core real-device acceptance      ← 下一步（8L；含 ⑱⑲ MPV 真機）
+→ IOS-POC-12
+→ IOS-POC-13
+```
+
+只有當 MPV 在真機觸發第五節 stop condition 並被實證不適用：`MPV stop → minimal VLCKit spike →
+decision AVPlayer + VLC`（絕不三核心）。IOS-POC-15 真機效能測試依使用者決定延後，不是 blocker。
+
 ## Recovery anchor
 
-- 已完成：17A、9G、17B、17C（commit 見 git log）。
-- 下一步（唯一）：17D——durable 文件整理（current-task-state、AGENT_HANDOFF、8L、12-13、9B 狀態、
-  歷史文件的外部播放器 superseded 標記）。
+- 已完成：17A（`ecb0c4d0`）、9G（`cf076e79`）、17B（`7d679d68`）、17C（`a1750b8c`）、17D（本 commit）。**都未 push。**
+- 已驗證：macOS `swift test` 322／322；Simulator Debug build；模擬器上 MPV Metal／OpenGL first frame、
+  AVPlayer↔MPV 手動切換保留位置／速度／暫停／target、點集數直接播放。
+- 未驗證：**任何真機行為**（MPV first frame、headers、硬解、切換、fallback、背景／前景）；
+  自動 fallback 沒有被真實失敗觸發過。
+- 需要使用者決定：⑱⑲ 要一個能在手機上開 MPV 的 build——(a) 授權打一個 Debug device IPA 用 SideStore 裝，
+  或 (b) 同意在 Release 加隱藏的開發者開關。另：是否 push、是否發 `0.1.8 (9)`（發布前要重跑 iphoneos Release 預建置）。
+- 下一步（唯一）：取得上述決定後，讓使用者在真機跑 8L ⑱（MPV 四格 first frame）。

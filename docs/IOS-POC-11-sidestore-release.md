@@ -134,8 +134,10 @@
 
 - 目的：**核心真機驗收用的候選版**。`0.1.7 (8)` 建自 `add58007`，**不含 5S-3**（`63040bb3`
   不是它的祖先），所以無法在手機上驗 config `rules` → sniffer。
-- 內容：最新 `ios-poc` HEAD（functional tree 與 `63040bb3` 相同）——5S-3、5S-1、5S-2、
-  IOS-POC-15、2.5×／3× 音訊修正、PiP foreground restore、IOS-POC-16。
+- 內容：最新 `ios-poc` HEAD——5S-3、5S-1、5S-2、IOS-POC-15、2.5×／3× 音訊修正、
+  PiP foreground restore、IOS-POC-16，**以及 2026-09-23 的 IOS-POC-17**（外部播放器移除、雙核心與
+  「預設播放器」、點集數直接播放；Release 版 MPV 顯示「尚未開放」）。IOS-POC-17 之後**尚未重跑**
+  iphoneos Release 預建置，發布前要先做。
 - **本機預檢**：unsigned `iphoneos` Release build，旗標與 workflow 相同、以命令列覆寫
   `MARKETING_VERSION=0.1.8 CURRENT_PROJECT_VERSION=9`，`BUILD SUCCEEDED`；產物 `Info.plist`
   為 `com.webhtv.ios.poc` / `0.1.8` / build `9` / minimum iOS `17.0`。**專案檔未改。**

@@ -1089,7 +1089,7 @@ private struct VodView: View {
     @State private var playingEpisode: Episode?
     @State private var resolving = false
     /// What was watched last, if anything. Marks the episode in the grid (R4) and supplies the
-    /// remembered quality when the picker opens (R6).
+    /// remembered quality playback starts on (R6).
     @State private var watched: WatchHistory?
     /// Which 100-episode block each flag is showing. Keyed by flag name because the lines
     /// carry different episode counts.
@@ -1204,9 +1204,12 @@ private struct VodView: View {
                 detail = try await client.detail(id: summary.id)
             } catch { self.error = error.localizedDescription }
         }
-        .sheet(item: $pendingPlayback, onDismiss: {
-            // The hook belongs to this playback. Cancelling the picker must not leave this screen
+        // An episode goes straight to the player (2026-09-23, the user's request): the picker page
+        // in between held one button, plus a quality menu no source in this configuration fills.
+        .fullScreenCover(item: $pendingPlayback, onDismiss: {
+            // The hook belongs to this playback. Closing the player must not leave this screen
             // answering for a player it does not own.
+            PlaybackSession.shared.onPlaylistFinished = nil
             PlaybackSession.shared.advance = nil
             // IOS-POC-15C follows `advance` exactly: same owner, same lifetime. Anything resolved
             // ahead belongs to a playback that is over, so it goes with it.
@@ -1214,11 +1217,7 @@ private struct VodView: View {
             prefetch.invalidate()
             playingEpisode = nil
             Task { watched = await WatchHistoryStore.shared.record(forKey: historyKey) }
-        }) {
-            PlayerPickerView(mediaURL: $0.url, headers: $0.headers, title: $0.title, artwork: $0.artwork,
-                             qualities: $0.qualities, position: $0.position, defaultIndex: $0.defaultIndex,
-                             preferredQuality: $0.preferredQuality, history: $0.history)
-        }
+        }) { _ in PlayerView() }
         .alert("無法播放", isPresented: Binding(get: { playbackError != nil }, set: { if !$0 { playbackError = nil } })) {
             Button("好", role: .cancel) {}
         } message: {
@@ -1337,11 +1336,16 @@ private struct VodView: View {
             PlaybackSession.shared.noteResolution(seconds: Date().timeIntervalSince(began),
                                                   prefetched: false, episode: episode.name)
             let record = record(for: episode, flag: flag)
-            pendingPlayback = Playback(url: target.url, headers: target.headers,
-                                       title: "\(summary.name) \(episode.name)", artwork: summary.picture,
-                                       qualities: target.qualities, position: target.position,
-                                       defaultIndex: target.defaultIndex,
-                                       preferredQuality: watched?.quality ?? "", history: record)
+            let playback = Playback(url: target.url, headers: target.headers,
+                                    title: "\(summary.name) \(episode.name)", artwork: summary.picture,
+                                    qualities: target.qualities, position: target.position,
+                                    defaultIndex: target.defaultIndex,
+                                    preferredQuality: watched?.quality ?? "", history: record)
+            // Closing the player is this screen's to do, so the session asks rather than reaching
+            // for a dismiss it has no handle on (IOS-POC-14).
+            PlaybackSession.shared.onPlaylistFinished = { pendingPlayback = nil }
+            playback.start()
+            pendingPlayback = playback
             // What the player asks when this episode ends. This screen owns the episode list and
             // the resolving, so it is the only place that can answer (IOS-POC-14).
             playingEpisode = episode
@@ -1553,120 +1557,41 @@ private struct VodPoster: View {
 
 private struct Playback: Identifiable {
     let url: URL
-    /// The headers the source says this stream needs. Only the built-in player can send them.
+    /// The headers the source says this stream needs; both internal engines send them.
     var headers: [String: String] = [:]
     var title = ""
     /// Android hands VideoActivity the poster, so player.status can report it.
     var artwork = ""
-    /// The source's quality menu. One entry for every source in this configuration today, which is
-    /// why the picker only shows it when there is more than one.
+    /// The source's quality menu. One entry for every source in this configuration today.
     var qualities: [PlaybackQuality] = []
     var position = 0
     var defaultIndex = 0
-    /// The quality name this title was last watched at, so the menu opens on the viewer's own choice
-    /// rather than on the default (D8, R6). Empty when nothing is remembered.
+    /// The quality name this title was last watched at, which outranks the source's default
+    /// (D8, R6). Empty when nothing is remembered.
     var preferredQuality = ""
     /// Identity for the watch history. Nil for `player.playUrl`, which names no site or title.
     var history: WatchHistory?
     var id: String { url.absoluteString }
 }
 
-private struct PlayerPickerView: View {
-    let mediaURL: URL
-    /// Headers the stream needs. The app's own players send them.
-    var headers: [String: String] = [:]
-    var title = ""
-    var artwork = ""
-    /// The source's quality menu, in the source's own order.
-    var qualities: [PlaybackQuality] = []
-    /// The source's own preferred index, so the same decision can be re-run here with a preference.
-    var position = 0
-    /// The entry `mediaURL` was resolved from.
-    var defaultIndex = 0
-    /// What this title was last watched at, which outranks the default (D8).
-    var preferredQuality = ""
-    var history: WatchHistory?
-    @Environment(\.dismiss) private var dismiss
-    @State private var playing = false
-    @State private var selected: Int?
-
-    /// A single-URL source is every source in this configuration today, and a one-item menu is a
-    /// control that decides nothing. Show it only where there is a choice to make.
-    private var offersChoice: Bool { qualities.count > 1 }
-
-    /// Where the menu opens. The same pure function core used, re-run with the remembered choice —
-    /// which is why that choice is a parameter rather than something core looks up.
-    private var initialIndex: Int {
-        PlaybackQuality.defaultIndex(in: qualities, position: position,
-                                     preferred: preferredQuality.isEmpty ? nil : preferredQuality)
-    }
-
-    private var chosen: Int { selected ?? initialIndex }
-
-    /// The default entry is the one that went through the probe and the sniffer, so it is handed on
-    /// resolved. Any other entry is opened exactly as the source gave it.
+extension Playback {
+    /// Starts this playback on the session — what the picker page's 播放 button did, without the
+    /// page. The quality is the one this title was last watched at, else the source's own default:
+    /// the same core function the page's menu opened on (IOS-POC-5Q D8, 5R R6).
     ///
-    /// ponytail: that asymmetry is the cost of resolving one URL instead of all of them. Thread a
-    /// resolver in here if a real multi-value source ever needs the hop on a non-default entry.
-    private var playURL: URL {
-        guard chosen != defaultIndex, chosen < qualities.count else { return mediaURL }
-        return qualities[chosen].url
-    }
-
-    var body: some View {
-        NavigationStack {
-            List {
-                if offersChoice {
-                    Section("畫質") {
-                        ForEach(Array(qualities.enumerated()), id: \.offset) { index, quality in
-                            Button {
-                                selected = index
-                            } label: {
-                                HStack {
-                                    Text(quality.name.isEmpty ? "線路 \(index + 1)" : quality.name)
-                                    Spacer()
-                                    if index == chosen {
-                                        Image(systemName: "checkmark").foregroundStyle(.tint)
-                                    }
-                                }
-                            }
-                            .foregroundStyle(.primary)
-                        }
-                    }
-                }
-
-                Button {
-                    // Closing the player is the presenting view's to do, so the session asks rather
-                    // than reaching for a dismiss it has no handle on (IOS-POC-14).
-                    PlaybackSession.shared.onPlaylistFinished = { playing = false }
-                    PlaybackSession.shared.open(url: playURL, headers: headers, title: title,
-                                                artwork: artwork, history: record)
-                    playing = true
-                } label: {
-                    Label("播放", systemImage: "play.rectangle.fill")
-                }
-                // IOS-POC-17: the only players are the app's own. Infuse, Fileball, SenPlayer and
-                // VidHub were removed at the user's decision (2026-09-23) — a URL scheme carries no
-                // headers, position, line, quality or history, so they could never be a real path.
-            }
-            .navigationTitle("播放")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { Button("取消") { dismiss() } }
-            .appNavigationBar()
-        }
-        // Full screen rather than a push inside this sheet: a page sheet is inset and rounded, so the
-        // player inherited those bounds and the app wallpaper showed through around the video.
-        .fullScreenCover(isPresented: $playing, onDismiss: {
-            PlaybackSession.shared.onPlaylistFinished = nil
-        }) { PlayerView() }
-    }
-
-    /// The history entry this playback would write, with the quality actually chosen. Nil for a
-    /// path that names no title — `player.playUrl` hands over a bare URL.
-    private var record: WatchHistory? {
-        guard var record = history else { return nil }
-        record.quality = qualities.indices.contains(chosen) ? qualities[chosen].name : ""
-        return record
+    /// The default entry is the one that went through the probe and the sniffer, so it is handed on
+    /// resolved; a remembered other entry is opened exactly as the source gave it.
+    /// ponytail: with the page gone a multi-URL source plays its remembered or default quality and
+    /// offers no manual choice. No source in this configuration returns more than one URL; put a
+    /// quality menu in the control bar if one ever does.
+    @MainActor func start() {
+        let chosen = PlaybackQuality.defaultIndex(in: qualities, position: position,
+                                                  preferred: preferredQuality.isEmpty ? nil : preferredQuality)
+        let playURL = chosen != defaultIndex && qualities.indices.contains(chosen) ? qualities[chosen].url : url
+        var record = history
+        record?.quality = qualities.indices.contains(chosen) ? qualities[chosen].name : ""
+        PlaybackSession.shared.open(url: playURL, headers: headers, title: title, artwork: artwork,
+                                    history: record)
     }
 }
 
@@ -2692,7 +2617,7 @@ private struct PlayerControlBar: View {
     }
 
     /// Subtitles and audio. Shown only when the media actually offers a choice — a menu with one
-    /// entry decides nothing, which is the same rule the quality picker follows (IOS-POC-5Q).
+    /// entry decides nothing, which is the rule IOS-POC-5Q's quality menu followed.
     @ViewBuilder
     private func mediaMenu(_ name: String, systemImage: String,
                            selection: MediaSelection.Track?) -> some View {
@@ -3407,11 +3332,16 @@ private struct WebHomeView: View {
                     site: site,
                     sites: sites,
                     source: source,
-                    onPlay: { url, title in pendingPlayback = Playback(url: url, title: title) },
+                    onPlay: { url, title in
+                        let playback = Playback(url: url, title: title)
+                        PlaybackSession.shared.onPlaylistFinished = { pendingPlayback = nil }
+                        playback.start()
+                        pendingPlayback = playback
+                    },
                     onPlayVod: { site, vod in pendingVod = VodRequest(site: site, vod: vod) },
                     onPlayInline: { vod in
-                        // Straight to the built-in player: an inline vod carries a playlist and
-                        // player.control semantics the picker has nothing to add to.
+                        // Straight to the player, like every other path: an inline vod carries its
+                        // own playlist and player.control semantics.
                         PlaybackSession.shared.open(vod)
                         playingInline = true
                     },
@@ -3443,7 +3373,9 @@ private struct WebHomeView: View {
                     .padding(.bottom, 28)
             }
         }
-        .sheet(item: $pendingPlayback) { PlayerPickerView(mediaURL: $0.url, title: $0.title, artwork: $0.artwork) }
+        .fullScreenCover(item: $pendingPlayback, onDismiss: {
+            PlaybackSession.shared.onPlaylistFinished = nil
+        }) { _ in PlayerView() }
         .sheet(item: $pendingVod) { request in
             NavigationStack { VodView(site: request.site, summary: request.vod, source: source) }
         }

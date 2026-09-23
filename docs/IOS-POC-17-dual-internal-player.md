@@ -180,7 +180,25 @@ Simulator Debug build → **BUILD SUCCEEDED**。全套 `swift test` 留到 17B �
 - **真機一次都沒跑**：MPV first frame、MPV headers 真的送出、`auto-safe` 硬解、fallback 在真實失敗上觸發、背景／前景。
 - 自動 fallback 在模擬器上**沒有被真實失敗觸發過**（只有單元測試）；因為 Release 沒有 MPV，正式版的 native 失敗只會顯示訊息。
 
+## 十一、17C — 拿掉「播放」選單頁（使用者 2026-09-23 追加要求，完成）
+
+使用者：「把播放選單那頁拿掉 點選集數後應該就直接到播放畫面」。
+
+- `PlayerPickerView` 整個刪除。詳情頁點集數、以及 WebHome `player.playUrl`，都直接 `fullScreenCover` 出
+  `PlayerView`；原本選單頁 onDismiss 的清理（`advance`、`prefetchNext`、`prefetch.invalidate()`、
+  記錄重讀）移到 player 的 onDismiss，`onPlaylistFinished` 由呼叫端設定。
+- 選單頁唯一做的決定搬到 `Playback.start()`：畫質＝這部片記住的畫質，否則來源預設，用的是同一個
+  `PlaybackQuality.defaultIndex`。**代價（已知、刻意）**：多網址來源不再能在開播前手動挑畫質。
+  使用者設定檔裡**沒有任何來源回傳多個網址**（IOS-POC-5Q 記錄；Bili 的畫質是分線路，仍在詳情頁線路列選）。
+  `ponytail:` 註記寫明：真有這種來源時，把畫質選單放進控制列。
+- 驗證：Simulator Debug build **BUILD SUCCEEDED**；`noThirdPartyPlayerHandoffRemainsInTheApp` 1／1；
+  模擬器實操——點「TC国语」直接進播放畫面、從上次位置續播、engine 回到全域預設「原生」（上一個
+  session 的 MPV override 已清除）、按 X 直接回詳情頁。`swift test` 不編譯 App target，本單元沒有 core 變更。
+- Ponytail pre-review：刪除優先，無新抽象。final-diff：`+50 / −118`（淨 −68 行）；兩個呼叫端各三行
+  「設定 `onPlaylistFinished`＋`start()`＋指派」沒有再抽 helper（抽了要多傳 binding，反而更長）。Lean already.
+
 ## Recovery anchor
 
-- 已完成：17A、9G、17B（commit 見 git log）。
-- 下一步（唯一）：17C——依使用者 2026-09-23 追加要求，拿掉「播放」選單頁，點集數直接進播放畫面；之後 17D 文件整理。
+- 已完成：17A、9G、17B、17C（commit 見 git log）。
+- 下一步（唯一）：17D——durable 文件整理（current-task-state、AGENT_HANDOFF、8L、12-13、9B 狀態、
+  歷史文件的外部播放器 superseded 標記）。

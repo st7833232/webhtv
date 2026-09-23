@@ -52,9 +52,16 @@ When WebHTV returns to the foreground while its own playback session is still ac
 - Ponytail pre-review: `Lean already. Ship.`
 - Ponytail final-diff review: `Lean already. Ship.` (`net: -0 lines possible.`)
 - Three focused Swift tests were added for the lifecycle gate.
-- `swift test --package-path ios` and the Simulator Debug build still need to run on a macOS/Swift
-  toolchain. The current execution host is Linux and has neither `swift` nor `xcodebuild`; this is an
-  environment blocker, not a passing result.
+- ~~`swift test` and the Simulator Debug build still need a macOS/Swift toolchain.~~
+  **Run on macOS on 2026-09-23 at `61f2d6fd`, which was the environment blocker and is now closed:**
+  `swift test --package-path ios` → **228 tests, 227 pass**, and the Simulator Debug build
+  (`id=7B4E9557-4774-4EB9-B408-BB544DCC8657`) → **BUILD SUCCEEDED**. The three lifecycle-gate tests
+  compile and pass. **The one failure is not this fix**: `reportsLiveType4SitesFromProvidedConfig`
+  (`CMSClientTests.swift:212`, `isDirectMedia(resolved)`) is the live-provider case the durable
+  records already classify as weather rather than a gate — it has failed and passed on the same day
+  before, and it is not to be "fixed".
+- **This closes the toolchain gap only, not the defect.** Everything here is still
+  simulator-and-unit evidence; the acceptance below is unchanged and still requires a real device.
 - No package, publish, SideStore release, or device install was performed.
 
 ## Fix constraints

@@ -123,9 +123,18 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   `a076ab51`, `20c4bd53` and `616e182e` before, and a handoff arriving with **`035ad0bf` as "the
   latest on GitHub" was sixteen commits behind** — that commit is the roadmap-only one, an ancestor
   rather than the tip. Run `git log` and the `rev-list` above on resume instead of reading it here.
-- **Re-measured at `eba5346c` on 2026-09-22 (IOS-POC-5S-2):** `swift test --package-path ios` →
-  **225 tests, all pass**, and the simulator Debug build succeeds. The 22 new ones are 5S-2's;
-  **203 and 197 are both superseded.**
+- **Re-measured on macOS at `61f2d6fd` on 2026-09-23:** `swift test --package-path ios` →
+  **228 tests, 227 pass, 1 fails**, and the simulator Debug build
+  (`id=7B4E9557-4774-4EB9-B408-BB544DCC8657`) → **BUILD SUCCEEDED**. The one failure is
+  `reportsLiveType4SitesFromProvidedConfig`, which the bullet below classifies as weather rather
+  than a gate. **225, 203 and 197 are all superseded.**
+  **This run closed a real gap**: the session that wrote the PiP foreground-restore fix and its
+  three tests ran on a **Linux host with neither `swift` nor `xcodebuild`**, so that code was
+  committed — and `0.1.5 (6)` published from it — without ever being compiled or tested locally.
+  It compiles and its tests pass; the **defect itself is still open** and still needs the device
+  acceptance in `docs/bugs/IOS-PIP-foreground-restore.md`.
+- **Measured at `eba5346c` on 2026-09-22 (IOS-POC-5S-2):** `swift test --package-path ios` →
+  **225 tests, all pass**, and the simulator Debug build succeeds. The 22 new ones are 5S-2's.
 - **Measured earlier the same day at `616e182e` (IOS-POC-11F):**
   `swift test --package-path ios` → **203 tests, all pass**. `xcodebuild … -scheme WebHTVApp
   -destination 'platform=iOS Simulator,id=7B4E9557-4774-4EB9-B408-BB544DCC8657' -configuration Debug
@@ -138,11 +147,11 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   with a TLS error `curl` could not reproduce a minute later. **Neither is to be "fixed."**
   Earlier revisions of this line read "151 tests, all pass", "185 tests, one failing" and
   "188 tests, one failing"; all are superseded.
-- **The current release is `WebHTV 0.1.4 (5)`**, tag `ios-v0.1.4-b5`, built unsigned by the workflow
-  from `81eef32f` and re-signed on the device by SideStore. **`0.1 (1)`, `0.1.1 (2)`, `0.1.2 (3)` and
-  `0.1.3 (4)` are all superseded.** The Xcode project carries `MARKETING_VERSION = 0.1.4` and
-  `CURRENT_PROJECT_VERSION = 5`, so the workflow's blank-input default resolves to the version
-  actually published. **Do not install to the device directly** — produce an IPA, or trigger
+- **The current release is `WebHTV 0.1.5 (6)`**, tag `ios-v0.1.5-b6`, built unsigned by the workflow
+  from `bf96532a` on 2026-09-23 and re-signed on the device by SideStore
+  (`WebHTV-0.1.5-6.ipa`, 24,601,187 bytes). **`0.1 (1)` through `0.1.4 (5)` are all superseded.**
+  The Xcode project carries `MARKETING_VERSION = 0.1.5` and `CURRENT_PROJECT_VERSION = 6`, so the
+  workflow's blank-input default resolves to the version actually published. **Do not install to the device directly** — produce an IPA, or trigger
   `ios-sidestore-release.yml` once the user authorises it.
 - **An episode that ends starts the next one since IOS-POC-14, and the user confirmed it on the
   device.** `PlaybackSession.finished()` always advanced; the app's own path opens one resolved
@@ -201,8 +210,15 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   follows the viewer across episodes and lines and cannot cross a title, a site or a configuration.
   `app.history` now carries both — Android declares the fields, so this fills them in rather than
   exposing anything iOS invented. The controls are two `Menu`s on the player's trailing edge
-  (設為目前位置 / +1 秒 / −1 秒 / 清除), because **AVKit's control bar cannot be extended on iOS** —
-  `transportBarCustomMenuItems` is tvOS. **Not device-verified.**
+  (設為目前位置 / +1 秒 / −1 秒 / 清除). **Not device-verified.**
+  **AVKit's transport bar genuinely cannot be extended on iOS**, confirmed against the iOS 27 SDK
+  header on 2026-09-23: `transportBarCustomMenuItems`, `customOverlayViewController`,
+  `contextualActions` and `infoViewActions` are every one of them `API_UNAVAILABLE(ios)`. What *is*
+  available is `playerViewController(_:willTransitionToVisibilityOfPlaybackControls:with:)` — a
+  Swift-only delegate method that compiles against `-target arm64-apple-ios17.0`, and one **this
+  project already built and shipped in IOS-POC-10A**. It was deleted in 10H only because the close
+  button it faded was deleted, not because it misbehaved. That is the route if the viewer wants
+  these controls to appear and disappear with AVKit's own bar instead of sitting on the video.
   `docs/IOS-POC-5S-ads-and-skip.md`.
 - **The app remembers what was watched since IOS-POC-5R.** `WatchHistory` follows Android's
   `History.java` field for field, including `isNearEnding()`'s formula, and is keyed on **`Site.id`

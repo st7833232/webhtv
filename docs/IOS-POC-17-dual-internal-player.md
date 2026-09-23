@@ -116,7 +116,15 @@ hwdec／軟解對照、drawable／surface lifecycle、callback wiring、first-fr
 驗證：`swift test --filter` 該條與相鄰的 `decodesPlaybackGroupsAndBracketedEpisodeNames` → 2／2 通過；
 Simulator Debug build → **BUILD SUCCEEDED**。全套 `swift test` 留到 17B 一起跑一次。
 
+## 九、9G — MPV 算繪復原（完成到模擬器；真機待跑）
+
+根因是探針自己：event 泵在 wakeup callback 內呼叫 client API（`client.h` 明文禁止，`client.c`／
+`dispatch.c` 顯示會在 libmpv 自己的鎖內等 playloop），以及 OpenGL update callback 繼承 main-actor
+隔離後在 `vo` 執行緒 trap。兩者都照 MPVKit demo 修正。**模擬器上 Metal 與 OpenGL 都出 first frame**
+（截圖與 event 序列見 `docs/IOS-POC-9B-mpv-playback-core.md` 9G 節）。**真機 first frame：尚未取得**——
+本輪沒有可上機的 Debug build。**Stop condition 未觸發，VLCKit spike 不需要。**
+
 ## Recovery anchor
 
-- 已完成：17A 外部播放器移除。
-- 下一步（唯一）：9G（探針 event 泵修正＋模擬器對照），再 17B 雙核心。
+- 已完成：17A 外部播放器移除；9G MPV 算繪根因修正（模擬器 first frame）。
+- 下一步（唯一）：17B 雙核心（core model＋router＋fallback＋MPVEngine＋設定與控制列）。

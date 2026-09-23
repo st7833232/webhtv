@@ -42,6 +42,13 @@ struct MPVProbeView: View {
 
     private var hwdec: String { hardwareDecode ? "auto-safe" : "no" }
 
+    private static let apple = "https://devstreaming-cdn.apple.com/videos/streaming/examples/"
+    private static let samples: [(name: String, url: String)] = [
+        ("fMP4 master（多軌）", apple + "img_bipbop_adv_example_fmp4/master.m3u8"),
+        ("TS 單一 playlist", apple + "bipbop_4x3/gear1/prog_index.m3u8"),
+        ("TS 單一片段", apple + "bipbop_4x3/gear1/fileSequence0.ts"),
+    ]
+
 /// The address travels as a **String**, not a `URL`. mpv takes a string, and `URL(string:)`
     /// only got in the way: it rejected `av://lavfi:testsrc=…` outright — FFmpeg's own test
     /// pattern, and the one input that isolates the renderer from the network. Dropping the type
@@ -103,6 +110,16 @@ struct MPVProbeView: View {
                 // is not compiled in. The wallpaper is the next best thing and costs nothing.
                 Button("本機圖片") {
                     load(Bundle.main.bundlePath + "/wallpaper_1.png")
+                }
+                .buttonStyle(.bordered)
+
+                // IOS-POC-9G. Three shapes of the same Apple test content, so a device run can
+                // separate "the HLS demuxer" from "the renderer" without typing a URL on a phone:
+                // a master playlist with many renditions, one media playlist, one bare segment.
+                Menu("範例") {
+                    ForEach(Self.samples, id: \.url) { sample in
+                        Button(sample.name) { load(sample.url) }
+                    }
                 }
                 .buttonStyle(.bordered)
             }
@@ -181,8 +198,30 @@ final class MPVProbeCore: @unchecked Sendable {
     private var loaded: String?
 
     deinit {
+        // No callback may be in flight once this returns: libmpv calls it under `wakeup_lock`,
+        // and setting it takes the same lock.
+        if let mpv { mpv_set_wakeup_callback(mpv, nil, nil) }
         if let render { mpv_render_context_free(render) }
         if let mpv { mpv_terminate_destroy(mpv) }
+    }
+
+    /// IOS-POC-9G. **The callback only schedules; the draining happens on `queue`.**
+    ///
+    /// Until 2026-09-23 this callback called `drainEvents()` directly — `mpv_wait_event`, and at
+    /// `FILE_LOADED` eight `mpv_get_property_string` — *inside* the callback. `client.h` forbids
+    /// exactly that ("You are not allowed to call any client API functions inside of the
+    /// callback"), and mpv v0.41.0's `client.c` shows why: the callback runs while libmpv holds the
+    /// handle's `wakeup_lock` (and `lock`, via `send_event`), and `mpv_get_property` goes through
+    /// `mp_dispatch_lock`, which waits for the playloop thread to park in its dispatch queue. When
+    /// the playloop is the thread that broadcast `FILE_LOADED`, it is waiting on itself — which is
+    /// the observed "`FILE_LOADED`, then never `VIDEO_RECONFIG`". MPVKit's own demo does what this
+    /// does now: `queue.async { mpv_wait_event… }`.
+    private func installWakeup(_ handle: OpaquePointer) {
+        mpv_set_wakeup_callback(handle, { ctx in
+            guard let ctx else { return }
+            let core = Unmanaged<MPVProbeCore>.fromOpaque(ctx).takeUnretainedValue()
+            core.queue.async { [weak core] in core?.drainEvents() }
+        }, Unmanaged.passUnretained(self).toOpaque())
     }
 
     /// The live handle, for the OpenGL path: `mpv_render_context_create` needs it after
@@ -201,10 +240,7 @@ final class MPVProbeCore: @unchecked Sendable {
         check(mpv_set_option_string(handle, "hwdec", hwdec), "hwdec")
         check(mpv_request_log_messages(handle, "warn"), "log-level")
         guard check(mpv_initialize(handle), "mpv_initialize") else { return }
-        mpv_set_wakeup_callback(handle, { ctx in
-            guard let ctx else { return }
-            Unmanaged<MPVProbeCore>.fromOpaque(ctx).takeUnretainedValue().drainEvents()
-        }, Unmanaged.passUnretained(self).toOpaque())
+        installWakeup(handle)
         say("mpv 初始化完成 (vo=libmpv)")
     }
 
@@ -240,12 +276,7 @@ final class MPVProbeCore: @unchecked Sendable {
         check(mpv_request_log_messages(handle, "warn"), "log-level")
 
         guard check(mpv_initialize(handle), "mpv_initialize") else { return }
-
-        mpv_set_wakeup_callback(handle, { ctx in
-            guard let ctx else { return }
-            Unmanaged<MPVProbeCore>.fromOpaque(ctx).takeUnretainedValue().drainEvents()
-        }, Unmanaged.passUnretained(self).toOpaque())
-
+        installWakeup(handle)
         say("mpv 初始化完成")
     }
 
@@ -262,8 +293,8 @@ final class MPVProbeCore: @unchecked Sendable {
         }
     }
 
-    /// mpv's event queue. The events that matter here are the ones that distinguish "it played" from
-    /// "it drew nothing": `FILE_LOADED` says the demuxer accepted the stream, `VIDEO_RECONFIG` says a
+    /// mpv's event queue, drained on `queue` and never inside the wakeup callback (IOS-POC-9G).
+    /// The events that matter here are the ones that distinguish "it played" from "it drew nothing": `FILE_LOADED` says the demuxer accepted the stream, `VIDEO_RECONFIG` says a
     /// frame geometry reached the video output, and `END_FILE` carries the reason it stopped.
     private func drainEvents() {
         guard let mpv else { return }
@@ -276,9 +307,13 @@ final class MPVProbeCore: @unchecked Sendable {
                 say("FILE_LOADED " + describeVideo())
             case MPV_EVENT_VIDEO_RECONFIG:
                 say("VIDEO_RECONFIG " + describeVideo())
+            case MPV_EVENT_PLAYBACK_RESTART:
+                // Sent once playback actually (re)starts after a load or a seek — the nearest thing
+                // libmpv has to "the first frame is up".
+                say("PLAYBACK_RESTART " + describeVideo())
             case MPV_EVENT_END_FILE:
-                let reason = event.pointee.data?.assumingMemoryBound(to: mpv_event_end_file.self).pointee.reason
-                say("END_FILE reason=" + (reason.map { "\($0.rawValue)" } ?? "?"))
+                let end = event.pointee.data?.assumingMemoryBound(to: mpv_event_end_file.self).pointee
+                say("END_FILE reason=" + (end.map { "\($0.reason.rawValue) error=\($0.error)" } ?? "?"))
             case MPV_EVENT_LOG_MESSAGE:
                 if let message = event.pointee.data?.assumingMemoryBound(to: mpv_event_log_message.self).pointee,
                    let text = message.text {
@@ -420,9 +455,8 @@ final class MPVGLController: GLKViewController {
         guard let mpv = core.handle else { return }
 
         let api = UnsafeMutableRawPointer(mutating: (MPV_RENDER_API_TYPE_OPENGL as NSString).utf8String)
-        var initParams = mpv_opengl_init_params(get_proc_address: { _, name in
-            openGLProcAddress(name)
-        }, get_proc_address_ctx: nil)
+        var initParams = mpv_opengl_init_params(get_proc_address: openGLProcAddress,
+                                                get_proc_address_ctx: nil)
 
         withUnsafeMutablePointer(to: &initParams) { initParams in
             var params = [
@@ -438,14 +472,8 @@ final class MPVGLController: GLKViewController {
         guard let renderContext else { return }
         // The core frees it before terminating mpv; see `adopt(renderContext:)`.
         core.adopt(renderContext: renderContext)
-        mpv_render_context_set_update_callback(renderContext, { ctx in
-            guard let ctx else { return }
-            // Converted on the main queue, not here: this fires on mpv's render thread and
-            // `GLKView` is `@MainActor`. IOS-POC-9C died exactly once for getting this wrong.
-            DispatchQueue.main.async {
-                Unmanaged<GLKView>.fromOpaque(ctx).takeUnretainedValue().display()
-            }
-        }, Unmanaged.passUnretained(view as! GLKView).toOpaque())
+        mpv_render_context_set_update_callback(renderContext, requestGLDisplay,
+                                               Unmanaged.passUnretained(view as! GLKView).toOpaque())
 
         core.note("render context 建立完成")
         if let url { core.play(url) }
@@ -478,7 +506,22 @@ final class MPVGLController: GLKViewController {
     }
 }
 
-private func openGLProcAddress(_ name: UnsafePointer<Int8>?) -> UnsafeMutableRawPointer? {
+/// IOS-POC-9G. **File scope on purpose**, like MPVKit's own `mpvGLUpdate`. mpv calls this from its
+/// `vo` thread; the same body written as a closure inside `viewDidLoad` inherited the view
+/// controller's main-actor isolation, so Swift 6 checked the executor on entry and trapped
+/// (`_dispatch_assert_queue_fail` on thread `vo`, crash report 2026-09-23 17:08). It never fired
+/// before 9G because the event-pump deadlock stopped playback before the first frame was drawn.
+private func requestGLDisplay(_ ctx: UnsafeMutableRawPointer?) {
+    guard let ctx else { return }
+    let address = UInt(bitPattern: ctx)
+    DispatchQueue.main.async {
+        guard let view = UnsafeMutableRawPointer(bitPattern: address) else { return }
+        Unmanaged<GLKView>.fromOpaque(view).takeUnretainedValue().display()
+    }
+}
+
+private func openGLProcAddress(_ ctx: UnsafeMutableRawPointer?,
+                               _ name: UnsafePointer<Int8>?) -> UnsafeMutableRawPointer? {
     let symbol = CFStringCreateWithCString(kCFAllocatorDefault, name, CFStringBuiltInEncodings.ASCII.rawValue)
     let bundle = CFBundleGetBundleWithIdentifier("com.apple.opengles" as CFString)
     return CFBundleGetFunctionPointerForName(bundle, symbol)

@@ -1,6 +1,8 @@
 # IOS-POC-9B — MPV 第二播放核心：技術可行性
 
-- 狀態：**已開始、部分完成、算繪未解、暫停中**（2026-09-22 於 IOS-POC-11B 校正措辭）。
+- 狀態（**2026-09-23 更新，IOS-POC-9G**）：**黑畫面根因已找到並修正——模擬器上 Metal 與 OpenGL
+  都出 first frame；真機尚未重跑**。見文末 9G 一節。下面這一段是 2026-09-22 的舊狀態，保留作歷史：
+- 舊狀態：**已開始、部分完成、算繪未解、暫停中**（2026-09-22 於 IOS-POC-11B 校正措辭）。
   「進行中」不足以描述現況，因為它同時被讀成「還沒動」與「快好了」，兩者都錯。
   - **已完成**：9A 授權審查；MPVKit 1.0.0（非 GPL）接進 App target；靜態連結以 symbol table 證實；
     **libmpv 在模擬器與 iPhone 18 Pro 都初始化成功**。
@@ -542,3 +544,69 @@ xcrun devicectl device install app --device 00008160-00124C8200214036 …/WebHTV
 | 4 | 真機 OpenGL＋硬解 | 未試 |
 
 已排除：模擬器的軟體 MoltenVK（真機一樣黑）、網路取不到媒體（真機 `FILE_LOADED` 成立）。
+
+---
+
+# IOS-POC-9G — 黑畫面的根因：探針自己違反了 libmpv 的 callback 契約（2026-09-23）
+
+屬於 IOS-POC-17（雙內部播放核心）的第一個 MPV 單元。基線 HEAD `ecb0c4d0`。
+**先講結論：`FILE_LOADED → VIDEO_RECONFIG` 的卡點是我們的程式，不是 MoltenVK、不是網路、不是模擬器。
+修掉之後，模擬器上 Metal 與 OpenGL 兩條路徑都出了第一格畫面。真機仍未驗證。**
+
+## 對照 MPVKit 1.0.0 demo，找到的兩個差異
+
+來源：MPVKit tag `1.0.0` = `288527dffbc6d3e63cce147fc7b520c64a791603` 的
+`Demo/Demo-iOS/Demo-iOS/Player/{Metal/MPVMetalViewController.swift, OpenGL/MPVViewController.swift}`；
+`Libmpv.xcframework` 內的 `client.h`／`render.h`；mpv `v0.41.0` 的 `player/client.c`、
+`misc/dispatch.c`、`osdep/threads-posix.h`（raw GitHub，2026-09-23 讀原文）。
+
+1. **Event 泵在 wakeup callback 裡面跑。** 探針的 callback 直接呼叫 `drainEvents()`——也就是
+   `mpv_wait_event`，並在 `FILE_LOADED` 時呼叫 8 次 `mpv_get_property_string`。
+   `client.h` 明文：「You are not allowed to call any client API functions inside of the callback」。
+   `client.c` 顯示 callback 是在 libmpv 持有 `ctx->wakeup_lock`（經 `send_event` 也持有 `ctx->lock`）
+   時被呼叫；`mpv_get_property*` 走 `run_locked → mp_dispatch_lock`，而 `mp_dispatch_lock` 會等
+   playloop 執行緒停進 `mp_dispatch_queue_process`。`FILE_LOADED` 由 playloop 廣播——等於 playloop 在等自己。
+   **demo 的 callback 只做 `queue.async { … mpv_wait_event … }`。**
+2. **OpenGL 的 render update callback 寫成 `viewDidLoad` 裡的 closure。** 它繼承了 view controller 的
+   main-actor 隔離，mpv 在 `vo` 執行緒呼叫它時 Swift 6 的 executor 檢查直接 trap
+   （`WebHTVApp-2026-09-23-170820.ips`：thread `vo`，`_dispatch_assert_queue_fail` ←
+   `closure #4 in MPVGLController.viewDidLoad()` ← `draw_frame` ← `vo_thread`）。
+   **以前沒爆，只是因為差異 1 讓播放永遠走不到畫第一格。** demo 用的是 file-scope 的 `mpvGLUpdate`。
+
+## 修正（`ios/WebHTVApp/Sources/MPVProbeView.swift`，Debug-only）
+
+- `installWakeup`：callback 只 `queue.async { [weak core] in core?.drainEvents() }`；兩條路徑共用。
+- `deinit` 先 `mpv_set_wakeup_callback(mpv, nil, nil)`（它取同一把 `wakeup_lock`，返回後不會有 callback 在跑）。
+- GL update callback 與 `get_proc_address` 改成 file-scope 函式 `requestGLDisplay`／`openGLProcAddress`。
+- 回報多一個 `PLAYBACK_RESTART` 事件與 `END_FILE` 的 `error` 碼；「範例」選單三個 Apple 測試串流
+  （fMP4 master 多軌／TS 單一 playlist／TS 單一片段），讓真機測試不用在手機上打網址。
+
+## 模擬器結果（iPhone 17 Pro，iOS 26.3，`7B4E9557-…`；**模擬器證據，不是真機**）
+
+安裝前比對過：`simctl get_app_container` 的 `WebHTVApp.debug.dylib` 與 DerivedData 產物 SHA-256 相同。
+`hwdec=no`（模擬器沒有 VideoToolbox）。stdout 由 `simctl launch --console-pty` 擷取。
+
+| 路徑 | 串流 | 事件序列 | 畫面 |
+|---|---|---|---|
+| Metal（`gpu-next`/Vulkan/MoltenVK） | TS 單一片段 | `FILE_LOADED → VIDEO_RECONFIG → PLAYBACK_RESTART`，log `first video frame after restart shown`、`playback restart complete … video=playing`，10 秒播完 `END_FILE reason=0 error=0` | —（太短未截圖） |
+| Metal | TS 單一 playlist | 同上 | **有畫面**：bipbop 4x3 測試圖，時間碼 00:00:08.14（截圖） |
+| Metal | fMP4 master（1080p、多軌） | 約 20 秒後 `FILE_LOADED`（慢在開約 30 個 rendition），接著 `VIDEO_RECONFIG → PLAYBACK_RESTART`；`warn` 與 `v` 兩種 log 等級各一次都成立 | **有畫面**：1920×1080，含 WebVTT 字幕「Subtitles: Bop!」（截圖） |
+| OpenGL（`vo=libmpv` render API） | TS 單一 playlist | 修正差異 2 **之前**：`FILE_LOADED` 後 App crash（上面那份 ips）。**之後**：`FILE_LOADED → VIDEO_RECONFIG → PLAYBACK_RESTART`，`first video frame after restart shown`；mpv 自報 `Suspected software renderer`、`dumb mode` | **有畫面**：時間碼 00:00:14.12（截圖），無新 crash report |
+
+**被推翻的舊判讀**：9C/9D 的「模擬器的軟體 MoltenVK 擋住」、9E 的「網路嫌疑」、真機那一格的
+「`wid` + `CAMetalLayer` 接線最可疑」——全部不是原因。`wid` 的傳法與 demo 等價（都是 layer 物件位址）。
+9E 那次「停在 `mime type is not rfc8216 compliant`」可能就是 fMP4 master 開 rendition 要約 20 秒，
+加上差異 1 的死鎖時機不定。
+
+## 仍未解（真機）
+
+- **真機一次都還沒跑修正後的版本。** 真機那一格（Metal＋軟解，`FILE_LOADED` 後無 `VIDEO_RECONFIG`）
+  的症狀與差異 1 完全吻合，但**吻合不是證明**——要真機重跑才算數。
+- 真機要跑需要一個含 Debug 探針的 build：SideStore 發的是 Release，探針是 `#if DEBUG`。
+  本輪使用者未授權 package／publish，也依既有決定不直接裝到手機，所以**本輪沒有真機證據**。
+- 真機要問的四格：Metal／OpenGL × 軟解／硬解（`auto-safe` → VideoToolbox），各用「範例」的三個串流。
+
+## MPV stop condition（IOS-POC-17 §五）是否觸發
+
+**沒有觸發。** 模擬器上兩條算繪路徑都拿到了 first frame，阻斷點已從「黑畫面原因不明」縮小成
+「真機尚未重跑」。VLCKit spike **不需要開**。

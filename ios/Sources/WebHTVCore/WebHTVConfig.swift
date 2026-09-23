@@ -6,15 +6,22 @@ public struct WebHTVConfig: Decodable, Sendable {
     /// decodes to an empty array rather than failing — and an empty array means no blocker at all.
     /// `AdBlockList` is what turns it into rules, and records why one entry of the 63 cannot be one.
     public let ads: [String]
+    /// The configuration's sniffer rules (IOS-POC-5S-3), in the configuration's own order —
+    /// **first match wins**, so the order is part of the contract rather than an accident.
+    ///
+    /// Decoded the same forgiving way `ads` is: absent decodes to empty, and an empty array means
+    /// no rules at all. `SnifferRules` is what gives them meaning; Android's shape is `Rule.java`.
+    public let rules: [SnifferRule]
 
     enum CodingKeys: String, CodingKey {
-        case sites, ads
+        case sites, ads, rules
     }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         sites = try values.decode([Site].self, forKey: .sites)
         ads = (try? values.decodeIfPresent([String].self, forKey: .ads)) as? [String] ?? []
+        rules = ((try? values.decodeIfPresent([SnifferRule].self, forKey: .rules)) ?? nil) ?? []
     }
 
     public var nativeCMSSites: [Site] {

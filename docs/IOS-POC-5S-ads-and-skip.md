@@ -1,8 +1,10 @@
 # IOS-POC-5S — 廣告、片頭、片尾
 
-- 狀態：**5S-1（ads）與 5S-2（片頭片尾）已完成**。5S-3（config `rules`）**尚未開始**，
-  使用者明確指示 5S-2 這一輪不要碰它。
-- 5S-1 基線 HEAD `fc106079`；**5S-2 基線 HEAD `eba5346c`（2026-09-22）**
+- 狀態：**5S-1（ads）、5S-2（片頭片尾）、5S-3（config `rules`）全部已完成程式實作**。
+  **IOS-POC-5S 整體 code complete**——但**不是 real-device acceptance complete**：
+  5S 的三個部分沒有任何一項在真機上被人看著運作過。
+- 5S-1 基線 HEAD `fc106079`；5S-2 基線 HEAD `eba5346c`（2026-09-22）；
+  **5S-3 基線 HEAD `60a9241e`（2026-09-23）**
 - Lane：`standard`
 
 ## 量測（動手前，不猜 schema）
@@ -321,10 +323,219 @@ JSON 嗎——**不能**，舊版的合成 `Codable` 會忽略不認得的鍵，
 `oneRecordCoversEveryEpisodeOfItsTitle` 原本是恆真式（`key(A,1) == key(A,1)`），改寫成真的走 store 的
 換集換線路案例。新增的每個 public 成員都有呼叫端。一個 `ponytail:` 註記寫明五秒取樣的天花板與升級路徑。
 
+## 5S-3：config `rules` → MediaSniffer
+
+### 先把 Android 的原始碼讀完，不用摘要
+
+`app/src/main/java/com/fongmi/android/tv/utils/Sniffer.java` 有三段，**每一段都有一個容易被摘要寫錯的地方**。
+
+```java
+private static Rule getRule(Uri uri) {
+    if (uri.getHost() == null) return Rule.empty();
+    String hosts = TextUtils.join(",", Arrays.asList(UrlUtil.host(uri),
+                                                     UrlUtil.host(uri.getQueryParameter("url"))));
+    for (Rule rule : RuleConfig.get().getRules())
+        for (String host : rule.getHosts())
+            if (Util.containOrMatch(hosts, host)) return rule;
+    return Rule.empty();
+}
+```
+
+**① haystack 是一個「逗號串起來的字串」，不是兩個候選。** 所以 direct host 與 `url=` 裡的 host
+**彼此沒有優先順序**——規則只要它的 host 出現在那一對裡的任何位置就命中。
+優先順序在**規則層**：設定檔順序，first match wins。
+（本移植的 `theDirectHostAndTheWrappedHostShareOneHaystackWithNoPrecedenceBetweenThem`
+把同一組 host 前後對調各測一次，證明贏的是設定檔順序而不是 direct host。）
+
+**② `containOrMatch` 只對 host 字串比對。**
+
+```java
+public static boolean containOrMatch(String text, String regex) {
+    try { return text.contains(regex) || text.matches(regex); }
+    catch (Exception e) { return false; }
+}
+```
+
+`contains` 是子字串、`matches` 是 Java 的**整串**比對，而且整個包在 try/catch 裡回 false。
+所以**壞掉的 host pattern 在 Android 本來就是不命中，不是崩潰**——這一條是 parity，不是窄化。
+它**不是**拿整個 URL 去比，也**不是** fuzzy matching：
+`https://other.example/redirect/douyin.com/a` 不會命中 `douyin.com`，有測試釘住。
+
+```java
+public static boolean isVideoFormat(String url) {
+    Rule rule = getRule(UrlUtil.uri(url));
+    for (String exclude : rule.getExclude()) if (url.contains(exclude)) return false;
+    for (String exclude : rule.getExclude()) if (Pattern.compile(exclude).matcher(url).find()) return false;
+    for (String regex : rule.getRegex()) if (url.contains(regex)) return true;
+    for (String regex : rule.getRegex()) if (Pattern.compile(regex).matcher(url).find()) return true;
+    …內建 SNIFFER…
+}
+```
+
+**③ 每個清單跑「兩趟」：先把所有項目當字面子字串，再把所有項目當 regex。**
+所以第二個項目的字面命中會贏過第一個項目的 pattern 命中。
+寫成「每個項目各試 contains 再試 regex」會改變哪一個項目決定結果。
+
+**④ `exclude` 全面優先於 `regex`，兩者都優先於內建 pattern。**
+
+### 實際量到的 schema
+
+`wang-movie.json` 有 **10 筆**（`name` 10、`hosts` 10、`regex` 8、`script` 2、`exclude` 2），
+加上 `wang-sex.json` 的 9 筆共 **19 筆**，與既有紀錄相符。實際內容：
+
+| name | hosts | 內容 |
+|---|---|---|
+| `cl` | `magnet` | regex `最 新` / `直 播` / `更 新` |
+| `火山嗅探` | `huoshan.com` | regex `item_id=` |
+| `抖音嗅探` | `douyin.com` | regex `is_play_url=` |
+| `農民嗅探` | `toutiaovod.com` | regex `video/tos/cn` |
+| `七新嗅探` | `api.52wyb.com` | regex `m3u8?pt=m3u8` |
+| `夜市` | `yeslivetv.com` | **script** `…('vjs-big-play-button')[0].click()` |
+| `毛驢` | `www.maolvys.com` | **script** `…('swal-button swal-button--confirm')[0].click()` |
+| `czzy` | `10086.cn` | regex `/storageWeb/servlet/downloadServlet` |
+| `bdys` | `bytetos.com` 等 4 個 | regex `/tos-cn`，exclude `.m3u8` |
+| `bdys10` | `bdys10.com` | regex `/obj/`，exclude `.m3u8` |
+
+兩個 `script` 都是「幫使用者按下播放鈕」的 DOM click，沒有別的。
+
+### 接到哪裡
+
+| Android | iOS |
+|---|---|
+| `shouldInterceptRequest` → `isVideoFormat(url)` | `Collector.userContentController(didReceive:)`，在既有 `MediaSniffer.isCandidate` **之前** |
+| `onPageFinished` → `evaluate(getScript(url))` | `Collector.webView(_:didFinish:)` → `evaluateJavaScript` |
+
+**兩者選規則用的是不同的 URI，這一點不能互換**：accept/reject 用**候選 URL 自己的** host，
+`script` 用**剛載入完成的頁面**的 host。Android 就是這樣分的。
+
+**`script` 用 `evaluateJavaScript`，刻意不用 `WKUserScript`。** user script 會掛在
+content controller 上活到 web view 結束，每次 navigation 重跑並且**疊加**；
+Android 是每個 finished page 評估一次。加上 `Collector` 的 web view 本來就是每次 sniff 新建、
+用完丟棄，所以跨 sniff 也不可能累積。多段 script 依序執行，因為 Android 把每一段接在前一段的
+completion handler 裡——那兩段都是 `.click()`，後一段可能依賴前一段揭開的元素。
+
+**規則只進嗅探 WebView，這是結構上的事實不是承諾**：整個 iOS 樹只有**兩處**建立 `WKWebView`
+（`MediaSniffer.Collector` 與 WebHome bridge），而 `ruleset` 只在 `Collector` 內被讀到。
+
+### 全部邏輯在 WebHTVCore，WebKit 層只有接線
+
+`SnifferRules.swift` 是純值：host 取出、規則選擇、`exclude`/`regex` 兩趟優先序、`script` 查詢
+全部可以被 `swift test` 直接驅動。`WKNavigationDelegate` 裡沒有任何規則邏輯。
+
+### 設定檔隔離
+
+`MediaSniffer.snifferRules` 由既有的 `adoptAdBlocking(from:)` 一併設定——
+**刻意共用同一個接點**：`rules` 大可有自己的 adopt 函式，但那樣日後新增第四條 adopt 路徑時
+要記得呼叫兩次，而漏掉的後果是無聲的（舊規則照樣嗅探，只是用錯設定檔的規則）。
+它是一個沒有快取的純值，所以**沒有東西「可以」被留下**；A→B→A 是重新建構而不是還原。
+`rules` 為空 → `make` 回 nil → 完全不做規則查詢，與本階段之前的行為逐位元組相同。
+
+### malformed regex：Android 會炸，這裡不會（**刻意的 iOS 窄化**）
+
+`isVideoFormat` 的 `Pattern.compile` **不在** try/catch 裡，所以 Android 遇到壞掉的
+`regex`／`exclude` 會丟 `PatternSyntaxException`。**沒有 Android fallback 可以移植。**
+這裡採最保守的讀法：**該 pattern 不匹配**，把判斷交還給既有的內建測試，
+並在**採用設定檔時記一行**（不是每個候選 URL 記一次）。
+注意與 host 的差別：host 那條是 parity（Android 自己就回 false），regex 這條才是窄化。
+
+### 那 9 條像 m3u8 的 regex
+
+**維持 inert，一行程式都沒有為它們寫。** `Rule.getRegex/getExclude/getScript` 在整個 Android
+repository 裡的消費者**只有 `Sniffer`**，而 `Sniffer` 看的是 URL 字串。
+`#EXT-X-DISCONTINUITY` / `15.1666` / `16.63` 拿去比對 URL 就是不命中，如此而已。
+**沒有實作** m3u8 mid-stream 去廣告、playlist rewrite、segment skipping、OCR、影像辨識、
+DOM heuristics、stream proxy、segment cache 或任何新的廣告演算法。
+有一條測試 `theRulesNeverTouchAPlaylist` 明確釘住這件事。
+
+### 一個誠實的風險，照 Android 保留
+
+規則命中 `regex` 就**直接接受**，繞過內建的關鍵字測試——Android 就是這樣。
+後果是：對**設定檔點名的那些 host**，一個不像媒體的 URL（例如 `bdys10.com/obj/cover.jpg`
+對上 regex `/obj/`）也會被當成串流，而且 sniffer 取的是**第一個**命中。
+這與 Android 完全相同，而且範圍被 `hosts` 限制在那 10 條規則點名的網域內。
+**沒有加上 iOS 自己的額外窄化**，因為設定檔作者是對著 Android 的這個行為調 `exclude` 的；
+擅自收窄反而可能讓他們刻意要的 URL 被擋掉。
+
+### 驗證
+
+| 檢查 | 結果 |
+|---|---|
+| 真實 10 筆 rules 可 decode；只有 `name/hosts` 的 rule 正常；壞掉的成員不毀整份清單 | 通過 |
+| direct host 命中；`url=` 裡的 host 命中 | 通過 |
+| direct 與 wrapped 同時存在 → **設定檔順序決定**（前後對調各一次） | 通過 |
+| first matching rule wins | 通過 |
+| host 比對只看 host，不看 path/query | 通過 |
+| 沒有 host 的 URL 不選任何規則 | 通過 |
+| `containOrMatch` 的 contains／整串 matches／壞 pattern 回 false | 通過 |
+| `exclude` 優先於 `regex`（兩者都命中時） | 通過 |
+| exclude 命中拒絕、regex 命中接受 | 通過 |
+| 規則命中但這個 URL 沒說到 → undecided | 通過 |
+| 沒有任何規則命中 → 完全維持現有行為 | 通過 |
+| 字面趟／pattern 趟兩趟都會決定（`m3u8?pt=m3u8` 兩種讀法各一條） | 通過 |
+| malformed regex／exclude 不 crash，且不影響同一條規則裡正常的 pattern | 通過 |
+| **m3u8-looking regex 不觸發任何 playlist 行為** | 通過 |
+| `script` 取自**頁面**的規則；沒命中就沒有 script；空字串跳過 | 通過 |
+| **`script` 真的在嗅探 WebView 上執行**（真 socket + 真 `WKWebView`，頁面本身不發任何請求） | 通過 |
+| 頁面 host 沒有規則 → 完全不注入，請求沒有抵達 socket | 通過 |
+| `snifferRules = nil` → 與本階段之前一致 | 通過 |
+| 設定檔 A→B→A 不串線，且回到 A 是 deterministic | 通過 |
+| 空 rules 等價於沒有規則 | 通過 |
+| 既有 `isCandidate`、wrapper `url=` 解包行為維持 | 通過 |
+| **全套** | **297 條，296 通過**（5S-3 之前是 266；新增 **31** 條） |
+| 模擬器 build | **BUILD SUCCEEDED** |
+
+唯一失敗是既有的 `reportsLiveType4SitesFromProvidedConfig`（88看球 解析成 `qq-kbs.html`），
+handoff 明文記載是 provider 天氣、不要修。本輪**沒有新增任何失敗**。
+
+**一個既有警告，沒有順手修**：`WebHTVConfig.swift` 的 `ads` 那行
+（`as? [String]` 的條件轉型無作用）。那行本輪未修改，只是位置下移；依 AGENTS.md §2 回報不修。
+
+### 5S-3 尚未驗證
+
+- **真機一次都沒跑。** 沒有人看著 `script` 在真實站台上按下播放鈕，
+  也沒有人看著 `regex`／`exclude` 改變某個來源的嗅探結果。
+- **那 10 條規則點名的 host，一個都沒有在真機上實測過**——
+  其中 `yeslivetv.com` 與 `www.maolvys.com`（唯二有 `script` 的）最值得看。
+- 上面「誠實的風險」那一節的情境**沒有在真實資料上發生過，也沒有被排除過**。
+
+### 5S-3 回滾
+
+單一 commit，`git revert` 即可。不 revert 的關閉開關：設定檔沒有 `rules`，
+或讓 `SnifferRules.make` 永遠回 nil——規則查詢就完全不存在。
+沒有資料格式改變，沒有 migration。
+
+### Ponytail
+
+**實作前（設計軸）。** ① 需要存在——5S 的最後一塊，且是 roadmap 進入 12/13 的前置。
+② **已有的東西先用**——`AdBlockList` 的形狀（設定檔衍生的值型別 ＋ 單一 adopt 接點 ＋
+`MediaSniffer` 上的屬性）整組照抄；`isCandidate` 是既有的單一判準，新規則接在它**前面**而不是
+另開一條平行路徑；`WebHTVConfig` 既有的寬容 decode 照用；`Collector` 既有的 per-sniff
+configuration 照用。③ 標準庫——`NSRegularExpression` 正好能表達 Java 的 `find()` 與 `matches()`
+之別，`URLComponents` 取 `url=`。⑤ 沒有新增相依。⑦ 最小：一個新 core 檔、一個新 decode 欄位、
+`MediaSniffer` 三處小改、adopt 接點一行。
+
+**實作前就先解掉的三條 finding**（不是事後補救）：
+`script` 不可以用 `WKUserScript`（會累積）；規則邏輯不可以塞進 `WKNavigationDelegate`；
+accept/reject 與 `script` 選規則用的是**兩個不同的 URI**。
+
+**final diff 軸。** 讀回整個 diff 後確認：`.video` 路徑仍然走既有的 wrapper 解包
+（Android 在這裡會交出外層網址，iOS 自 IOS-POC-6C 起解一層——**既有的 iOS 改良，不是本輪新增的分歧**，
+在此明白記錄）；`hasPrefix("http")` 從 `isCandidate` 內提到前面，對既有路徑結果不變、
+對規則路徑多一道底線；`didFinish` 的 Task 每一圈都重新檢查 `continuation` 是否還在，
+所以 sniff 結束後不會再對已經拆掉的 web view 求值。
+`SnifferRules.make` 丟掉沒有 `hosts` 的規則——Android 會留著但內層迴圈跑不到，行為等價。
+`make` 裡原本寫成雙重否定的 filter 在提交前就改掉了。
+
 ## 本輪刻意不做
 
 **5S-1 那一輪：** m3u8 mid-stream 廣告剝除（無契約）、burned-in 浮水印、影像辨識／OCR、
 DOM selector 刪除、啟發式廣告辨識、片頭片尾（5S-2）、config `rules` 接進 sniffer（5S-3）。
 
-**5S-2 這一輪：** config `rules` 接進 sniffer（5S-3）、任何重構或內更（IOS-POC-12／13）、MPV、
+**5S-2 那一輪：** config `rules` 接進 sniffer（5S-3）、任何重構或內更（IOS-POC-12／13）、MPV、
 Python 相依、更多 CSP、CarPlay、發布新的 IPA。使用者明確指示這些都不要開始。
+
+**5S-3 這一輪：** IOS-POC-12／13、MPV、更多 CSP、Python 相依、CarPlay、persistent media cache、
+HLS segment cache、playlist rewrite、runtime hot update、任何新的 IPA release，
+以及**重新調整 IOS-POC-15 的 buffer/network policy**。使用者明確指示這些都不要開始。
+**IOS-POC-15 維持 `device verification pending`**——使用者已決定真機效能驗收延後自行進行，
+本輪不得把它寫成 closed，也不以它為前提。

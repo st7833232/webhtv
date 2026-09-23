@@ -329,14 +329,28 @@ private struct ConfigView: View {
         selectedSiteID = sites.first { $0.id == selectedSiteID }?.id ?? selectedSiteID ?? sites.first?.id
     }
 
-    /// Point the sniffer at **this** configuration's ad rules, and at nothing else (IOS-POC-5S-1).
+    /// Point the sniffer at **this** configuration's ad rules and sniffer rules, and at nothing else
+    /// (IOS-POC-5S-1, IOS-POC-5S-3).
     ///
     /// Called from every path that adopts a configuration — the launch restore, a fetched refresh
-    /// and a pack rebuild — because the rules belong to whichever configuration is active, and a
-    /// source switch that left the previous one's rules behind would block the wrong hosts. A
-    /// configuration with no `ads` sets nil, which is the same as having no blocker at all.
+    /// and a pack rebuild — because both belong to whichever configuration is active, and a source
+    /// switch that left the previous one's behind would block the wrong hosts or sniff by the wrong
+    /// rules. A configuration with no `ads` and no `rules` sets nil for both, which is the same as
+    /// having neither.
+    ///
+    /// **One seam, deliberately.** `rules` could have had its own adopt function, but then a fourth
+    /// adopt path added later would have to remember two calls instead of one — and the failure that
+    /// causes is silent, because stale rules still sniff, just by the wrong configuration's rules.
     private func adoptAdBlocking(from config: WebHTVConfig) {
         MediaSniffer.shared.adBlockList = AdBlockList.make(ads: config.ads)
+        let ruleset = SnifferRules.make(rules: config.rules)
+        MediaSniffer.shared.snifferRules = ruleset
+        // Once per adopted configuration, never per candidate: a malformed pattern would otherwise
+        // print on every URL of every sniff.
+        if let bad = ruleset?.uncompilablePatterns, !bad.isEmpty {
+            print("[sniffer] \(bad.count) rule pattern(s) will not compile and are treated as "
+                  + "non-matching: \(bad.prefix(5).joined(separator: ", "))")
+        }
     }
 
     /// Write, then publish. Callers validate first and hand the result in, so nothing that failed

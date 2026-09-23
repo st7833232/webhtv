@@ -390,8 +390,9 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   pipeline~~ **done** (11). ~~IOS-POC-5S-1 ads blocking~~ **done** and released.
   ~~IOS-POC-14 auto-advance~~ **done, and confirmed on the device by the user**, with the playback
   speed carried within one title (14A/14B).
-  ~~**The next functional unit is IOS-POC-5S-2 opening/ending**~~ **done**, followed by **5S-3 config
-  `rules` → sniffer**, which is still open. **IOS-POC-15's code landed out of this order on
+  ~~**The next functional unit is IOS-POC-5S-2 opening/ending**~~ **done**, ~~followed by **5S-3 config
+  `rules` → sniffer**~~ **also done on 2026-09-23, so IOS-POC-5S is code complete** — see its own
+  bullet below; it is *not* device-accepted. **IOS-POC-15's code landed out of this order on
   2026-09-23 at the user's explicit instruction** — do not re-plan it; see its own bullet for what it
   built and what it still owes. Two things the 5S-1 measurement settled and that 5S-2/5S-3 must not
   re-litigate: **the m3u8 ad-stripping rules in the configuration have no consumer in this Android
@@ -423,6 +424,44 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   installed App already knows. Swift/SwiftUI executable behaviour, native playback/runtime code,
   MPV/FFmpeg, CPython XCFramework/native dependencies, entitlements and Info.plist capabilities
   still require an IPA. SideStore remains the native-App update path.
+- **IOS-POC-5S is code complete since 2026-09-23, and device-accepted in no part.** 5S-3 wired the
+  configuration's `rules` into the sniffer. Base HEAD was `60a9241e`.
+  **Ported from `Sniffer.java` itself, not from a summary of it**, which corrected two things a
+  paraphrase gets wrong. First, `getRule` joins the direct host and the `url=` query parameter's host
+  into **one comma-separated string** and searches that, so **neither has precedence over the other**
+  — precedence is at the rule level: configuration order, first match wins. Second, `isVideoFormat`
+  runs **two passes per list**, every entry as a literal substring and then every entry as a regular
+  expression, so a literal hit on a later entry beats a pattern hit on an earlier one; folding them
+  into one pass per entry would change which entry decides. `exclude` outranks `regex`, both outrank
+  the built-in candidate test, and **when no rule matches the behaviour is byte-for-byte what it was**.
+  `Util.containOrMatch` is `contains || matches` (Java `matches` = whole string) **inside a
+  try/catch returning false**, so a bad *host* pattern failing safe is parity, not a narrowing.
+  **The one deliberate iOS narrowing:** `isVideoFormat` compiles `regex`/`exclude` outside any
+  try/catch, so Android throws on a malformed pattern. There is no fallback to port; iOS treats an
+  uncompilable pattern as non-matching and logs **once per adopted configuration**, never per URL.
+  `script` is evaluated with **`evaluateJavaScript` on `didFinish`, deliberately not `WKUserScript`**
+  — a user script persists on the content controller and would re-run and stack up on every
+  navigation. It is selected by the **page's** host, while accept/reject is selected by the
+  **candidate's**; the two are not interchangeable.
+  **The rules reach the sniffer's web view and nothing else, structurally**: the whole iOS tree
+  constructs exactly two `WKWebView`s — `MediaSniffer.Collector` and the WebHome bridge — and the
+  rule set is read only inside `Collector`. Three tests stand a real socket and a real `WKWebView` to
+  prove the script actually runs there, that a page whose host no rule names gets nothing, and that
+  a nil rule set behaves as before.
+  **The 9 playlist-shaped regexes stay inert and no playlist is ever opened.** `Rule.getRegex/
+  getExclude/getScript` is read only by `Sniffer`, which sees URL strings — there is no HLS consumer
+  anywhere in the Android repository, so there is no contract to port and inventing one is
+  forbidden. A test pins it.
+  **One honest risk, kept because Android has it:** a `regex` hit accepts outright, bypassing the
+  keyword test, so on a host a rule names a non-media URL can be taken as the stream. Bounded to the
+  hosts the 10 measured rules name, and not narrowed — the configuration's author tuned `exclude`
+  against exactly this behaviour.
+  **Measured 2026-09-23:** `swift test --package-path ios` → **297 tests, 296 pass** (+31), the one
+  failure being the standing `reportsLiveType4SitesFromProvidedConfig` weather test; **no new
+  failures**. Simulator Debug build → **BUILD SUCCEEDED**. One pre-existing warning on
+  `WebHTVConfig.swift`'s `ads` line was reported and deliberately not fixed (AGENTS.md §2).
+  **Nothing in 5S — ads blocking, opening/ending, or rules — has been watched working on a device.**
+  `docs/IOS-POC-5S-ads-and-skip.md`.
 - **IOS-POC-15 Playback Buffering / Preload: the code is implemented and the real-device
   performance verification is still owed.** This bullet read "planned, not started" until
   2026-09-23. Base HEAD was `ecebeaa3`. **Do not record it as closed** — every number behind it is a

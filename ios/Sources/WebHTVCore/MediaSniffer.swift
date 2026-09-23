@@ -79,6 +79,19 @@ public final class MediaSniffer {
         didSet { if adBlockList != oldValue { compiled = nil } }
     }
 
+    /// The **active configuration's** sniffer rules, or nil for none (IOS-POC-5S-3).
+    ///
+    /// Set from the same seam that sets `adBlockList`, and for the same reason: the rules belong to
+    /// whichever configuration is loaded, so switching A → B → A must rebuild them rather than
+    /// inherit them. A plain value with no cache behind it, so there is nothing that *could* be
+    /// left behind — and nil means no rule lookup happens at all, which is byte-for-byte the
+    /// behaviour this sniffer had before this stage.
+    ///
+    /// **These reach the sniffer's own web view and nothing else.** The `script` entries are
+    /// evaluated on the `Collector`'s per-sniff `WKWebView`; they never touch the WebHome bridge's
+    /// web view, any shared `WKWebViewConfiguration`, or a process-wide default.
+    public var snifferRules: SnifferRules?
+
     /// The last compiled list, kept so a sniff does not recompile the same rules every time.
     /// Cleared whenever `adBlockList` changes, which is what stops a stale list surviving a switch.
     /// Internal rather than private so a test can assert that clearing actually happens — the whole
@@ -184,7 +197,8 @@ public final class MediaSniffer {
         // network, and no caller needs it.
         if let live = collector { live.cancel() }
         let rules = await contentRules()
-        let collector = Collector(keywords: keywords, exclusions: exclusions, rules: rules)
+        let collector = Collector(keywords: keywords, exclusions: exclusions, rules: rules,
+                                  ruleset: snifferRules)
         self.collector = collector
         defer { if self.collector === collector { self.collector = nil } }
 
@@ -203,11 +217,15 @@ public final class MediaSniffer {
 
         /// `rules` is the active configuration's ad blocker, or nil for none.
         private let rules: WKContentRuleList?
+        /// The active configuration's sniffer rules (IOS-POC-5S-3), or nil for none.
+        private let ruleset: SnifferRules?
 
-        init(keywords: [String], exclusions: [String], rules: WKContentRuleList?) {
+        init(keywords: [String], exclusions: [String], rules: WKContentRuleList?,
+             ruleset: SnifferRules?) {
             self.keywords = keywords.map { $0.lowercased() }
             self.exclusions = exclusions.map { $0.lowercased() }
             self.rules = rules
+            self.ruleset = ruleset
         }
 
         func run(page: URL, referer: String?, timeout: Duration) async -> URL? {
@@ -262,12 +280,55 @@ public final class MediaSniffer {
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             guard let raw = message.body as? String else { return }
             let candidate = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard MediaSniffer.isCandidate(candidate, keywords: keywords, exclusions: exclusions),
-                  let url = URL(string: candidate) else { return }
+            // A floor Android gets structurally: `shouldInterceptRequest` only ever sees http(s)
+            // requests, so requiring a scheme here is parity, not a narrowing.
+            guard candidate.lowercased().hasPrefix("http") else { return }
+            // IOS-POC-5S-3. The configuration's rules decide first, exactly as `Sniffer` does:
+            // `exclude` rejects outright, `regex` accepts outright, and only when the matched rule
+            // says nothing — or no rule matched this host — does the built-in test get a say.
+            switch ruleset?.verdict(for: candidate) ?? .undecided {
+            case .notVideo:
+                return
+            case .video:
+                break
+            case .undecided:
+                guard MediaSniffer.isCandidate(candidate, keywords: keywords,
+                                               exclusions: exclusions) else { return }
+            }
+            guard let url = URL(string: candidate) else { return }
             // The reported URL may be a wrapper around the real one — that is how 去看吧's player
             // page resolves (IOS-POC-6B/6C), and the wrapper only matched because of the address
             // inside it.
             finish(with: MediaSniffer.unwrapped(url, keywords: keywords, exclusions: exclusions))
+        }
+
+        /// `CustomWebView.onPageFinished` — evaluate the matched rule's `script` entries
+        /// (IOS-POC-5S-3).
+        ///
+        /// **The rule is selected by the page's own address**, not by any candidate. Android calls
+        /// `Sniffer.getScript(Uri.parse(url))` here with the page it just finished, while
+        /// `isVideoFormat` selects by each subresource; swapping them would inject the wrong page's
+        /// scripts.
+        ///
+        /// **`evaluateJavaScript`, deliberately not `WKUserScript`.** A user script added to the
+        /// content controller persists for the life of the web view and would re-run — and stack up
+        /// — on every navigation. Android evaluates once per finished page, and this is the same
+        /// shape: one-shot, and the `Collector`'s web view is built per sniff and thrown away with
+        /// it, so nothing can accumulate across sniffs either.
+        ///
+        /// Sequential, because Android chains each `evaluateJavascript` in the previous one's
+        /// completion handler — the two measured scripts are both a `.click()` on an element the one
+        /// before it may have revealed. Failures are ignored the way Android ignores its result.
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            guard let page = webView.url, let ruleset else { return }
+            let scripts = ruleset.script(for: page)
+            guard !scripts.isEmpty else { return }
+            Task { @MainActor [weak self] in
+                for script in scripts {
+                    guard let live = self?.webView, self?.continuation != nil else { return }
+                    _ = try? await live.evaluateJavaScript(script)
+                }
+            }
         }
 
         /// A page that fails to load will never report anything, so stop waiting for the timeout.

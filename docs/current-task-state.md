@@ -52,7 +52,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 | IOS-POC-16 Custom player controls | **Implemented; the bar is confirmed to render correctly on the simulator; per-control interaction testing handed to the user 2026-09-23.** AVKit draws no controls; `PlayerControlBar` draws close / subtitles / audio / speed / AirPlay / ±10 s / play / scrubber-with-buffer / opening / ending, and owns its own four-second auto-hide. Confirmed on the simulator: AVKit's controls are gone, the video is clean while the bar is hidden, and the bar renders complete and correctly laid out. **Not confirmed: any individual control, including the close button, which is now the only way out of the player** — the tooling round-trip is longer than the five-second auto-hide, so a two-step "summon then press" can never land. **Compare the installed binary before believing any simulator observation:** `ios/.build/out/...` holds a stale artifact while `xcodebuild` writes to DerivedData. `docs/IOS-POC-16-custom-player-controls.md` |
 | IOS-POC-15 Playback Buffering / Preload | **Code implemented 2026-09-23 / real-device performance verification pending.** A hysteretic `good/normal/risk/poor` model over buffer-ahead, `likelyToKeepUp`, `bufferEmpty`, `timeControlStatus`, stalls and the access log drives `preferredForwardBufferDuration` 60/90/120 s for VOD, leaves live and unknown-duration playback system-managed, and caps resolution to 1080p/720p **only** when `AVURLAsset.variants` reports more than one. `preferredPeakBitRate` stays 0 in every state and a test asserts it. The next episode's `PlaybackTarget` is pre-resolved **once**, through the same `SourceClient.playbackURL` pipeline, inside the last 90 s before the handoff, and the existing `playNext` consumes it or resolves normally. **266 tests / 265 pass** (+38), simulator build succeeds. **No device numbers exist**: startup latency, buffer-ahead, rebuffer counts, throughput and next-episode handoff are all unmeasured. `docs/IOS-POC-15-playback-buffering-preload.md` **User decision 2026-09-23: device performance testing is deferred until later and must not block the roadmap.** It did not block 5S-3, which shipped the same day in `63040bb3`; it must not block core real-device acceptance either. |
 | 2.5×/3× silent audio | **Fixed in code, not heard on a device.** `AVAudioTimePitchAlgorithmLowQualityZeroLatency` supports exactly 0.5/0.666/0.8/1/1.25/1.5/2 and drops audio at every other rate — which is precisely the two speeds IOS-POC-16 added. `AVPlayerItem.audioTimePitchAlgorithm = .timeDomain`. Reported by the user 2026-09-23; **not part of IOS-POC-15's charter**, fixed because its root cause is the item-creation site that stage was already editing |
-| IOS-POC-12 Runtime Architecture Reconciliation | **Planned, not started.** Begins only after 5S is complete, core real-device acceptance plus IOS-POC-15 are closed enough to freeze playback contracts, and the MPV keep/drop decision for the first stable product is recorded |
+| IOS-POC-12 Runtime Architecture Reconciliation | **Planned, not started.** Begins only after core real-device acceptance and the MPV keep/drop decision for the first stable product are recorded. 5S is already code complete. **IOS-POC-15 is not a gate here**: what 12 needs from it is the AVPlayer item/session contract being settled, which its code already did — the deferred device *performance* pass does not block the freeze |
 | IOS-POC-13 Runtime Hot Update | **Planned, not started.** Begins only after IOS-POC-12 freezes the Native Core / Dynamic Layer boundary and update manifest contract |
 | More `csp_*`, Python dependency shims, CarPlay, automatic AVPlayer↔MPV fallback | **Backlog.** Do not let these pre-empt 5S, core acceptance, or the 12→13 refactor/update sequence |
 
@@ -1059,13 +1059,20 @@ screen to look at, look at the screen first** (§10Z).
    MPVKit installation, and do not redo 9A unless MPVKit or its dependencies actually change. Do not
    guess a third render path, do not build an AVPlayer↔MPV fallback, and do not add subtitle or
    audio-track UI. `docs/IOS-POC-9B-mpv-playback-core.md`.
-4. **The full real-device acceptance.** Partial today. Still owed, at least: CMS browsing and
+4. **The full real-device acceptance. This is the next stage** — since 2026-09-23, when 5S-3 closed
+   item 5 below. Partial today. Still owed, at least: CMS browsing and
    playback; a `csp_*` source; a drpy source; Bili's `Referer` + browser `User-Agent` through
    `AVPlayer`; whether `AVURLAssetHTTPHeaderFieldsKey` works on a device at all; WatchHistory and
    resume; opening Infuse / Fileball / SenPlayer / VidHub; Picture in Picture; and MPV rendering if
    it is fixed by then. **The runs already done are not a completed acceptance.**
-5. **IOS-POC-5S — ads, opening and ending. The next functional stage, not started.** Its shape and
-   constraints are recorded under "Next Recommended Step" above.
+5. ~~**IOS-POC-5S — ads, opening and ending. The next functional stage, not started.**~~
+   **IOS-POC-5S — ads, opening/ending, and config rules. Code complete; real-device acceptance
+   pending.** All three parts are implemented: 5S-1 ads (2026-09-22), 5S-2 opening/ending
+   (2026-09-22) and **5S-3 config `rules` → sniffer (2026-09-23, `63040bb3`)**. This item read
+   "the next functional stage, not started" until then and contradicted the status table at the top
+   of this document. **Code complete is not acceptance** — no part of 5S has been watched working on
+   hardware, and the published `0.1.7 (8)` does not even contain 5S-3, which landed after the commit
+   it was built from. Record: `docs/IOS-POC-5S-ads-and-skip.md`; what is left of it is item 4 above.
 
 **Backlog, not to be started:** the Python `Crypto` / `bs4` / `lxml` / `pyquery` shims; further
 portable `csp_*` ports; XueLuo, QimaoDJ and AppDrama; `CatVodHost` RSA and `proxy` plumbing; CarPlay;

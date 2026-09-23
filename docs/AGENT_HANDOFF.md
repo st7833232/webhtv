@@ -123,6 +123,14 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   `a076ab51`, `20c4bd53` and `616e182e` before, and a handoff arriving with **`035ad0bf` as "the
   latest on GitHub" was sixteen commits behind** — that commit is the roadmap-only one, an ancestor
   rather than the tip. Run `git log` and the `rev-list` above on resume instead of reading it here.
+- **Current release: `WebHTV 0.1.8 (9)`, published 2026-09-23 at the user's instruction** (run
+  `35846736589`, tag `ios-v0.1.8-b9` → `0a57d545`, IPA 24,754,269 bytes, SHA-256 `e6aff904…`,
+  verified by downloading it back). It carries 5S-3 and all of IOS-POC-17, **including 17E: MPV is
+  offered in release builds** (user decision; device first frame unverified, guarded by the
+  10-second first-frame watchdog that falls back to AVPlayer) and **the quality menu in the control
+  bar**. `swift test` → **323, all pass**. `0.1.7 (8)` and earlier are superseded. **No device
+  result has been reported for it yet.** Everything below that says MPV is release-disabled or
+  that the release is `0.1.7 (8)` is superseded by this line.
 - **IOS-POC-17 — the app plays with its own two engines (2026-09-23, user decision).** Started at
   `2a46c3fb` (= `origin/ios-poc`, `0 0`, clean); commits `ecb0c4d0` 17A, `cf076e79` 9G, `7d679d68`
   17B, `a1750b8c` 17C, then 17D docs — **none pushed**. External players are gone (17A). **MPV's

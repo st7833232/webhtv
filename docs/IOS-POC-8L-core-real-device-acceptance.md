@@ -43,7 +43,11 @@ PiP foreground restore（`8d1ab371`、`a25f6b24`）、IOS-POC-16 自建控制列
 seek 後 buffered bar 修正）。所以**除了 ① 以外的項目，現在手機上的 `0.1.7 (8)` 都能先測**；
 但為了讓整份驗收對應同一個 build，建議全部在下一個 RC 上做。
 
-## 三、下一個 acceptance release candidate：`0.1.8 (9)`
+## 三、acceptance release candidate：`0.1.8 (9)`——**2026-09-23 已發布**
+
+**已發布**：run `35846736589`，tag `ios-v0.1.8-b9`（target `0a57d545`），`WebHTV-0.1.8-9.ipa`
+24,754,269 bytes，下載回驗通過（`docs/IOS-POC-11-sidestore-release.md` 第九次發布）。
+**7.2 的全部項目現在都在這一版上測**；release notes 以下方草稿為準發布。
 
 | 項目 | 規劃 |
 |---|---|

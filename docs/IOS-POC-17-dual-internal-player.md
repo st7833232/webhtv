@@ -249,11 +249,11 @@ decision AVPlayer + VLC`（絕不三核心）。IOS-POC-15 真機效能測試依
 
 ## Recovery anchor
 
-- 已完成：17A（`ecb0c4d0`）、9G（`cf076e79`）、17B（`7d679d68`）、17C（`a1750b8c`）、17D（本 commit）。**都未 push。**
-- 已驗證：macOS `swift test` 322／322；Simulator Debug build；模擬器上 MPV Metal／OpenGL first frame、
-  AVPlayer↔MPV 手動切換保留位置／速度／暫停／target、點集數直接播放。
-- 未驗證：**任何真機行為**（MPV first frame、headers、硬解、切換、fallback、背景／前景）；
-  自動 fallback 沒有被真實失敗觸發過。
-- 需要使用者決定：⑱⑲ 要一個能在手機上開 MPV 的 build——(a) 授權打一個 Debug device IPA 用 SideStore 裝，
-  或 (b) 同意在 Release 加隱藏的開發者開關。另：是否 push、是否發 `0.1.8 (9)`（發布前要重跑 iphoneos Release 預建置）。
-- 下一步（唯一）：取得上述決定後，讓使用者在真機跑 8L ⑱（MPV 四格 first frame）。
+- 已完成：17A `ecb0c4d0`、9G `cf076e79`、17B `7d679d68`、17C `a1750b8c`、17D `bbc73051`、17E `a1bc5bb6`、
+  版號 `0a57d545`；**已 push，並已發布 `0.1.8 (9)`**（run `35846736589`，tag `ios-v0.1.8-b9`，
+  `source.json` `30af13f5`，IPA 下載回驗通過）。
+- 已驗證：macOS `swift test` **323／323**；Simulator Debug build；模擬器上 MPV Metal／OpenGL first frame、
+  AVPlayer↔MPV 手動切換保留位置／速度／暫停／target、點集數直接播放；iphoneos Release 預建置。
+- 未驗證：**任何真機行為**（MPV first frame、headers、硬解、切換、watchdog fallback、背景／前景）；
+  畫質選單沒有被真實多網址來源觸發過；自動 fallback 沒有被真實失敗觸發過。
+- 下一步（唯一）：使用者用 SideStore 裝 `0.1.8 (9)`，依 8L 7.2 回報，**優先 ⑱⑲（MPV 真機）**。

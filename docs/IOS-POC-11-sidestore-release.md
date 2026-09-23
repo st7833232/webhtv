@@ -130,7 +130,22 @@
 **尚未確認**：本版的效能改善全部沒有真機數字。驗收項目見
 `docs/IOS-POC-15-playback-buffering-preload.md` 第八節。
 
-## 第九次發布：`0.1.8 (9)`（**已規劃，尚未發布**，2026-09-23）
+## 第九次發布：`0.1.8 (9)`（2026-09-23，**已發布**）
+
+**目前最新版是 `0.1.8 (9)`。** 前面八版都已被取代。
+
+**已發布（2026-09-23）**：使用者以「修改完成直接PUSH 發佈」授權。版號 commit `0a57d545`，
+push `2a46c3fb..0a57d545`，`workflow_dispatch` run `35846736589`（`macos-26`，**success，3 分 29 秒**），
+tag `ios-v0.1.8-b9`（workflow 建立，target `0a57d545`），workflow 推回 `source.json`（`30af13f5`）。
+產物 `WebHTV-0.1.8-9.ipa` **24,754,269 bytes**，SHA-256
+`e6aff90423e6b6af20f98e95e6c0e8935af259f95c3c121b0127b70124526757`。**下載回來驗過**：`Payload/` 只有
+`WebHTVApp.app`；`Info.plist` 為 `com.webhtv.ios.poc` / `0.1.8` / build `9` / minimum iOS `17.0`；
+`source.json` 第一筆為 `0.1.8`、size 與 IPA 相同；二進位含 `PlayerRouter`、`AVPlayerEngine`、`MPVEngine`、
+`MPVPlayerCore`、`PlaybackQualityChoice`。發布前本機 unsigned `iphoneos` Release 預建置 **BUILD SUCCEEDED**。
+內容：5S-3、IOS-POC-17（外部播放器移除、雙核心、**MPV 開放**、畫質選單進控制列、點集數直接播放、失敗顯示原因）
+以及 `0.1.7 (8)` 已有的全部。**真機驗收尚未回報。**
+
+以下是發布前的規劃紀錄，保留：
 
 - 目的：**核心真機驗收用的候選版**。`0.1.7 (8)` 建自 `add58007`，**不含 5S-3**（`63040bb3`
   不是它的祖先），所以無法在手機上驗 config `rules` → sniffer。

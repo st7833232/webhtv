@@ -223,7 +223,16 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   forever and **the close button sat on the video permanently**, which is what the user reported on
   2026-09-23 and the real reason 10H removed it. **Do not trust a delegate method because Swift
   compiled it** — check the header for protocol membership and platform.
-  The consequence is **IOS-POC-16**: the control bar has to be ours.
+  The consequence is **IOS-POC-16**: the control bar has to be ours. It is implemented — AVKit
+  draws nothing and `PlayerControlBar` draws the lot, owning its own four-second auto-hide — and
+  **nobody has looked at it yet**, on a simulator or a device.
+  **A trap that invalidated a whole session of simulator observation, 2026-09-23:** `xcodebuild`
+  writes to `~/Library/Developer/Xcode/DerivedData/WebHTVApp-*/Build/Products/…`, while
+  `ios/.build/out/Build/Products/Debug-iphonesimulator/WebHTVApp.app` is a **stale artifact from
+  2026-09-21**. Installing that one reports success and runs two-day-old code, `BUILD SUCCEEDED`
+  and all. Before trusting anything seen on the simulator, check that
+  `xcrun simctl get_app_container <udid> <bundle-id>` and the path from
+  `xcodebuild -showBuildSettings | grep BUILT_PRODUCTS_DIR` hold the **same** binary.
   `docs/IOS-POC-5S-ads-and-skip.md`, `docs/IOS-POC-16-custom-player-controls.md`.
 - **The app remembers what was watched since IOS-POC-5R.** `WatchHistory` follows Android's
   `History.java` field for field, including `isNearEnding()`'s formula, and is keyed on **`Site.id`

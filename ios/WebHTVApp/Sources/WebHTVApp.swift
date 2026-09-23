@@ -1726,6 +1726,33 @@ private struct PlayerPickerView: View {
         Task { @MainActor in await persist() }
     }
 
+    /// The playback speed the viewer picked, for the control bar's menu (IOS-POC-16).
+    var rate: Float { chosenRate }
+
+    /// Sets the speed and remembers it, which is the whole of 14A/14B's contract in one place.
+    ///
+    /// `defaultRate` is what `play()` reads, so it has to be set whether or not anything is playing
+    /// — otherwise choosing a speed while paused would be forgotten the moment playback resumed.
+    /// `chosenRate` is assigned directly rather than left to the `rate` observer, because that
+    /// observer only ever sees a **non-zero** rate and a paused player never produces one.
+    func setRate(_ value: Float) {
+        chosenRate = value
+        player.defaultRate = value
+        if player.rate > 0 { player.rate = value }
+    }
+
+    /// Seeks, in seconds, clamped to the item. The control bar's scrubber and its ±10 s.
+    ///
+    /// Exact tolerances: a scrubber that lands somewhere other than where it was dropped reads as
+    /// broken, and the ±10 s buttons are the one place a viewer counts.
+    func seek(toSeconds seconds: Double) {
+        guard let item = player.currentItem else { return }
+        let duration = item.duration.seconds
+        let limit = duration.isFinite && duration > 0 ? duration : .greatestFiniteMagnitude
+        player.seek(to: CMTime(seconds: min(max(seconds, 0), limit), preferredTimescale: 600),
+                    toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
     /// The same for the end — Android's ED button. Milliseconds counted back from the runtime.
     func setEnding(_ value: Double) {
         guard var record else { return }
@@ -1941,6 +1968,349 @@ private struct PlayerPickerView: View {
     }
 }
 
+/// The playback bar, drawn by this app rather than by AVKit (IOS-POC-16).
+///
+/// It exists because AVKit's own transport bar cannot be extended on iOS and its visibility cannot
+/// be observed there either — both sets of API are tvOS-only. Owning the bar is what lets the
+/// opening and ending controls live **in** it and disappear **with** it, instead of sitting on the
+/// video permanently the way IOS-POC-5S-2's first attempt did.
+///
+/// Everything here drives `PlaybackSession`. No second playback state, no second player.
+private struct PlayerControlBar: View {
+    let session: PlaybackSession
+    /// Seconds. Owned by `PlayerView`, which runs the periodic observer.
+    let position: Double
+    let duration: Double
+    /// Seconds already buffered ahead, or nil when nothing has been reported yet.
+    let buffered: Double?
+    let playing: Bool
+    /// The title's opening/ending, mirrored by `PlayerView`.
+    let watching: WatchHistory?
+    let media: MediaSelection
+    /// Any control being touched restarts the auto-hide countdown, so the bar cannot vanish under
+    /// a finger that is using it.
+    let interacted: () -> Void
+    /// What an edit changed, for the readout and to refresh the mirrors.
+    let edited: () -> Void
+    let close: () -> Void
+
+    /// Seconds, while a drag owns the scrubber. Nil means the observer's value is authoritative.
+    @State private var scrubbing: Double?
+
+    /// Android's own list. `AVPlaybackSpeed.systemDefaultSpeeds` is AVKit's and is not reachable
+    /// once its bar is gone.
+    private static let speeds: [Float] = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
+
+    private var shown: Double { scrubbing ?? position }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            topRow
+            Spacer(minLength: 0)
+            transport
+            scrubber
+        }
+        // Stated, not inferred. An overlay proposes the parent's size, but a `Spacer` only pushes
+        // within a container that actually took it — and one child with no intrinsic size is enough
+        // to leave the stack sized to its content instead, which puts the transport and the
+        // scrubber wherever the stack happens to end rather than at the bottom of the screen.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+        .foregroundStyle(.white)
+        .background {
+            // Legibility over bright video, without hiding it: dark at the edges, clear in the
+            // middle where the picture matters.
+            LinearGradient(colors: [.black.opacity(0.55), .clear, .black.opacity(0.65)],
+                           startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+        }
+    }
+
+    // MARK: Top row — the way out, and the routes
+
+    private var topRow: some View {
+        HStack(spacing: 18) {
+            // **The only way out of the player.** IOS-POC-10I deleted the swipe-to-dismiss after
+            // measuring that AVKit's own X did the job; with AVKit's bar gone that X is gone too,
+            // so this button is what stops the viewer being trapped on this screen.
+            Button(action: { interacted(); close() }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 36, height: 36)
+                    .background(.black.opacity(0.4), in: Circle())
+            }
+            .accessibilityLabel("關閉播放器")
+
+            Spacer()
+
+            mediaMenu("字幕", systemImage: "captions.bubble", selection: media.legible)
+            mediaMenu("音軌", systemImage: "waveform", selection: media.audible)
+            speedMenu
+
+            // AirPlay. `AVRoutePickerView` is public and is the whole control, so there is nothing
+            // to reimplement — AVKit's bar was only ever hosting the same view.
+            RoutePickerButton()
+                .frame(width: 36, height: 36)
+                .accessibilityLabel("AirPlay")
+        }
+    }
+
+    // MARK: Transport
+
+    private var transport: some View {
+        HStack(spacing: 44) {
+            Button(action: { interacted(); session.seek(toSeconds: shown - 10) }) {
+                Image(systemName: "gobackward.10").font(.system(size: 28))
+            }
+            .accessibilityLabel("倒退 10 秒")
+
+            Button(action: { interacted(); session.control(playing ? "pause" : "play") }) {
+                Image(systemName: playing ? "pause.fill" : "play.fill")
+                    .font(.system(size: 40))
+                    .frame(width: 52, height: 52)
+            }
+            .accessibilityLabel(playing ? "暫停" : "播放")
+
+            Button(action: { interacted(); session.seek(toSeconds: shown + 10) }) {
+                Image(systemName: "goforward.10").font(.system(size: 28))
+            }
+            .accessibilityLabel("前進 10 秒")
+        }
+        .padding(.bottom, 14)
+    }
+
+    // MARK: Scrubber, and the opening/ending beside it
+
+    private var scrubber: some View {
+        VStack(spacing: 6) {
+            PlaybackSlider(value: shown, bounds: duration, buffered: buffered,
+                           onChange: { scrubbing = $0; interacted() },
+                           onCommit: { seconds in
+                               scrubbing = nil
+                               session.seek(toSeconds: seconds)
+                               interacted()
+                           })
+                .frame(height: 24)
+                .accessibilityLabel("播放進度")
+                .accessibilityValue("\(PlayerView.clock(shown)) / \(PlayerView.clock(duration))")
+
+            HStack(spacing: 10) {
+                Text(PlayerView.clock(shown))
+                    .monospacedDigit()
+                Spacer(minLength: 8)
+                // IOS-POC-5S-2's four operations, unchanged. This is what the whole stage was for:
+                // they are in the bar, so they leave with it.
+                if watching != nil {
+                    skipMenu("片頭", offset: \.openingOffset,
+                             mark: session.markOpening, apply: session.setOpening)
+                    skipMenu("片尾", offset: \.endingOffset,
+                             mark: session.markEnding, apply: session.setEnding)
+                }
+                Spacer(minLength: 8)
+                Text(PlayerView.clock(duration))
+                    .monospacedDigit()
+            }
+            .font(.caption)
+        }
+    }
+
+    // MARK: Menus
+
+    private var speedMenu: some View {
+        Menu {
+            ForEach(Self.speeds, id: \.self) { speed in
+                Button {
+                    interacted()
+                    session.setRate(speed)
+                    edited()
+                } label: {
+                    Label(speed == 1 ? "正常" : "\(speed)×",
+                          systemImage: session.rate == speed ? "checkmark" : "")
+                }
+            }
+        } label: {
+            Text(session.rate == 1 ? "1×" : "\(session.rate)×")
+                .font(.footnote.weight(.semibold))
+                .frame(minWidth: 36, minHeight: 36)
+        }
+        .accessibilityLabel("播放速度")
+    }
+
+    /// Subtitles and audio. Shown only when the media actually offers a choice — a menu with one
+    /// entry decides nothing, which is the same rule the quality picker follows (IOS-POC-5Q).
+    @ViewBuilder
+    private func mediaMenu(_ name: String, systemImage: String,
+                           selection: MediaSelection.Track?) -> some View {
+        if let selection, selection.options.count > 1 {
+            Menu {
+                ForEach(Array(selection.options.enumerated()), id: \.offset) { _, option in
+                    Button {
+                        interacted()
+                        session.player.currentItem?.select(option.option, in: selection.group)
+                        edited()
+                    } label: {
+                        Label(option.name,
+                              systemImage: option.option == selection.selected ? "checkmark" : "")
+                    }
+                }
+            } label: {
+                Image(systemName: systemImage).font(.system(size: 17)).frame(width: 36, height: 36)
+            }
+            .accessibilityLabel(name)
+        }
+    }
+
+    /// One opening/ending control, carrying Android's four operations. `mark` reads the live
+    /// position from the session, because a SwiftUI body is evaluated when the layout needs it
+    /// rather than when the viewer taps.
+    private func skipMenu(_ name: String, offset: KeyPath<WatchHistory, Double>,
+                          mark: @escaping () -> Void,
+                          apply: @escaping (Double) -> Void) -> some View {
+        let current = watching?[keyPath: offset] ?? 0
+        return Menu {
+            Button("設為目前位置") { interacted(); mark(); edited() }
+            Button("+1 秒") { interacted(); apply(current + 1000); edited() }
+            Button("−1 秒") { interacted(); apply(current - 1000); edited() }
+            if current > 0 {
+                Button("清除", role: .destructive) { interacted(); apply(0); edited() }
+            }
+        } label: {
+            Text(current > 0 ? "\(name) \(PlayerView.clock(current / 1000))" : name)
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.white.opacity(0.18), in: Capsule())
+        }
+        .accessibilityLabel(name)
+        .accessibilityValue(current > 0 ? PlayerView.clock(current / 1000) : "未設定")
+    }
+}
+
+/// The scrubber. A `Slider` cannot draw the buffered range, and the buffered range is the one thing
+/// a viewer on a flaky source actually wants to see — so this is a bar, a drag, and nothing else.
+///
+/// ponytail: no tick marks, no chapter marks, no haptics. They are additions, not omissions.
+private struct PlaybackSlider: View {
+    let value: Double
+    let bounds: Double
+    let buffered: Double?
+    let onChange: (Double) -> Void
+    let onCommit: (Double) -> Void
+
+    private static let track: CGFloat = 5
+    /// The bar is thin; the gesture must not be. 24 pt of height is touchable, the paint is 5.
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let usable = bounds.isFinite && bounds > 0 ? bounds : 0
+            let progress = usable > 0 ? min(max(value / usable, 0), 1) : 0
+            let ahead = usable > 0 ? min(max((buffered ?? 0) / usable, 0), 1) : 0
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.28)).frame(height: Self.track)
+                Capsule().fill(.white.opacity(0.45))
+                    .frame(width: width * ahead, height: Self.track)
+                Capsule().fill(.white).frame(width: width * progress, height: Self.track)
+                Circle().fill(.white).frame(width: 13, height: 13)
+                    .offset(x: width * progress - 6.5)
+            }
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { move in
+                        guard usable > 0 else { return }
+                        onChange(seconds(at: move.location.x, width: width, of: usable))
+                    }
+                    .onEnded { move in
+                        guard usable > 0 else { return }
+                        onCommit(seconds(at: move.location.x, width: width, of: usable))
+                    }
+            )
+        }
+    }
+
+    private func seconds(at x: CGFloat, width: CGFloat, of usable: Double) -> Double {
+        guard width > 0 else { return 0 }
+        return min(max(Double(x / width), 0), 1) * usable
+    }
+}
+
+/// `AVRoutePickerView` is the AirPlay control; there is nothing to reimplement around it.
+///
+/// It is pinned to a fixed size on the UIKit side as well as in SwiftUI. A `UIViewRepresentable`
+/// whose view has no intrinsic content size lets SwiftUI propose whatever is going, and one greedy
+/// child is enough to change how the whole row — and the stack around it — lays out.
+private struct RoutePickerButton: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let view = AVRoutePickerView()
+        view.tintColor = .white
+        view.activeTintColor = .white
+        view.setContentHuggingPriority(.required, for: .horizontal)
+        view.setContentHuggingPriority(.required, for: .vertical)
+        view.setContentCompressionResistancePriority(.required, for: .horizontal)
+        view.setContentCompressionResistancePriority(.required, for: .vertical)
+        return view
+    }
+
+    func updateUIView(_ view: AVRoutePickerView, context: Context) {}
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: AVRoutePickerView,
+                      context: Context) -> CGSize? {
+        CGSize(width: 36, height: 36)
+    }
+}
+
+/// The subtitle and audio choices the current item offers, resolved once when it loads.
+///
+/// `AVAsset`'s media-selection groups load asynchronously, so this is read in a task rather than
+/// computed in a body. An item with nothing to choose leaves both `nil` and the menus do not appear.
+struct MediaSelection {
+    struct Option {
+        let name: String
+        /// Nil is "off", which is what `select(nil, in:)` means — not a stand-in for an option.
+        let option: AVMediaSelectionOption?
+    }
+
+    struct Track {
+        let group: AVMediaSelectionGroup
+        let options: [Option]
+        let selected: AVMediaSelectionOption?
+    }
+
+    var legible: Track?
+    var audible: Track?
+
+    /// `@MainActor` because `AVPlayerItem` and `AVAsset` are not `Sendable`: the load has to stay
+    /// on the actor that already owns the player rather than hand the asset across one.
+    @MainActor
+    static func load(from item: AVPlayerItem?) async -> MediaSelection {
+        guard let item else { return MediaSelection() }
+        var selection = MediaSelection()
+        selection.legible = await track(item: item, characteristic: .legible)
+        selection.audible = await track(item: item, characteristic: .audible)
+        return selection
+    }
+
+    @MainActor
+    private static func track(item: AVPlayerItem,
+                              characteristic: AVMediaCharacteristic) async -> Track? {
+        guard let group = try? await item.asset.loadMediaSelectionGroup(for: characteristic),
+              !group.options.isEmpty else { return nil }
+        var options = group.options.map {
+            Option(name: $0.displayName, option: $0)
+        }
+        // Subtitles can be turned off; audio cannot, so only the legible group gets the entry.
+        if characteristic == .legible, group.allowsEmptySelection {
+            options.insert(Option(name: "關閉", option: nil), at: 0)
+        }
+        return Track(group: group, options: options,
+                     selected: item.currentMediaSelection.selectedMediaOption(in: group))
+    }
+}
+
 /// `AVPlayerViewController` directly, rather than SwiftUI's `VideoPlayer`, for one reason: the
 /// delegate. `VideoPlayer` wraps the same controller but hands out no delegate, and the control
 /// visibility this screen needs has no other public source.
@@ -1955,6 +2325,21 @@ private struct PlayerSurface: UIViewControllerRepresentable {
         controller.player = player
         controller.delegate = context.coordinator
         context.coordinator.attach(controller)
+        // IOS-POC-16. AVKit draws no controls; `PlayerControlBar` does.
+        //
+        // **This is the only way to put anything in the playback bar on iOS.** Every hook AVKit
+        // offers for extending its own transport bar — `transportBarCustomMenuItems`,
+        // `customOverlayViewController`, `contextualActions`, `infoViewActions` — is
+        // `API_UNAVAILABLE(ios)`, and so is the delegate method that would report when its bar is
+        // showing. An overlay that cannot know when the bar is up can only sit on the video
+        // forever, which is exactly what the close button did until 2026-09-23.
+        //
+        // The video, the playback pipeline and Picture in Picture stay AVKit's: this hides controls,
+        // it does not replace the player. Automatic PiP on leaving the app is a property of the
+        // controller, not of its bar, so it survives. There is **no manual PiP button** by decision
+        // — `AVPlayerViewController` exposes no public `startPictureInPicture()`, and the viewer
+        // asked not to have one drawn.
+        controller.showsPlaybackControls = false
         // IOS-POC-10H. Both flags are needed and they do different jobs: the first puts the PiP
         // button in AVKit's control bar, the second hands the video to a PiP window when the
         // viewer leaves the app instead of freezing it.
@@ -1967,6 +2352,11 @@ private struct PlayerSurface: UIViewControllerRepresentable {
         // One `AVPlayer` lives for the whole app, so this normally does nothing; it matters only
         // if the session ever swaps the player object rather than its item.
         if controller.player !== player { controller.player = player }
+        // Re-asserted every update, not just at creation. Setting it once in `makeUIViewController`
+        // was measured on the simulator on 2026-09-23 **not to stick**: AVKit's own transport bar,
+        // AirPlay and mute buttons all came back on a tap. Assigning it here is idempotent and
+        // survives whatever puts them back.
+        if controller.showsPlaybackControls { controller.showsPlaybackControls = false }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(active: $pictureInPicture) }
@@ -2060,6 +2450,21 @@ private struct PlayerView: View {
     /// a plain class every other screen drives imperatively; making it observable so two capsules
     /// could redraw would put a dependency on every one of those callers.
     @State private var watching: WatchHistory?
+    /// IOS-POC-16: **our** control-bar visibility, not a guess at AVKit's.
+    ///
+    /// IOS-POC-10A tried to track AVKit's bar and could not — the delegate method it used is not a
+    /// member of `AVPlayerViewControllerDelegate` on any platform, so it was never called and the
+    /// button it faded sat on the video forever. Now AVKit draws no bar, this flag is the only
+    /// truth there is, and nothing can fall out of phase with it.
+    @State private var controlsVisible = true
+    @State private var hideTimer: Task<Void, Never>?
+    /// Seconds, from the periodic observer.
+    @State private var position: Double = 0
+    @State private var duration: Double = 0
+    @State private var buffered: Double?
+    @State private var playing = false
+    @State private var media = MediaSelection()
+    @State private var timeObserver: Any?
 
     private enum DragKind { case seek, volume, brightness }
 
@@ -2089,7 +2494,36 @@ private struct PlayerView: View {
                     .allowsHitTesting(false)
             }
         }
-        .overlay(alignment: .trailing) { skipControls.padding(.trailing, 12) }
+        .overlay {
+            PlayerControlBar(
+                session: session, position: position, duration: duration, buffered: buffered,
+                playing: playing, watching: watching, media: media,
+                interacted: { scheduleHide() },
+                edited: {
+                    watching = session.record
+                    // The clamp and Android's markable window can both answer with a different
+                    // number than the one asked for, so say what was actually kept.
+                    if let watching {
+                        flashHUD("片頭 \(Self.clock(watching.openingOffset / 1000))  片尾 "
+                                 + (watching.endingOffset > 0
+                                    ? Self.clock(watching.endingOffset / 1000) : "未設定"))
+                    }
+                },
+                close: { dismiss() }
+            )
+            .opacity(controlsVisible ? 1 : 0)
+            // Gone means gone: a hidden bar must not eat the tap that brings it back.
+            .allowsHitTesting(controlsVisible)
+            .animation(.easeInOut(duration: 0.25), value: controlsVisible)
+        }
+        // Tap anywhere to summon or dismiss the bar, the way AVKit's own bar behaved.
+        //
+        // **`simultaneousGesture`, not `onTapGesture`.** IOS-POC-10A2 and 10J both measured it:
+        // AVKit's recognisers live in the UIKit view underneath and a plain SwiftUI gesture loses
+        // to them. Hiding AVKit's *controls* does not remove its *recognisers*, so the lesson still
+        // applies — a plain tap here is simply never delivered, and the bar can never come back.
+        .contentShape(Rectangle())
+        .simultaneousGesture(TapGesture().onEnded { toggleControls() })
         // IOS-POC-10J. `simultaneousGesture` again, for the reason IOS-POC-10A2 found: AVKit's
         // recognisers live in the UIKit view underneath and a plain SwiftUI gesture loses to
         // them. Observing alongside means the scrubber still works if the viewer grabs it.
@@ -2111,8 +2545,14 @@ private struct PlayerView: View {
             // The sampler skips a paused player, so the moment of leaving is the last chance to
             // record where the viewer actually got to.
             Task { await session.persist() }
+            // One `AVPlayer` outlives this screen, so an observer left on it would outlive it too.
+            stopObserving()
+            hideTimer?.cancel()
         }
         .task {
+            startObserving()
+            scheduleHide()
+            media = await MediaSelection.load(from: session.player.currentItem)
             // The session merges the stored opening and ending in a task of its own, so ask the
             // store rather than racing it. The session's record is already keyed by then, because
             // `open` sets that part synchronously.
@@ -2121,63 +2561,56 @@ private struct PlayerView: View {
         }
     }
 
-    // MARK: - IOS-POC-5S-2: the opening and the ending
+    // MARK: - IOS-POC-16: the bar's own state
 
-    /// Android's OP and ED buttons.
-    ///
-    /// They live in an overlay because AVKit's control bar cannot be extended on iOS —
-    /// `transportBarCustomMenuItems` is tvOS only — and on the **trailing edge, vertically centred**,
-    /// which is the one part of `AVPlayerViewController`'s full-screen layout that neither its top
-    /// bar (Done, PiP, AirPlay) nor its transport bar occupies. A menu rather than the TV's
-    /// click / up / down / long-press, because a touch screen has no D-pad: the same four
-    /// operations, one control each.
-    ///
-    /// Hidden entirely when the playback has no title identity — `player.playUrl` and a page's
-    /// inline playlist have no history record for the setting to belong to.
-    @ViewBuilder private var skipControls: some View {
-        if watching != nil {
-            VStack(alignment: .trailing, spacing: 8) {
-                skipMenu("片頭", offset: \.openingOffset,
-                         mark: session.markOpening, apply: session.setOpening)
-                skipMenu("片尾", offset: \.endingOffset,
-                         mark: session.markEnding, apply: session.setEnding)
+    /// A quarter-second tick. Fine enough that the scrubber does not visibly step, coarse enough
+    /// that it costs nothing — AVKit's own bar reads about the same.
+    private func startObserving() {
+        stopObserving()
+        timeObserver = session.player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
+        ) { time in
+            Task { @MainActor in
+                // No guard against an in-flight drag is needed: `PlayerControlBar` holds the
+                // dragged value itself and prefers it over this one until the finger lifts.
+                position = time.seconds.isFinite ? time.seconds : 0
+                playing = session.player.timeControlStatus == .playing
+                guard let item = session.player.currentItem else { return }
+                let length = item.duration.seconds
+                duration = length.isFinite && length > 0 ? length : 0
+                // What is already on the device. The same `loadedTimeRanges` IOS-POC-15 will
+                // measure buffer-ahead from, which is why the bar draws it rather than hiding it.
+                buffered = item.loadedTimeRanges.first.map {
+                    let range = $0.timeRangeValue
+                    return (range.start + range.duration).seconds
+                }
             }
         }
     }
 
-    /// One control, carrying Android's four operations. `mark` reads the live position itself — the
-    /// session owns that, because a body is rendered when SwiftUI needs it rather than when the
-    /// viewer taps.
-    private func skipMenu(_ name: String, offset: KeyPath<WatchHistory, Double>,
-                          mark: @escaping () -> Void,
-                          apply: @escaping (Double) -> Void) -> some View {
-        let current = watching?[keyPath: offset] ?? 0
-        return Menu {
-            Button("設為目前位置") { edit(name, offset, mark) }
-            Button("+1 秒") { edit(name, offset) { apply(current + 1000) } }
-            Button("−1 秒") { edit(name, offset) { apply(current - 1000) } }
-            if current > 0 { Button("清除", role: .destructive) { edit(name, offset) { apply(0) } } }
-        } label: {
-            Text(current > 0 ? "\(name) \(Self.clock(current / 1000))" : name)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(.black.opacity(0.55), in: Capsule())
-        }
+    private func stopObserving() {
+        if let timeObserver { session.player.removeTimeObserver(timeObserver) }
+        timeObserver = nil
     }
 
-    /// Runs one edit, re-reads what the session actually kept, and says so through the readout the
-    /// drag gestures already use.
+    private func toggleControls() {
+        controlsVisible.toggle()
+        if controlsVisible { scheduleHide() } else { hideTimer?.cancel() }
+    }
+
+    /// Four seconds, restarted by every interaction — AVKit's own behaviour, and now ours to state
+    /// rather than to guess at.
     ///
-    /// The confirmation is not decoration: the clamp can store a smaller number than the one asked
-    /// for, and `markOpening`/`markEnding` can refuse the position outright — without it, a menu
-    /// item Android would silently ignore looks like a dead control.
-    private func edit(_ name: String, _ offset: KeyPath<WatchHistory, Double>, _ change: () -> Void) {
-        change()
-        watching = session.record
-        let now = watching?[keyPath: offset] ?? 0
-        flashHUD(now > 0 ? "\(name) \(Self.clock(now / 1000))" : "\(name)未設定")
+    /// **A paused player keeps its bar.** Hiding the controls of something that is not moving
+    /// leaves a still frame with no way to tell it is paused.
+    private func scheduleHide() {
+        controlsVisible = true
+        hideTimer?.cancel()
+        hideTimer = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled, session.player.timeControlStatus == .playing else { return }
+            controlsVisible = false
+        }
     }
 
     // MARK: - IOS-POC-10J gestures
@@ -2259,7 +2692,8 @@ private struct PlayerView: View {
         return "\(Self.clock(target))  \(sign)\(Int(abs(delta).rounded()))s"
     }
 
-    private static func clock(_ seconds: Double) -> String {
+    /// Shared with `PlayerControlBar`, which is why it is not private.
+    static func clock(_ seconds: Double) -> String {
         guard seconds.isFinite, seconds >= 0 else { return "--:--" }
         let total = Int(seconds.rounded())
         let hours = total / 3600

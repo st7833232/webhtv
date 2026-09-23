@@ -1,6 +1,7 @@
 # IOS-POC-16 — 自建播放控制列
 
-- 狀態：**計畫，未實作。** 依 AGENTS §7，未經使用者明確核准不得動程式碼。
+- 狀態：**方案 C 已實作，建置與測試通過，但「一行視覺驗證都沒有」。** 見第十節。
+  使用者 2026-09-23 選擇方案 C，並指示**不要畫手動 PiP 按鈕**。
 - 基線 HEAD `38df1710`（2026-09-23）
 - Lane：`standard`（實作時）；本文件本身是 `assessment`
 - 起因：IOS-POC-5S-2 把片頭／片尾控制放在影片上，使用者要求移到調整 Bar、不要直接出現在影片上。
@@ -172,20 +173,84 @@ MPV、IOS-POC-15 的緩衝調校。
 並移除自建 bar 的 overlay，AVKit 原本的控制列立刻回來——因為 C **沒有動播放管線**，
 `AVPlayerViewController`、`PlaybackSession`、`WatchHistory` 都還在原位。
 
-## 八、待使用者決定
+## 八、使用者的決定（2026-09-23）
 
-**手動 PiP 按鈕的缺席可以接受嗎？**
+**做 C，而且手動 PiP 按鈕不用畫。** 兩件事同時解決了：C 本來就拿不到
+`startPictureInPicture()`，而使用者也不要那顆鈕。離開 App 自動進 PiP 不受影響。
 
-- 可以接受 → 直接做 C。
-- 不能接受 → 改做 D（取回按鈕、可能根治 PiP 缺陷，但整個播放介面換掉、剛落地的修正作廢）。
+## 九、實作（方案 C）
 
-在收到答覆前**不動任何程式碼**。
+`AVPlayerViewController` 保留，`showsPlaybackControls = false`，控制列由
+`PlayerControlBar`（SwiftUI）自己畫。
 
-## 九、Recovery anchor
+| 元件 | 實作 |
+|---|---|
+| 關閉 | **自己的 X。這是唯一出口** —— 10I 量過 AVKit 的 X 有效所以刪掉了下滑手勢，AVKit 控制列一關那個出口就沒了 |
+| 字幕／音軌 | `MediaSelection` 非同步載 `AVMediaSelectionGroup`；**只有超過一個選項才顯示**（同 5Q 的畫質選單規則）。字幕的「關閉」是 `select(nil, in:)`，不是拿某個選項當替身 |
+| 速度 | `PlaybackSession.setRate` 同時寫 `defaultRate` 與 `chosenRate`。**不能只寫 `rate`**：14B 那個觀察者只看得到非零的 `rate`，暫停時選速度會被忘掉 |
+| AirPlay | `AVRoutePickerView`，公開元件直接放 |
+| ±10 秒／播放暫停 | 走既有 `PlaybackSession.control()` 與新的 `seek(toSeconds:)` |
+| 進度條 | 自繪。`Slider` 畫不出已緩衝區段，而那是爛線路上使用者最想看到的東西。緩衝資料來自 `loadedTimeRanges`——**IOS-POC-15 要量的 buffer-ahead 是同一份** |
+| 片頭／片尾 | 5S-2 的四個操作原封不動，**現在在 bar 裡，所以跟著 bar 一起走** |
+| 顯示／隱藏 | **我們自己的 `controlsVisible`**，四秒自動隱藏、每次互動重算、暫停時不隱藏。點擊用 `simultaneousGesture(TapGesture())`——10A2／10J 量過普通 SwiftUI 手勢會輸給 AVKit 底下的辨識器 |
+
+`showsPlaybackControls = false` **在 `makeUIViewController` 與 `updateUIViewController` 都設**。
+只在建立時設一次是不夠的（見下一節的實測）。
+
+## 十、驗證狀態：建置與測試通過，視覺零驗證
+
+| 檢查 | 結果 |
+|---|---|
+| 模擬器 Debug build | **BUILD SUCCEEDED** |
+| `swift test --package-path ios` | **228 條，227 過**。唯一失敗是 `reportsLiveType4SitesFromProvidedConfig`，durable 紀錄已列為天氣不是門檻，與本階段無關 |
+| Ponytail final-diff | 新增的每個型別與方法都有呼叫端；debug 殘留為 0 |
+| **這條 bar 長什麼樣子** | **完全沒有驗過。一次都沒有。** |
+
+### 為什麼沒驗到：一個會坑死人的陷阱
+
+本輪花了很長時間在模擬器上「觀察」這條 bar，得到一連串結論——AVKit 控制列還在、
+bar 只畫得出一個 X、版面塌掉——**那些結論全部是假的**。
+
+原因：`xcodebuild` 的產物在
+`~/Library/Developer/Xcode/DerivedData/WebHTVApp-*/Build/Products/Debug-iphonesimulator/`，
+而 repo 裡的 `ios/.build/out/Build/Products/Debug-iphonesimulator/WebHTVApp.app` 是
+**2026-09-21 留下的舊產物**。安裝腳本挑了後者，所以每一次「重建→安裝→觀察」都是在看兩天前的 App。
+`BUILD SUCCEEDED` 照樣印出來，因為建置本身確實成功了，只是寫到別處。
+
+> **驗證前先比對 binary 的 mtime 或 SHA-256。**
+> ```bash
+> xcodebuild ... -showBuildSettings | grep BUILT_PRODUCTS_DIR   # 產物在哪
+> xcrun simctl get_app_container <udid> <bundle-id>              # 裝的是哪一份
+> ```
+> 兩者的 `WebHTVApp` 必須是同一個檔。不同就是在看舊 build，任何觀察都不作數。
+
+陷阱找出來並修正安裝路徑之後，真正的新 build 有裝進去，但當時可用的設定檔是使用者指明
+**不要用來測試**的那一份，所以驗證停在這裡，沒有繼續。
+
+### 還沒驗的（全部）
+
+1. **bar 長什麼樣、位置對不對**。
+2. **`showsPlaybackControls = false` 是否真的把 AVKit 控制列關掉**——
+   在 `updateUIViewController` 重申是防禦性的，尚未證實必要或足夠。
+3. **點擊能不能叫出／收起 bar**，`simultaneousGesture` 是否真的贏得過 AVKit 的辨識器。
+4. **四秒自動隱藏**、暫停時不隱藏。
+5. **關閉鈕能不能關掉播放器**——這是最高風險項，壞了使用者會被關在播放畫面裡。
+6. 進度條拖曳、緩衝區段顯示、±10 秒、速度、字幕／音軌、AirPlay。
+7. **片頭／片尾四個操作在新位置仍然正確**。
+8. 既有行為無回歸：續播、自動播下一集、跨集速度、PiP 自動進入。
+9. **真機一次都沒有。**
+
+### 下一步（唯一）
+
+用 `wang-movie.json` 走一次模擬器實測，逐項對照第六節的驗收標準。
+**安裝前務必比對 binary。**
+
+## 十一、Recovery anchor
 
 - 目標：把 5S-2 的片頭／片尾控制從「永遠浮在影片上」移進一條自建控制列。
-- 已完成：本文件（設計調查＋方案比較＋建議）。**零程式碼變更。**
+- 已完成：設計調查、方案比較、**方案 C 的實作**、建置與測試。
+  **視覺驗證零**——原因與陷阱寫在第十節，不要重踩。
 - 已量測並可直接引用，不需重查：第一節那兩張 API 表、虛構方法名的對照實驗、
   `AVPlayerViewController` 無公開 start/stop PiP、`ContentSource` 在 iOS 只吃 `AVPlayerLayer`、
   `AVPlayerViewController` 不暴露 `playerLayer`、`showsPlaybackControls` 在 iOS 可用。
-- 下一步（唯一）：取得第八節的答覆，然後依 C 或 D 開 `standard` lane 實作。
+- 下一步（唯一）：用 `wang-movie.json` 做模擬器視覺驗證，**安裝前先比對 binary 的 SHA-256**。

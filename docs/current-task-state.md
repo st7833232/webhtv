@@ -40,7 +40,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 | MPV technical feasibility (IOS-POC-9B/9C/9D/9F) | **Started, implemented, and not finished.** MPVKit is wired into the App target, static linking is confirmed by symbol table, and **libmpv initialises on the simulator and on the iPhone 18 Pro**. This row is **not** "not started" |
 | **MPV rendering** | **NOT DONE — PAUSED — UNRESOLVED.** On the device, Metal + software decode reaches `FILE_LOADED` and **`VIDEO_RECONFIG` never fires; the picture stays black**. A second playback core does **not** exist. `docs/IOS-POC-9B-mpv-playback-core.md` |
 | SideStore release pipeline (IOS-POC-11) | **Done** — `.github/workflows/ios-sidestore-release.yml` and `source.json` exist and have published twice |
-| Current release | **WebHTV `0.1.5 (6)`**, tag `ios-v0.1.5-b6`, built from `bf96532a`, published 2026-09-23 (`WebHTV-0.1.5-6.ipa`, 24,601,187 bytes). The project carries `MARKETING_VERSION = 0.1.5` / `CURRENT_PROJECT_VERSION = 6`, so the workflow's blank-input default resolves to it. `0.1 (1)` through **`0.1.4 (5)`** are all superseded. |
+| Current release | **WebHTV `0.1.6 (7)`**, tag `ios-v0.1.6-b7`, built from `6abc56e5`, published 2026-09-23 (`WebHTV-0.1.6-7.ipa`, 24,650,445 bytes, SHA-256 `24aaa212...`). It carries IOS-POC-16's custom control bar. The project carries `MARKETING_VERSION = 0.1.6` / `CURRENT_PROJECT_VERSION = 7`. `0.1 (1)` through **`0.1.5 (6)`** are all superseded. |
 | IOS-POC-14 auto-advance | **Done and confirmed on the device by the user.** An episode that ends starts the next one on the same line; the last one closes the player |
 | IOS-POC-14A/14B playback speed | **Done, not device-verified.** The chosen speed carries across episodes **of the same title** — keyed on `WatchHistory.key`, so switching source resets it, which the user decided to leave (14C) |
 | Real-device acceptance (IOS-POC-8) | **Partial.** Several runs on hardware; the list below is what is and is not confirmed. Not to be recorded as complete |
@@ -254,7 +254,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 7P | `requests` + `urllib3` + `certifi` + `idna` + `charset-normalizer` vendored as pinned pure-Python wheels; sites reaching media bytes went 1 → 6, executing 4 → 14 | same document |
 | 10F–10Q | **Eleven more user-reported items, 2026-09-22.** Player gestures (seek / volume / brightness); the close button removed and Picture in Picture enabled; `DrpyError` and `CMSClientError` made readable; pull to refresh was being answered by `URLCache` and no longer is; three drpy configuration shapes reconciled; and **麻豆(js) diagnosed as a CatVod JS spider this app does not implement** | `docs/IOS-POC-10-plan-ux-and-sources.md` |
 | 14 / 14A / 14B / 14C | **An episode that ends starts the next one, and the last one closes the player**, plus the playback speed carried within one title. The auto-advance is **confirmed on the device by the user**; the speed is not. 14C records the decision to leave the source switch resetting it | `docs/IOS-POC-14-autoplay-next-episode.md` |
-| 11 | **SideStore release pipeline.** `.github/workflows/ios-sidestore-release.yml` builds an unsigned device IPA on GitHub `macos-26`, validates it against SideStore's own schema, publishes a Release and updates `source.json` on this branch. **Six releases so far, through `0.1.5 (6)`**; `source.json` carries all six | `docs/IOS-POC-11-sidestore-release.md` |
+| 11 | **SideStore release pipeline.** `.github/workflows/ios-sidestore-release.yml` builds an unsigned device IPA on GitHub `macos-26`, validates it against SideStore's own schema, publishes a Release and updates `source.json` on this branch. **Seven releases so far, through `0.1.6 (7)`**; `source.json` carries all seven | `docs/IOS-POC-11-sidestore-release.md` |
 | 10W–10Z | **荐片's posters and filter rows, and the defect underneath them.** The poster host was the first entry of a list whose first two were dead; the filter rows were missing because `SpiderSessionStore.reset()` called `destroy()` on a session its caller still held, wiping what `init` had built between `start()` and `homeContent()`. **Not specific to one spider** | `docs/IOS-POC-10-plan-ux-and-sources.md` |
 | 10S | The source list follows the configuration's own order — `drivableSites` was four concatenated per-kind filters, so 麻豆(js), seventh in the file, was buried among the drpy sites | `docs/IOS-POC-10-plan-ux-and-sources.md` |
 | 10V | **麻豆 confirmed on the iPhone 18 Pro by the user** — listed and playing. Does **not** settle the `AVURLAssetHTTPHeaderFieldsKey` question: that stream serves without a `User-Agent` | `docs/IOS-POC-10-plan-ux-and-sources.md` |
@@ -482,8 +482,8 @@ without further code, which is why they are worth more than their site counts su
   2026-09-22 the user installs through SideStore**, so a build reaches the phone as a published IPA
   rather than by `devicectl install`. Do not install to the device directly.
 - **The release pipeline builds it too**, on GitHub `macos-26` with no local state. The most recent
-  is `WebHTV-0.1.5-6.ipa` (24,601,187 bytes), unsigned, re-signed on the device by SideStore.
-  `WebHTV-0.1.4-5.ipa` (24,577,093 bytes) is the one before it.
+  is `WebHTV-0.1.6-7.ipa` (24,650,445 bytes), unsigned, re-signed on the device by SideStore.
+  `WebHTV-0.1.5-6.ipa` (24,601,187 bytes) is the one before it.
   Each release was downloaded back and its `Info.plist` checked against the version it claims.
 - `third_party/python-ios/` is present (78 MB) with the five vendored wheels in `site-packages`, so
   the Python path is buildable on this machine without a re-fetch.
@@ -1049,7 +1049,7 @@ Paste this into a new session:
 >
 > **已完成、不要當成未開始的事**：drpy loader（4 個來源 E2E 到真實媒體位元組）；Python P1–P5（`PythonSpiderRuntime`、`base/spider.py`、routing、安全 gate、真實來源 golden、42 站 survey 都已存在）；**CPython 3.13.15 在模擬器與 iPhone 真機都啟動過**；`requests` Tier-1 vendoring（**42 站中 14 站可執行、6 站到媒體位元組**）；CatVod JS spider 契約（**麻豆(js) 已在真機列出並播放**）；5Q multi-quality；5R WatchHistory／resume；**SideStore 發佈流程**（workflow 與 `source.json` 都在，已發過兩版）。
 >
-> **目前最新版本是 `0.1.5 (6)`**（tag `ios-v0.1.5-b6`，2026-09-23）。前面五版都已被取代。**我用 SideStore 安裝，不要直接把 App 裝到我手機上**；需要上機時產 IPA 或在我授權後觸發 `ios-sidestore-release.yml`。
+> **目前最新版本是 `0.1.6 (7)`**（tag `ios-v0.1.6-b7`，2026-09-23）。前面六版都已被取代。**我用 SideStore 安裝，不要直接把 App 裝到我手機上**；需要上機時產 IPA 或在我授權後觸發 `ios-sidestore-release.yml`。
 >
 > **MPV：已經開始且有實作，但沒做完。** libmpv 在模擬器與真機都初始化成功；**算繪未完成、暫停中、未解**——真機 Metal＋軟解到得了 `FILE_LOADED`，`VIDEO_RECONFIG` 從未觸發，畫面全黑。**不存在第二個播放核心。** 恢復時從 `FILE_LOADED → VIDEO_RECONFIG` 那段繼續，真機 OpenGL 那一格還沒試，是最便宜的鑑別；不要從 MPVKit 安裝重來，不要重做 9A。
 >

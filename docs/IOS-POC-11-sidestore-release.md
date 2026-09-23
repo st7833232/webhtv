@@ -73,3 +73,23 @@
 
 **使用者已確認**：`0.1.2 (3)` 的自動接下一集在真機上可用。
 **尚未確認**：廣告封鎖在 App 裡真的擋到東西、播放速度是否跟著換集。
+
+## 第七次發布（2026-09-23，`0.1.6 (7)`）
+
+**目前最新版是 `0.1.6 (7)`。** 前面六版都已被取代。
+
+- 內容：IOS-POC-16 自建播放控制列（AVKit 的 transport bar 在 iOS 無法擴充，也無法得知它何時顯示，
+  兩者都是 tvOS 專用 API），片頭／片尾移進控制列因此跟著它一起出現與隱藏；速度選單改為
+  `0.5 / 1 / 1.25 / 1.5 / 2 / 2.5 / 3` 並修掉標籤的多餘小數；修掉切換速度會誤報片頭片尾。
+- 專案檔先改成 `MARKETING_VERSION = 0.1.6`、`CURRENT_PROJECT_VERSION = 7`（commit `6abc56e5`），
+  否則 workflow 的「輸入留空就讀專案值」會指向已發布過的版號。
+- 觸發：`workflow_dispatch`，`version=0.1.6`、`build_number=7`、中文 release notes。
+  使用者明確授權了這一次 push 與這一次發布。
+- run `35816498572` 在 `macos-26` **success，11 個步驟全綠**。
+- 產物：`WebHTV-0.1.6-7.ipa`，**24,650,445 bytes**，tag `ios-v0.1.6-b7`，
+  SHA-256 `24aaa21245512a92330e60dd269de3740bc9db8f93509c7d95402833efb571bf`。
+- workflow 自行把 `source.json` 推回 `ios-poc`，`versions` 現在有 **7** 筆，最新的在第一筆。
+- **下載回來逐項驗過**：`Payload/` 只有一個 `WebHTVApp.app`；`Info.plist` 為
+  `com.webhtv.ios.poc` / `0.1.6` / build `7` / minimum iOS `17.0`；下載位元組數與 Release asset 一致。
+- **這一版的 UI 功能測試由使用者進行**，清單見 `docs/IOS-POC-16-custom-player-controls.md` 第十節。
+  控制列的渲染已在模擬器目視確認，但個別控制（含關閉鈕）沒有被驅動過。

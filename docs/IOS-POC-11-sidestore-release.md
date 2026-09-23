@@ -93,3 +93,39 @@
   `com.webhtv.ios.poc` / `0.1.6` / build `7` / minimum iOS `17.0`；下載位元組數與 Release asset 一致。
 - **這一版的 UI 功能測試由使用者進行**，清單見 `docs/IOS-POC-16-custom-player-controls.md` 第十節。
   控制列的渲染已在模擬器目視確認，但個別控制（含關閉鈕）沒有被驅動過。
+
+## 第八次發布（2026-09-23，`0.1.7 (8)`）
+
+**目前最新版是 `0.1.7 (8)`。** 前面七版都已被取代。
+
+- 內容：**IOS-POC-15 播放緩衝與下一集預解析**——VOD forward buffer 60／90／120 秒的
+  hysteresis 狀態機（live 與長度未知維持系統管理）、只對真正多 variant 的 HLS 做 1080p／720p
+  畫質上限、`preferredPeakBitRate` 全程 0、下一集在本集最後 90 秒內預解析一個 `PlaybackTarget`
+  （含 headers），以及四類 diagnostics。
+  順帶修掉**2.5 倍／3 倍速沒有聲音**（`audioTimePitchAlgorithm` 改 `.timeDomain`）
+  與 **seek 後進度條已緩衝範圍顯示錯誤**（`loadedTimeRanges.first` 兩處）。
+- 專案檔先改成 `MARKETING_VERSION = 0.1.7`、`CURRENT_PROJECT_VERSION = 8`（commit `add58007`），
+  否則 workflow 的「輸入留空就讀專案值」會指向已發布過的版號。
+  **這一版在觸發前先在本機跑了 unsigned `iphoneos` Release build**，
+  `BUILD SUCCEEDED` 且產物 `Info.plist` 讀到 `0.1.7` / build `8`——
+  讓編譯錯誤在本機出現，而不是變成一次失敗的公開發布。
+- 觸發：`workflow_dispatch`，`version=0.1.7`、`build_number=8`、中文 release notes。
+  使用者以「發一版讓我裝來測」明確授權這一次發布。
+- run `35827470170` 在 `macos-26` **success，3 分 35 秒，11 個步驟全綠**。
+- 產物：`WebHTV-0.1.7-8.ipa`，**24,689,841 bytes**，tag `ios-v0.1.7-b8`，
+  SHA-256 `338a49435f4fa55e3a3d7af2bf0e4842547b55f0cabb898f04f87ea600a1d4ae`。
+- workflow 自行把 `source.json` 推回 `ios-poc`（commit `04161f85`），`versions` 現在有 **8 筆**，
+  最新的在第一筆，`size` 與下載回來的 IPA 位元組數相符。
+- **下載回來逐項驗過**，不是只看 CI 綠燈：`Payload/` 只有一個 `.app`；
+  `Info.plist` 為 `com.webhtv.ios.poc` / `0.1.7` / build `8` / minimum iOS `17.0`；
+  二進位裡找得到 `PlaybackNetworkMonitor`、`PlaybackBufferPolicy`、`PlaybackTargetPrefetch`、
+  `PlaybackPrefetchGate`、`NextPlaybackTarget` 五個型別，以及
+  `setAudioTimePitchAlgorithm:`、`setPreferredForwardBufferDuration:`、
+  `setPreferredMaximumResolution:`、`setPreferredPeakBitRate:` 四個 selector——
+  **本版真的帶著這些改動，不是只有版號動了**。
+- **一個 rebase**：觸發前遠端多了 `40b293de docs(ios): defer IOS-POC-15 device performance pass`
+  （倉庫擁有者自己推的 docs-only commit，記錄「真機驗收延後、不阻塞 5S-3」）。
+  版號 commit rebase 到它之上，沒有衝突。
+
+**尚未確認**：本版的效能改善全部沒有真機數字。驗收項目見
+`docs/IOS-POC-15-playback-buffering-preload.md` 第八節。

@@ -152,10 +152,14 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   with a TLS error `curl` could not reproduce a minute later. **Neither is to be "fixed."**
   Earlier revisions of this line read "151 tests, all pass", "185 tests, one failing" and
   "188 tests, one failing"; all are superseded.
-- **The current release is `WebHTV 0.1.6 (7)`**, tag `ios-v0.1.6-b7`, built unsigned by the workflow
-  from `6abc56e5` on 2026-09-23 and re-signed on the device by SideStore
-  (`WebHTV-0.1.6-7.ipa`, 24,650,445 bytes, SHA-256 `24aaa212...`, verified by downloading it back).
-  It carries IOS-POC-16's custom control bar. **`0.1 (1)` through `0.1.5 (6)` are all superseded.**
+- **The current release is `WebHTV 0.1.7 (8)`**, tag `ios-v0.1.7-b8`, built unsigned by the workflow
+  from `add58007` on 2026-09-23 and re-signed on the device by SideStore
+  (`WebHTV-0.1.7-8.ipa`, 24,689,841 bytes, SHA-256 `338a4943...`, run `35827470170`, verified by
+  downloading it back). **It carries IOS-POC-15** — so the device performance pass that stage owes
+  is now actually possible; the user asked for this build in order to run it. It also carries the
+  2.5×/3× audio fix and the seek-time buffered-bar fix. The binary was checked to contain all five
+  IOS-POC-15 types and the four AVPlayer setters, not just a bumped version number.
+  **`0.1 (1)` through `0.1.6 (7)` are all superseded.**
   The Xcode project carries `MARKETING_VERSION = 0.1.6` and `CURRENT_PROJECT_VERSION = 7`, so the
   workflow's blank-input default resolves to the version actually published. **Do not install to the device directly** — produce an IPA, or trigger
   `ios-sidestore-release.yml` once the user authorises it.

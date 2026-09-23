@@ -1178,8 +1178,8 @@ private struct VodView: View {
             } catch { self.error = error.localizedDescription }
         }
         .sheet(item: $pendingPlayback, onDismiss: {
-            // The hook belongs to this playback. Cancelling the picker, or handing the episode to an
-            // external player, must not leave this screen answering for a player it does not own.
+            // The hook belongs to this playback. Cancelling the picker must not leave this screen
+            // answering for a player it does not own.
             PlaybackSession.shared.advance = nil
             // IOS-POC-15C follows `advance` exactly: same owner, same lifetime. Anything resolved
             // ahead belongs to a playback that is over, so it goes with it.
@@ -1546,8 +1546,7 @@ private struct Playback: Identifiable {
 
 private struct PlayerPickerView: View {
     let mediaURL: URL
-    /// Headers the stream needs. The built-in player sends them; an external player cannot be told
-    /// about them at all, because a URL scheme is the whole interface those apps expose.
+    /// Headers the stream needs. The app's own players send them.
     var headers: [String: String] = [:]
     var title = ""
     var artwork = ""
@@ -1561,7 +1560,6 @@ private struct PlayerPickerView: View {
     var preferredQuality = ""
     var history: WatchHistory?
     @Environment(\.dismiss) private var dismiss
-    @State private var error: String?
     @State private var playing = false
     @State private var selected: Int?
 
@@ -1618,26 +1616,16 @@ private struct PlayerPickerView: View {
                                                 artwork: artwork, history: record)
                     playing = true
                 } label: {
-                    Label("內建播放器", systemImage: "play.rectangle.fill")
+                    Label("播放", systemImage: "play.rectangle.fill")
                 }
-
-                ForEach(ExternalPlayer.allCases, id: \.self) { player in
-                    Button {
-                        open(player)
-                    } label: {
-                        Label(player.displayName, systemImage: "arrow.up.forward.app")
-                    }
-                }
+                // IOS-POC-17: the only players are the app's own. Infuse, Fileball, SenPlayer and
+                // VidHub were removed at the user's decision (2026-09-23) — a URL scheme carries no
+                // headers, position, line, quality or history, so they could never be a real path.
             }
-            .navigationTitle("選擇影片播放器")
+            .navigationTitle("播放")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("取消") { dismiss() } }
             .appNavigationBar()
-            .alert("無法開啟播放器", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
-                Button("確定", role: .cancel) {}
-            } message: {
-                Text(error ?? "未知錯誤")
-            }
         }
         // Full screen rather than a push inside this sheet: a page sheet is inset and rounded, so the
         // player inherited those bounds and the app wallpaper showed through around the video.
@@ -1652,22 +1640,6 @@ private struct PlayerPickerView: View {
         guard var record = history else { return nil }
         record.quality = qualities.indices.contains(chosen) ? qualities[chosen].name : ""
         return record
-    }
-
-    /// An external player is opened and forgotten: a URL scheme carries no way back, so nothing it
-    /// plays can ever be recorded (K6). Only the built-in player writes history.
-    private func open(_ player: ExternalPlayer) {
-        guard let url = player.playbackURL(for: playURL) else {
-            error = "無法建立 \(player.displayName) 播放連結。"
-            return
-        }
-        UIApplication.shared.open(url) { opened in
-            if !opened {
-                Task { @MainActor in
-                    error = "請先安裝或更新 \(player.displayName)，也可改用內建播放器。"
-                }
-            }
-        }
     }
 }
 
@@ -3135,7 +3107,7 @@ private struct WebHomeView: View {
                     onPlayVod: { site, vod in pendingVod = VodRequest(site: site, vod: vod) },
                     onPlayInline: { vod in
                         // Straight to the built-in player: an inline vod carries a playlist and
-                        // player.control semantics that an external player cannot honour.
+                        // player.control semantics the picker has nothing to add to.
                         PlaybackSession.shared.open(vod)
                         playingInline = true
                     },

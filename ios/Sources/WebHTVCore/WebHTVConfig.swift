@@ -78,6 +78,8 @@ public struct Site: Decodable, Identifiable, Sendable {
     /// spiders read all of those. `csp_AppDrama` carries an RSA `publicKey`, `csp_App99` a mix of
     /// strings and numbers; decoding only the flat-string shape loses them.
     public let rawExtJSON: String
+    private let identityExtJSON: String
+    let hasStructuredExtIdentity: Bool
 
     enum CodingKeys: String, CodingKey {
         case key, name, type, api, ext
@@ -89,7 +91,7 @@ public struct Site: Decodable, Identifiable, Sendable {
     /// rows that select each other. The `ext` is what distinguishes them — it is the whole
     /// definition of where a site points — which is also why `SpiderSessionStore` keys its cache on
     /// exactly this string.
-    public var id: String { key + "\u{0}" + rawExtJSON }
+    public var id: String { key + "\u{0}" + identityExtJSON }
 
     public var isNativeCMS: Bool {
         guard type == 0 || type == 1 || type == 4, let scheme = URL(string: api)?.scheme else { return false }
@@ -150,7 +152,10 @@ public struct Site: Decodable, Identifiable, Sendable {
         api = try values.decode(String.self, forKey: .api)
         // `ext` is a string, a number or absent on most sites; only the dictionary form carries query parameters.
         ext = try? values.decode([String: String].self, forKey: .ext)
-        rawExtJSON = (try? values.decode(JSONValue.self, forKey: .ext))?.extendText ?? ""
+        let extend = try? values.decode(JSONValue.self, forKey: .ext)
+        rawExtJSON = extend?.extendText ?? ""
+        identityExtJSON = extend?.identityText ?? ""
+        hasStructuredExtIdentity = extend?.isStructured ?? false
     }
 }
 
@@ -192,6 +197,22 @@ enum JSONValue: Decodable {
     /// Scalars are rendered directly. `JSONSerialization` raises an Objective-C exception, which no
     /// `try?` can catch, when handed a top-level number or bool, and this configuration does contain
     /// sites whose `ext` is a bare number.
+    var isStructured: Bool {
+        switch self {
+        case .object, .array: true
+        default: false
+        }
+    }
+
+    var identityText: String {
+        switch self {
+        case .object, .array:
+            guard let data = try? JSONSerialization.data(withJSONObject: any, options: [.sortedKeys]) else { return extendText }
+            return String(decoding: data, as: UTF8.self)
+        default: return extendText
+        }
+    }
+
     var extendText: String {
         switch self {
         case .string(let value): return value

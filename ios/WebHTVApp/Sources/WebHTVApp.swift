@@ -154,6 +154,7 @@ private struct ConfigView: View {
         .appWallpaper()
         .task {
             restore()
+            await WatchHistoryStore.shared.migrateSiteIdentities(in: sites)
             // The cached pack is adopted before anything is fetched, so an offline launch runs on
             // the last known good scripts rather than waiting for the network.
             await adoptCachedSpiderPack()
@@ -1198,6 +1199,7 @@ private struct VodView: View {
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBar()
         .task {
+            await WatchHistoryStore.shared.migrateSiteIdentities(in: [site])
             watched = await WatchHistoryStore.shared.record(forKey: historyKey)
             do {
                 let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
@@ -1482,6 +1484,7 @@ private struct HistoryView: View {
         // .task runs again whenever the tab is re-entered, which is what keeps the list current
         // after a viewing without any notification plumbing.
         .task {
+            await WatchHistoryStore.shared.migrateSiteIdentities(in: sites)
             records = await WatchHistoryStore.shared.records(for: source.identity)
             loaded = true
         }

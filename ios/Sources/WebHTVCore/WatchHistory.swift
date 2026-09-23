@@ -76,6 +76,22 @@ public struct WatchHistory: Codable, Sendable, Equatable, Identifiable {
 
     public var id: String { key }
 
+    public var siteID: String? {
+        let suffix = Self.separator + vodId
+        guard key.hasSuffix(suffix) else { return nil }
+        return String(key.dropLast(suffix.count))
+    }
+
+    func reidentified(to siteID: String) -> WatchHistory {
+        WatchHistory(
+            key: Self.key(siteID: siteID, vodId: vodId),
+            siteKey: siteKey, siteName: siteName, sourceID: sourceID, vodId: vodId,
+            vodName: vodName, vodPic: vodPic, vodFlag: vodFlag, vodRemarks: vodRemarks,
+            episodeUrl: episodeUrl, quality: quality, position: position, duration: duration,
+            createTime: createTime, opening: opening, ending: ending
+        )
+    }
+
     public init(key: String, siteKey: String, siteName: String = "", sourceID: String? = nil, vodId: String,
                 vodName: String = "", vodPic: String = "", vodFlag: String = "",
                 vodRemarks: String = "", episodeUrl: String = "", quality: String = "",
@@ -265,6 +281,25 @@ public actor WatchHistoryStore {
 
     public func record(forKey key: String, now: Date = .now) -> WatchHistory? {
         records(now: now).first { $0.key == key }
+    }
+
+    public func migrateSiteIdentities(in sites: [Site], now: Date = .now) {
+        var migrated = loaded()
+        var changed = false
+        for index in migrated.indices {
+            guard let oldID = migrated[index].siteID,
+                  let newID = SiteSelection.resolveIdentity(oldID, in: sites),
+                  newID != oldID else { continue }
+            migrated[index] = migrated[index].reidentified(to: newID)
+            changed = true
+        }
+        guard changed else { return }
+        var newest = [String: WatchHistory]()
+        for item in migrated {
+            if let old = newest[item.key], old.createTime >= item.createTime { continue }
+            newest[item.key] = item
+        }
+        store(prune(Array(newest.values), now: now))
     }
 
     /// Upserts by `key` and stamps `createTime`, then prunes and writes.

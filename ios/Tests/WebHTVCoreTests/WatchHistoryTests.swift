@@ -106,6 +106,20 @@ private func record(_ vodId: String, siteKey: String = "s", siteID: String = "s\
     #expect(await WatchHistoryStore(directory: directory).records().count == 1)
 }
 
+@Test func legacyIdentityMigrationKeepsProgress() async throws {
+    let (store, _) = try scratchStore("identity-migration")
+    let json = #"{"key":"linghu","name":"靈虎","type":3,"api":"csp_AppGet","ext":{"dataKey":"k","url":"https://a"}}"#
+    let site = try JSONDecoder().decode(Site.self, from: Data(json.utf8))
+    let oldID = "linghu\u{0}{\"url\":\"https://a\",\"dataKey\":\"k\"}"
+    await store.save(record("1", siteKey: "linghu", siteID: oldID, name: "片",
+                            position: 172_000, duration: 2_780_000))
+    await store.migrateSiteIdentities(in: [site])
+    let saved = try #require(await store.records().first)
+    #expect(saved.siteID == site.id)
+    #expect(saved.position == 172_000)
+    #expect(saved.duration == 2_780_000)
+}
+
 @Test func removingAndClearingTakeEffectOnDisk() async throws {
     let (store, directory) = try scratchStore("remove")
     await store.save(record("1"))

@@ -25,6 +25,21 @@ import Testing
         #expect(SiteSelection.resolve(SiteSelection.token(for: b.id), in: [a, b]) == b.id)
     }
 
+    @Test func objectExtOrderingIsStable() throws {
+        let aJSON = #"{"key":"linghu","name":"x","type":3,"api":"csp_AppGet","ext":{"url":"https://a","dataKey":"k"}}"#
+        let bJSON = #"{"key":"linghu","name":"x","type":3,"api":"csp_AppGet","ext":{"dataKey":"k","url":"https://a"}}"#
+        let a = try JSONDecoder().decode(Site.self, from: Data(aJSON.utf8))
+        let b = try JSONDecoder().decode(Site.self, from: Data(bJSON.utf8))
+        #expect(a.id == b.id)
+    }
+
+    @Test func preCanonicalObjectTokenResolves() throws {
+        let json = #"{"key":"linghu","name":"x","type":3,"api":"csp_AppGet","ext":{"dataKey":"k","url":"https://a"}}"#
+        let site = try JSONDecoder().decode(Site.self, from: Data(json.utf8))
+        let oldID = "linghu\u{0}{\"url\":\"https://a\",\"dataKey\":\"k\"}"
+        #expect(SiteSelection.resolve(SiteSelection.token(for: oldID), in: [site]) == site.id)
+    }
+
     @Test func aLegacyTruncatedValueStillFindsItsSite() throws {
         let other = try site(key: "无水", ext: "https://other.example/api")
         let wanted = try site(key: "php_无水印资源", ext: "https://a.example/api")

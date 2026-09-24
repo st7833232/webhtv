@@ -1902,15 +1902,10 @@ extension Playback {
         // reopen and the auto-advance — which is also why the next episode inherits the same title's
         // settings and cannot inherit the previous title's.
         Task { @MainActor in
-            var merged = history
-            if let stored = await WatchHistoryStore.shared.record(forKey: history.key) {
-                merged.opening = stored.opening
-                merged.ending = stored.ending
-                // `startPosition` reads these through `resumePosition`, which is what this call used
-                // to ask the stored record for directly.
-                merged.position = stored.position
-                merged.duration = stored.duration
-            }
+            // IOS-POC-21: the stored position only when it is this episode's — picking another
+            // episode by hand used to seek it to where the previous one stopped.
+            let merged = await WatchHistoryStore.shared.record(forKey: history.key)
+                .map { history.carryingOver(from: $0) } ?? history
             record = merged
             let from = merged.startPosition(resuming: resuming)
             resumeTo = from > 0 ? from : nil

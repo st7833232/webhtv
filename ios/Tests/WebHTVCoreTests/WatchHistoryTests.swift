@@ -499,3 +499,46 @@ private func record(_ vodId: String, siteKey: String = "s", siteID: String = "s\
         #expect(bareItems.first?["opening"] as? Double == 0)
     }
 }
+
+// MARK: - IOS-POC-21: switching episodes starts the new one from its beginning
+
+@Suite struct WatchHistoryEpisodeSwitchTests {
+    /// What `VodView.record(for:flag:)` builds before playing: no position of its own yet.
+    private func fresh(_ episode: String, flag: String = "線路①") -> WatchHistory {
+        record("1", flag: flag, episode: episode, position: 0, duration: 0)
+    }
+
+    @Test func anotherEpisodeOfTheSameTitleStartsFromItsBeginning() {
+        var stored = record("1", episode: "第1集", position: 600_000, duration: 1_200_000)
+        stored.opening = 90_000
+        let merged = fresh("第2集").carryingOver(from: stored)
+        #expect(merged.position == 0)
+        #expect(merged.duration == 0)
+        // Only the opening is left to skip, as for any start of this title.
+        #expect(merged.startPosition() == 90_000)
+    }
+
+    @Test func theSameEpisodeResumes() {
+        let stored = record("1", episode: "第1集", position: 600_000, duration: 1_200_000)
+        let merged = fresh("第1集").carryingOver(from: stored)
+        #expect(merged.position == 600_000)
+        #expect(merged.startPosition() == 600_000)
+    }
+
+    @Test func theSameEpisodeOnAnotherLineKeepsItsPlace() {
+        let stored = record("1", flag: "線路①", episode: "EP01", position: 600_000, duration: 1_200_000)
+        let merged = fresh("ep01", flag: "線路②").carryingOver(from: stored)
+        #expect(merged.position == 600_000)
+        #expect(merged.vodFlag == "線路②")
+    }
+
+    @Test func theOpeningAndEndingAreTheTitlesWhicheverEpisodePlays() {
+        var stored = record("1", episode: "第1集")
+        stored.opening = 90_000
+        stored.ending = 120_000
+        let merged = fresh("第5集").carryingOver(from: stored)
+        #expect(merged.opening == 90_000)
+        #expect(merged.ending == 120_000)
+        #expect(merged.vodRemarks == "第5集")
+    }
+}

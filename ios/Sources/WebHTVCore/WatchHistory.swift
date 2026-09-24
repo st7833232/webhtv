@@ -166,6 +166,27 @@ public struct WatchHistory: Codable, Sendable, Equatable, Identifiable {
         return value
     }
 
+    /// IOS-POC-21 — this record, freshly built for the episode about to play, with what the stored
+    /// record of the same title still holds. One record covers the whole title, and the position in
+    /// it belongs to the episode it names, so another episode starts from its beginning while the
+    /// same episode on another line keeps its place — Android's `VideoActivity.updateHistory`, which
+    /// keeps the position only when `Episode.matchesName` (the name, ignoring case). The opening and
+    /// the ending belong to the title and always carry over (IOS-POC-5S-2).
+    ///
+    /// ponytail: by name, as Android does, so two items one line prints under the same name share a
+    /// position; matching the address instead would lose the place on sources whose episode
+    /// addresses change from one fetch to the next.
+    public func carryingOver(from stored: WatchHistory) -> WatchHistory {
+        var merged = self
+        merged.opening = stored.opening
+        merged.ending = stored.ending
+        if vodRemarks.caseInsensitiveCompare(stored.vodRemarks) == .orderedSame {
+            merged.position = stored.position
+            merged.duration = stored.duration
+        }
+        return merged
+    }
+
     /// Where playback should start, in milliseconds. Zero means "from the beginning".
     ///
     /// `VideoActivity.setPosition()` is `max(getOpening(), getPosition())` after the near-ending

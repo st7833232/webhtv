@@ -4,6 +4,61 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
+## Current handoff — 2026-09-24 11:15 CST（讀這一節，再讀文末 Resume Prompt）
+
+**Git（交接當下）**：分支 `ios-poc`，本機 HEAD 比 `origin/ios-poc`（`dde455ba`）**多 3 個本機 commit，全部未 push**
+（使用者沒授權 push）：`a5f2678e`（IOS-POC-16B）、`6416c4d4`（IOS-POC-15D）、本交接 docs commit。
+接手時先 `git fetch`、`git log --oneline -5`、`git status` 重新確認，不要相信這一行。
+
+**目前最新已發布版本是 `0.1.9 (10)`**（tag `ios-v0.1.9-b10` → `8df71c12`，IOS-POC-18 來源識別修正，run
+`35874971373`，IPA 24,767,406 bytes，GitHub asset sha256 `46385529d25368dd14b77a25f646d2a3e0322845006190be0428672722b4df3d`）。
+`0.1.8 (9)` 起 Release 版就開放 MPV（17E）。本文件下方凡是說「`0.1.7 (8)` 是最新」「`0.1.8 (9)` 尚未發布」
+「Release 版 MPV 未開放」的，都已過時——完整 stale 清單見 `.codex/task-state/handoff-2026-09-24/stale-docs-inventory.txt`
+（gitignored，只在這台機器的 checkout 裡）。使用者規定：**不要自行 bump 版本、tag、package、publish 或發 SideStore release**。
+
+**本輪完成（都已 commit、未 push）**
+
+| 單元 | commit | 內容 | 驗證 | 未驗 |
+|---|---|---|---|---|
+| IOS-POC-16B | `a5f2678e` | 控制列七個二級選單（速度／畫質／播放器／字幕／音軌／片頭／片尾）從 SwiftUI `Menu` 改為自有 panel；core `PlayerChrome`／`PlayerPanelPlacement`（`ios/Sources/WebHTVCore/PlayerChrome.swift`）；panel 開著不自動隱藏、關閉才重算 5 秒；觸控 ≥48 pt；直向 sheet／橫向右側 drawer；VoiceOver 焦點與語音 | `swift test` 335／334（天氣）；模擬器直向實操與倒數接線（暫時 8 秒）通過 | 橫向 drawer（沒有 Simulator.app 可旋轉）、AirPlay 邊緣觸控、VoiceOver、真機。紀錄：`docs/IOS-POC-16-custom-player-controls.md` 第十之一節 |
+| IOS-POC-15D | `6416c4d4` | IOS-POC-15 契約逐條對照補缺口（不重做）：`poor` 只給真實 rebuffer；使用者選定畫質不 cap；MediaProbe 只讀 64 bytes；prefetch store 移到 `PlaybackSession`；換畫質立即 invalidate；預載位址失效時單次改走正常解析；交棒等待進行中預解析；MPV 不吃舊網路狀態；stall 綁當前 item；`[playback]` 改 `os.Logger`＋miss 原因、啟播時間、逐集 summary | `swift test` 340／339（天氣）；模擬器實播看到 Logger 行與**預載命中** `resolve 第2集 prefetched 0ms` | 真機效能（IOS-POC-15 §8 七項）仍 pending，不得標 closed。紀錄：`docs/IOS-POC-15-playback-buffering-preload.md` 第十二節 |
+
+**進行中：IOS-POC-17F「無法播放時主動切換播放核心」（使用者 2026-09-24 追加要求）**
+- 已完成（**未 commit**，存成 patch）：`.codex/task-state/handoff-2026-09-24/IOS-POC-17F-core.patch`
+  （對 `a5f2678e` 產生，只改 `ios/Sources/WebHTVCore/PlaybackEngine.swift` 與 `ios/Tests/WebHTVCoreTests/PlaybackEngineTests.swift`；
+  在 worktree 跑 `PlaybackEngineTests` 29／29 通過）。內容：`PlaybackFailure` 新增 `.offline`；`allowsEngineFallback`
+  改為 engineCapability／network／unclassified 都可切換一次（`offline`、`source` 不切）；`PlayerRouter.startupTimeout = 20`
+  與 `startupTimedOut() -> Bool`（沒開始播放就換另一個 engine，每次 attempt 一次，**不顯示為錯誤**）。
+- 尚未做：①套 patch（`git apply --3way`，15D 沒碰這兩個檔）；②App 端接線：在 `PlaybackSession.watchStartup()`
+  （15D 新增）加「距**目前 engine 開始**超過 `PlayerRouter.startupTimeout` 仍未播放、且 engine 狀態是 preparing／buffering
+  → `router.startupTimedOut()`」，engine 開始時間要在 `router.onEngineChange` 時重設（避免剛手動選的 engine 立刻被換掉）；
+  ③在 `docs/IOS-POC-17-dual-internal-player.md` 新增 17F 節（使用者決策取代 17B「只有 capability failure 才 fallback」；
+  理由：AVPlayer 的 header 走未公開 key、未經真機驗證，MPV 走 `http-header-fields`，兩邊 HTTP/TLS/HLS 堆疊不同；
+  三方案比較 no change／全部都切／採用版）；④targeted＋全套 `swift test`、Simulator build、Ponytail final-diff、commit。
+  task guard id 建議 `IOS-POC-17F-proactive-engine-fallback`，scope 上述兩個 core 檔＋`ios/WebHTVApp/Sources/WebHTVApp.swift`＋17 文件。
+
+**尚未做：文件單元（使用者要求）**
+1. 修 stale：依 `.codex/task-state/handoff-2026-09-24/stale-docs-inventory.txt`（55 項，已由第二個 agent 驗證；
+   只改「現況陳述／resume prompt」，已標 superseded 的歷史不動）。涉及 `docs/current-task-state.md`、`docs/AGENT_HANDOFF.md`、
+   `docs/IOS-POC-8L-core-real-device-acceptance.md`、`docs/IOS-POC-11-sidestore-release.md`（補「第十次發布 0.1.9 (10)」）、
+   `docs/IOS-POC-17-dual-internal-player.md`、`docs/IOS-POC-9B-mpv-playback-core.md`、`docs/IOS-POC-12-13-runtime-update-roadmap.md`。
+   測試數字以實測為準：HEAD `dde455ba` 326／325、16B 後 335／334、15D 後 340／339（唯一失敗皆天氣測試）。
+2. 把 MPV parity roadmap 正式寫進 `docs/IOS-POC-17-dual-internal-player.md` 第十三節之後：草稿（含來源表）在
+   `.codex/task-state/handoff-2026-09-24/mpv-parity-roadmap-draft.md`——順序 P1 真機 baseline → P2 MPV 前置緩衝
+   parity（libmpv `cache`／`cache-secs`／`demuxer-max-bytes`／`demuxer-cache-state`，不照抄 AVPlayer API）→ P3 字幕／音軌
+   → P4 外掛字幕 ASS/SSA → P5 背景音訊／鎖屏／控制中心／remote command（需 `audio-exclusive=yes`）→ P6 PiP bridge
+   （最大風險：libmpv 只有 GL／SW render API，需先 feasibility spike）→ P7 AirPlay Audio；AirPlay Video 只列 feasibility。
+3. 在 `docs/AGENT_HANDOFF.md` 與本文件的 roadmap 表／stage index 加上 IOS-POC-18、16B、15D、17F 列。
+
+**已知但本輪不修（已記錄）**：`MediaSelection` 只在開 panel／換 engine 時重讀（換集後字幕按鈕顯示規則可能沿用上一集，
+pre-existing）；滑動進度條可能同時觸發全畫面拖曳的相對 seek（pre-existing，未實測）；冷啟動會閃一下「尚未載入設定」
+（pre-existing）。
+
+**環境備忘**：模擬器 `7B4E9557-4774-4EB9-B408-BB544DCC8657`（iPhone 17 Pro, iOS 26.3）；`wang-movie.json` 的 SHA-256
+`b17576e34eb42b4c589a818ef8b5ec2655a2c7a188d626fc427c37d628897168`，需要時從使用者 GitLab 重抓；模擬器控制工具一次來回
+5～10 秒，比 5 秒自動隱藏長，互動測試時可暫時把 `PlayerChrome.autoHideSeconds` 改大、測完還原並重建（不要 commit）；
+舊 session 的 scratchpad worktree 可用 `git worktree prune` 清掉。
+
 ## Current Scope
 
 - **Re-verified 2026-09-23 16:48 CST at the start of IOS-POC-17 (after `git fetch`): HEAD
@@ -1116,32 +1171,10 @@ release version**.
 
 Paste this into a new session:
 
-> 接手 `/Users/chengchenchih/GIT/webhtv` 的 `ios-poc`，透過本機終端操作，不要每步停下來問我確認。用台灣繁體中文回報。
+> 接手 `/Users/chengchenchih/GIT/webhtv` 的 `ios-poc`，用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -5`、`git status`，以實際 Git 狀態為準、不要相信文件裡的 SHA。依 `AGENTS.md` 先讀 `AGENTS.md`、`docs/current-task-state.md` 最上方「Current handoff — 2026-09-24」一節、`docs/IOS-POC-17-dual-internal-player.md`、`docs/IOS-POC-16-custom-player-controls.md` 第十之一節、`docs/IOS-POC-15-playback-buffering-preload.md` 第十二節。
 >
-> **先確認實際狀態，不要相信這段文字裡的任何 SHA**：2026-09-23 IOS-POC-8L 開始時 HEAD 在 `f0495b8b`，與 `origin/ios-poc` `0 0`，worktree clean（最後一個 functional commit 是 `63040bb3`）；IOS-POC-8L 本身再加一個 docs-only commit。用 `git fetch`、`git log` 與 `git rev-list --left-right --count HEAD...origin/ios-poc` 覆蓋這一行。**未經我明確授權不得 push、tag、package、publish 或發新的 SideStore release。**
+> 目前狀態：IOS-POC-16B（播放器二級選單改自有 panel，`a5f2678e`）與 IOS-POC-15D（緩衝／預解析契約補缺口＋`os.Logger` 量測，`6416c4d4`）已在本機 commit、**尚未 push**。最新已發布版本是 `0.1.9 (10)`；`0.1.8 (9)` 起 Release 開放 MPV。
 >
-> 動手前必讀：`AGENTS.md`、`README.md`、`docs/AGENT_HANDOFF.md`、`docs/current-task-state.md`、**`docs/IOS-POC-8L-core-real-device-acceptance.md`（目前這一階段的驗收矩陣與 `0.1.8 (9)` RC 計畫）**、`docs/IOS-POC-5S-ads-and-skip.md`、`docs/IOS-POC-15-playback-buffering-preload.md`、`docs/IOS-POC-16-custom-player-controls.md`、`docs/bugs/IOS-PIP-foreground-restore.md`、`docs/IOS-POC-9B-mpv-playback-core.md`、`docs/IOS-POC-11-sidestore-release.md`。
+> 接著依序做：①**IOS-POC-17F 無法播放時主動切換播放核心**——套用 `.codex/task-state/handoff-2026-09-24/IOS-POC-17F-core.patch`（core：`.offline`、network／unclassified 也可 fallback 一次、`PlayerRouter.startupTimeout = 20` 與 `startupTimedOut()`），再在 `PlaybackSession.watchStartup()` 接上「目前 engine 開始後 20 秒仍在 preparing／buffering 就 `router.startupTimedOut()`」（engine 開始時間在 `onEngineChange` 重設），寫 17 文件 17F 節、跑 targeted＋全套 `swift test`（基線 340／339，唯一失敗是天氣測試 `reportsLiveType4SitesFromProvidedConfig`）、Simulator Debug build、Ponytail final-diff，用 task guard `finish --no-tag` commit。②**文件單元**：依 `.codex/task-state/handoff-2026-09-24/stale-docs-inventory.txt` 修 stale 狀態（只改現況陳述與 resume prompt，歷史不動），並把 `.codex/task-state/handoff-2026-09-24/mpv-parity-roadmap-draft.md` 正式寫進 IOS-POC-17 文件的 roadmap；`docs/AGENT_HANDOFF.md`／`docs/current-task-state.md` 補 IOS-POC-18、16B、15D、17F。
 >
-> **目前這一階段是 core real-device acceptance，不是新功能。** 驗收由我在手機上操作並回報；收到回報就逐列填進 8L 文件 7.2、通過的移到 7.1。`0.1.8 (9)` 已規劃、iphoneos Release 預建置成功，**尚未發布**，等我授權。
->
-> **已完成、不要當成未開始的事**：drpy loader（4 個來源 E2E 到真實媒體位元組）；Python P1–P5（`PythonSpiderRuntime`、`base/spider.py`、routing、安全 gate、真實來源 golden、42 站 survey 都已存在）；**CPython 3.13.15 在模擬器與 iPhone 真機都啟動過**；`requests` Tier-1 vendoring（**42 站中 14 站可執行、6 站到媒體位元組**）；CatVod JS spider 契約（**麻豆(js) 已在真機列出並播放**）；5Q multi-quality；5R WatchHistory／resume；**SideStore 發佈流程**（workflow 與 `source.json` 都在，已發過兩版）。
->
-> **目前最新版本是 `0.1.7 (8)`**（tag `ios-v0.1.7-b8`，2026-09-23，build 自 `add58007`）。前面七版都已被取代。**這一版不含 5S-3**——5S-3 的 commit `63040bb3` 在它之後。**我用 SideStore 安裝，不要直接把 App 裝到我手機上**；需要上機時產 IPA 或在我授權後觸發 `ios-sidestore-release.yml`。
->
-> **播放策略（2026-09-23 使用者決定，IOS-POC-17）**：只維護 App 內部播放器——**AVPlayer（Primary）＋MPV（Compatibility）**。Infuse／Fileball／SenPlayer／VidHub 已移除（17A）。`PlaybackEngine`／`PlayerRouter`／`PlaybackEngineSelection`／`PlaybackFailure` 在 core；`AVPlayerEngine` 是既有 AVPlayer 程式的薄轉接，`MPVEngine` 走 MPVKit demo 的 Metal 路徑；設定頁「預設播放器」、控制列顯示實際 engine 並可切換本 session、只有 capability failure 才 fallback 且每 attempt 一次（17B）；點集數直接進播放畫面（17C）。**Release 版 MPV 是「尚未開放」**，等真機 first frame。VLCKit 只在 MPV 觸發 stop condition 後才做 spike；KSPlayer／GStreamer／自建播放器不做。
->
-> **MPV 黑畫面根因已找到並修正（IOS-POC-9G）**：探針在 wakeup callback 裡呼叫 client API（`client.h` 明文禁止），以及 OpenGL update callback 繼承 main-actor 隔離。**模擬器 Metal 與 OpenGL 都出畫面；真機尚未重跑。** 不要從 MPVKit 安裝重來，不要重做 9A。
->
-> **真機驗收是 partial，不要寫成完整完成。** 已確認：麻豆(js) 列出並播放、荐片冷啟動有篩選列、CPython 走完整條鏈、libmpv 初始化、8F／8G。**仍未確認**：CMS 來源、`csp_*` 來源、drpy 來源、Bili 的 `Referer`＋瀏覽器 UA 經 `AVPlayer`、`AVURLAssetHTTPHeaderFieldsKey` 在真機是否真的生效、WatchHistory／resume、PiP、MPV 真機（first frame、切換、fallback）。（外部播放器已移除，不再是驗收項。）
->
-> **IOS-POC-5S 已 code complete**：5S-1（ads 封鎖）、5S-2（片頭片尾）、5S-3（設定檔 `rules` 接進 sniffer）三部分程式都完成。量測階段的兩個結論寫在 `docs/IOS-POC-5S-ads-and-skip.md`：**m3u8 廣告規則在 Android 這個 app 裡沒有任何消費者**（所以沒有契約可移植），而**片頭片尾根本不在設定檔裡**——它們在 `History` 的 `opening`／`ending`，毫秒，由使用者自己設。**但 5S 沒有任何一部分在真機上被驗收過。**
->
-> **下一階段是 core real-device acceptance（含 MPV 真機 first frame／切換／fallback，8L ⑱⑲）→ IOS-POC-12 → IOS-POC-13**。MPV keep/drop 已決定：保留。⑱⑲ 需要一個能開 MPV 的 device build（Release 版 MPV 未開放）——走 IPA 或開發者開關要我決定。**IOS-POC-15 已實作，真機效能驗收由我決定延後自行進行——它不是 blocker，維持 `device verification pending`，不要標成 closed，也不要回頭重做。** `Crypto`／`lxml`／`pyquery`／`bs4`、更多 CSP、CarPlay 全部是 backlog。
->
-> **驗證現況（2026-09-23 IOS-POC-17B 之後重新量的）**：`WANG_MOVIE_JSON=<config> swift test --package-path ios` → **322 條，全部通過**（天氣測試這次也過）。**297／296 與更早的數字全部已被取代。**兩條 live 測試（`reportsLiveType4SitesFromProvidedConfig`、`completesLiveCMSFlowFromProvidedConfig`）同一天內各自失敗過也通過過，其中一次是 `curl` 一分鐘後就重現不出來的 TLS 錯誤——**那是 provider 天氣，不要去修**。模擬器 build 成功；**本輪沒有真機 build**，裝置顯示 `unavailable`。
->
-> **使用者已在真機確認**：麻豆(js) 列出並播放、荐片冷啟動有篩選列、**一集播完會自動接下一集**。**仍未確認**：廣告封鎖在 App 裡真的擋到東西、播放速度是否跟著換集、CMS／`csp_*`／drpy 來源、Bili 的 header、`AVURLAssetHTTPHeaderFieldsKey` 真機是否生效、WatchHistory／resume、PiP、MPV 真機。
->
-> **我現在用 SideStore 安裝，不要直接把 App 裝到我手機上。** 需要上機時產 IPA 給我，或在我授權後觸發 `ios-sidestore-release.yml`。裝置簽章走命令列：`DEVELOPMENT_TEAM=764SVXY2B7 CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates`。模擬器 destination 必須用 id 不能用 name。
->
-> **流程**：功能性修改前跑 Ponytail pre-review，用 `bash .codex/scripts/task_guard.sh start`，完成 targeted verification 後跑 Ponytail final-diff review，結果寫進 durable 文件，收尾用 `finish ... --no-tag`。Android `main/`、`app/`、`chaquo/` 只讀。
+> 規則：功能修改前 Ponytail pre-review＋`bash .codex/scripts/task_guard.sh start`；結束用 `finish --no-tag`。**未經我另外明確授權，不要 push、bump 版本、tag、package、publish 或發 SideStore release**；不要直接安裝到我的 iPhone（我用 SideStore）。真機沒測到的一律寫「未驗證」。

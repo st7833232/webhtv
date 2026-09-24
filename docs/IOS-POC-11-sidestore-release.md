@@ -437,7 +437,7 @@ WebHTV 0.1.17 (18)（未經真機驗收）
 - 產物：`WebHTV-0.1.18-19.ipa` **25,017,725 bytes**，SHA-256
   `8b5e203ed9ff745b6a4cec6c7785977733243321e893cf270bff37ddb275583c`（與 GitHub asset digest 相同）。
   **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`com.webhtv.ios.poc` / `0.1.18` / build `19` / minimum iOS `17.0`。
-- 發布前驗證：修正沒有在本機編譯（本環境沒有 Swift 工具鏈），由 workflow 的 Release device build 編譯成功；閃退原因是依程式碼與使用者設定檔推定，沒有 crash log。**真機尚未回報。**
+- 發布前驗證：修正沒有在本機編譯（本環境沒有 Swift 工具鏈），由 workflow 的 Release device build 編譯成功；閃退原因是依程式碼與使用者設定檔推定，沒有 crash log。**真機：使用者 2026-09-25 回報「可以搜尋了，沒有閃退」。**
 
 ### Release notes（實際送出的內容）
 

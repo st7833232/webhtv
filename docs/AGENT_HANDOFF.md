@@ -121,7 +121,20 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   `a076ab51`, `20c4bd53` and `616e182e` before, and a handoff arriving with **`035ad0bf` as "the
   latest on GitHub" was sixteen commits behind** — that commit is the roadmap-only one, an ancestor
   rather than the tip. Run `git log` and the `rev-list` above on resume instead of reading it here.
-- **Current release: `WebHTV 0.1.14 (15)`, published 2026-09-24 at the user's instruction** (run
+- **Current release: `WebHTV 0.1.16 (17)`, published 2026-09-24** (run `36021136999`, tag
+  `ios-v0.1.16-b17` → `7acb5db1`; `source.json` `507c49b6`, IPA 24,919,831 bytes, SHA-256 `5c20e079…`,
+  downloaded back and verified): `0.1.15 (16)` plus shared embedded audio/subtitle track selection for
+  AVPlayer and MPV (`637d3597`, compile fix `7acb5db1`; task record
+  `docs/P10-IOS-EMBEDDED-TRACK-SELECTION.md`). **No pre-release verification recorded; no device result
+  yet.** Record: `docs/IOS-POC-11-sidestore-release.md` 第十七次發布.
+- **Previous release: `WebHTV 0.1.15 (16)`, published 2026-09-24** (run `36005131032`, tag
+  `ios-v0.1.15-b16` → `0678deda`; `source.json` `882e6993`, IPA 24,882,568 bytes, SHA-256 `b3340f6d…`,
+  downloaded back and verified): `0.1.14 (15)` plus keeping the display awake during MPV playback
+  (`34d9043b`, `951426b3`). **No pre-release verification recorded; no device result yet.** Neither release's
+  commits carry a Task-Guard trailer (the P10-IOS record says its work had no local workspace); both
+  were recorded afterwards on 2026-09-25. Record:
+  `docs/IOS-POC-11-sidestore-release.md` 第十六次發布.
+- **Previous release: `WebHTV 0.1.14 (15)`, published 2026-09-24 at the user's instruction** (run
   `35982550285`, tag `ios-v0.1.14-b15` → `618d6365`; `source.json` `13ef19d4`, IPA 24,881,108 bytes,
   SHA-256 `13ae6d00…`, downloaded back and verified): `0.1.13 (14)` plus IOS-POC-22 (2.5×/3× on an
   AVPlayer item that cannot fast-forward hands the playback to MPV). **No device result yet.**

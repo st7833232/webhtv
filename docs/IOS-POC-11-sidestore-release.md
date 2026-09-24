@@ -32,7 +32,7 @@
 
 ## Recovery anchor
 
-- 狀態：完成，且已發過**十五個**版本，最新是 `0.1.14 (15)`（見文末各次發布）。
+- 狀態：完成，且已發過**十七個**版本，最新是 `0.1.16 (17)`（見文末各次發布）。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
 - 發布結果：`WebHTV-0.1-1.ipa`，24,563,162 bytes，GitHub asset SHA-256 `fcbf1531d9480f678ee0fac7ec5ce49010f3de51fc11b79f0ba88372e85812ed`；IPA plist 為 `com.webhtv.ios.poc`、`0.1`、build `1`、minimum iOS `17.0`。
@@ -300,7 +300,7 @@ WebHTV 0.1.13 (14)（未經真機驗收）
 
 ## 第十五次發布：`0.1.14 (15)`（2026-09-24，**已發布**）
 
-**目前最新版是 `0.1.14 (15)`。** 前面十四版都已被取代。
+**發布當時最新版是 `0.1.14 (15)`**（已被 `0.1.15 (16)` 取代，見第十六次發布）。前面十四版都已被取代。
 
 - 授權：使用者 2026-09-24「先幫我push跟發佈」。版號 `0.1.14`，build `15`。
 - 內容：`0.1.13 (14)` 的全部，加上 IOS-POC-22 `53557061`（原生播放器在不能快轉的片源上選 2.5×／3× 時交給 MPV）與其診斷文件 `47cf0d82`。
@@ -319,4 +319,60 @@ WebHTV 0.1.14 (15)（未經真機驗收）
 
 修正
 - 原生播放器選 2.5×／3× 時音訊與畫面異常：原生播放器在不支援超過 2 倍速的片源上，會自動改用 MPV 在同一位置、同一集數、線路與畫質，以選定的 2.5×／3× 繼續播放（暫停中切換則維持暫停）。0.5×～2× 與支援高倍速的片源不受影響，速度選單不變。
+```
+
+## 第十六次發布：`0.1.15 (16)`（2026-09-24，**已發布**）
+
+**發布當時最新版是 `0.1.15 (16)`**（已被 `0.1.16 (17)` 取代，見第十七次發布）。前面十五版都已被取代。
+
+- 補登：本節由 2026-09-25 接手的工作階段依 Git、GitHub Release 與 Actions 紀錄補寫。這次發布的 commit 都沒有 Task-Guard trailer 或驗證紀錄，授權原文也沒有留在文件裡。版號 `0.1.15`，build `16`。
+- 內容：`0.1.14 (15)` 的全部，加上 MPV 播放時保持螢幕常亮 `34d9043b`、`951426b3`：`MPVEngine` 依使用者的播放意圖（載入時的 autoplay、play／pause）設定 App 層級的 `UIApplication.isIdleTimerDisabled`；緩衝中仍保持常亮；進背景、暫停、播放結束、失敗與 teardown 都會釋放。
+- 發布序列：版號 commit `0678deda` → 暫時把 workflow 觸發改成 push `ios-poc` 並寫死 release notes（`ae80b963`），隨即還原（`787ceaa0`）→ 在 `main` 暫時加入 recovery workflow（`b191d72e`），run
+  `36005131032`（success，2026-09-24 13:21:47Z → 13:25:34Z）建立 tag `ios-v0.1.15-b16`（target `0678deda`）、上傳 IPA，並推回 `source.json`（`882e6993`）→ `main` 移除 recovery workflow（`21f8c912`）。
+- 產物：`WebHTV-0.1.15-16.ipa` **24,882,568 bytes**，SHA-256
+  `b3340f6d3ac317b862e97f69d716004d4a9f278092196677696f7bbd39732781`（與 GitHub asset digest 相同）。
+  **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`com.webhtv.ios.poc` / `0.1.15` / build `16` / minimum iOS `17.0`。
+- 發布前驗證：**沒有紀錄**（沒有 `swift test`、模擬器情境或 Simulator build 的證據）；只有 workflow 的 Release device build 成功。**真機尚未回報。**
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.15 (16)
+
+修正
+- MPV 長時間播放時螢幕不再因系統自動鎖定計時而變暗或鎖定；暫停、播放結束、失敗或離開 MPV 播放時會恢復正常自動鎖定。
+```
+
+## 第十七次發布：`0.1.16 (17)`（2026-09-24，**已發布**）
+
+**目前最新版是 `0.1.16 (17)`。** 前面十六版都已被取代。
+
+- 補登：同第十六次發布，本節依 Git、GitHub Release 與 Actions 紀錄補寫，授權原文沒有留在文件裡。版號 `0.1.16`，build `17`。
+- 內容：`0.1.15 (16)` 的全部，加上 `637d3597`（AVPlayer 與 MPV 共用內嵌音軌／字幕選擇；音軌列顯示語言、codec 與聲道；MPV 以 `track-list`、`aid`／`sid` 切換；診斷 log）與編譯修正 `7acb5db1`。
+  任務文件是 `docs/P10-IOS-EMBEDDED-TRACK-SELECTION.md`，範圍與 IOS-POC-17 第十四節的 MPV parity P3 重疊。
+- 發布序列：版號 commit `1d94d340` → 觸發嘗試 `04cad376`、`ad2ca1ef`（runs `36020145528`、`36020215545`，皆失敗，本紀錄未追查原因）→ 還原觸發 `bef780bf`
+  → `main` 暫時的 recovery workflow `399c5597`，run `36020545714` 在「Build unsigned device app」失敗 → 編譯修正 `7acb5db1`
+  → `2d08423f` 的 push run `36020708081` 建置與打包成功，在「Create or update GitHub Release」失敗 → 還原觸發 `5a488f7a`
+  → `main` 改指向修正後的 commit（`cb23e72c`），run `36021136999`（success，2026-09-24 15:34:04Z → 15:37:43Z）建立 tag `ios-v0.1.16-b17`（target `7acb5db1`）、上傳 IPA，
+  並推回 `source.json`（`507c49b6`，共十七筆，第一筆 `0.1.16`、size 與 IPA 相同）→ `main` 移除 recovery workflow（`58562327`）。
+- 產物：`WebHTV-0.1.16-17.ipa` **24,919,831 bytes**，SHA-256
+  `5c20e0797b8299118758a1cc1024f00b9f47cb2eb329f917eb5bd354219d4e9b`（與 GitHub asset digest 相同）。
+  **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`com.webhtv.ios.poc` / `0.1.16` / build `17` / minimum iOS `17.0`。
+- 發布前驗證：**沒有紀錄**。第一次 device build 編譯失敗，修正後 workflow 的 Release device build 成功；`swift test`、模擬器與真機都沒有證據。
+- 收尾狀態：`ios-sidestore-release.yml` 與 `0.1.14 (15)` 發布時的內容相同；`main` 上兩個暫時的 recovery workflow 都已移除。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.16 (17)
+
+新增
+- AVPlayer 與 MPV 共用內嵌音軌／字幕選擇介面。
+- 音軌顯示語言／名稱、codec 與 Mono / Stereo / 5.1 / 7.1。
+- MPV 讀取 track-list 並使用 aid / sid 切換音軌與字幕。
+- 新增音訊 codec、channel count / layout、selected track diagnostics。
+
+調整
+- MPV trackSelection 正式開啟。
+- 不強制 downmix，維持來源聲道配置交由播放器與 iOS audio route 處理。
 ```

@@ -25,6 +25,7 @@
    播放列顯示**目前實際工作的 engine**，點選只影響本次 session，關閉播放器後 override 清除。
 5. 自動 fallback 是正式功能：只有 engine capability failure 才切另一個 engine，
    每次 attempt 最多一次，雙向都要支援。
+   **（2026-09-24 被 17F 取代：network／unclassified 也切一次、20 秒沒開始播放也切；offline／source 不切。見第十二之二節。）**
 6. MPV 在達到 load／first frame／play／pause／seek／currentTime／duration／headers／teardown
    之前，正式版中 **disabled**，不得讓使用者點進黑畫面。
 
@@ -126,7 +127,7 @@ Simulator Debug build → **BUILD SUCCEEDED**。全套 `swift test` 留到 17B �
 （截圖與 event 序列見 `docs/IOS-POC-9B-mpv-playback-core.md` 9G 節）。**真機 first frame：尚未取得**——
 本輪沒有可上機的 Debug build。**Stop condition 未觸發，VLCKit spike 不需要。**
 
-## 十、17B — 雙核心本體（完成；MPV 在正式版仍 disabled）
+## 十、17B — 雙核心本體（完成；當時 MPV 在正式版 disabled，17E 已開放）
 
 ### 契約（`ios/Sources/WebHTVCore/PlaybackEngine.swift`，純 core，macOS 可測）
 
@@ -310,21 +311,69 @@ remove external players            ✓ 17A
 → classified automatic fallback    ✓ 17B（單元測試；真實失敗未觸發過）
 → MPV opened in release + quality menu in the bar  ✓ 17E（使用者決定）
 → proactive engine fallback (network/unclassified + 20 s no-start)  ✓ 17F（模擬器；真機待跑）
-→ core real-device acceptance      ← 下一步（8L；含 ⑱⑲ MPV 真機，`0.1.8 (9)` 起可在正式版測）
+→ core real-device acceptance      ← 下一步（8L；含 ⑱⑲ MPV 真機，`0.1.8 (9)` 起可在正式版測；
+                                      = 第十四節 MPV parity 的 P1）
 → IOS-POC-12
 → IOS-POC-13
 ```
 
+MPV parity 的後續階段（P2 前置緩衝 → P3 字幕／音軌 → P4 外掛字幕 ASS/SSA → P5 背景音訊／鎖屏／remote command →
+P6 PiP bridge → P7 AirPlay Audio；AirPlay Video 只做 feasibility）見第十四節；它們與 IOS-POC-12／13 的先後由使用者決定。
+
 只有當 MPV 在真機觸發第五節 stop condition 並被實證不適用：`MPV stop → minimal VLCKit spike →
 decision AVPlayer + VLC`（絕不三核心）。IOS-POC-15 真機效能測試依使用者決定延後，不是 blocker。
+
+## 十四、MPV parity roadmap（2026-09-24 起，使用者指示寫入；本節只是計畫，沒有任何一項已實作）
+
+> **編號說明**：P1–P7 是本節內的先後順序，**不是** AGENTS.md §8 上游合併計畫的 `P*` 任務 ID；
+> 每一階段開始實作時另取 IOS-POC 家族的 stage ID（例如 `IOS-POC-17G`），並登記在第十三節與 `docs/current-task-state.md` 的 stage index。
+> P1 就是第十三節「core real-device acceptance」裡的 8L ⑱⑲；P2–P7 與 IOS-POC-12／13 的先後，**由使用者決定**，本節不預設。
+
+IOS-POC-16B（控制列 panel）完成後，MPV 的後續工作依下列順序進行。**每一階段都是獨立的 functional unit**：
+各自走 AGENTS §7 的設計研究、Ponytail pre-review、task guard、targeted verification 與 final-diff review，
+**不得合併成一次大改**，也不得動 `PlaybackSession`／`PlayerRouter` 既有的雙核心責任分層
+（engine 只執行媒體；解析、線路、畫質、WatchHistory、resume、片頭片尾、auto-next、prefetch 都在 session 上層）。
+
+| 順序 | 階段 | 產品目標 | 已知技術依據（2026-09-24 研究，來源見下表） | 驗收重點 |
+|---|---|---|---|---|
+| P1 | **MPV 真機 baseline** | 先量，不先調 | first frame（`VIDEO_RECONFIG`＋`PLAYBACK_RESTART`）、`hwdec-current` 實際是 `videotoolbox` 還是 `videotoolbox-copy`、HLS／MP4、headers（Bili Referer＋UA）、2.5×／3×／4× 聲音與畫面、`demuxer-cache-state` 的 forward 秒數與 `cache-speed`、AVPlayer↔MPV 切換、**真實**失敗觸發的 fallback | 8L ⑱⑲ 全部有真機結果；每項記錄事件序列與數字，不寫「應該可以」 |
+| P2 | **MPV 前置緩衝 parity（IOS-POC-15 的 MPV 版）** | 與 AVPlayer 相同的產品目標：足夠的前置 buffer、可量測的 cache、弱網不抖動 | 用 libmpv 自己的機制，**不**照抄 `preferredForwardBufferDuration`：`cache=yes`（不靠 `auto` 啟發式）、`cache-secs`（以秒表達目標）、明確且較低的 `demuxer-max-bytes`／`demuxer-max-back-bytes`（預設 150／50 MiB，iOS 記憶體需另定）、`cache-pause-wait`（預設 1 秒，弱網易抖）、觀察 `demuxer-cache-state`（`cache-end`、`fw-bytes`、`raw-input-rate`）與 `cache-buffering-state`；live／未知長度不套 VOD 目標 | 真機比較 P1 baseline：startup、buffer-ahead、stall 次數；記憶體峰值 |
+| P3 | **subtitle／audio track parity** | 控制列的字幕／音軌 panel 在 MPV 也出現 | `track-list`（NODE）→ `aid`／`sid`／`secondary-sid`；IOS-POC-16B 的 panel 直接沿用，只補 MPV 的資料來源與 `PlaybackEngineCapabilities.trackSelection = true` | 多音軌／多字幕來源實測；切換不重開影片 |
+| P4 | **外掛字幕、ASS/SSA** | 來源提供的字幕網址可載入，ASS 樣式正確 | `sub-add <url> cached <title> <lang>`；libass 已在 MPVKit 1.0.0 LGPL 產品內（ISC 授權、CoreText 字型、無 fontconfig），中文字型走系統字型；需在授權聲明補 fribidi（LGPL）／freetype | CJK 字幕、ASS 特效、字幕與影片同步 |
+| P5 | **背景音訊、鎖屏、控制中心、耳機／AirPods／Bluetooth／車機控制** | 離開 App 或鎖屏時 MPV 繼續出聲，鎖屏／控制中心顯示並可操作 | App 已設 `.playback`／`.moviePlayback` 與 `UIBackgroundModes`；**但 mpv 的 `ao_audiounit` 預設把 session 設成 `mixWithOthers`**，可混音的 session 不具 Now Playing 資格 → 需 `audio-exclusive=yes`；非 AVPlayer engine 必須自己發 `MPNowPlayingInfoCenter.default().nowPlayingInfo`（只在 play/pause/seek/rate 變化時更新，不要每 tick）並註冊 `MPRemoteCommandCenter.shared()`（play/pause/toggle/skip±/changePlaybackPosition）；`MPNowPlayingSession` 只收 AVPlayer | 鎖屏、控制中心、AirPods 雙擊、車機上一首／下一首實測；uninit 的 `setActive:NO` 不得打斷 AVPlayer 路徑 |
+| P6 | **MPV PiP bridge** | MPV 也能子母畫面 | 唯一公開路徑：`AVPictureInPictureController.ContentSource(sampleBufferDisplayLayer:playbackDelegate:)`（iOS 15+），實作 `AVPictureInPictureSampleBufferPlaybackDelegate` 五個必要方法；**最大風險**：libmpv v0.41.0 的 render API 只有 OpenGL 與 SW（SW 官方標明很慢），目前是 `wid`＋`gpu-next`／Vulkan 直出 `CAMetalLayer`，沒有現成方式拿到 `CVPixelBuffer` → 需先做 **feasibility spike**（GL render 到 `CVPixelBuffer`、或取 VideoToolbox 解出的 buffer），通過才實作 | play/pause/seek、背景播放、返回 App 自動恢復 inline player；**不建立第二個 MPV instance、不重開影片**，保留 position／rate／audio／subtitle；PiP 只能由使用者操作啟動（App Store 規則） |
+| P7 | **AirPlay Audio** | MPV 播放時可選 AirPlay 音訊輸出 | `AVRoutePickerView`（控制列已有）＋`AVAudioSession` route；需 P5 的 Now Playing／remote command 才完整 | 真機接 AirPlay 喇叭 |
+| — | **AirPlay Video：feasibility only** | **不承諾**與 AVPlayer 等價 | Apple 只把外部影片播放寫成 AVPlayer 的屬性（`allowsExternalPlayback`、`usesExternalPlaybackWhileExternalScreenIsActive`）；沒有文件說 AirPlay 影片必須 AVPlayer，但也沒有任何非 AVPlayer 的公開路徑——MPV 在實務上大概只剩螢幕鏡像或外接顯示視窗（A/V 同步風險）。AirPlay 影片維持由 AVPlayer 負責 | 只做可行性評估，不列入 parity 驗收 |
+
+**IOS-POC-15 的 MPV 對應（P2 之外已具備的部分）**：下一集 `PlaybackTarget` 預解析在 session 層、與 engine 無關，
+MPV 播放時同樣會預解析與交棒（IOS-POC-15D 起 MPV 不再沿用上一個 AVPlayer item 的網路狀態）；
+啟播時間、prefetch 命中／未命中原因、解析耗時的量測也與 engine 無關。AVPlayer 專屬的是 buffer policy 與
+access-log 類診斷，MPV 對應項在 P2 補上。
+
+### 研究來源（2026-09-24 存取；讀原文，非摘要）
+
+| 主題 | 來源 | 等級 |
+|---|---|---|
+| `cache`／`cache-secs`／`demuxer-max-bytes`／`demuxer-max-back-bytes`／`demuxer-readahead-secs`／`cache-pause*` 語意與預設值 | mpv `DOCS/man/options.rst` 與 `demux/demux.c`，tag `v0.41.0`（commit `41f6a645068483470267271e1d09966ca3b9f413`） | 上游原始碼 |
+| `demuxer-cache-state`／`demuxer-cache-time`／`cache-speed`／`paused-for-cache`／`cache-buffering-state` | mpv `DOCS/man/input.rst`，同 tag | 上游原始碼 |
+| `hwdec`：`auto-safe`＝`auto`，白名單先試 `videotoolbox` 再 `videotoolbox-copy`；gpu-next／Vulkan 的 VT zero-copy 依賴 libplacebo Metal texture import | `options.rst`、`video/decode/vd_lavc.c`、`video/out/hwdec/hwdec_vt_pl.m`，同 tag | 上游原始碼 |
+| render API 只有 OpenGL 與 SW | `include/mpv/render.h`，同 tag | 上游原始碼 |
+| `ao_audiounit` 預設 `mixWithOthers`、`audio-exclusive` | `audio/out/ao_audiounit.m`，同 tag | 上游原始碼 |
+| libass 在 MPVKit LGPL 產品內、CoreText、無 fontconfig | MPVKit `1.0.0`（`288527dffbc6d3e63cce147fc7b520c64a791603`）`Package.swift`、README、build script；`mpvkit/libass-build` `0.17.5` | 上游原始碼 |
+| PiP custom player、`ContentSource(sampleBufferDisplayLayer:playbackDelegate:)`、playback delegate 必要方法、`AVSampleBufferDisplayLayer` | Apple Developer Documentation（AVKit／AVFoundation 現行頁面） | 官方文件 |
+| Now Playing 資格（非混音 session、至少一個 remote command）、`MPNowPlayingSession` 只收 AVPlayer | WWDC22 session 110338；Apple Developer Documentation（MediaPlayer） | 官方文件 |
+| AirPlay：`AVRoutePickerView`、外部影片播放只見於 AVPlayer 屬性 | Apple「Supporting AirPlay in your app」與 AVPlayer 屬性頁 | 官方文件（「AirPlay 影片需 AVPlayer」為推論，已標明） |
 
 ## Recovery anchor
 
 - 已完成：17A `ecb0c4d0`、9G `cf076e79`、17B `7d679d68`、17C `a1750b8c`、17D `bbc73051`、17E `a1bc5bb6`、
   版號 `0a57d545`；**已 push，並已發布 `0.1.8 (9)`**（run `35846736589`，tag `ios-v0.1.8-b9`，
-  `source.json` `30af13f5`，IPA 下載回驗通過）。
-- 已驗證：macOS `swift test` **323／323**；Simulator Debug build；模擬器上 MPV Metal／OpenGL first frame、
-  AVPlayer↔MPV 手動切換保留位置／速度／暫停／target、點集數直接播放；iphoneos Release 預建置。
-- 未驗證：**任何真機行為**（MPV first frame、headers、硬解、切換、watchdog fallback、背景／前景）；
-  畫質選單沒有被真實多網址來源觸發過；自動 fallback 沒有被真實失敗觸發過。
-- 下一步（唯一）：使用者用 SideStore 裝 `0.1.8 (9)`，依 8L 7.2 回報，**優先 ⑱⑲（MPV 真機）**。
+  `source.json` `30af13f5`，IPA 下載回驗通過）。之後的 `0.1.9 (10)`（IOS-POC-18）也含上述全部。
+- 17F `b37751d2`（2026-09-24）：**本機 commit，未 push、不在任何已發布版本裡**。
+- 已驗證：macOS `swift test` 17E 後 323／323、17F 後 **344／344**；Simulator Debug build；模擬器上 MPV Metal／OpenGL
+  first frame、AVPlayer↔MPV 手動切換保留位置／速度／暫停／target、點集數直接播放；iphoneos Release 預建置；
+  17F 的 20 秒主動切換在模擬器上兩個方向都觸發過、且不會切第二次（第十二之二節）。
+- 未驗證：**任何真機行為**（MPV first frame、headers、硬解、切換、watchdog fallback、17F 的切換、背景／前景）；
+  畫質選單沒有被真實多網址來源觸發過；自動 fallback 沒有被**真實來源**的失敗觸發過（17F 用的是本機假串流）。
+- 下一步（唯一）：使用者用 SideStore 裝最新的 `0.1.9 (10)`（`0.1.8 (9)`＋來源識別修正），依 8L 7.2 回報，
+  **優先 ⑱⑲（MPV 真機）**＝第十四節 P1。

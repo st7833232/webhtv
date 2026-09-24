@@ -23,8 +23,9 @@ engine — so the order is now:
    **the real-device first frame is still owed**.
 3. ~~Minimal `MPVEngine`~~, ~~AVPlayer + MPV dual-engine integration~~, ~~global default engine
    setting~~, ~~session engine selector~~, ~~manual engine switching~~, ~~classified automatic
-   fallback~~ — **implemented** (IOS-POC-17B); MPV stays disabled in release builds until its
-   device gate passes.
+   fallback~~ — **implemented** (IOS-POC-17B; widened by 17F on 2026-09-24 to network/unclassified
+   failures and a 20-second no-start switch); MPV has been offered in release builds since 17E /
+   `0.1.8 (9)` (user decision); its device gate is still owed.
 4. **Core real-device acceptance** (`docs/IOS-POC-8L-core-real-device-acceptance.md`), now including
    MPV's device first frame, switching and fallback.
 5. IOS-POC-12 — Runtime Architecture Reconciliation.

@@ -603,6 +603,7 @@ xcrun devicectl device install app --device 00008160-00124C8200214036 …/WebHTV
 - **真機一次都還沒跑修正後的版本。** 真機那一格（Metal＋軟解，`FILE_LOADED` 後無 `VIDEO_RECONFIG`）
   的症狀與差異 1 完全吻合，但**吻合不是證明**——要真機重跑才算數。
 - 真機要跑需要一個含 Debug 探針的 build：SideStore 發的是 Release，探針是 `#if DEBUG`。
+  （17E 起 `0.1.8 (9)` 以後的正式版可直接選 MPV 看 first frame；只有四格探針仍需 Debug build。）
   本輪使用者未授權 package／publish，也依既有決定不直接裝到手機，所以**本輪沒有真機證據**。
 - 真機要問的四格：Metal／OpenGL × 軟解／硬解（`auto-safe` → VideoToolbox），各用「範例」的三個串流。
 

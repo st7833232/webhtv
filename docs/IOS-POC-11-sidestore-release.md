@@ -32,7 +32,7 @@
 
 ## Recovery anchor
 
-- 狀態：完成，且已發過**五個**版本，最新是 `0.1.4 (5)`。
+- 狀態：完成，且已發過**十個**版本，最新是 `0.1.9 (10)`（見文末各次發布）。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
 - 發布結果：`WebHTV-0.1-1.ipa`，24,563,162 bytes，GitHub asset SHA-256 `fcbf1531d9480f678ee0fac7ec5ce49010f3de51fc11b79f0ba88372e85812ed`；IPA plist 為 `com.webhtv.ios.poc`、`0.1`、build `1`、minimum iOS `17.0`。
@@ -132,7 +132,7 @@
 
 ## 第九次發布：`0.1.8 (9)`（2026-09-23，**已發布**）
 
-**目前最新版是 `0.1.8 (9)`。** 前面八版都已被取代。
+**發布當時最新版是 `0.1.8 (9)`**（已被 `0.1.9 (10)` 取代，見第十次發布）。前面八版都已被取代。
 
 **已發布（2026-09-23）**：使用者以「修改完成直接PUSH 發佈」授權。版號 commit `0a57d545`，
 push `2a46c3fb..0a57d545`，`workflow_dispatch` run `35846736589`（`macos-26`，**success，3 分 29 秒**），
@@ -160,3 +160,20 @@ tag `ios-v0.1.8-b9`（workflow 建立，target `0a57d545`），workflow 推回 `
   注意 `ios-v*-b*` tag 一推上去就會觸發本 workflow，所以不要手動建 tag。
 - 發布序列（需使用者另外明確授權）與中文 release notes 草稿：
   `docs/IOS-POC-8L-core-real-device-acceptance.md` 第三節。
+
+## 第十次發布：`0.1.9 (10)`（2026-09-23，**已發布**）
+
+**目前最新版是 `0.1.9 (10)`。** 前面九版都已被取代。
+
+- 內容：`0.1.8 (9)` 的全部，加上 IOS-POC-18 來源識別修正（commit `8df71c12`，Task-Guard
+  `IOS-POC-18-source-identity`，版號 `0.1.9`／`10` 在同一個 commit）：靈虎等 object-ext 來源重開 App 後
+  不再跳回第一個站台；因來源 ID 漂移而變灰的觀看記錄升級後自動遷移；來源識別改為穩定 canonical identity，
+  Spider ext 行為不變。
+- 發布：tag `ios-v0.1.9-b10` → `8df71c12`，`workflow_dispatch` run `35874971373`（success，
+  2026-09-23 14:32:50Z → 14:38:04Z），workflow 推回 `source.json`（`dde455ba`）。
+- 產物：`WebHTV-0.1.9-10.ipa` **24,767,406 bytes**，GitHub asset SHA-256
+  `46385529d25368dd14b77a25f646d2a3e0322845006190be0428672722b4df3d`；`source.json` 共十筆，第一筆 `0.1.9`、
+  size 與 IPA 相同（2026-09-24 以 `gh release view` 與 `source.json` 重新核對）。
+- 驗證：commit 記錄 `swift test --package-path ios` PASS；2026-09-24 在 `dde455ba` 實測 **326／325**
+  （唯一失敗是天氣測試 `reportsLiveType4SitesFromProvidedConfig`）。**真機驗收尚未回報。**
+- 之後的本機 commit（IOS-POC-16B、15D、17F）**都不在這一版裡**，也尚未發布。

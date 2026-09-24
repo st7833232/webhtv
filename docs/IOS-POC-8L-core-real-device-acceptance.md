@@ -10,7 +10,7 @@
 - 這一輪刻意不做：新功能、CSP／Python 擴充、MPV、runtime hot update、重調 IOS-POC-15、
   IOS-POC-12／13、tag、publish、觸發 SideStore workflow、建立 GitHub Release。
 
-## 一、最新 code state（2026-09-23 16:04 CST 以 `git fetch` 後的 remote 為準）
+## 一、當時的 code state（2026-09-23 16:04 CST 以 `git fetch` 後的 remote 為準；之後已有 IOS-POC-17、18 與 `0.1.8 (9)`、`0.1.9 (10)` 兩次發布）
 
 | 項目 | 值 |
 |---|---|
@@ -25,7 +25,7 @@
 **結論：最新 HEAD 的 functional tree 與 `63040bb3` 完全相同。** 所以下面第六節直接引用
 `63040bb3` 的 297／296 與 Simulator BUILD SUCCEEDED，沒有為了形式重跑。
 
-## 二、目前 public release 為什麼不足以驗 5S-3
+## 二、當時的 public release（`0.1.7 (8)`）為什麼不足以驗 5S-3（之後已發布 `0.1.8 (9)`、`0.1.9 (10)`）
 
 | | 值 |
 |---|---|
@@ -47,7 +47,7 @@ seek 後 buffered bar 修正）。所以**除了 ① 以外的項目，現在手
 
 **已發布**：run `35846736589`，tag `ios-v0.1.8-b9`（target `0a57d545`），`WebHTV-0.1.8-9.ipa`
 24,754,269 bytes，下載回驗通過（`docs/IOS-POC-11-sidestore-release.md` 第九次發布）。
-**7.2 的全部項目現在都在這一版上測**；release notes 以下方草稿為準發布。
+**7.2 的全部項目在這一版或之後的版本上測（目前最新 `0.1.9 (10)`＝`0.1.8 (9)`＋來源識別修正）**；release notes 以下方草稿為準發布。
 
 | 項目 | 規劃 |
 |---|---|
@@ -164,7 +164,7 @@ WebHome site，所以真機上沒有 WebHome 頁面可以拿來對照。
 | 檢查 | 結果 | 證據等級 |
 |---|---|---|
 | `swift test --package-path ios` | **297 tests / 296 pass**；唯一失敗 `reportsLiveType4SitesFromProvidedConfig`（88看球 解析成 HTML `qq-kbs.html`，provider 天氣，**不修**） | **引用** `63040bb3` 2026-09-23 的量測；HEAD functional tree 與它相同，所以仍成立。**本輪未重跑** |
-| **更新 2026-09-23，IOS-POC-17B 之後** `WANG_MOVIE_JSON=<使用者設定> swift test --package-path ios` | **322 tests，全部通過**（297 − 1 移除 + 1 移除檢查 + 25 雙核心）；那條天氣測試這次也通過 | 本輪實測，macOS |
+| **更新 2026-09-23，IOS-POC-17B 之後** `WANG_MOVIE_JSON=<使用者設定> swift test --package-path ios` | **322 tests，全部通過**（297 − 1 移除 + 1 移除檢查 + 25 雙核心）；那條天氣測試這次也通過（之後實測：17E 323／323；`dde455ba`（IOS-POC-18 後）326／325；16B 後 335／334；15D 後 340／339；17F 後 344／344——失敗的都只有天氣測試） | 本輪實測，macOS |
 | Simulator Debug build（`id=7B4E9557-4774-4EB9-B408-BB544DCC8657`） | **BUILD SUCCEEDED** | **引用**，同上 |
 | iphoneos Release unsigned build（RC 預檢，`0.1.8`／`9` 覆寫） | **BUILD SUCCEEDED**，Info.plist 版本正確 | **本輪實測**（2026-09-23 16:06–16:07 CST） |
 | Ponytail | **本輪沒有跑 functional Ponytail**，因為沒有 functional diff。不宣稱執行過 | — |
@@ -173,7 +173,7 @@ WebHome site，所以真機上沒有 WebHome 頁面可以拿來對照。
 
 狀態只有四種：**已驗證**（有人在真機上看過）／**這輪要驗**／**延後驗證**／**不適用**。
 「這輪要驗」全部由**使用者操作手機並回報**；本工作階段無法驅動實體裝置，也不直接安裝（SideStore 政策）。
-建議全部在 `0.1.8 (9)` 上做；標 ★ 的在現有 `0.1.7 (8)` 上也能測。
+建議全部在 `0.1.8 (9)` 以後的版本上做（目前最新 `0.1.9 (10)`）；★ 是 `0.1.7 (8)` 時期「舊版也能測」的標記。
 
 ### 7.1 已驗證（先前真機回報，維持不回滾）
 
@@ -190,7 +190,7 @@ WebHome site，所以真機上沒有 WebHome 頁面可以拿來對照。
 
 | # | 項目 | 程式路徑 | 建議來源 | 步驟與通過標準 | 回報格式 |
 |---|---|---|---|---|---|
-| ①a | 5S-3 rules 非回歸 | `SnifferRules.verdict`／`script(for:)`；`MediaSniffer.Collector`（`MediaSniffer.swift:280`、`:322`） | `🥇｜农民｜高清`（XYQHiker）；另找一個已知走嗅探的：`🧲｜優酷｜高清` 的 `ukyun` 線路（5G 在模擬器上走過嗅探）、`🧲｜非凡`、`🧲｜量子` | **只能在 `0.1.8 (9)` 上測**。選集 → 能播且是正片、沒有卡在嗅探逾時（約 12 秒）後失敗 | 每個來源：能播／不能播＋畫面描述 |
+| ①a | 5S-3 rules 非回歸 | `SnifferRules.verdict`／`script(for:)`；`MediaSniffer.Collector`（`MediaSniffer.swift:280`、`:322`） | `🥇｜农民｜高清`（XYQHiker）；另找一個已知走嗅探的：`🧲｜優酷｜高清` 的 `ukyun` 線路（5G 在模擬器上走過嗅探）、`🧲｜非凡`、`🧲｜量子` | **只能在 `0.1.8 (9)` 以後的版本上測**。選集 → 能播且是正片、沒有卡在嗅探逾時（約 12 秒）後失敗 | 每個來源：能播／不能播＋畫面描述 |
 | ①b | 5S-3 正向（rule 改變行為、script 被執行） | 同上 | **`wang-movie.json` 內沒有**（見第五節） | 使用者若有會載入 `yeslivetv.com`／`www.maolvys.com` 的來源再測；否則維持 unit-level 證據 | 有／沒有這樣的來源 |
 | ②a ★ | 5S-1 ads 非過度封鎖 | `AdBlockList`、`MediaSniffer.contentRules()`（`MediaSniffer.swift:113`） | 同①a 的嗅探來源 | 走嗅探的來源能播；海報、字幕、分類 API 正常 | 同①a |
 | ②b | 5S-1 正向（廣告被擋） | 同上 | `wang-movie.json` 唯一 ad host `mozai.4gtv.tv` 無來源會請求 | 無可見訊號（第四節），維持 unit-level 證據；若使用者用 `wang-sex.json`（62 個 host），同樣只看得到非回歸 | — |
@@ -216,7 +216,7 @@ WebHome site，所以真機上沒有 WebHome 頁面可以拿來對照。
 在正式版上以「設定 → 預設播放器 → MPV」或播放中的控制列切到 MPV，看有沒有畫面即可。
 
 **建議操作順序**（風險高的先做，任何一項卡住不影響其他項）：⑤關閉鈕 → ④PiP ×2 → ⑤其餘 →
-⑮直接播放 → ⑨Bili → ⑥CMS → ⑦csp → ⑧drpy → ⑩resume → ③片頭片尾 → ⑫⑬⑭⑯⑰ → ①a②a →（有 MPV build 時）⑱⑲。
+⑮直接播放 → ⑨Bili → ⑥CMS → ⑦csp → ⑧drpy → ⑩resume → ③片頭片尾 → ⑫⑬⑭⑯⑰ → ①a②a → ⑱⑲。
 
 ### 7.3 延後驗證（依使用者決定，不是本輪 blocker）
 
@@ -258,7 +258,8 @@ spider/resolver 邊界、`WatchHistory`、WebHome bridge ABI，**以及 IOS-POC-
   `63040bb3` 的證明；`wang-movie.json` rules／ads 盤點（第五節）；`0.1.8 (9)` iphoneos Release
   預建置成功；本矩陣。
 - 未完成：7.2 全部真機結果（**等使用者回報**；⑪ 已 superseded，⑮–⑲ 為 IOS-POC-17 新增）；
-  `0.1.8 (9)` 的發布（**等使用者授權**；IOS-POC-17 之後要先重跑一次 iphoneos Release 預建置）；
-  ⑱⑲ 需要能開 MPV 的 device build（使用者決定走 IPA 或開發者開關）。
-- 下一個動作（唯一）：使用者授權發布 `0.1.8 (9)` 後，依第三節四步發布；或使用者直接在
-  `0.1.7 (8)` 上先回報 ★ 項目。收到回報後把結果逐列填進 7.2，並把通過的列移到 7.1。
+  （`0.1.8 (9)` 已於 2026-09-23 發布並開放 MPV，同日再發 `0.1.9 (10)`；⑱⑲ 可直接在正式版測。）
+  2026-09-24 的本機 commit（IOS-POC-16B 控制列 panel、15D 緩衝契約、17F 主動切換核心）**不在任何已發布版本裡**，
+  它們的真機驗收要等下一次經使用者授權的發布。
+- 下一個動作（唯一）：使用者在 `0.1.9 (10)`（或 `0.1.8 (9)` 以後的版本）上依 7.2 回報，優先 ⑱⑲。
+  收到回報後把結果逐列填進 7.2，並把通過的列移到 7.1。

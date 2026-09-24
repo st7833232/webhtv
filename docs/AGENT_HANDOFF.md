@@ -123,17 +123,37 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   `a076ab51`, `20c4bd53` and `616e182e` before, and a handoff arriving with **`035ad0bf` as "the
   latest on GitHub" was sixteen commits behind** — that commit is the roadmap-only one, an ancestor
   rather than the tip. Run `git log` and the `rev-list` above on resume instead of reading it here.
-- **Current release: `WebHTV 0.1.8 (9)`, published 2026-09-23 at the user's instruction** (run
+- **Current release: `WebHTV 0.1.9 (10)`, published 2026-09-23** (tag `ios-v0.1.9-b10` → `8df71c12`,
+  Task-Guard `IOS-POC-18-source-identity`, run `35874971373`; `source.json` `dde455ba`, IPA
+  24,767,406 bytes, GitHub asset SHA-256 `46385529…`): `0.1.8 (9)` plus **IOS-POC-18** — object-ext
+  sources (e.g. 靈虎) keep their site across relaunch, watch-history entries greyed out by source-ID
+  drift migrate on upgrade, sources are keyed by a stable canonical identity (Spider ext behaviour
+  unchanged). Record: `docs/IOS-POC-11-sidestore-release.md` 第十次發布.
+- **Previous release: `WebHTV 0.1.8 (9)`, published 2026-09-23 at the user's instruction** (run
   `35846736589`, tag `ios-v0.1.8-b9` → `0a57d545`, IPA 24,754,269 bytes, SHA-256 `e6aff904…`,
   verified by downloading it back). It carries 5S-3 and all of IOS-POC-17, **including 17E: MPV is
   offered in release builds** (user decision; device first frame unverified, guarded by the
   10-second first-frame watchdog that falls back to AVPlayer) and **the quality menu in the control
-  bar**. `swift test` → **323, all pass**. `0.1.7 (8)` and earlier are superseded. **No device
-  result has been reported for it yet.** Everything below that says MPV is release-disabled or
-  that the release is `0.1.7 (8)` is superseded by this line.
+  bar**. `swift test` → **323, all pass** after 17E; measured **326／325** at `dde455ba` (after
+  IOS-POC-18; the one failure is the weather test). `0.1.7 (8)` and earlier are superseded. **No
+  device result has been reported for `0.1.8 (9)` or `0.1.9 (10)` yet.** Everything below that says
+  MPV is release-disabled or that the release is `0.1.7 (8)` is superseded by these two lines.
+- **Local commits after `0.1.9 (10)` — on `ios-poc`, not pushed, in no release (2026-09-24):**
+  **IOS-POC-16B** `a5f2678e` — the control bar's seven second-level choices (speed, quality, engine,
+  subtitles, audio, opening, ending) open panels the bar owns instead of SwiftUI `Menu`
+  (`docs/IOS-POC-16-custom-player-controls.md` 第十之一節); **IOS-POC-15D** `6416c4d4` — the
+  IOS-POC-15 buffering/prefetch contract checked line by line, with `os.Logger` `[playback]`
+  measurements (`docs/IOS-POC-15-playback-buffering-preload.md` 第十二節); **IOS-POC-17F**
+  `b37751d2` — network/unclassified failures and a start that has not come after 20 seconds now try
+  the other engine once per attempt; offline and source failures never switch
+  (`docs/IOS-POC-17-dual-internal-player.md` 第十二之二節). `swift test`: 335／334 after 16B,
+  340／339 after 15D, **344／344 after 17F** (the only failure ever is the weather test). **None of
+  the three has run on a device.** The MPV parity roadmap (P1 device baseline → P2 cache parity →
+  P3 tracks → P4 external/ASS subtitles → P5 background audio/Now Playing → P6 PiP bridge → P7
+  AirPlay Audio) is IOS-POC-17 第十四節.
 - **IOS-POC-17 — the app plays with its own two engines (2026-09-23, user decision).** Started at
   `2a46c3fb` (= `origin/ios-poc`, `0 0`, clean); commits `ecb0c4d0` 17A, `cf076e79` 9G, `7d679d68`
-  17B, `a1750b8c` 17C, then 17D docs — **none pushed**. External players are gone (17A). **MPV's
+  17B, `a1750b8c` 17C, then 17D docs — all pushed since (on `origin/ios-poc`, released in `0.1.8 (9)`). External players are gone (17A). **MPV's
   black screen was our probe**: it drained mpv's events inside the wakeup callback, which
   `client.h` forbids and which deadlocks on the playloop at `FILE_LOADED`; fixed as MPVKit's demo
   does it, and **both Metal and OpenGL draw on the simulator** (9G). **Device: not re-run.** Core now
@@ -153,7 +173,7 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   before judging 5S on a phone: `wang-movie.json` has no source reaching either `script` rule host
   or its one ad host, and the sniffer web view and all `print` diagnostics are invisible on a
   SideStore Release install.
-- **Latest measurement — IOS-POC-17B on 2026-09-23:** `swift test` → **322 tests, all pass**;
+- **Superseded by 17E (323), `dde455ba` (326／325) and 17F (344／344) — IOS-POC-17B on 2026-09-23:** `swift test` → **322 tests, all pass**;
   simulator Debug build → **BUILD SUCCEEDED**. The 297/296 line below is superseded.
 - **Earlier — macOS at `63040bb3` (IOS-POC-5S-3) on 2026-09-23:**
   `swift test --package-path ios` → **297 tests, 296 pass, 1 fails**, and the simulator Debug build
@@ -190,7 +210,7 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   with a TLS error `curl` could not reproduce a minute later. **Neither is to be "fixed."**
   Earlier revisions of this line read "151 tests, all pass", "185 tests, one failing" and
   "188 tests, one failing"; all are superseded.
-- **The current release is `WebHTV 0.1.7 (8)`**, tag `ios-v0.1.7-b8`, built unsigned by the workflow
+- **Superseded by the release bullets above — pre-`0.1.8` record:** the release was `WebHTV 0.1.7 (8)`, tag `ios-v0.1.7-b8`, built unsigned by the workflow
   from `add58007` on 2026-09-23 and re-signed on the device by SideStore
   (`WebHTV-0.1.7-8.ipa`, 24,689,841 bytes, SHA-256 `338a4943...`, run `35827470170`, verified by
   downloading it back). **It carries IOS-POC-15** — so the device performance pass that stage owes
@@ -359,9 +379,9 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   acceptance.
   **Three things came off this list and must not be written back onto it.** The Python runtime left
   on 2026-09-21 (IOS-POC-7E–7P). **The SideStore/IPA release pipeline left on 2026-09-22**
-  (IOS-POC-11): the workflow, `source.json` and two published releases exist.
-  **MPV is not on this list either, and is not finished** — it is started and paused; see the MPV
-  bullet below. A source-specific DNS or TLS error does not prove a global iOS network bug.
+  (IOS-POC-11): the workflow and `source.json` exist and have published ten releases, through `0.1.9 (10)`.
+  **MPV is not on this list either** — it ships as the second engine since `0.1.8 (9)` (IOS-POC-17),
+  device first frame still owed; see the IOS-POC-17 bullet above. A source-specific DNS or TLS error does not prove a global iOS network bug.
 - **Superseded 2026-09-23 by IOS-POC-9G/17 — see the IOS-POC-17 bullet above.** The rest of this
   bullet is the pre-9G record: **MPV: started, implemented in part, rendering unresolved and paused.** MPVKit 1.0.0 (non-GPL) is
   wired into the App target, static linking is confirmed by symbol table rather than by configure
@@ -455,7 +475,7 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   signed Swift/native code. The detailed boundary and entry gates are in
   `docs/IOS-POC-12-13-runtime-update-roadmap.md`. **Do not prioritise XueLuo, QimaoDJ, AppDrama or
   any further `csp_*` class**, the Python `Crypto`/`bs4`/`lxml`/`pyquery` shims, `CatVodHost`
-  RSA/`proxy`, CarPlay, an automatic AVPlayer↔MPV fallback, or a new release version ahead of this
+  RSA/`proxy`, CarPlay, ~~an automatic AVPlayer↔MPV fallback~~ (implemented in IOS-POC-17B, widened in 17F), or a new release version ahead of this
   sequence unless the user explicitly changes priorities.
   **The Official/XPTV shape stopped being hypothetical on 2026-09-21**: the user settled it as the
   product — a shell that bundles no sources and takes the user's own configuration. The app already

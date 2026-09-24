@@ -32,7 +32,7 @@
 
 ## Recovery anchor
 
-- 狀態：完成，且已發過**十七個**版本，最新是 `0.1.16 (17)`（見文末各次發布）。
+- 狀態：完成，且已發過**十八個**版本，最新是 `0.1.17 (18)`（見文末各次發布）。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
 - 發布結果：`WebHTV-0.1-1.ipa`，24,563,162 bytes，GitHub asset SHA-256 `fcbf1531d9480f678ee0fac7ec5ce49010f3de51fc11b79f0ba88372e85812ed`；IPA plist 為 `com.webhtv.ios.poc`、`0.1`、build `1`、minimum iOS `17.0`。
@@ -345,7 +345,7 @@ WebHTV 0.1.15 (16)
 
 ## 第十七次發布：`0.1.16 (17)`（2026-09-24，**已發布**）
 
-**目前最新版是 `0.1.16 (17)`。** 前面十六版都已被取代。
+**發布當時最新版是 `0.1.16 (17)`**（已被 `0.1.17 (18)` 取代，見第十八次發布）。前面十六版都已被取代。
 
 - 補登：同第十六次發布，本節依 Git、GitHub Release 與 Actions 紀錄補寫，授權原文沒有留在文件裡。版號 `0.1.16`，build `17`。
 - 內容：`0.1.15 (16)` 的全部，加上 `637d3597`（AVPlayer 與 MPV 共用內嵌音軌／字幕選擇；音軌列顯示語言、codec 與聲道；MPV 以 `track-list`、`aid`／`sid` 切換；診斷 log）與編譯修正 `7acb5db1`。
@@ -375,4 +375,47 @@ WebHTV 0.1.16 (17)
 調整
 - MPV trackSelection 正式開啟。
 - 不強制 downmix，維持來源聲道配置交由播放器與 iOS audio route 處理。
+```
+
+## 第十八次發布：`0.1.17 (18)`（2026-09-25，**已發布**）
+
+**目前最新版是 `0.1.17 (18)`。** 前面十七版都已被取代。
+
+- 授權：使用者 2026-09-25 在選擇題中選「發布 0.1.17 (18)」。版號 `0.1.17`，build `18`。
+- 內容：`0.1.16 (17)` 的全部，加上 IOS-POC-20 `ee597124`：
+  - 底部「搜尋」分頁：同時搜尋目前資訊源的所有可搜尋站台，可載入更多。
+  - 全站台與單站搜尋都先繁轉簡。
+  - WebHome 的 `app.search` 改開全站台搜尋。
+  - Python 呼叫移到各自的 serial queue。
+  - 同一天的文件 commit：`5e67e1be`（補登 0.1.15／0.1.16）與 `d43b86df`（IOS-POC-20 設計研究）。
+- 發布序列：
+  1. 版號 commit `b3c19fd4`（Task-Guard `IOS-RELEASE-0.1.17-b18`）。
+  2. push `ee597124..b3c19fd4`。
+  3. `workflow_dispatch` run `36034238374`（`version=0.1.17`、`build_number=18`，success，2026-09-24 17:25:50Z → 17:29:43Z）。
+  4. workflow 建立 tag `ios-v0.1.17-b18`（target `b3c19fd4`），並推回 `source.json`（`0dff1af1`，共十八筆，第一筆 `0.1.17`，size 與 IPA 相同）。
+
+  **沒有手動建 tag**，也沒有動 workflow 或 `main`。
+- 產物：`WebHTV-0.1.17-18.ipa` **25,017,556 bytes**，SHA-256
+  `e9e5b5ddce9e8e219ad7493ba5c148f5e0a8e43882f7247f5a82f33feb2ce3f5`（與 GitHub asset digest 相同）。
+  **下載回來驗過**：
+  - `Payload/` 只有 `WebHTVApp.app`。
+  - `com.webhtv.ios.poc` / `0.1.17` / build `18` / minimum iOS `17.0`。
+  - 主執行檔含 IOS-POC-20 的字串（`[search] ask`、`is still busy with an earlier search`、「搜尋所有站台」）。
+- 發布前驗證：
+  - 這是 IOS-POC-20 的**第一次編譯**：本工作階段在 Linux 容器，沒有 Swift 編譯器，由 workflow 的 Release device build 編譯並一次成功。
+  - `swift test` 依使用者選擇未執行，沒有模擬器情境。
+  - **真機尚未回報。**
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.17 (18)（未經真機驗收）
+
+新增
+- 底部新增「搜尋」分頁：同時搜尋目前資訊源所有可搜尋的站台，結果隨到隨顯示並標出站台；可依站台篩選並載入更多；較慢的站台 30 秒後標示逾時，不影響其他站台。
+
+調整
+- 首頁單站搜尋與全站台搜尋都會先把繁體關鍵字轉成簡體再送出。
+- WebHome 的搜尋改為開啟全站台搜尋。
+- Python 站台改在各自的佇列執行，不再佔用 App 共用的執行緒。
 ```

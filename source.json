@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.11",
+          "date": "2026-09-24",
+          "localizedDescription": "WebHTV 0.1.11 (12)（未經真機驗收）\n\n新增\n- MPV 播放器支援子母畫面：用 MPV 播放影片時回到主畫面，會自動進入子母畫面，和原生播放器一樣；回到 App 就結束子母畫面、從原位置繼續播放。純音訊、載入失敗或播完時不會自動開啟。進入與離開子母畫面時會短暫停頓一下。\n\n修正\n- MPV 直向、橫向旋轉後畫面跑版：旋轉後會以新的尺寸重新繪製。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.11-b12/WebHTV-0.1.11-12.ipa",
+          "size": 24877389,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.10",
           "date": "2026-09-24",
           "localizedDescription": "WebHTV 0.1.10 (11)（未經真機驗收）\n\n新增\n- 播不出來時自動改用另一個播放器：遇到網路錯誤或無法辨識的錯誤，會換另一個播放器再試一次；目前的播放器 20 秒內仍未開始播放，也會自動切換。每一集最多切換一次，不會來回切；沒有網路連線時不切換。\n- 播放控制列的速度、畫質、播放器、字幕、音軌、片頭、片尾選單改成自己的面板：面板開著時控制列不會自動隱藏，按鈕更好點；直向從下方展開、橫向從右側展開。\n\n改進\n- 緩衝：只有真的卡頓時才加大緩衝；自己選的畫質不會被自動降低。\n- 下一集預先解析：換畫質時立即作廢舊的預解析；預先解析的網址失效時，會自動重新解析一次，不直接顯示錯誤；預解析只讀取極少量資料，不再可能整集下載。\n- MPV 播放時不再沿用上一段原生播放器的網路狀態。",

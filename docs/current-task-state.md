@@ -49,7 +49,7 @@ run `35968750165`，`source.json` `d681a72d`，IPA 24,877,389 bytes，sha256 `bb
 **下一步（唯一）**：使用者用 SideStore 更新到 `0.1.12 (13)`，在真機依 17H 文件第四節驗 MPV PiP（第六節之三的真機未驗證項目）與 17G 旋轉。同時使用者繼續在 `0.1.10 (11)` 上依 `docs/IOS-POC-8L-core-real-device-acceptance.md` 7.2 回報，
 優先 ⑱⑲（＝MPV parity P1），並留意 16B 面板與 17F 自動切換；收到回報後逐列填進 8L 與 IOS-POC-17。
 使用者沒有指示前，不開始 MPV parity P2 以後的任何階段，也不開始 IOS-POC-12／13。
-**待核准的計畫（2026-09-24 使用者要求）**：IOS-POC-19「每個資訊源記住離開前的站台」（`docs/IOS-POC-19-per-source-site-memory.md`）與 IOS-POC-20「全站台搜尋」（`docs/IOS-POC-20-aggregate-search.md`）；只有計畫，等使用者回答各文件「待你決定」並核准。
+**IOS-POC-19**「每個資訊源記住離開前的站台」已實作並在模擬器驗證（本機 commit、未 push；`docs/IOS-POC-19-per-source-site-memory.md`）。**IOS-POC-20**「全站台搜尋」仍只有計畫（`docs/IOS-POC-20-aggregate-search.md`），開工前要先做設計研究並再經核准。
 
 ## Current Scope
 
@@ -338,7 +338,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 17F | Proactive engine fallback: network/unclassified and a 20-second no-start switch once; offline/source never (2026-09-24, `0.1.10 (11)`) |
 | 17G | MPV redraws at the new size after a rotation: rebuild the VO once the size settles (MPVKit issue #3 workaround; local, 2026-09-24) | `docs/IOS-POC-17-dual-internal-player.md` | `docs/IOS-POC-17-dual-internal-player.md` |
 | 17H | MPV Picture in Picture (parity P6): libmpv software output into a sample buffer layer only while the window is open; simulator-verified up to the black simulator PiP window, device-unverified (2026-09-24, `0.1.11 (12)`) | `docs/IOS-POC-17H-mpv-picture-in-picture.md` |
-| 19 | **Planned, not approved (2026-09-24):** each config source remembers the site chosen before leaving it | `docs/IOS-POC-19-per-source-site-memory.md` |
+| 19 | **Done to the simulator 2026-09-24 (local, not released):** each config source remembers the site last picked in it; `swift test` 347／347 | `docs/IOS-POC-19-per-source-site-memory.md` |
 | 20 | **Planned, not approved (2026-09-24):** search every searchable site of the current source at once | `docs/IOS-POC-20-aggregate-search.md` |
 | 8L | **Core real-device acceptance preparation** — the acceptance matrix, the `wang-movie.json` rules/ads inventory, and the `0.1.8 (9)` release-candidate plan with a Release pre-flight build. Docs only; nothing was device-verified by it | `docs/IOS-POC-8L-core-real-device-acceptance.md` |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |

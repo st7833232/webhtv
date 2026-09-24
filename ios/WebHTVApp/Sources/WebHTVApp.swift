@@ -9,6 +9,8 @@ import WebKit
 private let appSurface = Color(red: 0.075, green: 0.14, blue: 0.16)
 private let appAccent = Color.white
 private let selectedSiteKey = "selectedSiteKey"
+/// IOS-POC-19: `[ConfigSource.identity: SiteSelection.token]`, the site each source was left on.
+private let siteBySourceKey = "selectedSiteBySource"
 private let configSourceURLKey = "configSourceURL"
 private let configUpdatedAtKey = "configUpdatedAt"
 
@@ -117,7 +119,7 @@ private struct ConfigView: View {
                 }
             } else {
                 TabView(selection: $selectedTab) {
-                    HomeView(sites: sites, selectedSiteID: $selectedSiteID, source: source)
+                    HomeView(sites: sites, selectedSiteID: pickedSite, source: source)
                         .tag(0)
                         .tabItem { Label("首頁", systemImage: "play.rectangle.fill") }
 
@@ -130,7 +132,7 @@ private struct ConfigView: View {
                     NavigationStack {
                         SettingsView(
                             sites: sites,
-                            selectedSiteID: $selectedSiteID,
+                            selectedSiteID: pickedSite,
                             source: source,
                             updatedAt: updatedAt,
                             refreshing: refreshing,
@@ -163,11 +165,6 @@ private struct ConfigView: View {
             // rather than on whatever happened to be cached.
             await refreshRemote(quiet: true)
             await refreshSpiderPack()
-        }
-        .onChange(of: selectedSiteID) { _, id in
-            // IOS-POC-10C: never the raw id. `Site.id` embeds a NUL and CFPreferences truncates
-            // there, which is what made every launch reopen on the first source.
-            UserDefaults.standard.set(id.map(SiteSelection.token(for:)), forKey: selectedSiteKey)
         }
         .alert("加入設定來源", isPresented: $askingRemote) {
             TextField("名稱", text: $remoteName)
@@ -265,6 +262,10 @@ private struct ConfigView: View {
     private func forget(_ entry: SavedSource) {
         saved.remove(id: entry.id)
         persistSaved()
+        // And the site it was left on: added back, it starts from its first site again.
+        var memory = siteMemory()
+        memory[ConfigSource.remote(entry.url).identity] = nil
+        UserDefaults.standard.set(memory, forKey: siteBySourceKey)
         // The cached copy goes with it; leaving it behind would be an orphan nobody can reach.
         if let url = try? configURL(for: .remote(entry.url)) { try? FileManager.default.removeItem(at: url) }
     }
@@ -328,7 +329,8 @@ private struct ConfigView: View {
               let config = try? ConfigLoader.validate(data) else { return }
         sites = config.drivableSites(resolvedBy: CSPSourceResolver(source: source))
         adoptAdBlocking(from: config)
-        selectedSiteID = sites.first { $0.id == selectedSiteID }?.id ?? selectedSiteID ?? sites.first?.id
+        selectedSiteID = SiteSelection.choose(remembered: siteMemory()[source.identity], current: selectedSiteID,
+                                              in: sites)
     }
 
     /// Point the sniffer at **this** configuration's ad rules and sniffer rules, and at nothing else
@@ -371,7 +373,30 @@ private struct ConfigView: View {
         // this landing first — `SpiderSessionStore` keys on the site's `ext`, so a redefined site
         // misses the cache regardless.
         Task { await SpiderSessionStore.shared.reset() }
-        selectedSiteID = loaded.first { $0.id == selectedSiteID }?.id ?? loaded.first?.id
+        selectedSiteID = SiteSelection.choose(remembered: siteMemory()[source.identity], current: selectedSiteID,
+                                              in: loaded)
+    }
+
+    /// IOS-POC-19 — the pickers' binding. Only a site the viewer picks is remembered, for the source
+    /// it was picked in. The automatic choices (`adopt`, `restore`, `rebuildSites`) never write, so
+    /// a remembered site that is missing for now — a spider pack that has not arrived yet — is not
+    /// overwritten by the first site shown in its place.
+    private var pickedSite: Binding<Site.ID?> {
+        Binding(get: { selectedSiteID }, set: { id in
+            selectedSiteID = id
+            // IOS-POC-10C: never the raw id. `Site.id` embeds a NUL and CFPreferences truncates
+            // there, which is what made every launch reopen on the first source.
+            let token = id.map(SiteSelection.token(for:))
+            var memory = siteMemory()
+            memory[source.identity] = token
+            UserDefaults.standard.set(memory, forKey: siteBySourceKey)
+            // Still written so that a build from before IOS-POC-19 reopens on the last pick.
+            UserDefaults.standard.set(token, forKey: selectedSiteKey)
+        })
+    }
+
+    private func siteMemory() -> [String: String] {
+        UserDefaults.standard.dictionary(forKey: siteBySourceKey) as? [String: String] ?? [:]
     }
 
     private func restore() {
@@ -391,6 +416,12 @@ private struct ConfigView: View {
                 persistSaved()
             }
         }
+        // IOS-POC-19: an install from before it kept one site for whichever source was active, and
+        // that source keeps it. Once: the memory's existence is the marker.
+        if UserDefaults.standard.object(forKey: siteBySourceKey) == nil,
+           let legacy = UserDefaults.standard.string(forKey: selectedSiteKey) {
+            UserDefaults.standard.set([restored.identity: legacy], forKey: siteBySourceKey)
+        }
         let stamp = UserDefaults.standard.double(forKey: configUpdatedAtKey)
         if stamp > 0 { updatedAt = Date(timeIntervalSince1970: stamp) }
         do {
@@ -401,10 +432,9 @@ private struct ConfigView: View {
             // resolved against it, and resolving against the wrong base silently breaks those sites.
             let restoredConfig = try ConfigLoader.validate(Data(contentsOf: url))
             let loaded = restoredConfig.drivableSites(resolvedBy: CSPSourceResolver(source: restored))
-            let stored = UserDefaults.standard.string(forKey: selectedSiteKey)
             sites = loaded
             adoptAdBlocking(from: restoredConfig)
-            selectedSiteID = SiteSelection.resolve(stored, in: loaded) ?? loaded.first?.id
+            selectedSiteID = SiteSelection.choose(remembered: siteMemory()[restored.identity], current: nil, in: loaded)
         } catch {
             self.error = "已保存的設定無法載入：\(error.localizedDescription)。請重新匯入。"
         }

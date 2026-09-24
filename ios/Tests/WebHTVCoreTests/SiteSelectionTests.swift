@@ -47,6 +47,34 @@ import Testing
         #expect(SiteSelection.resolve("php_无水印资源", in: [other, wanted]) == wanted.id)
     }
 
+    @Test func aChangedExtStillFindsAKeyUsedOnce() throws {
+        let before = try site(key: "薦片", ext: "https://old.example/jianpian.json")
+        let after = try site(key: "薦片", ext: "https://new.example/jianpian.json")
+        let other = try site(key: "爱影", ext: "https://a.example/api")
+        #expect(SiteSelection.resolve(SiteSelection.token(for: before.id), in: [other, after]) == after.id)
+    }
+
+    @Test func aChangedExtDoesNotGuessBetweenARepeatedKey() throws {
+        let before = try site(key: "爱影", ext: "https://old.example/api")
+        let a = try site(key: "爱影", ext: "https://a.example/api")
+        let b = try site(key: "爱影", ext: "https://b.example/api")
+        #expect(SiteSelection.resolve(SiteSelection.token(for: before.id), in: [a, b]) == nil)
+    }
+
+    /// IOS-POC-19: the remembered site first, then the one showing, then the first.
+    @Test func choosingPrefersTheRememberedSiteThenTheCurrentThenTheFirst() throws {
+        let first = try site(key: "a", ext: "https://a.example/api")
+        let showing = try site(key: "b", ext: "https://b.example/api")
+        let remembered = try site(key: "c", ext: "https://c.example/api")
+        let sites = [first, showing, remembered]
+        let token = SiteSelection.token(for: remembered.id)
+        #expect(SiteSelection.choose(remembered: token, current: showing.id, in: sites) == remembered.id)
+        #expect(SiteSelection.choose(remembered: nil, current: showing.id, in: sites) == showing.id)
+        #expect(SiteSelection.choose(remembered: token, current: nil, in: [first, showing]) == first.id)
+        #expect(SiteSelection.choose(remembered: nil, current: "gone\u{0}", in: sites) == first.id)
+        #expect(SiteSelection.choose(remembered: token, current: nil, in: []) == nil)
+    }
+
     @Test func nothingStoredAndNothingMatchingBothAnswerNil() throws {
         let one = try site(key: "a", ext: "https://a.example/api")
         #expect(SiteSelection.resolve(nil, in: [one]) == nil)

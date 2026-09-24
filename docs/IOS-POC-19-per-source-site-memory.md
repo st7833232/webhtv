@@ -1,6 +1,6 @@
 # IOS-POC-19 — 每個資訊源記住自己的站台
 
-- 狀態：**計畫，待使用者核准**（2026-09-24）；未實作。
+- 狀態：**已實作並在模擬器驗證**（2026-09-24，使用者「照預設先做19」核准，Q1–Q3 皆用預設）；本機 commit，**未 push、未發布**；真機未驗證。
 - 使用者需求（2026-09-24，原文）：「我在切換資訊源的時候需要記錄每個資訊源離開前的站台，以便我回來資訊源我還要重新切換；另外我需要一個全資源搜尋的功能；給我相關計畫」。
 - 規劃基準：2026-09-24 15:39 CST，分支 `ios-poc`（規劃時 HEAD `75fc13a5`；之後只多了 17H 解析度修正 `5613517a`，不影響本計畫）。
   證據來自三個唯讀 agent 讀程式碼（iOS 資訊源／站台、iOS 搜尋、Android 參考做法），關鍵行號已人工抽查；**沒有跑 `swift test`、沒有建置、沒有在模擬器或實機試過**。
@@ -132,7 +132,42 @@ Revert 單一 commit 即可。因為舊鍵 `selectedSiteKey` 會繼續寫入，�
 - `/Users/chengchenchih/GIT/webhtv/ios/Sources/WebHTVCore/SourceClient.swift`
 - `/Users/chengchenchih/GIT/webhtv/ios/Sources/WebHTVCore/ConfigSource.swift`
 
+## 實作紀錄（2026-09-24）
+
+### 程式
+- `ios/Sources/WebHTVCore/SiteSelection.swift`：`resolve` 在 token 的 id 比不到時，若該 key 在設定中只出現一次就用 key 對上（key 重複不猜）；
+  新增 `choose(remembered:current:in:)`＝記住的站台 → 目前顯示中且仍存在的站台 → 第一個站台。
+- `ios/WebHTVApp/Sources/WebHTVApp.swift`（`ConfigView`）：
+  - 新 UserDefaults 鍵 `selectedSiteBySource`（`[ConfigSource.identity: SiteSelection.token]`）。
+  - 首頁 sheet 與設定頁「內容來源」改用 `pickedSite` Binding：**只有使用者親手選的站台才寫入**該資訊源那一格（也照舊寫 `selectedSiteKey`，供回滾）；
+    原本 `.onChange(of: selectedSiteID)` 的全域寫入移除。
+  - `adopt`、`restore`、`rebuildSites` 三處改用 `SiteSelection.choose(remembered: 記憶[source.identity], …)`；自動選擇不寫記憶，所以記住的站台暫時不在時不會被覆寫。
+  - 升級遷移：`restore()` 在 `selectedSiteBySource` 不存在、舊 `selectedSiteKey` 存在時，把舊值給目前的資訊源（只做一次）。
+  - `forget`：刪除已存來源時一併刪掉它的站台記憶（Q1 預設）。
+- 冷啟動快取不存在時忘記站台的舊缺陷：`adopt` 現在會讀記憶，所以遠端載入成功後會回到記住的站台（邏輯上修掉；模擬器未另外重現）。
+
+### 驗證
+| 檢查 | 結果 | 等級 |
+|---|---|---|
+| `swift test --package-path ios` | **347／347**（新增 3 條：ext 變了但 key 唯一仍還原、key 重複不猜、`choose` 的優先順序） | 單元 |
+| Simulator Debug build（iPhone 17 Pro） | BUILD SUCCEEDED | 模擬器 |
+| 驗收 3 升級遷移：舊版（`5613517a`）記的是「薦片」，蓋上新版開啟 | `selectedSiteBySource` 出現「A → 薦片」，首頁開在薦片 | 模擬器 |
+| 驗收 1 來回切換：A（薦片）→ 切到 B（本機假來源 `http://127.0.0.1:8765/b.json`，A 的複本）→ 選「靈虎」→ 切回 A → 再切回 B | A 顯示薦片、B 顯示靈虎；記憶為 A → 薦片、B → 靈虎 | 模擬器 |
+| 驗收 2 重開 App（最後在 B） | 開在 B 的靈虎（重開後再切回 A 沒有另外測） | 模擬器 |
+| 驗收 8 刪除已存來源 B | `saved-sources.json` 與 `selectedSiteBySource` 都只剩 A | 模擬器 |
+| 驗收 5、6 同 key 站台、ext 變動 | 單元測試 | 單元 |
+| 驗收 7 記住的站台暫時不在 | 模擬器難重現；靜態確認只有 `pickedSite` 會寫記憶 | 靜態 |
+| 真機 | — | **未驗證** |
+
+- 注意：B 是 A 的複本，第一次切到 B 時沒有記憶，會沿用畫面上正在顯示、而 B 也有的站台（`choose` 的第二順位，原本就有的行為）；
+  兩個真正不同的設定檔之間，第一次切換會落到第一個站台。
+- 測試前備份、測後還原 iPhone 17 Pro 模擬器 App 容器的 `Library/Preferences` 與 `Library/Application Support`（已還原；下次啟動會再做一次遷移，屬正常）。
+- 模擬器文字輸入：`加入設定來源` 對話框在注音鍵盤下，模擬器的文字注入會被轉成注音，所以 B 是直接寫進 `saved-sources.json` 再從已存來源列切換（走的是同一條 `load(remote:)` → `adopt`）。
+
+### 回滾
+`git revert` 本 commit；因為仍寫舊鍵 `selectedSiteKey`，回滾後的版本會開在最後一次親手選的站台。
+
 ## Recovery anchor
 
-- 目前：只有計畫，**尚未核准、沒有任何程式修改**。
-- 下一步（唯一）：使用者回覆「待你決定」各題（或接受預設）並核准後開始實作。
+- 目前：已實作、模擬器驗證完成、本機 commit，未 push、未發布。
+- 下一步（唯一）：使用者授權 push／發布後在真機確認切換資訊源會回到各自的站台。

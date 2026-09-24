@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   finish-release:
-    if: ${{ github.event.workflow_run.id == 36020215545 && github.event.workflow_run.head_branch == 'ios-poc' && github.event.workflow_run.conclusion == 'failure' }}
+    if: ${{ github.event.workflow_run.id == 36020708081 && github.event.workflow_run.head_branch == 'ios-poc' && github.event.workflow_run.conclusion == 'failure' }}
     runs-on: macos-26
     timeout-minutes: 90
 
@@ -18,7 +18,7 @@ jobs:
       - name: Checkout release commit
         uses: actions/checkout@v4
         with:
-          ref: 1d94d3408766d9b91adec63d7d5e8ed24e7f5ea4
+          ref: 7acb5db14c9cef97de5ec518833894e9d523e7e5
           fetch-depth: 0
 
       - name: Prepare CPython payload
@@ -103,7 +103,7 @@ jobs:
             gh release upload "$TAG" "dist/$ASSET" --clobber
           else
             gh release create "$TAG" "dist/$ASSET" \
-              --target 1d94d3408766d9b91adec63d7d5e8ed24e7f5ea4 \
+              --target 7acb5db14c9cef97de5ec518833894e9d523e7e5 \
               --title "WebHTV 0.1.16 (17)" \
               --notes "$RELEASE_NOTES"
           fi

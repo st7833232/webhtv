@@ -17,6 +17,8 @@ on:
         default: "Automated SideStore release."
         type: string
   push:
+    branches:
+      - "ios-poc"
     tags:
       - "ios-v*-b*"
 
@@ -103,7 +105,7 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
           BUILD: ${{ steps.meta.outputs.build }}
           TAG: ${{ steps.meta.outputs.tag }}
-          RELEASE_NOTES: ${{ inputs.release_notes || 'Automated SideStore release.' }}
+          RELEASE_NOTES: ${{ inputs.release_notes || 'WebHTV 0.1.15 (16)\n\n修正\n- MPV 長時間播放時螢幕不再因系統自動鎖定計時而變暗或鎖定；暫停、播放結束、失敗或離開 MPV 播放時會恢復正常自動鎖定。' }}
         run: |
           set -euo pipefail
           mkdir -p package/Payload dist
@@ -131,7 +133,7 @@ jobs:
           ASSET: ${{ steps.meta.outputs.asset }}
           VERSION: ${{ steps.meta.outputs.version }}
           BUILD: ${{ steps.meta.outputs.build }}
-          RELEASE_NOTES: ${{ inputs.release_notes || 'Automated SideStore release.' }}
+          RELEASE_NOTES: ${{ inputs.release_notes || 'WebHTV 0.1.15 (16)\n\n修正\n- MPV 長時間播放時螢幕不再因系統自動鎖定計時而變暗或鎖定；暫停、播放結束、失敗或離開 MPV 播放時會恢復正常自動鎖定。' }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
@@ -160,7 +162,7 @@ jobs:
           BUILD: ${{ steps.meta.outputs.build }}
           TAG: ${{ steps.meta.outputs.tag }}
           ASSET: ${{ steps.meta.outputs.asset }}
-          RELEASE_NOTES: ${{ inputs.release_notes || 'Automated SideStore release.' }}
+          RELEASE_NOTES: ${{ inputs.release_notes || 'WebHTV 0.1.15 (16)\n\n修正\n- MPV 長時間播放時螢幕不再因系統自動鎖定計時而變暗或鎖定；暫停、播放結束、失敗或離開 MPV 播放時會恢復正常自動鎖定。' }}
         run: |
           set -euo pipefail
           git fetch origin ios-poc

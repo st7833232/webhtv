@@ -123,7 +123,12 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   `a076ab51`, `20c4bd53` and `616e182e` before, and a handoff arriving with **`035ad0bf` as "the
   latest on GitHub" was sixteen commits behind** — that commit is the roadmap-only one, an ancestor
   rather than the tip. Run `git log` and the `rev-list` above on resume instead of reading it here.
-- **Current release: `WebHTV 0.1.13 (14)`, published 2026-09-24 at the user's instruction** (run
+- **Current release: `WebHTV 0.1.14 (15)`, published 2026-09-24 at the user's instruction** (run
+  `35982550285`, tag `ios-v0.1.14-b15` → `618d6365`; `source.json` `13ef19d4`, IPA 24,881,108 bytes,
+  SHA-256 `13ae6d00…`, downloaded back and verified): `0.1.13 (14)` plus IOS-POC-22 (2.5×/3× on an
+  AVPlayer item that cannot fast-forward hands the playback to MPV). **No device result yet.**
+  Record: `docs/IOS-POC-11-sidestore-release.md` 第十五次發布.
+- **Previous release: `WebHTV 0.1.13 (14)`, published 2026-09-24** (run
   `35976794989`, tag `ios-v0.1.13-b14` → `8db58a0d`; `source.json` `1635289c`, IPA 24,880,231 bytes,
   SHA-256 `41ab26d0…`, downloaded back and verified): `0.1.12 (13)` plus IOS-POC-19 (each source
   reopens on the site last picked in it) and IOS-POC-21 (another episode starts from its beginning).

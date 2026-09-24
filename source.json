@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.18",
+          "date": "2026-09-24",
+          "localizedDescription": "WebHTV 0.1.18 (19)（未經真機驗收）\n\n修正\n- 送出全站台搜尋後 App 閃退：多個 Python 站台同時啟動時，Python 直譯器現在只會啟動一次，其他站台會等它啟動完成。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.18-b19/WebHTV-0.1.18-19.ipa",
+          "size": 25017725,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.17",
           "date": "2026-09-24",
           "localizedDescription": "WebHTV 0.1.17 (18)（未經真機驗收）\n\n新增\n- 底部新增「搜尋」分頁：同時搜尋目前資訊源所有可搜尋的站台，結果隨到隨顯示並標出站台；可依站台篩選並載入更多；較慢的站台 30 秒後標示逾時，不影響其他站台。\n\n調整\n- 首頁單站搜尋與全站台搜尋都會先把繁體關鍵字轉成簡體再送出。\n- WebHome 的搜尋改為開啟全站台搜尋。\n- Python 站台改在各自的佇列執行，不再佔用 App 共用的執行緒。",

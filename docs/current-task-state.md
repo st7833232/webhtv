@@ -244,7 +244,7 @@ unverified until a later device pass.
 
 ## Non-Negotiable Constraints
 
-- Preserve Android `main`, unrelated dirty files, and the repository's task-guard / Ponytail / research / approval gates. Do not push, sign, package or publish without user authorization.
+- Preserve Android `main`, unrelated dirty files, and the repository's task-guard / research / approval gates. Ponytail is optional; if unavailable, skip it and continue. Do not push, sign, package or publish without user authorization.
 - No jailbreak, always-on self-hosted server, or recurring infrastructure cost for the personal iPhone path.
 - **ATS: superseded by explicit user decision (2026-09-15, IOS-POC-4B).** The user was offered a narrow per-domain exception, no change, or global cleartext, was told the earlier records forbid weakening ATS globally for one site, and chose global cleartext. `NSAllowsArbitraryLoads` ships. Keep it; do not broaden further — no server-trust override, no pinning bypass — without a fresh decision.
 - **Do not claim iOS executes Python, JAR or DEX — it does not, and that is deliberate.** A CatVod
@@ -1193,4 +1193,4 @@ Paste this into a new session:
 >
 > 下一步：我用 SideStore 更新到 `0.1.11 (12)` 後，在真機依 `docs/IOS-POC-17H-mpv-picture-in-picture.md` 第四節驗 MPV PiP（第六節之三列的真機未驗證項目），並繼續在 `0.1.10 (11)`／下一版上依 8L 7.2 回報（優先 ⑱⑲＝MPV parity P1，並看 16B 面板與 17F 自動切換），你把結果填進 8L、IOS-POC-17 與 17H 文件。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不開始 IOS-POC-12／13。
 >
-> 規則：功能修改前 Ponytail pre-review＋`bash .codex/scripts/task_guard.sh start`；結束用 `finish --no-tag`。**未經我另外明確授權，不要 push、bump 版本、tag、package、publish 或發 SideStore release**；不要直接安裝到我的 iPhone（我用 SideStore）。真機沒測到的一律寫「未驗證」。
+> 規則：Ponytail 為可選 review；可用時可執行，若目前環境沒有就直接略過，不得因此阻擋功能修改、驗證、commit、build 或後續工作，也不得假稱已執行。功能修改仍須 `bash .codex/scripts/task_guard.sh start`，結束用 `finish --no-tag`。**未經我另外明確授權，不要 push、bump 版本、tag、package、publish 或發 SideStore release**；不要直接安裝到我的 iPhone（我用 SideStore）。真機沒測到的一律寫「未驗證」。

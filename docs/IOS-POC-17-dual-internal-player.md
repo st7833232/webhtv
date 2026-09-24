@@ -383,7 +383,7 @@ decision AVPlayer + VLC`（絕不三核心）。IOS-POC-15 真機效能測試依
 > P1 就是第十三節「core real-device acceptance」裡的 8L ⑱⑲；P2–P7 與 IOS-POC-12／13 的先後，**由使用者決定**，本節不預設。
 
 IOS-POC-16B（控制列 panel）完成後，MPV 的後續工作依下列順序進行。**每一階段都是獨立的 functional unit**：
-各自走 AGENTS §7 的設計研究、Ponytail pre-review、task guard、targeted verification 與 final-diff review，
+各自走 AGENTS §7 的設計研究、task guard 與 targeted verification；Ponytail 若可用可做 pre-review／final-diff review，若不可用直接略過且不得成為 blocker，
 **不得合併成一次大改**，也不得動 `PlaybackSession`／`PlayerRouter` 既有的雙核心責任分層
 （engine 只執行媒體；解析、線路、畫質、WatchHistory、resume、片頭片尾、auto-next、prefetch 都在 session 上層）。
 

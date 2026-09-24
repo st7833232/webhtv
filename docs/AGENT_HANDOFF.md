@@ -30,19 +30,17 @@ That document is the durable record of the 2026-09-13 session and contains:
 
 Do not restart the broad architecture investigation unless the repository or resource set has materially changed. Continue from the documented recovery anchor.
 
-## Mandatory Ponytail review gate
+## Optional Ponytail review
 
-This project **must use the Ponytail skill for implementation work**. This is a project requirement, not an optional recommendation.
+Ponytail is an optional review aid for this project, not a prerequisite for implementation or release work.
 
-For every functional code change, architecture change, dependency/build change, native/runtime change, Spider compatibility change, player change, packaging/signing change, or deployment/release change:
+For functional code, architecture, dependency/build, native/runtime, Spider compatibility, player, packaging/signing, or deployment/release changes:
 
 1. Read `AGENTS.md`, `README.md`, this handoff document, `docs/IOS-PORTING-HANDOFF-2026-09-13.md` when the task concerns iOS, and any task/domain-specific Skill before editing.
-2. **Before implementation, run Ponytail** against the proposed scope/design and resolve or explicitly document every material finding before changing functional code.
-3. Use the repository task guard and verification workflow required by `AGENTS.md` for the selected lane.
-4. After implementation and targeted verification, **run Ponytail again on the final diff** before considering the change complete, committing/pushing it, producing an IPA, or publishing an artifact.
-5. Record the Ponytail pre-review and final-diff review result in the durable task document or handoff evidence for the task.
-
-If Ponytail is not available in the current agent/runtime, **do not claim that Ponytail review was performed**. Read-only assessment and documentation may continue, but functional implementation must stop before the first functional edit and the missing Ponytail capability must be reported as the blocker.
+2. If Ponytail is available in the current agent/runtime, it may be used for a pre-implementation or final-diff review when useful.
+3. If Ponytail is unavailable, **skip it and continue**. Its absence is not a blocker for functional edits, verification, commits, builds, packaging, or an otherwise authorized release.
+4. Never claim Ponytail review was performed when it was not. If a durable task record would normally mention it, record `Ponytail: unavailable / skipped`.
+5. The repository task guard, mandatory design research where applicable, targeted verification, scope/rollback requirements, and the user's separate push/tag/package/publish authorization remain unchanged.
 
 ## Current iPhone/iOS objective
 

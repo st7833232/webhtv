@@ -52,6 +52,13 @@ When the task only edits `AGENTS.md`, `.codex/skills/**`, `.codex/scripts/**`, o
 - Do not weaken a failing gate. Classify the failure as regression, environment, or stale expectation. Expand work only if fixing it is within the declared scope.
 - Quality floor: do not trade away existing behavior, correctness, security, compatibility, material performance, or task completion merely to meet the clock. Time pressure removes redundant work; it never authorizes an unverified shortcut.
 
+### Optional Ponytail review
+
+- Ponytail is an optional review aid, not a repository gate. If the current agent/runtime exposes Ponytail, it may be used for a pre-implementation or final-diff review when useful.
+- If Ponytail is unavailable, skip it and continue with the task. Its absence must not block functional edits, verification, commits, builds, packaging, or an otherwise authorized release.
+- Never claim Ponytail ran when it did not. When a durable task record would otherwise mention review evidence, record `Ponytail: unavailable / skipped`.
+- This optional status does not relax the task guard, mandatory design-research gate where applicable, risk-based verification, scope/rollback rules, or the user's separate authorization requirements for push/tag/package/publish.
+
 ## 5. Context recovery
 
 - Create a durable checkpoint only when a task is genuinely likely to cross a session/compaction boundary, before a risky long-running operation, or when changing functional stage/repository. Never require it because of elapsed minutes, cycle count, or changed-file count.

@@ -21,6 +21,7 @@ final class MPVEngine: PlaybackEngine {
     let view = MPVVideoView()
     var onFailure: ((Error, Int?) -> Void)?
     var onEnded: (() -> Void)?
+    var onMediaSelectionChange: ((PlaybackMediaSelection) -> Void)?
     /// True while the video is in a Picture in Picture window. The player screen must not tear
     /// playback down in that state, exactly as with AVPlayer's PiP.
     var onPictureInPictureChange: ((Bool) -> Void)?
@@ -34,6 +35,7 @@ final class MPVEngine: PlaybackEngine {
     /// User playback intent, independent of transient buffering and libmpv property callback timing.
     /// The app-wide idle timer follows this only while the app is in the foreground.
     private var playbackIntendsToRun = false
+    private var lastAudioDiagnostic = ""
 
     /// Long enough for a slow first segment; the watchdog only starts once the file has loaded.
     private static let firstFrameTimeout: Duration = .seconds(10)
@@ -76,6 +78,8 @@ final class MPVEngine: PlaybackEngine {
 
     func load(_ request: PlaybackLoadRequest) {
         firstFrameWatchdog?.cancel()
+        lastAudioDiagnostic = ""
+        onMediaSelectionChange?(PlaybackMediaSelection())
         pictureInPicture?.setHasVideo(false)   // until the file says otherwise
         // AVKit prevents display sleep for AVPlayer playback. MPV owns a custom Metal surface, so
         // iOS sees no system video controller and would dim/lock the screen after the normal idle
@@ -114,6 +118,12 @@ final class MPVEngine: PlaybackEngine {
         return now.paused ? .ready : .playing
     }
 
+    func mediaSelection() async -> PlaybackMediaSelection { core.snapshot.mediaSelection }
+
+    func selectMedia(_ kind: PlaybackMediaKind, id: String) async {
+        await core.selectMedia(kind, id: id)
+    }
+
     func teardown() {
         setPlaybackIntent(false)
         pictureInPicture?.invalidate()
@@ -123,6 +133,7 @@ final class MPVEngine: PlaybackEngine {
         observers.removeAll()
         onFailure = nil
         onEnded = nil
+        onMediaSelectionChange = nil
         core.shutdown()
     }
 
@@ -154,6 +165,9 @@ final class MPVEngine: PlaybackEngine {
         case .videoReconfigured(let width, let height):
             firstFrameWatchdog?.cancel()
             if width > 0, height > 0 { pictureInPicture?.videoSizeChanged(width: width, height: height) }
+        case .mediaSelectionChanged(let selection):
+            onMediaSelectionChange?(selection)
+            reportAudioDiagnostics(selection)
         case .ended:
             setPlaybackIntent(false)
             pictureInPicture?.setHasVideo(false)   // mpv is idle now; the next load says again
@@ -164,6 +178,19 @@ final class MPVEngine: PlaybackEngine {
             firstFrameWatchdog?.cancel()
             onFailure?(NSError(domain: PlaybackFailure.mpvDomain, code: Int(code)), nil)
         }
+    }
+
+    private func reportAudioDiagnostics(_ selection: PlaybackMediaSelection) {
+        guard let selected = selection.audio?.selectedOption else { return }
+        let codec = selected.codecDisplayName ?? "unknown"
+        let count = selected.channelCount.map(String.init) ?? "unknown"
+        let layout = selected.channelLayout ?? selected.channelDescription ?? "unknown"
+        let line = "[audio] engine=MPV selected=\(selected.displayName)"
+            + " id=\(selected.id) language=\(selected.language ?? "n/a")"
+            + " codec=\(codec) channels=\(count) layout=\(layout)"
+        guard line != lastAudioDiagnostic else { return }
+        lastAudioDiagnostic = line
+        PlaybackSession.log.notice("\(line, privacy: .public)")
     }
 }
 
@@ -261,6 +288,7 @@ final class MPVPlayerCore: @unchecked Sendable {
         case fileLoaded(hasVideo: Bool)
         /// The display size, zero when there is no video output (the track was released).
         case videoReconfigured(width: Int, height: Int)
+        case mediaSelectionChanged(PlaybackMediaSelection)
         case ended
         case failed(Int32)
     }
@@ -275,6 +303,7 @@ final class MPVPlayerCore: @unchecked Sendable {
         var speed: Double = 1
         var volume: Double = 100
         var cacheEnd: Double?
+        var mediaSelection = PlaybackMediaSelection()
     }
 
     var onEvent: (@Sendable (Event) -> Void)?
@@ -321,7 +350,9 @@ final class MPVPlayerCore: @unchecked Sendable {
         for (name, format) in [("time-pos", MPV_FORMAT_DOUBLE), ("duration", MPV_FORMAT_DOUBLE),
                                ("pause", MPV_FORMAT_FLAG), ("paused-for-cache", MPV_FORMAT_FLAG),
                                ("speed", MPV_FORMAT_DOUBLE), ("volume", MPV_FORMAT_DOUBLE),
-                               ("demuxer-cache-time", MPV_FORMAT_DOUBLE)] {
+                               ("demuxer-cache-time", MPV_FORMAT_DOUBLE),
+                               ("aid", MPV_FORMAT_STRING), ("sid", MPV_FORMAT_STRING),
+                               ("track-list/count", MPV_FORMAT_INT64)] {
             mpv_observe_property(handle, 0, name, format)
         }
         mpv = handle
@@ -344,6 +375,26 @@ final class MPVPlayerCore: @unchecked Sendable {
             mpv_set_property_string(mpv, "speed", String(rate))
             mpv_set_property_string(mpv, "pause", autoplay ? "no" : "yes")
             command(mpv, ["loadfile", url, "replace"])
+        }
+    }
+
+    func selectMedia(_ kind: PlaybackMediaKind, id: String) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async { [self] in
+                guard let mpv else { continuation.resume(); return }
+                let property = kind == .audio ? "aid" : "sid"
+                let prefix = "mpv-\(kind.rawValue)-"
+                let value: String
+                if kind == .subtitle, id == PlaybackMediaOption.subtitleOffID {
+                    value = "no"
+                } else {
+                    guard id.hasPrefix(prefix) else { continuation.resume(); return }
+                    value = String(id.dropFirst(prefix.count))
+                }
+                mpv_set_property_string(mpv, property, value)
+                refreshMediaSelection(mpv)
+                continuation.resume()
+            }
         }
     }
 
@@ -442,9 +493,14 @@ final class MPVPlayerCore: @unchecked Sendable {
             case MPV_EVENT_PROPERTY_CHANGE:
                 guard let property = event.pointee.data?.assumingMemoryBound(to: mpv_event_property.self).pointee
                 else { break }
+                let name = String(cString: property.name)
                 record(property)
+                if name == "aid" || name == "sid" || name == "track-list/count" {
+                    refreshMediaSelection(mpv)
+                }
             case MPV_EVENT_FILE_LOADED:
                 update { $0.loading = false; $0.loaded = true }
+                refreshMediaSelection(mpv)
                 let video = mpv_get_property_string(mpv, "current-tracks/video/id")
                 defer { mpv_free(video) }
                 onEvent?(.fileLoaded(hasVideo: video != nil))
@@ -466,6 +522,82 @@ final class MPVPlayerCore: @unchecked Sendable {
                 break
             }
         }
+    }
+
+    /// P10 — map mpv's native track-list to the engine-neutral WebHTV model. The id stored in
+    /// each option is opaque to the UI; only this adapter turns it back into aid/sid.
+    private func refreshMediaSelection(_ mpv: OpaquePointer) {
+        let count = max(Int(intProperty(mpv, "track-list/count") ?? 0), 0)
+        var audio = [PlaybackMediaOption]()
+        var subtitles = [PlaybackMediaOption]()
+        var selectedAudioFromList: String?
+        var selectedSubtitleFromList: String?
+
+        for index in 0..<count {
+            let base = "track-list/\(index)"
+            guard let type = stringProperty(mpv, "\(base)/type"),
+                  let trackID = intProperty(mpv, "\(base)/id") else { continue }
+            let selected = flagProperty(mpv, "\(base)/selected") ?? false
+            let title = stringProperty(mpv, "\(base)/title")
+            let language = stringProperty(mpv, "\(base)/lang")
+            let codec = stringProperty(mpv, "\(base)/codec")
+            let channelCount = intProperty(mpv, "\(base)/demux-channel-count").map(Int.init)
+            let channelLayout = stringProperty(mpv, "\(base)/demux-channels")
+
+            if type == "audio" {
+                let id = "mpv-audio-\(trackID)"
+                audio.append(.init(id: id, title: title, language: language, codec: codec,
+                                   channelCount: channelCount, channelLayout: channelLayout,
+                                   fallbackName: PlaybackMediaOption.localizedLanguageName(language)
+                                       ?? "音軌 \(audio.count + 1)"))
+                if selected { selectedAudioFromList = id }
+            } else if type == "sub" {
+                let id = "mpv-subtitle-\(trackID)"
+                subtitles.append(.init(id: id, title: title, language: language, codec: codec,
+                                       fallbackName: PlaybackMediaOption.localizedLanguageName(language)
+                                           ?? "字幕 \(subtitles.count + 1)"))
+                if selected { selectedSubtitleFromList = id }
+            }
+        }
+
+        let aid = stringProperty(mpv, "aid").flatMap(Int64.init)
+            .map { "mpv-audio-\($0)" } ?? selectedAudioFromList
+        let rawSID = stringProperty(mpv, "sid")
+        let sid = rawSID.flatMap(Int64.init).map { "mpv-subtitle-\($0)" } ?? selectedSubtitleFromList
+        if !subtitles.isEmpty {
+            subtitles.insert(.init(id: PlaybackMediaOption.subtitleOffID, title: "關閉",
+                                   isOff: true, fallbackName: "關閉"), at: 0)
+        }
+
+        let selection = PlaybackMediaSelection(
+            subtitle: subtitles.isEmpty ? nil : PlaybackMediaTrack(
+                options: subtitles,
+                selectedID: sid ?? (rawSID == "no" ? PlaybackMediaOption.subtitleOffID : nil)
+            ),
+            audio: audio.isEmpty ? nil : PlaybackMediaTrack(options: audio, selectedID: aid)
+        )
+        var changed = false
+        update {
+            changed = $0.mediaSelection != selection
+            $0.mediaSelection = selection
+        }
+        if changed { onEvent?(.mediaSelectionChanged(selection)) }
+    }
+
+    private func stringProperty(_ mpv: OpaquePointer, _ name: String) -> String? {
+        guard let value = mpv_get_property_string(mpv, name) else { return nil }
+        defer { mpv_free(value) }
+        return String(cString: value)
+    }
+
+    private func intProperty(_ mpv: OpaquePointer, _ name: String) -> Int64? {
+        var value: Int64 = 0
+        return mpv_get_property(mpv, name, MPV_FORMAT_INT64, &value) >= 0 ? value : nil
+    }
+
+    private func flagProperty(_ mpv: OpaquePointer, _ name: String) -> Bool? {
+        var value: Int32 = 0
+        return mpv_get_property(mpv, name, MPV_FORMAT_FLAG, &value) >= 0 ? value != 0 : nil
     }
 
     private func record(_ property: mpv_event_property) {

@@ -16,6 +16,7 @@
 | ---: | --- | --- | --- | --- | --- |
 | 22 | `E9-3` | Exo/App | 普通 HEVC 硬解 + Vulkan/libplacebo 的 DV5 色彩映射默认准入 | 2026-09-12默认准入已实现，三个定向测试类及 Mobile/Leanback arm64 Java 编译通过；保留原生杜比和设备能力门控，待新版包原场景复测 | [E9-3-exo-dv5-vulkan-renderer.md](E9-3-exo-dv5-vulkan-renderer.md) |
 | 38 | `P9-MPV-BLURAY-MENU` | MPV/native/App | HDMV Blu-ray 菜单画面、按钮高亮、方向/确认/返回/Popup、菜单跳转与 still frame；BD-J 无提示回退现状 | 2026-09-11父菜单未命中修复已实现，定向验证及构建通过，用户测试确认并要求tag | [P9-MPV-BLURAY-MENU.md](P9-MPV-BLURAY-MENU.md) |
+| 39 | `P10-IOS-EMBEDDED-TRACK-SELECTION` | iOS/App/MPV | AVPlayer + MPV 内嵌多音軌/字幕共用選擇、codec/channel layout 顯示與 diagnostics | 2026-09-24 已授權實作；不含 external audio、Atmos/passthrough、AirPlay Audio、鎖屏/控制中心 | [P10-IOS-EMBEDDED-TRACK-SELECTION.md](P10-IOS-EMBEDDED-TRACK-SELECTION.md) |
 
 ## Checkpoint 55：2026-09-06 P9 HDMV 菜单实施启动
 

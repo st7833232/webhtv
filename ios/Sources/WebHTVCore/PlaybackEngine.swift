@@ -29,9 +29,9 @@ public enum PlaybackEngineKind: String, CaseIterable, Sendable, Codable {
         case .native:
             return .init(airPlay: true, trackSelection: true)
         case .mpv:
-            // Subtitle/audio track selection is the MPV engine's second stage. AirPlay (and Picture
-            // in Picture, which only the AVKit surface can start) belong to AVKit.
-            return .init(airPlay: false, trackSelection: false)
+            // P10: embedded subtitle/audio selection is implemented through mpv track-list + sid/aid.
+            // AirPlay Audio remains a later stage; MPV PiP is implemented separately.
+            return .init(airPlay: false, trackSelection: true)
         }
     }
 }
@@ -315,6 +315,12 @@ public protocol PlaybackEngine: AnyObject {
     /// evidence the engine found alongside the error, if any.
     var onFailure: ((Error, Int?) -> Void)? { get set }
     var onEnded: (() -> Void)? { get set }
+    /// Embedded audio/subtitle choices changed (initial load, selection, or engine-driven change).
+    var onMediaSelectionChange: ((PlaybackMediaSelection) -> Void)? { get set }
+    /// Engine-neutral embedded track metadata used by the shared player panels.
+    func mediaSelection() async -> PlaybackMediaSelection
+    /// Select one embedded audio/subtitle option. The option id is opaque outside the engine adapter.
+    func selectMedia(_ kind: PlaybackMediaKind, id: String) async
     /// Stops and releases everything. The engine is not used again afterwards.
     func teardown()
 }
@@ -352,6 +358,7 @@ public final class PlayerRouter {
 
     public var onEngineChange: ((PlaybackEngineKind) -> Void)?
     public var onEnded: (() -> Void)?
+    public var onMediaSelectionChange: ((PlaybackMediaSelection) -> Void)?
     /// A failure that will be shown rather than recovered from.
     public var onUnrecoverable: ((PlaybackFailure) -> Void)?
 
@@ -431,6 +438,7 @@ public final class PlayerRouter {
     public func stop() {
         engine?.teardown()
         engine = nil
+        onMediaSelectionChange?(PlaybackMediaSelection())
     }
 
     // MARK: Internals
@@ -447,6 +455,10 @@ public final class PlayerRouter {
             fresh.onEnded = { [weak self, weak fresh] in
                 guard let self, let fresh, self.engine === fresh else { return }
                 self.onEnded?()
+            }
+            fresh.onMediaSelectionChange = { [weak self, weak fresh] selection in
+                guard let self, let fresh, self.engine === fresh else { return }
+                self.onMediaSelectionChange?(selection)
             }
             engine = fresh
             onEngineChange?(kind)

@@ -21,6 +21,8 @@ private final class FakeEngine: PlaybackEngine {
     var bufferedUntil: Double?
     var onFailure: ((Error, Int?) -> Void)?
     var onEnded: (() -> Void)?
+    var onMediaSelectionChange: ((PlaybackMediaSelection) -> Void)?
+    var media = PlaybackMediaSelection()
 
     init(kind: PlaybackEngineKind) { self.kind = kind }
     func load(_ request: PlaybackLoadRequest) {
@@ -34,6 +36,18 @@ private final class FakeEngine: PlaybackEngine {
     func pause() { isPlaying = false }
     func seek(toSeconds seconds: Double) { currentTime = seconds }
     func setRate(_ rate: Float) { chosenRate = rate }
+    func mediaSelection() async -> PlaybackMediaSelection { media }
+    func selectMedia(_ kind: PlaybackMediaKind, id: String) async {
+        func selected(_ track: PlaybackMediaTrack?) -> PlaybackMediaTrack? {
+            guard let track, track.options.contains(where: { $0.id == id }) else { return track }
+            return PlaybackMediaTrack(options: track.options, selectedID: id)
+        }
+        switch kind {
+        case .audio: media.audio = selected(media.audio)
+        case .subtitle: media.subtitle = selected(media.subtitle)
+        }
+        onMediaSelectionChange?(media)
+    }
     func teardown() { tornDown = true; isLoaded = false; isPlaying = false }
     func fail(_ error: Error, httpStatus: Int? = nil) { onFailure?(error, httpStatus) }
 }
@@ -69,6 +83,31 @@ private let request = PlaybackLoadRequest(target: target, rate: 1.5, title: "片
 private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     NSError(domain: "AVFoundationErrorDomain", code: code,
             userInfo: underlying.map { [NSUnderlyingErrorKey: $0] } ?? [:])
+}
+
+// MARK: - Embedded track model
+
+@Test func embeddedAudioLabelsAreSharedAcrossEngines() {
+    let stereo = PlaybackMediaOption(id: "a1", title: "日語", language: "ja", codec: "mp4a",
+                                     channelCount: 2, fallbackName: "音軌 1")
+    let surround = PlaybackMediaOption(id: "a2", title: "國語", language: "zh", codec: "ec-3",
+                                       channelCount: 6, fallbackName: "音軌 2")
+    let sevenOne = PlaybackMediaOption(id: "a3", title: "English", language: "en", codec: "ac-3",
+                                       channelCount: 8, fallbackName: "音軌 3")
+    #expect(stereo.displayName == "日語 · AAC · Stereo")
+    #expect(surround.displayName == "國語 · E-AC-3 · 5.1")
+    #expect(sevenOne.channelDescription == "7.1")
+}
+
+@Test func channelLayoutsWinOverAmbiguousCounts() {
+    let option = PlaybackMediaOption(id: "a1", codec: "aac", channelCount: 6,
+                                     channelLayout: "stereo", fallbackName: "音軌 1")
+    #expect(option.channelDescription == "Stereo")
+}
+
+@Test func mpvTrackSelectionIsOnlyAdvertisedAfterP10() {
+    #expect(PlaybackEngineKind.native.capabilities.trackSelection)
+    #expect(PlaybackEngineKind.mpv.capabilities.trackSelection)
 }
 
 // MARK: - Defaults and persistence

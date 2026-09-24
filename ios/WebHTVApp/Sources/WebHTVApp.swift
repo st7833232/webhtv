@@ -1,4 +1,6 @@
 import AVKit
+import AudioToolbox
+import CoreMedia
 import os
 import SwiftUI
 import UIKit
@@ -1809,8 +1811,16 @@ extension Playback {
         }
         router.onEnded = { [weak self] in self?.finished() }
         router.onEngineChange = { [weak self] kind in
-            self?.engineStartedAt = .now
-            self?.onEngineChange?(kind)
+            guard let self else { return }
+            self.engineStartedAt = .now
+            self.mediaSelection = PlaybackMediaSelection()
+            self.onMediaSelectionChange?(self.mediaSelection)
+            self.onEngineChange?(kind)
+        }
+        router.onMediaSelectionChange = { [weak self] selection in
+            guard let self else { return }
+            self.mediaSelection = selection
+            self.onMediaSelectionChange?(selection)
         }
         router.onUnrecoverable = { [weak self] failure in
             guard let self else { return }
@@ -1832,6 +1842,8 @@ extension Playback {
     /// The player screen's hooks: which engine is drawing, and a failure to show.
     var onEngineChange: ((PlaybackEngineKind) -> Void)?
     var onFailure: ((PlaybackFailure) -> Void)?
+    var onMediaSelectionChange: ((PlaybackMediaSelection) -> Void)?
+    private(set) var mediaSelection = PlaybackMediaSelection()
 
     var engine: PlaybackEngine? { router.engine }
     /// The engine actually playing — what the control bar shows, never the configured default.
@@ -1850,6 +1862,16 @@ extension Playback {
         guard engineKind == .native, router.select(.mpv, playing: playing) else { return }
         Self.log.notice("[playback] \(self.itemTitle, privacy: .public) at \(self.chosenRate)× — AVPlayer cannot play above 2× on this item; moved to MPV")
     }
+    func refreshMediaSelection() async -> PlaybackMediaSelection {
+        let selection = await engine?.mediaSelection() ?? PlaybackMediaSelection()
+        mediaSelection = selection
+        return selection
+    }
+
+    func selectMedia(_ kind: PlaybackMediaKind, id: String) async {
+        await engine?.selectMedia(kind, id: id)
+    }
+
     /// The settings page's choice, stored for the next session.
     func setGlobalDefaultEngine(_ kind: PlaybackEngineKind) {
         PlaybackEnginePreference().setGlobalDefaultEngine(kind)
@@ -2532,6 +2554,7 @@ final class AVPlayerEngine: PlaybackEngine {
     let kind = PlaybackEngineKind.native
     var onFailure: ((Error, Int?) -> Void)?
     var onEnded: (() -> Void)?
+    var onMediaSelectionChange: ((PlaybackMediaSelection) -> Void)?
 
     private unowned let session: PlaybackSession
     private var player: AVPlayer { session.player }
@@ -2539,6 +2562,7 @@ final class AVPlayerEngine: PlaybackEngine {
     private var itemStatus: NSKeyValueObservation?
     /// `.failed` is terminal and the failure notification can follow it: one report per item.
     private weak var reportedItem: AVPlayerItem?
+    private var lastAudioDiagnostic = ""
 
     init(session: PlaybackSession) {
         self.session = session
@@ -2561,15 +2585,23 @@ final class AVPlayerEngine: PlaybackEngine {
             Task { @MainActor in
                 guard let self else { return }
                 switch self.player.currentItem?.status {
-                case .failed: self.report(self.player.currentItem?.error)
-                case .readyToPlay: self.checkRate()
-                default: break
+                case .failed:
+                    self.report(self.player.currentItem?.error)
+                case .readyToPlay:
+                    self.checkRate()
+                    await self.refreshMediaSelection()
+                default:
+                    break
                 }
             }
         }
     }
 
-    func load(_ request: PlaybackLoadRequest) { session.loadNative(request) }
+    func load(_ request: PlaybackLoadRequest) {
+        lastAudioDiagnostic = ""
+        onMediaSelectionChange?(PlaybackMediaSelection())
+        session.loadNative(request)
+    }
     func play() { player.play() }
     func pause() { player.pause() }
 
@@ -2640,6 +2672,193 @@ final class AVPlayerEngine: PlaybackEngine {
             .map { ($0.start + $0.duration).seconds }
     }
 
+    func mediaSelection() async -> PlaybackMediaSelection {
+        guard let item = player.currentItem else { return PlaybackMediaSelection() }
+        let audioFacts = await Self.audioFacts(for: item.asset)
+        return PlaybackMediaSelection(
+            subtitle: await mediaTrack(item: item, characteristic: .legible, kind: .subtitle,
+                                       audioFacts: []),
+            audio: await mediaTrack(item: item, characteristic: .audible, kind: .audio,
+                                    audioFacts: audioFacts)
+        )
+    }
+
+    func selectMedia(_ kind: PlaybackMediaKind, id: String) async {
+        guard let item = player.currentItem else { return }
+        let characteristic: AVMediaCharacteristic = kind == .audio ? .audible : .legible
+        guard let group = try? await item.asset.loadMediaSelectionGroup(for: characteristic) else { return }
+
+        if kind == .subtitle, id == PlaybackMediaOption.subtitleOffID {
+            item.select(nil, in: group)
+            await refreshMediaSelection()
+            return
+        }
+
+        let prefix = "native-\(kind.rawValue)-"
+        guard id.hasPrefix(prefix), let index = Int(id.dropFirst(prefix.count)),
+              group.options.indices.contains(index) else { return }
+        // Preserve the existing AVFoundation selection path exactly; only the UI model changed.
+        item.select(group.options[index], in: group)
+        await refreshMediaSelection()
+    }
+
+    private func refreshMediaSelection() async {
+        let selection = await mediaSelection()
+        onMediaSelectionChange?(selection)
+        await reportAudioDiagnostics(selection)
+    }
+
+    private func mediaTrack(item: AVPlayerItem, characteristic: AVMediaCharacteristic,
+                            kind: PlaybackMediaKind,
+                            audioFacts: [NativeAudioTrackFacts]) async -> PlaybackMediaTrack? {
+        guard let group = try? await item.asset.loadMediaSelectionGroup(for: characteristic),
+              !group.options.isEmpty else { return nil }
+
+        let selected = item.currentMediaSelection.selectedMediaOption(in: group)
+        var options = [PlaybackMediaOption]()
+        if kind == .subtitle, group.allowsEmptySelection {
+            options.append(.init(id: PlaybackMediaOption.subtitleOffID, title: "關閉",
+                                 isOff: true, fallbackName: "關閉"))
+        }
+
+        for (index, option) in group.options.enumerated() {
+            let id = "native-\(kind.rawValue)-\(index)"
+            var codecs = [String]()
+            for subtype in option.mediaSubTypes {
+                guard let raw = Self.fourCC(subtype.uint32Value) else { continue }
+                let normalized = PlaybackMediaOption.normalizedCodec(raw) ?? raw
+                if !codecs.contains(where: { $0.caseInsensitiveCompare(normalized) == .orderedSame }) {
+                    codecs.append(normalized)
+                }
+            }
+            let matching = kind == .audio
+                ? Self.matchingAudioFacts(for: option, index: index, optionCount: group.options.count,
+                                          all: audioFacts)
+                : []
+            let channels = Self.common(matching.compactMap(\.channelCount))
+            let layout = Self.common(matching.compactMap(\.channelLayout))
+            let preciseCodec = Self.common(matching.compactMap(\.codec))
+            options.append(.init(
+                id: id,
+                title: option.displayName,
+                language: option.extendedLanguageTag ?? option.locale?.identifier,
+                codec: preciseCodec ?? (codecs.isEmpty ? nil : codecs.joined(separator: "/")),
+                channelCount: channels,
+                channelLayout: layout,
+                fallbackName: kind == .audio ? "音軌 \(index + 1)" : "字幕 \(index + 1)"
+            ))
+        }
+
+        let selectedID: String?
+        if let selected, let index = group.options.firstIndex(of: selected) {
+            selectedID = "native-\(kind.rawValue)-\(index)"
+        } else if kind == .subtitle, group.allowsEmptySelection {
+            selectedID = PlaybackMediaOption.subtitleOffID
+        } else {
+            selectedID = nil
+        }
+        return PlaybackMediaTrack(options: options, selectedID: selectedID)
+    }
+
+    private func reportAudioDiagnostics(_ selection: PlaybackMediaSelection) async {
+        guard let selected = selection.audio?.selectedOption else { return }
+        let active = await Self.activeAudioFacts(in: player.currentItem)
+        let actual = active.count == 1 ? active[0] : nil
+        let codec = actual?.codec ?? selected.codecDisplayName ?? "unknown"
+        let count = actual?.channelCount ?? selected.channelCount
+        let layout = actual?.channelLayout ?? selected.channelLayout ?? selected.channelDescription ?? "unknown"
+        let line = "[audio] engine=AVPlayer selected=\(selected.displayName)"
+            + " id=\(selected.id) language=\(selected.language ?? "n/a")"
+            + " codec=\(codec) channels=\(count.map(String.init) ?? "unknown") layout=\(layout)"
+        guard line != lastAudioDiagnostic else { return }
+        lastAudioDiagnostic = line
+        PlaybackSession.log.notice("\(line, privacy: .public)")
+    }
+
+    private struct NativeAudioTrackFacts {
+        let language: String?
+        let subtype: UInt32?
+        let codec: String?
+        let channelCount: Int?
+        let channelLayout: String?
+    }
+
+    private static func audioFacts(for asset: AVAsset) async -> [NativeAudioTrackFacts] {
+        let tracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
+        var facts = [NativeAudioTrackFacts]()
+        for track in tracks {
+            if let fact = await audioFact(for: track) { facts.append(fact) }
+        }
+        return facts
+    }
+
+    private static func activeAudioFacts(in item: AVPlayerItem?) async -> [NativeAudioTrackFacts] {
+        guard let item else { return [] }
+        var facts = [NativeAudioTrackFacts]()
+        for itemTrack in item.tracks where itemTrack.isEnabled {
+            guard let track = itemTrack.assetTrack, track.mediaType == .audio,
+                  let fact = await audioFact(for: track) else { continue }
+            facts.append(fact)
+        }
+        return facts
+    }
+
+    private static func audioFact(for track: AVAssetTrack) async -> NativeAudioTrackFacts? {
+        let language = (try? await track.load(.extendedLanguageTag))
+            ?? (try? await track.load(.languageCode))
+        let descriptions = (try? await track.load(.formatDescriptions)) ?? []
+        guard let description = descriptions.first else {
+            return NativeAudioTrackFacts(language: language, subtype: nil, codec: nil,
+                                         channelCount: nil, channelLayout: nil)
+        }
+        let subtype = CMFormatDescriptionGetMediaSubType(description)
+        let codec = PlaybackMediaOption.normalizedCodec(fourCC(subtype))
+        let channelCount = CMAudioFormatDescriptionGetStreamBasicDescription(description)
+            .map { Int($0.pointee.mChannelsPerFrame) }
+        var layoutSize = 0
+        let layout = CMAudioFormatDescriptionGetChannelLayout(description, sizeOut: &layoutSize)
+            .map { String(format: "tag:0x%08X", $0.pointee.mChannelLayoutTag) }
+        return NativeAudioTrackFacts(language: language, subtype: subtype, codec: codec,
+                                     channelCount: channelCount, channelLayout: layout)
+    }
+
+    private static func matchingAudioFacts(for option: AVMediaSelectionOption, index: Int,
+                                           optionCount: Int,
+                                           all: [NativeAudioTrackFacts]) -> [NativeAudioTrackFacts] {
+        let wantedLanguage = PlaybackMediaOption.canonicalLanguageCode(
+            option.extendedLanguageTag ?? option.locale?.identifier
+        )
+        let wantedSubtypes = Set(option.mediaSubTypes.map(\.uint32Value))
+        let exact = all.filter { fact in
+            let languageMatches = wantedLanguage == nil
+                || PlaybackMediaOption.canonicalLanguageCode(fact.language) == wantedLanguage
+            let subtypeMatches = wantedSubtypes.isEmpty
+                || fact.subtype.map(wantedSubtypes.contains) == true
+            return languageMatches && subtypeMatches
+        }
+        if !exact.isEmpty { return exact }
+
+        // Some containers omit language metadata. Fall back to positional pairing only when the
+        // option and physical audio-track counts agree; otherwise leaving channels unknown is safer
+        // than labelling one language with another track's layout.
+        if optionCount == all.count, all.indices.contains(index) { return [all[index]] }
+        return []
+    }
+
+    private static func common<T: Hashable>(_ values: [T]) -> T? {
+        let unique = Set(values)
+        return unique.count == 1 ? unique.first : nil
+    }
+
+    private static func fourCC(_ code: UInt32) -> String? {
+        let bytes = [
+            UInt8((code >> 24) & 0xff), UInt8((code >> 16) & 0xff),
+            UInt8((code >> 8) & 0xff), UInt8(code & 0xff)
+        ]
+        return String(bytes: bytes, encoding: .ascii)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     func teardown() {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
@@ -2647,6 +2866,7 @@ final class AVPlayerEngine: PlaybackEngine {
         itemStatus = nil
         onFailure = nil
         onEnded = nil
+        onMediaSelectionChange = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
     }
@@ -2692,7 +2912,7 @@ private struct PlayerControlBar: View {
     let rate: Float
     /// The title's opening/ending, mirrored by `PlayerView`.
     let watching: WatchHistory?
-    let media: MediaSelection
+    let media: PlaybackMediaSelection
     /// IOS-POC-17: the engine **actually** playing — not the settings page's default.
     let engine: PlaybackEngineKind
     let isAvailable: (PlaybackEngineKind) -> Bool
@@ -2749,8 +2969,8 @@ private struct PlayerControlBar: View {
         speed.formatted(.number.precision(.fractionLength(0...2))) + " 倍"
     }
 
-    private static func selectedName(_ track: MediaSelection.Track) -> String {
-        track.options.first { $0.option == track.selected }?.name ?? ""
+    private static func selectedName(_ track: PlaybackMediaTrack) -> String {
+        track.selectedOption?.displayName ?? ""
     }
 
     private var shown: Double { scrubbing ?? position }
@@ -2808,13 +3028,13 @@ private struct PlayerControlBar: View {
             // What the running engine cannot do is not drawn, rather than drawn and dead. A choice
             // of one decides nothing, so a track button needs more than one option (IOS-POC-5Q).
             if engine.capabilities.trackSelection {
-                if let legible = media.legible, legible.options.count > 1 {
-                    panelButton(.subtitle, value: Self.selectedName(legible)) {
+                if let subtitle = media.subtitle, subtitle.options.count > 1 {
+                    panelButton(.subtitle, value: Self.selectedName(subtitle)) {
                         Image(systemName: "captions.bubble").font(.system(size: 17))
                     }
                 }
-                if let audible = media.audible, audible.options.count > 1 {
-                    panelButton(.audio, value: Self.selectedName(audible)) {
+                if let audio = media.audio, audio.options.count > 1 {
+                    panelButton(.audio, value: Self.selectedName(audio)) {
                         Image(systemName: "waveform").font(.system(size: 17))
                     }
                 }
@@ -3065,9 +3285,9 @@ private struct PlayerControlBar: View {
                     }
                 }
             case .subtitle:
-                trackRows(media.legible)
+                trackRows(media.subtitle, kind: .subtitle)
             case .audio:
-                trackRows(media.audible)
+                trackRows(media.audio, kind: .audio)
             case .opening:
                 skipControls(offset: \.openingOffset, mark: session.markOpening,
                              apply: session.setOpening)
@@ -3104,14 +3324,17 @@ private struct PlayerControlBar: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    /// Subtitles and audio, from the selection loaded when the panel opened.
+    /// Subtitles and audio share one engine-neutral row model. Selection goes back through the
+    /// active engine adapter, which turns the opaque id into AVMediaSelectionOption or mpv aid/sid.
     @ViewBuilder
-    private func trackRows(_ track: MediaSelection.Track?) -> some View {
+    private func trackRows(_ track: PlaybackMediaTrack?, kind: PlaybackMediaKind) -> some View {
         if let track {
-            ForEach(Array(track.options.enumerated()), id: \.offset) { _, option in
-                choiceRow(option.name, selected: option.option == track.selected) {
-                    session.player.currentItem?.select(option.option, in: track.group)
-                    mediaChanged()
+            ForEach(track.options) { option in
+                choiceRow(option.displayName, selected: option.id == track.selectedID) {
+                    Task { @MainActor in
+                        await session.selectMedia(kind, id: option.id)
+                        mediaChanged()
+                    }
                 }
             }
         }
@@ -3273,54 +3496,6 @@ private struct RoutePickerButton: UIViewRepresentable {
     }
 }
 
-/// The subtitle and audio choices the current item offers, resolved once when it loads.
-///
-/// `AVAsset`'s media-selection groups load asynchronously, so this is read in a task rather than
-/// computed in a body. An item with nothing to choose leaves both `nil` and the menus do not appear.
-struct MediaSelection {
-    struct Option {
-        let name: String
-        /// Nil is "off", which is what `select(nil, in:)` means — not a stand-in for an option.
-        let option: AVMediaSelectionOption?
-    }
-
-    struct Track {
-        let group: AVMediaSelectionGroup
-        let options: [Option]
-        let selected: AVMediaSelectionOption?
-    }
-
-    var legible: Track?
-    var audible: Track?
-
-    /// `@MainActor` because `AVPlayerItem` and `AVAsset` are not `Sendable`: the load has to stay
-    /// on the actor that already owns the player rather than hand the asset across one.
-    @MainActor
-    static func load(from item: AVPlayerItem?) async -> MediaSelection {
-        guard let item else { return MediaSelection() }
-        var selection = MediaSelection()
-        selection.legible = await track(item: item, characteristic: .legible)
-        selection.audible = await track(item: item, characteristic: .audible)
-        return selection
-    }
-
-    @MainActor
-    private static func track(item: AVPlayerItem,
-                              characteristic: AVMediaCharacteristic) async -> Track? {
-        guard let group = try? await item.asset.loadMediaSelectionGroup(for: characteristic),
-              !group.options.isEmpty else { return nil }
-        var options = group.options.map {
-            Option(name: $0.displayName, option: $0)
-        }
-        // Subtitles can be turned off; audio cannot, so only the legible group gets the entry.
-        if characteristic == .legible, group.allowsEmptySelection {
-            options.insert(Option(name: "關閉", option: nil), at: 0)
-        }
-        return Track(group: group, options: options,
-                     selected: item.currentMediaSelection.selectedMediaOption(in: group))
-    }
-}
-
 /// `AVPlayerViewController` directly, rather than SwiftUI's `VideoPlayer`, for one reason: the
 /// delegate. `VideoPlayer` wraps the same controller but hands out no delegate, and the control
 /// visibility this screen needs has no other public source.
@@ -3479,7 +3654,7 @@ private struct PlayerView: View {
     /// The chosen speed. Observed alongside position, because `PlaybackSession` is a plain class
     /// and the speed can also change without the menu — `load` re-applies it on the next episode.
     @State private var rate: Float = 1
-    @State private var media = MediaSelection()
+    @State private var media = PlaybackMediaSelection()
     @State private var timeObserver: Any?
     /// IOS-POC-17: which engine is drawing, and what failed if nothing can.
     @State private var engineKind = PlaybackEngineKind.native
@@ -3611,15 +3786,19 @@ private struct PlayerView: View {
             hideTimer?.cancel()
             session.onEngineChange = nil
             session.onFailure = nil
+            session.onMediaSelectionChange = nil
         }
         .task {
             engineKind = session.engineKind
             failure = session.router.failure?.message
+            session.onMediaSelectionChange = { selection in
+                media = selection
+                reconcileTrackPanel()
+            }
             session.onEngineChange = { kind in
                 engineKind = kind
                 failure = nil
-                // What an open panel offers belongs to the engine that was playing (MPV has no
-                // track selection), so it closes rather than offering choices that no longer apply.
+                // Track ids belong to one engine adapter, so an open panel closes across a handoff.
                 chrome.dismissPanel()
                 startObserving()
                 reloadMedia()
@@ -3627,7 +3806,8 @@ private struct PlayerView: View {
             session.onFailure = { failure = $0.message }
             startObserving()
             scheduleHide()
-            media = await MediaSelection.load(from: session.player.currentItem)
+            media = await session.refreshMediaSelection()
+            reconcileTrackPanel()
             // The session merges the stored opening and ending in a task of its own, so ask the
             // store rather than racing it. The session's record is already keyed by then, because
             // `open` sets that part synchronously.
@@ -3694,13 +3874,17 @@ private struct PlayerView: View {
 
     private func reloadMedia() {
         Task {
-            media = await MediaSelection.load(from: session.player.currentItem)
-            // The item may have changed under an open track panel and offer no choice any more; a
-            // panel with nothing in it closes, the way its button disappears.
-            let track = chrome.panel == .subtitle ? media.legible : chrome.panel == .audio ? media.audible : nil
-            if chrome.panel == .subtitle || chrome.panel == .audio, (track?.options.count ?? 0) < 2 {
-                chrome.dismissPanel()
-            }
+            media = await session.refreshMediaSelection()
+            reconcileTrackPanel()
+        }
+    }
+
+    private func reconcileTrackPanel() {
+        // The item or engine may have changed under an open panel. A panel with no actual choice
+        // closes instead of showing stale ids from the previous engine/item.
+        let track = chrome.panel == .subtitle ? media.subtitle : chrome.panel == .audio ? media.audio : nil
+        if chrome.panel == .subtitle || chrome.panel == .audio, (track?.options.count ?? 0) < 2 {
+            chrome.dismissPanel()
         }
     }
 

@@ -11,10 +11,17 @@ import WebHTVCore
 /// IOS-POC-7F is only the boot: it answers "does CPython start inside this app at all", which is the
 /// one question no macOS test can answer. The Spider runtime is built on top of it, not here.
 enum PythonBoot {
-    /// What the interpreter reported, or why it did not start. Computed once, during launch, before
-    /// anything concurrent exists — the same `nonisolated(unsafe)` this codebase already uses for
-    /// launch-time shared state in `CSPSourceResolver`.
+    /// What the interpreter reported, or why it did not start. Computed once, and only ever read or
+    /// written under `lock`.
     nonisolated(unsafe) private(set) static var status: Status?
+
+    /// Serialises the one real start. It used to be safe without: a Debug build boots at launch,
+    /// before anything concurrent exists, and a Release build boots from the first Python spider
+    /// built, which the home screen only ever did one at a time. A search across every site
+    /// (IOS-POC-20) builds several Python spiders at the same moment — four of the first six sites in
+    /// this configuration — so in a Release build several threads entered `Py_Initialize` at once
+    /// and the app went down as soon as a search was sent.
+    nonisolated(unsafe) private static let lock = NSLock()
 
     enum Status: Equatable {
         case running(version: String)
@@ -57,12 +64,15 @@ enum PythonBoot {
         return "\(name): \(detail)"
     }
 
+    /// A caller arriving while another is booting waits for that boot rather than starting its own.
     @discardableResult
     static func start() -> Status {
-        if let status { return status }
-        let result = boot()
-        status = result
-        return result
+        lock.withLock {
+            if let status { return status }
+            let result = boot()
+            status = result
+            return result
+        }
     }
 
     /// Starts the interpreter if it is not up, and throws if it will not come up. The Spider runtime

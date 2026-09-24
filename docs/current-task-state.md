@@ -49,7 +49,7 @@ run `35968750165`，`source.json` `d681a72d`，IPA 24,877,389 bytes，sha256 `bb
 **下一步（唯一）**：使用者用 SideStore 更新到 `0.1.17 (18)`，先依 `docs/IOS-POC-20-aggregate-search.md` 的「驗收標準（更新）」實測搜尋分頁，再在真機依 17H 文件第四節驗 MPV PiP（第六節之三的真機未驗證項目）與 17G 旋轉，並確認 `0.1.15 (16)` 的 MPV 螢幕常亮與 `0.1.16 (17)` 的內嵌音軌／字幕切換（兩者都沒有發布前驗證紀錄）。同時使用者繼續在 `0.1.10 (11)` 上依 `docs/IOS-POC-8L-core-real-device-acceptance.md` 7.2 回報，
 優先 ⑱⑲（＝MPV parity P1），並留意 16B 面板與 17F 自動切換；收到回報後逐列填進 8L 與 IOS-POC-17。
 使用者沒有指示前，不開始 MPV parity P2 以後的任何階段，也不開始 IOS-POC-12／13。
-**IOS-POC-19**「每個資訊源記住離開前的站台」已實作並在模擬器驗證，`0.1.13 (14)` 發布（`docs/IOS-POC-19-per-source-site-memory.md`）。**IOS-POC-21**「切換集數會跳到上一集的位置」已修正並在模擬器驗證，`0.1.13 (14)` 發布（`docs/IOS-POC-21-episode-switch-resume.md`）。**IOS-POC-20**「全站台搜尋」已於 2026-09-25 實作，並以 `0.1.17 (18)` 發布（底部「搜尋」分頁、上限 6、每站 30 秒、可載入更多、全站台與單站都繁轉簡、Python 移到專用 queue）；CI 第一次編譯即成功，單元測試依使用者選擇未執行，**真機未驗證**。細節見 `docs/IOS-POC-20-aggregate-search.md` 的「實作紀錄」。
+**IOS-POC-19**「每個資訊源記住離開前的站台」已實作並在模擬器驗證，`0.1.13 (14)` 發布（`docs/IOS-POC-19-per-source-site-memory.md`）。**IOS-POC-21**「切換集數會跳到上一集的位置」已修正並在模擬器驗證，`0.1.13 (14)` 發布（`docs/IOS-POC-21-episode-switch-resume.md`）。**IOS-POC-20**「全站台搜尋」已於 2026-09-25 實作，並以 `0.1.17 (18)` 發布（底部「搜尋」分頁、上限 6、每站 30 秒、可載入更多、全站台與單站都繁轉簡、Python 移到專用 queue）；CI 第一次編譯即成功，單元測試依使用者選擇未執行。**使用者真機回報：`0.1.17 (18)` 送出搜尋就閃退**；根因推定為 Release 版延後啟動 Python 時的競態（多個 Python 站台同時進入 `Py_Initialize`），已在 `PythonBoot` 加鎖修正，待下一版發布驗證。細節見 `docs/IOS-POC-20-aggregate-search.md` 的「實作紀錄」與「修正紀錄」。
 
 ## Current Scope
 

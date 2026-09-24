@@ -32,7 +32,7 @@
 
 ## Recovery anchor
 
-- 狀態：完成，且已發過**十二個**版本，最新是 `0.1.11 (12)`（見文末各次發布）。
+- 狀態：完成，且已發過**十三個**版本，最新是 `0.1.12 (13)`（見文末各次發布）。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
 - 發布結果：`WebHTV-0.1-1.ipa`，24,563,162 bytes，GitHub asset SHA-256 `fcbf1531d9480f678ee0fac7ec5ce49010f3de51fc11b79f0ba88372e85812ed`；IPA plist 為 `com.webhtv.ios.poc`、`0.1`、build `1`、minimum iOS `17.0`。
@@ -214,7 +214,7 @@ WebHTV 0.1.10 (11)（未經真機驗收）
 
 ## 第十二次發布：`0.1.11 (12)`（2026-09-24，**已發布**）
 
-**目前最新版是 `0.1.11 (12)`。** 前面十一版都已被取代。
+**發布當時最新版是 `0.1.11 (12)`**（已被 `0.1.12 (13)` 取代，見第十三次發布）。前面十一版都已被取代。
 
 - 授權：使用者 2026-09-24「push 並發布下一版到 SideStore」。版號沿用 `0.1.x` 遞增（`0.1.11`，build `12`）。
 - 內容：`0.1.10 (11)` 的全部，加上 IOS-POC-17G `257553f2`（MPV 旋轉後以新尺寸重畫）與 IOS-POC-17H `8824c8ee`
@@ -240,4 +240,32 @@ WebHTV 0.1.11 (12)（未經真機驗收）
 
 修正
 - MPV 直向、橫向旋轉後畫面跑版：旋轉後會以新的尺寸重新繪製。
+```
+
+## 第十三次發布：`0.1.12 (13)`（2026-09-24，**已發布**）
+
+**目前最新版是 `0.1.12 (13)`。** 前面十二版都已被取代。
+
+- 授權：使用者 2026-09-24「push 並發布下一版到 SideStore」（第二次）。版號 `0.1.12`，build `13`。
+- 內容：`0.1.11 (12)` 的全部，加上 IOS-POC-17H 解析度修正 `5613517a`（使用者真機回報「MPV PIP時解析度會降低」：PiP render size
+  其實是點，換成像素；擋掉視窗尺寸來回跳的迴圈；`docs/IOS-POC-17H-mpv-picture-in-picture.md` 第六節之六），以及只有文件的
+  IOS-POC-19／20 計畫 `9b48e600`。
+- 發布序列：版號 commit `4548bf7b`（Task-Guard `IOS-RELEASE-0.1.12-b13`）→ push `75fc13a5..4548bf7b` → `workflow_dispatch` run
+  `35971952291`（`version=0.1.12`、`build_number=13`，success，2026-09-24 07:51:58Z → 07:55:56Z）→ workflow 建 tag `ios-v0.1.12-b13`
+  （target `4548bf7b`）並推回 `source.json`（`57b32ef2`，共十三筆，第一筆 `0.1.12`、size 與 IPA 相同）。**沒有手動建 tag。**
+- 產物：`WebHTV-0.1.12-13.ipa` **24,877,616 bytes**，SHA-256
+  `a7170a0b3bb864aa46744845867d7f7284e8eb86343d9cf404260ea71ecb5f2f`（與 GitHub asset digest 相同）。
+  **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`com.webhtv.ios.poc` / `0.1.12` / build `13` / minimum iOS `17.0`；
+  `5613517a` 是 tag 目標 commit 的祖先。
+- 發布前驗證：解析度修正的模擬器驗證與 final Simulator Debug build（17H 第六節之六）；workflow 的 Release device build 成功。
+  **真機尚未回報修正後的 PiP 清晰度。**
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.12 (13)（未經真機驗收）
+
+修正
+- MPV 子母畫面變模糊：子母畫面現在以視窗實際的解析度繪製。
+- MPV 子母畫面視窗的尺寸不再持續微幅跳動（原本會一直重建畫面緩衝、浪費效能）。
 ```

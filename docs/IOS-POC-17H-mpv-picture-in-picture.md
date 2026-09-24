@@ -139,7 +139,7 @@ MPV 版要同樣：MPV 播放中滑回主畫面 → 自動出現 PiP 視窗、�
   所以**在 iPhone 上這個上限不會起作用**，只限制 iPad 的大視窗。
 - 模擬器驗證（iPad mini，暫時 log，之後移除）：修正前 PiP 影格 312×142、render size 回呼 ~150 次／10 秒；修正後 616×282（308 點 × 2）、
   回呼 4 次／10 秒，每秒 30 張；final Simulator Debug build 成功、`MPVEngine.swift` 0 warning、binary 無 `TEMP-17H`。
-- 真機未驗證：修正後的 PiP 清晰度與 CPU。**尚未 push、未發布**（要到真機需使用者另外授權）。
+- 真機未驗證：修正後的 PiP 清晰度與 CPU。已於 2026-09-24 以 `0.1.12 (13)` 發布（run `35971952291`）。
 
 ## Recovery anchor
 
@@ -147,5 +147,5 @@ MPV 版要同樣：MPV 播放中滑回主畫面 → 自動出現 PiP 視窗、�
 - Git：基線 HEAD `257553f2`（17G，當時本機、未 push）；本任務 commit `8824c8ee`，已 push 並以 `0.1.11 (12)` 發布。
 - 已完成：研究（第二節 R1–R15）、方案（第三節）、程式（第六節之一）、黑畫面診斷（第六節之二）、final-diff review 與四項修正（第六節之五）、`TEMP-17H` 全部移除、final build、IOS-POC-17 第十四節 P6 與交接文件更新。
 - 未完成（只能真機）：第六節之三標「真機未驗證」的各項。
-- 解析度修正（第六節之六）已在本機 commit、未 push。
-- 下一步（唯一）：使用者授權 push／發布後，在真機確認 PiP 清晰度，並依第四節驗收標準驗 MPV PiP 其餘項目（先看 `[pip] mpv possible=` 與 `will start` log，再看 PiP 視窗是否有畫面）。
+- 解析度修正（第六節之六）`5613517a` 已以 `0.1.12 (13)` 發布。
+- 下一步（唯一）：使用者在 SideStore 更新到 `0.1.12 (13)` 後，在真機確認 PiP 清晰度，並依第四節驗收標準驗 MPV PiP 其餘項目（先看 `[pip] mpv possible=` 與 `will start` log，再看 PiP 視窗是否有畫面）。

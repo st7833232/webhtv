@@ -6,10 +6,9 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current handoff — 2026-09-24 14:55 CST（讀這一節，再讀文末 Resume Prompt）
 
-**Git（交接當下）**：分支 `ios-poc`；`0.1.11 (12)` 發布紀錄 `75fc13a5` 為止**都已 push**；之後本機多 1 個未 push 的 commit：**IOS-POC-17H PiP 解析度修正**（使用者真機回報「MPV PIP時解析度會降低」：render size 其實是點，已換成像素，並擋掉視窗尺寸來回跳的迴圈；`docs/IOS-POC-17H-mpv-picture-in-picture.md` 第六節之六）。
-接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認，不要相信這一行。
+**Git（交接當下）**：分支 `ios-poc`；`0.1.12 (13)` 發布紀錄 commit 為止**都已 push**。接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認。
 
-**目前最新已發布版本是 `0.1.11 (12)`**（2026-09-24，使用者授權「push 並發布下一版到 SideStore」；tag `ios-v0.1.11-b12` → `aa30bc0f`，
+**目前最新已發布版本是 `0.1.12 (13)`**（2026-09-24，使用者授權；tag `ios-v0.1.12-b13` → `4548bf7b`，run `35971952291`，`source.json` `57b32ef2`，IPA 24,877,616 bytes，sha256 `a7170a0b3bb864aa46744845867d7f7284e8eb86343d9cf404260ea71ecb5f2f`，下載回驗通過）＝`0.1.11 (12)`＋17H PiP 解析度修正 `5613517a`。上一版 **`0.1.11 (12)`**（2026-09-24，使用者授權「push 並發布下一版到 SideStore」；tag `ios-v0.1.11-b12` → `aa30bc0f`，
 run `35968750165`，`source.json` `d681a72d`，IPA 24,877,389 bytes，sha256 `bbdbf06c2097ff65f72928b20a34d9e8590b7b57e0521651de0a5b94c41548ae`，
 下載回驗通過）＝`0.1.10 (11)`＋IOS-POC-17G／17H。上一版 `0.1.10 (11)`（tag `ios-v0.1.10-b11` → `5dadcd04`）＝`0.1.9 (10)`
 ＋IOS-POC-16B／15D／17F。紀錄：`docs/IOS-POC-11-sidestore-release.md` 第十二次發布。`0.1.8 (9)` 起 Release 版就開放 MPV（17E）。
@@ -47,7 +46,7 @@ run `35968750165`，`source.json` `d681a72d`，IPA 24,877,389 bytes，sha256 `bb
 所以 PiP 的實際畫面只能真機驗。模擬器上要手動開關 PiP 需要暫時的旗標檔程式（`TEMP-17H` 已全部移除；做法見 17H 文件第六節之二）；iPad 模擬器若出現
 `PGPegasusErrorDomain -1003`，先 `xcrun simctl shutdown`／`boot` 再測。iPad 模擬器 App 容器的 `webhtv.playback.defaultEngine=mpv` 是測試用設定，可留。
 
-**下一步（唯一）**：使用者用 SideStore 更新到 `0.1.11 (12)`，在真機依 17H 文件第四節驗 MPV PiP（第六節之三的真機未驗證項目）與 17G 旋轉。同時使用者繼續在 `0.1.10 (11)` 上依 `docs/IOS-POC-8L-core-real-device-acceptance.md` 7.2 回報，
+**下一步（唯一）**：使用者用 SideStore 更新到 `0.1.12 (13)`，在真機依 17H 文件第四節驗 MPV PiP（第六節之三的真機未驗證項目）與 17G 旋轉。同時使用者繼續在 `0.1.10 (11)` 上依 `docs/IOS-POC-8L-core-real-device-acceptance.md` 7.2 回報，
 優先 ⑱⑲（＝MPV parity P1），並留意 16B 面板與 17F 自動切換；收到回報後逐列填進 8L 與 IOS-POC-17。
 使用者沒有指示前，不開始 MPV parity P2 以後的任何階段，也不開始 IOS-POC-12／13。
 **待核准的計畫（2026-09-24 使用者要求）**：IOS-POC-19「每個資訊源記住離開前的站台」（`docs/IOS-POC-19-per-source-site-memory.md`）與 IOS-POC-20「全站台搜尋」（`docs/IOS-POC-20-aggregate-search.md`）；只有計畫，等使用者回答各文件「待你決定」並核准。
@@ -103,7 +102,7 @@ run `35968750165`，`source.json` `d681a72d`，IPA 24,877,389 bytes，sha256 `bb
 | **IOS-POC-17F Proactive engine fallback** | **Done to the simulator 2026-09-24 (`b37751d2`), shipped in `0.1.10 (11)`; device unverified.** Network/unclassified failures and a 20-second no-start try the other engine once per attempt; offline/source never switch; replaces 17B's capability-only rule (user decision). 344／344. `docs/IOS-POC-17-dual-internal-player.md` 第十二之二節; MPV parity roadmap 第十四節 |
 | **IOS-POC-17G / 17H MPV rotation, MPV PiP** | **Done to the simulator 2026-09-24 (17G `257553f2`, 17H `8824c8ee`), shipped in `0.1.11 (12)`; device unverified.** 17G rebuilds the VO once a rotation settles; 17H gives MPV Picture in Picture through the libmpv software renderer and a sample buffer layer (the simulator's sample-buffer PiP window is always black). `docs/IOS-POC-17-dual-internal-player.md` 第十二之三節; `docs/IOS-POC-17H-mpv-picture-in-picture.md` |
 | SideStore release pipeline (IOS-POC-11) | **Done** — `.github/workflows/ios-sidestore-release.yml` and `source.json` exist and have published every release since, through `0.1.10 (11)` |
-| Current release | **WebHTV `0.1.11 (12)`**, tag `ios-v0.1.11-b12` → `aa30bc0f`, published 2026-09-24 at the user's instruction (run `35968750165`, `WebHTV-0.1.11-12.ipa` 24,877,389 bytes, SHA-256 `bbdbf06c…`, downloaded back and verified); `source.json` first entry `0.1.11`, pushed by the workflow as `d681a72d`. The project carries `MARKETING_VERSION = 0.1.11` / `CURRENT_PROJECT_VERSION = 12`. It is `0.1.10 (11)` (`5dadcd04`) plus IOS-POC-17G and 17H. Everything earlier is superseded. **No device result yet.** |
+| Current release | **WebHTV `0.1.12 (13)`**, tag `ios-v0.1.12-b13` → `4548bf7b`, published 2026-09-24 at the user's instruction (run `35971952291`, `WebHTV-0.1.12-13.ipa` 24,877,616 bytes, SHA-256 `a7170a0b…`, downloaded back and verified); `source.json` first entry `0.1.12`, pushed by the workflow as `57b32ef2`. The project carries `MARKETING_VERSION = 0.1.12` / `CURRENT_PROJECT_VERSION = 13`. It is `0.1.11 (12)` (`aa30bc0f`, IOS-POC-17G and 17H) plus the 17H PiP resolution fix `5613517a`. **No device result yet.** |
 | IOS-POC-14 auto-advance | **Done and confirmed on the device by the user.** An episode that ends starts the next one on the same line; the last one closes the player |
 | IOS-POC-14A/14B playback speed | **Done, not device-verified.** The chosen speed carries across episodes **of the same title** — keyed on `WatchHistory.key`, so switching source resets it, which the user decided to leave (14C) |
 | Real-device acceptance (IOS-POC-8) | **Partial.** Several runs on hardware; the list below is what is and is not confirmed. Not to be recorded as complete. **IOS-POC-8L (2026-09-23) prepared the core acceptance: `docs/IOS-POC-8L-core-real-device-acceptance.md` is the matrix** (已驗證／這輪要驗／延後驗證／不適用, 14 user-run items). Two findings it recorded: `wang-movie.json` has **no source** that reaches either `script` rule host (`yeslivetv.com`, `www.maolvys.com`) and none that requests its only ad host `mozai.4gtv.tv`; and the sniffer web view and every `print` diagnostic are **invisible on a SideStore Release install** — so 5S-1/5S-3's positive behaviour has no on-device observation channel, only non-regression |

@@ -123,7 +123,11 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   `a076ab51`, `20c4bd53` and `616e182e` before, and a handoff arriving with **`035ad0bf` as "the
   latest on GitHub" was sixteen commits behind** — that commit is the roadmap-only one, an ancestor
   rather than the tip. Run `git log` and the `rev-list` above on resume instead of reading it here.
-- **Current release: `WebHTV 0.1.11 (12)`, published 2026-09-24 at the user's instruction** (run
+- **Current release: `WebHTV 0.1.12 (13)`, published 2026-09-24 at the user's instruction** (run
+  `35971952291`, tag `ios-v0.1.12-b13` → `4548bf7b`; `source.json` `57b32ef2`, IPA 24,877,616 bytes,
+  SHA-256 `a7170a0b…`, downloaded back and verified): `0.1.11 (12)` plus the IOS-POC-17H PiP
+  resolution fix `5613517a`. **No device result yet.** Record: `docs/IOS-POC-11-sidestore-release.md` 第十三次發布.
+- **Previous release: `WebHTV 0.1.11 (12)`, published 2026-09-24** (run
   `35968750165`, tag `ios-v0.1.11-b12` → `aa30bc0f`; `source.json` `d681a72d`, IPA 24,877,389 bytes,
   SHA-256 `bbdbf06c…`, downloaded back and verified): `0.1.10 (11)` plus IOS-POC-17G and 17H.
   **No device result yet.** Record: `docs/IOS-POC-11-sidestore-release.md` 第十二次發布.

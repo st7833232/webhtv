@@ -2804,8 +2804,9 @@ final class AVPlayerEngine: PlaybackEngine {
     }
 
     private static func audioFact(for track: AVAssetTrack) async -> NativeAudioTrackFacts? {
-        let language = (try? await track.load(.extendedLanguageTag))
-            ?? (try? await track.load(.languageCode))
+        let extendedLanguage = try? await track.load(.extendedLanguageTag)
+        let languageCode = try? await track.load(.languageCode)
+        let language = extendedLanguage ?? languageCode
         let descriptions = (try? await track.load(.formatDescriptions)) ?? []
         guard let description = descriptions.first else {
             return NativeAudioTrackFacts(language: language, subtype: nil, codec: nil,

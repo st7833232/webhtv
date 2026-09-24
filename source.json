@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.14",
+          "date": "2026-09-24",
+          "localizedDescription": "WebHTV 0.1.14 (15)（未經真機驗收）\n\n修正\n- 原生播放器選 2.5×／3× 時音訊與畫面異常：原生播放器在不支援超過 2 倍速的片源上，會自動改用 MPV 在同一位置、同一集數、線路與畫質，以選定的 2.5×／3× 繼續播放（暫停中切換則維持暫停）。0.5×～2× 與支援高倍速的片源不受影響，速度選單不變。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.14-b15/WebHTV-0.1.14-15.ipa",
+          "size": 24881108,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.13",
           "date": "2026-09-24",
           "localizedDescription": "WebHTV 0.1.13 (14)（未經真機驗收）\n\n新增\n- 每個資訊源記住自己的站台：在某個資訊源選過的站台，切回那個資訊源時會自動回到它；重開 App 後也一樣。刪除已存的資訊源時，它記住的站台一併清除。\n\n修正\n- 播放中切換到別的集數，不再跳到上一集看到的位置：換集從頭開始（有設片頭仍會略過片頭）；同一集回來、或同一集換線路，仍會接著上次的位置播放。其他劇的記錄不受影響。",

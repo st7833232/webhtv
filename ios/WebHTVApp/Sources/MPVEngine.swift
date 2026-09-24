@@ -40,6 +40,7 @@ final class MPVEngine: PlaybackEngine {
         observers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
         ) { [core] _ in core.setVideoTrackEnabled(true) })
+        view.onResize = { [core] in core.rebuildVideoOutput() }
     }
 
     func load(_ request: PlaybackLoadRequest) {
@@ -102,11 +103,16 @@ final class MPVEngine: PlaybackEngine {
     }
 }
 
-/// A view whose own layer is the Metal layer mpv draws into, so it follows the view's bounds
-/// without any layout code.
+/// A view whose own layer is the Metal layer mpv draws into, so the layer follows the view's bounds.
+/// **mpv does not follow on its own** (IOS-POC-17G): see `onResize`.
 final class MPVVideoView: UIView {
     override class var layerClass: AnyClass { MPVMetalLayer.self }
     var metalLayer: CAMetalLayer { layer as! CAMetalLayer }
+    /// A rotation, or any other size change, once it has settled and the layer's `drawableSize`
+    /// matches the new bounds.
+    var onResize: (() -> Void)?
+    private var laidOutSize = CGSize.zero
+    private var settle: Task<Void, Never>?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -116,6 +122,25 @@ final class MPVVideoView: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError("not used from a storyboard") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let size = bounds.size
+        guard size.width > 1, size.height > 1, size != laidOutSize else { return }
+        let firstLayout = laidOutSize == .zero
+        laidOutSize = size
+        // The first size is the one mpv reads when it configures its output; only changes need telling.
+        guard !firstLayout else { return }
+        settle?.cancel()
+        settle = Task { @MainActor [weak self] in
+            // Past the rotation animation, so one change is one rebuild.
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let self, !Task.isCancelled else { return }
+            let scale = metalLayer.contentsScale
+            metalLayer.drawableSize = CGSize(width: laidOutSize.width * scale, height: laidOutSize.height * scale)
+            onResize?()
+        }
+    }
 }
 
 /// MPVKit's demo layer override: MoltenVK sets `drawableSize` to 1×1 to force a presentation to
@@ -169,6 +194,8 @@ final class MPVPlayerCore: @unchecked Sendable {
     private let queue = DispatchQueue(label: "mpv.engine", qos: .userInitiated)
     private let lock = NSLock()
     private var state = Snapshot()
+    /// Which spelling of `vo` is current (`rebuildVideoOutput`). Read and written on `queue` only.
+    private var voSpelledWithFallback = false
 
     var snapshot: Snapshot {
         lock.lock(); defer { lock.unlock() }
@@ -229,6 +256,28 @@ final class MPVPlayerCore: @unchecked Sendable {
     func setSpeed(_ rate: Float) { set("speed", String(rate)) }
     func setVolume(_ volume: Double) { set("volume", String(min(max(volume, 0), 100))) }
     func setVideoTrackEnabled(_ enabled: Bool) { set("vid", enabled ? "auto" : "no") }
+
+    /// IOS-POC-17G — after a rotation mpv kept drawing at the old size ("跑版", reported on the
+    /// device with `0.1.10 (11)`). MPVKit's `moltenvk` context reads the layer's `drawableSize` only
+    /// when the video output is configured, and its `control` never reports a resize (MPVKit issue
+    /// #3, still open). Setting `vo` makes mpv tear the output down and build it again at once
+    /// (`UPDATE_VO` in mpv's `player/command.c`), and the new output reads the new size. mpv skips a
+    /// value equal to the current one, so the same driver alternates between two spellings; the
+    /// trailing comma only allows falling back to another driver if `gpu-next` ever fails to start.
+    /// With the video track off (in the background) there is no output, and this only changes the
+    /// option — the output built on return reads the size then.
+    ///
+    /// ponytail: each settled resize costs an exact seek to the current position, normally served
+    /// from the demuxer cache. The free fix is a resize in the `moltenvk` context itself
+    /// (edde746/MPVKit@e6b129f), which means building libmpv ourselves.
+    func rebuildVideoOutput() {
+        queue.async { [self] in
+            guard let mpv, snapshot.loaded else { return }
+            voSpelledWithFallback.toggle()
+            mpv_set_property_string(mpv, "vo", voSpelledWithFallback ? "gpu-next," : "gpu-next")
+        }
+    }
+
     func seek(to seconds: Double) {
         queue.async { [self] in if let mpv { command(mpv, ["seek", String(seconds), "absolute+exact"]) } }
     }

@@ -298,6 +298,57 @@ Simulator Debug build → **BUILD SUCCEEDED**。全套 `swift test` 留到 17B �
 
 `git revert` 17F 的 commit 即可：core 回到 17B 規則，App 端的 startup watch 回到只量測啟播時間。
 
+## 十二之三、17G — MPV 旋轉後跑版（使用者 2026-09-24 真機回報，修正到模擬器）
+
+使用者在 SideStore 裝上 `0.1.10 (11)` 後回報：**MPV 直向播放轉成橫向會跑版，反過來也是**；另外 **MPV 還不支援 PiP**
+（已知缺口＝第十四節 P6，需先做 feasibility spike，本節不處理）。
+
+### 根因（讀上游原始碼，不是猜）
+
+- MPVKit 為 iOS 加的 `moltenvk` context（`Sources/BuildScripts/patch/libmpv/0001-player-add-moltenvk-context.patch`，
+  MPVKit `1.0.0`＝`288527dffbc6d3e63cce147fc7b520c64a791603`，本機 SPM checkout；2026-09-24 以 `gh api` 確認 MPVKit 主線同一份 patch 未改）：
+  `moltenvk_reconfig` 只在 VO **設定時**讀一次 `layer.drawableSize`；`moltenvk_control` 一律回 `VO_NOTIMPL`，**從不回報 `VO_EVENT_RESIZE`**。
+- mpv `v0.41.0` `video/out/vo_gpu_next.c`：`reconfig()` 才會呼叫 context 的 `reconfig`；另一條 `VOCTRL_EXTERNAL_RESIZE` 只由
+  `android-surface-size`／`d3d11-composition-size` 觸發（`player/command.c`），**這兩個選項在 iOS 不會編進去**（`options/options.c` 的 `#if`）。
+- 所以旋轉後 layer 的 bounds 變了，mpv 仍用舊方向的尺寸畫，Core Animation 再把它拉到新 bounds 上＝跑版。
+  上游 **MPVKit issue #3「Player won't resize on iOS when using Metal」**（2024-04 開、2026-09 仍 open）就是同一個問題；
+  社群修法 edde746/MPVKit@`e6b129fdd31347b25d5d862f73f52c23f9e55624` 是改 libmpv 的 `moltenvk` context，需要自己重編 libmpv。
+
+### 方案比較
+
+| 方案 | 內容 | 結論 |
+|---|---|---|
+| no change | 維持現狀 | 不採用：真機可重現的跑版 |
+| 上游修法 | 套 edde746 的 context patch、自己重編 libmpv | **這次不做**：要改二進位來源與打包（AGENTS §8），不是單一 bug 修正的範圍；列為根治路徑 |
+| 改走 OpenGL render path | `vo=libmpv`＋render API，每幀以 view 尺寸繪製 | 不採用：renderer 選擇屬 material change，需另行研究與授權 |
+| **採用：App 端重建 VO** | `MPVVideoView.layoutSubviews` 偵測尺寸變化 → 0.3 秒穩定後把 `drawableSize` 設成新 bounds × scale → `MPVPlayerCore.rebuildVideoOutput()` 把 `vo` 換成同一個 driver 的另一種寫法（`gpu-next` ↔ `gpu-next,`） | mpv 的 `UPDATE_VO`（`player/command.c`）會**同步** `uninit_video_out` → 重建 VO → 對目前位置 exact seek；新 VO 在 reconfig 時讀到新尺寸。mpv 會略過與現值相同的設定（`options/m_config_core.c` 的 `m_option_equal`），所以要交替兩種寫法。背景中（`vid=no`，沒有 VO）只改選項，回前景建 VO 時自然讀到新尺寸 |
+
+**沒採用 `vid` 開關**：`vid=no` 之後要等 playloop 下一輪 `handle_force_window` 才銷毀 VO，緊接著 `vid=auto` 可能沿用舊 VO、參數相同就不 reconfig，時序不保證。
+
+### 驗證
+
+| 檢查 | 結果 | 證據等級 |
+|---|---|---|
+| 修正前重現 | 荐片《欢迎来龙餐馆》TC国语，MPV 直向播放 → App 內 `requestGeometryUpdate` 轉橫向：**影片只剩左上角一小條、其餘全黑**；轉回直向恢復（VO 是用直向尺寸建的） | 模擬器 |
+| 修正後 直→橫 | 影片鋪滿橫向畫面、字幕正常，播放從 29:09 持續前進 | 模擬器 |
+| 修正後 橫→直 | 直向畫面正確，播放 29:26 持續前進；`vo` 兩種寫法各用過一次 | 模擬器 |
+| 修正後 暫停中旋轉 | 轉橫向後仍是暫停、畫面停在 29:40 的影格並正確鋪滿，沒有變黑也沒有自己開始播 | 模擬器 |
+| Simulator Debug build（移除臨時觸發器後） | **BUILD SUCCEEDED**；`MPVEngine.swift` 無 warning | 模擬器 |
+
+模擬器無法手動旋轉，測試時暫時在 `MPVEngine` 放了一段「App tmp 目錄出現旗標檔就 `requestGeometryUpdate`」的程式，
+**已移除、沒有 commit**；測後模擬器偏好設定已確認沒有殘留（設定來源仍是使用者的 `wang-movie.json`）。
+`swift test` 不涵蓋 App target，本次未重跑（core 未變更）。
+
+### 限制／未驗證
+
+- **真機未驗證**：需要下一次經使用者授權的發布才會到手機上。
+- 每次旋轉會重建一次 VO 並對目前位置 exact seek：模擬器上看不出卡頓，弱網路下若 demuxer cache 沒有涵蓋目前位置，可能短暫緩衝。
+- 根治是 libmpv 的 `moltenvk` context 自己回報 resize（上游 issue #3／edde746 修法），要自己編 libmpv；程式裡以 `ponytail:` 註記。
+
+### 回滾
+
+`git revert` 本 commit：回到旋轉會跑版的行為，其他不受影響。
+
 ## 十三、正式 roadmap（2026-09-23 起）
 
 ```
@@ -311,6 +362,7 @@ remove external players            ✓ 17A
 → classified automatic fallback    ✓ 17B（單元測試；真實失敗未觸發過）
 → MPV opened in release + quality menu in the bar  ✓ 17E（使用者決定）
 → proactive engine fallback (network/unclassified + 20 s no-start)  ✓ 17F（模擬器；真機待跑）
+→ MPV rotation resize (rebuild the VO on a settled size change)     ✓ 17G（模擬器；真機待跑）
 → core real-device acceptance      ← 下一步（8L；含 ⑱⑲ MPV 真機，`0.1.8 (9)` 起可在正式版測；
                                       = 第十四節 MPV parity 的 P1）
 → IOS-POC-12

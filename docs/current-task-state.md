@@ -6,8 +6,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current handoff — 2026-09-24 12:15 CST（讀這一節，再讀文末 Resume Prompt）
 
-**Git（交接當下）**：分支 `ios-poc`，**已 push，本機＝`origin/ios-poc`（`0 0`）**：`5dadcd04` 版號、`d7a6e35e` workflow 推回的
-`source.json`，再加上本次發布紀錄的 docs commit（也已 push）。接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認，
+**Git（交接當下）**：分支 `ios-poc`；`origin/ios-poc` 到 `96ece1d1`（`0.1.10 (11)` 發布紀錄）為止都已 push；
+**本機多 1 個未 push 的 commit：IOS-POC-17G**（MPV 旋轉跑版修正）。接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認，
 不要相信這一行。
 
 **目前最新已發布版本是 `0.1.10 (11)`**（2026-09-24，使用者授權；tag `ios-v0.1.10-b11` → `5dadcd04`，run `35953397506`，
@@ -15,13 +15,14 @@ IPA 24,851,830 bytes，sha256 `01ff7bb60f230fbef8c77ed83fc8c32bd3c9e65316b0d3272
 ＋IOS-POC-16B／15D／17F。`0.1.8 (9)` 起 Release 版就開放 MPV（17E）。
 使用者規定：**每次 push、bump 版本、tag、package、publish 或發 SideStore release 都要另外明確授權**；不要直接裝到使用者的 iPhone。
 
-**已完成（都已 push，並在 `0.1.10 (11)` 發布）**
+**已完成（16B／15D／17F 已 push 並在 `0.1.10 (11)` 發布；17G 只在本機）**
 
 | 單元 | commit | 內容 | 驗證 | 未驗 |
 |---|---|---|---|---|
 | IOS-POC-16B | `a5f2678e` | 控制列七個二級選單改為自有 panel（`PlayerChrome`／`PlayerPanelPlacement`） | `swift test` 335／334（天氣）；模擬器直向實操 | 橫向 drawer、AirPlay 邊緣觸控、VoiceOver、真機。`docs/IOS-POC-16-custom-player-controls.md` 第十之一節 |
 | IOS-POC-15D | `6416c4d4` | IOS-POC-15 契約逐條補缺口＋`os.Logger` `[playback]` 量測 | `swift test` 340／339（天氣）；模擬器看到預載命中 | 真機效能（IOS-POC-15 §8 七項）仍 pending。`docs/IOS-POC-15-playback-buffering-preload.md` 第十二節 |
 | IOS-POC-17F | `b37751d2` | 播不出來就主動切換播放核心：network／unclassified 失敗切一次；`offline`／`source` 不切；目前核心接手 20 秒仍 preparing／buffering 就切（`PlayerRouter.startupTimeout`、`startupTimedOut()`；App 端在 `PlaybackSession.watchStartup()`）；不顯示成錯誤 | `PlaybackEngineTests` 29／29；全套 `swift test` **344／344**；Simulator Debug build；模擬器用本機假串流（每秒 1 byte 的 `.m3u8`）實播：原生→MPV、MPV→原生都在 20 秒切換，不會切第二次、不顯示錯誤 | 真機、真實來源上的切換。`docs/IOS-POC-17-dual-internal-player.md` 第十二之二節 |
+| IOS-POC-17G | 本次 commit（**未 push、未發布**） | MPV 旋轉後跑版（使用者 `0.1.10 (11)` 真機回報）：MPVKit `moltenvk` context 只在 VO 設定時讀尺寸、從不回報 resize（MPVKit issue #3）；`MPVVideoView` 在尺寸穩定 0.3 秒後更新 `drawableSize`，`MPVPlayerCore.rebuildVideoOutput()` 交替設定 `vo`（`gpu-next`↔`gpu-next,`）讓 mpv 同步重建 VO | 模擬器：修正前重現（橫向只剩一小條）；修正後直→橫、橫→直、暫停中旋轉都正確；Simulator Debug build | 真機。`docs/IOS-POC-17-dual-internal-player.md` 第十二之三節 |
 | 文件整理 | 本次 commit | 依 `.codex/task-state/handoff-2026-09-24/stale-docs-inventory.txt`（gitignored）修正 7 份文件的過時現況陳述；IOS-POC-11 補「第十次發布 `0.1.9 (10)`」；MPV parity roadmap 寫進 IOS-POC-17 第十四節；本文件與 `docs/AGENT_HANDOFF.md` 補 IOS-POC-18／16B／15D／17F | 文件，無程式變更 | — |
 
 **17F 模擬器測法（要重做時）**：一個本機 Python HTTP server 提供假 `config.json`（一個 type-1 站 `api=http://127.0.0.1:8765/api`）、
@@ -38,7 +39,9 @@ IPA 24,851,830 bytes，sha256 `01ff7bb60f230fbef8c77ed83fc8c32bd3c9e65316b0d3272
 `b17576e34eb42b4c589a818ef8b5ec2655a2c7a188d626fc427c37d628897168`，需要時從使用者 GitLab 重抓；模擬器控制工具一次來回
 5～10 秒，比 5 秒自動隱藏長，互動測試時可暫時把 `PlayerChrome.autoHideSeconds` 改大、測完還原並重建（不要 commit）。
 
-**下一步（唯一）**：使用者用 SideStore 裝 `0.1.10 (11)`，依 `docs/IOS-POC-8L-core-real-device-acceptance.md` 7.2 回報，
+**使用者 2026-09-24 真機回報（`0.1.10 (11)`）**：SideStore 正常更新；MPV 有畫面；MPV 直↔橫旋轉跑版（→ 17G，本機修正）；MPV 沒有 PiP（已知，MPV parity P6）。
+
+**下一步（唯一）**：17G 已在本機 commit、**未 push**；要到真機得等使用者授權 push 與下一次發布。同時使用者繼續在 `0.1.10 (11)` 上依 `docs/IOS-POC-8L-core-real-device-acceptance.md` 7.2 回報，
 優先 ⑱⑲（＝MPV parity P1），並留意 16B 面板與 17F 自動切換；收到回報後逐列填進 8L 與 IOS-POC-17。
 使用者沒有指示前，不開始 MPV parity P2 以後的任何階段，也不開始 IOS-POC-12／13。
 
@@ -325,7 +328,8 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 18 | Stable source identity across launches; drifted watch-history entries migrate; shipped as `0.1.9 (10)` | `docs/IOS-POC-11-sidestore-release.md` 第十次發布 |
 | 16B | The control bar's second-level choices open panels the bar owns (2026-09-24, `0.1.10 (11)`) | `docs/IOS-POC-16-custom-player-controls.md` |
 | 15D | IOS-POC-15 contract gaps closed; `os.Logger` playback measurements (2026-09-24, `0.1.10 (11)`) | `docs/IOS-POC-15-playback-buffering-preload.md` |
-| 17F | Proactive engine fallback: network/unclassified and a 20-second no-start switch once; offline/source never (2026-09-24, `0.1.10 (11)`) | `docs/IOS-POC-17-dual-internal-player.md` |
+| 17F | Proactive engine fallback: network/unclassified and a 20-second no-start switch once; offline/source never (2026-09-24, `0.1.10 (11)`) |
+| 17G | MPV redraws at the new size after a rotation: rebuild the VO once the size settles (MPVKit issue #3 workaround; local, 2026-09-24) | `docs/IOS-POC-17-dual-internal-player.md` | `docs/IOS-POC-17-dual-internal-player.md` |
 | 8L | **Core real-device acceptance preparation** — the acceptance matrix, the `wang-movie.json` rules/ads inventory, and the `0.1.8 (9)` release-candidate plan with a Release pre-flight build. Docs only; nothing was device-verified by it | `docs/IOS-POC-8L-core-real-device-acceptance.md` |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
 | 7E | The CPython payload arrives by `scripts/fetch_python_ios.sh` + `third_party/python-ios-lock.json`, not by commit | `docs/IOS-POC-7A-python-runtime.md` |
@@ -1173,7 +1177,7 @@ Paste this into a new session:
 
 > 接手 `/Users/chengchenchih/GIT/webhtv` 的 `ios-poc`，用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -6`、`git status`，以實際 Git 狀態為準、不要相信文件裡的 SHA。依 `AGENTS.md` 先讀 `AGENTS.md`、`docs/current-task-state.md` 最上方「Current handoff — 2026-09-24」一節、`docs/IOS-POC-17-dual-internal-player.md`（第十二之二節 17F、第十四節 MPV parity roadmap）。
 >
-> 目前狀態：最新已發布版本是 `0.1.10 (11)`（2026-09-24）＝`0.1.9 (10)`＋IOS-POC-16B（控制列 panel）、15D（緩衝／預解析契約）、17F（播不出來就主動切換播放核心）；`ios-poc` 已 push，與 origin 同步。`0.1.8 (9)` 起 Release 開放 MPV。全套 `swift test` 344／344（天氣測試 `reportsLiveType4SitesFromProvidedConfig` 偶爾失敗，不要修）。
+> 目前狀態：最新已發布版本是 `0.1.10 (11)`（2026-09-24）＝`0.1.9 (10)`＋IOS-POC-16B（控制列 panel）、15D（緩衝／預解析契約）、17F（播不出來就主動切換播放核心）；`ios-poc` 到 `96ece1d1` 已 push；之後的 IOS-POC-17G（MPV 旋轉後跑版：尺寸穩定後重建 VO，MPVKit issue #3 的 App 端解法）只在本機、**未 push、未發布**。`0.1.8 (9)` 起 Release 開放 MPV；MPV 沒有 PiP（MPV parity P6）。全套 `swift test` 344／344（天氣測試 `reportsLiveType4SitesFromProvidedConfig` 偶爾失敗，不要修）。
 >
 > 下一步：我在 `0.1.10 (11)` 上依 8L 7.2 回報（優先 ⑱⑲＝MPV parity P1，並看 16B 面板與 17F 自動切換），你把結果填進 8L 與 IOS-POC-17。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不開始 IOS-POC-12／13。
 >

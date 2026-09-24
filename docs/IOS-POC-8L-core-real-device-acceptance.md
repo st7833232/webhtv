@@ -212,6 +212,10 @@ WebHome site，所以真機上沒有 WebHome 頁面可以拿來對照。
 | ⑱ | **MPV 真機 first frame**（9G） | `MPVProbeView`（「範例」三個串流）；`MPVEngine` | Apple 測試串流 | Metal／OpenGL × 軟解／硬解四格：`VIDEO_RECONFIG`＋`PLAYBACK_RESTART` 出現**且有畫面** | 每格：事件序列＋有無畫面 |
 | ⑲ | **MPV 真機切換與 fallback**（17B） | `PlayerRouter.select`／`engineFailed`；`MPVRequestHeaders` | 一般來源＋Bili（驗 headers） | 原生 ↔ MPV 切換保留位置／速度／暫停／集數／線路；Bili 在 MPV 能播＝headers 送到；MPV 播不出畫面時 10 秒內自動回原生 | 每項 ✅／❌ |
 
+**2026-09-24 使用者在 `0.1.10 (11)` 的真機回報（部分）**：SideStore 從 `0.1.9` 正常更新到 `0.1.10`；MPV 在真機上有播放
+（回報的是它直向播放後旋轉的問題，所以畫面有出來；first frame 事件序列、headers、硬解仍未逐項回報）；
+**MPV 直↔橫旋轉會跑版**（已由 IOS-POC-17G 修正到模擬器，要等下一版才能真機驗）；**MPV 不支援 PiP**（已知，MPV parity P6）。
+
 **⑱⑲ 自 `0.1.8 (9)` 起可直接在正式版測**：使用者 2026-09-23 決定開放 MPV（17E）。⑱ 的四格探針仍是 Debug-only；
 在正式版上以「設定 → 預設播放器 → MPV」或播放中的控制列切到 MPV，看有沒有畫面即可。
 

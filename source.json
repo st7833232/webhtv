@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.15",
+          "date": "2026-09-24",
+          "localizedDescription": "WebHTV 0.1.15 (16)\n\n修正\n- MPV 長時間播放時螢幕不再因系統自動鎖定計時而變暗或鎖定；暫停、播放結束、失敗或離開 MPV 播放時會恢復正常自動鎖定。\n",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.15-b16/WebHTV-0.1.15-16.ipa",
+          "size": 24882568,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.14",
           "date": "2026-09-24",
           "localizedDescription": "WebHTV 0.1.14 (15)（未經真機驗收）\n\n修正\n- 原生播放器選 2.5×／3× 時音訊與畫面異常：原生播放器在不支援超過 2 倍速的片源上，會自動改用 MPV 在同一位置、同一集數、線路與畫質，以選定的 2.5×／3× 繼續播放（暫停中切換則維持暫停）。0.5×～2× 與支援高倍速的片源不受影響，速度選單不變。",

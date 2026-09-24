@@ -155,6 +155,13 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   the three has run on a device.** The MPV parity roadmap (P1 device baseline → P2 cache parity →
   P3 tracks → P4 external/ASS subtitles → P5 background audio/Now Playing → P6 PiP bridge → P7
   AirPlay Audio) is IOS-POC-17 第十四節.
+- **After `0.1.10 (11)` — local commits, not pushed, not released (2026-09-24):** **IOS-POC-17G**
+  `257553f2` — MPV redraws at the new size after a rotation (IOS-POC-17 第十二之三節); **IOS-POC-17H** —
+  MPV Picture in Picture (= parity P6): inline stays on Metal, and only while the PiP window is open
+  mpv's `vo` switches to the libmpv software renderer, whose frames go into a sample buffer layer
+  (`docs/IOS-POC-17H-mpv-picture-in-picture.md`). The simulator's sample-buffer PiP window is always
+  black (a textbook minimal sample-buffer PiP is black too, AVPlayerLayer PiP is not), so **the PiP
+  picture, automatic PiP and the PiP controls are device-unverified.**
 - **IOS-POC-17 — the app plays with its own two engines (2026-09-23, user decision).** Started at
   `2a46c3fb` (= `origin/ios-poc`, `0 0`, clean); commits `ecb0c4d0` 17A, `cf076e79` 9G, `7d679d68`
   17B, `a1750b8c` 17C, then 17D docs — all pushed since (on `origin/ios-poc`, released in `0.1.8 (9)`). External players are gone (17A). **MPV's

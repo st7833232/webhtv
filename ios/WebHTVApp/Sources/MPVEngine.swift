@@ -1,3 +1,5 @@
+import Accelerate
+import AVKit
 import Libmpv
 import SwiftUI
 import UIKit
@@ -10,6 +12,8 @@ import WebHTVCore
 /// and nothing else — the target arrives resolved, and history, resume, the ending and auto-next
 /// stay in `PlaybackSession`.
 ///
+/// Picture in Picture (IOS-POC-17H) is the one exception to "Metal only": see `MPVPictureInPicture`.
+///
 /// **Whether it is offered at all is `PlaybackEngines.offered`, not this type.**
 @MainActor
 final class MPVEngine: PlaybackEngine {
@@ -17,6 +21,10 @@ final class MPVEngine: PlaybackEngine {
     let view = MPVVideoView()
     var onFailure: ((Error, Int?) -> Void)?
     var onEnded: (() -> Void)?
+    /// True while the video is in a Picture in Picture window. The player screen must not tear
+    /// playback down in that state, exactly as with AVPlayer's PiP.
+    var onPictureInPictureChange: ((Bool) -> Void)?
+    private var pictureInPicture: MPVPictureInPicture?
 
     private let core: MPVPlayerCore
     /// Raised once per load if the file loaded and no frame reached the output — the black
@@ -34,17 +42,28 @@ final class MPVEngine: PlaybackEngine {
         }
         // MPVKit's demo: a Metal layer that goes to the background comes back black unless the
         // video track is released and taken again.
+        // Not while Picture in Picture has the video: that window is fed on the CPU (17H), and
+        // releasing the track would freeze it.
         observers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
-        ) { [core] _ in core.setVideoTrackEnabled(false) })
+        ) { [weak self, core] _ in
+            MainActor.assumeIsolated {
+                guard self?.pictureInPicture?.isActive != true else { return }
+                core.setVideoTrackEnabled(false)
+            }
+        })
         observers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
         ) { [core] _ in core.setVideoTrackEnabled(true) })
         view.onResize = { [core] in core.rebuildVideoOutput() }
+        let pictureInPicture = MPVPictureInPicture(engine: self, core: core, layer: view.sampleBufferLayer)
+        pictureInPicture.onActiveChange = { [weak self] active in self?.onPictureInPictureChange?(active) }
+        self.pictureInPicture = pictureInPicture
     }
 
     func load(_ request: PlaybackLoadRequest) {
         firstFrameWatchdog?.cancel()
+        pictureInPicture?.setHasVideo(false)   // until the file says otherwise
         core.load(url: request.target.url.absoluteString,
                   headerFields: MPVRequestHeaders.fields(request.target.headers),
                   startSeconds: request.startSeconds, rate: request.rate, autoplay: request.autoplay)
@@ -73,6 +92,8 @@ final class MPVEngine: PlaybackEngine {
     }
 
     func teardown() {
+        pictureInPicture?.invalidate()
+        pictureInPicture = nil
         firstFrameWatchdog?.cancel()
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
@@ -84,6 +105,7 @@ final class MPVEngine: PlaybackEngine {
     private func handle(_ event: MPVPlayerCore.Event) {
         switch event {
         case .fileLoaded(let hasVideo):
+            pictureInPicture?.setHasVideo(hasVideo)
             guard hasVideo else { return }   // audio only: there will never be a frame to wait for
             firstFrameWatchdog?.cancel()
             firstFrameWatchdog = Task { @MainActor [weak self] in
@@ -92,22 +114,28 @@ final class MPVEngine: PlaybackEngine {
                 self.onFailure?(NSError(domain: PlaybackFailure.mpvDomain,
                                         code: PlaybackFailure.mpvNoFirstFrame), nil)
             }
-        case .videoReconfigured:
+        case .videoReconfigured(let width, let height):
             firstFrameWatchdog?.cancel()
+            if width > 0, height > 0 { pictureInPicture?.videoSizeChanged(width: width, height: height) }
         case .ended:
+            pictureInPicture?.setHasVideo(false)   // mpv is idle now; the next load says again
             onEnded?()
         case .failed(let code):
+            pictureInPicture?.setHasVideo(false)
             firstFrameWatchdog?.cancel()
             onFailure?(NSError(domain: PlaybackFailure.mpvDomain, code: Int(code)), nil)
         }
     }
 }
 
-/// A view whose own layer is the Metal layer mpv draws into, so the layer follows the view's bounds.
+/// The MPV player's surface: the Metal layer mpv draws into, and under it the sample buffer layer
+/// Picture in Picture takes its video from (IOS-POC-17H). Both follow the view's bounds.
 /// **mpv does not follow on its own** (IOS-POC-17G): see `onResize`.
 final class MPVVideoView: UIView {
-    override class var layerClass: AnyClass { MPVMetalLayer.self }
-    var metalLayer: CAMetalLayer { layer as! CAMetalLayer }
+    private let metalView = MPVMetalView()
+    private let sampleBufferView = MPVSampleBufferView()
+    var metalLayer: CAMetalLayer { metalView.layer as! CAMetalLayer }
+    var sampleBufferLayer: AVSampleBufferDisplayLayer { sampleBufferView.layer as! AVSampleBufferDisplayLayer }
     /// A rotation, or any other size change, once it has settled and the layer's `drawableSize`
     /// matches the new bounds.
     var onResize: (() -> Void)?
@@ -119,12 +147,19 @@ final class MPVVideoView: UIView {
         backgroundColor = .black
         metalLayer.contentsScale = UIScreen.main.nativeScale
         metalLayer.framebufferOnly = true
+        sampleBufferLayer.videoGravity = .resizeAspect
+        // Under the Metal layer, so inline it is covered; it is in the window, which is what lets
+        // PiP start from it automatically.
+        addSubview(sampleBufferView)
+        addSubview(metalView)
     }
 
     required init?(coder: NSCoder) { fatalError("not used from a storyboard") }
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        metalView.frame = bounds
+        sampleBufferView.frame = bounds
         let size = bounds.size
         guard size.width > 1, size.height > 1, size != laidOutSize else { return }
         let firstLayout = laidOutSize == .zero
@@ -143,6 +178,14 @@ final class MPVVideoView: UIView {
     }
 }
 
+private final class MPVMetalView: UIView {
+    override class var layerClass: AnyClass { MPVMetalLayer.self }
+}
+
+private final class MPVSampleBufferView: UIView {
+    override class var layerClass: AnyClass { AVSampleBufferDisplayLayer.self }
+}
+
 /// MPVKit's demo layer override: MoltenVK sets `drawableSize` to 1×1 to force a presentation to
 /// complete, which flickers and can leave the layer stuck there (mpv PR 13651).
 private final class MPVMetalLayer: CAMetalLayer {
@@ -156,7 +199,13 @@ private final class MPVMetalLayer: CAMetalLayer {
 
 struct MPVVideoSurface: UIViewRepresentable {
     let engine: MPVEngine
-    func makeUIView(context: Context) -> MPVVideoView { engine.view }
+    /// The player screen's PiP flag, shared with AVPlayer's surface.
+    @Binding var pictureInPicture: Bool
+    func makeUIView(context: Context) -> MPVVideoView {
+        let binding = $pictureInPicture
+        engine.onPictureInPictureChange = { binding.wrappedValue = $0 }
+        return engine.view
+    }
     func updateUIView(_ view: MPVVideoView, context: Context) {}
 }
 
@@ -171,7 +220,8 @@ struct MPVVideoSurface: UIViewRepresentable {
 final class MPVPlayerCore: @unchecked Sendable {
     enum Event: Sendable {
         case fileLoaded(hasVideo: Bool)
-        case videoReconfigured
+        /// The display size, zero when there is no video output (the track was released).
+        case videoReconfigured(width: Int, height: Int)
         case ended
         case failed(Int32)
     }
@@ -196,6 +246,8 @@ final class MPVPlayerCore: @unchecked Sendable {
     private var state = Snapshot()
     /// Which spelling of `vo` is current (`rebuildVideoOutput`). Read and written on `queue` only.
     private var voSpelledWithFallback = false
+    /// The software output while Picture in Picture has the video (17H). `queue` only.
+    private var software: MPVSoftwareRenderer?
 
     var snapshot: Snapshot {
         lock.lock(); defer { lock.unlock() }
@@ -219,6 +271,10 @@ final class MPVPlayerCore: @unchecked Sendable {
         #endif
         mpv_set_option_string(handle, "video-rotate", "no")
         mpv_set_option_string(handle, "subs-fallback", "yes")
+        // `render.h`'s advice for the software output Picture in Picture uses (17H). `sw-fast` is a
+        // built-in profile (faster `sws`/`zimg` scalers, which the Metal output does not scale
+        // with); as an option name it does not exist and is refused (MPV_ERROR_OPTION_NOT_FOUND).
+        mpv_set_option_string(handle, "profile", "sw-fast")
         guard mpv_initialize(handle) >= 0 else {
             mpv_terminate_destroy(handle)
             return
@@ -272,7 +328,8 @@ final class MPVPlayerCore: @unchecked Sendable {
     /// (edde746/MPVKit@e6b129f), which means building libmpv ourselves.
     func rebuildVideoOutput() {
         queue.async { [self] in
-            guard let mpv, snapshot.loaded else { return }
+            // During Picture in Picture the output is the software one, which takes its size per frame.
+            guard let mpv, snapshot.loaded, software == nil else { return }
             voSpelledWithFallback.toggle()
             mpv_set_property_string(mpv, "vo", voSpelledWithFallback ? "gpu-next," : "gpu-next")
         }
@@ -282,12 +339,47 @@ final class MPVPlayerCore: @unchecked Sendable {
         queue.async { [self] in if let mpv { command(mpv, ["seek", String(seconds), "absolute+exact"]) } }
     }
 
+    /// IOS-POC-17H — Picture in Picture is starting: move the video from Metal to `renderer`.
+    ///
+    /// The render context has to exist before `vo=libmpv`, or that output refuses to start
+    /// (`vo_libmpv.c`: "No render context set."). Setting `vo` rebuilds the output at once, as in
+    /// 17G. `vid=auto` covers the order in which iOS may deliver the two events: if the app already
+    /// went to the background and released the track, this takes it again, on the CPU this time.
+    func startSoftwareOutput(_ renderer: MPVSoftwareRenderer) {
+        queue.async { [self] in
+            guard let mpv, software == nil, renderer.attach(to: mpv) else { return }
+            software = renderer
+            mpv_set_property_string(mpv, "vo", "libmpv")
+            mpv_set_property_string(mpv, "vid", "auto")
+        }
+    }
+
+    /// Picture in Picture ended: back to Metal, then release the render context — in that order,
+    /// because freeing it under a running `libmpv` output would disable video.
+    ///
+    /// In the background the GPU is off limits (Apple: "the system prevents those commands from
+    /// executing"), so there the track is released first and `vo` only changes the option; the
+    /// foreground observer takes the track again and the Metal output is built then.
+    func stopSoftwareOutput(keepVideo: Bool) {
+        queue.async { [self] in
+            guard let mpv, let renderer = software else { return }
+            if !keepVideo { mpv_set_property_string(mpv, "vid", "no") }
+            voSpelledWithFallback = false
+            mpv_set_property_string(mpv, "vo", "gpu-next")
+            renderer.detach()
+            software = nil
+        }
+    }
+
     /// Releases the handle off the main thread: `mpv_terminate_destroy` can block while the
     /// playloop winds down. The wakeup callback is removed first, under the same lock libmpv
     /// holds while calling it, so none is in flight afterwards.
     func shutdown() {
         queue.async { [self] in
             guard let handle = mpv else { return }
+            // The render API requires its context freed before the core is destroyed.
+            software?.detach()
+            software = nil
             mpv = nil
             mpv_set_wakeup_callback(handle, nil, nil)
             mpv_terminate_destroy(handle)
@@ -318,7 +410,10 @@ final class MPVPlayerCore: @unchecked Sendable {
                 defer { mpv_free(video) }
                 onEvent?(.fileLoaded(hasVideo: video != nil))
             case MPV_EVENT_VIDEO_RECONFIG:
-                onEvent?(.videoReconfigured)
+                var width: Int64 = 0, height: Int64 = 0
+                mpv_get_property(mpv, "dwidth", MPV_FORMAT_INT64, &width)
+                mpv_get_property(mpv, "dheight", MPV_FORMAT_INT64, &height)
+                onEvent?(.videoReconfigured(width: Int(width), height: Int(height)))
             case MPV_EVENT_END_FILE:
                 guard let end = event.pointee.data?.assumingMemoryBound(to: mpv_event_end_file.self).pointee
                 else { break }
@@ -359,5 +454,384 @@ final class MPVPlayerCore: @unchecked Sendable {
         var args: [UnsafePointer<CChar>?] = words.map { strdup($0).map { UnsafePointer($0) } } + [nil]
         defer { for arg in args where arg != nil { free(UnsafeMutablePointer(mutating: arg!)) } }
         mpv_command(mpv, &args)
+    }
+}
+
+// MARK: - IOS-POC-17H: Picture in Picture
+
+/// The Picture in Picture window's video while it is open: mpv's software output, rendered into
+/// BGRA pixel buffers and queued on the MPV view's sample buffer layer.
+///
+/// **Why the CPU.** PiP normally starts as the app goes to the background, and iOS stops a
+/// background app's GPU work (Apple, "Preparing your Metal app to run in the background"), so
+/// the Metal output would freeze in the window. libmpv's render API offers OpenGL and a software
+/// renderer only (`render.h`); the window is fed by the latter — the same shape VLC uses on Apple
+/// platforms (`VLCSampleBufferDisplay.m`). That renderer is slow by design, which is why it runs
+/// only while the window is open, at the window's width, capped.
+///
+/// Every `mpv_render_*` call happens on `queue`, one at a time, never inside mpv's callback, and
+/// `queue` calls no other libmpv function (`render.h`, "Threading").
+final class MPVSoftwareRenderer: @unchecked Sendable {
+    /// Wide enough for any PiP window; the window's own size lowers it.
+    private static let maximumWidth = 960
+
+    private let output: AVSampleBufferVideoRenderer
+    private let queue = DispatchQueue(label: "mpv.software-render", qos: .userInitiated)
+    private let lock = NSLock()
+    private var videoSize = (width: 0, height: 0)   // under `lock`
+    private var windowWidth = 0                      // under `lock`
+    private var context: OpaquePointer?              // `queue` only, as are the three below
+    private var pool: CVPixelBufferPool?
+    private var poolSize = (width: 0, height: 0)
+    private var format: CMVideoFormatDescription?
+
+    init(output: AVSampleBufferVideoRenderer) { self.output = output }
+
+    func setVideoSize(width: Int, height: Int) { lock.lock(); videoSize = (width, height); lock.unlock() }
+    func setWindowWidth(_ width: Int) { lock.lock(); windowWidth = width; lock.unlock() }
+
+    /// Creates the render context. On the core's queue, before `vo=libmpv`.
+    func attach(to mpv: OpaquePointer) -> Bool {
+        queue.sync {
+            guard context == nil else { return true }
+            return MPV_RENDER_API_TYPE_SW.withCString { api in
+                var params = [mpv_render_param(type: MPV_RENDER_PARAM_API_TYPE, data: UnsafeMutableRawPointer(mutating: api)),
+                              mpv_render_param()]
+                var created: OpaquePointer?
+                guard mpv_render_context_create(&created, mpv, &params) >= 0, let created else { return false }
+                context = created
+                mpv_render_context_set_update_callback(created, softwareFrameDue, Unmanaged.passUnretained(self).toOpaque())
+                return true
+            }
+        }
+    }
+
+    /// Releases the render context. On the core's queue, after `vo` has left `libmpv`.
+    func detach() {
+        queue.sync {
+            guard let context else { return }
+            mpv_render_context_set_update_callback(context, nil, nil)
+            mpv_render_context_free(context)
+            self.context = nil
+            pool = nil
+            format = nil
+        }
+    }
+
+    /// A black frame in the video's shape. The layer shows it — under the Metal layer, so never
+    /// inline — until the window's first real frame, which takes an output rebuild to arrive.
+    func showPlaceholder() {
+        queue.async { [self] in
+            let (width, height) = targetSize(maximum: 160)
+            var created: CVPixelBuffer?
+            CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_32BGRA,
+                                [kCVPixelBufferIOSurfacePropertiesKey: [String: Any]()] as CFDictionary, &created)
+            guard let buffer = created else { return }
+            CVPixelBufferLockBaseAddress(buffer, [])
+            var image = vImage_Buffer(data: CVPixelBufferGetBaseAddress(buffer), height: vImagePixelCount(height),
+                                      width: vImagePixelCount(width), rowBytes: CVPixelBufferGetBytesPerRow(buffer))
+            let black: [UInt8] = [0, 0, 0, 255]   // B, G, R, A — the buffer's byte order
+            vImageBufferFill_ARGB8888(&image, black, vImage_Flags(kvImageNoFlags))
+            CVPixelBufferUnlockBaseAddress(buffer, [])
+            show(buffer)
+        }
+    }
+
+    fileprivate func frameDue() { queue.async { [self] in render() } }
+
+    private func render() {
+        guard let context,
+              mpv_render_context_update(context) & UInt64(MPV_RENDER_UPDATE_FRAME.rawValue) != 0 else { return }
+        let (width, height) = targetSize(maximum: Self.maximumWidth)
+        guard let buffer = pixelBuffer(width: width, height: height) else { return }
+        CVPixelBufferLockBaseAddress(buffer, [])
+        let base = CVPixelBufferGetBaseAddress(buffer)
+        var stride = CVPixelBufferGetBytesPerRow(buffer)
+        var size: [Int32] = [Int32(width), Int32(height)]
+        let rendered = "bgr0".withCString { pixelFormat in
+            size.withUnsafeMutableBufferPointer { size in
+                withUnsafeMutablePointer(to: &stride) { stride in
+                    var params = [
+                        mpv_render_param(type: MPV_RENDER_PARAM_SW_SIZE, data: UnsafeMutableRawPointer(size.baseAddress)),
+                        mpv_render_param(type: MPV_RENDER_PARAM_SW_FORMAT, data: UnsafeMutableRawPointer(mutating: pixelFormat)),
+                        mpv_render_param(type: MPV_RENDER_PARAM_SW_STRIDE, data: UnsafeMutableRawPointer(stride)),
+                        mpv_render_param(type: MPV_RENDER_PARAM_SW_POINTER, data: base),
+                        mpv_render_param(),
+                    ]
+                    return mpv_render_context_render(context, &params)
+                }
+            }
+        }
+        // Nothing drawn, nothing to show: the buffer holds whatever the pool left in it.
+        guard rendered >= 0 else { CVPixelBufferUnlockBaseAddress(buffer, []); return }
+        // "bgr0" leaves the fourth byte undefined (`render.h`); the layer gets an opaque frame.
+        var image = vImage_Buffer(data: base, height: vImagePixelCount(height), width: vImagePixelCount(width),
+                                  rowBytes: stride)
+        withUnsafePointer(to: &image) { image in
+            _ = vImageOverwriteChannelsWithScalar_ARGB8888(255, image, image, 0x1, vImage_Flags(kvImageNoFlags))
+        }
+        CVPixelBufferUnlockBaseAddress(buffer, [])
+        show(buffer)
+    }
+
+    /// The video's shape at no more than `maximum` (and the window's) width, in even pixels, so
+    /// mpv fills the frame instead of adding bars.
+    private func targetSize(maximum: Int) -> (Int, Int) {
+        lock.lock(); let video = videoSize; let window = windowWidth; lock.unlock()
+        let cap = window > 0 ? min(window, maximum) : maximum
+        guard video.width > 0, video.height > 0 else { return (cap & ~1, max(cap * 9 / 16, 2) & ~1) }
+        let width = max(min(video.width, cap), 2)
+        let height = max(Int((Double(width) * Double(video.height) / Double(video.width)).rounded()), 2)
+        return (width & ~1, height & ~1)
+    }
+
+    private func pixelBuffer(width: Int, height: Int) -> CVPixelBuffer? {
+        if pool == nil || poolSize != (width, height) {
+            let attributes: [CFString: Any] = [
+                kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferWidthKey: width,
+                kCVPixelBufferHeightKey: height,
+                // `render.h`: a 64-byte aligned stride keeps mpv on its SIMD path.
+                kCVPixelBufferBytesPerRowAlignmentKey: 64,
+                kCVPixelBufferIOSurfacePropertiesKey: [String: Any](),
+            ]
+            var created: CVPixelBufferPool?
+            CVPixelBufferPoolCreate(nil, nil, attributes as CFDictionary, &created)
+            pool = created
+            poolSize = (width, height)
+        }
+        var buffer: CVPixelBuffer?
+        guard let pool, CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer) == kCVReturnSuccess else { return nil }
+        return buffer
+    }
+
+    private func show(_ buffer: CVPixelBuffer) {
+        if format.map({ !CMVideoFormatDescriptionMatchesImageBuffer($0, imageBuffer: buffer) }) ?? true {
+            format = nil
+            CMVideoFormatDescriptionCreateForImageBuffer(allocator: nil, imageBuffer: buffer, formatDescriptionOut: &format)
+        }
+        var timing = CMSampleTimingInfo(duration: .invalid,
+                                        presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()),
+                                        decodeTimeStamp: .invalid)
+        var sample: CMSampleBuffer?
+        guard let format,
+              CMSampleBufferCreateReadyWithImageBuffer(allocator: nil, imageBuffer: buffer, formatDescription: format,
+                                                       sampleTiming: &timing, sampleBufferOut: &sample) == noErr,
+              let sample else { return }
+        // Shown as it arrives: mpv already waited for the frame's time (`render.h`,
+        // `MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME`). The layer's control timebase only carries the
+        // position the PiP window shows. The SDK advises against pairing a control timebase with this
+        // attachment (`AVSampleBufferVideoRenderer.h`), but stamping frames on that polled clock
+        // instead let it pace them — about two a second on the simulator — and KSPlayer ships the
+        // same pairing.
+        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true),
+           CFArrayGetCount(attachments) > 0 {
+            let first = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFMutableDictionary.self)
+            CFDictionarySetValue(first, Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
+                                 Unmanaged.passUnretained(kCFBooleanTrue).toOpaque())
+        }
+        // A failed renderer shows nothing until flushed (VLC, `VLCSampleBufferDisplay.m`), and neither
+        // does one whose decoder the system took back, behind the lock screen (Apple forums 745840).
+        if output.status == .failed || output.requiresFlushToResumeDecoding { output.flush() }
+        output.enqueue(sample)
+    }
+}
+
+/// File scope, like `requestGLDisplay` in `MPVProbeView`: mpv calls it on its own thread, and a
+/// closure would inherit an actor's isolation and trap there (9G). It only schedules.
+private func softwareFrameDue(_ ctx: UnsafeMutableRawPointer?) {
+    guard let ctx else { return }
+    Unmanaged<MPVSoftwareRenderer>.fromOpaque(ctx).takeUnretainedValue().frameDue()
+}
+
+/// IOS-POC-17H — Picture in Picture for MPV, behaving as AVPlayer's does (`PlayerSurface`): no
+/// button of its own, it starts when the viewer leaves the app during playback, and coming back
+/// to the app ends it. Inline the video stays on Metal; only while the window is open does it
+/// move to `MPVSoftwareRenderer`.
+///
+/// ponytail: moving between the two outputs rebuilds mpv's video output at both ends of a PiP
+/// session, each an exact seek to the current position — a short stall going in and coming back.
+/// A render path that could draw inline and in the background alike would remove it; libmpv on
+/// iOS has none today.
+@MainActor
+final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureControllerDelegate,
+                                 @preconcurrency AVPictureInPictureSampleBufferPlaybackDelegate {
+    private(set) var isActive = false
+    var onActiveChange: ((Bool) -> Void)?
+
+    private weak var engine: MPVEngine?
+    private let core: MPVPlayerCore
+    private let renderer: MPVSoftwareRenderer
+    private let timebase: CMTimebase?
+    private var controller: AVPictureInPictureController?
+    private var foregroundRestore = PictureInPictureForegroundRestoreState()
+    private var observers = [NSObjectProtocol]()
+    private var tick: Task<Void, Never>?
+    private var reported = (loaded: false, paused: true, duration: 0.0)
+    private var possible: NSKeyValueObservation?
+
+    init(engine: MPVEngine, core: MPVPlayerCore, layer: AVSampleBufferDisplayLayer) {
+        self.engine = engine
+        self.core = core
+        renderer = MPVSoftwareRenderer(output: layer.sampleBufferRenderer)
+        var timebase: CMTimebase?
+        CMTimebaseCreateWithSourceClock(allocator: kCFAllocatorDefault, sourceClock: CMClockGetHostTimeClock(),
+                                        timebaseOut: &timebase)
+        self.timebase = timebase
+        super.init()
+        // The window reads the position it shows from the layer's timebase.
+        layer.controlTimebase = timebase
+        guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
+        let controller = AVPictureInPictureController(
+            contentSource: .init(sampleBufferDisplayLayer: layer, playbackDelegate: self))
+        controller.delegate = self
+        self.controller = controller
+        // Whether the system would start PiP from here: the first thing to read on a device that
+        // leaves the app and gets no window.
+        possible = controller.observe(\.isPictureInPicturePossible, options: [.initial, .new]) { controller, _ in
+            let possible = controller.isPictureInPicturePossible
+            Task { @MainActor in PlaybackSession.log.notice("[pip] mpv possible=\(possible)") }
+        }
+        observers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.appDidBecomeActive() } })
+        // ponytail: a half-second poll of the engine's state; PiP only needs to hear of a change.
+        tick = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    guard let self else { return }
+                    self.reportPlayback()
+                }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+    }
+
+    /// The engine is going away.
+    func invalidate() {
+        tick?.cancel()
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        observers.removeAll()
+        possible = nil
+        controller?.delegate = nil
+        if isActive { controller?.stopPictureInPicture() }
+        controller = nil
+        setActive(false)
+    }
+
+    /// Only a loaded file with video opens the window by itself: for sound alone, a failed load or a
+    /// finished file it would stay black, and AVPlayer's PiP does not start then either.
+    func setHasVideo(_ hasVideo: Bool) {
+        controller?.canStartPictureInPictureAutomaticallyFromInline = hasVideo
+    }
+
+    /// A new output configuration: remember the shape for the window, and while the window is
+    /// closed put a black frame of that shape on the layer rather than a stale picture.
+    func videoSizeChanged(width: Int, height: Int) {
+        renderer.setVideoSize(width: width, height: height)
+        if !isActive { renderer.showPlaceholder() }
+    }
+
+    private func setActive(_ active: Bool) {
+        guard active != isActive else { return }
+        isActive = active
+        onActiveChange?(active)
+    }
+
+    private func reportPlayback() {
+        guard let engine else { return }
+        if let timebase {
+            // The clock runs at the playback rate by itself; it is moved only on a jump (a seek), since
+            // every move is a timing discontinuity for the layer — the 1 s Soupy-dev/MPVKit uses.
+            let rate = engine.isPlaying ? Double(engine.rate) : 0
+            if CMTimebaseGetRate(timebase) != rate { CMTimebaseSetRate(timebase, rate: rate) }
+            if abs(CMTimebaseGetTime(timebase).seconds - engine.currentTime) > 1 {
+                CMTimebaseSetTime(timebase, time: CMTime(seconds: engine.currentTime, preferredTimescale: 1000))
+            }
+        }
+        let now = (loaded: engine.isLoaded, paused: core.snapshot.paused, duration: engine.duration)
+        guard now != reported else { return }
+        reported = now
+        controller?.invalidatePlaybackState()
+    }
+
+    /// Coming back to the app ends PiP, as AVPlayer's surface does.
+    private func appDidBecomeActive() {
+        guard foregroundRestore.consumeForegroundRequest(isPictureInPictureActive: isActive) else { return }
+        controller?.stopPictureInPicture()
+    }
+
+    private func ended(pausingInBackground: Bool) {
+        guard isActive else { return }
+        setActive(false)
+        let inBackground = UIApplication.shared.applicationState == .background
+        // Closing the window from outside the app stops playback, as it does for AVPlayer. A window
+        // that failed to open leaves the background as it was before 17H: sound on, no picture.
+        if inBackground, pausingInBackground { engine?.pause() }
+        core.stopSoftwareOutput(keepVideo: !inBackground)
+    }
+
+    // MARK: AVPictureInPictureControllerDelegate
+
+    func pictureInPictureControllerWillStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        PlaybackSession.log.notice("[pip] mpv will start — video moves to the software output")
+        foregroundRestore.pictureInPictureWillStart()
+        setActive(true)
+        core.startSoftwareOutput(renderer)
+        // The window does not read the time range on its own when it opens (VLC,
+        // `VLCPictureInPictureController.m`).
+        pictureInPictureController.invalidatePlaybackState()
+    }
+
+    func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController,
+                                    failedToStartPictureInPictureWithError error: Error) {
+        PlaybackSession.log.notice("[pip] mpv failed to start: \(error.localizedDescription, privacy: .public)")
+        ended(pausingInBackground: false)
+    }
+
+    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        PlaybackSession.log.notice("[pip] mpv did stop — video back on Metal")
+        foregroundRestore.pictureInPictureDidStop()
+        ended(pausingInBackground: true)
+    }
+
+    func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
+    ) {
+        // The player screen stays presented underneath, as with AVPlayer.
+        completionHandler(true)
+    }
+
+    // MARK: AVPictureInPictureSampleBufferPlaybackDelegate
+
+    func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, setPlaying playing: Bool) {
+        if playing { engine?.play() } else { engine?.pause() }
+    }
+
+    func pictureInPictureControllerTimeRangeForPlayback(_ pictureInPictureController: AVPictureInPictureController) -> CMTimeRange {
+        // The SDK's forms (`AVPictureInPictureController_AVSampleBufferDisplayLayerSupport.h`):
+        // invalid for nothing to play, an infinite duration for live content. (-∞, +∞) keeps AVKit's
+        // timer busy (UIPiPView issue #17).
+        guard let engine, engine.isLoaded else { return .invalid }
+        let duration = engine.duration
+        guard duration > 0 else { return CMTimeRange(start: .zero, duration: .positiveInfinity) }
+        return CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 1000))
+    }
+
+    func pictureInPictureControllerIsPlaybackPaused(_ pictureInPictureController: AVPictureInPictureController) -> Bool {
+        // A failed or unloaded file is not playing, whatever mpv's `pause` still says.
+        !(engine?.isLoaded ?? false) || core.snapshot.paused
+    }
+
+    func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController,
+                                    didTransitionToRenderSize newRenderSize: CMVideoDimensions) {
+        renderer.setWindowWidth(Int(newRenderSize.width))
+    }
+
+    func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController,
+                                    skipByInterval skipInterval: CMTime, completion completionHandler: @escaping () -> Void) {
+        if let engine { engine.seek(toSeconds: engine.currentTime + skipInterval.seconds) }
+        completionHandler()
     }
 }

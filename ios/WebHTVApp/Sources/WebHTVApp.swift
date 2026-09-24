@@ -3445,7 +3445,7 @@ private struct PlayerView: View {
             // whatever is behind the presentation.
             Color.black.ignoresSafeArea()
             if engineKind == .mpv, let mpv = session.engine as? MPVEngine {
-                MPVVideoSurface(engine: mpv)
+                MPVVideoSurface(engine: mpv, pictureInPicture: $pictureInPicture)
                     .id(ObjectIdentifier(mpv))
                     .ignoresSafeArea()
             } else {

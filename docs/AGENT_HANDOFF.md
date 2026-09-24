@@ -123,7 +123,11 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   `a076ab51`, `20c4bd53` and `616e182e` before, and a handoff arriving with **`035ad0bf` as "the
   latest on GitHub" was sixteen commits behind** — that commit is the roadmap-only one, an ancestor
   rather than the tip. Run `git log` and the `rev-list` above on resume instead of reading it here.
-- **Current release: `WebHTV 0.1.10 (11)`, published 2026-09-24 at the user's instruction** (run
+- **Current release: `WebHTV 0.1.11 (12)`, published 2026-09-24 at the user's instruction** (run
+  `35968750165`, tag `ios-v0.1.11-b12` → `aa30bc0f`; `source.json` `d681a72d`, IPA 24,877,389 bytes,
+  SHA-256 `bbdbf06c…`, downloaded back and verified): `0.1.10 (11)` plus IOS-POC-17G and 17H.
+  **No device result yet.** Record: `docs/IOS-POC-11-sidestore-release.md` 第十二次發布.
+- **Previous release: `WebHTV 0.1.10 (11)`, published 2026-09-24** (run
   `35953397506`, tag `ios-v0.1.10-b11` → `5dadcd04`; `source.json` `d7a6e35e`, IPA 24,851,830 bytes,
   SHA-256 `01ff7bb6…`, downloaded back and verified): `0.1.9 (10)` plus IOS-POC-16B, 15D and 17F
   (the bullet below). **No device result yet.** Record: `docs/IOS-POC-11-sidestore-release.md` 第十一次發布.
@@ -155,8 +159,8 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   the three has run on a device.** The MPV parity roadmap (P1 device baseline → P2 cache parity →
   P3 tracks → P4 external/ASS subtitles → P5 background audio/Now Playing → P6 PiP bridge → P7
   AirPlay Audio) is IOS-POC-17 第十四節.
-- **After `0.1.10 (11)` — local commits, not pushed, not released (2026-09-24):** **IOS-POC-17G**
-  `257553f2` — MPV redraws at the new size after a rotation (IOS-POC-17 第十二之三節); **IOS-POC-17H** —
+- **After `0.1.10 (11)` — shipped in `0.1.11 (12)` on 2026-09-24:** **IOS-POC-17G**
+  `257553f2` — MPV redraws at the new size after a rotation (IOS-POC-17 第十二之三節); **IOS-POC-17H** `8824c8ee` —
   MPV Picture in Picture (= parity P6): inline stays on Metal, and only while the PiP window is open
   mpv's `vo` switches to the libmpv software renderer, whose frames go into a sample buffer layer
   (`docs/IOS-POC-17H-mpv-picture-in-picture.md`). The simulator's sample-buffer PiP window is always

@@ -1,9 +1,9 @@
 # IOS-POC-17H — MPV 子母畫面（Picture in Picture）
 
-- 狀態（2026-09-24 14:50 CST）：**實作完成、模擬器能驗的部分都已驗證、真機未驗證**；以 task guard `finish --no-tag` commit（本 commit），**未 push、未發布**。
+- 狀態（2026-09-24 14:50 CST）：**實作完成、模擬器能驗的部分都已驗證、真機未驗證**；commit `8824c8ee`，**已於 2026-09-24 以 `0.1.11 (12)` 發布**（run `35968750165`）。
   PiP 視窗在模擬器上全黑＝模擬器對 sample-buffer PiP 的已知限制，不是本實作的錯（第六節之二的對照實驗）；PiP 畫面、自動 PiP、PiP 控制都要真機驗。
 - 授權：使用者 2026-09-24「MPV的pip 我要直接實作完成」——即 IOS-POC-17 第十四節 MPV parity **P6**，直接實作，不先停在 spike。
-- Lane：`standard`（新的使用者功能，renderer 路徑有變動）。基線 HEAD `257553f2`（IOS-POC-17G，本機、未 push）。
+- Lane：`standard`（新的使用者功能，renderer 路徑有變動）。基線 HEAD `257553f2`（IOS-POC-17G，當時本機、未 push）。
 - 範圍：`ios/WebHTVApp/Sources/MPVEngine.swift`、`ios/WebHTVApp/Sources/WebHTVApp.swift`（只有 MPV surface 接上 PiP 狀態）、本文件、IOS-POC-17 文件與交接文件。
   **不含**：AVPlayer 的 PiP（不動）、手動 PiP 按鈕（使用者先前決定不要）、背景音訊／鎖屏／remote command（P5）、AirPlay（P7）、libmpv 重編。
 
@@ -129,7 +129,7 @@ MPV 版要同樣：MPV 播放中滑回主畫面 → 自動出現 PiP 視窗、�
 ## Recovery anchor
 
 - 目標：MPV PiP（P6），行為對齊 AVPlayer 自動 PiP（第一節）。
-- Git：基線 HEAD `257553f2`（17G，本機、未 push）；本任務以 `task_guard.sh finish --no-tag` commit，**未 push、未發布**。
+- Git：基線 HEAD `257553f2`（17G，當時本機、未 push）；本任務 commit `8824c8ee`，已 push 並以 `0.1.11 (12)` 發布。
 - 已完成：研究（第二節 R1–R15）、方案（第三節）、程式（第六節之一）、黑畫面診斷（第六節之二）、final-diff review 與四項修正（第六節之五）、`TEMP-17H` 全部移除、final build、IOS-POC-17 第十四節 P6 與交接文件更新。
 - 未完成（只能真機）：第六節之三標「真機未驗證」的各項。
-- 下一步（唯一）：等使用者授權 push 與下一次發布後，在真機依第四節驗收標準驗 MPV PiP（先看 `[pip] mpv possible=` 與 `will start` log，再看 PiP 視窗是否有畫面）。
+- 下一步（唯一）：使用者在 SideStore 更新到 `0.1.11 (12)` 後，在真機依第四節驗收標準驗 MPV PiP（先看 `[pip] mpv possible=` 與 `will start` log，再看 PiP 視窗是否有畫面）。

@@ -32,7 +32,7 @@
 
 ## Recovery anchor
 
-- 狀態：完成，且已發過**十一個**版本，最新是 `0.1.10 (11)`（見文末各次發布）。
+- 狀態：完成，且已發過**十二個**版本，最新是 `0.1.11 (12)`（見文末各次發布）。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
 - 發布結果：`WebHTV-0.1-1.ipa`，24,563,162 bytes，GitHub asset SHA-256 `fcbf1531d9480f678ee0fac7ec5ce49010f3de51fc11b79f0ba88372e85812ed`；IPA plist 為 `com.webhtv.ios.poc`、`0.1`、build `1`、minimum iOS `17.0`。
@@ -180,7 +180,7 @@ tag `ios-v0.1.8-b9`（workflow 建立，target `0a57d545`），workflow 推回 `
 
 ## 第十一次發布：`0.1.10 (11)`（2026-09-24，**已發布**）
 
-**目前最新版是 `0.1.10 (11)`。** 前面十版都已被取代。
+**發布當時最新版是 `0.1.10 (11)`**（已被 `0.1.11 (12)` 取代，見第十二次發布）。前面十版都已被取代。
 
 - 授權：使用者 2026-09-24「push 上 git，然後發布新版本」。版號沿用 `0.1.x` 遞增（`0.1.10`，build `11`）。
 - 內容：`0.1.9 (10)` 的全部，加上 IOS-POC-16B `a5f2678e`（控制列二級選單改自有 panel）、IOS-POC-15D `6416c4d4`
@@ -210,4 +210,34 @@ WebHTV 0.1.10 (11)（未經真機驗收）
 - 緩衝：只有真的卡頓時才加大緩衝；自己選的畫質不會被自動降低。
 - 下一集預先解析：換畫質時立即作廢舊的預解析；預先解析的網址失效時，會自動重新解析一次，不直接顯示錯誤；預解析只讀取極少量資料，不再可能整集下載。
 - MPV 播放時不再沿用上一段原生播放器的網路狀態。
+```
+
+## 第十二次發布：`0.1.11 (12)`（2026-09-24，**已發布**）
+
+**目前最新版是 `0.1.11 (12)`。** 前面十一版都已被取代。
+
+- 授權：使用者 2026-09-24「push 並發布下一版到 SideStore」。版號沿用 `0.1.x` 遞增（`0.1.11`，build `12`）。
+- 內容：`0.1.10 (11)` 的全部，加上 IOS-POC-17G `257553f2`（MPV 旋轉後以新尺寸重畫）與 IOS-POC-17H `8824c8ee`
+  （MPV 子母畫面，`docs/IOS-POC-17H-mpv-picture-in-picture.md`）；兩者都是 tag 目標 commit 的祖先（`git merge-base --is-ancestor` 驗過）。
+- 發布序列：版號 commit `aa30bc0f`（Task-Guard `IOS-RELEASE-0.1.11-b12`，`project.pbxproj` 兩處 `MARKETING_VERSION = 0.1.11`、
+  `CURRENT_PROJECT_VERSION = 12`）→ push `96ece1d1..aa30bc0f` → `workflow_dispatch` run `35968750165`（`version=0.1.11`、
+  `build_number=12`，success，2026-09-24 07:16:39Z → 07:20:20Z）→ workflow 建 tag `ios-v0.1.11-b12`（target `aa30bc0f`）並推回
+  `source.json`（`d681a72d`，共十二筆，第一筆 `0.1.11`、size 與 IPA 相同）。**沒有手動建 tag。**
+- 產物：`WebHTV-0.1.11-12.ipa` **24,877,389 bytes**，SHA-256
+  `bbdbf06c2097ff65f72928b20a34d9e8590b7b57e0521651de0a5b94c41548ae`（與 GitHub asset digest 相同）。
+  **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`Info.plist` 為 `com.webhtv.ios.poc` / `0.1.11` / build `12` /
+  minimum iOS `17.0`；主執行檔含 `MPVPictureInPicture`、`MPVSoftwareRenderer`、`mpv will start`、`sw-fast`（17H）。
+- 發布前驗證：17H 的 final Simulator Debug build（17H 文件第六節之三）；Core 自 17F 後沒有變動，`swift test` 沿用 344／344，
+  本次沒有重跑；workflow 的 Release device build 成功。**真機驗收尚未回報；17H 的 PiP 畫面、自動 PiP、PiP 控制只能在真機驗。**
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.11 (12)（未經真機驗收）
+
+新增
+- MPV 播放器支援子母畫面：用 MPV 播放影片時回到主畫面，會自動進入子母畫面，和原生播放器一樣；回到 App 就結束子母畫面、從原位置繼續播放。純音訊、載入失敗或播完時不會自動開啟。進入與離開子母畫面時會短暫停頓一下。
+
+修正
+- MPV 直向、橫向旋轉後畫面跑版：旋轉後會以新的尺寸重新繪製。
 ```

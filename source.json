@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.16",
+          "date": "2026-09-24",
+          "localizedDescription": "WebHTV 0.1.16 (17)\n\n新增\n- AVPlayer 與 MPV 共用內嵌音軌／字幕選擇介面。\n- 音軌顯示語言／名稱、codec 與 Mono / Stereo / 5.1 / 7.1。\n- MPV 讀取 track-list 並使用 aid / sid 切換音軌與字幕。\n- 新增音訊 codec、channel count / layout、selected track diagnostics。\n\n調整\n- MPV trackSelection 正式開啟。\n- 不強制 downmix，維持來源聲道配置交由播放器與 iOS audio route 處理。\n",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.16-b17/WebHTV-0.1.16-17.ipa",
+          "size": 24919831,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.15",
           "date": "2026-09-24",
           "localizedDescription": "WebHTV 0.1.15 (16)\n\n修正\n- MPV 長時間播放時螢幕不再因系統自動鎖定計時而變暗或鎖定；暫停、播放結束、失敗或離開 MPV 播放時會恢復正常自動鎖定。\n",

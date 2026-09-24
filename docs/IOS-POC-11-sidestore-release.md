@@ -32,7 +32,7 @@
 
 ## Recovery anchor
 
-- 狀態：完成，且已發過**十八個**版本，最新是 `0.1.17 (18)`（見文末各次發布）。
+- 狀態：完成，且已發過**十九個**版本，最新是 `0.1.18 (19)`（見文末各次發布）。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
 - 發布結果：`WebHTV-0.1-1.ipa`，24,563,162 bytes，GitHub asset SHA-256 `fcbf1531d9480f678ee0fac7ec5ce49010f3de51fc11b79f0ba88372e85812ed`；IPA plist 為 `com.webhtv.ios.poc`、`0.1`、build `1`、minimum iOS `17.0`。
@@ -379,7 +379,7 @@ WebHTV 0.1.16 (17)
 
 ## 第十八次發布：`0.1.17 (18)`（2026-09-25，**已發布**）
 
-**目前最新版是 `0.1.17 (18)`。** 前面十七版都已被取代。
+**發布當時最新版是 `0.1.17 (18)`**（已被 `0.1.18 (19)` 取代，見第十九次發布）。前面十七版都已被取代。
 
 - 授權：使用者 2026-09-25 在選擇題中選「發布 0.1.17 (18)」。版號 `0.1.17`，build `18`。
 - 內容：`0.1.16 (17)` 的全部，加上 IOS-POC-20 `ee597124`：
@@ -418,4 +418,32 @@ WebHTV 0.1.17 (18)（未經真機驗收）
 - 首頁單站搜尋與全站台搜尋都會先把繁體關鍵字轉成簡體再送出。
 - WebHome 的搜尋改為開啟全站台搜尋。
 - Python 站台改在各自的佇列執行，不再佔用 App 共用的執行緒。
+```
+
+## 第十九次發布：`0.1.18 (19)`（2026-09-25，**已發布**）
+
+**目前最新版是 `0.1.18 (19)`。** 前面十八版都已被取代。
+
+- 授權：使用者 2026-09-25 在選擇題中選「發布 0.1.18 (19)」。版號 `0.1.18`，build `19`。
+- 內容：`0.1.17 (18)` 的全部，加上 IOS-POC-20 的閃退修正 `0786a46e`：Release 版延後啟動 Python 時，多個 Python 站台同時建立會讓多條執行緒一起進入 `Py_Initialize`；現在 `PythonBoot.start()` 在鎖內只啟動一次。
+  使用者回報的症狀是 `0.1.17 (18)`「輸入關鍵字、按鍵盤上的『搜尋』後」閃退。
+- 發布序列：
+  1. 版號 commit `ccfad785`（Task-Guard `IOS-RELEASE-0.1.18-b19`）。
+  2. push `0786a46e..ccfad785`。
+  3. `workflow_dispatch` run `36036441567`（`version=0.1.18`、`build_number=19`，success，2026-09-24 17:44:47Z → 17:48:59Z）。
+  4. workflow 建立 tag `ios-v0.1.18-b19`（target `ccfad785`），並推回 `source.json`（`86eab8bb`，共十九筆，第一筆 `0.1.18`，size 與 IPA 相同）。
+
+  **沒有手動建 tag。**
+- 產物：`WebHTV-0.1.18-19.ipa` **25,017,725 bytes**，SHA-256
+  `8b5e203ed9ff745b6a4cec6c7785977733243321e893cf270bff37ddb275583c`（與 GitHub asset digest 相同）。
+  **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`com.webhtv.ios.poc` / `0.1.18` / build `19` / minimum iOS `17.0`。
+- 發布前驗證：修正沒有在本機編譯（本環境沒有 Swift 工具鏈），由 workflow 的 Release device build 編譯成功；閃退原因是依程式碼與使用者設定檔推定，沒有 crash log。**真機尚未回報。**
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.18 (19)（未經真機驗收）
+
+修正
+- 送出全站台搜尋後 App 閃退：多個 Python 站台同時啟動時，Python 直譯器現在只會啟動一次，其他站台會等它啟動完成。
 ```

@@ -121,7 +121,12 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   `a076ab51`, `20c4bd53` and `616e182e` before, and a handoff arriving with **`035ad0bf` as "the
   latest on GitHub" was sixteen commits behind** — that commit is the roadmap-only one, an ancestor
   rather than the tip. Run `git log` and the `rev-list` above on resume instead of reading it here.
-- **Current release: `WebHTV 0.1.17 (18)`, published 2026-09-25 at the user's instruction** (run `36034238374`, tag
+- **Current release: `WebHTV 0.1.18 (19)`, published 2026-09-25 at the user's instruction** (run `36036441567`, tag
+  `ios-v0.1.18-b19` → `ccfad785`; `source.json` `86eab8bb`, IPA 25,017,725 bytes, SHA-256 `8b5e203e…`,
+  downloaded back and verified): `0.1.17 (18)` plus the fix for its crash on sending a search (`0786a46e`:
+  a Release build boots Python lazily, and several Python spiders built at once raced into
+  `Py_Initialize`). **No device result yet.** Record: `docs/IOS-POC-11-sidestore-release.md` 第十九次發布.
+- **Previous release: `WebHTV 0.1.17 (18)`, published 2026-09-25 at the user's instruction** (run `36034238374`, tag
   `ios-v0.1.17-b18` → `b3c19fd4`; `source.json` `0dff1af1`, IPA 25,017,556 bytes, SHA-256 `e9e5b5dd…`,
   downloaded back and verified): `0.1.16 (17)` plus IOS-POC-20 (a 搜尋 tab that searches every site of the
   current source at once, `ee597124`). Its first compile was this release build; unit tests not run.

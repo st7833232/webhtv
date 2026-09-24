@@ -374,10 +374,11 @@ Revert 單一 commit 即可。v1 不存任何資料（沒有搜尋歷史）。`s
   - 結果是多條執行緒同時進入 `boot()`，重複 `setenv` 與 `Py_Initialize()`，App 在送出搜尋的當下終止。模擬器與本機測試跑的都是 Debug 版，所以測不到。
 - 修正：`PythonBoot` 加一把 `NSLock`，`start()` 在鎖內檢查並執行唯一一次 `boot()`，同時到達的呼叫者等第一次啟動完成；`status` 只在鎖內讀寫。沒有改變 Debug 版的啟動時機，也沒有改 Release 版延後啟動的設計。
 - 驗證：靜態確認 `status` 沒有其他讀取者、`boot()` 內不會再呼叫 `start()`（不會自我鎖死）；專案沒有把 warning 當 error。**沒有編譯**（本環境沒有 Swift 工具鏈），編譯與實際效果要等下一次經核准的發布與真機驗證。
+- 發布：以 `0.1.18 (19)` 發布（版號 `ccfad785`，run `36036441567` success，tag `ios-v0.1.18-b19`，`source.json` `86eab8bb`，IPA SHA-256 `8b5e203e…` 與 asset digest 相同）；修正由這次 Release device build 編譯成功。
 - 殘留風險：若閃退的原因不只這一個，下一版仍可能閃退；屆時請使用者提供 iPhone 的 crash 報告（設定 › 隱私權與安全性 › 分析與改進項目 › 分析資料，檔名以 `WebHTVApp` 開頭）。
 
 ## Recovery anchor
 
 - 目前（2026-09-25）：實作 `ee597124` 已以 `0.1.17 (18)` 發布（run `36034238374`），CI 第一次編譯即成功；單元測試未執行；**真機未驗證**。
 - 研究產物（不進 repo）：外部來源原文與 clone 在本工作階段 scratchpad 的 `research/`；使用者設定檔的新 SHA-256 為 `efd3ef72…`（見本地程式碼複核）。
-- 下一步（唯一）：使用者核准後以下一版發布本修正（`PythonBoot` 啟動競態），再以 SideStore 更新並依「驗收標準（更新）」實測。
+- 下一步（唯一）：使用者以 SideStore 更新到 `0.1.18 (19)`，確認送出搜尋不再閃退，再依「驗收標準（更新）」實測並回報。

@@ -2423,7 +2423,14 @@ final class AVPlayerEngine: PlaybackEngine {
 /// opening and ending controls live **in** it and disappear **with** it, instead of sitting on the
 /// video permanently the way IOS-POC-5S-2's first attempt did.
 ///
-/// Everything here drives `PlaybackSession`. No second playback state, no second player.
+/// **Its second-level choices are panels it draws itself (IOS-POC-16B), not SwiftUI `Menu`s.** A
+/// `Menu` reports neither opening nor closing, so the five-second auto-hide faded the bar — and the
+/// menu's anchor with it — out from under a viewer mid-choice, and the quarter-second redraws made
+/// it flicker (reported on the device). `PlayerChrome` says which panel is open: one at most, and
+/// while one is, the bar does not hide.
+///
+/// Everything here drives `PlaybackSession`. No second playback state, no second player, and the
+/// same bar and panels whichever engine is playing.
 private struct PlayerControlBar: View {
     let session: PlaybackSession
     /// Seconds. Owned by `PlayerView`, which runs the periodic observer.
@@ -2443,14 +2450,16 @@ private struct PlayerControlBar: View {
     let engine: PlaybackEngineKind
     let isAvailable: (PlaybackEngineKind) -> Bool
     let selectEngine: (PlaybackEngineKind) -> Void
+    /// The open panel, if any. `PlayerView`'s `PlayerChrome` owns it.
+    let panel: PlayerPanel?
+    /// A bar button: opens its panel, or closes it when it is the one already open.
+    let toggle: (PlayerPanel) -> Void
+    let dismissPanel: () -> Void
     /// Any control being touched restarts the auto-hide countdown, so the bar cannot vanish under
     /// a finger that is using it.
     let interacted: () -> Void
-    /// An opening/ending edit landed — refresh the mirror and say what was actually kept.
-    ///
-    /// **Only the skip menus call this.** Speed and subtitle changes used to as well, purely to
-    /// force a redraw, which made every speed change announce 「片頭 … 片尾 …」 at the viewer
-    /// (reported 2026-09-23). Those two now have their own paths.
+    /// An opening/ending edit landed — refresh the mirror, so the panel shows what was actually
+    /// kept (the clamp and Android's markable window can both keep a different number).
     let skipEdited: () -> Void
     /// A subtitle or audio track was selected; the loaded selection has to be read again for the
     /// checkmark to move.
@@ -2459,10 +2468,25 @@ private struct PlayerControlBar: View {
 
     /// Seconds, while a drag owns the scrubber. Nil means the observer's value is authoritative.
     @State private var scrubbing: Double?
+    /// VoiceOver lands on a panel's title when it opens, instead of staying on the bar…
+    @AccessibilityFocusState private var panelFocused: Bool
+    /// …and back on the button that opened it when it closes, however it closed, instead of falling
+    /// to the first element on the screen.
+    @AccessibilityFocusState private var barFocus: PlayerPanel?
+    /// The open panel's rows, measured, so a short list gets a short sheet.
+    @State private var rowsHeight: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The speeds the viewer picked (2026-09-23). `AVPlaybackSpeed.systemDefaultSpeeds` is AVKit's
     /// and is not reachable once its bar is gone, so this list is ours to choose.
     private static let speeds: [Float] = [0.5, 1, 1.25, 1.5, 2, 2.5, 3]
+
+    /// Every control answers a 48 pt square (Apple's minimum is 44) while drawing exactly what it
+    /// drew before: the square is the touch area, not the glyph.
+    static let hitTarget: CGFloat = 48
+    /// Where the top row ends. A landscape drawer starts below it, so the buttons that open, switch
+    /// and close panels stay reachable while one is open.
+    private static let topRowHeight: CGFloat = 8 + hitTarget
 
     /// `2` rather than `2.0`, `1.25` rather than `1.2500001`.
     ///
@@ -2471,6 +2495,15 @@ private struct PlayerControlBar: View {
     /// no trailing zeros.
     private static func label(_ speed: Float) -> String {
         speed.formatted(.number.precision(.fractionLength(0...2))) + "×"
+    }
+
+    /// The same speed for VoiceOver, which reads 「×」 as 「乘」.
+    private static func spoken(_ speed: Float) -> String {
+        speed.formatted(.number.precision(.fractionLength(0...2))) + " 倍"
+    }
+
+    private static func selectedName(_ track: MediaSelection.Track) -> String {
+        track.options.first { $0.option == track.selected }?.name ?? ""
     }
 
     private var shown: Double { scrubbing ?? position }
@@ -2499,12 +2532,18 @@ private struct PlayerControlBar: View {
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
         }
+        // After the padding, so a panel spans the whole safe area rather than the bar's margins.
+        .overlay { panelHost }
+        .onChange(of: panel) { old, new in
+            if new == nil, let old { barFocus = old }
+        }
     }
 
     // MARK: Top row — the way out, and the routes
 
     private var topRow: some View {
-        HStack(spacing: 18) {
+        // 6 pt between 48 pt targets is the 54 pt pitch the 36 pt glyphs always had.
+        HStack(spacing: 6) {
             // **The only way out of the player.** IOS-POC-10I deleted the swipe-to-dismiss after
             // measuring that AVKit's own X did the job; with AVKit's bar gone that X is gone too,
             // so this button is what stops the viewer being trapped on this screen.
@@ -2513,36 +2552,72 @@ private struct PlayerControlBar: View {
                     .font(.system(size: 15, weight: .semibold))
                     .frame(width: 36, height: 36)
                     .background(.black.opacity(0.4), in: Circle())
+                    .playerHitTarget()
             }
             .accessibilityLabel("關閉播放器")
 
             Spacer()
 
-            // What the running engine cannot do is not drawn, rather than drawn and dead.
+            // What the running engine cannot do is not drawn, rather than drawn and dead. A choice
+            // of one decides nothing, so a track button needs more than one option (IOS-POC-5Q).
             if engine.capabilities.trackSelection {
-                mediaMenu("字幕", systemImage: "captions.bubble", selection: media.legible)
-                mediaMenu("音軌", systemImage: "waveform", selection: media.audible)
+                if let legible = media.legible, legible.options.count > 1 {
+                    panelButton(.subtitle, value: Self.selectedName(legible)) {
+                        Image(systemName: "captions.bubble").font(.system(size: 17))
+                    }
+                }
+                if let audible = media.audible, audible.options.count > 1 {
+                    panelButton(.audio, value: Self.selectedName(audible)) {
+                        Image(systemName: "waveform").font(.system(size: 17))
+                    }
+                }
             }
-            qualityMenu
-            speedMenu
-            engineMenu
+            // IOS-POC-17E: only when the source offers more than one entry.
+            if let quality = session.quality, quality.offersChoice {
+                panelButton(.quality, value: quality.name) {
+                    Text(quality.name.isEmpty ? "畫質" : quality.name)
+                        .font(.footnote.weight(.semibold))
+                        .lineLimit(1)
+                        .frame(maxWidth: 80)
+                }
+            }
+            panelButton(.speed, value: Self.spoken(rate)) {
+                Text(Self.label(rate)).font(.footnote.weight(.semibold))
+            }
+            // IOS-POC-17: the label is the engine playing now.
+            panelButton(.engine, value: engine.displayName) {
+                Text(engine.shortName).font(.footnote.weight(.semibold))
+            }
 
             // AirPlay. `AVRoutePickerView` is public and is the whole control, so there is nothing
             // to reimplement — AVKit's bar was only ever hosting the same view.
             if engine.capabilities.airPlay {
                 RoutePickerButton()
-                    .frame(width: 36, height: 36)
+                    .frame(width: Self.hitTarget, height: Self.hitTarget)
                     .accessibilityLabel("AirPlay")
             }
         }
+        // `topRowHeight` is where a landscape drawer starts; past this size the row would outgrow it.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+    }
+
+    private func panelButton<Glyph: View>(_ target: PlayerPanel, value: String = "",
+                                          @ViewBuilder glyph: () -> Glyph) -> some View {
+        Button { toggle(target) } label: { glyph().playerHitTarget() }
+            .accessibilityLabel(target.title)
+            .accessibilityValue(value)
+            .accessibilityAddTraits(panel == target ? .isSelected : [])
+            // VoiceOver comes back here when the panel this button opened closes.
+            .accessibilityFocused($barFocus, equals: target)
     }
 
     // MARK: Transport
 
     private var transport: some View {
-        HStack(spacing: 44) {
+        // 36 pt between 48 pt targets keeps the glyph centres where 44 pt between bare glyphs had them.
+        HStack(spacing: 36) {
             Button(action: { interacted(); session.seek(toSeconds: shown - 10) }) {
-                Image(systemName: "gobackward.10").font(.system(size: 28))
+                Image(systemName: "gobackward.10").font(.system(size: 28)).playerHitTarget()
             }
             .accessibilityLabel("倒退 10 秒")
 
@@ -2550,11 +2625,12 @@ private struct PlayerControlBar: View {
                 Image(systemName: playing ? "pause.fill" : "play.fill")
                     .font(.system(size: 40))
                     .frame(width: 52, height: 52)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel(playing ? "暫停" : "播放")
 
             Button(action: { interacted(); session.seek(toSeconds: shown + 10) }) {
-                Image(systemName: "goforward.10").font(.system(size: 28))
+                Image(systemName: "goforward.10").font(.system(size: 28)).playerHitTarget()
             }
             .accessibilityLabel("前進 10 秒")
         }
@@ -2564,7 +2640,9 @@ private struct PlayerControlBar: View {
     // MARK: Scrubber, and the opening/ending beside it
 
     private var scrubber: some View {
-        VStack(spacing: 6) {
+        // 10 pt, so the opening/ending buttons' enlarged touch area (10 pt above the capsule) ends
+        // where the slider's begins instead of overlapping it.
+        VStack(spacing: 10) {
             PlaybackSlider(value: shown, bounds: duration, buffered: buffered,
                            onChange: { scrubbing = $0; interacted() },
                            onCommit: { seconds in
@@ -2572,7 +2650,7 @@ private struct PlayerControlBar: View {
                                session.seek(toSeconds: seconds)
                                interacted()
                            })
-                .frame(height: 24)
+                .frame(height: 44)
                 .accessibilityLabel("播放進度")
                 .accessibilityValue("\(PlayerView.clock(shown)) / \(PlayerView.clock(duration))")
 
@@ -2583,10 +2661,8 @@ private struct PlayerControlBar: View {
                 // IOS-POC-5S-2's four operations, unchanged. This is what the whole stage was for:
                 // they are in the bar, so they leave with it.
                 if watching != nil {
-                    skipMenu("片頭", offset: \.openingOffset,
-                             mark: session.markOpening, apply: session.setOpening)
-                    skipMenu("片尾", offset: \.endingOffset,
-                             mark: session.markEnding, apply: session.setEnding)
+                    skipButton(.opening, offset: \.openingOffset)
+                    skipButton(.ending, offset: \.endingOffset)
                 }
                 Spacer(minLength: 8)
                 Text(PlayerView.clock(duration))
@@ -2596,122 +2672,260 @@ private struct PlayerControlBar: View {
         }
     }
 
-    // MARK: Menus
-
-    private var speedMenu: some View {
-        Menu {
-            ForEach(Self.speeds, id: \.self) { speed in
-                Button {
-                    interacted()
-                    session.setRate(speed)
-                } label: {
-                    Label(speed == 1 ? "正常" : Self.label(speed),
-                          systemImage: rate == speed ? "checkmark" : "")
-                }
-            }
-        } label: {
-            Text(Self.label(rate))
-                .font(.footnote.weight(.semibold))
-                .frame(minWidth: 36, minHeight: 36)
-        }
-        .accessibilityLabel("播放速度")
-    }
-
-    /// IOS-POC-17E. The source's quality menu, moved here from the 播放 page that no longer exists.
-    /// Shown only when the source offers more than one entry, the rule the page had.
-    @ViewBuilder
-    private var qualityMenu: some View {
-        if let quality = session.quality, quality.offersChoice {
-            Menu {
-                ForEach(Array(quality.qualities.enumerated()), id: \.offset) { entry, option in
-                    Button {
-                        interacted()
-                        session.selectQuality(entry)
-                    } label: {
-                        Label(option.name.isEmpty ? "畫質 \(entry + 1)" : option.name,
-                              systemImage: entry == quality.selected ? "checkmark" : "")
-                    }
-                }
-            } label: {
-                Text(quality.name.isEmpty ? "畫質" : quality.name)
-                    .font(.footnote.weight(.semibold))
-                    .lineLimit(1)
-                    .frame(maxWidth: 80, minHeight: 36)
-            }
-            .accessibilityLabel("畫質：\(quality.name)")
-        }
-    }
-
-    /// IOS-POC-17. The label is the engine playing now; choosing changes this session only and
-    /// carries the position, speed, target and episode across. An engine that is not offered yet
-    /// is listed but cannot be picked, so nobody lands on a black screen.
-    private var engineMenu: some View {
-        Menu {
-            ForEach(PlaybackEngineKind.allCases, id: \.self) { kind in
-                Button {
-                    interacted()
-                    selectEngine(kind)
-                } label: {
-                    Label(isAvailable(kind) ? kind.displayName : "\(kind.displayName)（尚未開放）",
-                          systemImage: kind == engine ? "checkmark" : "")
-                }
-                .disabled(!isAvailable(kind))
-            }
-        } label: {
-            Text(engine.shortName)
-                .font(.footnote.weight(.semibold))
-                .frame(minWidth: 36, minHeight: 36)
-        }
-        .accessibilityLabel("播放器：\(engine.displayName)")
-    }
-
-    /// Subtitles and audio. Shown only when the media actually offers a choice — a menu with one
-    /// entry decides nothing, which is the rule IOS-POC-5Q's quality menu followed.
-    @ViewBuilder
-    private func mediaMenu(_ name: String, systemImage: String,
-                           selection: MediaSelection.Track?) -> some View {
-        if let selection, selection.options.count > 1 {
-            Menu {
-                ForEach(Array(selection.options.enumerated()), id: \.offset) { _, option in
-                    Button {
-                        interacted()
-                        session.player.currentItem?.select(option.option, in: selection.group)
-                        mediaChanged()
-                    } label: {
-                        Label(option.name,
-                              systemImage: option.option == selection.selected ? "checkmark" : "")
-                    }
-                }
-            } label: {
-                Image(systemName: systemImage).font(.system(size: 17)).frame(width: 36, height: 36)
-            }
-            .accessibilityLabel(name)
-        }
-    }
-
-    /// One opening/ending control, carrying Android's four operations. `mark` reads the live
-    /// position from the session, because a SwiftUI body is evaluated when the layout needs it
-    /// rather than when the viewer taps.
-    private func skipMenu(_ name: String, offset: KeyPath<WatchHistory, Double>,
-                          mark: @escaping () -> Void,
-                          apply: @escaping (Double) -> Void) -> some View {
+    /// The opening or ending capsule, which opens its panel. The capsule stays its drawn size; the
+    /// touch area reaches 10 pt above and below it, 44 pt in all, without moving the scrubber.
+    private func skipButton(_ target: PlayerPanel, offset: KeyPath<WatchHistory, Double>) -> some View {
         let current = watching?[keyPath: offset] ?? 0
-        return Menu {
-            Button("設為目前位置") { interacted(); mark(); skipEdited() }
-            Button("+1 秒") { interacted(); apply(current + 1000); skipEdited() }
-            Button("−1 秒") { interacted(); apply(current - 1000); skipEdited() }
-            if current > 0 {
-                Button("清除", role: .destructive) { interacted(); apply(0); skipEdited() }
-            }
-        } label: {
-            Text(current > 0 ? "\(name) \(PlayerView.clock(current / 1000))" : name)
+        return Button { toggle(target) } label: {
+            Text(current > 0 ? "\(target.title) \(PlayerView.clock(current / 1000))" : target.title)
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
-                .background(.white.opacity(0.18), in: Capsule())
+                .background(.white.opacity(panel == target ? 0.32 : 0.18), in: Capsule())
+                // Taller only: widening it too would hand the gap between the two capsules to
+                // whichever is drawn last.
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
         }
-        .accessibilityLabel(name)
-        .accessibilityValue(current > 0 ? PlayerView.clock(current / 1000) : "未設定")
+        // The 10 pt above and below are touch area, not layout: the row keeps the capsule's height.
+        .padding(.vertical, -10)
+        .accessibilityLabel(target.title)
+        .accessibilityValue(PlayerView.skipLabel(current))
+        .accessibilityAddTraits(panel == target ? .isSelected : [])
+        .accessibilityFocused($barFocus, equals: target)
+    }
+
+    // MARK: Panels (IOS-POC-16B)
+
+    /// Where the open panel goes: a sheet from the bottom in portrait, a drawer on the trailing side
+    /// in landscape — `PlayerPanelPlacement` decides, from the safe area this bar is laid out in.
+    ///
+    /// One view whose frame and alignment change with the placement, not one view per placement, so
+    /// rotating with a panel open moves it instead of tearing it down and rebuilding it.
+    private var panelHost: some View {
+        GeometryReader { proxy in
+            let placement = PlayerPanelPlacement.placement(in: proxy.size)
+            let trailing: Double? = if case .trailing(let width) = placement { width } else { nil }
+            let limit: Double = switch placement {
+            case .bottom(let maxHeight, _): maxHeight
+            case .trailing: max(Double(proxy.size.height - Self.topRowHeight) - 10, 0)
+            }
+            let clearance: Double = if case .bottom(_, let clearance) = placement { clearance } else { 0 }
+            ZStack {
+                if let panel {
+                    // The header is one 48 pt row plus its divider; the rows get the rest.
+                    panelCard(panel, trailing: trailing != nil,
+                              rowsLimit: max(CGFloat(limit) - Self.hitTarget - 1, Self.hitTarget * 2))
+                        .frame(width: trailing.map { CGFloat($0) })
+                        .transition(reduceMotion
+                                    ? .opacity
+                                    : .move(edge: trailing != nil ? .trailing : .bottom)
+                                        .combined(with: .opacity))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity,
+                   alignment: trailing != nil ? .topTrailing : .bottom)
+            .padding(.top, trailing != nil ? Self.topRowHeight : 0)
+            .padding(.bottom, CGFloat(clearance))
+            // Scoped to the panel, not to the quarter-second values redrawing around it.
+            .animation(.easeOut(duration: 0.2), value: panel)
+        }
+    }
+
+    /// The card: a header, then the rows. Short lists size to their content; long ones — seven
+    /// speeds, a source's qualities, a large text size — scroll inside `rowsLimit`.
+    ///
+    /// The rows are measured and the scroll view is given a definite height — the rows' own, or
+    /// the room there is, whichever is less. Both `ViewThatFits` and a `fixedSize` card were tried
+    /// first and each left the scroll view sized to all of its content, drawn past the bottom of
+    /// the sheet (seen on the simulator), so the height is stated rather than negotiated.
+    private func panelCard(_ panel: PlayerPanel, trailing: Bool, rowsLimit: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Text(panel.title)
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityFocused($panelFocused)
+                Spacer()
+                Button(action: dismissPanel) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .playerHitTarget()
+                }
+                .accessibilityLabel("關閉\(panel.title)")
+            }
+            .padding(.leading, 20)
+            .padding(.trailing, 6)
+            // The header's height is what `rowsLimit` subtracts; past this size it would outgrow it.
+            .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+            Divider().overlay(.white.opacity(0.2))
+            ScrollView {
+                panelRows(panel)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { rowsHeight = $0 }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(height: rowsHeight > 0 ? min(rowsHeight, rowsLimit) : rowsLimit)
+            // A different panel starts at its own top, not at the last one's scroll offset.
+            .id(panel)
+        }
+        .foregroundStyle(.white)
+        .background {
+            // A drawer is attached to the trailing edge and a sheet to the bottom one, so each
+            // rounds only the corners that face the picture and runs out under the edge it sits on.
+            // Opaque: the bar's own controls are underneath and must not read through.
+            let corner: CGFloat = 16
+            (trailing
+             ? UnevenRoundedRectangle(topLeadingRadius: corner, bottomLeadingRadius: corner)
+             : UnevenRoundedRectangle(topLeadingRadius: corner, topTrailingRadius: corner))
+                .fill(Color(white: 0.08))
+                .ignoresSafeArea(edges: trailing ? .trailing : .bottom)
+        }
+        // The gaps between rows belong to the panel: a tap there must not fall through to the tap
+        // surface underneath and close it.
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+        .accessibilityAction(.escape) { dismissPanel() }
+        .onAppear { panelFocused = true }
+    }
+
+    private func panelRows(_ panel: PlayerPanel) -> some View {
+        VStack(spacing: 0) {
+            switch panel {
+            case .speed:
+                ForEach(Self.speeds, id: \.self) { speed in
+                    choiceRow(speed == 1 ? "正常" : Self.label(speed), selected: rate == speed,
+                              spoken: speed == 1 ? nil : Self.spoken(speed)) {
+                        session.setRate(speed)
+                    }
+                }
+            case .quality:
+                if let quality = session.quality {
+                    ForEach(Array(quality.qualities.enumerated()), id: \.offset) { entry, option in
+                        choiceRow(option.name.isEmpty ? "畫質 \(entry + 1)" : option.name,
+                                  selected: entry == quality.selected) {
+                            session.selectQuality(entry)
+                        }
+                    }
+                }
+            case .engine:
+                // An engine that is not offered is listed but cannot be picked, so nobody lands on
+                // a black screen.
+                ForEach(PlaybackEngineKind.allCases, id: \.self) { kind in
+                    choiceRow(isAvailable(kind) ? kind.displayName : "\(kind.displayName)（尚未開放）",
+                              selected: kind == engine, enabled: isAvailable(kind)) {
+                        selectEngine(kind)
+                    }
+                }
+            case .subtitle:
+                trackRows(media.legible)
+            case .audio:
+                trackRows(media.audible)
+            case .opening:
+                skipControls(offset: \.openingOffset, mark: session.markOpening,
+                             apply: session.setOpening)
+            case .ending:
+                skipControls(offset: \.endingOffset, mark: session.markEnding,
+                             apply: session.setEnding)
+            }
+        }
+    }
+
+    /// One full-width single-choice row. Choosing applies and closes the panel.
+    private func choiceRow(_ title: String, selected: Bool, enabled: Bool = true, spoken: String? = nil,
+                           action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            dismissPanel()
+        } label: {
+            HStack(spacing: 12) {
+                Text(title).frame(maxWidth: .infinity, alignment: .leading)
+                // Always laid out, only shown when selected, so the titles do not shift.
+                Image(systemName: "checkmark")
+                    .font(.body.weight(.semibold))
+                    .opacity(selected ? 1 : 0)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, 20)
+            // A minimum, not a height: a larger text size makes the row taller.
+            .frame(maxWidth: .infinity, minHeight: Self.hitTarget)
+            .contentShape(Rectangle())
+        }
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.45)
+        .accessibilityLabel(spoken ?? title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// Subtitles and audio, from the selection loaded when the panel opened.
+    @ViewBuilder
+    private func trackRows(_ track: MediaSelection.Track?) -> some View {
+        if let track {
+            ForEach(Array(track.options.enumerated()), id: \.offset) { _, option in
+                choiceRow(option.name, selected: option.option == track.selected) {
+                    session.player.currentItem?.select(option.option, in: track.group)
+                    mediaChanged()
+                }
+            }
+        }
+    }
+
+    /// The opening or ending: what it is set to now, then Android's four operations. It stays open
+    /// — ±1 s is meant to be pressed more than once.
+    ///
+    /// `mark` reads the live position from the session, because a SwiftUI body is evaluated when the
+    /// layout needs it rather than when the viewer taps, and ±1 s reads the session's record for the
+    /// same reason.
+    private func skipControls(offset: KeyPath<WatchHistory, Double>,
+                              mark: @escaping () -> Void,
+                              apply: @escaping (Double) -> Void) -> some View {
+        let current = watching?[keyPath: offset] ?? 0
+        // The value the session kept — the clamp and Android's markable window can both keep a
+        // different one — refreshed on screen and spoken, since the focused button is not the label.
+        let edited = {
+            skipEdited()
+            AccessibilityNotification.Announcement(
+                "目前：\(PlayerView.skipLabel(session.record?[keyPath: offset] ?? 0))").post()
+        }
+        let nudge = { (delta: Double) in
+            apply((session.record?[keyPath: offset] ?? 0) + delta)
+            edited()
+        }
+        return VStack(spacing: 10) {
+            Text("目前：\(PlayerView.skipLabel(current))")
+                .font(.subheadline.monospacedDigit())
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                skipAction("−1 秒") { nudge(-1000) }
+                skipAction("設為目前位置") { mark(); edited() }
+                skipAction("＋1 秒") { nudge(1000) }
+            }
+            // Disabled rather than hidden, so the panel does not reflow when it is set.
+            skipAction("清除") { apply(0); edited() }
+                .disabled(current <= 0)
+                .opacity(current > 0 ? 1 : 0.45)
+        }
+        .padding(16)
+    }
+
+    private func skipAction(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, minHeight: Self.hitTarget)
+                .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
+                .contentShape(Rectangle())
+        }
+    }
+}
+
+private extension View {
+    /// IOS-POC-16B: a control's touch area, not its drawing — at least 48 × 48 around whatever the
+    /// label draws.
+    func playerHitTarget() -> some View {
+        frame(minWidth: PlayerControlBar.hitTarget, minHeight: PlayerControlBar.hitTarget)
+            .contentShape(Rectangle())
     }
 }
 
@@ -2727,7 +2941,8 @@ private struct PlaybackSlider: View {
     let onCommit: (Double) -> Void
 
     private static let track: CGFloat = 5
-    /// The bar is thin; the gesture must not be. 24 pt of height is touchable, the paint is 5.
+    /// The bar is thin; the gesture must not be. The control bar gives it 44 pt of height (IOS-POC-16B);
+    /// the paint is 5.
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
@@ -2766,26 +2981,48 @@ private struct PlaybackSlider: View {
 
 /// `AVRoutePickerView` is the AirPlay control; there is nothing to reimplement around it.
 ///
-/// It is pinned to a fixed size on the UIKit side as well as in SwiftUI. A `UIViewRepresentable`
-/// whose view has no intrinsic content size lets SwiftUI propose whatever is going, and one greedy
-/// child is enough to change how the whole row — and the stack around it — lays out.
+/// It draws at 36 pt and answers a 48 pt square (IOS-POC-16B). A SwiftUI `contentShape` cannot
+/// enlarge a UIKit view's touch area, and whether the picker scales its glyph with its bounds was
+/// not measured — so the picker keeps its 36 pt bounds and a 48 pt host hands it every touch that
+/// lands inside the host. The picker's own button still decides what a tap is; a touch a few points
+/// outside it is well within the slop UIKit already allows a button.
+///
+/// `sizeThatFits` fixes the host at `PlayerControlBar.hitTarget` square whatever SwiftUI proposes:
+/// the host has no intrinsic content size, and one greedy child is enough to change how the whole
+/// row — and the stack around it — lays out.
 private struct RoutePickerButton: UIViewRepresentable {
-    func makeUIView(context: Context) -> AVRoutePickerView {
-        let view = AVRoutePickerView()
-        view.tintColor = .white
-        view.activeTintColor = .white
-        view.setContentHuggingPriority(.required, for: .horizontal)
-        view.setContentHuggingPriority(.required, for: .vertical)
-        view.setContentCompressionResistancePriority(.required, for: .horizontal)
-        view.setContentCompressionResistancePriority(.required, for: .vertical)
-        return view
+    final class Host: UIView {
+        private let picker = AVRoutePickerView()
+        private static let glyph: CGFloat = 36
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            picker.tintColor = .white
+            picker.activeTintColor = .white
+            addSubview(picker)
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            picker.frame = CGRect(x: (bounds.width - Self.glyph) / 2, y: (bounds.height - Self.glyph) / 2,
+                                  width: Self.glyph, height: Self.glyph)
+        }
+
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            // UIKit's own answer first, so a hidden, transparent or disabled host takes nothing.
+            guard super.hitTest(point, with: event) != nil else { return nil }
+            return picker.hitTest(CGPoint(x: picker.bounds.midX, y: picker.bounds.midY), with: event)
+        }
     }
 
-    func updateUIView(_ view: AVRoutePickerView, context: Context) {}
+    func makeUIView(context: Context) -> Host { Host() }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: AVRoutePickerView,
-                      context: Context) -> CGSize? {
-        CGSize(width: 36, height: 36)
+    func updateUIView(_ view: Host, context: Context) {}
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: Host, context: Context) -> CGSize? {
+        CGSize(width: PlayerControlBar.hitTarget, height: PlayerControlBar.hitTarget)
     }
 }
 
@@ -2976,14 +3213,17 @@ private struct PlayerView: View {
     /// a plain class every other screen drives imperatively; making it observable so two capsules
     /// could redraw would put a dependency on every one of those callers.
     @State private var watching: WatchHistory?
-    /// IOS-POC-16: **our** control-bar visibility, not a guess at AVKit's.
+    /// IOS-POC-16: **our** control-bar visibility, not a guess at AVKit's — and since IOS-POC-16B,
+    /// which of its panels is open.
     ///
     /// IOS-POC-10A tried to track AVKit's bar and could not — the delegate method it used is not a
     /// member of `AVPlayerViewControllerDelegate` on any platform, so it was never called and the
-    /// button it faded sat on the video forever. Now AVKit draws no bar, this flag is the only
-    /// truth there is, and nothing can fall out of phase with it.
-    @State private var controlsVisible = true
+    /// button it faded sat on the video forever. Now AVKit draws no bar, this is the only truth
+    /// there is, and nothing can fall out of phase with it.
+    @State private var chrome = PlayerChrome()
     @State private var hideTimer: Task<Void, Never>?
+    /// A VoiceOver user moves through the bar one element at a time; it must not fade under them.
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     /// Seconds, from the periodic observer.
     @State private var position: Double = 0
     @State private var duration: Double = 0
@@ -3059,7 +3299,7 @@ private struct PlayerView: View {
             // and gets the tap first, which is a placement rather than a gesture-priority fight.
             Color.clear
                 .contentShape(Rectangle())
-                .onTapGesture { toggleControls() }
+                .onTapGesture { chrome.tapBackground() }
         }
         .overlay {
             PlayerControlBar(
@@ -3068,25 +3308,25 @@ private struct PlayerView: View {
                 engine: engineKind,
                 isAvailable: { session.isEngineAvailable($0) },
                 selectEngine: { session.selectEngine($0) },
+                panel: chrome.panel,
+                toggle: { panel in
+                    chrome.toggle(panel)
+                    // Read when the panel opens rather than trusted from when the player opened:
+                    // the next episode is a new item with its own groups, and selecting an option
+                    // of the previous item's group would change nothing.
+                    if chrome.panel == .subtitle || chrome.panel == .audio { reloadMedia() }
+                },
+                dismissPanel: { chrome.dismissPanel() },
                 interacted: { scheduleHide() },
-                skipEdited: {
-                    watching = session.record
-                    // The clamp and Android's markable window can both answer with a different
-                    // number than the one asked for, so say what was actually kept.
-                    if let watching {
-                        flashHUD("片頭 \(Self.skipLabel(watching.openingOffset))"
-                                 + "  片尾 \(Self.skipLabel(watching.endingOffset))")
-                    }
-                },
-                mediaChanged: {
-                    Task { media = await MediaSelection.load(from: session.player.currentItem) }
-                },
+                // The panel shows the value the session actually kept, so no readout is flashed.
+                skipEdited: { watching = session.record },
+                mediaChanged: { reloadMedia() },
                 close: { dismiss() }
             )
-            .opacity(controlsVisible ? 1 : 0)
+            .opacity(chrome.controlsVisible ? 1 : 0)
             // Gone means gone: a hidden bar must not eat the tap that brings it back.
-            .allowsHitTesting(controlsVisible)
-            .animation(.easeInOut(duration: 0.25), value: controlsVisible)
+            .allowsHitTesting(chrome.controlsVisible)
+            .animation(.easeInOut(duration: 0.25), value: chrome.controlsVisible)
         }
         // IOS-POC-10J. `simultaneousGesture` again, for the reason IOS-POC-10A2 found: AVKit's
         // recognisers live in the UIKit view underneath and a plain SwiftUI gesture loses to
@@ -3099,6 +3339,12 @@ private struct PlayerView: View {
                 .onEnded { move in dragEnded(move) }
         )
         .statusBarHidden()
+        // IOS-POC-16B. Every change to the bar or its panels restarts the countdown — or stops it,
+        // when a panel has just opened. One place, so no path can open or close a panel and forget.
+        .onChange(of: chrome) { scheduleHide() }
+        // The tap that brings a hidden bar back is not something VoiceOver can reach, so turning it
+        // on brings the bar back instead.
+        .onChange(of: voiceOver) { if voiceOver { chrome.show() } }
         // Closing the screen pauses rather than tears down, so a page can read the position it
         // reached and resume it with player.control.
         .onDisappear {
@@ -3125,8 +3371,11 @@ private struct PlayerView: View {
             session.onEngineChange = { kind in
                 engineKind = kind
                 failure = nil
+                // What an open panel offers belongs to the engine that was playing (MPV has no
+                // track selection), so it closes rather than offering choices that no longer apply.
+                chrome.dismissPanel()
                 startObserving()
-                Task { media = await MediaSelection.load(from: session.player.currentItem) }
+                reloadMedia()
             }
             session.onFailure = { failure = $0.message }
             startObserving()
@@ -3196,30 +3445,43 @@ private struct PlayerView: View {
         engineTicker = nil
     }
 
-    private func toggleControls() {
-        controlsVisible.toggle()
-        if controlsVisible { scheduleHide() } else { hideTimer?.cancel() }
+    private func reloadMedia() {
+        Task {
+            media = await MediaSelection.load(from: session.player.currentItem)
+            // The item may have changed under an open track panel and offer no choice any more; a
+            // panel with nothing in it closes, the way its button disappears.
+            let track = chrome.panel == .subtitle ? media.legible : chrome.panel == .audio ? media.audible : nil
+            if chrome.panel == .subtitle || chrome.panel == .audio, (track?.options.count ?? 0) < 2 {
+                chrome.dismissPanel()
+            }
+        }
     }
 
     /// Five seconds, restarted by every interaction — close to AVKit's own, and now ours to state
     /// rather than to guess at. The longer end of the usual 3–5 s because the close button lives in
     /// this bar and is the only way out of the player.
     ///
-    /// **A paused player keeps its bar.** Hiding the controls of something that is not moving
-    /// leaves a still frame with no way to tell it is paused.
+    /// **It only counts while no panel is open** (IOS-POC-16B): a panel stops it, and closing one
+    /// starts a fresh five seconds. **A paused player keeps its bar**, and so does a VoiceOver user.
     private func scheduleHide() {
-        controlsVisible = true
         hideTimer?.cancel()
+        guard chrome.autoHideArmed else { return }
         hideTimer = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(5))
-            guard !Task.isCancelled, session.isPlaying else { return }
-            controlsVisible = false
+            try? await Task.sleep(for: .seconds(PlayerChrome.autoHideSeconds))
+            // Read when the timer fires, not when it was set: VoiceOver can have been switched on in
+            // the five seconds between.
+            guard !Task.isCancelled, !UIAccessibility.isVoiceOverRunning else { return }
+            chrome.autoHideFired(isPlaying: session.isPlaying)
         }
     }
 
     // MARK: - IOS-POC-10J gestures
 
     private func dragChanged(_ move: DragGesture.Value) {
+        // A scroll inside an open panel is not a seek, volume or brightness drag (IOS-POC-16B).
+        // Refused here rather than by switching the gesture off: changing a gesture's mask mid-drag
+        // cancels it without `onEnded`, which would strand `drag` and the readout.
+        if drag == nil, chrome.panel != nil { return }
         let kind = drag ?? classify(move)
         if drag == nil {
             drag = kind
@@ -3258,8 +3520,7 @@ private struct PlayerView: View {
 
     /// Shows a readout, or leaves the one already up, and takes it away a moment later. Vanishing
     /// the instant the finger lifts reads as a glitch rather than a confirmation.
-    private func flashHUD(_ text: String? = nil) {
-        if let text { hud = text }
+    private func flashHUD() {
         let shown = hud
         Task {
             try? await Task.sleep(for: .seconds(0.6))
@@ -3294,9 +3555,9 @@ private struct PlayerView: View {
         return "\(Self.clock(target))  \(sign)\(Int(abs(delta).rounded()))s"
     }
 
-    /// An opening or ending for the readout: a clock, or plainly unset. Zero is not `0:00` here —
-    /// `0:00` reads like a value somebody chose.
-    private static func skipLabel(_ milliseconds: Double) -> String {
+    /// An opening or ending for the panel and VoiceOver: a clock, or plainly unset. Zero is not
+    /// `0:00` here — `0:00` reads like a value somebody chose.
+    static func skipLabel(_ milliseconds: Double) -> String {
         milliseconds > 0 ? clock(milliseconds / 1000) : "未設定"
     }
 

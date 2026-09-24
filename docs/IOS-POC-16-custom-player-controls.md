@@ -1,6 +1,9 @@
 # IOS-POC-16 — 自建播放控制列
 
-- 狀態：**方案 C 已實作。控制列本身已在模擬器上目視確認渲染正確**（截圖為證，見第十節），
+- 狀態（**2026-09-24 更新，IOS-POC-16B**）：七個二級選單（速度、畫質、播放器、字幕、音軌、片頭、片尾）
+  **已從 SwiftUI `Menu` 改為控制列自己畫的 panel**，panel 開著時不自動隱藏；模擬器直向實操通過、
+  **橫向 drawer 與真機未驗**。見第十之一節。下面是 2026-09-23 的方案 C 狀態：
+- 方案 C：**已實作。控制列本身已在模擬器上目視確認渲染正確**（截圖為證，見第十節），
   **但互動逐項測試沒有完成**——工具來回比自動隱藏視窗還長，做不到。使用者 2026-09-23 接手 UI 測試。
 - **已隨 `0.1.6 (7)` 發布**（tag `ios-v0.1.6-b7`，2026-09-23），含後續三項修正：
   速度選單改為 `0.5 / 1 / 1.25 / 1.5 / 2 / 2.5 / 3`、標籤去除多餘小數、
@@ -295,6 +298,123 @@ cp wang-movie.json "$DATA/Library/Application Support/wang-movie.json"
 xcrun simctl launch <udid> com.webhtv.ios.poc
 ```
 
+## 十之一、IOS-POC-16B — 二級選單改為自有 panel（2026-09-24）
+
+- 起因：使用者真機回報——播放速度、畫質、播放器、字幕、音軌、片頭／片尾的 SwiftUI `Menu` **很難點、會閃爍**，
+  而且可能在選單開著時因為控制列自動隱藏而失去 anchor。
+- 基線 HEAD `dde455ba`（= `origin/ios-poc`，`git fetch` 後 `0 0`，worktree clean）；Lane `standard`；
+  task guard `IOS-POC-16B-player-panels`。
+- 授權：使用者 2026-09-24 明確指示本輪修正與做法（下面「使用者規格」），並要求不要每步停下來確認。
+
+### 根因（對著程式讀出來，不是猜）
+
+1. `PlayerView` 每 0.25 秒更新 position／buffer／rate／engine（`addPeriodicTimeObserver`，MPV 用同頻 ticker），
+   整個 body 重算；SwiftUI `Menu` 的內容在開啟中被重建 → 閃爍、點擊落空。
+2. 5 秒自動隱藏把 `controlsVisible` 設成 false → 控制列 `.opacity(0)`＋`.allowsHitTesting(false)`；
+   **`Menu` 沒有任何「開啟／關閉」回呼**，所以倒數無法在選單開著時暫停，選單的 anchor 跟著控制列一起消失。
+3. 舊選單的未選項目用 `Label(systemImage: "")`：空 symbol 名稱是無效的，VoiceOver 也讀不到「已選取」。
+
+### 使用者規格（原樣收斂）
+
+AVPlayer／MPV 共用一套 panel 狀態；speed／quality／engine／subtitle／audio／opening／ending 全部改成自有 panel，
+同時只能開一個；panel 開啟時取消 hideTimer 並保持 `controlsVisible = true`，關閉後才重新 5 秒倒數；
+所有控制的實際觸控範圍 ≥44×44（建議 48×48），視覺大小不變；直向底部 sheet；橫向右側 compact drawer
+260～320 pt、保留大部分影片，寬度不足再退化成低高度底部 panel 且不得遮住字幕主要區域；
+倍速／畫質／播放器／字幕／音軌用整列大按鈕單選、選完即關；片頭／片尾用專用 panel：目前設定、−1 秒、
+設為目前位置、＋1 秒、清除；不改 `PlaybackSession`／`PlayerRouter` 的雙核心責任分層。
+
+### 設計研究（AGENTS §7）
+
+這是 UI 狀態與版面，不涉及上游、相依、播放管線或 engine 契約；比較的是本 repo 內可行的三條路：
+
+| 方案 | 內容 | 結論 |
+|---|---|---|
+| A 不改 | 繼續用 `Menu` | 使用者回報的缺陷原封不動，否決 |
+| B 只補倍速 | 例如在倍速 `Menu` 外面加 workaround 延長倒數 | `Menu` 沒有開關回呼，任何 workaround 都只能猜；使用者明確要求不要只修倍速，否決 |
+| **C 自有 panel（採用）** | core 純狀態 `PlayerChrome`＋`PlayerPanelPlacement`，控制列自己畫 panel | 「panel 開著」變成我們擁有的狀態，倒數可以真正停下；可用 `swift test` 驗規則 |
+
+SwiftUI 的系統 `.sheet` 也不採用：它在 fullScreenCover 上再疊一層、橫向會變成全寬，做不出使用者要的右側 drawer，
+而且同樣不能保證與控制列倒數的關係。
+
+### Ponytail pre-review（實作前；獨立 reviewer＋SwiftUI 風險 reviewer，2026-09-24）
+
+採納並已反映在實作：
+- placement 只留兩種（`bottom`／`trailing`），窄寬退化只是 `bottom` 的另一組數字；
+- 不新增獨立的 panel view 型別重抄控制列參數，panel 由 `PlayerControlBar` 自己畫；
+- 倒數只在一處重算：`.onChange(of: chrome) { scheduleHide() }`；
+- 用全螢幕置中 16:9 的 letterbox 算 sheet 高度，拿掉會蓋到 iPhone SE 影片下緣的 240 pt 下限；
+- ScrollView 捲動時，全畫面的 seek／音量／亮度拖曳手勢必須不動作——以 `dragChanged` 內的 guard 實作，
+  **不用**切換 gesture mask（mask 在拖曳中改變會取消手勢而不呼叫 `onEnded`，`drag`／HUD 會卡住）；
+- landscape drawer 從頂列下方開始，讓開／換／關 panel 的按鈕在橫向仍可點；
+- AirPlay 是 UIKit 元件，SwiftUI `contentShape` 放不大它的觸控範圍 → 48 pt host 轉發觸控給 36 pt 的 picker；
+- 換 engine（含自動 fallback）時關閉 panel；開字幕／音軌 panel 時重讀 `MediaSelection`（下一集是新 item）；
+- VoiceOver：panel `isModal`、escape 手勢關閉、焦點移到 panel 標題、選取列 `isSelected`、標題 `isHeader`；
+  VoiceOver 開著時控制列不自動隱藏。
+
+刻意不做（已記錄）：依影片實際比例（`presentationSize`）定位 sheet——以 `ponytail:` 註記 16:9 假設與升級路徑。
+
+### 實作
+
+| 位置 | 內容 |
+|---|---|
+| `ios/Sources/WebHTVCore/PlayerChrome.swift`（新） | `PlayerPanel`（七種）、`PlayerChrome`（`controlsVisible`、`panel`、`toggle`、`dismissPanel`、`tapBackground`、`autoHideArmed`、`autoHideFired(isPlaying:)`、`autoHideSeconds = 5`）、`PlayerPanelPlacement.placement(in:)` |
+| `PlayerControlBar`（`WebHTVApp.swift`） | 七個 `Menu` 全部改為按鈕＋自有 panel；panel 畫在控制列的 overlay（padding 之後，所以橫跨整個 safe area）；直向 sheet 貼底、橫向 drawer 貼右且從頂列下方開始；卡片不透明；列內容量測後給 ScrollView 明確高度（短清單＝短卡片、長清單捲動）；選項列整列 48 pt、選完即關；片頭／片尾 panel 不關，±1 秒讀 session 的即時 record |
+| 觸控範圍 | 頂列與 ±10 秒按鈕 48×48（間距縮成 6／36 pt，字形中心位置不變）；播放鍵 52×52；進度條 44 pt 高（仍畫 5 pt）；片頭／片尾膠囊**只加高**（label 內上下各 10 pt padding＋`contentShape`，外面用 −10 pt padding 抵銷版面），約 46 pt 高、寬度本來就 ≥44，不推動進度條、兩個膠囊之間的空隙也不會被後畫的那個吃掉；panel 內每列／每鍵 ≥48 pt；AirPlay 48 pt host |
+| `PlayerView` | `@State chrome` 取代 `controlsVisible`；`scheduleHide` 只在 `chrome.autoHideArmed` 時計時，觸發當下再讀 `UIAccessibility.isVoiceOverRunning`；點畫面＝`tapBackground()`（有 panel 先關 panel）；VoiceOver 被打開時 `chrome.show()`；`onEngineChange` 關 panel；拖曳手勢在 panel 開著時不開始新拖曳；片頭／片尾編輯不再閃 HUD（panel 自己顯示保留下來的值，並以 VoiceOver announcement 念出） |
+| 無障礙 | panel 關閉時 VoiceOver 焦點回到開啟它的按鈕（`@AccessibilityFocusState` + `onChange(of: panel)`，涵蓋選項、X、escape、點畫面、換 engine 各種關法）；倍速念成「1.25 倍」而不是「1.25 乘」；字幕／音軌按鈕的 value 是目前選的軌；panel 標題列與頂列的 Dynamic Type 上限 `accessibility2`（它們的高度是 `rowsLimit`／drawer 起點的計算依據） |
+
+`PlaybackSession`／`PlayerRouter`／`AVPlayerEngine`／`MPVEngine` **一行未改**；所有選擇仍呼叫原本的
+`setRate`（同時寫 `chosenRate`）、`selectQuality`、`selectEngine`、`select(_:in:)`、`markOpening`／`setOpening`／
+`markEnding`／`setEnding`。
+
+### 驗證
+
+| 檢查 | 結果 | 等級 |
+|---|---|---|
+| `swift test --filter PlayerChromeTests` | **9／9 通過**（panel 開著不隱藏、同時只一個、同鍵關閉、點畫面先關 panel、暫停不隱藏、panel 不會出現在隱藏的控制列上、直向 sheet 不高於 16:9 下方 letterbox、橫向 260～320、窄橫向退化且避開字幕帶） | macOS |
+| 全套 `WANG_MOVIE_JSON=<config> swift test --package-path ios` | **335 條、334 通過**（基線 326／325 ＋ 9）；唯一失敗是既有 provider 天氣測試 `reportsLiveType4SitesFromProvidedConfig` | macOS |
+| Simulator Debug build（`7B4E9557-…`，iPhone 17 Pro，iOS 26.3） | **BUILD SUCCEEDED**；`WebHTVApp.swift` 只有既有 7 條 warning（`deviceInfo()` 6 條、`evaluateJavaScript` 1 條），無新增 | 模擬器 |
+| 模擬器實操（荐片《欢迎来龙餐馆》TC国语；安裝的 binary 與 DerivedData 產物 SHA-1 相同） | 直向：倍速 sheet 出現、7 檔可捲、選 2× 即套用並關閉、控制列保留；片頭 panel 顯示「目前：未設定」、＋1 秒後變 00:01 且 panel 不關、清除可用；播放器 panel 依內容縮成兩列、影片字幕在 sheet 上方未被遮；從 panel 切 MPV：標籤變 MPV、2× 保留、AirPlay 隱藏、panel 關閉；MPV 下同一個倍速 panel（2× 打勾）；點影片關閉 panel；X 仍能關閉播放器 | **模擬器，不是真機** |
+| 倒數接線（暫時把倒數改成 8 秒，測完還原為 5 秒並重建） | panel 開著超過 20 秒，控制列與 panel 都在、影片持續播放；關閉 panel 後約 8 秒控制列自動隱藏 | 模擬器 |
+| 審查修正後複驗（暫時 60 秒倒數） | 膠囊版面位置不變；點在「片尾」膠囊上緣外約 7 pt 處仍開啟片尾 panel；卡片完全不透明 | 模擬器 |
+
+實作過程中模擬器抓到並修掉兩個問題：卡片半透明（底下的 ±10／進度條透出來）→ 改為不透明；
+`ViewThatFits` 與 `fixedSize` 兩種寫法都讓 ScrollView 拿到「未指定」高度而撐開 → 改成量測列高並給明確高度。
+
+**工具限制**：模擬器控制工具一次來回約 5～10 秒，比 5 秒倒數長（IOS-POC-16 第十節同一個限制），
+所以互動測試時暫時把倒數改成 60 秒／8 秒；commit 的程式是 5 秒。
+
+### 沒有驗到的
+
+- **真機一次都沒有。**
+- **橫向 drawer 沒有目視**：這台機器沒有 Simulator.app，控制工具也沒有旋轉動作；只有 `PlayerPanelPlacement`
+  的單元測試。Dynamic Island 在左或右兩種橫向都要看。
+- AirPlay 放大的觸控邊緣是否真的觸發 picker（模擬器沒有 AirPlay 裝置）；glyph 是否維持 36 pt 的視覺需真機確認。
+- 字幕／音軌 panel：這次的來源都只有單軌，按鈕依規則不出現；畫質 panel：設定檔沒有多網址來源（IOS-POC-17E 記錄）。
+- VoiceOver 實際操作、Dynamic Type 大字級。
+
+### Ponytail final-diff 與獨立審查（2026-09-24，workflow：Ponytail／正確性回歸／無障礙三個 reviewer，每條 finding 再由獨立 agent 嘗試反駁）
+
+- **Ponytail**：沒有 debug 殘留（倒數為 5、沒有 TEMP 標記、沒有 `print`），每個新型別與方法都有呼叫端。
+  採納三條並已刪改：`panelButton` 的 `label:` 參數永遠等於 `PlayerPanel.title` → 刪除；`PlayerPanel` 未用到的
+  `String`／`CaseIterable`／`Hashable` 宣告 → 只留 `Sendable`（無關聯值的 enum 本來就是 `Hashable`）；
+  `RoutePickerButton` 註解描述了已刪除的 UIKit hugging 設定 → 改寫。被反駁而不改：panelHost 三次拆解 placement、
+  兩層註解略有重複。
+- **無障礙**：確認並修正「panel 關閉後 VoiceOver 焦點掉到畫面第一個元素」與「片頭尾 ±1 秒等操作沒有語音回報」；
+  另修四個小項（膠囊左右觸控區重疊、大字級超出計算高度、VoiceOver 開啟時叫回控制列並在計時觸發時才讀設定、
+  倍速「×」被念成「乘」與字幕／音軌按鈕沒有 value）。
+- **正確性回歸**：**沒有阻擋問題**。自動隱藏的每條路徑（開 panel 取消、各種關法重算 5 秒、點畫面隱藏時停止）、
+  「panel 開著控制列一定可見」的不變式、拖曳 guard、換 engine 關 panel、所有選擇與舊 `Menu` 同語意、
+  片頭尾四個操作、X、drawer 不會蓋到左上 X、Swift 6 併發都逐一確認。兩個小項已修：AirPlay host 的 `hitTest`
+  先過 `super.hitTest`（保留 UIKit 對隱藏／透明／停用的判斷，避免隱形控制列攔截觸控）；換集後重讀發現字幕／音軌
+  不足兩個選項時，開著的 panel 自動關閉而不是留下空白卡片。
+- 審查修正後重跑：`swift test` **335／334**（唯一失敗同上，天氣）、Simulator Debug build **BUILD SUCCEEDED**
+  （7 條既有 warning）。
+
+### 回滾
+
+單一 commit，`git revert` 即可；沒有資料格式、設定或 engine 契約改變。
+
 ## 十一、Recovery anchor
 
 - 目標：把 5S-2 的片頭／片尾控制從「永遠浮在影片上」移進一條自建控制列。
@@ -304,3 +424,6 @@ xcrun simctl launch <udid> com.webhtv.ios.poc
   `AVPlayerViewController` 無公開 start/stop PiP、`ContentSource` 在 iOS 只吃 `AVPlayerLayer`、
   `AVPlayerViewController` 不暴露 `playerLayer`、`showsPlaybackControls` 在 iOS 可用。
 - 下一步（唯一）：**使用者自己做 UI 功能測試**，清單見第十節「還沒驗的，交給使用者」。
+- **2026-09-24 IOS-POC-16B**：二級選單改為自有 panel（`PlayerChrome`／`PlayerPanelPlacement`）。
+  未驗：橫向 drawer（兩種橫向）、AirPlay 放大觸控邊緣、VoiceOver 實操、真機。下一步（唯一）：隨下一個
+  使用者授權的版本上機，依第十之一節「沒有驗到的」逐項回報。

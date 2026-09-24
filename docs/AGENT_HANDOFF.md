@@ -123,7 +123,11 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   `a076ab51`, `20c4bd53` and `616e182e` before, and a handoff arriving with **`035ad0bf` as "the
   latest on GitHub" was sixteen commits behind** — that commit is the roadmap-only one, an ancestor
   rather than the tip. Run `git log` and the `rev-list` above on resume instead of reading it here.
-- **Current release: `WebHTV 0.1.9 (10)`, published 2026-09-23** (tag `ios-v0.1.9-b10` → `8df71c12`,
+- **Current release: `WebHTV 0.1.10 (11)`, published 2026-09-24 at the user's instruction** (run
+  `35953397506`, tag `ios-v0.1.10-b11` → `5dadcd04`; `source.json` `d7a6e35e`, IPA 24,851,830 bytes,
+  SHA-256 `01ff7bb6…`, downloaded back and verified): `0.1.9 (10)` plus IOS-POC-16B, 15D and 17F
+  (the bullet below). **No device result yet.** Record: `docs/IOS-POC-11-sidestore-release.md` 第十一次發布.
+- **Previous release: `WebHTV 0.1.9 (10)`, published 2026-09-23** (tag `ios-v0.1.9-b10` → `8df71c12`,
   Task-Guard `IOS-POC-18-source-identity`, run `35874971373`; `source.json` `dde455ba`, IPA
   24,767,406 bytes, GitHub asset SHA-256 `46385529…`): `0.1.8 (9)` plus **IOS-POC-18** — object-ext
   sources (e.g. 靈虎) keep their site across relaunch, watch-history entries greyed out by source-ID
@@ -138,7 +142,7 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   IOS-POC-18; the one failure is the weather test). `0.1.7 (8)` and earlier are superseded. **No
   device result has been reported for `0.1.8 (9)` or `0.1.9 (10)` yet.** Everything below that says
   MPV is release-disabled or that the release is `0.1.7 (8)` is superseded by these two lines.
-- **Local commits after `0.1.9 (10)` — on `ios-poc`, not pushed, in no release (2026-09-24):**
+- **After `0.1.9 (10)` — pushed and shipped in `0.1.10 (11)` on 2026-09-24:**
   **IOS-POC-16B** `a5f2678e` — the control bar's seven second-level choices (speed, quality, engine,
   subtitles, audio, opening, ending) open panels the bar owns instead of SwiftUI `Menu`
   (`docs/IOS-POC-16-custom-player-controls.md` 第十之一節); **IOS-POC-15D** `6416c4d4` — the

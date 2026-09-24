@@ -32,7 +32,7 @@
 
 ## Recovery anchor
 
-- 狀態：完成，且已發過**十個**版本，最新是 `0.1.9 (10)`（見文末各次發布）。
+- 狀態：完成，且已發過**十一個**版本，最新是 `0.1.10 (11)`（見文末各次發布）。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
 - 發布結果：`WebHTV-0.1-1.ipa`，24,563,162 bytes，GitHub asset SHA-256 `fcbf1531d9480f678ee0fac7ec5ce49010f3de51fc11b79f0ba88372e85812ed`；IPA plist 為 `com.webhtv.ios.poc`、`0.1`、build `1`、minimum iOS `17.0`。
@@ -163,7 +163,7 @@ tag `ios-v0.1.8-b9`（workflow 建立，target `0a57d545`），workflow 推回 `
 
 ## 第十次發布：`0.1.9 (10)`（2026-09-23，**已發布**）
 
-**目前最新版是 `0.1.9 (10)`。** 前面九版都已被取代。
+**發布當時最新版是 `0.1.9 (10)`**（已被 `0.1.10 (11)` 取代，見第十一次發布）。前面九版都已被取代。
 
 - 內容：`0.1.8 (9)` 的全部，加上 IOS-POC-18 來源識別修正（commit `8df71c12`，Task-Guard
   `IOS-POC-18-source-identity`，版號 `0.1.9`／`10` 在同一個 commit）：靈虎等 object-ext 來源重開 App 後
@@ -176,4 +176,38 @@ tag `ios-v0.1.8-b9`（workflow 建立，target `0a57d545`），workflow 推回 `
   size 與 IPA 相同（2026-09-24 以 `gh release view` 與 `source.json` 重新核對）。
 - 驗證：commit 記錄 `swift test --package-path ios` PASS；2026-09-24 在 `dde455ba` 實測 **326／325**
   （唯一失敗是天氣測試 `reportsLiveType4SitesFromProvidedConfig`）。**真機驗收尚未回報。**
-- 之後的本機 commit（IOS-POC-16B、15D、17F）**都不在這一版裡**，也尚未發布。
+- 之後的 IOS-POC-16B、15D、17F **不在這一版裡**，已於 `0.1.10 (11)` 發布。
+
+## 第十一次發布：`0.1.10 (11)`（2026-09-24，**已發布**）
+
+**目前最新版是 `0.1.10 (11)`。** 前面十版都已被取代。
+
+- 授權：使用者 2026-09-24「push 上 git，然後發布新版本」。版號沿用 `0.1.x` 遞增（`0.1.10`，build `11`）。
+- 內容：`0.1.9 (10)` 的全部，加上 IOS-POC-16B `a5f2678e`（控制列二級選單改自有 panel）、IOS-POC-15D `6416c4d4`
+  （緩衝／預解析契約補缺口＋`os.Logger` 量測）、IOS-POC-17F `b37751d2`（播不出來就主動切換播放核心）。
+- 發布序列：版號 commit `5dadcd04`（`project.pbxproj` 兩處 `MARKETING_VERSION = 0.1.10`、`CURRENT_PROJECT_VERSION = 11`）
+  → push `dde455ba..5dadcd04` → `workflow_dispatch` run `35953397506`（`version=0.1.10`、`build_number=11`，
+  success，2026-09-24 03:54:30Z → 03:57:56Z）→ workflow 建 tag `ios-v0.1.10-b11`（target `5dadcd04`）並推回
+  `source.json`（`d7a6e35e`，共十一筆，第一筆 `0.1.10`、size 與 IPA 相同）。**沒有手動建 tag。**
+- 產物：`WebHTV-0.1.10-11.ipa` **24,851,830 bytes**，SHA-256
+  `01ff7bb60f230fbef8c77ed83fc8c32bd3c9e65316b0d3272e342367a9f205f0`（與 GitHub asset digest 相同）。
+  **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`Info.plist` 為 `com.webhtv.ios.poc` / `0.1.10` / build `11` /
+  minimum iOS `17.0`；主執行檔含 `PlayerChrome`（16B）、`prefetched address failed`（15D）、`startupTimedOut`、
+  `not started on`、`沒有網路連線`（17F）。
+- 發布前驗證：`swift test` 344／344（17F 後）；Simulator Debug build。**本機沒有另跑 iphoneos Release 預建置**——
+  workflow 的 Release device build 就是這一關，而且它成功了。**真機驗收尚未回報。**
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.10 (11)（未經真機驗收）
+
+新增
+- 播不出來時自動改用另一個播放器：遇到網路錯誤或無法辨識的錯誤，會換另一個播放器再試一次；目前的播放器 20 秒內仍未開始播放，也會自動切換。每一集最多切換一次，不會來回切；沒有網路連線時不切換。
+- 播放控制列的速度、畫質、播放器、字幕、音軌、片頭、片尾選單改成自己的面板：面板開著時控制列不會自動隱藏，按鈕更好點；直向從下方展開、橫向從右側展開。
+
+改進
+- 緩衝：只有真的卡頓時才加大緩衝；自己選的畫質不會被自動降低。
+- 下一集預先解析：換畫質時立即作廢舊的預解析；預先解析的網址失效時，會自動重新解析一次，不直接顯示錯誤；預解析只讀取極少量資料，不再可能整集下載。
+- MPV 播放時不再沿用上一段原生播放器的網路狀態。
+```

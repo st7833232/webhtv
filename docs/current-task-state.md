@@ -49,7 +49,7 @@ run `35968750165`，`source.json` `d681a72d`，IPA 24,877,389 bytes，sha256 `bb
 **下一步（唯一）**：使用者用 SideStore 更新到 `0.1.16 (17)`，在真機依 17H 文件第四節驗 MPV PiP（第六節之三的真機未驗證項目）與 17G 旋轉，並確認 `0.1.15 (16)` 的 MPV 螢幕常亮與 `0.1.16 (17)` 的內嵌音軌／字幕切換（兩者都沒有發布前驗證紀錄）。同時使用者繼續在 `0.1.10 (11)` 上依 `docs/IOS-POC-8L-core-real-device-acceptance.md` 7.2 回報，
 優先 ⑱⑲（＝MPV parity P1），並留意 16B 面板與 17F 自動切換；收到回報後逐列填進 8L 與 IOS-POC-17。
 使用者沒有指示前，不開始 MPV parity P2 以後的任何階段，也不開始 IOS-POC-12／13。
-**IOS-POC-19**「每個資訊源記住離開前的站台」已實作並在模擬器驗證，`0.1.13 (14)` 發布（`docs/IOS-POC-19-per-source-site-memory.md`）。**IOS-POC-21**「切換集數會跳到上一集的位置」已修正並在模擬器驗證，`0.1.13 (14)` 發布（`docs/IOS-POC-21-episode-switch-resume.md`）。**IOS-POC-20**「全站台搜尋」仍只有計畫（`docs/IOS-POC-20-aggregate-search.md`），開工前要先做設計研究並再經核准。
+**IOS-POC-19**「每個資訊源記住離開前的站台」已實作並在模擬器驗證，`0.1.13 (14)` 發布（`docs/IOS-POC-19-per-source-site-memory.md`）。**IOS-POC-21**「切換集數會跳到上一集的位置」已修正並在模擬器驗證，`0.1.13 (14)` 發布（`docs/IOS-POC-21-episode-switch-resume.md`）。**IOS-POC-20**「全站台搜尋」的 AGENTS §7 設計研究已於 2026-09-25 完成（`docs/IOS-POC-20-aggregate-search.md` 文末），待使用者回覆 Q1～Q7 並核准後才實作；尚無程式修改。
 
 ## Current Scope
 
@@ -339,7 +339,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 17G | MPV redraws at the new size after a rotation: rebuild the VO once the size settles (MPVKit issue #3 workaround; local, 2026-09-24) | `docs/IOS-POC-17-dual-internal-player.md` | `docs/IOS-POC-17-dual-internal-player.md` |
 | 17H | MPV Picture in Picture (parity P6): libmpv software output into a sample buffer layer only while the window is open; simulator-verified up to the black simulator PiP window, device-unverified (2026-09-24, `0.1.11 (12)`) | `docs/IOS-POC-17H-mpv-picture-in-picture.md` |
 | 19 | **Done to the simulator 2026-09-24, shipped in `0.1.13 (14)`:** each config source remembers the site last picked in it; `swift test` 347／347 | `docs/IOS-POC-19-per-source-site-memory.md` |
-| 20 | **Planned, not approved (2026-09-24):** search every searchable site of the current source at once | `docs/IOS-POC-20-aggregate-search.md` |
+| 20 | **Design research done, not approved (2026-09-25):** search every searchable site of the current source at once; awaiting the user's answers to Q1–Q7 | `docs/IOS-POC-20-aggregate-search.md` |
 | 21 | **Fixed to the simulator 2026-09-24, shipped in `0.1.13 (14)`:** picking another episode no longer resumes at the previous episode's position; the same episode, or the same episode on another line, still resumes (Android `updateHistory`); `swift test` 351／351 | `docs/IOS-POC-21-episode-switch-resume.md` |
 | 22 | **Fixed to the simulator 2026-09-24, shipped in `0.1.14 (15)`: 2.5×／3× on an AVPlayer item that cannot fast-forward hands the playback to MPV (user's rule).** Diagnosis: AVPlayer cannot play above 2.0× when `canPlayFastForward` is false (SDK `AVPlayerItem.h`); on the simulator it discards its whole buffer at 2.5×／3× and loops wait/jump, while 2× and MPV 3× are smooth | `docs/IOS-POC-22-avplayer-high-speed.md` |
 | 8L | **Core real-device acceptance preparation** — the acceptance matrix, the `wang-movie.json` rules/ads inventory, and the `0.1.8 (9)` release-candidate plan with a Release pre-flight build. Docs only; nothing was device-verified by it | `docs/IOS-POC-8L-core-real-device-acceptance.md` |

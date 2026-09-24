@@ -1,6 +1,6 @@
 # IOS-POC-20 — 全站台搜尋
 
-- 狀態：**計畫，待使用者核准**（2026-09-24）；未實作；開工前需先完成 AGENTS §7 設計研究並再經核准。
+- 狀態：**設計研究完成，待使用者核准**（2026-09-25）；未實作。研究結果與修正後的設計見文末「設計研究（AGENTS §7，2026-09-25）」；與下方原計畫衝突時以該節為準。
 - 使用者需求（2026-09-24，原文）：「我在切換資訊源的時候需要記錄每個資訊源離開前的站台，以便我回來資訊源我還要重新切換；另外我需要一個全資源搜尋的功能；給我相關計畫」。
 - 規劃基準：2026-09-24 15:39 CST，分支 `ios-poc`（規劃時 HEAD `75fc13a5`；之後只多了 17H 解析度修正 `5613517a`，不影響本計畫）。
   證據來自三個唯讀 agent 讀程式碼（iOS 資訊源／站台、iOS 搜尋、Android 參考做法），關鍵行號已人工抽查；**沒有跑 `swift test`、沒有建置、沒有在模擬器或實機試過**。
@@ -10,21 +10,20 @@
 
 **完成條件**：從首頁的搜尋入口輸入關鍵字，同時搜尋目前資訊源所有可搜尋的站台。結果隨到隨顯示，每筆標出來源站台，點進去就是那個站台的詳情頁，可以播放。換關鍵字或關掉畫面會取消舊的搜尋，搜尋期間 App 其他部分照常可用。
 
-**Task guard**：
-- 車道：`feature`。
+**Task guard**（2026-09-25 更新）：
+- 車道：`standard`（原寫的 `feature` 不是 task guard 的有效車道）。
 - 範圍：
   - 新檔 `ios/Sources/WebHTVCore/AggregateSearch.swift`
+  - 新檔 `ios/Sources/WebHTVCore/TraditionalSimplified.swift`（移植 Android `Trans.java` 字表）
   - `ios/Sources/WebHTVCore/WebHTVConfig.swift`
   - 新檔 `ios/Tests/WebHTVCoreTests/AggregateSearchTests.swift`
   - `ios/WebHTVApp/Sources/WebHTVApp.swift`
+  - `ios/WebHTVApp/Sources/PythonSpiderRuntime.swift`（Q7 採用時）
+  - `.github/workflows/ios-sidestore-release.yml`（Q6 選 A 時）
   - `docs/IOS-POC-20-aggregate-search.md`
   - `docs/current-task-state.md`
-- 新畫面放在 `WebHTVApp.swift` 裡，避免為了新增檔案去改 pbxproj。App target 是否要手動加檔還沒確認。
-- **這是新功能，而且涉及併發和效能，所以要先過設計研究關卡**：
-  - 要查的：Apple 對 TaskGroup 取消語意、`withTaskCancellationHandler`、`StringTransform` 的官方文件。
-  - Android 程式碼已經對照完。
-  - 論文和部落格不適用，在任務文件裡寫明原因。
-  - 研究完、你核准後才開始寫程式。
+- 新畫面放在 `WebHTVApp.swift` 裡：已確認 App target 用明確的 file reference，新增 App 檔案必須改 pbxproj；WebHTVCore 的新檔由 SwiftPM 自動編入。
+- **這是新功能，而且涉及併發和效能，所以要先過設計研究關卡**：已於 2026-09-25 完成（官方文件、Swift Evolution、WWDC、Mihon／Aidoku／FongMi 原始碼、本地程式碼複核）；論文與部落格因網路政策無法取得，已記錄。你核准後才開始寫程式。
 
 ### 要解決的問題
 現在只能在單一站台裡搜尋。要找一部片，得逐一切換站台再搜。
@@ -172,7 +171,146 @@ Revert 單一 commit 即可。v1 不存任何資料（沒有搜尋歷史）。`s
 - `/Users/chengchenchih/GIT/webhtv/ios/Sources/WebHTVCore/SourceClient.swift`
 - `/Users/chengchenchih/GIT/webhtv/ios/Sources/WebHTVCore/ConfigSource.swift`
 
+## 設計研究（AGENTS §7，2026-09-25）
+
+- 研究基準：2026-09-25 00:40 CST，分支 `ios-poc`，HEAD `5e67e1be`（程式碼與 `507c49b6` 相同）。存取日期一律為 2026-09-24（UTC）。
+- 決策問題（只有一個）：在 iOS 的執行緒模型下，如何同時搜尋目前資訊源的所有可搜尋站台（CMS、JS、Python 混合），做到可取消、有期限、結果隨到隨顯示，而且不拖慢 App 其他部分。
+- 做法：一個唯讀 agent 讀外部來源並保存原文（Apple 文件 JSON、WWDC 逐字稿、shallow clone 的專案原始碼），另一個唯讀 agent 複核本地程式碼；關鍵引文與 commit 已由主工作階段抽查。
+- 證據等級：A＝官方文件、規格或原始碼；B＝成熟專案程式碼；C＝文章或部落格。
+
+### 外部證據
+
+| 證據 | 等級 | 版本 | 支持的結論 | 對 WebHTV 的適用性與限制 | 對設計的影響 |
+|---|---|---|---|---|---|
+| Apple `TaskGroup`、`withTaskGroup` 文件（developer.apple.com，JSON API） | A | 2026-09-24 | 「A task group *always* waits for all child tasks to complete before it's destroyed」；`cancelAll()` 不會中斷執行中的工作 | JS／Python 不理會取消，直接當 child 會讓群組等到最長 65 秒 | 支持「不把不可取消的工作直接放進 TaskGroup」；若 child 只是保證在期限內返回的包裝，TaskGroup 仍可用 |
+| Swift Evolution SE-0304 Structured Concurrency（`swiftlang/swift-evolution`） | A | `cf74276b94dbf0bb4bd9c7fbd8617f2e1b9bd9c2` | 取消是協作式且同步設旗標；scope 結束時隱式等待所有 child；`Task.sleep` 被取消立即丟 `CancellationError`；文中有以取消 handler 取消 URLSession 請求的範例 | 可直接套用在換關鍵字時的代數加取消 | 支持代數加取消；提示 JS 的 HTTP 橋接可在取消時中止底層請求 |
+| Apple `withTaskCancellationHandler`、`Task.sleep` 文件 | A | 2026-09-24 | handler 最多執行一次、可能與 operation 並行；「if a cancellation handler must acquire a lock, other code should not cancel tasks or resume continuations while holding that lock」；sleep 不佔執行緒 | 直接影響「只完成一次的 continuation 與計時器競賽」的寫法 | 需修正實作細節（見下方修正 3） |
+| Apple `AsyncStream` 文件與 SE-0314 | A | 同上 commit | 預設 buffer 無上限；`finish()` 重複呼叫無效果，會先交付已緩衝元素；取消迭代時先呼叫 `onTermination`；從多個執行環境 yield 可能亂序；只能有一個消費者 | 每次搜尋的元素數不超過站台數，無上限 buffer 沒有記憶體風險 | 支持串流設計；需補 `onTermination` 與 `finish()` 的規則 |
+| WWDC21 10254〈Swift concurrency: Behind the scenes〉逐字稿 | A | WWDC21 | cooperative pool「only spawn as many threads as there are CPU cores」；semaphore、condition variable 對 Swift concurrency 不安全；GCD 遇阻塞會再開執行緒（thread explosion） | Python 同步呼叫會佔住 pool 執行緒；65 秒的 semaphore 若落在 pool 上會耗盡 pool | 否定「Python 在 cooperative pool 上執行」 |
+| WWDC22 110350〈Visualize and optimize Swift concurrency〉逐字稿 | A | WWDC22 | 需要阻塞的程式碼應「move that code outside of the concurrency thread pool – for example, by running it on a Dispatch queue – and bridge it to the concurrency world using continuations」；continuation 必須恰好 resume 一次 | 可直接套用在 JS／Python 呼叫 | 需修正（見下方修正 1、3） |
+| WWDC23 10170〈Beyond the basics of structured concurrency〉逐字稿 | A | WWDC23 | 官方的限流模式：先開最多 N 個 task，每完成一個再補一個；「cancellation does not stop a task from running」 | 取代無法連線的部落格文章 | 支持總上限 6 的滑動視窗 |
+| Apple `URLSession.data(for:delegate:)`、`httpMaximumConnectionsPerHost` 文件；WWDC21 10095 | A | 2026-09-24 | Swift 的取消對 URLSession async 方法有效；每個 host 的 HTTP/1.1 連線預設上限 6（以 session 計，HTTP/2 忽略） | CMS 站台可靠 Task 取消真正中止請求；多站同 host 時排隊時間要算進期限 | 支持，無需修正 |
+| Apple `StringTransform`、`applyingTransform(_:reverse:)` 文件；ICU `icu4c/source/data/translit/root.txt`、`Hans_Hant.txt`；Apple `ICU-76142.2` 原始碼 | A | ICU `302159b39f9489ce9a07ba156a04c279fb93adcf`；Apple ICU `9e80977766f830c93e3cdae3d5628997e1a61b63` | `Hant-Hans`（別名 `Traditional-Simplified`）存在於 ICU 與 Apple ICU 原始碼；`applyingTransform` 回傳 `String?`；文件未列出 iOS 上可用的 ID | 原始碼無法證明各 iOS 版本實際出貨的資料；本環境沒有模擬器可做 runtime 檢查 | 需修正（見下方修正 5） |
+| Mihon `SearchViewModel.kt`、`GlobalSearchToolbar.kt`、`NetworkHelper.kt`（`mihonapp/mihon`） | B | `f52d890e7f8a3c418ddab41f41d4b577bce0dc06` | 以固定 5 條執行緒限制真正在跑的來源呼叫；新搜尋 `searchJob?.cancel()` 並在寫入前檢查 `isActive`；只抓第 1 頁；每個來源有載入中／成功／錯誤狀態；完成數／總數進度與「只顯示有結果」篩選；搜尋層沒有逾時 | Android 的阻塞呼叫用實體執行緒限流，與 iOS 的 GCD 阻塞同性質 | 支持上限、取消、只抓首頁、逐步顯示、明確的錯誤狀態與進度 |
+| Aidoku `SearchContentView+ViewModel.swift`、`SearchContentView.swift`（`Aidoku/Aidoku`） | B | `8ae2da15d9edef05d0e6f27e0799c629883d0890` | `withTaskGroup` 滑動視窗，`maxConcurrentTasks = 3`，註解指出同時太多會讓 sources freeze；新查詢 `searchTask?.cancel()`；輸入 debounce；錯誤以 `try?` 吞掉；沒有逾時 | 同為 iOS／Swift；「freeze」是同步工作耗盡 pool 的實際案例 | 支持 TaskGroup 限流與取消；沒有逾時與錯誤狀態是反例 |
+| FongMi/TV（分支 `fongmi`）`ViewModelSearchRunner.java`、`SiteViewModel.java`、`Task.java`、`Constant.java`、catvod `Trans.java`、`CollectFragment.java` | B | `4afc4473e22a7ed3d98ee12233e0c2a490061000` | 固定 20 條執行緒；`TIMEOUT_SEARCH` 30 秒；`AtomicInteger` 代數加 `future.cancel(true)`；只抓第 1 頁；`Trans.t2s` 是固定字表，只在繁體模式啟用；「全部」chip 加上有結果的站台 chip | 與本庫 Android（`app/`、`catvod/`）數值相同；本庫 `Trans` 有 2,528 組字對，啟用條件由 `Setting.java:387-389` 的語言設定決定，未設定時依 region 是否為 `TW` | 支持 30 秒、代數、只抓首頁與 chip；簡繁轉換的做法需修正 |
+
+### 無法取得的來源
+
+- 環境的網路政策以 `CONNECT tunnel failed, response 403` 拒絕以下主機，每個主機只重試一次：
+  - ICU user guide（unicode-org.github.io）：改讀 ICU repo 內同一份 markdown。
+  - Dean & Barroso〈The Tail at Scale〉（research.google、static.googleusercontent.com、www.barroso.org、cacm.acm.org）：沒有讀到論文，所以**不引用**它的結論。
+  - TaskGroup 限流的技術文章（www.donnywals.com、www.avanderlee.com）與 forums.swift.org：改用 WWDC23 10170（A 級）替代，因此本次 C 級來源為 0 篇。
+- 程序註記：SE-0304 與 SE-0314 是先從 raw.githubusercontent.com 取得，之後才以唯讀方式加入 `swiftlang/swift-evolution`；事後已確認內容與 `cf74276b` 相同。
+
+### 本地程式碼複核（HEAD `507c49b6`）
+
+- 行號：WebHTVCore 各檔自 `75fc13a5` 起沒有改過，上方引用仍正確；`WebHTVApp.swift` 因 IOS-POC-19 與 P10-IOS 位移：
+
+| 上方計畫引用 | 目前位置 |
+|---|---|
+| 首頁 `.searchable` 625-626 | 657-658（`CMSView` 起於 562） |
+| `load(search:)` 807-830 | `listing(page:)` 839-846、`load(search:category:)` 848-876、`loadMore()` 822-837 |
+| 既有缺陷 807-814、611-620／841-843 | 839-846、643-652／873-875 |
+| `VodView` 初始化 1080-1083 | 1112-1115 |
+| 首頁重建「526」 | `.id(selectedSite.id)` 558 |
+| WebHome `app.search` 3848、3882-3884 | `onSearch` 4090、sheet 4124-4126 |
+| `VodRequest` 3951-3955 | 4193-4197（`private`） |
+
+- **執行緒模型**（決定併發設計的事實）：
+  - CMS（type 0/1/4，30 站）：`CMSClient` 走 `URLSession.webHTV` 的 async 請求，閒置逾時 10 秒（`ConfigLoader.swift:6-8`）；Task 取消會真正中止請求。
+  - JS runtime：每個 spider 有自己的 serial `DispatchQueue`（`JavaScriptSpiderRuntime.swift:21`），方法呼叫以 continuation 加 `queue.async` 執行（54-89），不在 Swift 併發的共用執行緒上；但沒有取消 handler，`timeout` 只存不用。HTTP 橋接以 semaphore 阻塞該 queue 的執行緒，每次請求最長 `timeoutInterval + 5`（`HTTPHost.swift:46、66-69`，預設 65 秒），一次搜尋可能發多次請求。**已移植的 csp 站台也是 JS**（`SpiderRegistry.swift:50`：「Adding a port is a new `.js` resource plus one line here」），所以 JS 類共 39 站（csp 32、JS／drpy 7）。
+  - Python runtime（`ios/WebHTVApp/Sources/PythonSpiderRuntime.swift`，App target）：async 方法內直接同步呼叫 `call()`（61-63），先取每個實例的 `NSLock`（22、91-96），再在 `bridge()` 全程 `PyGILState_Ensure`（108-110）。**整個呼叫（含網路）都佔住一條 Swift 併發共用的執行緒**；同一站台的第二個並行呼叫還會在 `NSLock` 上阻塞另一條。CPython 在 socket I/O 期間會釋放 GIL，所以不同站台的 Python 呼叫本來可以重疊等網路（直譯器由 `scripts/fetch_python_ios.sh` 下載，不在 repo 內，這一點以 CPython 標準行為推定）。
+  - JS 與 Python runtime 的初始化都在呼叫者的執行緒上同步執行（`JavaScriptSpiderRuntime.swift:29-35` 的 `evaluateScript`），第一次搜尋時會短暫佔用共用執行緒。
+- **與計畫不符、會改變設計的事實**：
+  1. `searchable`：Android 是 `searchable == 1` 才搜，缺值當 1，`2` 代表使用者關掉（`Site.java:306-308、386-388、394-397`）。計畫的「等於 0 才不搜」會搜到設定檔裡那個 `searchable:2` 的站台。
+  2. `Site.id` 會完全相同：`id = key + "\u{0}" + ext 的正規化 JSON`（`WebHTVConfig.swift:94、207-214`），不含 `api`。目前設定裡兩個 `星芽短剧`（都是 Python、都沒有 ext、api 不同，其中一個跨源）的 id 相同，會共用同一個 spider session（`SourceClient.swift:230`）。計畫的 `site.id + "\u{0}" + vod.id` 修不掉這個碰撞。
+  3. `VodRequest` 是 App 檔的 `private` 型別，Core 無法沿用；WebHome 的同 key 碰撞只是理論上（`player.playVod` 只取第一個同 key 站台，`WebHomeBridge.swift:317`）。
+  4. WebHome 在 iOS 上只能從「設定 › 開發者」進入（`WebHTVApp.swift:998`）。
+  5. 規模：iOS 會列出約 111 站（CMS 30、csp 32、JS／drpy 7、Python 42），不是「60 多個」；4 個 Python 站跨源，會列出但一開就失敗。
+  6. 首頁 stack 有 `.id(selectedSite.id)`（558）。全站台搜尋的 sheet 若掛在這個 stack 裡，自動換站（312→334、378）會把 sheet 拆掉。
+  7. 簡繁轉換：Android 用 catvod `Trans.java` 的逐字對照表（2,528 組字對），只在繁體模式啟用（語言設定為繁體；未設定時依 region 是否為 `TW`，`Trans.java:17、34-36`、`Setting.java:387-389`），**單站搜尋也會轉**（`SiteViewModel.java:136-141`）。iOS 目前完全沒有繁轉簡；`swift test` 在 macOS 上執行，驗不出 iOS 能不能用 ICU 的 `Hant-Hans`。
+  8. 專案檔：App target 用明確的 file reference（`project.pbxproj`，沒有 `PBXFileSystemSynchronizedRootGroup`），在 `ios/WebHTVApp/Sources/` 新增檔案必須改 pbxproj；WebHTVCore 是 SwiftPM target，新檔自動編入。
+  9. 可沿用的既有寫法：`MediaSniffer.swift:238-278` 的 continuation 加 `timeoutTask`；正式程式碼沒有併發上限或逾時 helper。
+- **使用者設定檔**（2026-09-25 重新下載）：126,181 bytes，SHA-256 `efd3ef720599ebcb19024e112f1c4ff64006d79d150b624d15d69bfd6ad32c7f`，與文件記錄的 `b17576e3…` 不同（上游已改，169 站）。`searchable`：1 有 149、缺 17、0 有 2、2 有 1；依 Android 規則，iOS 可用的約 111 站中約 110 站可搜尋（兩個 `searchable:0` 都屬於未移植的 csp 類別）。重複 key：`爱影`、`Bidys`（ext 不同，id 不撞）、`AppV6Dxs`（id 相同，未移植、不會列出）、`星芽短剧`（id 相同，見第 2 點）。
+- **既有問題，只回報、不在本任務修**：`SpiderSessionStore` 可重入（同站同時第一次呼叫會建出兩個 session，`SourceClient.swift:231-233`）；`SpiderSession.start()` 先設 `started = true` 才等 init，並行的第二個呼叫不會等 init、init 失敗也不重試（`SpiderSession.swift:19-23`）；`Site.id` 碰撞（上方第 2 點）也讓首頁 `List(sites)` 出現重複 id（`WebHTVApp.swift:495`）。建議另開任務處理。
+
+### 修正後的設計（與上方「C 的核心設計」「UI 行為」衝突時以本節為準）
+
+1. **站台清單**：目前資訊源中 `(searchable ?? 1) == 1` 的站台；`Site.id` 重複時只搜第一個（與 spider session 的鍵一致，避免同一個 session 跑兩次）。
+2. **Python 呼叫移出共用執行緒**（Q7，建議採用）：`PythonSpiderRuntime` 改成和 JS runtime 相同的做法，每個實例一條 serial `DispatchQueue`，呼叫以 continuation 橋接回 async（取代 `NSLock`，序列化語意不變）。依據：WWDC21 10254、WWDC22 110350。這樣 Python 不再需要單獨限 1 條，不同站台可以重疊等網路；首頁瀏覽、詳情與播放的 Python 呼叫也一併不再佔住共用執行緒。只改這一個檔案，runtime 初始化維持現狀（殘留風險見下）。
+   - 若不採用：維持原計畫，Python 另限 1 條；42 個 Python 站會一個接一個跑，整體時間主要由 Python 決定。
+3. **併發上限**：每次搜尋同時進行的呼叫最多 6 個（Mihon 5、Aidoku 3、FongMi 20；6 也是 URLSession 每個 host 的預設連線上限）。一個站台若還有上一次搜尋留下、仍在執行的呼叫（JS／Python 無法中止），這次**跳過**並標示「上一輪仍在執行」，不佔這次的名額；JS 與 Python 的 serial queue 本來就保證同一站台同時只有一個呼叫在跑。
+4. **期限**：每站 30 秒，從該站呼叫**開始時**算，不含排隊時間。到期時 CMS 站台取消 Task（真正中止請求）；JS／Python 只在畫面標示「逾時」，名額等底層呼叫真正結束才歸還，所以阻塞中的 GCD 執行緒不會超過上限加上先前搜尋殘留的呼叫數（每個站台最多一個）。
+5. **只完成一次**：每站用一把鎖（`OSAllocatedUnfairLock`，iOS 16+；專案最低 iOS 17）決定「結果先到」或「期限先到」，出鎖之後才 resume continuation，結果先到時取消計時用的 `Task.sleep`。依據：`withTaskCancellationHandler` 文件、WWDC22 110350。
+6. **串流**：每次搜尋一個 `AsyncStream`，只有一個消費者；`onTermination` 取消這次搜尋的所有站台 Task 與計時器；全部站台回報後呼叫 `finish()`。結果以站台在清單中的位置識別（不用 `Site.id`，見上方第 2 點），UI 在 MainActor 套用前再比對一次代數。
+7. **繁轉簡**：移植 Android `Trans.java` 的 2,528 組逐字對照表到 WebHTVCore，不用 ICU `Hant-Hans`。理由：與 Android 對同一個關鍵字的轉換結果完全相同，可以在任何平台以單元測試驗證，不依賴 iOS 實際出貨的 ICU 資料（本環境也沒有模擬器可做 runtime 檢查）。iOS 介面固定是繁體，相當於 Android 的繁體模式，所以全站台搜尋一律轉換；簡體輸入不受影響。
+8. **結果型別**：Core 新增公開的結果型別（站台、在清單中的位置、`Vod`），不改 App 的 `private VodRequest`，也不改 WebHome 的識別方式。
+9. **UI 補充**：sheet 掛在首頁 `.id(selectedSite.id)` 範圍之外；進度顯示「完成數／總數」，站台狀態分成有結果、無結果、失敗、逾時、上一輪仍在執行；只在送出時搜尋，不邊打字邊搜（每次重新搜尋都可能留下無法中止的呼叫）。
+10. **殘留風險**：JS／Python runtime 的初始化仍在共用執行緒上同步執行，第一次搜尋時最多 6 個站台同時初始化，可能短暫占滿共用執行緒；若真機出現卡頓，再把初始化也移到各自的 queue（屬 runtime 工作）。一次 JS 搜尋可能發多次各最長 65 秒的請求，Python 腳本直接呼叫 `requests.get` 且不帶 timeout 時沒有上限（`ios/WebHTVApp/Python/base/spider.py:152、162` 的 `fetch／post` 預設 5 秒），這些站台會一直標示「逾時」直到底層結束。
+
+### 方案比較（更新）
+
+| 方案 | 評估 |
+|---|---|
+| A 不改 | 問題照舊 |
+| B 照抄 Android（20 路同時、逐字對照表、每站 30 秒） | 不採用。iOS 上 Python 在共用執行緒上同步執行、JS 以 semaphore 阻塞 GCD 執行緒，20 路會耗盡共用執行緒或造成 GCD 執行緒暴增（WWDC21 10254） |
+| **C′ 窄版改寫加上本次修正（建議）** | 只搜目前資訊源；上限 6、跳過仍在執行的站台；每站 30 秒從開始算；可取消並丟掉過期結果；Python 移出共用執行緒；Android 字表繁轉簡；獨立畫面 |
+| C 原計畫（Python 限 1 條、ICU 轉換） | Q7 不採用時的退路；Python 一個接一個跑，整體較慢；ICU 轉換在本環境無法驗證 |
+| D 跨所有資訊源 | 延後到 IOS-POC-20B（理由同上方原表） |
+| E 把首頁現有搜尋框改成多站台 | 不採用（理由同上方原表） |
+
+### 驗收標準（更新，取代上方同名一節）
+
+1. 輸入繁體關鍵字：多個站台回結果，每筆標站台名；進度跑到「總數／總數」後結束。
+2. `searchable` 為 0 或 2 的站台不會被呼叫；沒有這個欄位的站台會被呼叫。
+3. 每次搜尋同時進行的呼叫不超過 6 個；還在執行上一輪呼叫的站台被跳過並標示。
+4. 慢的站台在它開始後 30 秒標示逾時，其他站台的結果不等它；CMS 站台到期時請求被取消。
+5. 換關鍵字後，舊的結果不再出現；關掉畫面或換關鍵字後，舊的搜尋不再啟動新站台。
+6. 點結果：進到該站台的詳情頁，可以播放，觀看記錄出現在「記錄」頁；回到首頁時站台沒變；首頁自動換站不會關掉搜尋畫面。
+7. `爱影` 兩個站台的結果各自分開；`Site.id` 重複的 `星芽短剧` 只搜一次。
+8. 「慶餘年」送出去是「庆余年」，與 Android `Trans.t2s` 對同一輸入的結果相同。
+9. 首頁原本的單站搜尋行為不變。
+10. 搜尋期間首頁可以捲動、操作，沒有明顯卡頓。
+11. （Q7 採用時）Python 站台的首頁瀏覽、詳情、播放與搜尋結果和修改前相同。
+
+### 驗證方式（更新，取代上方同名一節）
+
+- **環境限制**：本工作階段在 Linux 雲端容器，沒有 Xcode、Swift 與模擬器；使用者 2026-09-25 決定「每次發布前先問我」「不新增 push 觸發的測試 CI」。上方原計畫的本機 `swift test`、模擬器情境與本機 device build 都無法執行。
+- **可做到的驗證**：
+  1. 靜態複查：逐段對照呼叫端、型別與 Swift 6 並行檢查規則（沒有編譯器）。
+  2. 編譯：只有在你核准發布時，由 `ios-sidestore-release.yml` 的 Release device build 編譯 App 與 WebHTVCore；編譯失敗會停在 build 步驟，不會發布。同一版號因編譯失敗修正後重跑，算在同一次核准內。
+  3. 單元測試：`AggregateSearchTests`（以假閉包驗第 2、3、4、5 條與繁轉簡、`searchable` 解碼）照樣寫進 repo，但**是否執行取決於 Q6**。
+  4. 真機：你用 SideStore 安裝後依驗收標準操作；搜尋會以 `os.Logger` 記錄 `[search]` 的同時進行數、逾時與跳過，需要時可用 Mac 的 Console 讀取。
+- **對應**：第 1、6、7、8、9、10、11 條靠真機；第 2、3、4、5 條原本靠單元測試，若 Q6 選 C，只能從真機的 log 間接觀察，無法證明上限在所有時序下都成立。
+
+### 預估（更新，本 agent 的執行時間）
+
+| 階段 | 時間 |
+|---|---|
+| 核心：站台清單、上限、期限、串流、`searchable`、Android 字表、測試 | 50 分 |
+| Python runtime 改用 serial queue（Q7） | 15 分 |
+| UI：sheet、chip、進度、各種狀態、接 VodView | 60 分 |
+| 靜態複查整份 diff | 15 分 |
+| 文件、commit、push | 10 分 |
+| 發布（經你核准）：準備 5 分，CI 約 4 分；編譯失敗時每次修正加重跑約 10 分 | 10～30 分 |
+| **合計** | **約 2.5～3 小時**（不含等你核准與真機回報） |
+
+### 待你決定（更新，取代上方同名一節）
+
+- **Q1**：只搜目前資訊源的所有站台（**預設**），跨資訊源另開 IOS-POC-20B。
+- **Q2**：全站台搜尋一律以 Android 字表繁轉簡（**預設**）。Android 的單站搜尋也會轉；iOS 首頁單站搜尋要不要一起轉？**預設：不動**，因為會改變現有行為，需要你另外同意。
+- **Q3**：WebHome 的 `app.search` 要不要改開全站台搜尋？**預設改為：v1 不改**。理由：iOS 的 WebHome 只能從「設定 › 開發者」進入，改它會多動一條路徑，收益很小。
+- **Q4**：v1 每個站台只取第一頁結果（**預設**：可以；與 FongMi、Mihon 相同）。
+- **Q5**：搜尋歷史、熱門詞、站台健康排序、每個站台的可搜尋開關都不做（**預設**）。
+- **Q6（新）**：單元測試怎麼執行？
+  - A（**建議**）：在既有 `ios-sidestore-release.yml` 的 build 前加一步 `swift test`。不新增 workflow，只在你核准發布時執行，失敗就不發布。第一次執行可能暴露與你 Mac 不同的環境差異（例如需要網路的測試），屆時個別處理，不跳過測試。
+  - B：你在自己的 Mac 上跑一次 `swift test` 回報結果。
+  - C：不跑，接受第 2、3、4、5 條只做真機間接觀察。
+- **Q7（新）**：`PythonSpiderRuntime` 改用 serial queue，讓 Python 不再佔住共用執行緒（**建議採用**）。會多改一個 App 檔，影響所有 Python 站台的呼叫路徑（結果不變，只換執行的執行緒）；不採用則 Python 限 1 條。
+
 ## Recovery anchor
 
-- 目前：只有計畫，**尚未核准、沒有任何程式修改**。
-- 下一步（唯一）：使用者回覆「待你決定」各題（或接受預設）並核准後開始實作。
+- 目前（2026-09-25）：AGENTS §7 設計研究完成並寫入本文件（外部證據、本地程式碼複核、修正後的設計、驗收、驗證限制）；**尚未核准、沒有任何程式修改**。研究基準 HEAD `5e67e1be`，程式碼與 `507c49b6` 相同。
+- 研究產物（不進 repo）：外部來源原文與 clone 在本工作階段 scratchpad 的 `research/`；使用者設定檔的新 SHA-256 為 `efd3ef72…`（見本地程式碼複核）。
+- 下一步（唯一）：使用者回覆「待你決定（更新）」Q1～Q7（或接受預設）並核准後，以 guard `standard` 開始實作。

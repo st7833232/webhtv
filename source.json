@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.17",
+          "date": "2026-09-24",
+          "localizedDescription": "WebHTV 0.1.17 (18)（未經真機驗收）\n\n新增\n- 底部新增「搜尋」分頁：同時搜尋目前資訊源所有可搜尋的站台，結果隨到隨顯示並標出站台；可依站台篩選並載入更多；較慢的站台 30 秒後標示逾時，不影響其他站台。\n\n調整\n- 首頁單站搜尋與全站台搜尋都會先把繁體關鍵字轉成簡體再送出。\n- WebHome 的搜尋改為開啟全站台搜尋。\n- Python 站台改在各自的佇列執行，不再佔用 App 共用的執行緒。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.17-b18/WebHTV-0.1.17-18.ipa",
+          "size": 25017556,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.16",
           "date": "2026-09-24",
           "localizedDescription": "WebHTV 0.1.16 (17)\n\n新增\n- AVPlayer 與 MPV 共用內嵌音軌／字幕選擇介面。\n- 音軌顯示語言／名稱、codec 與 Mono / Stereo / 5.1 / 7.1。\n- MPV 讀取 track-list 並使用 aid / sid 切換音軌與字幕。\n- 新增音訊 codec、channel count / layout、selected track diagnostics。\n\n調整\n- MPV trackSelection 正式開啟。\n- 不強制 downmix，維持來源聲道配置交由播放器與 iOS audio route 處理。\n",

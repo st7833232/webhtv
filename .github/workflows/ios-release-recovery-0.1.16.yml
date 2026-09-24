@@ -1,0 +1,167 @@
+name: iOS Release Recovery 0.1.16
+
+on:
+  workflow_run:
+    workflows: ["iOS SideStore Release"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  finish-release:
+    if: ${{ github.event.workflow_run.id == 36020215545 && github.event.workflow_run.head_branch == 'ios-poc' && github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: macos-26
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v4
+        with:
+          ref: 1d94d3408766d9b91adec63d7d5e8ed24e7f5ea4
+          fetch-depth: 0
+
+      - name: Prepare CPython payload
+        run: scripts/fetch_python_ios.sh
+
+      - name: Build unsigned device app
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios/WebHTVApp/WebHTVApp.xcodeproj \
+            -scheme WebHTVApp \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DerivedData \
+            MARKETING_VERSION='0.1.16' \
+            CURRENT_PROJECT_VERSION='17' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            EXPANDED_CODE_SIGN_IDENTITY=- \
+            EXPANDED_CODE_SIGN_IDENTITY_NAME='Ad Hoc' \
+            build
+
+      - name: Package and validate IPA
+        env:
+          ASSET: WebHTV-0.1.16-17.ipa
+          TAG: ios-v0.1.16-b17
+          RELEASE_NOTES: |
+            WebHTV 0.1.16 (17)
+
+            新增
+            - AVPlayer 與 MPV 共用內嵌音軌／字幕選擇介面。
+            - 音軌顯示語言／名稱、codec 與 Mono / Stereo / 5.1 / 7.1。
+            - MPV 讀取 track-list 並使用 aid / sid 切換音軌與字幕。
+            - 新增音訊 codec、channel count / layout、selected track diagnostics。
+
+            調整
+            - MPV trackSelection 正式開啟。
+            - 不強制 downmix，維持來源聲道配置交由播放器與 iOS audio route 處理。
+        run: |
+          set -euo pipefail
+          mkdir -p package/Payload dist
+          ditto build/DerivedData/Build/Products/Release-iphoneos/WebHTVApp.app package/Payload/WebHTVApp.app
+          (cd package && ditto -c -k --sequesterRsrc --keepParent Payload "../dist/$ASSET")
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ASSET}"
+          cp source.json "$RUNNER_TEMP/source.json"
+          python3 scripts/update_sidestore_source.py \
+            --source "$RUNNER_TEMP/source.json" \
+            --ipa "dist/$ASSET" \
+            --download-url "$url" \
+            --date "$(date -u +%F)" \
+            --description "$RELEASE_NOTES" \
+            --expected-version "0.1.16" \
+            --expected-build "17"
+          curl -fsSL https://raw.githubusercontent.com/SideStore/sidestore-source-types/main/schema.json -o "$RUNNER_TEMP/sidestore-schema.json"
+          npx --yes ajv-cli@5.0.0 validate --strict=false \
+            -s "$RUNNER_TEMP/sidestore-schema.json" \
+            -d "$RUNNER_TEMP/source.json"
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ios-v0.1.16-b17
+          ASSET: WebHTV-0.1.16-17.ipa
+          RELEASE_NOTES: |
+            WebHTV 0.1.16 (17)
+
+            新增
+            - AVPlayer 與 MPV 共用內嵌音軌／字幕選擇介面。
+            - 音軌顯示語言／名稱、codec 與 Mono / Stereo / 5.1 / 7.1。
+            - MPV 讀取 track-list 並使用 aid / sid 切換音軌與字幕。
+            - 新增音訊 codec、channel count / layout、selected track diagnostics。
+
+            調整
+            - MPV trackSelection 正式開啟。
+            - 不強制 downmix，維持來源聲道配置交由播放器與 iOS audio route 處理。
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "WebHTV 0.1.16 (17)" --notes "$RELEASE_NOTES"
+            gh release upload "$TAG" "dist/$ASSET" --clobber
+          else
+            gh release create "$TAG" "dist/$ASSET" \
+              --target 1d94d3408766d9b91adec63d7d5e8ed24e7f5ea4 \
+              --title "WebHTV 0.1.16 (17)" \
+              --notes "$RELEASE_NOTES"
+          fi
+
+      - name: Verify public Release URL
+        env:
+          TAG: ios-v0.1.16-b17
+          ASSET: WebHTV-0.1.16-17.ipa
+        run: |
+          set -euo pipefail
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ASSET}"
+          curl --retry 5 --retry-all-errors -fsSL "$url" -o "$RUNNER_TEMP/released.ipa"
+          cmp "dist/$ASSET" "$RUNNER_TEMP/released.ipa"
+
+      - name: Publish source.json on ios-poc
+        env:
+          TAG: ios-v0.1.16-b17
+          ASSET: WebHTV-0.1.16-17.ipa
+          RELEASE_NOTES: |
+            WebHTV 0.1.16 (17)
+
+            新增
+            - AVPlayer 與 MPV 共用內嵌音軌／字幕選擇介面。
+            - 音軌顯示語言／名稱、codec 與 Mono / Stereo / 5.1 / 7.1。
+            - MPV 讀取 track-list 並使用 aid / sid 切換音軌與字幕。
+            - 新增音訊 codec、channel count / layout、selected track diagnostics。
+
+            調整
+            - MPV trackSelection 正式開啟。
+            - 不強制 downmix，維持來源聲道配置交由播放器與 iOS audio route 處理。
+        run: |
+          set -euo pipefail
+          git fetch origin ios-poc
+          git switch -C ios-poc origin/ios-poc
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ASSET}"
+          python3 scripts/update_sidestore_source.py \
+            --source source.json \
+            --ipa "dist/$ASSET" \
+            --download-url "$url" \
+            --date "$(date -u +%F)" \
+            --description "$RELEASE_NOTES" \
+            --expected-version "0.1.16" \
+            --expected-build "17"
+          npx --yes ajv-cli@5.0.0 validate --strict=false \
+            -s "$RUNNER_TEMP/sidestore-schema.json" \
+            -d source.json
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add source.json
+          if ! git diff --cached --quiet; then
+            git commit -m "release(ios): publish WebHTV 0.1.16 (17)"
+            git push origin HEAD:ios-poc
+          fi
+
+      - name: Release summary
+        run: |
+          {
+            echo "### SideStore release recovery"
+            echo "- IPA: https://github.com/${GITHUB_REPOSITORY}/releases/download/ios-v0.1.16-b17/WebHTV-0.1.16-17.ipa"
+            echo "- Source: https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/ios-poc/source.json"
+          } >> "$GITHUB_STEP_SUMMARY"

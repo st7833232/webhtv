@@ -6,7 +6,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current handoff — 2026-09-24 14:55 CST（讀這一節，再讀文末 Resume Prompt）
 
-**Git（交接當下）**：分支 `ios-poc`；本文件的發布紀錄 commit（`0.1.11 (12)`）為止**都已 push**，本機沒有未 push 的 commit。
+**Git（交接當下）**：分支 `ios-poc`；`0.1.11 (12)` 發布紀錄 `75fc13a5` 為止**都已 push**；之後本機多 1 個未 push 的 commit：**IOS-POC-17H PiP 解析度修正**（使用者真機回報「MPV PIP時解析度會降低」：render size 其實是點，已換成像素，並擋掉視窗尺寸來回跳的迴圈；`docs/IOS-POC-17H-mpv-picture-in-picture.md` 第六節之六）。
 接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認，不要相信這一行。
 
 **目前最新已發布版本是 `0.1.11 (12)`**（2026-09-24，使用者授權「push 並發布下一版到 SideStore」；tag `ios-v0.1.11-b12` → `aa30bc0f`，

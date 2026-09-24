@@ -126,10 +126,26 @@ MPV 版要同樣：MPV 播放中滑回主畫面 → 自動出現 PiP 視窗、�
 | 回歸／AVKit | 自動 PiP 對純音訊、載入失敗、已播完（mpv idle）的檔案也會開一個黑色視窗；純音訊時關掉它還會暫停背景音訊；時間範圍在沒內容時不是 SDK 規定的 `kCMTimeRangeInvalid`，`isPlaybackPaused` 也不反映「沒載入」 | 成立（medium，兩個 reviewer 各自找到） | `setHasVideo` 控制 `canStartPictureInPictureAutomaticallyFromInline`；沒載入時時間範圍 `.invalid`、`isPlaybackPaused` 回 true；`reported` 多追蹤 `loaded`，載入狀態一變就 `invalidatePlaybackState()` |
 | 執行緒／libmpv 生命週期 | 無發現（render context 建立／釋放順序、core queue 與 render queue 的 `sync`、`shutdown` 順序都查過） | — | — |
 
+### 六之六、真機回報：PiP 時解析度降低（使用者 2026-09-24，`0.1.11 (12)`）
+
+- 回報：「MPV PIP時解析度會降低」。（這也表示真機的 PiP 視窗**有畫面**；自動 PiP、控制、回 App 恢復等其他項目使用者尚未回報。）
+- 根因：`pictureInPictureController(_:didTransitionToRenderSize:)` 的標頭寫「in pixels」，**實際給的是點**——iPad 模擬器上 327.5 點寬的
+  視窗回報 330、308 點的回報 308×141（2× 螢幕）。`MPVSoftwareRenderer` 把它當像素，所以 PiP 影格只有視窗像素的 1/2（iPad）或
+  1/3（3× iPhone），被系統放大後就糊了。
+- 同時查到的既有問題：影格寬高取偶數會讓比例差一點，視窗跟著改形狀又回報新尺寸——**每秒約 15 次、311↔313 點來回跳**，
+  每張影格都重建 buffer pool。
+- 修正（本 commit）：render size × `UIScreen.main.nativeScale` 換成像素；`setWindowWidth` 只接受變化超過一成的新寬度（真的縮放視窗才算）；
+  上限由 960 改為 1280 px（`maximumWidth`）。影格寬度＝min(視窗像素寬, 影片寬, 1280)；3× iPhone 的 PiP 視窗最寬約 400 點＝約 1200 px，
+  所以**在 iPhone 上這個上限不會起作用**，只限制 iPad 的大視窗。
+- 模擬器驗證（iPad mini，暫時 log，之後移除）：修正前 PiP 影格 312×142、render size 回呼 ~150 次／10 秒；修正後 616×282（308 點 × 2）、
+  回呼 4 次／10 秒，每秒 30 張；final Simulator Debug build 成功、`MPVEngine.swift` 0 warning、binary 無 `TEMP-17H`。
+- 真機未驗證：修正後的 PiP 清晰度與 CPU。**尚未 push、未發布**（要到真機需使用者另外授權）。
+
 ## Recovery anchor
 
 - 目標：MPV PiP（P6），行為對齊 AVPlayer 自動 PiP（第一節）。
 - Git：基線 HEAD `257553f2`（17G，當時本機、未 push）；本任務 commit `8824c8ee`，已 push 並以 `0.1.11 (12)` 發布。
 - 已完成：研究（第二節 R1–R15）、方案（第三節）、程式（第六節之一）、黑畫面診斷（第六節之二）、final-diff review 與四項修正（第六節之五）、`TEMP-17H` 全部移除、final build、IOS-POC-17 第十四節 P6 與交接文件更新。
 - 未完成（只能真機）：第六節之三標「真機未驗證」的各項。
-- 下一步（唯一）：使用者在 SideStore 更新到 `0.1.11 (12)` 後，在真機依第四節驗收標準驗 MPV PiP（先看 `[pip] mpv possible=` 與 `will start` log，再看 PiP 視窗是否有畫面）。
+- 解析度修正（第六節之六）已在本機 commit、未 push。
+- 下一步（唯一）：使用者授權 push／發布後，在真機確認 PiP 清晰度，並依第四節驗收標準驗 MPV PiP 其餘項目（先看 `[pip] mpv possible=` 與 `will start` log，再看 PiP 視窗是否有畫面）。

@@ -472,8 +472,10 @@ final class MPVPlayerCore: @unchecked Sendable {
 /// Every `mpv_render_*` call happens on `queue`, one at a time, never inside mpv's callback, and
 /// `queue` calls no other libmpv function (`render.h`, "Threading").
 final class MPVSoftwareRenderer: @unchecked Sendable {
-    /// Wide enough for any PiP window; the window's own size lowers it.
-    private static let maximumWidth = 960
+    /// Frames are as wide as the PiP window in pixels, or the video if it is narrower; this only
+    /// bounds a window wider than any a 3× iPhone shows (about 400 points), i.e. an iPad's.
+    /// ponytail: a fixed cap on CPU time; per-device limits once measured (P1).
+    private static let maximumWidth = 1280
 
     private let output: AVSampleBufferVideoRenderer
     private let queue = DispatchQueue(label: "mpv.software-render", qos: .userInitiated)
@@ -488,7 +490,14 @@ final class MPVSoftwareRenderer: @unchecked Sendable {
     init(output: AVSampleBufferVideoRenderer) { self.output = output }
 
     func setVideoSize(width: Int, height: Int) { lock.lock(); videoSize = (width, height); lock.unlock() }
-    func setWindowWidth(_ width: Int) { lock.lock(); windowWidth = width; lock.unlock() }
+    /// The window's width in pixels. Our frames set the window's shape, and rounding them to even
+    /// pixels nudges it by a point, which comes back as a new size: a loop that resized every frame
+    /// and rebuilt the buffer pool (17H). Only a real resize — a pinch, more than a tenth — passes.
+    func setWindowWidth(_ width: Int) {
+        lock.lock(); defer { lock.unlock() }
+        guard windowWidth == 0 || abs(width - windowWidth) * 10 > windowWidth else { return }
+        windowWidth = width
+    }
 
     /// Creates the render context. On the core's queue, before `vo=libmpv`.
     func attach(to mpv: OpaquePointer) -> Bool {
@@ -826,7 +835,9 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
 
     func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController,
                                     didTransitionToRenderSize newRenderSize: CMVideoDimensions) {
-        renderer.setWindowWidth(Int(newRenderSize.width))
+        // The header says pixels, but it arrives in points: the iPad simulator's 327.5-point window
+        // reported 330. Rendering that many pixels was the blurry PiP window the device showed.
+        renderer.setWindowWidth(Int((Double(newRenderSize.width) * UIScreen.main.nativeScale).rounded()))
     }
 
     func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController,

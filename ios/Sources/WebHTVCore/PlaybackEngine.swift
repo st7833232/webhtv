@@ -137,26 +137,38 @@ public struct PlaybackEngineSelection: Sendable, Equatable {
 
 // MARK: - Failures
 
-/// Why a playback attempt failed, in the four kinds that decide what happens next.
+/// Why a playback attempt failed, in the kinds that decide what happens next.
 ///
-/// **Only an engine capability failure may change engines.** Everything upstream of the engine —
-/// DNS, timeouts, TLS, an HTTP status, an expired address, a resolver, a spider, the sniffer, a
-/// missing `Referer` — fails the same way in either engine, so switching would only hide it.
+/// **Whatever an engine could not play, the other engine is tried — once per attempt**
+/// (IOS-POC-17F, the user's decision on 2026-09-24, replacing 17B's "capability failures only").
+/// 17B reasoned that a network failure fails the same way in either engine. It often does, but not
+/// reliably enough to give up on: AVPlayer sends a source's headers through an undocumented asset
+/// option that has never been confirmed on a device, while MPV sends them as `http-header-fields`,
+/// so a 403 on one may play on the other; their HLS, TLS and HTTP stacks (CFNetwork against
+/// FFmpeg) are different code. What makes trying cheap is that the attempt is bounded: one switch,
+/// never back again (`PlaybackEngineSelection.fallback(after:)`).
+///
+/// Two kinds never switch: **offline**, which no engine can play through, and **source**, which is
+/// the resolver's failure before any engine was involved. The kinds still pick the message.
 public enum PlaybackFailure: Sendable, Equatable {
     /// The media arrived and this engine cannot handle it: container, codec, decoder, or an output
     /// that never produced a picture.
     case engineCapability(String)
-    /// DNS, timeout, TLS/certificate, offline, or an HTTP status.
+    /// DNS, timeout, TLS/certificate, a dropped connection, or an HTTP status.
     case network(String)
+    /// No connection at all (IOS-POC-17F) — the one engine failure the other engine cannot fix.
+    case offline
     /// No usable `PlaybackTarget`: resolver, `SourceClient`, spider or sniffer.
     case source(String)
-    /// Anything the classifier cannot place. Never a fallback — guessing would be how a 403 ends up
-    /// bouncing between engines.
+    /// Anything the classifier cannot place. It may fall back like the rest; the once-per-attempt
+    /// budget is what stops it bouncing between engines.
     case unclassified(String)
 
     public var allowsEngineFallback: Bool {
-        if case .engineCapability = self { return true }
-        return false
+        switch self {
+        case .engineCapability, .network, .unclassified: return true
+        case .offline, .source: return false
+        }
     }
 
     /// One line for the player's error overlay.
@@ -164,6 +176,7 @@ public enum PlaybackFailure: Sendable, Equatable {
         switch self {
         case .engineCapability(let detail): return "這個播放器無法播放此影片（\(detail)）"
         case .network(let detail): return "網路錯誤：\(detail)"
+        case .offline: return "沒有網路連線"
         case .source(let detail): return detail
         case .unclassified(let detail): return "無法播放：\(detail)"
         }
@@ -193,6 +206,8 @@ public enum PlaybackFailure: Sendable, Equatable {
         if let httpStatus, (400...599).contains(httpStatus) { return .network("HTTP \(httpStatus)") }
         let chain = Self.chain(error as NSError)
         if let url = chain.first(where: { $0.domain == NSURLErrorDomain }) {
+            if [NSURLErrorNotConnectedToInternet, NSURLErrorDataNotAllowed,
+                NSURLErrorInternationalRoamingOff].contains(url.code) { return .offline }
             return .network(networkDetail(url.code))
         }
         if let av = chain.first(where: { $0.domain == "AVFoundationErrorDomain" }),
@@ -231,7 +246,7 @@ public enum PlaybackFailure: Sendable, Equatable {
         switch code {
         case NSURLErrorTimedOut: return "連線逾時"
         case NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed: return "找不到主機"
-        case NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost: return "網路中斷"
+        case NSURLErrorNetworkConnectionLost: return "網路中斷"
         case NSURLErrorSecureConnectionFailed, NSURLErrorServerCertificateUntrusted,
              NSURLErrorServerCertificateHasBadDate, NSURLErrorServerCertificateNotYetValid,
              NSURLErrorServerCertificateHasUnknownRoot, NSURLErrorClientCertificateRejected:
@@ -353,6 +368,24 @@ public final class PlayerRouter {
         guard request != nil, selection.choose(kind) else { return false }
         failure = nil
         handOff(autoplay: engine?.isPlaying ?? true)
+        return true
+    }
+
+    /// IOS-POC-17F: how long an engine may take, from being handed a request, to actually playing
+    /// before the other engine is tried. Long enough for a slow resolve-to-first-segment on a weak
+    /// line; short enough that a stream that will never start is not waited on for a minute.
+    public static let startupTimeout: Double = 20
+
+    /// The session saw the engine not start playing within `startupTimeout`: try the other engine,
+    /// if this attempt has not already switched. Answers whether it did.
+    ///
+    /// **Never shown as a failure.** The engine may still start — a slow start is not an error — so
+    /// when no switch is possible nothing happens, and playback is left to begin when it can.
+    @discardableResult
+    public func startupTimedOut() -> Bool {
+        guard request != nil,
+              selection.fallback(after: .engineCapability("沒有開始播放")) != nil else { return false }
+        handOff(autoplay: true)
         return true
     }
 

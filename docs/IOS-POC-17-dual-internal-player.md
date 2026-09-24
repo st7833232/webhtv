@@ -1,6 +1,6 @@
 # IOS-POC-17 — 雙內部播放核心（AVPlayer + MPV）
 
-- 狀態（2026-09-23）：**17A／9G／17B／17C／17D／17E 完成。MPV rendering 在模擬器已解；真機仍未驗證。**
+- 狀態（2026-09-24）：**17A／9G／17B／17C／17D／17E 完成；17F（主動切換播放核心）完成到模擬器。MPV rendering 在模擬器已解；真機仍未驗證。**
   **使用者 2026-09-23 決定直接開放 MPV**（17E）：正式版現在可選 MPV；防黑畫面的只剩 `MPVEngine` 的
   first-frame watchdog（10 秒沒畫面 → 回 AVPlayer）。不可宣稱 MPVEngine 已完成真機驗收。
 - 開始：2026-09-23 16:48 CST，起始 HEAD `2a46c3fb22e533588bee93cc0ac15d55c15736ca`
@@ -227,6 +227,76 @@ Simulator Debug build → **BUILD SUCCEEDED**。全套 `swift test` 留到 17B �
 - Ponytail：pre-review——沿用 `PlaybackQuality.defaultIndex` 與原選單頁的規則，不新增 resolver；final-diff——
   `+147／−31`，唯一保留的不可達分支是「（尚未開放）」兩行，理由是日後若重新限制 MPV，不會變成無聲的死按鈕。
 
+## 十二之二、17F — 無法播放時主動切換播放核心（使用者 2026-09-24 追加要求，完成到模擬器）
+
+使用者 2026-09-24 要求：播不出來時要主動換另一個播放器，不要停在錯誤或黑畫面。
+
+### 決策：取代 17B「只有 capability failure 才 fallback」
+
+17B 的理由是「網路類失敗在兩個核心上一樣會失敗，切換只會把問題藏起來」。這個判斷常常成立，
+但**不夠可靠到可以直接放棄**。本機程式碼的證據如下：
+
+- AVPlayer 的來源 header 是走未公開的 asset option `AVURLAssetHTTPHeaderFieldsKey`
+  （`ios/WebHTVApp/Sources/WebHTVApp.swift` `PlaybackSession.asset(for:headers:)`），**真機從未確認過它真的送出**；
+  MPV 則是 mpv 文件記載的 `http-header-fields`（`MPVEngine.swift`，`change-list … append`）。
+  同一個 403，換到另一邊可能就能播。
+- 兩邊的 HLS／TLS／HTTP 是不同的程式：CFNetwork＋AVFoundation 對上 FFmpeg。
+- 讓嘗試變得便宜的是**有上限**：每個 attempt 最多切一次，而且不會切回來（`fallback(after:)` 的
+  `fallbackSpent`，17B 已有）。
+
+| 方案 | 內容 | 結果 |
+|---|---|---|
+| no change | 維持 17B：只有 capability failure 切換 | 不採用。header 路徑差異造成的 403、只有一邊卡住的串流都會直接報錯或一直轉圈 |
+| 全部都切 | 任何失敗、包括離線與解析失敗都切 | 不採用。離線時兩個核心都不可能播；`source` 是 resolver 在任何核心介入**之前**就失敗，換核心只是多等一次 |
+| **採用版** | engineCapability／network／unclassified 都可以切一次；`offline`、`source` 不切；另加「20 秒沒開始播放」的主動切換 | **採用** |
+
+### 契約（`ios/Sources/WebHTVCore/PlaybackEngine.swift`）
+
+- `PlaybackFailure` 新增 `.offline`（`NSURLErrorNotConnectedToInternet`／`DataNotAllowed`／`InternationalRoamingOff`），
+  訊息是「沒有網路連線」；`NetworkConnectionLost` 仍然是 `.network("網路中斷")`。
+- `allowsEngineFallback`：`.engineCapability`、`.network`、`.unclassified` → true；`.offline`、`.source` → false。
+  分類本身不變，因此訊息不變（例如 403 藏在 format error 後面時仍然顯示 `網路錯誤：HTTP 403`）。
+- `PlayerRouter.startupTimeout = 20`（秒）與 `startupTimedOut() -> Bool`：本 attempt 還沒切過、另一個核心可用時，
+  用當下位置、`autoplay: true` 把同一個 request 交給另一個核心。**永遠不會顯示成錯誤**：切不了就什麼都不做，
+  讓它自己慢慢開始播。
+
+### App 端（`PlaybackSession.watchStartup()`）
+
+- 15D 的 startup watch（0.1 秒 poll）同時負責判斷「一直沒開始播放」。條件：engine 不在播放中、`state` 是
+  `preparing` 或 `buffering`，而且距離**目前這個核心接手**已超過 `startupTimeout` → `router.startupTimedOut()`。
+  `ready`（已載入但暫停）不算卡住。
+- 「目前這個核心接手的時間」`engineStartedAt`：`load` 時設定，`router.onEngineChange` 時重設。因此
+  使用者剛手動選的核心、或 fallback 過去的核心，都有自己完整的 20 秒；檢查一次後就清掉，不會每 0.1 秒重打。
+- 切換時寫一行 `[playback] <片名> not started on <核心> after 20s — trying <另一個>`（`os.Logger`）。
+
+### 驗證
+
+| 檢查 | 結果 | 證據等級 |
+|---|---|---|
+| `swift test --filter PlaybackEngineTests` | **29／29 通過**：network／unclassified 會切；offline／source 不切；403 切一次後第二次失敗才顯示；offline 不切直接顯示；startup timeout 切一次、第二次不切也不顯示錯誤、下一集有新額度；只有一個核心時不動作 | macOS |
+| 全套 `swift test` | **344／344 全部通過**（15D 基線 340／339；+4 條 17F 測試；天氣測試 `reportsLiveType4SitesFromProvidedConfig` 本輪也通過） | macOS |
+| Simulator Debug build | **BUILD SUCCEEDED**；`WebHTVApp.swift` 只有既有 warning（`deviceInfo()` 的 `UIDevice.current`、bridge 的 `evaluateJavaScript`），新程式沒有新增 | 模擬器 |
+| 模擬器實播：本機假 type-1 CMS 站，唯一一集的 `.m3u8` 回 200 後每秒只送 1 byte（永遠不逾時、永遠不完整） | 預設原生：`11:41:38 resolve` → `11:41:58 … not started on 原生 after 20s — trying MPV`，畫面標籤變 MPV。預設 MPV：`11:42:29 resolve` → `11:42:49 … not started on MPV after 20s — trying 原生`，伺服器同一秒收到新請求、MPV 的連線隨即關閉；**11:43:25 仍停在原生、沒有第二次切換、沒有錯誤訊息** | **模擬器，不是真機** |
+| 模擬器實播：同一站，但 `.m3u8` 完全不回應 | AVPlayer 自己報網路錯誤 → 依新的分類 fallback 到 MPV → MPV 也失敗（`mpv error -13`）才顯示錯誤。這是「network 會切一次」在 App 端的實證，不是 timeout 路徑 | **模擬器，不是真機** |
+
+測試後模擬器的 App 偏好設定與 Application Support 都已從備份還原（設定來源回到使用者的 `wang-movie.json`）。
+
+### Ponytail
+
+- pre-review（前一 session）：不新增 watchdog task，沿用 15D 的 startup watch；不新增設定項，20 秒是常數。
+- final-diff：App 端 `+23／−1`，core `+43／−10`，測試 `+60／−7`。`watchStartup` 裡的 `engineStartedAt = .now` 不能刪——同一個核心播下一集不會觸發
+  `onEngineChange`。沒有可再刪的部分。
+
+### 沒有驗到的／已知限制
+
+- **真機一次都沒跑**：真實來源上的 403／逾時切換、20 秒門檻在弱網路下是否太短或太長。
+- 使用者在開播前按暫停：AVPlayer 仍回報 `preparing`，20 秒後會切到另一個核心並自動播放。罕見，沒有另外處理。
+- 20 秒是常數；要調整就改 `PlayerRouter.startupTimeout`。
+
+### 回滾
+
+`git revert` 17F 的 commit 即可：core 回到 17B 規則，App 端的 startup watch 回到只量測啟播時間。
+
 ## 十三、正式 roadmap（2026-09-23 起）
 
 ```
@@ -239,6 +309,7 @@ remove external players            ✓ 17A
 → manual engine switching          ✓ 17B（模擬器實測）
 → classified automatic fallback    ✓ 17B（單元測試；真實失敗未觸發過）
 → MPV opened in release + quality menu in the bar  ✓ 17E（使用者決定）
+→ proactive engine fallback (network/unclassified + 20 s no-start)  ✓ 17F（模擬器；真機待跑）
 → core real-device acceptance      ← 下一步（8L；含 ⑱⑲ MPV 真機，`0.1.8 (9)` 起可在正式版測）
 → IOS-POC-12
 → IOS-POC-13

@@ -1726,6 +1726,9 @@ extension Playback {
     private var loadedAt: ContinuousClock.Instant?
     private var startupMilliseconds: Int?
     private var startupWatch: Task<Void, Never>?
+    /// When the engine now under the item was handed it (IOS-POC-17F): the open, or the last engine
+    /// change — so an engine the viewer just picked gets its own 20 seconds. Nil once checked.
+    private var engineStartedAt: ContinuousClock.Instant?
     /// The prefetch in flight, so the handoff can wait for it instead of racing it.
     private var prefetchTask: Task<Void, Never>?
     /// How this item became an address. The detail screen reports it just *before* opening the
@@ -1775,7 +1778,10 @@ extension Playback {
             kind == .native ? AVPlayerEngine(session: self) as PlaybackEngine : MPVEngine()
         }
         router.onEnded = { [weak self] in self?.finished() }
-        router.onEngineChange = { [weak self] kind in self?.onEngineChange?(kind) }
+        router.onEngineChange = { [weak self] kind in
+            self?.engineStartedAt = .now
+            self?.onEngineChange?(kind)
+        }
         router.onUnrecoverable = { [weak self] failure in
             guard let self else { return }
             // A pre-resolved address that does not play is an optimization miss, not the episode's
@@ -2352,12 +2358,28 @@ extension Playback {
     /// stopped or closed (`reportItem` cancels it); an engine callback for "started" would be exact
     /// if this is ever too coarse. Under MPV "playing" is read from mpv's pause state, so it can come
     /// slightly before the first frame.
+    ///
+    /// IOS-POC-17F: the same watch is what notices a start that never comes. An engine still
+    /// preparing or buffering `PlayerRouter.startupTimeout` after it was handed the item is replaced
+    /// by the other engine — once per attempt, never as an error. `ready` (loaded but paused) is not
+    /// a stuck start and is left alone.
     private func watchStartup() {
         startupWatch?.cancel()
         loadedAt = .now
+        engineStartedAt = .now
         startupMilliseconds = nil
         startupWatch = Task { @MainActor in
             while !Task.isCancelled {
+                if let engine, !engine.isPlaying, [.preparing, .buffering].contains(engine.state),
+                   let since = engineStartedAt,
+                   ContinuousClock.now - since > .seconds(PlayerRouter.startupTimeout) {
+                    engineStartedAt = nil
+                    let stuck = engineKind.shortName
+                    // The switch re-arms `engineStartedAt` through `onEngineChange`.
+                    if router.startupTimedOut() {
+                        Self.log.notice("[playback] \(self.itemTitle, privacy: .public) not started on \(stuck, privacy: .public) after \(Int(PlayerRouter.startupTimeout))s — trying \(self.engineKind.shortName, privacy: .public)")
+                    }
+                }
                 if let engine, engine.isPlaying, let loadedAt {
                     let milliseconds = Int((ContinuousClock.now - loadedAt) / .milliseconds(1))
                     startupMilliseconds = milliseconds

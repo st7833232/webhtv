@@ -220,7 +220,8 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     }
 }
 
-@Test func networkSourceAndUnknownFailuresNeverFallBack() {
+/// IOS-POC-17F (user decision 2026-09-24): whatever an engine could not play, the other is tried.
+@Test func networkAndUnknownFailuresNowTryTheOtherEngine() {
     let cases: [(String, PlaybackFailure)] = [
         ("403 behind a format error", .classify(avError(-11828), httpStatus: 403)),
         ("404", .classify(avError(-11800), httpStatus: 404)),
@@ -230,18 +231,28 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
         ("DNS lookup", .classify(NSError(domain: NSURLErrorDomain, code: NSURLErrorDNSLookupFailed))),
         ("TLS", .classify(NSError(domain: NSURLErrorDomain, code: NSURLErrorSecureConnectionFailed))),
         ("certificate", .classify(NSError(domain: NSURLErrorDomain, code: NSURLErrorServerCertificateUntrusted))),
+        ("connection lost", .classify(NSError(domain: NSURLErrorDomain, code: NSURLErrorNetworkConnectionLost))),
         ("AVError unknown", .classify(avError(-11800))),
         ("DRM", .classify(avError(-11831))),
         ("mpv loading failed", .classify(NSError(domain: PlaybackFailure.mpvDomain, code: -13))),
         ("mpv nothing to play", .classify(NSError(domain: PlaybackFailure.mpvDomain, code: -16))),
-        ("resolver", .source("這一集沒有可播放的網址")),
-        ("sniffer", .source("嗅探逾時")),
-        ("spider", .source("Spider script error")),
     ]
     for (name, failure) in cases {
-        #expect(!failure.allowsEngineFallback, "\(name) must not change engines")
+        #expect(failure.allowsEngineFallback, "\(name) should try the other engine")
     }
+    // The kinds still decide the message: a 403 behind a format error stays a network failure.
     #expect(PlaybackFailure.classify(avError(-11828), httpStatus: 403) == .network("HTTP 403"))
+}
+
+@Test func offlineAndSourceFailuresNeverSwitchEngines() {
+    for code in [NSURLErrorNotConnectedToInternet, NSURLErrorDataNotAllowed, NSURLErrorInternationalRoamingOff] {
+        let failure = PlaybackFailure.classify(avError(-11800, underlying: NSError(domain: NSURLErrorDomain, code: code)))
+        #expect(failure == .offline)
+        #expect(!failure.allowsEngineFallback, "no engine plays through \(code)")
+    }
+    for failure in [PlaybackFailure.source("這一集沒有可播放的網址"), .source("嗅探逾時"), .source("Spider script error")] {
+        #expect(!failure.allowsEngineFallback, "the resolver failed before any engine was involved")
+    }
 }
 
 @Test func theHTTPStatusIsReadFromAnAVPlayerErrorLogEvent() {
@@ -289,15 +300,57 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     #expect(harness.engine.kind == .native)
 }
 
-@MainActor @Test func aNetworkFailureIsShownNotFallenBackFrom() {
+@MainActor @Test func aNetworkFailureTriesTheOtherEngineOnceThenIsShown() {
     let harness = Harness()
     var shown: PlaybackFailure?
     harness.router.onUnrecoverable = { shown = $0 }
     harness.router.open(request)
     harness.engine.fail(avError(-11800), httpStatus: 403)
+    #expect(harness.engine.kind == .mpv, "a 403 on AVPlayer may be its headers; MPV sends them its own way")
+    #expect(shown == nil)
+    harness.engine.fail(NSError(domain: PlaybackFailure.mpvDomain, code: -13), httpStatus: 403)
+    #expect(harness.engine.kind == .mpv, "no second switch")
+    #expect(harness.made.count == 2)
+    #expect(shown == .network("HTTP 403"))
+}
+
+@MainActor @Test func offlineIsShownWithoutSwitching() {
+    let harness = Harness()
+    var shown: PlaybackFailure?
+    harness.router.onUnrecoverable = { shown = $0 }
+    harness.router.open(request)
+    harness.engine.fail(NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet))
     #expect(harness.engine.kind == .native)
     #expect(harness.made.count == 1)
-    #expect(shown == .network("HTTP 403"))
+    #expect(shown == .offline)
+}
+
+@MainActor @Test func aStartThatNeverComesTriesTheOtherEngineOnce() throws {
+    let harness = Harness()
+    var shown: PlaybackFailure?
+    harness.router.onUnrecoverable = { shown = $0 }
+    harness.router.open(PlaybackLoadRequest(target: target, startSeconds: 120, history: episode))
+    harness.engine.isPlaying = false
+    #expect(harness.router.startupTimedOut())
+    #expect(harness.engine.kind == .mpv)
+    let moved = try #require(harness.engine.loads.last)
+    #expect(moved.target == target && moved.startSeconds == 120 && moved.autoplay)
+    // The fallback engine slow too: nothing more happens, and nothing is shown — it may still start.
+    #expect(!harness.router.startupTimedOut())
+    #expect(harness.engine.kind == .mpv)
+    #expect(shown == nil && harness.router.failure == nil)
+    // The next episode is a new attempt with its own budget.
+    harness.router.open(request)
+    #expect(harness.router.startupTimedOut())
+    #expect(harness.engine.kind == .native)
+}
+
+@MainActor @Test func withoutASecondEngineASlowStartIsLeftAlone() {
+    let harness = Harness(available: [.native])
+    harness.router.open(request)
+    #expect(!harness.router.startupTimedOut())
+    #expect(harness.made.count == 1)
+    #expect(harness.router.failure == nil)
 }
 
 @MainActor @Test func theNextEpisodeGetsItsOwnFallback() {

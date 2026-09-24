@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.12",
+          "date": "2026-09-24",
+          "localizedDescription": "WebHTV 0.1.12 (13)（未經真機驗收）\n\n修正\n- MPV 子母畫面變模糊：子母畫面現在以視窗實際的解析度繪製。\n- MPV 子母畫面視窗的尺寸不再持續微幅跳動（原本會一直重建畫面緩衝、浪費效能）。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.12-b13/WebHTV-0.1.12-13.ipa",
+          "size": 24877616,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.11",
           "date": "2026-09-24",
           "localizedDescription": "WebHTV 0.1.11 (12)（未經真機驗收）\n\n新增\n- MPV 播放器支援子母畫面：用 MPV 播放影片時回到主畫面，會自動進入子母畫面，和原生播放器一樣；回到 App 就結束子母畫面、從原位置繼續播放。純音訊、載入失敗或播完時不會自動開啟。進入與離開子母畫面時會短暫停頓一下。\n\n修正\n- MPV 直向、橫向旋轉後畫面跑版：旋轉後會以新的尺寸重新繪製。",

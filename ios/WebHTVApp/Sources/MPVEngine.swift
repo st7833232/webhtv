@@ -48,13 +48,23 @@ final class MPVEngine: PlaybackEngine {
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
         ) { [weak self, core] _ in
             MainActor.assumeIsolated {
+                // MPV draws into our own Metal view, so unlike AVPlayerViewController it does not
+                // automatically keep the display awake. Release the app-wide idle-timer override
+                // while backgrounded; PiP has its own system-managed playback presentation.
+                self?.setDisplaySleepPrevented(false)
                 guard self?.pictureInPicture?.isActive != true else { return }
                 core.setVideoTrackEnabled(false)
             }
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
-        ) { [core] _ in core.setVideoTrackEnabled(true) })
+        ) { [weak self, core] _ in
+            MainActor.assumeIsolated {
+                core.setVideoTrackEnabled(true)
+                guard let self else { return }
+                self.setDisplaySleepPrevented(self.core.snapshot.loaded && !self.core.snapshot.paused)
+            }
+        })
         view.onResize = { [core] in core.rebuildVideoOutput() }
         let pictureInPicture = MPVPictureInPicture(engine: self, core: core, layer: view.sampleBufferLayer)
         pictureInPicture.onActiveChange = { [weak self] active in self?.onPictureInPictureChange?(active) }
@@ -64,13 +74,23 @@ final class MPVEngine: PlaybackEngine {
     func load(_ request: PlaybackLoadRequest) {
         firstFrameWatchdog?.cancel()
         pictureInPicture?.setHasVideo(false)   // until the file says otherwise
+        // AVKit prevents display sleep for AVPlayer playback. MPV owns a custom Metal surface, so
+        // iOS sees no system video controller and would dim/lock the screen after the normal idle
+        // interval unless the app explicitly holds the idle timer while playback is intended.
+        setDisplaySleepPrevented(request.autoplay)
         core.load(url: request.target.url.absoluteString,
                   headerFields: MPVRequestHeaders.fields(request.target.headers),
                   startSeconds: request.startSeconds, rate: request.rate, autoplay: request.autoplay)
     }
 
-    func play() { core.setPaused(false) }
-    func pause() { core.setPaused(true) }
+    func play() {
+        setDisplaySleepPrevented(true)
+        core.setPaused(false)
+    }
+    func pause() {
+        core.setPaused(true)
+        setDisplaySleepPrevented(false)
+    }
     func seek(toSeconds seconds: Double) { core.seek(to: max(seconds, 0)) }
     func setRate(_ rate: Float) { core.setSpeed(rate) }
 
@@ -92,6 +112,7 @@ final class MPVEngine: PlaybackEngine {
     }
 
     func teardown() {
+        setDisplaySleepPrevented(false)
         pictureInPicture?.invalidate()
         pictureInPicture = nil
         firstFrameWatchdog?.cancel()
@@ -102,9 +123,18 @@ final class MPVEngine: PlaybackEngine {
         core.shutdown()
     }
 
+    /// `UIApplication.isIdleTimerDisabled` is app-wide, so every MPV lifecycle exit must release it.
+    /// Keep buffering awake too: a non-paused MPV is still an active playback intent even when the
+    /// network temporarily stops frames.
+    private func setDisplaySleepPrevented(_ prevented: Bool) {
+        guard UIApplication.shared.isIdleTimerDisabled != prevented else { return }
+        UIApplication.shared.isIdleTimerDisabled = prevented
+    }
+
     private func handle(_ event: MPVPlayerCore.Event) {
         switch event {
         case .fileLoaded(let hasVideo):
+            setDisplaySleepPrevented(!core.snapshot.paused)
             pictureInPicture?.setHasVideo(hasVideo)
             guard hasVideo else { return }   // audio only: there will never be a frame to wait for
             firstFrameWatchdog?.cancel()
@@ -118,9 +148,11 @@ final class MPVEngine: PlaybackEngine {
             firstFrameWatchdog?.cancel()
             if width > 0, height > 0 { pictureInPicture?.videoSizeChanged(width: width, height: height) }
         case .ended:
+            setDisplaySleepPrevented(false)
             pictureInPicture?.setHasVideo(false)   // mpv is idle now; the next load says again
             onEnded?()
         case .failed(let code):
+            setDisplaySleepPrevented(false)
             pictureInPicture?.setHasVideo(false)
             firstFrameWatchdog?.cancel()
             onFailure?(NSError(domain: PlaybackFailure.mpvDomain, code: Int(code)), nil)

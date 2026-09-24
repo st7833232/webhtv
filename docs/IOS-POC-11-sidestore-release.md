@@ -32,7 +32,7 @@
 
 ## Recovery anchor
 
-- 狀態：完成，且已發過**十三個**版本，最新是 `0.1.12 (13)`（見文末各次發布）。
+- 狀態：完成，且已發過**十四個**版本，最新是 `0.1.13 (14)`（見文末各次發布）。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
 - 發布結果：`WebHTV-0.1-1.ipa`，24,563,162 bytes，GitHub asset SHA-256 `fcbf1531d9480f678ee0fac7ec5ce49010f3de51fc11b79f0ba88372e85812ed`；IPA plist 為 `com.webhtv.ios.poc`、`0.1`、build `1`、minimum iOS `17.0`。
@@ -244,7 +244,7 @@ WebHTV 0.1.11 (12)（未經真機驗收）
 
 ## 第十三次發布：`0.1.12 (13)`（2026-09-24，**已發布**）
 
-**目前最新版是 `0.1.12 (13)`。** 前面十二版都已被取代。
+**發布當時最新版是 `0.1.12 (13)`**（已被 `0.1.13 (14)` 取代，見第十四次發布）。前面十二版都已被取代。
 
 - 授權：使用者 2026-09-24「push 並發布下一版到 SideStore」（第二次）。版號 `0.1.12`，build `13`。
 - 內容：`0.1.11 (12)` 的全部，加上 IOS-POC-17H 解析度修正 `5613517a`（使用者真機回報「MPV PIP時解析度會降低」：PiP render size
@@ -268,4 +268,32 @@ WebHTV 0.1.12 (13)（未經真機驗收）
 修正
 - MPV 子母畫面變模糊：子母畫面現在以視窗實際的解析度繪製。
 - MPV 子母畫面視窗的尺寸不再持續微幅跳動（原本會一直重建畫面緩衝、浪費效能）。
+```
+
+## 第十四次發布：`0.1.13 (14)`（2026-09-24，**已發布**）
+
+**目前最新版是 `0.1.13 (14)`。** 前面十三版都已被取代。
+
+- 授權：使用者 2026-09-24「push 並發布下一版到 SideStore」（第三次）。版號 `0.1.13`，build `14`。
+- 內容：`0.1.12 (13)` 的全部，加上 IOS-POC-19 `4d703da3`（每個資訊源記住自己的站台）與 IOS-POC-21 `6c348650`
+  （換集從頭播、同一集續播）；兩者都是 tag 目標 commit 的祖先。
+- 發布序列：版號 commit `8db58a0d`（Task-Guard `IOS-RELEASE-0.1.13-b14`）→ push `7f4f0a44..8db58a0d` → `workflow_dispatch` run
+  `35976794989`（`version=0.1.13`、`build_number=14`，success，2026-09-24 08:42:14Z → 08:46:15Z）→ workflow 建 tag `ios-v0.1.13-b14`
+  （target `8db58a0d`）並推回 `source.json`（`1635289c`，共十四筆，第一筆 `0.1.13`、size 與 IPA 相同）。**沒有手動建 tag。**
+- 產物：`WebHTV-0.1.13-14.ipa` **24,880,231 bytes**，SHA-256
+  `41ab26d0a9ef4b2c659e1fc0950eb63c71fb42e0a931e4dca7fbdfc84a553b08`（與 GitHub asset digest 相同）。
+  **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`com.webhtv.ios.poc` / `0.1.13` / build `14` / minimum iOS `17.0`。
+- 發布前驗證：`swift test` 351／351（21 之後）；IOS-POC-19／21 的模擬器情境與 Simulator Debug build；workflow 的 Release device build 成功。
+  **真機尚未回報。**
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.13 (14)（未經真機驗收）
+
+新增
+- 每個資訊源記住自己的站台：在某個資訊源選過的站台，切回那個資訊源時會自動回到它；重開 App 後也一樣。刪除已存的資訊源時，它記住的站台一併清除。
+
+修正
+- 播放中切換到別的集數，不再跳到上一集看到的位置：換集從頭開始（有設片頭仍會略過片頭）；同一集回來、或同一集換線路，仍會接著上次的位置播放。其他劇的記錄不受影響。
 ```

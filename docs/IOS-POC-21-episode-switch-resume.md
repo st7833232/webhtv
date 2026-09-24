@@ -1,6 +1,6 @@
 # IOS-POC-21 — 切換集數時不再跳到上一集的位置
 
-- 狀態：**已修正並在模擬器驗證**（2026-09-24）；本機 commit，**未 push、未發布**；真機未驗證。
+- 狀態：**已修正並在模擬器驗證**（2026-09-24）；`6c348650`，已於 2026-09-24 以 `0.1.13 (14)` 發布；真機未驗證。
 - 使用者回報（2026-09-24，原文）：「有一條BUG，當播放器播到一半切換到別的集數，他會直接跳轉到上個集數看的位置；同部影片在切換集數應該重頭來，但是不能去影響別的劇」。
 - Lane：`quick-fix`。範圍：`ios/Sources/WebHTVCore/WatchHistory.swift`、`ios/Tests/WebHTVCoreTests/WatchHistoryTests.swift`、`ios/WebHTVApp/Sources/WebHTVApp.swift`、本文件、`docs/current-task-state.md`。
 
@@ -41,5 +41,5 @@
 
 ## Recovery anchor
 
-- 目前：已修正、模擬器驗證完成、本機 commit，未 push、未發布。
-- 下一步（唯一）：使用者授權 push／發布後，在真機確認換集從頭播、同一集回來會續播。
+- 目前：已修正、模擬器驗證完成，`0.1.13 (14)` 發布。
+- 下一步（唯一）：使用者更新到 `0.1.13 (14)` 後，在真機確認換集從頭播、同一集回來會續播。

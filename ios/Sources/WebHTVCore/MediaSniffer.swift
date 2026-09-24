@@ -27,13 +27,20 @@ public enum MediaProbe {
         request.setValue("bytes=0-1023", forHTTPHeaderField: "Range")
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         do {
-            let (data, response) = try await session.data(for: request)
+            // **Read the head and stop** (IOS-POC-15D). A server that ignores `Range` answers 200 with
+            // the whole file, and reading the whole body to look at 64 bytes of it would download an
+            // entire episode — in the background, during playback, whenever the next episode is
+            // pre-resolved. The task is cancelled as soon as the head is in.
+            let (bytes, response) = try await session.bytes(for: request)
+            defer { bytes.task.cancel() }
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard (200...299).contains(code) else { return .unknown }
             let type = ((response as? HTTPURLResponse)?
                 .value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
             if type.contains("text/html") { return .page }
-            let head = String(decoding: data.prefix(64), as: UTF8.self).lowercased()
+            // Enough for the HTML markers below, and nothing more.
+            let data = try await bytes.prefix(64).reduce(into: Data()) { $0.append($1) }
+            let head = String(decoding: data, as: UTF8.self).lowercased()
             if head.contains("<html") || head.contains("<!doc") || head.contains("<script") { return .page }
             return data.isEmpty ? .unknown : .media
         } catch {

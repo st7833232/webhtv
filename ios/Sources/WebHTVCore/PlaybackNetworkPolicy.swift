@@ -65,11 +65,22 @@ public struct PlaybackNetworkSample: Sendable, Equatable {
     /// MP4 reports none and a single-variant HLS reports one; capping either cannot make the player
     /// choose something smaller, it can only refuse the one stream there is.
     public var variantCount: Int
+    /// Whether the viewer is playing a quality of their own choosing (IOS-POC-15D).
+    ///
+    /// True while the source offers the control bar's quality menu: whatever entry plays is one the
+    /// viewer picked or kept, and its label is on screen. **The policy never caps such a stream** —
+    /// a silent ceiling would contradict the label, and stepping down is the viewer's own choice to
+    /// make from the same menu.
+    public var viewerChoseQuality: Bool
+    /// Video frames the player dropped since the previous sample (`AVPlayerItemAccessLog`). Frames
+    /// dropped while the buffer is healthy mean the decoder, not the network, is what cannot keep up.
+    public var droppedFrames: Int
 
     public init(kind: PlaybackItemKind, bufferAhead: Double, likelyToKeepUp: Bool,
                 bufferEmpty: Bool, playing: Bool, waitingToPlay: Bool, rate: Double,
                 observedBitrate: Double = 0, indicatedBitrate: Double = 0,
-                stalls: Int = 0, variantCount: Int = 0) {
+                stalls: Int = 0, variantCount: Int = 0, viewerChoseQuality: Bool = false,
+                droppedFrames: Int = 0) {
         self.kind = kind
         self.bufferAhead = bufferAhead
         self.likelyToKeepUp = likelyToKeepUp
@@ -81,6 +92,8 @@ public struct PlaybackNetworkSample: Sendable, Equatable {
         self.indicatedBitrate = indicatedBitrate
         self.stalls = stalls
         self.variantCount = variantCount
+        self.viewerChoseQuality = viewerChoseQuality
+        self.droppedFrames = droppedFrames
     }
 
     /// The cushion measured in seconds of *playback* rather than seconds of media.
@@ -114,9 +127,11 @@ public enum PlaybackNetworkState: Int, Sendable, Comparable, CaseIterable {
 /// The whole of the tuning surface. Nothing in this file compares against a number that is not
 /// declared here, so the policy can be re-tuned from device measurements by editing one type.
 public enum PlaybackNetworkThresholds {
-    /// Cushion, in playback seconds, below which playback is one hiccup from stopping.
-    public static let poorBufferSeconds: Double = 3
-    /// Cushion below which it is no longer comfortable.
+    /// Cushion, in playback seconds, below which it is no longer comfortable.
+    ///
+    /// There is deliberately no "poor" cushion (IOS-POC-15D): a thin buffer that is still playing
+    /// is `risk` and earns the 90 s target; only an actual rebuffer — a stall, an empty buffer, a
+    /// player waiting to play — earns `poor` and its 120 s.
     public static let riskBufferSeconds: Double = 10
     /// Cushion that has to be held, along with healthy throughput, to count as good.
     public static let goodBufferSeconds: Double = 30
@@ -146,6 +161,10 @@ public enum PlaybackNetworkThresholds {
     /// A resolution that took at least this long is the thing that delayed playback, whatever the
     /// buffer was doing afterwards.
     public static let slowResolutionSeconds: Double = 2
+
+    /// Dropped frames in one five-second sample, with the buffer healthy, that name the decoder as
+    /// the limit — about a third of a second of a 30 fps picture.
+    public static let decodingDroppedFrames = 10
 }
 
 // MARK: - The policy
@@ -184,7 +203,8 @@ public struct PlaybackBufferPolicy: Sendable, Equatable {
     /// The policy for one state and one item. Pure, so every cell of the table has a test.
     public static func policy(for state: PlaybackNetworkState,
                               kind: PlaybackItemKind,
-                              variantCount: Int) -> PlaybackBufferPolicy {
+                              variantCount: Int,
+                              viewerChoseQuality: Bool = false) -> PlaybackBufferPolicy {
         // A stream with no known end must not inherit a minute of VOD buffering, and capping its
         // resolution would be guessing at a ladder we have not been shown.
         guard kind == .onDemand else { return .systemManaged }
@@ -197,9 +217,9 @@ public struct PlaybackBufferPolicy: Sendable, Equatable {
         }
 
         // Only a genuinely multi-variant asset has anything to step down to. Anything else keeps the
-        // one stream it has.
+        // one stream it has — and so does a quality the viewer chose.
         let height: Int?
-        if variantCount > 1 {
+        if variantCount > 1, !viewerChoseQuality {
             switch state {
             case .poor: height = PlaybackNetworkThresholds.poorMaximumHeight
             case .risk: height = PlaybackNetworkThresholds.riskMaximumHeight
@@ -215,7 +235,8 @@ public struct PlaybackBufferPolicy: Sendable, Equatable {
 
 // MARK: - What is actually limiting playback
 
-/// Which of the four things IOS-POC-15 set out to tell apart is holding playback back.
+/// Which of the things IOS-POC-15 set out to tell apart is holding playback back — slow resolution,
+/// too little forward buffer, CDN throughput, too large a variant, and (IOS-POC-15D) the decoder.
 public enum PlaybackLimit: Sendable, Equatable {
     case healthy
     /// Time went into turning an episode into an address — `playerContent`, a probe, a sniff — and
@@ -227,6 +248,9 @@ public enum PlaybackLimit: Sendable, Equatable {
     case cdnThroughput
     /// The player picked a variant this connection cannot sustain, and smaller ones exist.
     case selectedBitrate
+    /// The buffer is fine and frames are still being dropped: the decoder cannot keep up — at a
+    /// high rate, or with a stream heavier than the device decodes smoothly (IOS-POC-15D).
+    case decoding
 }
 
 // MARK: - The monitor
@@ -253,9 +277,9 @@ public struct PlaybackNetworkMonitor: Sendable {
         let cushion = sample.bufferAheadPlaybackSeconds
         let moving = sample.playing || sample.waitingToPlay
 
+        // `poor` is a rebuffer, not a thin cushion (IOS-POC-15D).
         if sample.bufferEmpty && moving { return .poor }
         if sample.waitingToPlay { return .poor }
-        if sample.playing && cushion < PlaybackNetworkThresholds.poorBufferSeconds { return .poor }
 
         if !sample.likelyToKeepUp { return .risk }
         if moving && cushion < PlaybackNetworkThresholds.riskBufferSeconds { return .risk }
@@ -314,10 +338,11 @@ public struct PlaybackNetworkMonitor: Sendable {
         }
 
         return PlaybackBufferPolicy.policy(for: state, kind: sample.kind,
-                                           variantCount: sample.variantCount)
+                                           variantCount: sample.variantCount,
+                                           viewerChoseQuality: sample.viewerChoseQuality)
     }
 
-    /// Names what is limiting playback, so a log line says which of the four cases this is.
+    /// Names what is limiting playback, so a log line says which case this is.
     ///
     /// `resolutionSeconds` is how long the last episode-to-address resolution took, when one is
     /// known; it outranks everything because a viewer waiting on `playerContent` is not waiting on
@@ -332,7 +357,10 @@ public struct PlaybackNetworkMonitor: Sendable {
 
         let short = sample.bufferAheadPlaybackSeconds < PlaybackNetworkThresholds.riskBufferSeconds
             || !sample.likelyToKeepUp
-        guard short else { return .healthy }
+        guard short else {
+            return sample.playing && sample.droppedFrames >= PlaybackNetworkThresholds.decodingDroppedFrames
+                ? .decoding : .healthy
+        }
 
         // Something is short. Only the access log can say whether the network is to blame.
         guard sample.hasThroughputEvidence else { return .forwardBuffer }

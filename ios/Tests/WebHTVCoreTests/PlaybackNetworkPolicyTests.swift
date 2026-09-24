@@ -20,8 +20,13 @@ private func riskish(variantCount: Int = 0, stalls: Int = 0) -> PlaybackNetworkS
     healthy(bufferAhead: 6, variantCount: variantCount, stalls: stalls)
 }
 
+/// A rebuffer: the player is waiting on data it does not have. Since IOS-POC-15D that — not merely a
+/// thin cushion — is what `poor` means.
 private func poorish(variantCount: Int = 0, stalls: Int = 0) -> PlaybackNetworkSample {
-    healthy(bufferAhead: 1.5, variantCount: variantCount, stalls: stalls)
+    var sample = healthy(bufferAhead: 1.5, variantCount: variantCount, stalls: stalls)
+    sample.playing = false
+    sample.waitingToPlay = true
+    return sample
 }
 
 // MARK: - 15A: the policy table
@@ -335,4 +340,63 @@ private func poorish(variantCount: Int = 0, stalls: Int = 0) -> PlaybackNetworkS
 @Test func onlyOneEpisodeIsEverResolvedAhead() {
     #expect(!PlaybackPrefetchGate.shouldPrefetch(position: 2350, duration: 2400, endingSeconds: 0,
                                                  state: .good, alreadyHolding: true))
+}
+
+// MARK: - IOS-POC-15D
+
+@Test func aThinCushionThatIsStillPlayingIsRiskAndOnlyARebufferIsPoor() {
+    // One and a half seconds ahead and still playing: tight, which earns 90 s — not 120.
+    let thin = healthy(bufferAhead: 1.5)
+    #expect(PlaybackNetworkMonitor.level(of: thin) == .risk)
+
+    var monitor = PlaybackNetworkMonitor()
+    monitor.ingest(healthy())
+    for _ in 0..<10 { monitor.ingest(thin) }
+    #expect(monitor.state == .risk)
+    let tight = monitor.ingest(thin)
+    #expect(tight.forwardBufferSeconds == 90)
+
+    // An actual stall is what earns the 120 s.
+    let rebuffered = monitor.ingest(healthy(bufferAhead: 1.5, stalls: 1))
+    #expect(rebuffered.forwardBufferSeconds == 120)
+    #expect(monitor.state == .poor)
+}
+
+@Test func aQualityTheViewerChoseIsNeverCapped() {
+    for state in PlaybackNetworkState.allCases {
+        let policy = PlaybackBufferPolicy.policy(for: state, kind: .onDemand, variantCount: 4,
+                                                 viewerChoseQuality: true)
+        #expect(policy.maximumResolutionHeight == nil, "\(state)")
+        #expect(policy.peakBitRate == 0)
+    }
+    // The buffer still grows for it: only the ceiling is withheld.
+    var monitor = PlaybackNetworkMonitor()
+    monitor.ingest(healthy(variantCount: 4))
+    var stalled = healthy(variantCount: 4, stalls: 1)
+    stalled.viewerChoseQuality = true
+    let policy = monitor.ingest(stalled)
+    #expect(policy.forwardBufferSeconds == 120)
+    #expect(policy.maximumResolutionHeight == nil)
+}
+
+@Test func framesDroppedWithAHealthyBufferNameTheDecoder() {
+    var decoding = healthy(rate: 3)
+    decoding.droppedFrames = 40
+    #expect(PlaybackNetworkMonitor.limit(of: decoding) == .decoding)
+
+    // A handful is noise, not a verdict.
+    var noise = healthy()
+    noise.droppedFrames = PlaybackNetworkThresholds.decodingDroppedFrames - 1
+    #expect(PlaybackNetworkMonitor.limit(of: noise) == .healthy)
+
+    // A short buffer is the network's problem first, whatever the decoder is doing.
+    var short = healthy(bufferAhead: 4)
+    short.droppedFrames = 40
+    short.observedBitrate = 2_000_000
+    #expect(PlaybackNetworkMonitor.limit(of: short) == .cdnThroughput)
+
+    // Paused, nothing is being decoded late.
+    var paused = decoding
+    paused.playing = false
+    #expect(PlaybackNetworkMonitor.limit(of: paused) == .healthy)
 }

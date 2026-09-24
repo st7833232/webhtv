@@ -234,3 +234,33 @@ private func resolved(_ id: PlaybackTargetIdentity, at moment: Date,
     #expect(!prefetch.isHolding)
     #expect(prefetch.take(matching: identity()) == nil)
 }
+
+// MARK: - IOS-POC-15D: why a handoff missed
+
+@Test func aMissSaysWhyItMissed() {
+    let now = Date()
+    let wanted = identity()
+    var store = PlaybackTargetPrefetch()
+    #expect(store.miss(for: wanted, now: now) == .notRequested)
+
+    let claimed = store.beginResolving(for: wanted)
+    #expect(claimed)
+    #expect(store.miss(for: wanted, now: now) == .stillResolving)
+    #expect(store.miss(for: identity(episode: "https://example.test/ep3"), now: now) == .identityChanged)
+
+    store.failed()
+    #expect(store.miss(for: wanted, now: now) == .failed)
+
+    let reclaimed = store.beginResolving(for: wanted)
+    #expect(reclaimed)
+    store.store(resolved(wanted, at: now))
+    #expect(store.miss(for: wanted, now: now) == nil, "a hit")
+    #expect(store.miss(for: identity(quality: "1080P"), now: now) == .identityChanged)
+    #expect(store.miss(for: wanted, now: now.addingTimeInterval(PlaybackTargetPrefetch.maximumAge + 1))
+            == .expired)
+
+    // Asking does not consume: the hit is still there to take.
+    let taken = store.take(matching: wanted, now: now)
+    #expect(taken != nil)
+    #expect(store.miss(for: wanted, now: now) == .notRequested)
+}

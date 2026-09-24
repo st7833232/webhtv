@@ -23,8 +23,9 @@ public struct PlaybackTargetIdentity: Sendable, Equatable {
     public let flag: String
     /// The episode, by address.
     public let episodeURL: String
-    /// The quality remembered for this title (IOS-POC-5Q/5R). Held so that a viewer who changed it
-    /// between the prefetch and the handoff gets a fresh resolution rather than the old one.
+    /// The quality playing when the prefetch was made (IOS-POC-5Q/5R). A viewer who changes it in
+    /// the control bar invalidates the prefetch at once (IOS-POC-15D), and this field makes a target
+    /// from before the change refuse to match even if something still held it.
     public let quality: String
 
     public init(configID: String, siteID: String, vodId: String,
@@ -65,6 +66,22 @@ public struct NextPlaybackTarget: Sendable, Equatable {
 
 // MARK: - The store
 
+/// Why the handoff found nothing it could use (IOS-POC-15D) — for the log, so a slow next episode
+/// can be told apart as "never asked", "asked too late", "the source failed" or "no longer right".
+public enum PlaybackPrefetchMiss: String, Sendable, Equatable {
+    /// Nothing was asked for: the gate never opened (short episode, weak network, live stream) or
+    /// the screen has no next episode.
+    case notRequested
+    /// Asked for, but the episode ended before the answer came.
+    case stillResolving
+    /// Asked for, and the source gave no address.
+    case failed
+    /// What was held belongs to another episode, line, quality, title, site or configuration.
+    case identityChanged
+    /// Held too long to trust (`maximumAge`).
+    case expired
+}
+
 /// Holds at most one pre-resolved next episode, and refuses to hand back a wrong or stale one.
 ///
 /// A value type with no tasks and no clock of its own, so every rule below is a test rather than a
@@ -85,6 +102,8 @@ public struct PlaybackTargetPrefetch: Sendable, Equatable {
     /// What is being resolved right now, if anything. Held as the identity rather than a flag so a
     /// result that arrives after the viewer has moved on can be recognised and dropped.
     private var resolving: PlaybackTargetIdentity?
+    /// The identity whose resolution last failed, so the miss can say so.
+    private var lastFailure: PlaybackTargetIdentity?
 
     public init() {}
 
@@ -100,6 +119,7 @@ public struct PlaybackTargetPrefetch: Sendable, Equatable {
         if let resolving, resolving != identity { self.resolving = nil }
         guard !isHolding else { return false }
         resolving = identity
+        lastFailure = nil
         return true
     }
 
@@ -114,6 +134,7 @@ public struct PlaybackTargetPrefetch: Sendable, Equatable {
     /// A resolution that did not produce an address. **This is an optimization miss, not a playback
     /// failure** — the caller goes on to resolve normally when the episode actually ends.
     public mutating func failed() {
+        lastFailure = resolving
         resolving = nil
     }
 
@@ -121,6 +142,19 @@ public struct PlaybackTargetPrefetch: Sendable, Equatable {
     public mutating func invalidate() {
         stored = nil
         resolving = nil
+        lastFailure = nil
+    }
+
+    /// Why `take(matching:)` would come back empty for `identity` right now, or nil when it would
+    /// hand a target back. Asks without consuming anything, so the caller can log before it takes.
+    public func miss(for identity: PlaybackTargetIdentity, now: Date = .now) -> PlaybackPrefetchMiss? {
+        if let stored {
+            guard stored.identity == identity else { return .identityChanged }
+            return stored.isFresh(now: now, maximumAge: Self.maximumAge) ? nil : .expired
+        }
+        if resolving == identity { return .stillResolving }
+        if resolving != nil { return .identityChanged }
+        return lastFailure == identity ? .failed : .notRequested
     }
 
     /// Hands back the held target if it is the right one and still fresh, and **consumes it either
@@ -130,11 +164,8 @@ public struct PlaybackTargetPrefetch: Sendable, Equatable {
     /// is wrong, and keeping it would only let it be reconsidered later.
     public mutating func take(matching identity: PlaybackTargetIdentity,
                               now: Date = .now) -> NextPlaybackTarget? {
-        let held = stored
-        stored = nil
-        resolving = nil
-        guard let held, held.identity == identity,
-              held.isFresh(now: now, maximumAge: Self.maximumAge) else { return nil }
-        return held
+        // One rule for what a hit is: `miss(for:now:)`'s.
+        defer { stored = nil; resolving = nil; lastFailure = nil }
+        return miss(for: identity, now: now) == nil ? stored : nil
     }
 }

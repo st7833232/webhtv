@@ -3,7 +3,9 @@
 > **Superseded by dual internal-player decision, 2026-09-23** — for every mention of third-party players here (Infuse / Fileball / SenPlayer / VidHub, URL-scheme handoff, "external player"): they were removed from the product; WebHTV plays only with its own AVPlayer and MPV engines. See `docs/IOS-POC-17-dual-internal-player.md`. The rest of this record stands as written.
 
 - 狀態：**程式已實作，真機效能驗收未完成（code implemented / real-device performance
-  verification pending）**。本文件所有數字都來自單元測試與模擬器建置，**沒有任何一項是真機量測**。
+  verification pending）**。本文件所有數字都來自單元測試與模擬器，**沒有任何一項是真機量測**。
+- **2026-09-24 IOS-POC-15D**：使用者把本階段的語意正式納入並逐條重述契約；對照現有程式補齊缺口（不重做），
+  並加上可在 SideStore 安裝上觀測的量測。見第十二節。
 - **使用者決定（2026-09-23）：真機效能驗收延後，由使用者之後自行測試。** 在收到真機結果前維持 pending，
   不得標記 closed；但這個延後驗收**不阻塞下一個 functional unit IOS-POC-5S-3**。
 - 基線 HEAD `ecebeaa3`（2026-09-23，`origin/ios-poc` 同步，worktree 乾淨）
@@ -199,8 +201,9 @@ IOS-POC-5Q 的線路與畫質是**不同的 WebHTV 位址**，由使用者選；
 | 事件 | 結果 |
 |---|---|
 | 任一欄位改變 | `take` 回 nil，並且**連同把它消耗掉**——已經不是要播的那一集就是錯的 |
-| 手動點另一集／換線路／換畫質 | `play()` 進來時 `prefetch.invalidate()` |
-| 關閉播放器選單、改用外部播放器 | `.sheet(onDismiss:)` 清掉 `prefetchNext` 與 `prefetch` |
+| 手動點另一集／換線路 | `play()` 進來時 `prefetch.invalidate()` |
+| 控制列換畫質（IOS-POC-17E 起在控制列） | 15D 起 `selectQuality` 立即 `prefetch.invalidate()`，並允許在窗口內重新預解析 |
+| 關閉播放器（IOS-POC-17C 起沒有選單頁） | `fullScreenCover(onDismiss:)` 清掉 `prefetchNext` 與 `prefetch`（原文寫 `.sheet`，已過時；外部播放器已移除） |
 | 解析中使用者就移動了 | `store` 發現 `resolving` 已不是它，直接丟棄 |
 | 超過 5 分鐘 | `take` 回 nil |
 | 解析失敗 | `failed()`，**只是 optimization miss**；`playNext` 照原路解析 |
@@ -372,3 +375,73 @@ buffer policy 就完全不存在；把 `VodView` 那一行 `PlaybackSession.shar
 
 **結論：IOS-POC-15 是「code implemented / real-device performance verification pending」，
 不是已完全驗收。** 在真機做完第八節的七項比較之前，不得把本階段標記為 closed。
+
+## 十二、IOS-POC-15D — 契約逐條對照、缺口補齊與可觀測量測（2026-09-24）
+
+- 基線 HEAD `a5f2678e`（IOS-POC-16B 之上）；task guard `IOS-POC-15D-buffer-prefetch-contract`；Lane `standard`。
+- 授權：使用者 2026-09-24 要求「保留並正式納入 IOS-POC-15，AVPlayer 現有實作不要退化或重做」，並逐條重述契約。
+- 做法：先由獨立 agent 逐條稽核（再由另一個 agent 嘗試推翻），**只修真的不符合的地方**；
+  沒有新增 timer 以外的播放機制、沒有第二個 player、沒有改 `PlaybackSession`／`PlayerRouter` 分層。
+
+### 契約對照（稽核結論）
+
+| # | 使用者契約 | 實作前 | 15D 之後 |
+|---|---|---|---|
+| R1 | `automaticallyWaitsToMinimizeStalling = true` | 符合 | 不變 |
+| R2 | VOD 取得有效 duration 後才套 60 s；吃緊 90 s；**實際 rebuffer／stall** 才 120 s；恢復一次一級 | **部分**：播放中 cushion < 3 s 就直接 `poor`（120 s，多 variant 還會 720p），沒有 stall 也會 | `poor` 只來自 stall、buffer empty、`waitingToPlay`；薄 cushion 是 `risk`（90 s）。`poorBufferSeconds` 刪除 |
+| R3 | 直播／未知長度不套 VOD 緩衝 | 符合 | 不變 |
+| R4 | `preferredPeakBitRate` 維持 0 | 符合（測試斷言） | 不變 |
+| R5 | 只有真的多 variant＋弱網才限解析度；direct MP4、單 variant、**使用者明確選定的畫質**不得被降 | **部分**：policy 不知道使用者選了畫質 | 樣本多了 `viewerChoseQuality`：來源提供控制列畫質選單時，播放中的項目就是觀眾選的（或保留的），policy **永不**加上限，只保留 buffer 成長 |
+| R6 | 以播放頭所在 loaded range、stall、access log 判斷 | 符合 | stall 只計**目前 item**（舊 item 遲到的 stall 通知會讓新 item 直接掉到 `poor`） |
+| R7 | 只預解析、最後 ~90 s、存 URL＋headers＋identity；無第二 player、無整段下載、無 persistent cache | **部分**：`MediaProbe` 用 `data(for:)` 讀完整個 body，伺服器忽略 `Range` 時背景預解析會**下載整集** | probe 改用 `bytes(for:)` 只讀前 64 bytes 就取消 |
+| R8 | 命中就交給既有 session；失敗／過期／不符只是 optimization miss，auto-next 不得因此失敗 | **部分**：①預解析位址在交棒時已失效（403）會直接顯示錯誤，不會重新解析；②交棒解析期間 sampler 仍可能啟動同一集的預解析，而 sniffer 同時只跑一頁、會取消較舊的那個＝交棒自己的 | ①預解析 target 在**開始播放前**失敗，就以正常流程重新解析一次，再失敗才顯示錯誤（開始播放後的失敗屬於串流，不重開）；②`finished()` 在等待交棒前先把 `prefetchRequested` 設為 true |
+| R9 | 換來源／設定／站／片／線路／畫質／手選集數立即 invalidate | **部分**：控制列換畫質不會 invalidate；identity 的畫質欄讀的是詳情頁舊值 | `selectQuality` 立即 invalidate；identity 讀 session 的即時畫質 |
+| R10 | 記錄解析耗時、命中／未命中、buffer-ahead、stall、恢復；能比較啟播時間；分辨 provider／解析器／throughput／buffer／解碼 | **部分**：`print` 在 SideStore Release 看不到；沒有未命中原因、啟播時間、解碼證據；第一次 tick 若 item 未 ready 會記成 `liveOrUnknown`，之後改成 60 s 卻不再記 | 見下節 |
+| R11 | 語意在 PlaybackSession 層、不綁 UI；MPV 以 libmpv 自己的機制做 parity | **部分**：預解析 store 放在詳情頁的 view state；MPV 播放時會沿用上一個 AVPlayer item 的網路狀態，可能讓 MPV 永遠不預解析 | store 移到 `PlaybackSession.prefetch`（identity 仍由詳情頁建立，session 不解讀它）；非原生 engine 時 gate 以 `.normal` 判斷；預解析不再由 sampler 等待（sniff 可能好幾秒） |
+
+### 量測（R10）
+
+`[playback]` 行全部改用 `os.Logger`（subsystem `com.webhtv.ios.poc`、category `playback`、`.notice`、值標 `.public`）：
+SideStore 安裝的 Release build 沒有接 debugger，`print` 的 stdout 不會進統一日誌（8L §4 的判斷正確）；
+`Logger` 的行在手機接 Mac 時可從 Console.app 看到（**真機尚未實際看過**）。
+
+| 行 | 內容 | 回答的問題 |
+|---|---|---|
+| `resolve <集> live｜prefetched｜live, prefetch miss: <原因> <n>ms` | 原因：`notRequested`／`stillResolving`／`failed`／`identityChanged`／`expired` | 慢在解析器還是預載沒命中、為什麼沒命中 |
+| `prefetched <集> in <n>ms`／`prefetch <集> failed after <n>ms …` | 預解析成功或失敗（失敗明寫 optimization miss） | provider 解析本身多慢 |
+| `started <片名 集> on <engine> in <n>ms after open; resolve <…>` | 從開啟到**實際播放**（engine 無關，MPV 同樣量） | 啟播時間，可與預載前後比較 |
+| 狀態／policy 轉換行 | 原有欄位＋`dropped=`＋`viewer-quality`；policy 改變（含 duration 由未知變 VOD）也記 | buffer 太小、CDN、variant 過大、stall 與恢復 |
+| `summary <片名 集> engine= resolve= startup= stalls= worst= final= dropped= limits=<限制:樣本數> variants=` | 每個 item 被取代、停止或關閉時一行；網路欄位只在原生 engine 顯示 | 一集結束後一眼看出是 provider／解析器、buffer、CDN、variant 還是**解碼**（`decoding`：buffer 健康但每樣本掉 ≥10 格） |
+
+### 驗證
+
+| 檢查 | 結果 | 等級 |
+|---|---|---|
+| 新增測試（5 條） | `aThinCushionThatIsStillPlayingIsRiskAndOnlyARebufferIsPoor`、`aQualityTheViewerChoseIsNeverCapped`、`framesDroppedWithAHealthyBufferNameTheDecoder`、`aMissSaysWhyItMissed`、`theProbeReadsOnlyTheHeadOfABodyThatNeverEnds` 通過；既有 `poorish()` 改成真正的 rebuffer 樣本 | macOS |
+| 反證 | 把 `MediaProbe` 還原成舊寫法，新的「永不結束的 body」測試**失敗**（等滿 10 秒逾時、回 `.unknown`）；新寫法 0.03 秒回 `.media` | macOS |
+| 全套 `WANG_MOVIE_JSON=<config> swift test --package-path ios` | **340 條、339 通過**（16B 的 335 ＋ 5）；唯一失敗是既有天氣測試 `reportsLiveType4SitesFromProvidedConfig`。另一次在獨立 worktree 跑 core 時是另一條天氣測試 `completesLiveCMSFlowFromProvidedConfig` 逾時 | macOS |
+| Simulator Debug build | **BUILD SUCCEEDED**，`WebHTVApp.swift` 只有既有 7 條 warning | 模擬器 |
+| 模擬器實播（荐片 短劇《继室拒绝咸鱼躺…》第 1→2 集，`xcrun simctl spawn … log stream` 過濾 subsystem） | `Logger` 行可見；第 1 集 `resolve live 36ms`、`started … in 5968ms`；模擬器網路偏慢，policy 60→90→60、一次 stall 後 `poor`／120 s；最後 90 秒內 `prefetched 第2集 in 10ms`；交棒 **`resolve 第2集 prefetched 0ms`（命中）**；第 1 集摘要 `limits=cdnThroughput:17,forwardBuffer:7`。第 2 集因 CDN 太慢（observed 247k／indicated 802k）100 秒內未啟播，摘要記為 `startup=never … limits=cdnThroughput:19`，而且因為不是失敗所以**沒有**誤觸重新解析 | **模擬器，不是真機** |
+
+### 沒有驗到的
+
+- **真機一次都沒有**；`Logger` 行在 SideStore 安裝＋Console.app 的實際可見性未看過。
+- 「預解析位址過期 → 重新解析一次」只有程式路徑，沒有真實過期的來源觸發過。
+- 解析度上限、`viewerChoseQuality`：設定檔裡沒有多 variant HLS，也沒有多網址畫質來源。
+- 第八節的七項真機前後比較仍然欠著；**本階段仍是 device verification pending，不得標 closed**。
+
+### Ponytail
+
+- pre-review：每條修正都是對稽核結論的最小改動；量測沿用既有 sampler（新增的只有啟播時的 0.1 秒輪詢，
+  `ponytail:` 註記上限與升級路徑）；預解析 store 是搬移不是重寫；沒有新增相依。
+- final-diff（workflow：Ponytail＋正確性兩位 reviewer，每條 finding 由獨立 agent 嘗試反駁）：
+  Ponytail 採納 5 條簡化（`take` 委派給 `miss` 讓命中規則只有一份、刪無用 `@discardableResult`、Duration 與
+  位元組讀取改用標準庫、測試伺服器改為參數化既有 `OneShotHTTPServer`）；正確性確認 3 條並已修——關閉播放器／
+  stop 時解除「預載失效重試」（否則關閉後的遲到失敗會重開影片）、交棒時 `await` 進行中的預解析（避免兩個 sniff
+  互相取消）、啟播監看拿掉 60 秒上限改由 `reportItem` 取消（否則重試一直掛著）。已知限制（不修）：MPV 的
+  「started」以 mpv 的 pause 狀態判斷，可能略早於第一格畫面。修正後：`swift test` **340／339**（天氣）、
+  Simulator build 成功（7 條既有 warning）。
+
+### 回滾
+
+單一 commit，`git revert` 即可；沒有資料格式或設定改變。

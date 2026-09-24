@@ -132,6 +132,23 @@ private func gatedSession() -> URLSession {
     #expect(RefererGate.seenHeaders["Range"] == "bytes=0-1023")
 }
 
+/// IOS-POC-15D: a server that ignores `Range` must not make the probe read the whole file. This one
+/// sends a media head and then holds the connection open with nothing more — reading to the end of
+/// the body would wait out the session's ten-second timeout; reading the head returns at once.
+@Test func theProbeReadsOnlyTheHeadOfABodyThatNeverEnds() async throws {
+    // No Content-Length and no close: the body only ends if the client stops reading.
+    let server = try OneShotHTTPServer(
+        reply: Data("HTTP/1.1 200 OK\r\nContent-Type: video/mp2t\r\n\r\n".utf8) + Data(repeating: 0x47, count: 4096),
+        closes: false)
+    defer { server.stop() }
+
+    let started = ContinuousClock.now
+    let kind = await MediaProbe.classify(server.url)
+    #expect(kind == .media)
+    #expect(ContinuousClock.now - started < .seconds(5),
+            "the probe must stop after the head, not wait for a body that never ends")
+}
+
 /// The contract end to end: what a spider writes into `header` is what the player is handed.
 @Test func aSpidersHeadersReachThePlaybackTarget() async throws {
     let runtime = try JavaScriptSpiderRuntime(
@@ -208,18 +225,22 @@ private final class OneShotHTTPServer: @unchecked Sendable {
     private let listener: NWListener
     private let lock = NSLock()
     private var request: String?
+    private var connections = [NWConnection]()
 
-    init() throws {
+    static let notMedia = Data(("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n"
+        + "Content-Length: 9\r\nConnection: close\r\n\r\nnot media").utf8)
+
+    /// `closes: false` keeps the connection open after the reply — a body that never ends.
+    init(reply: Data = OneShotHTTPServer.notMedia, closes: Bool = true) throws {
         listener = try NWListener(using: .tcp, on: .any)
         listener.newConnectionHandler = { [weak self] connection in
+            self?.lock.withLock { self?.connections.append(connection) }
             connection.start(queue: .global())
             connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { data, _, _, _ in
                 if let data { self?.record(String(decoding: data, as: UTF8.self)) }
-                let body = "not media"
-                let response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n"
-                    + "Content-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
-                connection.send(content: Data(response.utf8),
-                                completion: .contentProcessed { _ in connection.cancel() })
+                connection.send(content: reply, completion: .contentProcessed { _ in
+                    if closes { connection.cancel() }
+                })
             }
         }
         listener.start(queue: .global())
@@ -247,7 +268,10 @@ private final class OneShotHTTPServer: @unchecked Sendable {
         return lock.withLock { request }
     }
 
-    func stop() { listener.cancel() }
+    func stop() {
+        listener.cancel()
+        lock.withLock { connections.forEach { $0.cancel() } }
+    }
 }
 
 /// The whole point of the stage: the configured spider sites must actually appear in the list the

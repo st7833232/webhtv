@@ -1,0 +1,146 @@
+name: iOS Release Recovery 0.1.15
+
+on:
+  workflow_run:
+    workflows: ["iOS SideStore Release"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  finish-release:
+    if: ${{ github.event.workflow_run.id == 36004027789 && github.event.workflow_run.head_branch == 'ios-poc' && github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: macos-26
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v4
+        with:
+          ref: 0678deda679941e5279e3e5fad05cca3d670f50f
+          fetch-depth: 0
+
+      - name: Prepare CPython payload
+        run: scripts/fetch_python_ios.sh
+
+      - name: Build unsigned device app
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios/WebHTVApp/WebHTVApp.xcodeproj \
+            -scheme WebHTVApp \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DerivedData \
+            MARKETING_VERSION='0.1.15' \
+            CURRENT_PROJECT_VERSION='16' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            EXPANDED_CODE_SIGN_IDENTITY=- \
+            EXPANDED_CODE_SIGN_IDENTITY_NAME='Ad Hoc' \
+            build
+
+      - name: Package and validate IPA
+        env:
+          ASSET: WebHTV-0.1.15-16.ipa
+          TAG: ios-v0.1.15-b16
+          RELEASE_NOTES: |
+            WebHTV 0.1.15 (16)
+
+            修正
+            - MPV 長時間播放時螢幕不再因系統自動鎖定計時而變暗或鎖定；暫停、播放結束、失敗或離開 MPV 播放時會恢復正常自動鎖定。
+        run: |
+          set -euo pipefail
+          mkdir -p package/Payload dist
+          ditto build/DerivedData/Build/Products/Release-iphoneos/WebHTVApp.app package/Payload/WebHTVApp.app
+          (cd package && ditto -c -k --sequesterRsrc --keepParent Payload "../dist/$ASSET")
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ASSET}"
+          cp source.json "$RUNNER_TEMP/source.json"
+          python3 scripts/update_sidestore_source.py \
+            --source "$RUNNER_TEMP/source.json" \
+            --ipa "dist/$ASSET" \
+            --download-url "$url" \
+            --date "$(date -u +%F)" \
+            --description "$RELEASE_NOTES" \
+            --expected-version "0.1.15" \
+            --expected-build "16"
+          curl -fsSL https://raw.githubusercontent.com/SideStore/sidestore-source-types/main/schema.json -o "$RUNNER_TEMP/sidestore-schema.json"
+          npx --yes ajv-cli@5.0.0 validate --strict=false \
+            -s "$RUNNER_TEMP/sidestore-schema.json" \
+            -d "$RUNNER_TEMP/source.json"
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ios-v0.1.15-b16
+          ASSET: WebHTV-0.1.15-16.ipa
+          RELEASE_NOTES: |
+            WebHTV 0.1.15 (16)
+
+            修正
+            - MPV 長時間播放時螢幕不再因系統自動鎖定計時而變暗或鎖定；暫停、播放結束、失敗或離開 MPV 播放時會恢復正常自動鎖定。
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "WebHTV 0.1.15 (16)" --notes "$RELEASE_NOTES"
+            gh release upload "$TAG" "dist/$ASSET" --clobber
+          else
+            gh release create "$TAG" "dist/$ASSET" \
+              --target 0678deda679941e5279e3e5fad05cca3d670f50f \
+              --title "WebHTV 0.1.15 (16)" \
+              --notes "$RELEASE_NOTES"
+          fi
+
+      - name: Verify public Release URL
+        env:
+          TAG: ios-v0.1.15-b16
+          ASSET: WebHTV-0.1.15-16.ipa
+        run: |
+          set -euo pipefail
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ASSET}"
+          curl --retry 5 --retry-all-errors -fsSL "$url" -o "$RUNNER_TEMP/released.ipa"
+          cmp "dist/$ASSET" "$RUNNER_TEMP/released.ipa"
+
+      - name: Publish source.json on ios-poc
+        env:
+          TAG: ios-v0.1.15-b16
+          ASSET: WebHTV-0.1.15-16.ipa
+          RELEASE_NOTES: |
+            WebHTV 0.1.15 (16)
+
+            修正
+            - MPV 長時間播放時螢幕不再因系統自動鎖定計時而變暗或鎖定；暫停、播放結束、失敗或離開 MPV 播放時會恢復正常自動鎖定。
+        run: |
+          set -euo pipefail
+          git fetch origin ios-poc
+          git switch -C ios-poc origin/ios-poc
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ASSET}"
+          python3 scripts/update_sidestore_source.py \
+            --source source.json \
+            --ipa "dist/$ASSET" \
+            --download-url "$url" \
+            --date "$(date -u +%F)" \
+            --description "$RELEASE_NOTES" \
+            --expected-version "0.1.15" \
+            --expected-build "16"
+          npx --yes ajv-cli@5.0.0 validate --strict=false \
+            -s "$RUNNER_TEMP/sidestore-schema.json" \
+            -d source.json
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add source.json
+          if ! git diff --cached --quiet; then
+            git commit -m "release(ios): publish WebHTV 0.1.15 (16)"
+            git push origin HEAD:ios-poc
+          fi
+
+      - name: Release summary
+        run: |
+          {
+            echo "### SideStore release recovery"
+            echo "- IPA: https://github.com/${GITHUB_REPOSITORY}/releases/download/ios-v0.1.15-b16/WebHTV-0.1.15-16.ipa"
+            echo "- Source: https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/ios-poc/source.json"
+          } >> "$GITHUB_STEP_SUMMARY"

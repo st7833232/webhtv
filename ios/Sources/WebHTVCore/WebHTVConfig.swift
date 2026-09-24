@@ -80,10 +80,17 @@ public struct Site: Decodable, Identifiable, Sendable {
     public let rawExtJSON: String
     private let identityExtJSON: String
     let hasStructuredExtIdentity: Bool
+    /// CatVod's `searchable`, absent on most sites. See `isSearchable`.
+    public let searchable: Int?
 
     enum CodingKeys: String, CodingKey {
-        case key, name, type, api, ext
+        case key, name, type, api, ext, searchable
     }
+
+    /// Whether a search across every site asks this one (IOS-POC-20). Android's rule exactly: only
+    /// `1` takes part and an absent value counts as `1`; `0` is the configuration opting out, and `2`
+    /// is what Android's per-site switch writes when a user turns a site off (`Site.isSearchable()`).
+    public var isSearchable: Bool { (searchable ?? 1) == 1 }
 
     /// **Not `key` alone.** CatVod does not require site keys to be unique and this configuration
     /// proves it: four keys appear twice (`爱影`, `Bidys`, `AppV6Dxs`, `星芽短剧`), and since
@@ -156,6 +163,9 @@ public struct Site: Decodable, Identifiable, Sendable {
         rawExtJSON = extend?.extendText ?? ""
         identityExtJSON = extend?.identityText ?? ""
         hasStructuredExtIdentity = extend?.isStructured ?? false
+        // Gson on Android reads a quoted "0" into its `Integer` too, so a string form is accepted.
+        searchable = (try? values.decode(Int.self, forKey: .searchable))
+            ?? (try? values.decode(String.self, forKey: .searchable)).flatMap { Int($0) }
     }
 }
 

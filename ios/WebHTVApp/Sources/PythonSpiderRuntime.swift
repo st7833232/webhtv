@@ -17,9 +17,17 @@ final class PythonSpiderRuntime: SpiderRuntime, @unchecked Sendable {
     private let handle: String
     private let siteKey: String
 
-    /// Serialises every call into Python. The GIL would serialise them anyway; doing it here means
-    /// one place decides, and a spider's own instance state cannot be re-entered mid-method.
-    private let lock = NSLock()
+    /// Runs every call into Python, one at a time, off Swift concurrency's cooperative pool.
+    ///
+    /// One at a time for the reason the lock it replaces had: a spider's own instance state must not
+    /// be re-entered mid-method. Off the pool since IOS-POC-20: a call holds the GIL throughout and
+    /// blocks for as long as its spider waits on the network, and on the pool — which has only as
+    /// many threads as the device has cores — a search across dozens of Python sites would pin them
+    /// all. Apple's guidance is to move such work to a Dispatch queue and bridge it with a
+    /// continuation (WWDC21 10254, WWDC22 110350), which is also how `JavaScriptSpiderRuntime` already
+    /// runs. CPython releases the GIL during socket I/O, so different sites' calls still overlap
+    /// their network waits.
+    private let queue: DispatchQueue
 
     /// Loads the script. Throws rather than returning a half-built runtime, so a caller that gets an
     /// instance back has one that ran.
@@ -32,6 +40,7 @@ final class PythonSpiderRuntime: SpiderRuntime, @unchecked Sendable {
     init(script: String, siteKey: String, cacheDirectory: URL = PythonSpiderRuntime.defaultCacheDirectory) throws {
         self.handle = UUID().uuidString
         self.siteKey = siteKey
+        self.queue = DispatchQueue(label: "webhtv.python.\(siteKey)")
         try PythonBoot.ensureStarted()
         _ = try Self.bridge("load", [handle, siteKey, cacheDirectory.path, script])
     }
@@ -39,60 +48,70 @@ final class PythonSpiderRuntime: SpiderRuntime, @unchecked Sendable {
     // MARK: - SpiderRuntime
 
     func initialize(extend: String) async throws {
-        _ = try call("init", [extend])
+        _ = try await call("init", [extend])
     }
 
     func homeContent(filter: Bool) async throws -> String {
-        try call("homeContent", [filter])
+        try await call("homeContent", [filter])
     }
 
     func homeVideoContent() async throws -> String {
-        try call("homeVideoContent", [])
+        try await call("homeVideoContent", [])
     }
 
     func categoryContent(tid: String, page: String, filter: Bool, extend: [String: String]) async throws -> String {
-        try call("categoryContent", [tid, page, filter, extend])
+        try await call("categoryContent", [tid, page, filter, extend])
     }
 
     func detailContent(ids: [String]) async throws -> String {
-        try call("detailContent", [ids])
+        try await call("detailContent", [ids])
     }
 
     func searchContent(key: String, quick: Bool, page: String) async throws -> String {
-        try call("searchContent", [key, quick, page])
+        try await call("searchContent", [key, quick, page])
     }
 
     func playerContent(flag: String, id: String, vipFlags: [String]) async throws -> String {
-        try call("playerContent", [flag, id, vipFlags])
+        try await call("playerContent", [flag, id, vipFlags])
     }
 
     func liveContent(url: String) async throws -> String {
-        try call("liveContent", [url])
+        try await call("liveContent", [url])
     }
 
     func isVideoFormat(url: String) async throws -> Bool {
-        try call("isVideoFormat", [url]) == "true"
+        try await call("isVideoFormat", [url]) == "true"
     }
 
     func manualVideoCheck() async throws -> Bool {
-        try call("manualVideoCheck", []) == "true"
+        try await call("manualVideoCheck", []) == "true"
     }
 
     func action(_ action: String) async throws -> String {
-        try call("action", [action])
+        try await call("action", [action])
     }
 
+    /// Queued behind any call still running, so the instance is never unloaded under a method in
+    /// progress. Not awaited: callers go on at once, as they did when this ran in place.
     func destroy() async {
-        _ = try? Self.bridge("unload", [handle])
+        queue.async { [handle] in
+            _ = try? PythonSpiderRuntime.bridge("unload", [handle])
+        }
     }
 
     // MARK: - The bridge
 
-    private func call(_ name: String, _ arguments: [Any]) throws -> String {
-        lock.lock()
-        defer { lock.unlock() }
+    private func call(_ name: String, _ arguments: [Any]) async throws -> String {
         let encoded = try Self.jsonArray(arguments)
-        return try Self.bridge("invoke", [handle, name, encoded])
+        return try await withCheckedThrowingContinuation { continuation in
+            queue.async { [handle] in
+                do {
+                    continuation.resume(returning: try PythonSpiderRuntime.bridge("invoke", [handle, name, encoded]))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 
     private static func jsonArray(_ values: [Any]) throws -> String {

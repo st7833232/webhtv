@@ -125,6 +125,12 @@ private struct ConfigView: View {
                         .tag(0)
                         .tabItem { Label("首頁", systemImage: "play.rectangle.fill") }
 
+                    // IOS-POC-20. Tag 3 rather than renumbering: the other tabs keep the tags code
+                    // already switches to.
+                    AggregateSearchView(sites: sites, source: source)
+                        .tag(3)
+                        .tabItem { Label("搜尋", systemImage: "magnifyingglass") }
+
                     NavigationStack {
                         HistoryView(sites: sites, source: source)
                     }
@@ -838,7 +844,8 @@ private struct CMSView: View {
 
     private func listing(page: Int) async throws -> CMSResponse {
         let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
-        if searching, !query.isEmpty { return try await client.search(query, page: page) }
+        // Simplified as Android does, since IOS-POC-20: the sources index simplified titles.
+        if searching, !query.isEmpty { return try await client.search(TraditionalSimplified.toSimplified(query), page: page) }
         if let selectedCategory {
             return try await client.category(id: selectedCategory, page: page, extend: chosenFilters)
         }
@@ -854,7 +861,7 @@ private struct CMSView: View {
         do {
             let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
             let response = if let search, !search.isEmpty {
-                try await client.search(search)
+                try await client.search(TraditionalSimplified.toSimplified(search))
             } else if let category {
                 try await client.category(id: category, extend: chosenFilters)
             } else {
@@ -920,6 +927,280 @@ private struct VodCard: View {
         }
         .clipShape(.rect(cornerRadius: 10))
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Searches every searchable site of the configuration in use at once (IOS-POC-20).
+///
+/// Its own tab, so the results stay while the user looks elsewhere, and a sheet over WebHome for
+/// `app.search`. Only a submitted keyword is searched, never each keystroke: every search can leave
+/// spider calls running that nothing can stop (`AggregateSearch`).
+private struct AggregateSearchView: View {
+    let sites: [Site]
+    let source: ConfigSource
+    var initialQuery: String?
+    /// Presented as a sheet: closing it stops the search. A tab keeps searching while another is shown.
+    var isSheet = false
+
+    @State private var query = ""
+    /// The keyword of the results on screen, which is what 載入更多 pages through.
+    @State private var keyword = ""
+    /// Bumped by every search, so an answer from an earlier one is never applied.
+    @State private var generation = 0
+    @State private var task: Task<Void, Never>?
+    @State private var searching = false
+    @State private var total = 0
+    @State private var answered = 0
+    @State private var failed = 0
+    @State private var timedOut = 0
+    @State private var busy = 0
+    /// Sites that found something, in the order they answered: the chip order, as on Android.
+    @State private var groups = [SiteHits]()
+    /// The chip in use: a site's position in the searched list, or nil for 全部.
+    @State private var selected: Int?
+
+    private let columns = [GridItem(.adaptive(minimum: 140, maximum: 220), spacing: 12)]
+
+    private struct SiteHits {
+        let index: Int
+        let site: Site
+        var vods: [Vod]
+        var page = 1
+        var canLoadMore = true
+        var loadingMore = false
+    }
+
+    private struct Hit: Identifiable {
+        let site: Site
+        let vod: Vod
+        let id: String
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                if !groups.isEmpty { chipRow }
+                if searching || answered > 0 { progressRow }
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(hits) { hit in
+                        NavigationLink {
+                            VodView(site: hit.site, summary: hit.vod, source: source)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                VodCard(vod: hit.vod)
+                                Text(hit.site.name.displayName)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .onAppear {
+                            // Only a site's own chip pages, as on Android: 全部 shows first pages only.
+                            if let selected, hit.id == hits.last?.id { Task { await loadMore(selected) } }
+                        }
+                    }
+                }
+                .padding(12)
+                if selectedGroup?.loadingMore == true { ProgressView().padding(.bottom, 16) }
+            }
+            .appWallpaper()
+            .overlay { emptyState }
+            .navigationTitle("全站台搜尋")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜尋所有站台")
+            .onSubmit(of: .search) { submit() }
+            .appNavigationBar()
+        }
+        .task {
+            guard keyword.isEmpty, let initialQuery, !initialQuery.isEmpty else { return }
+            query = initialQuery
+            submit()
+        }
+        .onDisappear { if isSheet { stop() } }
+        // Results belong to the configuration they came from: a site of another one must not be paged
+        // or opened through this one's resolver and watch history.
+        .onChange(of: source) {
+            stop()
+            clear()
+            keyword = ""
+            generation += 1
+        }
+    }
+
+    private var engine: AggregateSearch { AggregateSearch(search: Self.search(in: source)) }
+
+    /// One page of one site, through the same client the home screen uses.
+    private static func search(in source: ConfigSource) -> AggregateSearch.Search {
+        { site, keyword, page in
+            let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
+            return try await client.search(keyword, page: page).list
+        }
+    }
+
+    private var hits: [Hit] {
+        let shown = selected.map { index in groups.filter { $0.index == index } } ?? groups
+        return shown.flatMap { group in
+            group.vods.map { Hit(site: group.site, vod: $0, id: "\(group.index)\u{0}\($0.id)") }
+        }
+    }
+
+    private var selectedGroup: SiteHits? {
+        selected.flatMap { index in groups.first { $0.index == index } }
+    }
+
+    private var chipRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                chip("全部 \(groups.reduce(0) { $0 + $1.vods.count })", index: nil)
+                ForEach(groups, id: \.index) { group in
+                    chip("\(group.site.name.displayName) \(group.vods.count)", index: group.index)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+        }
+    }
+
+    private func chip(_ title: String, index: Int?) -> some View {
+        let isActive = selected == index
+        return Button(title) { selected = index }
+            .buttonStyle(.plain)
+            .font(.subheadline.weight(isActive ? .bold : .regular))
+            .foregroundStyle(isActive ? appSurface : .white)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 7)
+            .background(isActive ? .white : appSurface.opacity(0.85), in: Capsule())
+    }
+
+    private var progressRow: some View {
+        HStack(spacing: 8) {
+            if searching { ProgressView().controlSize(.small) }
+            Text("已完成 \(answered)/\(total)")
+            if !problems.isEmpty { Text(problems).foregroundStyle(.secondary) }
+            Spacer()
+            if searching { Button("停止") { stop() }.fontWeight(.semibold) }
+        }
+        .font(.caption)
+        .foregroundStyle(.white)
+        .padding(.horizontal, 12)
+        .padding(.top, 4)
+    }
+
+    /// The failed, timed-out and still-busy counts, leaving out the ones that are zero.
+    private var problems: String {
+        [("失敗", failed), ("逾時", timedOut), ("上一輪仍在執行", busy)]
+            .filter { $0.1 > 0 }
+            .map { "\($0.0) \($0.1)" }
+            .joined(separator: "、")
+    }
+
+    @ViewBuilder private var emptyState: some View {
+        if keyword.isEmpty {
+            ContentUnavailableView(
+                "全站台搜尋", systemImage: "magnifyingglass",
+                description: Text("輸入關鍵字後按搜尋，會同時搜尋這個資訊源的 \(AggregateSearch.sites(from: sites).count) 個站台。")
+            )
+        } else if !groups.isEmpty {
+            EmptyView()
+        } else if searching {
+            ProgressView("搜尋中 \(answered)/\(total)")
+        } else if total == 0 {
+            ContentUnavailableView("沒有可搜尋的站台", systemImage: "magnifyingglass",
+                                   description: Text("這個資訊源的站台都沒有開放搜尋。"))
+        } else if answered < total {
+            ContentUnavailableView("已停止搜尋", systemImage: "stop.circle",
+                                   description: Text("已完成 \(answered)/\(total) 個站台，還沒有結果。"))
+        } else if failed + timedOut + busy == total {
+            ContentUnavailableView {
+                Label("搜尋失敗", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text("\(total) 個站台都失敗、逾時或仍在執行上一輪。")
+            } actions: {
+                Button("重試") {
+                    query = keyword
+                    submit()
+                }
+            }
+        } else {
+            ContentUnavailableView("沒有找到「\(keyword)」", systemImage: "magnifyingglass",
+                                   description: Text("\(total) 個站台都沒有結果。"))
+        }
+    }
+
+    private func submit() {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        stop()
+        clear()
+        generation += 1
+        let current = generation
+        keyword = text
+        let targets = AggregateSearch.sites(from: sites)
+        total = targets.count
+        searching = true
+        let reports = engine.run(targets, keyword: text)
+        task = Task {
+            for await report in reports {
+                guard current == generation else { return }
+                apply(report)
+            }
+            if current == generation { searching = false }
+        }
+    }
+
+    /// Ending the iteration stops the search itself (`AggregateSearch.run`).
+    private func stop() {
+        task?.cancel()
+        task = nil
+        searching = false
+    }
+
+    private func clear() {
+        groups = []
+        selected = nil
+        total = 0
+        answered = 0
+        failed = 0
+        timedOut = 0
+        busy = 0
+    }
+
+    private func apply(_ report: AggregateSearch.Report) {
+        answered += 1
+        switch report.outcome {
+        case .found(let vods) where !vods.isEmpty:
+            groups.append(SiteHits(index: report.index, site: report.site, vods: vods))
+        case .found:
+            break
+        case .failed:
+            failed += 1
+        case .timedOut:
+            timedOut += 1
+        case .busy:
+            busy += 1
+        }
+    }
+
+    /// The next page of one site, for its own chip. Pagination stops when a page adds nothing or
+    /// fails, as it does on the home screen.
+    private func loadMore(_ index: Int) async {
+        guard let position = groups.firstIndex(where: { $0.index == index }),
+              groups[position].canLoadMore, !groups[position].loadingMore else { return }
+        groups[position].loadingMore = true
+        let current = generation
+        let site = groups[position].site
+        let next = groups[position].page + 1
+        let page = try? await engine.page(next, of: site, keyword: keyword)
+        guard current == generation, let at = groups.firstIndex(where: { $0.index == index }) else { return }
+        groups[at].loadingMore = false
+        let merged = groups[at].vods.merging(newTitlesFrom: page ?? [])
+        guard merged.count > groups[at].vods.count else {
+            groups[at].canLoadMore = false
+            return
+        }
+        groups[at].vods = merged
+        groups[at].page = next
     }
 }
 
@@ -4121,8 +4402,9 @@ private struct WebHomeView: View {
         .sheet(item: $pendingVod) { request in
             NavigationStack { VodView(site: request.site, summary: request.vod, source: source) }
         }
+        // Every site at once since IOS-POC-20, as Android's `app.search` does.
         .sheet(item: $pendingSearch) { request in
-            NavigationStack { CMSView(site: site, source: source, initialQuery: request.keyword) }
+            AggregateSearchView(sites: sites, source: source, initialQuery: request.keyword, isSheet: true)
         }
         .fullScreenCover(isPresented: $playingInline) { PlayerView() }
     }

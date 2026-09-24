@@ -1,6 +1,6 @@
 # IOS-POC-20 — 全站台搜尋
 
-- 狀態：**設計研究完成，待使用者核准**（2026-09-25）；未實作。研究結果與修正後的設計見文末「設計研究（AGENTS §7，2026-09-25）」；與下方原計畫衝突時以該節為準。
+- 狀態：**已實作，尚未編譯、未發布、真機未驗證**（2026-09-25）。使用者的選擇與實作內容見文末「實作紀錄（2026-09-25）」，設計依據見「設計研究（AGENTS §7，2026-09-25）」；三者衝突時，以實作紀錄為準，其次是設計研究，最後才是下方原計畫。
 - 使用者需求（2026-09-24，原文）：「我在切換資訊源的時候需要記錄每個資訊源離開前的站台，以便我回來資訊源我還要重新切換；另外我需要一個全資源搜尋的功能；給我相關計畫」。
 - 規劃基準：2026-09-24 15:39 CST，分支 `ios-poc`（規劃時 HEAD `75fc13a5`；之後只多了 17H 解析度修正 `5613517a`，不影響本計畫）。
   證據來自三個唯讀 agent 讀程式碼（iOS 資訊源／站台、iOS 搜尋、Android 參考做法），關鍵行號已人工抽查；**沒有跑 `swift test`、沒有建置、沒有在模擬器或實機試過**。
@@ -309,8 +309,58 @@ Revert 單一 commit 即可。v1 不存任何資料（沒有搜尋歷史）。`s
   - C：不跑，接受第 2、3、4、5 條只做真機間接觀察。
 - **Q7（新）**：`PythonSpiderRuntime` 改用 serial queue，讓 Python 不再佔住共用執行緒（**建議採用**）。會多改一個 App 檔，影響所有 Python 站台的呼叫路徑（結果不變，只換執行的執行緒）；不採用則 Python 限 1 條。
 
+## 實作紀錄（2026-09-25）
+
+### 使用者的選擇
+
+- Q1 只搜目前資訊源；Q2 **全站台與單站搜尋都轉**（首頁單站搜尋的行為因此改變，使用者同意）；Q3 **WebHome 的 `app.search` 改開全站台搜尋**；
+  Q4 **站台可載入更多**；Q5 附加功能都不做；Q6 **不跑單元測試**；Q7 Python 移到專用 queue；隨後核准開始實作。
+- 入口：使用者選擇**底部新增「搜尋」分頁**（首頁、搜尋、記錄、設定），取代原計畫的首頁右上角按鈕與 sheet；WebHome 的 `app.search` 仍以 sheet 開啟同一個畫面。
+
+### 實作內容
+
+- `ios/Sources/WebHTVCore/AggregateSearch.swift`（新檔）：
+  - `sites(from:)`：`isSearchable` 且 `Site.id` 第一次出現的站台，保持設定檔順序。
+  - `run(_:keyword:)`：回傳 `AsyncStream<Report>`，每站一筆 `found`／`failed`／`timedOut`／`busy`。同時最多 6 個呼叫；呼叫的名額在底層工作真正結束時才歸還；上一輪仍在執行的站台回報 `busy` 且不佔名額（全 App 共用一份記錄）；每站 30 秒從呼叫開始算，到期時取消 Task（CMS 會真正中止，spider 繼續跑）。
+  - 期限與取消的競賽用一把 `NSLock` 保證 continuation 只 resume 一次，且在鎖外 resume；不用 TaskGroup 等待不可取消的工作。
+  - `page(_:of:keyword:)`：單一站台的下一頁，不受上限與跳過影響。
+  - 以 `Logger`（subsystem `com.webhtv.ios.poc`、category `search`）記錄 `[search]` 的詢問、同時進行數、回應時間、逾時與跳過。
+- `ios/Sources/WebHTVCore/TraditionalSimplified.swift`（新檔）：Android `Trans.java`（`cf2d9c7f875bbdcc752a2b34ee0fe9ea422f0914`）的 2,528 組字對，逐字複製。
+- `ios/Sources/WebHTVCore/WebHTVConfig.swift`：`Site.searchable`（接受數字或字串）與 `isSearchable`（`(searchable ?? 1) == 1`）。
+- `ios/WebHTVApp/Sources/PythonSpiderRuntime.swift`：以每個實例一條 serial `DispatchQueue` 取代 `NSLock`，所有方法改為在 queue 上執行並以 continuation 回到 async；`destroy()` 排在執行中的呼叫之後，呼叫者不等待（與原本立即返回相同）。runtime 載入腳本的初始化維持在呼叫者的執行緒。
+- `ios/WebHTVApp/Sources/WebHTVApp.swift`：
+  - `AggregateSearchView`：自己的 NavigationStack 與常駐搜尋欄；只在送出時搜尋；進度「已完成 x／總數」、停止按鈕，以及失敗、逾時、上一輪仍在執行的計數；「全部」與各站台 chip（依回應順序）；只有選了站台 chip 才載入下一頁；每筆結果標站台名，點進 `VodView`。
+  - 底部分頁 tag 3（不改既有 tag 0/1/2）。
+  - 資訊源改變時清空結果並作廢進行中的請求。
+  - 以 sheet 開啟時，關閉就停止搜尋；分頁切走時繼續搜尋。
+  - CMSView 單站搜尋的第一頁與載入更多都先繁轉簡。
+  - WebHome 的 `app.search` 改開這個畫面。
+- `ios/Tests/WebHTVCoreTests/AggregateSearchTests.swift`（新檔）：8 個測試，涵蓋 `searchable` 規則、站台去重、繁轉簡、送出簡體關鍵字、上限、慢站不拖累其他站、跳過忙碌站台與失敗回報。**依 Q6 未執行。**
+
+### 與 Android 字表的刻意差異
+
+- `Trans.java` 有 10 個繁體字各出現兩次（這張表同時用於簡轉繁），`HashMap.put` 保留後者，所以 Android 實際送出：餘→馀、強→犟、線→缐、滾→磙、濫→漤、墊→埝、壟→垅、鯰→鲶、諮→谘、謔→谑。
+  例如「慶餘年」會變成「庆馀年」，站台多半搜不到。
+- iOS 改為**前者優先**，另把「謔」手動指定為「谑」。結果：餘→余、強→强、線→线、滾→滚、濫→滥、墊→垫、壟→垄、鯰→鲇、諮→咨、謔→谑。
+  其餘 2,508 個字與 Android 完全相同。
+- 上方驗收標準第 8 條的「與 Android `Trans.t2s` 對同一輸入的結果相同」因此改為：除上述 10 個字外相同，「慶餘年」送出「庆余年」。
+
+### 驗證
+
+- **本環境沒有 Swift 編譯器**（Linux 容器，apt 也沒有 Swift 工具鏈），所以**沒有編譯**，也沒有執行任何測試。
+- 字表：以腳本確認 Swift 檔內兩個字串與 `Trans.java` 逐字相同（各 2,528 字、全在 BMP、無跳脫字元），並以同一規則模擬轉換，測試檔裡的 6 組期望值全部相符。
+- 靜態複查：逐段對照 Swift 6 並行規則，包括 Sendable、actor 隔離、continuation 只 resume 一次、`NSLock.withLock` 在同步函式內、struct 的隱式 self，以及 `try` 不放在 `await` 右側。已修正 3 處疑慮：預設參數改用完整型別名、log 的可變計數先複製成常數、測試中的 `try` 移出 `await` 運算式。
+- 未驗證：編譯（要等使用者核准發布後由 CI 的 Release device build 執行）、所有執行期行為、真機。
+- Ponytail：unavailable / skipped。
+
+### 風險與回滾
+
+- 第一次 CI 建置可能出現編譯錯誤，需要修正後重跑；同一版號的重跑算在同一次發布核准內。
+- 殘留：runtime 初始化仍在共用執行緒上；一次 JS 搜尋可能發多次各最長 65 秒的請求；Python 腳本不帶 timeout 的請求沒有上限。以上都會讓站台一直標示「逾時」，直到底層結束。
+- 回滾：revert 本任務的單一 commit。不寫入任何持久資料；`searchable` 是 Optional，舊快取照樣能解。
+
 ## Recovery anchor
 
-- 目前（2026-09-25）：AGENTS §7 設計研究完成並寫入本文件（外部證據、本地程式碼複核、修正後的設計、驗收、驗證限制）；**尚未核准、沒有任何程式修改**。研究基準 HEAD `5e67e1be`，程式碼與 `507c49b6` 相同。
+- 目前（2026-09-25）：依使用者 Q1～Q7 與「底部搜尋分頁」的選擇實作完成，以 guard `IOS-POC-20` 原子提交並推送到 `ios-poc`，不打 recovery tag；**未編譯、未發布、真機未驗證**（見「實作紀錄」）。
 - 研究產物（不進 repo）：外部來源原文與 clone 在本工作階段 scratchpad 的 `research/`；使用者設定檔的新 SHA-256 為 `efd3ef72…`（見本地程式碼複核）。
-- 下一步（唯一）：使用者回覆「待你決定（更新）」Q1～Q7（或接受預設）並核准後，以 guard `standard` 開始實作。
+- 下一步（唯一）：使用者核准發布後，bump 版本並觸發 `ios-sidestore-release.yml`，由 CI 編譯。若編譯失敗，修正後重跑；成功則由使用者以 SideStore 安裝，依「驗收標準（更新）」逐條實測。

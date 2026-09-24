@@ -185,6 +185,46 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     #expect(loaded.autoplay)
 }
 
+// MARK: - IOS-POC-22: a speed AVPlayer cannot play
+
+@Test func onlyAboveTwiceWithoutFastForwardNeedsTheOtherEngine() {
+    #expect(!PlaybackRateSupport.needsOtherEngine(rate: 2, canPlayFastForward: false))
+    #expect(!PlaybackRateSupport.needsOtherEngine(rate: 0.5, canPlayFastForward: false))
+    #expect(PlaybackRateSupport.needsOtherEngine(rate: 2.5, canPlayFastForward: false))
+    #expect(PlaybackRateSupport.needsOtherEngine(rate: 3, canPlayFastForward: false))
+    #expect(!PlaybackRateSupport.needsOtherEngine(rate: 3, canPlayFastForward: true))
+}
+
+@MainActor @Test func aSpeedAVPlayerCannotPlayMovesToMPVWithEverythingKept() throws {
+    let harness = Harness()
+    harness.router.open(request)
+    let native = harness.engine
+    native.currentTime = 812
+    // Waiting for data: not `isPlaying`, but the viewer did not pause it.
+    native.isPlaying = false
+    harness.router.setRate(3)
+    #expect(harness.router.select(.mpv, playing: true))
+    let loaded = try #require(harness.engine.loads.last)
+    #expect(native.tornDown)
+    #expect(harness.engine.kind == .mpv)
+    #expect(loaded.target == target)
+    #expect(loaded.history == episode)                      // episode, line and quality
+    #expect(loaded.startSeconds == 812)
+    #expect(loaded.rate == 3)
+    #expect(loaded.autoplay)
+}
+
+@MainActor @Test func aPausedPlayerMovesPaused() throws {
+    let harness = Harness()
+    harness.router.open(request)
+    harness.engine.currentTime = 90
+    harness.router.setRate(2.5)
+    harness.router.select(.mpv, playing: false)
+    let loaded = try #require(harness.engine.loads.last)
+    #expect(loaded.rate == 2.5)
+    #expect(!loaded.autoplay)
+}
+
 @MainActor @Test func switchingMPVToAVPlayerKeepsTheSameThings() throws {
     let harness = Harness(globalDefault: .mpv)
     harness.router.open(request)

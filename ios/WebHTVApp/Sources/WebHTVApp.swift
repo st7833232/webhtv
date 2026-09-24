@@ -1840,6 +1840,16 @@ extension Playback {
     func isEngineAvailable(_ kind: PlaybackEngineKind) -> Bool { router.selection.isAvailable(kind) }
     /// The control bar's switch: this session only.
     func selectEngine(_ kind: PlaybackEngineKind) { router.select(kind) }
+
+    /// IOS-POC-22 — AVPlayer cannot play this item at the viewer's speed (2.5× or 3× on an item
+    /// that cannot fast-forward): MPV takes it over for the rest of this session through the same
+    /// hand-off as the control bar's switch — same target, episode, line and quality, where the
+    /// viewer is, at that speed, playing or paused as they left it. No buffer can make AVPlayer do
+    /// it (`PlaybackRateSupport`).
+    func nativeCannotPlayRate(playing: Bool) {
+        guard engineKind == .native, router.select(.mpv, playing: playing) else { return }
+        Self.log.notice("[playback] \(self.itemTitle, privacy: .public) at \(self.chosenRate)× — AVPlayer cannot play above 2× on this item; moved to MPV")
+    }
     /// The settings page's choice, stored for the next session.
     func setGlobalDefaultEngine(_ kind: PlaybackEngineKind) {
         PlaybackEnginePreference().setGlobalDefaultEngine(kind)
@@ -2549,8 +2559,12 @@ final class AVPlayerEngine: PlaybackEngine {
         })
         itemStatus = session.player.observe(\.currentItem?.status, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in
-                guard let self, self.player.currentItem?.status == .failed else { return }
-                self.report(self.player.currentItem?.error)
+                guard let self else { return }
+                switch self.player.currentItem?.status {
+                case .failed: self.report(self.player.currentItem?.error)
+                case .readyToPlay: self.checkRate()
+                default: break
+                }
             }
         }
     }
@@ -2582,6 +2596,24 @@ final class AVPlayerEngine: PlaybackEngine {
     func setRate(_ rate: Float) {
         player.defaultRate = rate
         if player.rate > 0 { player.rate = rate }
+        checkRate()
+    }
+
+    /// IOS-POC-22 — above 2× AVPlayer needs the item's `canPlayFastForward` (`PlaybackRateSupport`).
+    /// Checked once the item is ready, since the property means nothing before, and on every speed
+    /// change after that. `player.rate` is the viewer's intent: non-zero while playing or waiting
+    /// for data, zero when paused.
+    private func checkRate() {
+        guard let item = player.currentItem, item.status == .readyToPlay,
+              PlaybackRateSupport.needsOtherEngine(rate: player.defaultRate,
+                                                   canPlayFastForward: item.canPlayFastForward)
+        else { return }
+        let playing = player.rate != 0
+        // Not from inside this engine's own call: moving the playback tears this engine down.
+        Task { @MainActor [weak self] in
+            guard let self, self.session.engine === self else { return }
+            self.session.nativeCannotPlayRate(playing: playing)
+        }
     }
 
     var volume: Float {

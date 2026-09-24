@@ -319,6 +319,20 @@ public protocol PlaybackEngine: AnyObject {
     func teardown()
 }
 
+// MARK: - IOS-POC-22: speeds AVPlayer cannot play
+
+/// Which speeds need the other engine. `AVPlayerItem.h`: every ready item plays at 1.0–2.0× even
+/// when `canPlayFastForward` is NO, and that property is what says whether it can go above 2.0×.
+/// Without it, measured on the simulator (2026-09-24), AVPlayer drops its whole buffer at 2.5× and
+/// 3× and keeps waiting and jumping, however large the forward buffer is.
+public enum PlaybackRateSupport {
+    public static let nativeLimit: Float = 2
+
+    public static func needsOtherEngine(rate: Float, canPlayFastForward: Bool) -> Bool {
+        rate > nativeLimit && !canPlayFastForward
+    }
+}
+
 // MARK: - The router
 
 /// Opens a request on the engine the selection says, moves it to the other engine on a manual
@@ -362,12 +376,15 @@ public final class PlayerRouter {
         run(request)
     }
 
-    /// The control bar's choice. Changes this session only.
+    /// The control bar's choice, or the session's when the engine cannot play the speed asked
+    /// (IOS-POC-22). Changes this session only. `playing` is the play/pause state to carry when the
+    /// caller knows it better than `isPlaying` does — a player waiting for data is not playing, but
+    /// the viewer did not pause it.
     @discardableResult
-    public func select(_ kind: PlaybackEngineKind) -> Bool {
+    public func select(_ kind: PlaybackEngineKind, playing: Bool? = nil) -> Bool {
         guard request != nil, selection.choose(kind) else { return false }
         failure = nil
-        handOff(autoplay: engine?.isPlaying ?? true)
+        handOff(autoplay: playing ?? engine?.isPlaying ?? true)
         return true
     }
 

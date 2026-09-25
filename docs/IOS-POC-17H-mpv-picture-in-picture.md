@@ -141,6 +141,17 @@ MPV 版要同樣：MPV 播放中滑回主畫面 → 自動出現 PiP 視窗、�
   回呼 4 次／10 秒，每秒 30 張；final Simulator Debug build 成功、`MPVEngine.swift` 0 warning、binary 無 `TEMP-17H`。
 - 真機未驗證：修正後的 PiP 清晰度與 CPU。已於 2026-09-24 以 `0.1.12 (13)` 發布（run `35971952291`）。
 
+## 真機回報：解除子母畫面時放大、進度往回（使用者 2026-09-25，`0.1.18 (19)`）
+
+- 回報原文：「在解除 pip 回到 App 畫面會突然放大然後又正常，但是進度會往回一點」。
+- 診斷（2026-09-25 的 9 個 agent workflow，詳細證據與原始碼行號見 `docs/IOS-POC-17I-mpv-resize-libmpv.md` 第一節所列版本）：
+  - 確定的機制一：Metal view 疊在 sample-buffer view 上面，會一直留著子母畫面開始那一刻 mpv 畫的最後一格。gpu-next VO 被銷毀不會清掉它：MoltenVK 只會嘗試把 drawableSize 設成 1×1，而 `MPVMetalLayer` 會忽略。回到 App 時這張舊畫格以 `kCAGravityResize` 拉伸到目前的 bounds，直到 `stopSoftwareOutput` 重建的 Metal 輸出畫出第一格（在它的 exact seek 之後）。常見流程是橫向觀看、回到直向的主畫面、再直向回到 App，此時橫向畫格會被拉滿直向畫面。
+  - 確定的機制二（較少發生）：回到 App 時的尺寸變化只排了 300 ms 的 settle。若新的 gpu-next VO 先畫出第一格，會讀到舊的橫向 `drawableSize`，把橫向矩形畫進直向畫布（放大並裁切），直到 settle 觸發第二次重建。
+  - 進度往回：mpv 自己的 seek 不會倒退。每次重建的 exact seek 以「正在聽到的音訊」為目標，所以會重播約一段音訊輸出延遲（喇叭約數十 ms，藍牙約 0.1～0.3 秒，未實測），這在切換 VO 的做法下 App 端無法消除；使用者看到的「比較早的畫面」則是上面那張殘留舊畫格。子母畫面 timebase 最多領先 1 秒一事，因 iPhone 的 PiP 視窗沒有時間顯示，不是可見原因。
+  - 未能排除：放大也可能是 AVKit 自己的子母畫面放回動畫（閉源，只能由錄影分辨）或系統 App 快照。
+- 可行修法（未實作）：子母畫面期間與回到 App 時，以黑色覆蓋層蓋住殘留的 Metal 畫格；重建前先套用最新尺寸，讓輸出只以正確尺寸建一次；若錄影顯示放大發生在 AVKit 放回動畫期間，再把 sample-buffer view 改為影片的等比例矩形。
+- **使用者決定（2026-09-25）：「先不改，等有模擬器你再修改」**。本問題保持開啟，等可在模擬器驗證的環境再實作；屆時先加 log 並錄影分辨放大的來源。
+
 ## Recovery anchor
 
 - 目標：MPV PiP（P6），行為對齊 AVPlayer 自動 PiP（第一節）。

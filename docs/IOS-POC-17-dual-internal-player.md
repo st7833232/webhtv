@@ -311,6 +311,7 @@ Simulator Debug build → **BUILD SUCCEEDED**。全套 `swift test` 留到 17B �
 - mpv `v0.41.0` `video/out/vo_gpu_next.c`：`reconfig()` 才會呼叫 context 的 `reconfig`；另一條 `VOCTRL_EXTERNAL_RESIZE` 只由
   `android-surface-size`／`d3d11-composition-size` 觸發（`player/command.c`），**這兩個選項在 iOS 不會編進去**（`options/options.c` 的 `#if`）。
 - 所以旋轉後 layer 的 bounds 變了，mpv 仍用舊方向的尺寸畫，Core Animation 再把它拉到新 bounds 上＝跑版。
+  **2026-09-25 更正**：播放中的實際機制是 MoltenVK 回報 `VK_SUBOPTIMAL_KHR`、libplacebo 依新尺寸重建 swapchain，mpv 卻仍用舊方向的目標矩形畫進新畫布；Core Animation 拉伸只發生在暫停中與第一幀。詳見 `docs/IOS-POC-17I-mpv-resize-libmpv.md`（根治方案：自建含 resize 修正的 Libmpv）。
   上游 **MPVKit issue #3「Player won't resize on iOS when using Metal」**（2024-04 開、2026-09 仍 open）就是同一個問題；
   社群修法 edde746/MPVKit@`e6b129fdd31347b25d5d862f73f52c23f9e55624` 是改 libmpv 的 `moltenvk` context，需要自己重編 libmpv。
 

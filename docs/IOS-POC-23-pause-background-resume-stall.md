@@ -352,12 +352,12 @@ App 沒有本地代理或 HTTP server；AVPlayer（`AVURLAsset`＋headers）與 
 5. 候選原因（未驗證）：
    - AVPlayer 恢復播放時會先等到有足夠資料才開始（第三節 A3）；
    - 伺服器關閉閒置連線，按播放時要重新連線（F5）。
-6. 與第十節第三階段（緩衝指示）有關。要不要處理由使用者決定，處理的話另開任務。
+6. 與第十節第三階段（緩衝指示）有關。**使用者 2026-09-25 決定先不處理**；之後要處理時另開任務，先量等待秒數再診斷。
 
 ### 4. 對第十節後續階段的影響
 
 1. 第二階段（網址過期時重新解析）：T15 通過，依目前證據不需要。
-2. 第三階段（緩衝指示）與第四階段（開播後卡住偵測或 mpv 參數）：第一階段之後沒有卡住的回報，沒有觸發的證據。上面第 3 點的等待現象是否另開任務，由使用者決定。
+2. 第三階段（緩衝指示）與第四階段（開播後卡住偵測或 mpv 參數）：第一階段之後沒有卡住的回報，沒有觸發的證據。上面第 3 點的等待現象，使用者決定先不處理。
 3. O6、O7 維持延後。
 
 ## Recovery anchor
@@ -366,4 +366,4 @@ App 沒有本地代理或 HTTP server；AVPlayer（`AVURLAsset`＋headers）與 
 - 狀態（2026-09-25）：第一階段（`440d671e`）與 MPV snapshot 修正（`51501cde`）已以 `0.1.20 (21)` 發布，CI 編譯成功；單元測試未執行；**真機驗收 T1～T15 全部通過**（第十二節）。
 - 相關檔案：`ios/Sources/WebHTVCore/PlaybackEngine.swift`（`PlayerRouter`）、`ios/WebHTVApp/Sources/WebHTVApp.swift`（`PlaybackSession`、`AVPlayerEngine`）、`ios/WebHTVApp/Sources/MPVEngine.swift`、`ios/Sources/WebHTVCore/PictureInPictureForegroundRestoreState.swift`、`ios/Tests/WebHTVCoreTests/PlaybackEngineTests.swift`。
 - 未解：在背景關掉子母畫面小視窗後才被暫停執行不會重新載入（T6 未涵蓋），以及 MPV 子母畫面內按播放不重新啟用音訊（兩者見第十一節之四）；暫停一段時間後按播放要等幾秒（第十二節之三，與本修正無關）。
-- 下一步（唯一）：第一階段已完成。後續階段依目前證據不需要；是否另開任務處理第十二節之三的等待現象，由使用者決定。
+- 下一步（唯一）：無。第一階段已完成，後續階段依目前證據不需要；第十二節之三的等待現象，使用者 2026-09-25 決定先不處理。

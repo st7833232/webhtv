@@ -1,6 +1,6 @@
 # IOS-POC-17I — MPV 旋轉根治：自建含 resize 修正的 Libmpv
 
-- 狀態：**17I-1 實作中**（2026-09-25）。使用者核准方案 E 與 17I-1，授權 notice 選「repo 先補，App 畫面另開任務」。workflow、patch、lock、notice 已寫好；等 CI 建置、比對與發布（第十二節）。17I-2、17I-3 尚未開始，各需另外核准。
+- 狀態：**17I-1 完成**（2026-09-25）。使用者核准方案 E 與 17I-1，授權 notice 選「repo 先補，App 畫面另開任務」。CI 從 MPVKit 1.0.0 配方建出 `Libmpv.xcframework`，比對通過（含使用者核准的 `_wcslen` 具名例外），發布 prerelease `mpvkit-1.0.0-webhtv.1`（第十二節）。**App 尚未修改**；17I-2（App 改用新 Libmpv、移除 17G 重建）與 17I-3（SideStore 發版）各需另外核准。
 - 使用者需求（2026-09-25，`0.1.18 (19)` 真機）：「MPV 螢幕直立橫向切換，畫面會短暫的跑版，然後恢復正常」。使用者在選擇題中選了「根本解法：自建 libmpv」，而不是「重建期間短暫蓋黑」的緩解做法。
 - 同一次回報的另一個問題（解除子母畫面時放大、進度往回），使用者決定「先不改，等有模擬器你再修改」，記錄在 `docs/IOS-POC-17H-mpv-picture-in-picture.md` 的「真機回報：解除子母畫面時放大、進度往回」一節，不在本任務範圍。
 - 研究基準：分支 `ios-poc`，HEAD `d960fcdffde7b8d129b79e7e3041d45a1f4d8237`；存取日期 2026-09-25。
@@ -233,7 +233,20 @@
 - 使用者決定（2026-09-25，選擇題）：「接受 `_wcslen`」。另外兩個選項是改用 `macos-14`＋Xcode 15.4 重建（該 runner 2026-11-02 起停止支援），以及先停在這裡。
 - 實作（`IOS-POC-17I-1-wcslen`）：比對加上具名例外。只有當新產物中引用 `_wcslen` 的成員恰好只有 `filters_f_hwtransfer.c.o` 時才允許，其他任何差異仍會擋下。lock 的 `reference.note` 與 `third_party/mpv-ios/README.md` 同步記錄。
 
+| run | commit | 結果 |
+|---|---|---|
+| [`36085734724`](https://github.com/st7833232/webhtv/actions/runs/36085734724) | `bbf5069c` | **已取消**。授權 commit 的 guard 因行尾空白檢查失敗而沒有 commit，但我的指令串（pipe 取的是 `tail` 的結束碼）仍執行了 push，先把 `bbf5069c` 推上去並觸發建置。為了讓 release tag 指向含授權檔的 commit，我手動取消這次建置。授權原文不能改動，改在 `third_party/mpv-ios/licenses/.gitattributes` 設 `* -whitespace`，只豁免該目錄 |
+| [`36085794289`](https://github.com/st7833232/webhtv/actions/runs/36085794289)（手動觸發） | `85642ec5` | **全部通過並發布**。比對報告：七項 same，`_wcslen` 只由 `filters_f_hwtransfer.c.o` 引用；與上游不同的未定義符號只有 `_wcslen`；新 `context_moltenvk` 多引用 `_mp_time_ns`、`_vo_wait_default`；兩邊版本字串都是 `mpv v0.41.0-dirty` |
+
+### 發布結果（17I-1 完成）
+
+- Release：[`mpvkit-1.0.0-webhtv.1`](https://github.com/st7833232/webhtv/releases/tag/mpvkit-1.0.0-webhtv.1)，prerelease，tag 指向 `85642ec52bc67cd658dfa54a5d0beb0218153bbe`，附 `build-manifest.txt`、`compare.txt`、`build.log`。
+- `Libmpv.xcframework.zip`：3,553,297 bytes，SHA-256（即 SwiftPM checksum）`e87b4f5aea783beb2a02b4d3d1aab8197f38132d435e7907fb5ae3f6277771b4`。重新下載後計算的值、release asset 的 digest、build manifest 三者相同，已寫入 lock 的 `artifact`。只含 `ios-arm64` 與 `ios-arm64_x86_64-simulator` 兩個 slice（上游 19 MB 的 zip 含 8 個平台 slice）。
+- 建置環境（manifest）：runner image `macos26 20260907.0351.1`、Xcode 26.6（17F113）、meson 1.4.2、ninja 1.13.2；recipe `9d057f9c`、mpv `41f6a645`；patch 與 21 個依賴 zip 的 SHA-256 都與 lock 相同。
+- 驗收標準對照（第六節）：第 1 條通過（含 `_wcslen` 具名例外）；第 2 條通過（lock、manifest、產物 SHA-256＝SwiftPM checksum）。第 3～6 條屬 17I-2／17I-3。
+
 ## Recovery anchor
 
-- 目前（2026-09-25）：17I-1 的 workflow、patch、lock、README、notice 已 commit 並 push，由 push 觸發 `iOS libmpv Build`。App 沒有任何修改，仍使用上游 MPVKit 1.0.0 與 17G 的重建。研究產物在本工作階段 scratchpad 的 `research2/`、`research3/`、`p17i/`，不進 repo。
-- 下一步（唯一）：看 `iOS libmpv Build` 的結果。通過就把產物 bytes 與 sha256 填進 lock 的 `artifact`，把 CI 結果記到第十二節，再請使用者核准 17I-2；失敗就依 build log 修正後重跑。
+- 目前（2026-09-25）：17I-1 完成。prerelease `mpvkit-1.0.0-webhtv.1` 已發布並回驗，產物 SHA-256 `e87b4f5a…71b4` 已寫入 lock。App 沒有任何修改，仍使用上游 MPVKit 1.0.0 與 17G 的重建。研究產物在本工作階段 scratchpad 的 `research2/`、`research3/`、`p17i/`、`rel17i/`，不進 repo。
+- 未解：libbluray、libudfread、uchardet 的授權檔與 `Libdovi` 內 Rust crate 的授權尚未收錄（第十二節「授權 notice」）。
+- 下一步（唯一）：請使用者核准 17I-2（本地 Swift package 改用新 Libmpv、移除 17G 的 `vo` 重建與 300 ms settle、保留 1×1 防護與 PiP 切換）。

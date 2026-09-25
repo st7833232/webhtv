@@ -209,9 +209,15 @@
     "release_tag": "mpvkit-1.0.0-webhtv.1",
     "name": "Libmpv.xcframework.zip",
     "url": "https://github.com/st7833232/webhtv/releases/download/mpvkit-1.0.0-webhtv.1/Libmpv.xcframework.zip",
-    "bytes": null,
-    "sha256": null,
-    "note": "Filled in from the workflow run that publishes the release. sha256 is also the SwiftPM checksum. The tag must not match ios-v*-b*, which starts an app release; bump it to publish a new build, because the workflow refuses to replace a published one."
+    "bytes": 3553297,
+    "sha256": "e87b4f5aea783beb2a02b4d3d1aab8197f38132d435e7907fb5ae3f6277771b4",
+    "release_commit": "85642ec52bc67cd658dfa54a5d0beb0218153bbe",
+    "run": "https://github.com/st7833232/webhtv/actions/runs/36085794289",
+    "slices": [
+      "ios-arm64",
+      "ios-arm64_x86_64-simulator"
+    ],
+    "note": "Published as a prerelease on 2026-09-25 by the workflow run in run; the tag points at release_commit. sha256 is also the SwiftPM checksum and matches the release asset digest and build-manifest.txt. The tag must not match ios-v*-b*, which starts an app release; bump it to publish a new build, because the workflow refuses to replace a published one."
   },
   "licences": {
     "path": "third_party/mpv-ios/licenses",

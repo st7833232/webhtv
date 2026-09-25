@@ -1,0 +1,220 @@
+{
+  "_comment": "Provenance for the WebHTV build of Libmpv.xcframework. IOS-POC-17I-1. .github/workflows/ios-libmpv-build.yml is the only thing that reads this file: it rebuilds libmpv alone from the MPVKit 1.0.0 recipe with patches.replacement in place of the upstream 0001, restores every other library from the zips pinned under dependencies, compares the result with reference, and fails on any hash mismatch or unpinned download. The artifact is a GitHub release asset, not a tracked file.",
+  "recipe": {
+    "project": "MPVKit",
+    "repo": "https://github.com/mpvkit/MPVKit",
+    "release": "1.0.0",
+    "release_commit": "288527dffbc6d3e63cce147fc7b520c64a791603",
+    "build_commit": "9d057f9c19fa704e242b199d26bc6c5cf23dd5d6",
+    "build_commit_note": "The 1.0.0 binaries were built from build_commit; release_commit only changes Package.swift.",
+    "arguments": [
+      "build",
+      "platform=ios"
+    ],
+    "arguments_note": "No enable-gpl, so libmpv is configured with -Dgpl=false: the LGPL MPVKit product, as IOS-POC-9A requires. platform=ios builds ios arm64 plus the arm64 and x86_64 simulator.",
+    "workdir": "/Users/runner/work/MPVKit/MPVKit",
+    "workdir_note": "The directory the 1.0.0 release was built in. It appears in libmpv's embedded Configuration string, so building there lets that string be compared byte for byte."
+  },
+  "mpv": {
+    "repo": "https://github.com/mpv-player/mpv",
+    "tag": "v0.41.0",
+    "commit": "41f6a645068483470267271e1d09966ca3b9f413",
+    "note": "The recipe clones the tag; the workflow fails if its HEAD is not this commit."
+  },
+  "patches": {
+    "upstream_dir": "Sources/BuildScripts/patch/libmpv",
+    "upstream": {
+      "0001-player-add-moltenvk-context.patch": "6f3625c0179f9b5665ab8b8b0d3c01a01e6ea0e67ad3e0e32b24a924c6804c07",
+      "0002-revert-build-static.patch": "d3bbabb5dc307131a1c21e12265d935d061bd79e5042b5d111793c6a4a6498f9",
+      "0003-enable-avfoundation-ao-tvos.patch": "693e8ace8057ac46c42195949777159c5aa37f9b7ce81f488758481973da9312"
+    },
+    "replacement": {
+      "path": "third_party/mpv-ios/patches/libmpv/0001-player-add-moltenvk-context.patch",
+      "replaces": "0001-player-add-moltenvk-context.patch",
+      "sha256": "6a4a83ee98198de00c16d6eb4601b8a3cd03ab87b201fa20980be0f8d719b82f",
+      "note": "Identical to the upstream 0001 except video/out/vulkan/context_moltenvk.m, which now reports layer resizes to mpv. Resize logic from edde746/MPVKit e6b129fdd31347b25d5d862f73f52c23f9e55624, changed as docs/IOS-POC-17I-mpv-resize-libmpv.md records. Applies to mpv v0.41.0 before the upstream 0002 and 0003."
+    },
+    "buildscripts": {
+      "path": "third_party/mpv-ios/patches/buildscripts/0001-restore-prebuilt-ffmpeg.patch",
+      "sha256": "376301f5f42ed082855c3877108e55029f1d25b33f4d7620f721eac592bff942",
+      "note": "Restores FFmpeg from the 1.0.0 FFmpeg-all.zip instead of rebuilding it, so libmpv is the only thing compiled."
+    }
+  },
+  "dependencies": [
+    {
+      "name": "openssl",
+      "version": "3.3.5",
+      "url": "https://github.com/mpvkit/openssl-build/releases/download/3.3.5/openssl-all.zip",
+      "bytes": 44619276,
+      "sha256": "8bc37424aa98fdeac17fd00fbeea7b784a39f1f800cc7f9e0c948d3b169c6f2f"
+    },
+    {
+      "name": "gmp",
+      "version": "3.8.11",
+      "url": "https://github.com/mpvkit/gnutls-build/releases/download/3.8.11/gmp-all.zip",
+      "bytes": 4588994,
+      "sha256": "cef5c3ff12260528a5971d2bd7bb3bc31ae85fac1235c06eff3de96c28c38aa2"
+    },
+    {
+      "name": "nettle",
+      "version": "3.8.11",
+      "url": "https://github.com/mpvkit/gnutls-build/releases/download/3.8.11/nettle-all.zip",
+      "bytes": 8504154,
+      "sha256": "7c1606e5acdc0be563f5a6bb19cd2fe3e1e93b30154ac22fc2f80bffcf3151c2"
+    },
+    {
+      "name": "gnutls",
+      "version": "3.8.11",
+      "url": "https://github.com/mpvkit/gnutls-build/releases/download/3.8.11/gnutls-all.zip",
+      "bytes": 18982019,
+      "sha256": "6e125d9d7be4e09e112950703b0563324f5a05e546782e542b353db360f59b59"
+    },
+    {
+      "name": "libunibreak",
+      "version": "0.17.5",
+      "url": "https://github.com/mpvkit/libass-build/releases/download/0.17.5/libunibreak-all.zip",
+      "bytes": 754560,
+      "sha256": "a7a9c0afa36e2301eec583e5575c30c1609357045d718565d06faf93abc56617"
+    },
+    {
+      "name": "libfreetype",
+      "version": "0.17.5",
+      "url": "https://github.com/mpvkit/libass-build/releases/download/0.17.5/libfreetype-all.zip",
+      "bytes": 5891891,
+      "sha256": "d5fb41dd3d66c6e433b389a398571b51b8d65f3f9e81f10ee61d5434a647749e"
+    },
+    {
+      "name": "libfribidi",
+      "version": "0.17.5",
+      "url": "https://github.com/mpvkit/libass-build/releases/download/0.17.5/libfribidi-all.zip",
+      "bytes": 393673,
+      "sha256": "7ae8cf8c8b16a8b4ebc004f3368044d9baf8454398d18d9e8bc37964b04a2fe6"
+    },
+    {
+      "name": "libharfbuzz",
+      "version": "0.17.5",
+      "url": "https://github.com/mpvkit/libass-build/releases/download/0.17.5/libharfbuzz-all.zip",
+      "bytes": 34473455,
+      "sha256": "ff67179fb84a9a0f34b2ba276c4028823fecd90315cf18496be400cdfc768a3e"
+    },
+    {
+      "name": "libass",
+      "version": "0.17.5",
+      "url": "https://github.com/mpvkit/libass-build/releases/download/0.17.5/libass-all.zip",
+      "bytes": 1775040,
+      "sha256": "d5e4b6046d0a4198fb97083816348b2229071749de8c429747a9558c325a1d3a"
+    },
+    {
+      "name": "libsmbclient",
+      "version": "4.15.13-2512",
+      "url": "https://github.com/mpvkit/libsmbclient-build/releases/download/4.15.13-2512/libsmbclient-all.zip",
+      "bytes": 97090982,
+      "sha256": "6861f0b0e45abd3248a8160d1c0b4ede66eef5163f04598830883a951607cef9"
+    },
+    {
+      "name": "libbluray",
+      "version": "1.4.0",
+      "url": "https://github.com/mpvkit/libbluray-build/releases/download/1.4.0/libbluray-all.zip",
+      "bytes": 2625844,
+      "sha256": "c0302f43258ba41d9661dea0be4a7c9c1dd59d30d284ecfbf7319157c8e8a8de"
+    },
+    {
+      "name": "libuavs3d",
+      "version": "1.2.1-fix",
+      "url": "https://github.com/mpvkit/libuavs3d-build/releases/download/1.2.1-fix/libuavs3d-all.zip",
+      "bytes": 4580333,
+      "sha256": "8644c7a8182679dbe762b522356606220bb6d2196a5ec65511eda42ef48b3e7a"
+    },
+    {
+      "name": "libdovi",
+      "version": "3.3.2",
+      "url": "https://github.com/mpvkit/libdovi-build/releases/download/3.3.2/libdovi-all.zip",
+      "bytes": 11413568,
+      "sha256": "81b85386016a012391c473674ef96e4e494fa76aef2f7b6c102a335e844644f8"
+    },
+    {
+      "name": "vulkan",
+      "version": "1.4.2",
+      "url": "https://github.com/mpvkit/moltenvk-build/releases/download/1.4.2/MoltenVK-all.zip",
+      "bytes": 28826665,
+      "sha256": "551bf9ee4e6fe1f9a148a6aef8eff5e5e6e0c0be9dedda2405812023d4a38c60"
+    },
+    {
+      "name": "libshaderc",
+      "version": "2025.5.0",
+      "url": "https://github.com/mpvkit/libshaderc-build/releases/download/2025.5.0/libshaderc-all.zip",
+      "bytes": 122917658,
+      "sha256": "1079da73a292e5b2cea6a02fa2208c4935ead79a98043f81708424510e0ab53f"
+    },
+    {
+      "name": "lcms2",
+      "version": "2.17.0",
+      "url": "https://github.com/mpvkit/lcms2-build/releases/download/2.17.0/lcms2-all.zip",
+      "bytes": 3007879,
+      "sha256": "8c118b2c04e2440ecf25ffebfa7952ebb09aba83a71378e3b9ed45dae3a6115a"
+    },
+    {
+      "name": "libplacebo",
+      "version": "7.360.1",
+      "url": "https://github.com/mpvkit/libplacebo-build/releases/download/7.360.1/libplacebo-all.zip",
+      "bytes": 8692592,
+      "sha256": "cdb8a07563bca119ca909ab4a3503825c27678736cdab294338b0a7dbe2cf35c"
+    },
+    {
+      "name": "libdav1d",
+      "version": "1.5.3",
+      "url": "https://github.com/mpvkit/libdav1d-build/releases/download/1.5.3/libdav1d-all.zip",
+      "bytes": 5200983,
+      "sha256": "5d9ca131372bc9513100dbc43a59582ad1cf7acf6136ad4e6fecd63dc0075d82"
+    },
+    {
+      "name": "FFmpeg",
+      "version": "n8.1.2",
+      "url": "https://github.com/mpvkit/MPVKit/releases/download/1.0.0/FFmpeg-all.zip",
+      "bytes": 87620839,
+      "sha256": "edf065ee784591b791afa9d6bbee9106a721966f67b00dd1946d5e1017e08daf"
+    },
+    {
+      "name": "libuchardet",
+      "version": "0.0.8",
+      "url": "https://github.com/mpvkit/libuchardet-build/releases/download/0.0.8/libuchardet-all.zip",
+      "bytes": 1240404,
+      "sha256": "21407ffd33ce5550f7adf0759c268ac3c8022a90f80b2a9a25e8273fd27814bb"
+    },
+    {
+      "name": "libluajit",
+      "version": "2.1.0-fix",
+      "url": "https://github.com/mpvkit/libluajit-build/releases/download/2.1.0-fix/libluajit-all.zip",
+      "bytes": 2605652,
+      "sha256": "15a2b0d2b013074cefcfacfcb9df4ea7e5624e76decdb7c3b0556c3068a2816b"
+    }
+  ],
+  "dependencies_note": "Each zip is placed and unpacked at dist/<name>-<version>/<name>.zip before the build, where the recipe looks for it, so the recipe never downloads. The URLs are the recipe's own except FFmpeg, which is the 1.0.0 release asset. Hashes were taken on 2026-09-25; FFmpeg and reference match the values recorded in IOS-POC-17I.",
+  "reference": {
+    "name": "Libmpv.xcframework.zip",
+    "url": "https://github.com/mpvkit/MPVKit/releases/download/1.0.0/Libmpv.xcframework.zip",
+    "bytes": 19184048,
+    "sha256": "c381ceb4c1504efac12da95293e56585bbeb691634aa64e3a729f517169933ba",
+    "note": "The upstream artifact the app used until IOS-POC-17I. The workflow requires the ios-arm64 slice of the new build to match it in libmpv's Configuration and enabled-features strings, archive members, defined external symbols and framework files; undefined symbols may differ only through the context_moltenvk member."
+  },
+  "toolchain": {
+    "runner": "macos-26",
+    "xcode": "/Applications/Xcode_26.6.app",
+    "python": "3.12",
+    "meson": "1.4.2",
+    "upstream": "macos-14, Xcode 15.4, meson 1.4.2 (MPVKit .github/workflows/build.yml at build_commit).",
+    "note": "The recipe runs tools with its own PATH and installs the newest meson from Homebrew if none is on it, so the workflow links the pinned meson into /opt/homebrew/bin and checks the version before building."
+  },
+  "artifact": {
+    "release_tag": "mpvkit-1.0.0-webhtv.1",
+    "name": "Libmpv.xcframework.zip",
+    "url": "https://github.com/st7833232/webhtv/releases/download/mpvkit-1.0.0-webhtv.1/Libmpv.xcframework.zip",
+    "bytes": null,
+    "sha256": null,
+    "note": "Filled in from the workflow run that publishes the release. sha256 is also the SwiftPM checksum. The tag must not match ios-v*-b*, which starts an app release; bump it to publish a new build, because the workflow refuses to replace a published one."
+  },
+  "licences": {
+    "path": "third_party/mpv-ios/licenses",
+    "note": "Notices for everything the LGPL MPVKit product links on iOS; see third_party/mpv-ios/README.md."
+  }
+}

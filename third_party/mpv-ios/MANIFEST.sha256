@@ -1,0 +1,3 @@
+c4aa1900ac730d23a14c258c2b66550da603343767b349d893152cd84611a7d3  README.md
+376301f5f42ed082855c3877108e55029f1d25b33f4d7620f721eac592bff942  patches/buildscripts/0001-restore-prebuilt-ffmpeg.patch
+6a4a83ee98198de00c16d6eb4601b8a3cd03ab87b201fa20980be0f8d719b82f  patches/libmpv/0001-player-add-moltenvk-context.patch

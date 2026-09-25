@@ -1,0 +1,336 @@
+name: iOS libmpv Build
+
+# IOS-POC-17I-1. Rebuilds only Libmpv.xcframework from the MPVKit 1.0.0 recipe,
+# with the WebHTV moltenvk resize patch in place of the upstream one, checks it
+# against the upstream artifact, and publishes it as a prerelease. Every input
+# is pinned in third_party/mpv-ios-lock.json. The push trigger fires only when
+# the patches or this file change, which is when a new build is needed.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ios-poc
+    paths:
+      - ".github/workflows/ios-libmpv-build.yml"
+      - "third_party/mpv-ios/patches/**"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-libmpv-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read lock
+        id: lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - >> "$GITHUB_OUTPUT" <<'EOF'
+          import json
+          lock = json.load(open("third_party/mpv-ios-lock.json"))
+          values = {
+              "mpvkit_repo": lock["recipe"]["repo"],
+              "mpvkit_commit": lock["recipe"]["build_commit"],
+              "workdir": lock["recipe"]["workdir"],
+              "mpv_tag": lock["mpv"]["tag"],
+              "mpv_commit": lock["mpv"]["commit"],
+              "xcode": lock["toolchain"]["xcode"],
+              "python": lock["toolchain"]["python"],
+              "meson": lock["toolchain"]["meson"],
+              "ref_url": lock["reference"]["url"],
+              "ref_sha256": lock["reference"]["sha256"],
+              "tag": lock["artifact"]["release_tag"],
+          }
+          for key, value in values.items():
+              print(f"{key}={value}")
+          EOF
+          mkdir -p "$RUNNER_TEMP/out"
+
+      - name: Select Xcode
+        env:
+          XCODE: ${{ steps.lock.outputs.xcode }}
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+          swift --version
+          clang --version | head -n 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ steps.lock.outputs.python }}
+
+      - name: Install pinned meson
+        env:
+          MESON: ${{ steps.lock.outputs.meson }}
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/meson"
+          "$RUNNER_TEMP/meson/bin/python" -m pip install --disable-pip-version-check --quiet "meson==$MESON"
+          # The recipe resolves tools on its own PATH (BaseBuild.defaultPath) and
+          # installs the newest meson from Homebrew when it finds none there.
+          ln -sf "$RUNNER_TEMP/meson/bin/meson" /opt/homebrew/bin/meson
+          recipe_path="/Library/Frameworks/Python.framework/Versions/Current/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          found="$(env PATH="$recipe_path" bash -c 'command -v meson')"
+          version="$(env PATH="$recipe_path" meson --version)"
+          if [[ "$found" != /opt/homebrew/bin/meson || "$version" != "$MESON" ]]; then
+            echo "::error title=meson::the recipe would run $found ($version), expected /opt/homebrew/bin/meson ($MESON)"
+            exit 1
+          fi
+          for tool in ninja pkg-config; do
+            if ! env PATH="$recipe_path" bash -c "command -v $tool" >/dev/null; then
+              echo "::error title=$tool::$tool is not on the recipe PATH"
+              exit 1
+            fi
+          done
+          echo "meson $version at $found; ninja $(env PATH="$recipe_path" ninja --version)"
+
+      - name: Fetch the MPVKit recipe
+        env:
+          REPO: ${{ steps.lock.outputs.mpvkit_repo }}
+          COMMIT: ${{ steps.lock.outputs.mpvkit_commit }}
+          WORKDIR: ${{ steps.lock.outputs.workdir }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORKDIR"
+          git -C "$WORKDIR" init -q
+          git -C "$WORKDIR" fetch -q --depth 1 "$REPO" "$COMMIT"
+          git -C "$WORKDIR" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$WORKDIR" rev-parse HEAD)" = "$COMMIT"
+
+      - name: Apply the WebHTV patches to the recipe
+        env:
+          WORKDIR: ${{ steps.lock.outputs.workdir }}
+        run: |
+          set -euo pipefail
+          python3 - <<'EOF'
+          import hashlib, json, os, sys
+          lock = json.load(open("third_party/mpv-ios-lock.json"))
+          patches = lock["patches"]
+          def sha(path):
+              return hashlib.sha256(open(path, "rb").read()).hexdigest()
+          upstream_dir = os.path.join(os.environ["WORKDIR"], patches["upstream_dir"])
+          names = sorted(n for n in os.listdir(upstream_dir) if n.endswith(".patch"))
+          if names != sorted(patches["upstream"]):
+              sys.exit(f"::error title=Recipe patches::expected {sorted(patches['upstream'])}, found {names}")
+          for name in names:
+              if sha(os.path.join(upstream_dir, name)) != patches["upstream"][name]:
+                  sys.exit(f"::error title=Recipe patches::{name} does not match the lock")
+          for key in ("replacement", "buildscripts"):
+              if sha(patches[key]["path"]) != patches[key]["sha256"]:
+                  sys.exit(f"::error title=WebHTV patches::{patches[key]['path']} does not match the lock")
+          EOF
+          cp third_party/mpv-ios/patches/libmpv/0001-player-add-moltenvk-context.patch \
+            "$WORKDIR/Sources/BuildScripts/patch/libmpv/0001-player-add-moltenvk-context.patch"
+          git -C "$WORKDIR" apply "$GITHUB_WORKSPACE/third_party/mpv-ios/patches/buildscripts/0001-restore-prebuilt-ffmpeg.patch"
+          git -C "$WORKDIR" status --short
+
+      - name: Place the pinned dependency zips
+        env:
+          WORKDIR: ${{ steps.lock.outputs.workdir }}
+        run: |
+          set -euo pipefail
+          python3 - > "$RUNNER_TEMP/deps.tsv" <<'EOF'
+          import json
+          for dep in json.load(open("third_party/mpv-ios-lock.json"))["dependencies"]:
+              print("\t".join([dep["name"], dep["version"], dep["url"], dep["sha256"]]))
+          EOF
+          while IFS=$'\t' read -r name version url sha256; do
+            dir="$WORKDIR/dist/$name-$version"
+            mkdir -p "$dir"
+            curl -fsSL --retry 3 -o "$dir/$name.zip" "$url"
+            echo "$sha256  $dir/$name.zip" | shasum -a 256 -c -
+            unzip -q -o "$dir/$name.zip" -d "$dir"
+          done < "$RUNNER_TEMP/deps.tsv"
+
+      - name: Build Libmpv
+        working-directory: ${{ steps.lock.outputs.workdir }}
+        env:
+          TAG: ${{ steps.lock.outputs.tag }}
+        run: |
+          set -euo pipefail
+          make build platform=ios "version=$TAG" 2>&1 | tee "$RUNNER_TEMP/out/build.log"
+
+      - name: Check what the build used
+        env:
+          WORKDIR: ${{ steps.lock.outputs.workdir }}
+          MPV_TAG: ${{ steps.lock.outputs.mpv_tag }}
+          MPV_COMMIT: ${{ steps.lock.outputs.mpv_commit }}
+        run: |
+          set -euo pipefail
+          src="$WORKDIR/dist/libmpv-$MPV_TAG"
+          if [[ "$(git -C "$src" rev-parse HEAD)" != "$MPV_COMMIT" ]]; then
+            echo "::error title=mpv source::$MPV_TAG is not $MPV_COMMIT"
+            exit 1
+          fi
+          if ! grep -q moltenvk_wait_events "$src/video/out/vulkan/context_moltenvk.m"; then
+            echo "::error title=mpv source::the WebHTV moltenvk patch is not in the built source"
+            exit 1
+          fi
+          python3 - <<'EOF'
+          import glob, hashlib, json, os, sys
+          lock = json.load(open("third_party/mpv-ios-lock.json"))
+          dist = os.path.join(os.environ["WORKDIR"], "dist")
+          pinned = {f"{d['name']}-{d['version']}/{d['name']}.zip": d["sha256"] for d in lock["dependencies"]}
+          found = {os.path.relpath(p, dist) for p in glob.glob(os.path.join(dist, "*", "*.zip"))}
+          found = {p for p in found if not p.startswith("release/")}
+          if found != set(pinned):
+              sys.exit(f"::error title=Dependencies::unpinned {sorted(found - set(pinned))}, missing {sorted(set(pinned) - found)}")
+          for rel, want in pinned.items():
+              if hashlib.sha256(open(os.path.join(dist, rel), "rb").read()).hexdigest() != want:
+                  sys.exit(f"::error title=Dependencies::{rel} changed during the build")
+          print(f"{len(found)} dependency zips, all pinned")
+          EOF
+
+      - name: Compare with the upstream Libmpv
+        env:
+          WORKDIR: ${{ steps.lock.outputs.workdir }}
+          REF_URL: ${{ steps.lock.outputs.ref_url }}
+          REF_SHA256: ${{ steps.lock.outputs.ref_sha256 }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/compare"
+          mkdir -p "$work/ref" "$work/new"
+          curl -fsSL --retry 3 -o "$work/ref.zip" "$REF_URL"
+          echo "$REF_SHA256  $work/ref.zip" | shasum -a 256 -c -
+          unzip -q "$work/ref.zip" -d "$work/ref"
+          unzip -q "$WORKDIR/dist/release/Libmpv.xcframework.zip" -d "$work/new"
+          ref_fw="$work/ref/Libmpv.xcframework/ios-arm64/Libmpv.framework"
+          new_fw="$work/new/Libmpv.xcframework/ios-arm64/Libmpv.framework"
+          report="$RUNNER_TEMP/out/compare.txt"
+          fail=0
+          check() { # name, reference text, new text
+            if [[ "$2" == "$3" && -n "$2" ]]; then
+              echo "same: $1" >> "$report"
+            else
+              echo "DIFFERENT: $1" >> "$report"
+              diff <(printf '%s\n' "$2") <(printf '%s\n' "$3") >> "$report" || true
+              echo "::error title=Compare::$1 differs from the upstream Libmpv"
+              fail=1
+            fi
+          }
+          symbols() { # flags, archive: symbol names across all members
+            nm "$1" "$2" 2>/dev/null | grep -v -e '^$' -e ':$' | sort -u
+          }
+          : > "$report"
+          for text in "Configuration: " "List of enabled features: "; do
+            check "$text" "$(strings -a "$ref_fw/Libmpv" | grep -F "$text" | sort -u)" \
+                          "$(strings -a "$new_fw/Libmpv" | grep -F "$text" | sort -u)"
+          done
+          check "archive members" "$(ar t "$ref_fw/Libmpv" | grep -v '^__.SYMDEF' | sort)" \
+                                  "$(ar t "$new_fw/Libmpv" | grep -v '^__.SYMDEF' | sort)"
+          check "defined external symbols" "$(symbols -gUj "$ref_fw/Libmpv")" "$(symbols -gUj "$new_fw/Libmpv")"
+          check "framework files other than the binary" \
+            "$(cd "$ref_fw" && find . -type f ! -name Libmpv -exec shasum -a 256 {} + | sort -k 2)" \
+            "$(cd "$new_fw" && find . -type f ! -name Libmpv -exec shasum -a 256 {} + | sort -k 2)"
+          check "simulator architectures" \
+            "$(lipo -archs "$work/ref/Libmpv.xcframework/ios-arm64_x86_64-simulator/Libmpv.framework/Libmpv")" \
+            "$(lipo -archs "$work/new/Libmpv.xcframework/ios-arm64_x86_64-simulator/Libmpv.framework/Libmpv")"
+          # Undefined symbols may differ only through what context_moltenvk references.
+          member="$(ar t "$new_fw/Libmpv" | grep context_moltenvk)"
+          (cd "$work" && ar -x "$ref_fw/Libmpv" "$member" && mv "$member" ref-moltenvk.o)
+          (cd "$work" && ar -x "$new_fw/Libmpv" "$member" && mv "$member" new-moltenvk.o)
+          allowed="$( (symbols -uj "$work/ref-moltenvk.o"; symbols -uj "$work/new-moltenvk.o") | sort -u)"
+          changed="$(comm -3 <(symbols -guj "$ref_fw/Libmpv") <(symbols -guj "$new_fw/Libmpv") | tr -d '\t')"
+          outside="$(comm -23 <(printf '%s\n' "$changed" | sed '/^$/d' | sort -u) <(printf '%s\n' "$allowed"))"
+          check "undefined symbols outside $member" "none" "${outside:-none}"
+          {
+            echo "undefined symbols changed through $member: ${changed:-none}"
+            echo "$member undefined, upstream: $(symbols -uj "$work/ref-moltenvk.o" | tr '\n' ' ')"
+            echo "$member undefined, new: $(symbols -uj "$work/new-moltenvk.o" | tr '\n' ' ')"
+            echo "version, upstream: $(strings -a "$ref_fw/Libmpv" | grep -m 1 '^mpv v')"
+            echo "version, new: $(strings -a "$new_fw/Libmpv" | grep -m 1 '^mpv v')"
+          } >> "$report"
+          cat "$report"
+          exit "$fail"
+
+      - name: Write the build manifest
+        env:
+          WORKDIR: ${{ steps.lock.outputs.workdir }}
+          TAG: ${{ steps.lock.outputs.tag }}
+        run: |
+          set -euo pipefail
+          release="$WORKDIR/dist/release"
+          zip="$release/Libmpv.xcframework.zip"
+          sha256="$(shasum -a 256 "$zip" | cut -d ' ' -f 1)"
+          checksum="$(tr -d '[:space:]' < "$release/Libmpv.xcframework.checksum.txt")"
+          if [[ "$sha256" != "$checksum" ]]; then
+            echo "::error title=Checksum::SwiftPM checksum $checksum is not the zip's sha256 $sha256"
+            exit 1
+          fi
+          cp "$zip" "$RUNNER_TEMP/out/Libmpv.xcframework.zip"
+          {
+            echo "artifact: Libmpv.xcframework.zip"
+            echo "release tag: $TAG"
+            echo "bytes: $(stat -f %z "$zip")"
+            echo "sha256 (SwiftPM checksum): $sha256"
+            echo "source: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
+            echo "run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "runner image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
+            echo "xcode: $(xcodebuild -version | tr '\n' ' ')"
+            echo "meson: $(meson --version); ninja: $(ninja --version)"
+            echo "recipe: $(git -C "$WORKDIR" rev-parse HEAD)"
+            echo "mpv: $(git -C "$WORKDIR/dist/libmpv-${{ steps.lock.outputs.mpv_tag }}" rev-parse HEAD)"
+            echo "patches:"
+            (cd "$WORKDIR/Sources/BuildScripts/patch/libmpv" && shasum -a 256 *.patch)
+            shasum -a 256 third_party/mpv-ios/patches/buildscripts/*.patch
+            echo "dependency zips:"
+            (cd "$WORKDIR/dist" && shasum -a 256 */*.zip | grep -v ' release/')
+          } > "$RUNNER_TEMP/out/build-manifest.txt"
+          cat "$RUNNER_TEMP/out/build-manifest.txt"
+          {
+            echo "### Libmpv.xcframework.zip"
+            echo
+            echo "- sha256 (SwiftPM checksum): \`$sha256\`"
+            echo "- release tag: \`$TAG\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: libmpv-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/out
+            ${{ steps.lock.outputs.workdir }}/dist/*.log
+            ${{ steps.lock.outputs.workdir }}/dist/libmpv/*/scratch/*/meson-logs/meson-log.txt
+          if-no-files-found: warn
+
+      - name: Publish the prerelease
+        if: github.ref == 'refs/heads/ios-poc'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.lock.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error title=Release exists::$TAG is already published; bump artifact.release_tag in third_party/mpv-ios-lock.json to publish a new build"
+            exit 1
+          fi
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          Libmpv.xcframework for the WebHTV iOS app (IOS-POC-17I), not an app release.
+
+          Built by this workflow from the MPVKit 1.0.0 recipe (LGPL product, no enable-gpl) with third_party/mpv-ios/patches/libmpv/0001-player-add-moltenvk-context.patch in place of the upstream 0001, which reports layer resizes to mpv. Every other library is the upstream 1.0.0 binary. Provenance: third_party/mpv-ios-lock.json and build-manifest.txt. The modified mpv source is mpv v0.41.0 plus the three patches applied by the recipe.
+          EOF
+          gh release create "$TAG" \
+            "$RUNNER_TEMP/out/Libmpv.xcframework.zip" \
+            "$RUNNER_TEMP/out/build-manifest.txt" \
+            "$RUNNER_TEMP/out/compare.txt" \
+            "$RUNNER_TEMP/out/build.log" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --latest=false \
+            --title "Libmpv for WebHTV ($TAG)" \
+            --notes-file "$RUNNER_TEMP/notes.md"

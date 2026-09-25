@@ -1,6 +1,6 @@
 # IOS-POC-17I — MPV 旋轉根治：自建含 resize 修正的 Libmpv
 
-- 狀態：**設計研究完成，待使用者核准**（2026-09-25）；尚無程式、workflow 或二進位修改。
+- 狀態：**17I-1 實作中**（2026-09-25）。使用者核准方案 E 與 17I-1，授權 notice 選「repo 先補，App 畫面另開任務」。workflow、patch、lock、notice 已寫好；等 CI 建置、比對與發布（第十二節）。17I-2、17I-3 尚未開始，各需另外核准。
 - 使用者需求（2026-09-25，`0.1.18 (19)` 真機）：「MPV 螢幕直立橫向切換，畫面會短暫的跑版，然後恢復正常」。使用者在選擇題中選了「根本解法：自建 libmpv」，而不是「重建期間短暫蓋黑」的緩解做法。
 - 同一次回報的另一個問題（解除子母畫面時放大、進度往回），使用者決定「先不改，等有模擬器你再修改」，記錄在 `docs/IOS-POC-17H-mpv-picture-in-picture.md` 的「真機回報：解除子母畫面時放大、進度往回」一節，不在本任務範圍。
 - 研究基準：分支 `ios-poc`，HEAD `d960fcdffde7b8d129b79e7e3041d45a1f4d8237`；存取日期 2026-09-25。
@@ -138,12 +138,10 @@
 - e6b129f 在 iOS moltenvk 路徑缺少上架產品驗證；以真機驗收把關，失敗即回滾。
 - 維護：之後若升級 MPVKit，要重新套用並驗證我們的 patch。
 
-## 十、待你決定
+## 十、使用者決定（2026-09-25）
 
-- **Q1**：核准方案 E，並開始 17I-1（新增建置 workflow 與 patch，執行一次並在本 repo 發布 `Libmpv` 二進位 release）？
-- **Q2**：授權 notice。IOS-POC-9A 要求 notice 隨 App 出貨、App 內要有歸屬畫面，目前兩者都沒有。
-  - 建議：17I-1 先把 repo 內的 notice 與 patch 補齊，App 內的「授權」畫面另開一個小任務；
-  - 或者 App 內畫面也併入 17I-2。
+- **Q1**：核准方案 E，開始 17I-1（「核准，開始 17I-1」）。
+- **Q2**：授權 notice 選「repo 先補，App 畫面另開任務」。17I-1 補齊 `third_party/mpv-ios/licenses/`；App 內的「授權」畫面（IOS-POC-9A L4 的後半）另開任務，不併入 17I-2。
 
 ## 十一、預估（本 agent 的執行時間）
 
@@ -155,7 +153,50 @@
 | 17I-3 發布 | 約 10 分 |
 | **合計** | **約 2～2.5 小時**，不含等你核准與真機測試 |
 
+## 十二、17I-1 實作紀錄（2026-09-25）
+
+### 新增的檔案
+
+| 路徑 | 內容 |
+|---|---|
+| `third_party/mpv-ios/patches/libmpv/0001-player-add-moltenvk-context.patch` | 取代 MPVKit 同名 patch；只有 `context_moltenvk.m` 不同。sha256 `6a4a83ee98198de00c16d6eb4601b8a3cd03ab87b201fa20980be0f8d719b82f` |
+| `third_party/mpv-ios/patches/buildscripts/0001-restore-prebuilt-ffmpeg.patch` | recipe 的 `main.swift` 改用 1.0.0 的 `FFmpeg-all.zip`，不重編 FFmpeg。sha256 `376301f5f42ed082855c3877108e55029f1d25b33f4d7620f721eac592bff942` |
+| `third_party/mpv-ios-lock.json` | recipe、mpv、上游與 WebHTV patch、21 個依賴 zip（URL、bytes、sha256）、對照用的上游 `Libmpv.xcframework.zip`、工具鏈、產物 tag；產物雜湊在 CI 發布後補上 |
+| `.github/workflows/ios-libmpv-build.yml` | 唯一的建置路徑，唯一讀 lock 的程式 |
+| `third_party/mpv-ios/README.md`、`MANIFEST.sha256`、`licenses/` | 來源說明、本目錄檔案雜湊、各元件授權全文 |
+
+### patch 的實際寫法（相對 e6b129f 的修改）
+
+1. **尺寸無效時不讓 VO 失敗**（缺點 a）：`moltenvk_reconfig` 一律回傳 true。
+2. **忽略 ≤1 的尺寸**（缺點 b）：`layer_size()` 把 0×0 與 1×1 都讀成 0×0。`ra_vk_ctx_resize()` 收到 0×0 的意思是「沿用目前尺寸」，並回報 swapchain 實際尺寸（libplacebo `src/vulkan/swapchain.c:1022-1040`）。
+3. **`vo->dwidth/dheight` 交給 `ra_vk_ctx_resize()` 寫回**：`vo_reconfig` 會先把它們設成影片尺寸，所以 reconfig 每次都呼叫 `ra_vk_ctx_resize()`，尺寸沒變時不會重建 swapchain。e6b129f 是在尺寸沒變時自己寫入 layer 尺寸；改成回報 swapchain 的實際尺寸。
+4. **比對的是 layer 尺寸**：只在 layer 尺寸改變時送 `VO_EVENT_RESIZE`，避免 layer 與 swapchain 尺寸長期不同時每一幀都 resize。
+5. **暫停中喚醒**（缺點 c）：採用 patch 內做法，實作為 `ra_ctx_fns.wait_events`，把 VO 執行緒每次睡眠限制在 100 ms 以內。以原始碼確認的依據：
+   - VO 迴圈每次迭代先送 `VOCTRL_CHECK_EVENTS`，閒置時睡到 `now + 1000 s`，只有 wakeup 會叫醒它（mpv `video/out/vo.c:1141-1215`）。
+   - `wait_events` 是 mpv 給 context 的正式掛點（`video/out/gpu/context.h:54-57`），vo_gpu_next 會轉呼叫（`video/out/vo_gpu_next.c:1880-1888`）。
+   - `VO_EVENT_RESIZE` 經 `resize(vo)` 設定 `want_redraw`（`vo_gpu_next.c:1481-1490、1864-1865`）。VO 迴圈據此叫醒核心，核心再呼叫 `vo_redraw()`（`player/playloop.c:687-690`），所以暫停中也會重畫，不會 seek。
+   - 提早醒來等同一般的 spurious wakeup。唯一會提早叫醒核心的是 `wakeup_on_done` 路徑，核心會用 `vo_still_displaying()` 重新判斷並重新登記（`player/video.c:1174-1176`、`video/out/vo.c:815-824`），欠載判斷也以狀態為準（`player/video.c:1082`）。
+   - 沒選 KVO 加 `vo_wakeup`：`CAMetalLayer.drawableSize` 沒有文件保證 KVO 相容。沒選 App 端觸發：需要一個保證叫醒 VO、又不 seek、不重建的 mpv 指令，iOS 沒有對應的 resize 觸發選項（第一節）。
+   - 代價：暫停或閒置時 VO 執行緒每秒最多醒來 10 次。每次只處理 dispatch 佇列、讀一次 `drawableSize`，`render_frame` 走快速路徑。播放中每幀間隔都小於 100 ms，不受影響。
+
+### 建置設計的決定
+
+- **工作目錄**：recipe 放在 `/Users/runner/work/MPVKit/MPVKit`，與上游 1.0.0 建置時相同。上游 `Libmpv` 的 `Configuration:` 字串包含 `--cross-file=/Users/runner/work/MPVKit/MPVKit/dist/libmpv/ios/scratch/arm64/crossFile.meson`，放在同一路徑才能逐字比對。
+- **runner**：`macos-26`＋`Xcode_26.6`，依設計。上游用的 `macos-14`／Xcode 15.4 仍可用，但 runner-images 公告 2026-11-02 起完全停止支援，之後無法重建，所以不選。
+- **meson**：recipe 用自己的 PATH（`BaseBuild.defaultPath`）找 meson，找不到就 `brew install meson` 最新版。workflow 把 venv 內的 meson 1.4.2 連到 `/opt/homebrew/bin`，並用 recipe 的 PATH 檢查版本。
+- **依賴**：21 個 zip 的 sha256 於 2026-09-25 下載計算。`FFmpeg-all.zip` 與上游 `Libmpv.xcframework.zip` 和先前紀錄的值相同。workflow 先放好並解壓，recipe 就不會下載；建置後檢查 `dist/` 下沒有未鎖定的 zip，mpv 原始碼 HEAD 必須是 `41f6a645`，而且含我們的 patch。所有 zip 最上層都只有 `include`、`lib`、`pkgconfig-example`。
+- **與上游比對**（device slice）：`Configuration:` 與 `List of enabled features:` 字串、靜態庫成員、已定義的外部符號、binary 以外的 framework 檔案都必須相同；未定義符號只能因 `context_moltenvk` 成員而不同；模擬器 slice 比對架構。任一項不同就不發布。
+- **觸發條件**：`workflow_dispatch`，另加只在 `third_party/mpv-ios/patches/**` 或 workflow 本身變更時觸發的 push。原因是本 repo 的預設分支 `main` 沒有 iOS workflow，只存在於 `ios-poc` 的 workflow 要先被某個事件觸發、在 repo 登記後，才能手動觸發。`ios-sidestore-release.yml` 也另有 push（tag）條件。這一點依 GitHub 的已知行為推論；本環境的 proxy 擋下 docs.github.com，無法讀文件確認。這不是測試 CI（使用者決定不新增 push 觸發的測試 CI），只在需要重建時執行。
+- **發布**：tag 取自 lock 的 `artifact.release_tag`（`mpvkit-1.0.0-webhtv.1`），不符合 `ios-v*-b*`，不會觸發 App 發版；已存在就失敗，不覆蓋已發布的產物。以 prerelease、`--latest=false` 發布，因為 `cnb-release-sync.yml` 沒指定 tag 時會同步 latest release，要避免 libmpv 被當成 App 版本同步出去。附上 build manifest、比對報告與 build log。
+
+### 已完成的驗證（本環境）
+
+1. 新 0001 與上游 0002、0003 依序 `git apply` 到乾淨的 mpv v0.41.0（`41f6a645`）成功，產生的 `context_moltenvk.m` 與預期內容逐字相同。從上游 patch 抽出的原檔 blob hash 與 patch 的 index 行一致（`445b907f`）。
+2. 上游三個 patch 的 sha256 與 lock 記錄相同。buildscripts patch 以 `git apply --check` 套用到 MPVKit `9d057f9c` 成功。
+3. workflow：YAML 可解析，各 `run` 區塊 `bash -n` 通過，內嵌 Python 可編譯，lock 內兩個 WebHTV patch 的雜湊與檔案相同。
+4. 未驗證：C 編譯（本環境沒有 Apple SDK 與 Xcode），以及 CI 內的建置與比對。
+
 ## Recovery anchor
 
-- 目前（2026-09-25）：診斷與設計研究完成，寫入本文件；**未核准、沒有任何程式、workflow 或二進位修改**。研究產物（clone、下載檔）在本工作階段 scratchpad 的 `research2/`、`research3/`，不進 repo。
-- 下一步（唯一）：使用者回覆 Q1、Q2 並核准後，開始 17I-1。
+- 目前（2026-09-25）：17I-1 的 workflow、patch、lock、README、notice 已 commit 並 push，由 push 觸發 `iOS libmpv Build`。App 沒有任何修改，仍使用上游 MPVKit 1.0.0 與 17G 的重建。研究產物在本工作階段 scratchpad 的 `research2/`、`research3/`、`p17i/`，不進 repo。
+- 下一步（唯一）：看 `iOS libmpv Build` 的結果。通過就把產物 bytes 與 sha256 填進 lock 的 `artifact`，把 CI 結果記到第十二節，再請使用者核准 17I-2；失敗就依 build log 修正後重跑。

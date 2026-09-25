@@ -1,0 +1,32 @@
+diff --git a/Sources/BuildScripts/XCFrameworkBuild/main.swift b/Sources/BuildScripts/XCFrameworkBuild/main.swift
+index e5f872c..ff817ed 100644
+--- a/Sources/BuildScripts/XCFrameworkBuild/main.swift
++++ b/Sources/BuildScripts/XCFrameworkBuild/main.swift
+@@ -31,7 +31,7 @@ do {
+     try BuildLittleCms().buildALL()
+     try BuildPlacebo().buildALL()
+     try BuildDav1d().buildALL()
+-    try BuildFFMPEG().buildALL()
++    try BuildPrebuiltFFMPEG().buildALL()
+ 
+     // mpv
+     try BuildUchardet().buildALL()
+@@ -759,6 +759,18 @@ private class BuildFFMPEG: BaseBuild {
+ 
+ 
+ 
++// WebHTV: restore the FFmpeg that MPVKit 1.0.0 released (FFmpeg-all.zip,
++// pinned in third_party/mpv-ios-lock.json) instead of rebuilding it; only
++// libmpv is rebuilt. The workflow unpacks the zip into this build's directory
++// beforehand, so beforeBuild() never downloads, and nothing is packaged.
++private class BuildPrebuiltFFMPEG: ZipBaseBuild {
++    init() {
++        super.init(library: .FFmpeg)
++    }
++
++    override func afterBuild() throws {}
++}
++
+ private class BuildBluray: ZipBaseBuild {
+     init() {
+         super.init(library: .libbluray)

@@ -1,6 +1,8 @@
 # IOS-POC-12 / IOS-POC-13 — Runtime Architecture Reconciliation and Hot Update Roadmap
 
-- Status: **planned, not started**.
+- Status: **planned, not started**. IOS-POC-12 has a detailed plan since 2026-09-25 (planning only, no
+  implementation): `docs/IOS-POC-12-runtime-architecture-reconciliation.md`. Where the two differ on
+  IOS-POC-12, that document wins; this one stays the index for IOS-POC-12 and IOS-POC-13.
 - Recorded: 2026-09-22 after IOS-POC-5S-1 (`7b7ad584`).
 - This document authorizes **no runtime-update implementation by itself**. It fixes sequencing,
   boundaries, acceptance gates and rollback semantics for the future work.

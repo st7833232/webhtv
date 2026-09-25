@@ -256,16 +256,28 @@ jobs:
           (cd "$work" && ar -x "$ref_lib" "$member" && mv "$member" ref-moltenvk.o)
           (cd "$work" && ar -x "$new_lib" "$member" && mv "$member" new-moltenvk.o)
           allowed="$( (symbols -uj "$work/ref-moltenvk.o"; symbols -uj "$work/new-moltenvk.o") | sort -u)"
+          mkdir -p "$work/new-members"
+          (cd "$work/new-members" && ar -x "$new_lib")
+          # Named toolchain exception, accepted by the user on 2026-09-25 (run
+          # 36085068570): Xcode 26's clang turns the loop that counts the
+          # zero-terminated supported_formats list in filters/f_hwtransfer.c
+          # into wcslen, the same loop on Apple platforms, where wchar_t is a
+          # 32-bit int. It is allowed only while that member is its only user.
+          wcslen_users="$(cd "$work/new-members" && for o in *.o; do if symbols -uj "$o" | grep -qx _wcslen; then echo "$o"; fi; done)"
+          toolchain_allowed=""
+          if [[ "$wcslen_users" == "filters_f_hwtransfer.c.o" ]]; then
+            toolchain_allowed="_wcslen"
+          fi
+          echo "_wcslen used by: ${wcslen_users:-none}" >> "$report"
           # Only the WebHTV context calls vo_wait_default (from wait_events).
           check "WebHTV moltenvk context in the binary" "yes" \
             "$(symbols -uj "$work/new-moltenvk.o" | grep -qx _vo_wait_default && echo yes || echo no)"
           changed="$(comm -3 <(symbols -guj "$ref_lib") <(symbols -guj "$new_lib") | tr -d '\t')"
-          outside="$(comm -23 <(printf '%s\n' "$changed" | sed '/^$/d' | sort -u) <(printf '%s\n' "$allowed"))"
+          outside="$(comm -23 <(printf '%s\n' "$changed" | sed '/^$/d' | sort -u) \
+                              <(printf '%s\n' "$allowed" "$toolchain_allowed" | sed '/^$/d' | sort -u))"
           check "undefined symbols outside $member" "none" "${outside:-none}"
           # Name the members and functions behind any such symbol.
           if [[ -n "$outside" ]]; then
-            mkdir -p "$work/new-members"
-            (cd "$work/new-members" && ar -x "$new_lib")
             for sym in $outside; do
               for o in "$work"/new-members/*.o; do
                 if symbols -uj "$o" | grep -qx "$sym"; then
@@ -276,7 +288,7 @@ jobs:
             done
           fi
           {
-            echo "undefined symbols changed through $member: ${changed:-none}"
+            echo "undefined symbols that differ from upstream: ${changed:-none}"
             echo "$member undefined, upstream: $(symbols -uj "$work/ref-moltenvk.o" | tr '\n' ' ')"
             echo "$member undefined, new: $(symbols -uj "$work/new-moltenvk.o" | tr '\n' ' ')"
             echo "version, upstream: $(strings -a "$ref_lib" | grep -m 1 '^mpv v')"

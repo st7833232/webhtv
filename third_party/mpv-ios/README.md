@@ -54,8 +54,13 @@ upstream `Libmpv` in:
 - the static library's members and its defined external symbols;
 - every framework file other than the binary.
 
-Undefined symbols may differ only through the `context_moltenvk` member. The
-result is published as a prerelease under `artifact.release_tag`, with the
+Undefined symbols may differ only through the `context_moltenvk` member, with
+one named exception accepted on 2026-09-25: `_wcslen`, as long as
+`filters/f_hwtransfer.c` is its only user. Xcode 26's clang compiles the loop
+there that counts the zero-terminated `supported_formats` list into a `wcslen`
+call, which is the same loop on Apple platforms (`wchar_t` is a 32-bit `int`);
+the upstream build, made with Xcode 15.4, keeps the loop. The result is
+published as a prerelease under `artifact.release_tag`, with the
 build manifest, the comparison report and the build log. The workflow refuses
 to replace a published tag, so a new build needs a new tag in the lock.
 

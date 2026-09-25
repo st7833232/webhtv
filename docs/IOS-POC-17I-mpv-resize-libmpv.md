@@ -113,7 +113,7 @@
 
 ## 六、驗收標準
 
-1. CI 從 MPVKit 1.0.0 配方建出 `Libmpv.xcframework`，只有 0001 patch 不同；features／configuration 字串與上游逐字相同，靜態庫成員相同，符號差異只在 `context_moltenvk`。
+1. CI 從 MPVKit 1.0.0 配方建出 `Libmpv.xcframework`，只有 0001 patch 不同；features／configuration 字串與上游逐字相同，靜態庫成員相同，符號差異只在 `context_moltenvk`。2026-09-25 使用者核准一個具名例外：`_wcslen`，限定只能由 `filters_f_hwtransfer.c.o` 引用（第十二節 CI 紀錄）。
 2. lock 與 manifest 完整記錄來源、patch、依賴 zip、工具鏈與產物 SHA-256，產物 SHA-256 等於 SPM checksum。
 3. App 以本地 package 在既有發版 workflow 編譯成功；仍是 LGPL 的 `MPVKit` product。
 4. 真機，播放中直轉橫、橫轉直：不再出現一小條或裁切放大的畫面，沒有明顯停頓，也沒有進度跳動。
@@ -209,6 +209,18 @@
 | [`36084616106`](https://github.com/st7833232/webhtv/actions/runs/36084616106) | `5f6f2edf` | 比對到位：`Configuration:`、features、靜態庫成員、已定義外部符號、binary 以外的 framework 檔案、模擬器架構都與上游相同，新 `context_moltenvk` 引用 `_mp_time_ns`、`_vo_wait_default`（新 patch 確實編入）。**唯一差異**：`context_moltenvk` 以外多了一個未定義符號 `_wcslen`，所以沒有發布。上游 213 個目標檔都不引用任何 `wcs*` 函式；mpv 在 iOS 會編譯的原始碼沒有直接呼叫 `wcslen`（直接呼叫都在 Windows 專用程式碼） |
 
 下一步（`IOS-POC-17I-1-symbol-diag`）：比對報告列出引用這類符號的成員與函式，只作診斷，不改變判定。依結果判斷是新版編譯器把迴圈換成 `wcslen`，還是 SDK 讓某個 config 檢查結果不同，再決定如何處理。
+
+| run | commit | 結果 |
+|---|---|---|
+| [`36085068570`](https://github.com/st7833232/webhtv/actions/runs/36085068570) | `051d953f` | 比對結果與上一輪相同；診斷指出 `_wcslen` 只由 `filters_f_hwtransfer.c.o` 引用（awk 沒抓到呼叫所在的函式，顯示 unknown） |
+
+`_wcslen` 的來源與判斷：
+
+- 原始碼：mpv `filters/f_hwtransfer.c:333-335` 用迴圈數 `ctx->supported_formats` 的元素個數，直到遇到 0；型別是 `const int *`（`video/hwdec.h:26`）。
+- Apple 平台的 `wchar_t` 是 32 位元 `int`，這段迴圈和 `wcslen()` 完全等價。新版編譯器（Xcode 26.6）把它換成一次 `wcslen` 呼叫，上游的 Xcode 15.4 保留迴圈。這是依呼叫位置與迴圈形式所做的推論，沒有查證是哪一版 LLVM 加入這項最佳化。
+- 其他都相同：mpv 在 iOS 會編譯的原始碼沒有直接呼叫 `wcslen`，features／configuration 字串相同，代表不是設定或功能差異。`wcslen` 是 iOS 系統內建函式，連結與執行行為不變。
+- 使用者決定（2026-09-25，選擇題）：「接受 `_wcslen`」。另外兩個選項是改用 `macos-14`＋Xcode 15.4 重建（該 runner 2026-11-02 起停止支援），以及先停在這裡。
+- 實作（`IOS-POC-17I-1-wcslen`）：比對加上具名例外。只有當新產物中引用 `_wcslen` 的成員恰好只有 `filters_f_hwtransfer.c.o` 時才允許，其他任何差異仍會擋下。lock 的 `reference.note` 與 `third_party/mpv-ios/README.md` 同步記錄。
 
 ## Recovery anchor
 

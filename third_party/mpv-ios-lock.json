@@ -195,7 +195,7 @@
     "url": "https://github.com/mpvkit/MPVKit/releases/download/1.0.0/Libmpv.xcframework.zip",
     "bytes": 19184048,
     "sha256": "c381ceb4c1504efac12da95293e56585bbeb691634aa64e3a729f517169933ba",
-    "note": "The upstream artifact the app used until IOS-POC-17I. The workflow requires the ios-arm64 slice of the new build to match it in libmpv's Configuration and enabled-features strings, archive members, defined external symbols and framework files; undefined symbols may differ only through the context_moltenvk member."
+    "note": "The upstream artifact the app used until IOS-POC-17I. The workflow requires the ios-arm64 slice of the new build to match it in libmpv's Configuration and enabled-features strings, archive members, defined external symbols and framework files; undefined symbols may differ only through the context_moltenvk member, plus one named toolchain exception: _wcslen, used only by filters_f_hwtransfer.c.o, where Xcode 26's clang turns the loop counting the zero-terminated supported_formats list into wcslen (the same loop on Apple platforms, where wchar_t is a 32-bit int). The user accepted that exception on 2026-09-25 after run 36085068570."
   },
   "toolchain": {
     "runner": "macos-26",

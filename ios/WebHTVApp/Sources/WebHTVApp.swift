@@ -2113,6 +2113,10 @@ extension Playback {
         router.onEnded = { [weak self] in self?.finished() }
         router.onEngineChange = { [weak self] kind in
             guard let self else { return }
+            // IOS-POC-26: where the engine taking over was asked to start, and how precisely.
+            if let request = self.router.request {
+                Self.log.notice("[playback] \(self.itemTitle, privacy: .public) on \(kind.shortName, privacy: .public) from \(request.startSeconds)s exact=\(request.exactStart ? "yes" : "no", privacy: .public)")
+            }
             self.engineStartedAt = .now
             // Track ids belong to one engine adapter; the other engine's would match nothing.
             self.tracksToRestore = nil
@@ -2931,7 +2935,15 @@ extension Playback {
         if request.startSeconds > 0 {
             // A seek issued now is honoured once the item is ready, which is why it goes before
             // play() rather than behind a readiness observer.
-            player.seek(to: CMTime(seconds: request.startSeconds, preferredTimescale: 1000))
+            let start = CMTime(seconds: request.startSeconds, preferredTimescale: 1000)
+            if request.exactStart {
+                // IOS-POC-26: a switch, fallback or reload lands where the viewer was, as mpv's
+                // `start` and Android's ExoPlayer do. The default tolerance lands on the keyframe
+                // before it; exact costs the decode from that keyframe, which mpv already pays.
+                player.seek(to: start, toleranceBefore: .zero, toleranceAfter: .zero)
+            } else {
+                player.seek(to: start)
+            }
         }
         // A manual engine switch from a paused player loads paused (IOS-POC-17).
         guard request.autoplay else { return }

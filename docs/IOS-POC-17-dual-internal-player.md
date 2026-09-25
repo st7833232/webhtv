@@ -174,7 +174,7 @@ Simulator Debug build → **BUILD SUCCEEDED**。全套 `swift test` 留到 17B �
 | 測試抓到的真缺陷 | `MPVRequestHeaders` 的 CR／LF 防注入原本用 `Character` 比對，Swift 把 `"\r\n"` 當成一個 grapheme，**擋不住**；改成比 unicode scalar | macOS |
 | Simulator Debug build | **BUILD SUCCEEDED**；`WebHTVApp.swift` 的 7 條 warning 與 IOS-POC-15 記錄的既有 warning 相同，`MPVEngine.swift` 無 warning | 模擬器 |
 | 模擬器實操（荐片《欢迎来龙餐馆》TC国语，iOS 26.3） | 設定頁出現「預設播放器」；播放選單只剩「播放」；AVPlayer 播放，控制列顯示「原生」；1.5×、暫停於 03:59 → 切 MPV：標籤變「MPV」、1.5× 與 03:59 與暫停保留、AirPlay 隱藏、畫面由 MPV 畫出；按播放從 03:59 前進到 04:07 → 切回原生：「原生」、1.5×、暫停保留、AirPlay 回來，位置 04:00 | **模擬器，不是真機** |
-| 已知差異 | 切回 AVPlayer 時位置落在關鍵影格（04:07 → 04:00）：`loadNative` 的續播 seek 本來就用預設容差，與既有 resume 同一行為，沒有為切換另外改成精確 seek | — |
+| 已知差異 | 切回 AVPlayer 時位置落在關鍵影格（04:07 → 04:00）：`loadNative` 的續播 seek 本來就用預設容差，與既有 resume 同一行為，沒有為切換另外改成精確 seek。**2026-09-25 更正：真機回報切換位置不對，IOS-POC-26-1 改為交接時精確 seek，見 `docs/IOS-POC-26-engine-switch-position.md`** | — |
 
 ### Ponytail
 

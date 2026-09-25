@@ -269,21 +269,29 @@ public struct PlaybackLoadRequest: Sendable, Equatable {
     public let autoplay: Bool
     public let title: String
     public let history: WatchHistory?
+    /// IOS-POC-26: `startSeconds` is a position an engine actually reported — a switch, a fallback
+    /// or a reload after the item had played — so AVPlayer lands on it exactly instead of on the
+    /// keyframe before it (04:07 became 04:00 in IOS-POC-17). mpv's `start` is exact either way.
+    /// An opened item (history resume, opening skip, quality change) keeps the cheaper start, and so
+    /// does a move made before the engine reported anything: its start is still the opened one.
+    public let exactStart: Bool
 
     public init(target: PlaybackTarget, startSeconds: Double = 0, rate: Float = 1,
-                autoplay: Bool = true, title: String = "", history: WatchHistory? = nil) {
+                autoplay: Bool = true, title: String = "", history: WatchHistory? = nil,
+                exactStart: Bool = false) {
         self.target = target
         self.startSeconds = startSeconds
         self.rate = rate
         self.autoplay = autoplay
         self.title = title
         self.history = history
+        self.exactStart = exactStart
     }
 
     /// The same media, somewhere else and possibly at another speed — what a switch loads.
-    func resumed(at seconds: Double, rate: Float, autoplay: Bool) -> PlaybackLoadRequest {
+    func resumed(at seconds: Double, rate: Float, autoplay: Bool, exact: Bool) -> PlaybackLoadRequest {
         .init(target: target, startSeconds: seconds, rate: rate, autoplay: autoplay,
-              title: title, history: history)
+              title: title, history: history, exactStart: exact)
     }
 }
 
@@ -416,7 +424,8 @@ public final class PlayerRouter {
     /// The speed the viewer picked, so a switch carries it even while paused.
     public func setRate(_ rate: Float) {
         if let request { self.request = request.resumed(at: request.startSeconds, rate: rate,
-                                                         autoplay: request.autoplay) }
+                                                         autoplay: request.autoplay,
+                                                         exact: request.exactStart) }
         engine?.setRate(rate)
     }
 
@@ -429,7 +438,11 @@ public final class PlayerRouter {
     public func reload(at seconds: Double, autoplay: Bool) {
         guard let request else { return }
         failure = nil
-        let again = request.resumed(at: max(seconds, 0), rate: request.rate, autoplay: autoplay)
+        // IOS-POC-26: the session passes the request's own start back for an item still preparing;
+        // any other position is one the engine reached.
+        let exact = seconds == request.startSeconds ? request.exactStart : seconds > 0
+        let again = request.resumed(at: max(seconds, 0), rate: request.rate, autoplay: autoplay,
+                                    exact: exact)
         self.request = again
         run(again)
     }
@@ -492,10 +505,12 @@ public final class PlayerRouter {
     /// Carries the request to `selection.currentSessionEngine` at the position it had reached.
     private func handOff(autoplay: Bool) {
         guard let request else { return }
-        let reached = engine.map { $0.isLoaded ? $0.currentTime : request.startSeconds }
-            ?? request.startSeconds
-        let resumed = request.resumed(at: reached > 0 ? reached : request.startSeconds,
-                                      rate: request.rate, autoplay: autoplay)
+        // Zero from a loaded engine is "nothing reported yet", as it always was here; the request's
+        // own start stands then, with its own precision (IOS-POC-26).
+        let reached = engine.flatMap { $0.isLoaded && $0.currentTime > 0 ? $0.currentTime : nil }
+        let resumed = request.resumed(at: reached ?? request.startSeconds,
+                                      rate: request.rate, autoplay: autoplay,
+                                      exact: reached != nil || request.exactStart)
         self.request = resumed
         run(resumed)
     }

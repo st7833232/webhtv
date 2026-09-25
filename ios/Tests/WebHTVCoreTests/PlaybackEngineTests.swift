@@ -220,6 +220,7 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     #expect(loaded.history?.quality == "1080p")             // quality
     #expect(loaded.history?.episodeUrl == episode.episodeUrl)
     #expect(loaded.startSeconds == 23 * 60 + 41)            // position
+    #expect(loaded.exactStart)                              // landed on exactly (IOS-POC-26)
     #expect(loaded.rate == 1.5)                             // rate
     #expect(loaded.autoplay)
 }
@@ -249,6 +250,7 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     #expect(loaded.target == target)
     #expect(loaded.history == episode)                      // episode, line and quality
     #expect(loaded.startSeconds == 812)
+    #expect(loaded.exactStart)
     #expect(loaded.rate == 3)
     #expect(loaded.autoplay)
 }
@@ -275,6 +277,7 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     #expect(loaded.target == target)
     #expect(loaded.history == episode)
     #expect(loaded.startSeconds == 600)
+    #expect(loaded.exactStart)
     #expect(loaded.rate == 2.5)
 }
 
@@ -285,6 +288,34 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     harness.engine.pause()
     harness.router.select(.mpv)
     #expect(try #require(harness.engine.loads.last).autoplay == false)
+}
+
+// MARK: - IOS-POC-26: which starts are exact
+
+@MainActor @Test func onlyAPositionAnEngineReportedIsLandedOnExactly() throws {
+    // An opened item — a history resume point here — keeps AVPlayer's keyframe start, so opening
+    // a title starts no slower than it did.
+    let harness = Harness()
+    harness.router.open(PlaybackLoadRequest(target: target, startSeconds: 120, history: episode))
+    #expect(try #require(harness.engine.loads.last).exactStart == false)
+    // Moved before the engine reported anything: still the opened start, with its precision.
+    harness.engine.currentTime = 0
+    #expect(harness.router.startupTimedOut())
+    let moved = try #require(harness.engine.loads.last)
+    #expect(moved.startSeconds == 120)
+    #expect(!moved.exactStart)
+    // Moved after it played: exactly where it was, fraction included.
+    harness.engine.currentTime = 247.36
+    harness.router.select(.native)
+    let switched = try #require(harness.engine.loads.last)
+    #expect(switched.startSeconds == 247.36)
+    #expect(switched.exactStart)
+    // A speed change keeps the stored start's precision rather than claiming one.
+    harness.router.open(request)
+    harness.router.setRate(2)
+    harness.router.reload(at: 0, autoplay: false)
+    // The next episode, and a reload at the request's own start, are not positions reached.
+    #expect(try #require(harness.engine.loads.last).exactStart == false)
 }
 
 // MARK: - Classification
@@ -355,6 +386,7 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     let loaded = try #require(harness.engine.loads.last)
     #expect(loaded.target == target)
     #expect(loaded.startSeconds == 90)
+    #expect(loaded.exactStart)
     #expect(harness.router.failure == nil)
 }
 
@@ -487,6 +519,7 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     #expect(loaded.target == target)
     #expect(loaded.history == episode)
     #expect(loaded.startSeconds == 1234)
+    #expect(loaded.exactStart)
     #expect(loaded.rate == 2)
     #expect(!loaded.autoplay, "a reload never starts playback by itself")
 }

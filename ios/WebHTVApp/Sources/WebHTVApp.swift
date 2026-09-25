@@ -1228,6 +1228,8 @@ private struct SettingsView: View {
     @State private var renameText = ""
     /// IOS-POC-17: `globalDefaultEngine`. Mirrored here only so the checkmark redraws.
     @State private var defaultEngine = PlaybackSession.shared.globalDefaultEngine
+    /// IOS-POC-25: Android's 智慧去廣. Mirrored here only so the switch redraws.
+    @State private var adSkip = PlaybackSession.shared.adSkipEnabled
 
     var body: some View {
         List {
@@ -1254,6 +1256,14 @@ private struct SettingsView: View {
                 }
             } header: {
                 Text("預設播放器")
+            }
+
+            // IOS-POC-25: Android's 智慧去廣 (`Setting.isAdblock()`), on by default.
+            Section {
+                Toggle("智慧去廣", isOn: $adSkip)
+                    .onChange(of: adSkip) { _, enabled in PlaybackSession.shared.setAdSkipEnabled(enabled) }
+            } footer: {
+                Text("HLS 點播影片偵測到插入的廣告片段時自動跳過。判斷不確定時照常播放。")
             }
 
             Section("內容來源") {
@@ -2118,6 +2128,8 @@ extension Playback {
                 Self.log.notice("[playback] \(self.itemTitle, privacy: .public) on \(kind.shortName, privacy: .public) from \(request.startSeconds)s exact=\(request.exactStart ? "yes" : "no", privacy: .public)")
             }
             self.engineStartedAt = .now
+            // IOS-POC-25: which ads were skipped belongs to the engine that skipped them.
+            self.adSkip.engineReloaded()
             // Track ids belong to one engine adapter; the other engine's would match nothing.
             self.tracksToRestore = nil
             self.mediaSelection = PlaybackMediaSelection()
@@ -2331,7 +2343,7 @@ extension Playback {
     func seek(toSeconds seconds: Double) {
         guard let engine, engine.isLoaded else { return }
         let limit = engine.duration > 0 ? engine.duration : .greatestFiniteMagnitude
-        engine.seek(toSeconds: min(max(seconds, 0), limit))
+        engine.seek(toSeconds: adSeekTarget(min(max(seconds, 0), limit)))
     }
 
     /// The same for the end — Android's ED button. Milliseconds counted back from the runtime.
@@ -2668,6 +2680,7 @@ extension Playback {
         startupWatch?.cancel()
         retryWithoutPrefetch = nil
         tracksToRestore = mediaSelection
+        adSkip.engineReloaded()
         router.reload(at: seconds, autoplay: false)
     }
 
@@ -2719,6 +2732,7 @@ extension Playback {
             reportItem()
             Task { @MainActor in await persist() }
             sampler?.cancel()
+            adWatch?.cancel()
             router.stop()
             started = false
         case "prev": start(at: index - 1)
@@ -2726,7 +2740,8 @@ extension Playback {
         case "loop": looping.toggle()
         case "replay":
             Self.activateAudioSession()
-            engine?.seek(toSeconds: 0)
+            // Android's repeat seeks to 0 as a viewer's seek: a pre-roll is skipped again.
+            engine?.seek(toSeconds: adSeekTarget(0))
             engine?.play()
         default: break
         }
@@ -2827,6 +2842,94 @@ extension Playback {
                                         startSeconds: start, rate: chosenRate, autoplay: autoplay,
                                         title: title, history: record))
         startSampling()
+        watchAds(url)
+    }
+
+    // MARK: - IOS-POC-25: HLS mid-stream ads
+
+    /// The item's ad plan and every skip decision over it, one for both engines (`HLSAdSkipper`).
+    private var adSkip = HLSAdSkipper()
+    private var adWatch: Task<Void, Never>?
+    /// Android's 智慧去廣 switch, on by default; the settings page changes it.
+    private(set) var adSkipEnabled = HLSAdSkipPreference().enabled
+
+    func setAdSkipEnabled(_ enabled: Bool) {
+        HLSAdSkipPreference().setEnabled(enabled)
+        adSkipEnabled = enabled
+    }
+
+    /// Where the viewer's own ending hands over, in seconds, when they set one (IOS-POC-5S-2).
+    private var adEndingThreshold: Double? {
+        guard let ending = record?.endingOffset, ending > 0, let engine, engine.duration > 0 else { return nil }
+        return max(engine.duration - ending / 1000, 0)
+    }
+
+    /// A new item: its playlist is read once the engine has opened it, then the playhead is
+    /// followed and each range the plan trusts is seeked past. An address that is not HLS, or a
+    /// plan with nothing to skip, ends the watch at once — that item plays exactly as before.
+    private func watchAds(_ url: URL) {
+        adWatch?.cancel()
+        adWatch = nil
+        let generation = adSkip.begin(url: url)
+        guard !adSkip.isSettled else { return }
+        let headers = self.headers
+        adWatch = Task { @MainActor in
+            while !Task.isCancelled, let pause = self.adTick(generation: generation, url: url, headers: headers) {
+                try? await Task.sleep(for: pause)
+            }
+        }
+    }
+
+    /// One reading of whichever engine is playing. Answers when to read again, or nil to stop.
+    private func adTick(generation: Int, url: URL, headers: [String: String]) -> Duration? {
+        guard adSkip.generation == generation, !adSkip.isSettled else { return nil }
+        guard started, let engine else { return .milliseconds(250) }
+        let duration = engine.duration
+        if let planned = adSkip.planRequest(enabled: adSkipEnabled, duration: duration) {
+            // Off the main actor: two readings of a playlist, and a detector pass over each.
+            Task.detached(priority: .utility) {
+                let plan = await HLSAdPlanner.plan(for: url, fetch: HLSAdPlanner.fetcher(headers: headers))
+                await MainActor.run { PlaybackSession.shared.adoptAdPlan(plan, for: planned) }
+            }
+        }
+        guard adSkip.plan != nil else { return .milliseconds(250) }
+        let position = engine.currentTime
+        let rate = engine.rate
+        let wasSuspended = adSkip.suspensionReason != nil
+        let target = adSkip.automaticTarget(position: position, duration: duration, rate: rate,
+                                            playing: engine.isPlaying, engine: engine.kind,
+                                            enabled: adSkipEnabled, endingThreshold: adEndingThreshold,
+                                            now: .now)
+        if !wasSuspended, let reason = adSkip.suspensionReason {
+            Self.log.notice("[adskip] \(self.itemTitle, privacy: .public) stopped on \(engine.kind.shortName, privacy: .public): \(reason, privacy: .public)")
+        }
+        if let target {
+            Self.log.notice("[adskip] \(self.itemTitle, privacy: .public) skip from=\(Int(position * 1000))ms to=\(Int(target * 1000))ms on \(engine.kind.shortName, privacy: .public)")
+            engine.seek(toSeconds: target)
+            return .milliseconds(100)
+        }
+        // Wake at the next range's start rather than a tick after it.
+        guard let until = adSkip.secondsUntilNextRange(position: position, rate: rate, engine: engine.kind,
+                                                       duration: duration, enabled: adSkipEnabled)
+        else { return .milliseconds(250) }
+        return .milliseconds(Int((until > 0 ? min(max(until, 0.01), 0.1) : 0.1) * 1000))
+    }
+
+    private func adoptAdPlan(_ plan: HLSAdPlan, for generation: Int) {
+        guard adSkip.adopt(plan, for: generation) else { return }
+        let ranges = plan.timeline.ranges.map { "\($0.startMs)-\($0.endMs)" }.joined(separator: ",")
+        Self.log.notice("[adskip] \(self.itemTitle, privacy: .public) plan \(plan.timeline.reason, privacy: .public) ranges=\(ranges.isEmpty ? "none" : ranges, privacy: .public) discontinuity=\(plan.hasDiscontinuity ? "yes" : "no", privacy: .public)")
+    }
+
+    /// A seek the viewer makes into a detected ad lands at its end; any other is left alone.
+    private func adSeekTarget(_ seconds: Double) -> Double {
+        guard let engine else { return seconds }
+        let target = adSkip.manualTarget(seconds, duration: engine.duration, engine: engine.kind,
+                                         enabled: adSkipEnabled, endingThreshold: adEndingThreshold, now: .now)
+        if target != seconds {
+            Self.log.notice("[adskip] \(self.itemTitle, privacy: .public) seek into an ad at \(Int(seconds * 1000))ms lands at \(Int(target * 1000))ms")
+        }
+        return target
     }
 
     /// How long this item took from being opened to actually playing (IOS-POC-15D) — the number to

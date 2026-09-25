@@ -200,7 +200,7 @@
 
 - `third_party/mpv-ios/licenses/` 收錄 57 個上游授權檔，涵蓋 LGPL `MPVKit` product 在 iOS 連結的元件與其內嵌程式碼（對照表在 `third_party/mpv-ios/README.md`）。由背景 agent 依 recipe 與各 `mpvkit/*-build` repo 在 lock 所列 tag 的建置腳本查出來源版本，逐檔以 `cmp` 確認與上游相同；我另以獨立 clone 抽查 4 檔（mpv 的 `LICENSE.LGPL` 與 `Copyright`、libplacebo、MoltenVK），結果相同。
 - 從二進位確認（agent 以 `llvm-nm` 檢查 ios-arm64 slice）：FFmpeg configure 沒有 `--enable-gpl`／`--enable-nonfree`；mpv 為 `-Dgpl=false`；lcms2 的 GPL-3.0 plugin 與 libsmbclient 都沒有連結；glslang 的 Bison 產生檔是 GPL-3.0 附 Bison exception。
-- **缺口**：
+- **缺口**（第 1～3 點已於 2026-09-25 補齊，見本節「授權缺口補齊」）：
   1. libbluray 1.4.0、內嵌的 libudfread 1.2.0、uchardet 0.0.8 的授權檔沒有收錄。它們的主機（code.videolan.org、gitlab.freedesktop.org）被本環境的對外連線政策擋下。
   2. `Libdovi` 內靜態連結的 Rust 標準庫與 crate 授權沒有收集。
   3. nettle、GMP 取自 GitHub 鏡像；uavs3d 實際建置的 commit 在上游找不到。
@@ -245,9 +245,63 @@
 - 建置環境（manifest）：runner image `macos26 20260907.0351.1`、Xcode 26.6（17F113）、meson 1.4.2、ninja 1.13.2；recipe `9d057f9c`、mpv `41f6a645`；patch 與 21 個依賴 zip 的 SHA-256 都與 lock 相同。
 - 驗收標準對照（第六節）：第 1 條通過（含 `_wcslen` 具名例外）；第 2 條通過（lock、manifest、產物 SHA-256＝SwiftPM checksum）。第 3～6 條屬 17I-2／17I-3。
 
+### 授權缺口補齊（2026-09-25，`IOS-POC-17I-licences-gaps`）
+
+使用者以選擇題決定「GitHub runner（建議）」：由 runner 取得本環境連不到的授權檔（code.videolan.org、gitlab.freedesktop.org、git.lysator.liu.se、gmplib.org、ftp.gnu.org，以及 Debian、Gentoo 等鏡像都被本環境的 proxy 以 403 擋下）。Rust 部分的來源（static.rust-lang.org、static.crates.io、GitHub）本環境可以連線，在本環境取得。
+
+**一次性 workflow**（`.github/workflows/ios-licence-fetch.yml`，只在新增或修改它的 push 執行，用完即刪）
+
+| run | commit | 結果 |
+|---|---|---|
+| [`36087320182`](https://github.com/st7833232/webhtv/actions/runs/36087320182) | `81da05ba` | libbluray、libudfread、uchardet 的授權檔以 gzip＋base64 印在 log，附 blob id 與 SHA-256；本環境還原後大小、SHA-256、blob id 全部相符。nettle 三個檔案與上游 tag 相同。GMP 步驟連不上 gmplib.org（連線逾時），我手動取消 |
+| [`36088056862`](https://github.com/st7833232/webhtv/actions/runs/36088056862) | `c858c779` | 印出第一輪只有計數的授權標頭與建置檔引用；GMP 改從 ftp.gnu.org 取得，四個檔案都相同 |
+| 無 | `e3822b5a` | 刪除該 workflow |
+
+第二輪是發現 libbluray 有 7 個檔案提到 Mozilla Public License 之後才加的，所以 ios-poc 比原先告知使用者的多了 1 個 commit。
+
+**C 函式庫**
+
+- libbluray：tag `1.4.0` 對應 `9f07fbb2077be7a40b062bcf2463a9941c2a3b13`。`COPYING` 是不含附錄的 LGPL-2.1（24,478 bytes，blob `20fb9c7d`），收為 `LICENSE.libbluray`。
+- libudfread：libbluray 1.4.0 的 submodule `contrib/libudfread` 指向 `c3cd5cbb097924557ea4d9da1ff76a74620c51a8`，以 `git ls-remote` 核對，正是 libudfread tag `1.2.0` 的 commit。`COPYING` 是 LGPL-2.1（blob `4362b491`），收為 `LICENSE.libbluray.contrib-libudfread-COPYING`。
+- uchardet：tag `v0.0.8` 對應 `ae6302a016088ad07177f86d417b20010053632b`。`COPYING` 依序收錄 MPL 1.1、GPL 2、LGPL 2.1 全文（70,517 bytes，blob `86461c03`），收為 `LICENSE.uchardet`。
+- 原始碼標頭（第二輪）：
+  - libbluray 157 個 C 原始檔與標頭中，145 個是 LGPL-2.1-or-later；`jni/jni.h` 與 6 個 `jni/*/jni_md.h` 是 MPL 1.1/GPL 2.0/LGPL 2.1 三選一；`src/libbluray/bdj/native/` 下 4 個 JNI 標頭沒有授權聲明；唯一的 GPL-2.0-or-later 檔案 `src/devtools/bdj_test.c` 屬 devtools，建置參數 `-Denable_devtools=false` 不會編譯它。
+  - libudfread 11 個原始檔全部是 LGPL-2.1-or-later。
+  - uchardet 76 個原始檔中 75 個有 MPL/GPL/LGPL 三選一區塊；剩下的 `build-mac/uchardet.cpp` 沒有任何 CMakeLists.txt 引用。
+- 不收錄：libbluray 的 `contrib/asm`（BSD-3-Clause 的 Java 函式庫）屬於 BD-J jar，建置參數 `-Dbdj_jar=disabled` 不產生該 jar。
+- 來源註記：
+  - nettle 與上游 repo 的 tag `nettle_3.10_release_20240616`（`b8c841dc`）逐檔相同。
+  - GMP 與 ftp.gnu.org 的 6.2.1 release tarball（SHA-256 `fd4829912cddd12f84181c3451cc752be224643e87fac497b69edddadc49b4f2`）逐檔相同。
+  - uavs3d 實際建置的 commit 仍找不到；但 `COPYING` 自 `74109648`（2022-03-01）起在上游沒有變動，之後所有上游 commit（含 `0e20d2c2`）都帶同一個檔案（blob `ce30f0fa`）。
+
+**Rust（`Libdovi`）**
+
+- 建置方式：libdovi-build 3.3.2 在 dovi_tool 的 `dolby_vision/` 執行 `cargo cinstall -Zbuild-std=std,panic_abort --release`，toolchain 由 `rustup toolchain install nightly --profile complete` 安裝。std 從 rust-src 原始碼建置，所以 std 依賴的 crate 也一起靜態連結。
+- nightly 判定：
+  - 二進位內只有 rust-src 路徑，沒有 rustc commit。
+  - 發布 job 在 2025-12-22 10:06 UTC 結束（xcframework zip 時間戳與 libdovi-build 的 tag commit `c08af75c`）；nightly-2025-12-22（`rustc 1.94.0-nightly (a6525d526 2025-12-21)`）在當天 01:32 UTC 發布。
+  - nightly-2025-12-21 的 `library/Cargo.lock` crates.io 項目（40 個，含 checksum）與 16 個授權檔都和 2025-12-22 相同，兩者得到相同的 notice。
+- 版本與完整性：
+  - std 的依賴取自該 nightly 的 `library/Cargo.lock`；libdovi 的依賴取自 dovi_tool `libdovi-3.3.2`（`4fd2b2235c9f93582dd4a00e65ee34a07800afd7`）的 `dolby_vision/Cargo.lock`，該 crate 不屬於上層 workspace。
+  - 22 個 `.crate` 檔的 SHA-256 都等於 lock 的 checksum；rust-src 的 SHA-256 等於 channel manifest 的 `xz_hash`（`548d78b4…d2a7`）。
+- 建置圖驗證：
+  - `cargo tree`（target `aarch64-apple-ios`；std 開 backtrace，dolby_vision 開 `capi`）得到的 crates.io crate 與使用者清單一致，另外有 cfg-if 1.0.4（只含巨集，但 archive 內有成員），以及 dolby_vision 使用的 libc 0.2.172（授權檔與 std 的 0.2.178 相同）。
+  - `Libdovi.xcframework`（SwiftPM checksum `e693e239…ca7d` 相符）的 `ios-arm64` slice：archive 成員與內嵌原始碼路徑涵蓋全部 crate；addr2line 沒有獨立成員，程式碼內嵌在 std。
+  - compiler-builtins 的 libm 程式碼有被連結（slice 定義 `_fmaf128`、`_roundeven` 等），所以收錄其 `libm/LICENSE.txt`。
+  - 不收錄：LLVM libunwind（slice 沒有定義任何 unwinder 符號，`_Unwind_*` 由系統提供）、panic_unwind（`-Cpanic=abort`，沒有成員）。
+- std 與 core 內嵌的上游程式碼另有授權檔，一併收錄：backtrace-rs（std）、stdarch 的 core_arch 與 portable-simd 的 core_simd（core）。
+- 與使用者清單的差異：清單內的項目全部收錄；另外加收 cfg-if 1.0.4、libc 的第二個版本、上述三個內嵌專案，以及 compiler-builtins 的 libm 授權。
+
+**收錄結果**
+
+- 新增 55 個檔案（C 函式庫 3 個、Rust 52 個），`licenses/` 由 57 個增為 112 個授權檔。每個檔案的 git blob id 都與來源相同：C 函式庫對照 runner 印出的 tag tree blob id，Rust 對照已核對雜湊的 rust-src 與 `.crate`。
+- tinyvec 的三個授權檔原本就是 CRLF 行尾，照原樣保存；repo 沒有 `text`／`eol` 屬性，git 不會轉換。
+- `third_party/mpv-ios/README.md` 的授權表、Rust 表與來源註記同步更新，`MANIFEST.sha256` 重算。
+- 仍未解：第 4 點（LGPLv3 對 iOS 使用者產品的安裝資訊義務）屬法律判斷，維持待確認；App 內授權畫面（IOS-POC-9A L4）另開任務。
+
 ## Recovery anchor
 
-- 目前（2026-09-25）：17I-1 完成。prerelease `mpvkit-1.0.0-webhtv.1` 已發布並回驗，產物 SHA-256 `e87b4f5a…71b4` 已寫入 lock。App 沒有任何修改，仍使用上游 MPVKit 1.0.0 與 17G 的重建。研究產物在本工作階段 scratchpad 的 `research2/`、`research3/`、`p17i/`、`rel17i/`，不進 repo。
-- 未解：libbluray、libudfread、uchardet 的授權檔與 `Libdovi` 內 Rust crate 的授權尚未收錄（第十二節「授權 notice」）。
-- 使用者決定（2026-09-25，選擇題）：「先補齊授權缺口」，再進行 17I-2。本環境的 proxy 擋下 code.videolan.org、download.videolan.org、gitlab.freedesktop.org、www.freedesktop.org、git.lysator.liu.se（403 policy），GitHub 上也沒有 videolan/libbluray、videolan/libudfread、freedesktop/uchardet 的鏡像。
-- 下一步（唯一）：補齊授權缺口：libbluray 1.4.0 與其內嵌 libudfread 1.2.0、uchardet 0.0.8 的授權檔，以及 `Libdovi` 內 Rust 標準庫與 crate 的授權（crate 清單在第十二節「授權 notice」與 `third_party/mpv-ios/README.md`）。取得方式先以選擇題請使用者決定（例如由 GitHub runner 下載，或由使用者提供檔案）；完成後再請使用者核准 17I-2。
+- 目前（2026-09-25）：17I-1 完成，授權缺口已補齊（第十二節「授權缺口補齊」）。prerelease `mpvkit-1.0.0-webhtv.1` 已發布並回驗，產物 SHA-256 `e87b4f5a…71b4` 已寫入 lock。App 沒有任何修改，仍使用上游 MPVKit 1.0.0 與 17G 的重建。研究產物在各工作階段的 scratchpad（17I-1：`research2/`、`research3/`、`p17i/`、`rel17i/`；授權補齊：`lic/`、`rust/`、`job1.log`、`job2.log`），不進 repo。
+- 未解：LGPLv3 安裝資訊義務屬法律判斷，待確認（第十二節「授權 notice」第 4 點）；App 內授權畫面另開任務（IOS-POC-9A L4）。兩者都不擋 17I-2。
+- 使用者決定（2026-09-25，選擇題）：「先補齊授權缺口」，再進行 17I-2；取得方式選「GitHub runner（建議）」。
+- 下一步（唯一）：請使用者核准 17I-2（本地 `ios/Vendor/MPVKit/` package 改用 `mpvkit-1.0.0-webhtv.1` 的 `Libmpv`，並移除 17G 的 vo 重建，設計見第四節第 4 點）。

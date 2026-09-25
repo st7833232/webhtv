@@ -80,7 +80,11 @@ binaries; their versions are in the lock and in `licenses/`.
 product links on iOS, copied byte for byte from the source revision behind
 each 1.0.0 binary. Versions were read from the recipe and from each
 `mpvkit/*-build` repository at the tag the lock pins (2026-09-25); four files
-were rechecked against independent clones.
+were rechecked against independent clones. The libbluray, libudfread and
+uchardet files were fetched from their upstream repositories by a one-off
+GitHub Actions job (runs `36087320182` and `36088056862`), because their
+hosts are blocked from the environment that collected the rest; each file's
+git blob id matches the tagged tree.
 
 | Component (binaries) | Source | Licence as stated upstream | Files |
 |---|---|---|---|
@@ -107,18 +111,83 @@ were rechecked against independent clones.
 | libdovi (`Libdovi`) | 3.3.2 `4fd2b223` | MIT | `LICENSE.libdovi` |
 | dav1d (`Libdav1d`) | 1.5.3 `b546257f` | BSD-2-Clause, plus the AOM Patent License 1.0 | `LICENSE.dav1d`, `LICENSE.dav1d.doc-PATENTS` |
 | uavs3d (`Libuavs3d`) | 1.2.1; the recipe builds master, file taken from `0e20d2c2` | BSD-3-Clause | `LICENSE.uavs3d` |
+| libbluray (`Libbluray`) | 1.4.0 `9f07fbb2` | LGPL-2.1-or-later | `LICENSE.libbluray` |
+| libudfread inside `Libbluray` (`-Dembed_udfread=true`) | 1.2.0 `c3cd5cbb`, the submodule commit in libbluray 1.4.0 | LGPL-2.1-or-later | `LICENSE.libbluray.contrib-libudfread-COPYING` |
+| uchardet (`Libuchardet`) | v0.0.8 `ae6302a0` | MPL-1.1 OR GPL-2.0-or-later OR LGPL-2.1-or-later; `COPYING` holds all three texts | `LICENSE.uchardet` |
 
-Not collected yet:
+The source headers agree with these files. In libbluray 1.4.0, 145 of the
+157 C sources and headers carry the LGPL-2.1-or-later notice; the JNI headers
+(`jni/jni.h` and six `jni/*/jni_md.h`) are MPL-1.1 OR GPL-2.0-or-later OR
+LGPL-2.1-or-later, four JNI headers in `src/libbluray/bdj/native/` carry no
+notice, and the one
+GPL-2.0-or-later file, `src/devtools/bdj_test.c`, is a developer tool the
+build turns off (`-Denable_devtools=false`). All 11 libudfread sources carry
+the LGPL-2.1-or-later notice, and 75 of the 76 uchardet sources the
+MPL/GPL/LGPL block; no CMakeLists.txt refers to the remaining one,
+`build-mac/uchardet.cpp`. libbluray's `contrib/asm` (BSD-3-Clause) is Java
+code for the BD-J jar, which the build disables (`-Dbdj_jar=disabled`), so it
+is not collected.
 
-- libbluray 1.4.0 (`Libbluray`), the libudfread 1.2.0 embedded in it, and
-  uchardet 0.0.8 (`Libuchardet`). Their hosts, code.videolan.org and
-  gitlab.freedesktop.org, were blocked from the environment that collected
-  these files. Package metadata lists LGPL-2.1-or-later for libbluray and
-  MPL-1.1 OR GPL-2.0-or-later OR LGPL-2.1-or-later for uchardet; neither is
-  checked against the source yet.
-- The Rust standard library and crates statically linked into `Libdovi`.
-- Provenance caveats: nettle and GMP were copied from GitHub mirrors (the GMP
-  one is the mirror the recipe itself uses), and the exact uavs3d commit
-  behind the binary is not reachable upstream.
+### Rust code in `Libdovi`
+
+`Libdovi` comes from `cargo cinstall -Zbuild-std=std,panic_abort` in
+dovi_tool's `dolby_vision` directory (libdovi-build 3.3.2), so it carries its
+own build of the Rust standard library and of every crate below. The workflow
+installs the current nightly; the release job finished at 10:06 UTC on
+2025-12-22, and nightly-2025-12-22 (`rustc 1.94.0-nightly (a6525d526
+2025-12-21)`) was published at 01:32 UTC that day. The binary embeds rust-src
+paths but no rustc commit; nightly-2025-12-21 pins the same crate versions and
+has byte-identical licence files, so either gives the same notices. The Rust
+files come from that nightly's rust-src component (SHA-256 as listed in its
+channel manifest) and from the crates.io archives, each of which matched the
+checksum in its lock file. Crate versions come from the nightly's
+`library/Cargo.lock` and from `dolby_vision/Cargo.lock` at `4fd2b223`;
+`cargo tree` for `aarch64-apple-ios` gives the same set, and the archive
+members and embedded source paths of the `ios-arm64` slice confirm it.
+
+| Component | Version | Licence as stated upstream | Files |
+|---|---|---|---|
+| Rust standard library: std, core, alloc, panic_abort, unwind, std_detect and the rustc-std-workspace shims | rust-src nightly-2025-12-22 | MIT OR Apache-2.0 | `LICENSE.rust.COPYRIGHT`, `LICENSE.rust.LICENSE-APACHE`, `LICENSE.rust.LICENSE-MIT` |
+| backtrace-rs inside `std`; core_arch (stdarch) and core_simd (portable-simd) inside `core` | same | MIT OR Apache-2.0 | `LICENSE.rust.library-backtrace-*`, `LICENSE.rust.library-stdarch-crates-core_arch-*`, `LICENSE.rust.library-portable-simd-crates-core_simd-*` |
+| compiler_builtins, including its libm code (the slice defines `fmaf128`, `roundeven` and others) | same | MIT AND Apache-2.0 WITH LLVM-exception; libm MIT | `LICENSE.rust.library-compiler-builtins-LICENSE.txt`, `LICENSE.rust.library-compiler-builtins-libm-LICENSE.txt` |
+| addr2line | 0.25.1 | Apache-2.0 OR MIT | `LICENSE.addr2line.*` |
+| adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 | `LICENSE.adler2.*` |
+| cfg-if | 1.0.4 | MIT OR Apache-2.0 | `LICENSE.cfg-if.*` |
+| gimli | 0.32.3 | MIT OR Apache-2.0 | `LICENSE.gimli.*` |
+| hashbrown | 0.16.1 | MIT OR Apache-2.0 | `LICENSE.hashbrown.*` |
+| libc | 0.2.178 for std, 0.2.172 for libdovi; the licence files are identical | MIT OR Apache-2.0 | `LICENSE.libc.*` |
+| memchr | 2.7.6 | Unlicense OR MIT | `LICENSE.memchr.*` |
+| miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 | `LICENSE.miniz_oxide.*` |
+| object | 0.37.3 | Apache-2.0 OR MIT | `LICENSE.object.*` |
+| rustc-demangle | 0.1.26 | MIT/Apache-2.0 | `LICENSE.rustc-demangle.*` |
+| anyhow | 1.0.98 | MIT OR Apache-2.0 | `LICENSE.anyhow.*` |
+| bitstream-io | 2.6.0 | MIT/Apache-2.0 | `LICENSE.bitstream-io.*` |
+| bitvec | 1.0.1 | MIT | `LICENSE.bitvec` |
+| bitvec_helpers | 3.1.6 | MIT | `LICENSE.bitvec_helpers` |
+| crc | 3.3.0 | MIT OR Apache-2.0 | `LICENSE.crc.*` |
+| crc-catalog | 2.4.0 | MIT OR Apache-2.0 | `LICENSE.crc-catalog.*` |
+| funty | 2.0.0 | MIT | `LICENSE.funty` |
+| radium | 0.7.0 | MIT | `LICENSE.radium` |
+| tap | 1.0.1 | MIT | `LICENSE.tap` |
+| tinyvec | 1.9.0 | Zlib OR Apache-2.0 OR MIT | `LICENSE.tinyvec.*` (CRLF line endings, as published) |
+| wyz | 0.5.1 | MIT | `LICENSE.wyz` |
+
+The first ten crates come in through the standard library (libc also through
+libdovi), the rest through libdovi with its `capi` feature. Not linked, so not
+collected: the LLVM libunwind sources in rust-src (Apple targets use the system
+unwinder, and the slice defines no unwinder symbols) and panic_unwind
+(`-Cpanic=abort`).
+
+Provenance notes:
+
+- nettle and GMP were first copied from GitHub mirrors. The runner job then
+  matched every recorded file against upstream: nettle's own repository at
+  tag `nettle_3.10_release_20240616` (`b8c841dc`), and the GMP 6.2.1 release
+  tarball from ftp.gnu.org (SHA-256
+  `fd4829912cddd12f84181c3451cc752be224643e87fac497b69edddadc49b4f2`).
+- The recipe builds uavs3d from master, and the exact commit behind the
+  binary is not reachable upstream. `COPYING` has not changed upstream since
+  `74109648` (2022-03-01), so every upstream commit since then, including
+  `0e20d2c2`, carries the recorded file.
 
 The in-app attribution screen that IOS-POC-9A L4 asks for is a separate task.

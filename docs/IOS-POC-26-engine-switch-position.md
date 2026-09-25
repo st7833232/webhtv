@@ -1,6 +1,6 @@
 # IOS-POC-26 — MPV／原生切換與 MPV seek 的位置正確性
 
-- 狀態：**26-1 已實作（未編譯、未執行測試、真機未驗證）；26-2 研究中**（2026-09-25）。
+- 狀態：**26-1 已實作（未編譯、未執行測試、真機未驗證）；26-2 研究完成，等使用者決定**（2026-09-25）。
 - Lane：`standard`。Ponytail：unavailable / skipped。
 - 編號說明：原本預定用 IOS-POC-25，因使用者另開 session 把 IOS-POC-25 給「HLS 串流中段跳廣告」，本任務改為 IOS-POC-26。
 - 並行開發：另一個 session 同時在 `ios-poc` 開發 IOS-POC-25。本任務只做一般 push，push 前先 pull 並 merge，不 force push（使用者 2026-09-25 規定）。
@@ -82,12 +82,50 @@ MPV 一側在沒有 discontinuity 時是精確的：mpv v0.41.0 `loadfile.c:1908
 
 - 26-1：revert 本任務的 commit。`exactStart` 只有 router 與 `loadNative` 讀取，沒有持久化，回滾不影響觀看記錄。
 
-## 六、26-2：MPV 在有廣告的 HLS 上 seek 回到片頭、之後無法播放（研究中）
+## 六、26-2：MPV 在有廣告的 HLS 上 seek 回到片頭、之後無法播放
 
-- 目前的假設（待量測確認）：廣告分段帶自己的 PTS。播進廣告後，mpv 的 `time-pos` 掉到廣告自己的小數值（例如 1～17 秒）。這時按 +10 秒，控制列以這個值加 10 做絕對 seek，FFmpeg 依播放清單時間選到片頭附近的分段，結果就是「影片重頭」。
-- 「多操作幾次 mpv 無法播放、必須重啟 App」的候選原因：FFmpeg 的丟棄迴圈或 hr-seek 一直到不了目標、mpv 的 seekable cache 被 timestamp reset 打亂，以及 MPV 核心在同一個 App 執行期間跨播放器工作階段重複使用（`PlayerRouter.endSession` 只在下一次預設核心不同時才釋放），壞掉的核心要重啟 App 才會換新。
-- 研究內容：抓使用者設定中的真實串流量測 PTS 配置、mpv／FFmpeg 原始碼層級的 seek 行為、Android 目前 MPV 的作法、iOS 卡死路徑，並比較可行方案。結果與決策會補在本節。
-- 和 IOS-POC-25 的分工：本任務負責 MPV 時間軸與 seek 的正確性、核心復原；IOS-POC-25 負責偵測與跳過廣告。IOS-POC-25 在 MPV 上依播放清單時間跳廣告，前提就是 MPV 的位置和播放清單時間一致，所以 26-2 的結論會影響它。
+- 狀態：**研究完成，等使用者決定**（2026-09-25）。以 workflow 進行：四條證據線（真實串流、mpv／FFmpeg 原始碼、Android、iOS 卡死路徑），綜合設計後兩個審查角度反駁。
+- 結論：兩個症狀同一個根因。**iOS 用的是未修改的 FFmpeg n8.1.2（MPVKit 1.0.0 prebuilt），`hls.c` 完全不處理 `EXT-X-DISCONTINUITY`；Android 用的 FongMi FFmpeg `177f090e` 帶有 FongMi 自己的 commit `5805f9364c2e9a5f6ce625c9077b308c3ed4014d`（`avformat/hls: normalize timestamps across discontinuities`），會把封包時間戳對到播放清單時間軸，並在每次 seek 後重新對齊。** Android 的 Java 端直接用 `time-pos` 當播放清單時間，正確性完全來自這個 FFmpeg 修正。
+
+### 1. 證據
+
+| 來源 | 版本 | 等級 | 結論 |
+|---|---|---|---|
+| FFmpeg `libavformat/hls.c` | n8.1.2 `38b88335` | A | 沒有任何 discontinuity 處理；seek 用 `first_timestamp` 加 EXTINF 累加選分段（`find_timestamp_in_playlist`），再在同一次 `av_read_frame` 內丟棄封包直到 `dts` 追上目標 |
+| mpv `demux/demux_lavf.c`、`player/playloop.c`、`player/command.c` | v0.41.0 `41f6a645` | A | `time-pos` 是封包 PTS 減起始時間；seek 未完成時回報目標值、`paused-for-cache=no`、沒有 `PLAYBACK_RESTART`；之後的 seek 排在進行中的讀取後面 |
+| FongMi/FFmpeg `libavformat/hls_timestamp.c` 與 `5805f936` | `177f090e` | A | 偵測廣告拼接造成的時間戳重設並修正；seek 後把第一個封包對到所選分段的播放清單起點 |
+| FFmpeg 上游 `e27ad576`、`caa3fa6a` | master | A | seek 丟棄改以各 playlist 的 DTS 基準比較；目標在第一個時間戳之前時改為夾住，不再回 EIO。FongMi 修正依賴它們 |
+| Android `MpvPlayer`、`MpvHlsProxy`、`HlsAdTimeline` | `origin/main` `5856232` | A | 所有位置、seek、廣告區間、歷史與換核心都用原始 `time-pos`，沒有任何換算 |
+| 實際 FFmpeg 8.1.2 的模擬（PyAV 18.1.0 內含 FFmpeg 8.1.2）加上四種 PTS 配置的合成 HLS | 本機產生 | B | 廣告自帶 PTS 時，廣告內的 `time-pos` 是廣告自己的 0～十幾秒（例：播放清單 68 秒處讀到 8.02 秒）；由此按 +10 秒，FFmpeg 落在片頭 18 秒附近 |
+| 使用者設定中的真實串流 | — | — | **無法量測**：本環境的 proxy 擋掉設定裡全部 22 個 CMS 主機，沒有繞過 |
+
+### 2. 機制
+
+1. **「影片重頭」**：控制列的 ±10 秒以 `time-pos` 為基準（`WebHTVApp.swift` 控制列的 `shown`）。在廣告內，`time-pos` 是廣告自己的小數值，+10 秒變成對片頭附近的絕對 seek，FFmpeg 依播放清單時間選到開頭的分段。若正片區塊的 PTS 也在廣告後重設，之後每一次 ±10 都會落回第一個區塊。
+2. **「多操作幾次無法播放」**（每一環都在程式碼中找得到，但沒有真機 log，無法確定是哪一環）：
+   - 目標 PTS 永遠追不到時，一次 `hls_read_packet` 會下載並丟棄播放清單剩下的全部內容，期間畫面凍結、App 仍顯示播放中，之後的 seek 都排在後面不動作。
+   - 丟到檔尾時 mpv 回報 `END_FILE(EOF)`，App 當成整集播完，自動換下一集或關閉播放器，觀看記錄也被改寫。
+   - 預設播放器是 MPV 時，`PlayerRouter.endSession` 不釋放 MPV 核心，同一個核心會被之後每一集、每一次開啟重複使用。
+3. 其他受影響的路徑：MPV 的位置寫進觀看記錄時可能是廣告自己的時間；切換到原生時交出去的也是這個值（第二節 RC3）。
+
+### 3. 方案比較
+
+| 方案 | 內容 | 能修 | 不能修／風險 | 二進位變更 |
+|---|---|---|---|---|
+| 不改 | — | — | 全部症狀留著 | 否 |
+| 只移植 Android 的 Java 邏輯 | source-time seek、`end` 邊界等 | 核心重建一項 | 前提是 FFmpeg 已對齊，在 iOS 上會跳過正片 | 否 |
+| Swift 邏輯位置層 | 偵測 `time-pos` 重設，自己維護播放清單位置 | 線性播放時的顯示與記錄 | FFmpeg 的 seek 本身仍以 PTS 選段，多數配置下 seek 仍錯；安全性取決於量不到的 PTS 配置 | 否 |
+| mpv EDL | 每個 discontinuity 區塊一個 part | 時間軸完全正確 | 開播時逐一開啟每個 part（ffzy 約 61 段），每個邊界重建解碼器；需要本機 HTTP server | 否 |
+| 改寫播放清單給 mpv | 刪廣告或每次 seek 改成重新載入 | 部分配置 | 刪錯會永久跳過正片；每次 seek 都重新載入 | 否 |
+| **FFmpeg 對齊（26-2b，建議）** | 以 n8.1.2 加上游 `e27ad576`、`caa3fa6a` 與 FongMi `5805f936` 自建 iOS FFmpeg | 所有配置：`time-pos` 等於播放清單時間，±10、拖曳、記錄、快取、換核心都正確；IOS-POC-25 的 MPV 跳廣告也能開啟 | 自建 FFmpeg 的 CI 與鎖定工作；從 FongMi 的 9.0 分支移植到 n8.1.2 需要驗證；授權與來源紀錄 | **是**，需要使用者核准 |
+| 有廣告的串流交給原生 | 偵測到 discontinuity 或時間戳重設就換原生 | 這些影片的 seek 立即正確 | 違反使用者選的核心；部分站台幾乎每集都有 discontinuity | 否 |
+| Swift 保護層（26-2a） | seek 監看、假 EOF 保護、壞核心不重用、位置不採用廣告時間 | MPV 卡住後可以恢復，不用重啟 App | **不能修「影片重頭」本身**；審查找出 12 個具體問題（慢網路誤判、PiP 被拆、位置可能超前觀眾等），照原設計不能出貨 | 否 |
+
+### 4. 決定（待使用者回覆）
+
+1. 26-2b（FFmpeg 對齊）要不要做。
+2. `0.1.22 (23)` 是只帶 26-1 先發，還是等 26-2b。
+3. 26-2b 完成前，含廣告的影片建議改用原生播放器；IOS-POC-25 已在有 discontinuity 的播放清單上停用 MPV 的自動跳廣告（`docs/IOS-POC-25-hls-midstream-ad-skip.md` 第十一節），兩者結論一致。
 
 ## 七、真機驗收（SideStore，待使用者回報）
 
@@ -103,7 +141,7 @@ MPV 一側在沒有 discontinuity 時是精確的：mpv v0.41.0 `loadfile.c:1908
 ## Recovery anchor
 
 - 目標：MPV／原生切換從當下位置接續；MPV 在有廣告的 HLS 上 seek 正確，且不會卡到要重啟 App。
-- 狀態：26-1 程式與測試已寫（未編譯、未執行）；26-2 研究 workflow 執行中。
+- 狀態：26-1 已 commit（`a6652cc3`，未編譯、未執行測試）；26-2 研究完成（第六節），等使用者決定 26-2b 與發布範圍。
 - 目前檔案：`PlaybackEngine.swift`（`PlaybackLoadRequest.exactStart`、`PlayerRouter.handOff`／`reload`／`setRate`）、`WebHTVApp.swift`（`loadNative`、`router.onEngineChange`）、`PlaybackEngineTests.swift`。
-- 未解風險：RC3 的影響範圍與修法；就緒前零容差 seek 在真機上的行為。
-- 下一步（唯一）：讀 26-2 研究結果，決定並實作可以安全出貨的部分，再依使用者授權發布 `0.1.22 (23)`。
+- 未解風險：iOS FFmpeg 不對齊 discontinuity（26-2b 待核准）；就緒前零容差 seek 在真機上的行為；真實串流的 PTS 配置未量測。
+- 下一步（唯一）：依使用者對第六節之四的回覆執行（26-2b 與 `0.1.22 (23)` 的發布範圍）。

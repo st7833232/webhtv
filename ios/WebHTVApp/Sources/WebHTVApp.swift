@@ -2091,6 +2091,17 @@ extension Playback {
         ) { _ in
             Task { @MainActor in PlaybackSession.shared.noteBecameActive() }
         }
+        // IOS-POC-24: a call, Siri or another app's audio interrupting the session silences mpv's
+        // audio unit without pausing mpv, which would go on reading as playing with its picture
+        // frozen. AVPlayer pauses itself. Pausing here too makes the next play activate the session
+        // and restart the audio unit.
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
+        ) { note in
+            guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  AVAudioSession.InterruptionType(rawValue: raw) == .began else { return }
+            Task { @MainActor in PlaybackSession.shared.engine?.pause() }
+        }
         // IOS-POC-17. The engines sit under this session, not beside it: everything above — the
         // record, resume, the ending, auto-next, the prefetch — stays here and asks `engine`.
         // The end-of-item observer that used to be registered here lives in `AVPlayerEngine` now,
@@ -2675,9 +2686,16 @@ extension Playback {
     /// start of playback does. Deferred to the play itself, as Apple advises, so returning to a
     /// paused player does not interrupt another app's audio (IOS-POC-23). Activating an active
     /// session is harmless, and a failure is tried again on the next play.
+    /// mpv used to set the category on every audio output it made; now only launch does, so a reset
+    /// of the media services (which falls back to the default category) is repaired here too.
     static func activateAudioSession() {
+        let session = AVAudioSession.sharedInstance()
         do {
-            try AVAudioSession.sharedInstance().setActive(true)
+            if session.category != .playback || session.mode != .moviePlayback
+                || !session.categoryOptions.isEmpty {
+                try session.setCategory(.playback, mode: .moviePlayback)
+            }
+            try session.setActive(true)
         } catch {
             log.notice("[audio] session not activated: \(error.localizedDescription, privacy: .public)")
         }

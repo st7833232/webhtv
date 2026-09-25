@@ -45,7 +45,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 **任務狀態**
 
 - IOS-POC-23「暫停後離開 App 再回來，兩個核心都卡住」：已完成。第一階段在 `0.1.20 (21)` 真機驗收通過，後續階段依目前證據不需要；T13 時發現「暫停一段時間後按播放要等幾秒」，與本修正無關，使用者決定先不處理。見 `docs/IOS-POC-23-pause-background-resume-stall.md` 第十二節。
-- IOS-POC-24「mpv 與 App 搶音訊工作階段」（IOS-POC-23 第十節之三）：研究完成，使用者 2026-09-25 選定 O3（修改 Libmpv，由 App 擁有工作階段），24-1 已發布 Libmpv prerelease `mpvkit-1.0.0-webhtv.2`（run `36118969804`，第一次即成功，比對沒有新增例外）；24-2（App 改用它，mpv 不再碰工作階段，App 每次播放前啟用）已 commit，**尚未編譯、真機未驗證**，下一步是請使用者決定是否發布 `0.1.21 (22)`。見 `docs/IOS-POC-24-audio-session-ownership.md` 第十節與 Recovery anchor。
+- IOS-POC-24「mpv 與 App 搶音訊工作階段」（IOS-POC-23 第十節之三）：研究完成，使用者 2026-09-25 選定 O3（修改 Libmpv，由 App 擁有工作階段），24-1 已發布 Libmpv prerelease `mpvkit-1.0.0-webhtv.2`（run `36118969804`，第一次即成功，比對沒有新增例外）；24-2（App 改用它，mpv 不再碰工作階段，App 每次播放前啟用）與 24-3（審查修正：中斷時暫停、類別被重設時改回）已 commit，**尚未編譯、真機未驗證**；使用者已同意審查後發布 `0.1.21 (22)`。見 `docs/IOS-POC-24-audio-session-ownership.md` 第十節與 Recovery anchor。
 - IOS-POC-17I（MPV 旋轉根治）：17I-3 已發布，待真機驗收；見 17I 文件第十三節與 Recovery anchor。子母畫面解除時放大、進度往回已診斷，依使用者決定等有模擬器再修（17H 文件）。
 - IOS-POC-12／13：未開始。
 

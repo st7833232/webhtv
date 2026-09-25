@@ -301,8 +301,8 @@ let package = Package(
 
         .binaryTarget(
             name: "Libmpv",
-            url: "https://github.com/st7833232/webhtv/releases/download/mpvkit-1.0.0-webhtv.1/Libmpv.xcframework.zip",
-            checksum: "e87b4f5aea783beb2a02b4d3d1aab8197f38132d435e7907fb5ae3f6277771b4"
+            url: "https://github.com/st7833232/webhtv/releases/download/mpvkit-1.0.0-webhtv.2/Libmpv.xcframework.zip",
+            checksum: "0125a94291320b6ee0c7d5730809c3871db7edc372dc8eb409979e63e28be1e8"
         ),
         //AUTO_GENERATE_TARGETS_END//
     ]

@@ -84,12 +84,17 @@ final class MPVEngine: PlaybackEngine {
         // iOS sees no system video controller and would dim/lock the screen after the normal idle
         // interval unless the app explicitly holds the idle timer while playback is intended.
         setPlaybackIntent(request.autoplay)
+        // IOS-POC-24: an engine switch that keeps playing reaches here without the session's play.
+        if request.autoplay { PlaybackSession.activateAudioSession() }
         core.load(url: request.target.url.absoluteString,
                   headerFields: MPVRequestHeaders.fields(request.target.headers),
                   startSeconds: request.startSeconds, rate: request.rate, autoplay: request.autoplay)
     }
 
     func play() {
+        // IOS-POC-24: mpv no longer activates the session itself, and the Picture in Picture
+        // window's play button comes here without passing through the session.
+        PlaybackSession.activateAudioSession()
         setPlaybackIntent(true)
         core.setPaused(false)
     }
@@ -329,6 +334,14 @@ final class MPVPlayerCore: @unchecked Sendable {
         // built-in profile (faster `sws`/`zimg` scalers, which the Metal output does not scale
         // with); as an option name it does not exist and is refused (MPV_ERROR_OPTION_NOT_FOUND).
         mpv_set_option_string(handle, "profile", "sw-fast")
+        // IOS-POC-24: the app owns the one audio session both engines share. Left to itself, every
+        // audio output mpv creates makes that session mixable and every one it drops deactivates it,
+        // AVPlayer's playback included after a switch. WebHTV's Libmpv patch 0004 adds these options.
+        for option in ["audiounit-skip-session-management", "avfoundation-skip-session-management"] {
+            if mpv_set_option_string(handle, option, "yes") < 0 {
+                Task { @MainActor in PlaybackSession.log.notice("[audio] mpv refused \(option, privacy: .public)") }
+            }
+        }
         guard mpv_initialize(handle) >= 0 else {
             mpv_terminate_destroy(handle)
             return

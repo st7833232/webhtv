@@ -213,11 +213,11 @@
   "artifact": {
     "release_tag": "mpvkit-1.0.0-webhtv.2",
     "name": "Libmpv.xcframework.zip",
-    "url": "https://github.com/st7833232/webhtv/releases/download/mpvkit-1.0.0-webhtv.1/Libmpv.xcframework.zip",
-    "bytes": 3553297,
-    "sha256": "e87b4f5aea783beb2a02b4d3d1aab8197f38132d435e7907fb5ae3f6277771b4",
-    "release_commit": "85642ec52bc67cd658dfa54a5d0beb0218153bbe",
-    "run": "https://github.com/st7833232/webhtv/actions/runs/36085794289",
+    "url": "https://github.com/st7833232/webhtv/releases/download/mpvkit-1.0.0-webhtv.2/Libmpv.xcframework.zip",
+    "bytes": 3553641,
+    "sha256": "0125a94291320b6ee0c7d5730809c3871db7edc372dc8eb409979e63e28be1e8",
+    "release_commit": "f2dc8e659972f8227e6b21ce5349927563b8d06f",
+    "run": "https://github.com/st7833232/webhtv/actions/runs/36118969804",
     "slices": [
       "ios-arm64",
       "ios-arm64_x86_64-simulator"

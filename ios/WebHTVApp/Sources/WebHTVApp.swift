@@ -2138,9 +2138,6 @@ extension Playback {
     private var pausedBackground = PausedBackgroundReload()
     /// Beats while a paused player is in the background, so a suspension shows up as a gap.
     private var heartbeat: Task<Void, Never>?
-    /// The app was suspended, which deactivates the audio session, and the next play has to
-    /// activate it again.
-    private var audioSessionSuspended = false
     /// The embedded tracks from before a reload, selected again once the reloaded item lists its own.
     private var tracksToRestore: PlaybackMediaSelection?
     /// Kept by the player screen: AVKit or MPV has the video in a Picture in Picture window.
@@ -2637,7 +2634,6 @@ extension Playback {
         heartbeat?.cancel()
         heartbeat = nil
         guard let seconds = pausedBackground.becameActive(at: .now) else { return }
-        audioSessionSuspended = true
         reloadPaused(at: seconds)
     }
 
@@ -2673,18 +2669,17 @@ extension Playback {
         }
     }
 
-    /// Apple documents that the system deactivates the audio session when it suspends the app, and
-    /// nothing else here activates it again: `WebHTVApp.init` does once at launch, mpv only when it
-    /// creates its audio output. Deferred to the next play, as Apple advises, so returning to a
-    /// paused player does not interrupt another app's audio. Activating an active session is
-    /// harmless, and a failure is tried again on the next play.
-    private func activateAudioSessionIfSuspended() {
-        guard audioSessionSuspended else { return }
+    /// IOS-POC-24: the app is the one owner of the audio session both engines share; mpv is told to
+    /// leave it alone (`MPVPlayerCore`). The system deactivates it when it suspends the app or a call
+    /// or Siri interrupts it, and mpv's audio unit, unlike AVPlayer, does not activate it again, so every
+    /// start of playback does. Deferred to the play itself, as Apple advises, so returning to a
+    /// paused player does not interrupt another app's audio (IOS-POC-23). Activating an active
+    /// session is harmless, and a failure is tried again on the next play.
+    static func activateAudioSession() {
         do {
             try AVAudioSession.sharedInstance().setActive(true)
-            audioSessionSuspended = false
         } catch {
-            Self.log.notice("[lifecycle] audio session not reactivated: \(error.localizedDescription, privacy: .public)")
+            log.notice("[audio] session not activated: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -2693,7 +2688,7 @@ extension Playback {
         case "play":
             // IOS-POC-23: playing again leaves nothing to reload.
             pausedBackground.cancel()
-            activateAudioSessionIfSuspended()
+            Self.activateAudioSession()
             engine?.play()
         case "pause": engine?.pause()
         case "stop":
@@ -2708,7 +2703,7 @@ extension Playback {
         case "next": start(at: index + 1)
         case "loop": looping.toggle()
         case "replay":
-            activateAudioSessionIfSuspended()
+            Self.activateAudioSession()
             engine?.seek(toSeconds: 0)
             engine?.play()
         default: break
@@ -2788,10 +2783,10 @@ extension Playback {
     /// media part; the position to resume at and the speed travel in the request.
     private func load(_ url: URL, autoplay: Bool = true) {
         // IOS-POC-23: a position or tracks kept for the previous item mean nothing for this one, and
-        // an item that starts playing needs the audio session a suspension took away.
+        // an item that starts playing needs the audio session active.
         pausedBackground.cancel()
         tracksToRestore = nil
-        if autoplay { activateAudioSessionIfSuspended() }
+        if autoplay { Self.activateAudioSession() }
         reportItem()
         itemTitle = title
         resolution = nextResolution

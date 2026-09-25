@@ -1,6 +1,6 @@
 # IOS-POC-24 — mpv 與 App 搶音訊工作階段（audio session）
 
-- 狀態：**使用者 2026-09-25 選定 O3（修改 Libmpv）**，實作分兩個單元（第六節之二）。第六節的 O1＋O2 是原建議，未採用。
+- 狀態：**使用者 2026-09-25 選定 O3（修改 Libmpv）**，實作分兩個單元（第六節之二）。24-1 已發布 `mpvkit-1.0.0-webhtv.2`（CI 第一次即成功）；24-2 已實作，**App 尚未編譯、真機未驗證**。第六節的 O1＋O2 是原建議，未採用。
 - 起因：IOS-POC-23 第十節之三記錄的衝突；使用者 2026-09-25 要求修正。
 - 本文件依 AGENTS.md §7 記錄最佳實務研究、現況審查、方案比較、建議、驗收標準與回滾。
 
@@ -219,10 +219,30 @@ iOS 一個 App 只有一個音訊工作階段（`AVAudioSession.sharedInstance()
    - patch 在 mpv v0.41.0＋WebHTV 0001＋MPVKit 0002／0003 上 `git apply --check` 通過；
    - workflow YAML 可以解析；
    - `MANIFEST.sha256` 以 `shasum -c` 全部通過，而且涵蓋目錄內每個檔案。
-3. 待 CI：push 後 Libmpv workflow 會自動建置，結果記在下一點。
+3. CI：commit `f2dc8e659972f8227e6b21ce5349927563b8d06f` push 後自動觸發 run `36118969804`，**第一次即全部成功**（2026-09-25 09:32Z 開始，09:35Z 發布）。
+   - 比對報告：Configuration、enabled features、archive members、defined external symbols、framework files、simulator architectures 都和上游相同；未定義符號只差既有的 `_wcslen` 例外；「WebHTV audio session option in the binary」通過。**沒有新增比對例外。**
+   - prerelease `mpvkit-1.0.0-webhtv.2`（target `f2dc8e65`）：`Libmpv.xcframework.zip` 3,553,641 bytes，sha256 `0125a94291320b6ee0c7d5730809c3871db7edc372dc8eb409979e63e28be1e8`。這個值和 GitHub asset digest、SwiftPM checksum、`build-manifest.txt` 都相同。
+   - 下載回來驗過：兩個 slice（ios-arm64、ios-arm64_x86_64-simulator）的 binary 都含有 `skip-session-management` 字串；manifest 列出的四個 libmpv patch hash 與 lock 相同。
+
+### 2. IOS-POC-24-2：App 改用 webhtv.2，並成為唯一擁有者（2026-09-25）
+
+1. 修改的檔案：
+   - `third_party/mpv-ios-lock.json`：artifact 的 url、bytes、sha256、release_commit、run 改成 webhtv.2；
+   - `ios/Vendor/MPVKit/Package.swift`：`Libmpv` 的 url 與 checksum；
+   - `ios/WebHTVApp/Sources/MPVEngine.swift`：
+     - `MPVPlayerCore.init` 在 `mpv_initialize` 前設 `audiounit-skip-session-management` 與 `avfoundation-skip-session-management`，失敗時記 `[audio] mpv refused …`；
+     - `MPVEngine.play()` 與帶 `autoplay` 的 `MPVEngine.load()` 先呼叫 `PlaybackSession.activateAudioSession()`；
+   - `ios/WebHTVApp/Sources/WebHTVApp.swift`：
+     - `activateAudioSessionIfSuspended()` 改成 `static func activateAudioSession()`，每次都 `setActive(true)`，失敗記 `[audio] session not activated: …`；
+     - 拿掉 `audioSessionSuspended` 旗標與設定它的那一行；
+     - 三個呼叫處（`control("play")`、`control("replay")`、`load(autoplay:)`）改呼叫新方法，並更新過時的註解。
+2. 與設計相同，沒有偏離第六節之二第 2 點。
+3. 驗證：本環境沒有 Swift，**未編譯**。第一次編譯要等發版 workflow（需要使用者授權新版本），之後依第七節真機驗收。
+
 
 ## Recovery anchor
 
 - 目標：兩個核心共用一個由 App 擁有的音訊工作階段（不混音的 `.playback`，播放時啟用），不再被 mpv 改成混音或在換核心時停掉原生。
-- 狀態（2026-09-25）：使用者選定 O3。24-1（patch、workflow、lock、README、MANIFEST）已 commit，push 後由 Libmpv workflow 建置 `mpvkit-1.0.0-webhtv.2`。
-- 下一步（唯一）：確認 Libmpv workflow 的結果；成功就開 guard session `IOS-POC-24-2`（lock artifact 欄位、`ios/Vendor/MPVKit/Package.swift`、`MPVEngine.swift`、`WebHTVApp.swift`、本文件、`docs/current-task-state.md`），失敗就依第六節之二第 2 點停下來記錄原因。
+- 狀態（2026-09-25）：24-1 已發布 `mpvkit-1.0.0-webhtv.2`（run `36118969804`，第一次即成功）；24-2（App 改用它並擁有工作階段）已 commit，App 尚未編譯、真機未驗證。
+- 回滾錨點：24-2 之前是 `f2dc8e65`，24-1 之前是 `e0a9194c`（見第八節）。
+- 下一步（唯一）：請使用者決定是否發布 App 新版（建議 `0.1.21 (22)`），由發版 workflow 做第一次編譯；發布後依第七節真機驗收。

@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.21",
+          "date": "2026-09-25",
+          "localizedDescription": "WebHTV 0.1.21 (22)（未經真機驗收）\n\n修正\n- MPV 播放時會和其他 App 的音樂混在一起；用過 MPV 之後，原生播放也變成混音。現在兩個播放核心都和原生一樣：開始播放時，其他 App 的音樂會停止。\n- 從 MPV 換到原生時，原生可能被停掉或沒有聲音。\n- MPV 被來電、Siri 或其他 App 的聲音打斷後，畫面停住卻仍顯示播放中；現在會暫停，按播放即可繼續。\n\n內部\n- MPV 改用 WebHTV 自建的 Libmpv mpvkit-1.0.0-webhtv.2：mpv 不再改動 App 的音訊設定，由 App 統一管理。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.21-b22/WebHTV-0.1.21-22.ipa",
+          "size": 25030951,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.20",
           "date": "2026-09-25",
           "localizedDescription": "WebHTV 0.1.20 (21)（未經真機驗收）\n\n修正\n- 暫停後離開 App（回主畫面或鎖螢幕）再回來，畫面變黑、沒有聲音、按播放沒反應：App 被系統暫停執行過時，回來會在原位置以暫停狀態自動重新載入，並恢復原本選的音軌與字幕；按播放前重新啟用音訊。原生與 MPV 都適用；子母畫面中不會重新載入。\n- MPV 暫停中換畫質（或上述重新載入）後，App 誤以為正在播放，播放鍵按了沒反應。",

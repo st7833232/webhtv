@@ -249,4 +249,5 @@
 
 - 目前（2026-09-25）：17I-1 完成。prerelease `mpvkit-1.0.0-webhtv.1` 已發布並回驗，產物 SHA-256 `e87b4f5a…71b4` 已寫入 lock。App 沒有任何修改，仍使用上游 MPVKit 1.0.0 與 17G 的重建。研究產物在本工作階段 scratchpad 的 `research2/`、`research3/`、`p17i/`、`rel17i/`，不進 repo。
 - 未解：libbluray、libudfread、uchardet 的授權檔與 `Libdovi` 內 Rust crate 的授權尚未收錄（第十二節「授權 notice」）。
-- 下一步（唯一）：請使用者核准 17I-2（本地 Swift package 改用新 Libmpv、移除 17G 的 `vo` 重建與 300 ms settle、保留 1×1 防護與 PiP 切換）。
+- 使用者決定（2026-09-25，選擇題）：「先補齊授權缺口」，再進行 17I-2。本環境的 proxy 擋下 code.videolan.org、download.videolan.org、gitlab.freedesktop.org、www.freedesktop.org、git.lysator.liu.se（403 policy），GitHub 上也沒有 videolan/libbluray、videolan/libudfread、freedesktop/uchardet 的鏡像。
+- 下一步（唯一）：補齊授權缺口：libbluray 1.4.0 與其內嵌 libudfread 1.2.0、uchardet 0.0.8 的授權檔，以及 `Libdovi` 內 Rust 標準庫與 crate 的授權（crate 清單在第十二節「授權 notice」與 `third_party/mpv-ios/README.md`）。取得方式先以選擇題請使用者決定（例如由 GitHub runner 下載，或由使用者提供檔案）；完成後再請使用者核准 17I-2。

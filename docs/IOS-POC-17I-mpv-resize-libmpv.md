@@ -196,6 +196,14 @@
 3. workflow：YAML 可解析，各 `run` 區塊 `bash -n` 通過，內嵌 Python 可編譯，lock 內兩個 WebHTV patch 的雜湊與檔案相同。
 4. 未驗證：C 編譯（本環境沒有 Apple SDK 與 Xcode），以及 CI 內的建置與比對。
 
+### CI 紀錄
+
+| run | commit | 結果 |
+|---|---|---|
+| [`36084275635`](https://github.com/st7833232/webhtv/actions/runs/36084275635) | `1fdce318` | 建置成功（`Build Libmpv` 108 秒，含 BuildScripts 編譯與三個 slice）；mpv 原始碼 HEAD 與 patch 檢查通過，21 個依賴 zip 都是鎖定版本。`Configuration:` 與 `List of enabled features:` 字串都和上游逐字相同。**比對步驟失敗、沒有發布**：上游與新產物的 `ios-arm64` binary 都是只含 arm64 的 fat file，`ar` 無法讀取，兩邊成員清單都是空的，判定為不同，步驟就在取出 `context_moltenvk` 成員時中止。是比對腳本的錯，不是產物的差異 |
+
+修正（`IOS-POC-17I-1-compare-fix`）：先以 `lipo -thin arm64` 取出 thin archive，再比成員、符號與字串。另外新增一項檢查：新產物的 `context_moltenvk` 成員必須引用 `_vo_wait_default`，只有 WebHTV 的 `wait_events` 會呼叫它，以此直接證明新 patch 編進了 binary。
+
 ## Recovery anchor
 
 - 目前（2026-09-25）：17I-1 的 workflow、patch、lock、README、notice 已 commit 並 push，由 push 觸發 `iOS libmpv Build`。App 沒有任何修改，仍使用上游 MPVKit 1.0.0 與 17G 的重建。研究產物在本工作階段 scratchpad 的 `research2/`、`research3/`、`p17i/`，不進 repo。

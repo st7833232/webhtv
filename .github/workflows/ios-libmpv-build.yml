@@ -209,6 +209,19 @@ jobs:
           unzip -q "$WORKDIR/dist/release/Libmpv.xcframework.zip" -d "$work/new"
           ref_fw="$work/ref/Libmpv.xcframework/ios-arm64/Libmpv.framework"
           new_fw="$work/new/Libmpv.xcframework/ios-arm64/Libmpv.framework"
+          # The device binaries are fat files even with one architecture, and
+          # ar only reads thin archives.
+          thin() {
+            if lipo -info "$1" | grep -q '^Non-fat'; then
+              cp "$1" "$2"
+            else
+              lipo -thin arm64 "$1" -output "$2"
+            fi
+          }
+          ref_lib="$work/ref-arm64.a"
+          new_lib="$work/new-arm64.a"
+          thin "$ref_fw/Libmpv" "$ref_lib"
+          thin "$new_fw/Libmpv" "$new_lib"
           report="$RUNNER_TEMP/out/compare.txt"
           fail=0
           check() { # name, reference text, new text
@@ -226,12 +239,12 @@ jobs:
           }
           : > "$report"
           for text in "Configuration: " "List of enabled features: "; do
-            check "$text" "$(strings -a "$ref_fw/Libmpv" | grep -F "$text" | sort -u)" \
-                          "$(strings -a "$new_fw/Libmpv" | grep -F "$text" | sort -u)"
+            check "$text" "$(strings -a "$ref_lib" | grep -F "$text" | sort -u)" \
+                          "$(strings -a "$new_lib" | grep -F "$text" | sort -u)"
           done
-          check "archive members" "$(ar t "$ref_fw/Libmpv" | grep -v '^__.SYMDEF' | sort)" \
-                                  "$(ar t "$new_fw/Libmpv" | grep -v '^__.SYMDEF' | sort)"
-          check "defined external symbols" "$(symbols -gUj "$ref_fw/Libmpv")" "$(symbols -gUj "$new_fw/Libmpv")"
+          check "archive members" "$(ar t "$ref_lib" | grep -v '^__.SYMDEF' | sort)" \
+                                  "$(ar t "$new_lib" | grep -v '^__.SYMDEF' | sort)"
+          check "defined external symbols" "$(symbols -gUj "$ref_lib")" "$(symbols -gUj "$new_lib")"
           check "framework files other than the binary" \
             "$(cd "$ref_fw" && find . -type f ! -name Libmpv -exec shasum -a 256 {} + | sort -k 2)" \
             "$(cd "$new_fw" && find . -type f ! -name Libmpv -exec shasum -a 256 {} + | sort -k 2)"
@@ -239,19 +252,22 @@ jobs:
             "$(lipo -archs "$work/ref/Libmpv.xcframework/ios-arm64_x86_64-simulator/Libmpv.framework/Libmpv")" \
             "$(lipo -archs "$work/new/Libmpv.xcframework/ios-arm64_x86_64-simulator/Libmpv.framework/Libmpv")"
           # Undefined symbols may differ only through what context_moltenvk references.
-          member="$(ar t "$new_fw/Libmpv" | grep context_moltenvk)"
-          (cd "$work" && ar -x "$ref_fw/Libmpv" "$member" && mv "$member" ref-moltenvk.o)
-          (cd "$work" && ar -x "$new_fw/Libmpv" "$member" && mv "$member" new-moltenvk.o)
+          member="$(ar t "$new_lib" | grep context_moltenvk)"
+          (cd "$work" && ar -x "$ref_lib" "$member" && mv "$member" ref-moltenvk.o)
+          (cd "$work" && ar -x "$new_lib" "$member" && mv "$member" new-moltenvk.o)
           allowed="$( (symbols -uj "$work/ref-moltenvk.o"; symbols -uj "$work/new-moltenvk.o") | sort -u)"
-          changed="$(comm -3 <(symbols -guj "$ref_fw/Libmpv") <(symbols -guj "$new_fw/Libmpv") | tr -d '\t')"
+          # Only the WebHTV context calls vo_wait_default (from wait_events).
+          check "WebHTV moltenvk context in the binary" "yes" \
+            "$(symbols -uj "$work/new-moltenvk.o" | grep -qx _vo_wait_default && echo yes || echo no)"
+          changed="$(comm -3 <(symbols -guj "$ref_lib") <(symbols -guj "$new_lib") | tr -d '\t')"
           outside="$(comm -23 <(printf '%s\n' "$changed" | sed '/^$/d' | sort -u) <(printf '%s\n' "$allowed"))"
           check "undefined symbols outside $member" "none" "${outside:-none}"
           {
             echo "undefined symbols changed through $member: ${changed:-none}"
             echo "$member undefined, upstream: $(symbols -uj "$work/ref-moltenvk.o" | tr '\n' ' ')"
             echo "$member undefined, new: $(symbols -uj "$work/new-moltenvk.o" | tr '\n' ' ')"
-            echo "version, upstream: $(strings -a "$ref_fw/Libmpv" | grep -m 1 '^mpv v')"
-            echo "version, new: $(strings -a "$new_fw/Libmpv" | grep -m 1 '^mpv v')"
+            echo "version, upstream: $(strings -a "$ref_lib" | grep -m 1 '^mpv v')"
+            echo "version, new: $(strings -a "$new_lib" | grep -m 1 '^mpv v')"
           } >> "$report"
           cat "$report"
           exit "$fail"

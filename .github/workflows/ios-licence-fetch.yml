@@ -1,12 +1,14 @@
 name: iOS licence fetch
 
 # IOS-POC-17I licence gaps. One-off: the development environment cannot reach
-# code.videolan.org, gitlab.freedesktop.org, git.lysator.liu.se, gmplib.org or
-# ftp.gnu.org. This job fetches the licence files from there at the revisions
-# the MPVKit 1.0.0 binaries were built from and prints them to the log, gzip
-# compressed and base64 encoded, with their git blob ids and SHA-256, so they
-# can be restored and checked outside. It runs on the push that adds this file
-# and is removed once the files are recorded in third_party/mpv-ios/licenses/.
+# code.videolan.org, gitlab.freedesktop.org, gmplib.org or ftp.gnu.org. The
+# first pass (run 36087320182) printed the libbluray, libudfread and uchardet
+# licence files and matched nettle 3.10. This second pass prints the licence
+# headers the first one only counted: the libbluray sources that mention the
+# Mozilla or GNU General Public licences and whether the build compiles them,
+# one ordinary source of each project, and GMP 6.2.1 from ftp.gnu.org, since
+# gmplib.org refused the runner. It runs on the push that changes this file and
+# is removed once the results are recorded in third_party/mpv-ios/.
 
 on:
   workflow_dispatch:
@@ -34,6 +36,7 @@ jobs:
           set -euo pipefail
           cat > "$RUNNER_TEMP/lib.sh" <<'EOF'
           licences="$GITHUB_WORKSPACE/third_party/mpv-ios/licenses"
+          sources=('*.c' '*.h' '*.cc' '*.cpp' '*.hpp' '*.m')
 
           # emit LABEL FILE: blob id, SHA-256 and size, then the bytes gzip -9n
           # compressed and base64 encoded between markers.
@@ -44,47 +47,24 @@ jobs:
             printf '=== END %s\n' "$1"
           }
 
-          # licence_files DIR: tracked licence-like files as "mode blob stage<TAB>path".
-          licence_files() {
-            git -C "$1" ls-files -s | awk -F'\t' \
-              'tolower($2) ~ /(^|\/)(copying|licen[cs]e|copyright|notice|patents|unlicense)[^\/]*$/'
+          # header DIR FILE: the file's first 40 lines, where the licence notice is.
+          header() {
+            echo "--- header $1/$2"
+            sed -n '1,40p' "$1/$2" || echo "(missing)"
           }
 
-          # emit_tree LABEL DIR: emits every licence-like file from the blob
-          # itself, so checkout conversions cannot change the bytes.
-          emit_tree() {
-            local meta path blob
-            licence_files "$2" | while IFS=$'\t' read -r meta path; do
-              echo "licence file: $1/$path ($meta)"
-              blob="$(echo "$meta" | cut -d' ' -f2)"
-              git -C "$2" cat-file blob "$blob" > "$RUNNER_TEMP/blob"
-              emit "$1/$path" "$RUNNER_TEMP/blob"
-            done
+          # built DIR FILE: meson.build or CMakeLists.txt lines naming the file.
+          built() {
+            echo "--- build references to $2"
+            git -C "$1" grep -n -F "$(basename "$2")" -- '*meson.build' '*CMakeLists.txt' || echo "(none)"
           }
 
-          # census DIR MARKER: C/C++/Objective-C sources lacking MARKER, with
-          # their first licence or copyright lines.
-          census() {
-            local total=0 missing=0 f
-            while IFS= read -r -d '' f; do
-              total=$((total + 1))
-              if ! grep -q -F "$2" "$1/$f"; then
-                missing=$((missing + 1))
-                if [ "$missing" -le 80 ]; then
-                  printf 'NO-MARKER %s: %s\n' "$f" "$(grep -m 3 -i -E 'licen[cs]e|copyright|permission is|spdx' "$1/$f" \
-                    | tr -s ' \t' ' ' | tr '\n' '|' | cut -c1-240 || true)"
-                fi
-              fi
-            done < <(git -C "$1" ls-files -z -- '*.c' '*.h' '*.cc' '*.cpp' '*.hpp' '*.m')
-            printf 'CENSUS %s: %d sources, %d without "%s"\n' "$1" "$total" "$missing" "$2"
-          }
-
-          # phrases DIR PHRASE...: how many sources contain each phrase.
-          phrases() {
+          # count DIR PHRASE...: sources containing each phrase on one line.
+          count() {
             local dir="$1" p n
             shift
             for p in "$@"; do
-              n="$( { git -C "$dir" grep -l -I -F "$p" -- '*.c' '*.h' '*.cc' '*.cpp' '*.hpp' '*.m' || true; } | wc -l)"
+              n="$( { git -C "$dir" grep -l -I -F "$p" -- "${sources[@]}" || true; } | wc -l)"
               printf 'PHRASE %s "%s": %s sources\n' "$dir" "$p" "$n"
             done
           }
@@ -104,73 +84,46 @@ jobs:
           }
           EOF
 
-      - name: libbluray 1.4.0 and embedded libudfread
+      - name: libbluray 1.4.0 licence headers
         if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/lib.sh"
           cd "$RUNNER_TEMP"
-          # As the libbluray-build 1.4.0 recipe clones it (-Dembed_udfread=true).
           git -c advice.detachedHead=false clone --recursive --depth 1 --branch 1.4.0 \
             https://code.videolan.org/videolan/libbluray.git libbluray
           git -C libbluray log -1 --format='libbluray HEAD %H %cI %s'
-          emit_tree libbluray libbluray
-          git -C libbluray submodule foreach --quiet --recursive 'echo "$displaypath"' > subs.txt
-          while read -r sub; do
-            git -C "libbluray/$sub" log -1 --format="submodule $sub HEAD %H %cI %s"
-            echo "submodule $sub describe $(git -C "libbluray/$sub" describe --tags --always)"
-            emit_tree "libbluray/$sub" "libbluray/$sub"
-          done < subs.txt
-          echo "--- .gitmodules"; cat libbluray/.gitmodules 2>/dev/null || echo "(none)"
-          echo "--- submodules"; git -C libbluray submodule status --recursive || true
-          echo "--- libudfread tags"
-          git ls-remote --tags https://code.videolan.org/videolan/libudfread.git || echo "(ls-remote failed)"
-          echo "--- wraps"; ls libbluray/subprojects 2>/dev/null || echo "(no subprojects)"
-          for w in libbluray/subprojects/*.wrap; do
-            [ -e "$w" ] || continue
-            echo "--- $w"; cat "$w"
-          done
-          census libbluray "GNU Lesser General Public"
-          phrases libbluray "either version 2.1" "GNU General Public License" "Mozilla Public" \
-            "Redistribution and use" "Permission is hereby granted"
-          while read -r sub; do
-            census "libbluray/$sub" "GNU Lesser General Public"
-            phrases "libbluray/$sub" "either version 2.1" "GNU General Public License"
-          done < subs.txt
+          { git -C libbluray grep -l -I -F -e 'Mozilla Public' -e 'GNU General Public License' \
+              -- "${sources[@]}" || true; } > flagged.txt
+          echo "--- sources mentioning the Mozilla or GNU General Public licences"
+          cat flagged.txt
+          while read -r f; do
+            header libbluray "$f"
+            built libbluray "$f"
+          done < flagged.txt
+          header libbluray src/libbluray/bluray.c
+          header libbluray/contrib/libudfread src/udfread.c
+          count libbluray "version 2.1 of the License" "any later version" "GNU Lesser General Public"
+          count libbluray/contrib/libudfread "version 2.1 of the License" "any later version" \
+            "GNU Lesser General Public"
+          echo "--- meson options"
+          grep -n -A2 -E "'(bdj_jar|embed_udfread|enable_devtools|enable_tools)'" libbluray/meson_options.txt || true
 
-      - name: uchardet v0.0.8
+      - name: uchardet v0.0.8 licence headers
         if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail
           . "$RUNNER_TEMP/lib.sh"
           cd "$RUNNER_TEMP"
-          # As the libuchardet-build 0.0.8 recipe clones it.
           git -c advice.detachedHead=false clone --recursive --depth 1 --branch v0.0.8 \
             https://gitlab.freedesktop.org/uchardet/uchardet uchardet
           git -C uchardet log -1 --format='uchardet HEAD %H %cI %s'
-          emit_tree uchardet uchardet
-          census uchardet "Mozilla Public License"
-          phrases uchardet "MPL 1.1/GPL 2.0/LGPL 2.1" "GNU Lesser General Public" \
-            "Redistribution and use" "Permission is hereby granted"
-
-      - name: nettle 3.10 against the recorded copies
-        if: ${{ !cancelled() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          . "$RUNNER_TEMP/lib.sh"
-          cd "$RUNNER_TEMP"
-          # The gnutls-build 3.8.11 recipe clones this repository and tag.
-          git -c advice.detachedHead=false clone --depth 1 --branch nettle_3.10_release_20240616 \
-            https://git.lysator.liu.se/nettle/nettle nettle
-          git -C nettle log -1 --format='nettle HEAD %H %cI %s'
-          fail=0
-          compare nettle/COPYING.LESSERv3 LICENSE.nettle || fail=1
-          compare nettle/COPYINGv2 LICENSE.nettle.COPYINGv2 || fail=1
-          compare nettle/COPYINGv3 LICENSE.nettle.COPYINGv3 || fail=1
-          exit "$fail"
+          header uchardet src/uchardet.cpp
+          header uchardet build-mac/uchardet.cpp
+          built uchardet build-mac/uchardet.cpp
+          count uchardet "MPL 1.1/GPL 2.0/LGPL 2.1" "Version 2.1 or later" "Version 2 or later"
 
       - name: GMP 6.2.1 release tarball against the recorded copies
         if: ${{ !cancelled() }}
@@ -179,10 +132,9 @@ jobs:
           set -euo pipefail
           . "$RUNNER_TEMP/lib.sh"
           cd "$RUNNER_TEMP"
-          curl -fsSL --retry 3 -o gmp-6.2.1.tar.xz https://gmplib.org/download/gmp/gmp-6.2.1.tar.xz
-          curl -fsSL --retry 3 -o gmp-6.2.1.gnu.tar.xz https://ftp.gnu.org/gnu/gmp/gmp-6.2.1.tar.xz
-          sha256sum gmp-6.2.1.tar.xz gmp-6.2.1.gnu.tar.xz
-          cmp gmp-6.2.1.tar.xz gmp-6.2.1.gnu.tar.xz
+          curl -fsSL --connect-timeout 30 --max-time 300 --retry 2 \
+            -o gmp-6.2.1.tar.xz https://ftp.gnu.org/gnu/gmp/gmp-6.2.1.tar.xz
+          sha256sum gmp-6.2.1.tar.xz
           tar -xf gmp-6.2.1.tar.xz
           fail=0
           compare gmp-6.2.1/COPYING.LESSERv3 LICENSE.gmp || fail=1

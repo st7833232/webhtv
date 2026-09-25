@@ -204,6 +204,12 @@
 
 修正（`IOS-POC-17I-1-compare-fix`）：先以 `lipo -thin arm64` 取出 thin archive，再比成員、符號與字串。另外新增一項檢查：新產物的 `context_moltenvk` 成員必須引用 `_vo_wait_default`，只有 WebHTV 的 `wait_events` 會呼叫它，以此直接證明新 patch 編進了 binary。
 
+| run | commit | 結果 |
+|---|---|---|
+| [`36084616106`](https://github.com/st7833232/webhtv/actions/runs/36084616106) | `5f6f2edf` | 比對到位：`Configuration:`、features、靜態庫成員、已定義外部符號、binary 以外的 framework 檔案、模擬器架構都與上游相同，新 `context_moltenvk` 引用 `_mp_time_ns`、`_vo_wait_default`（新 patch 確實編入）。**唯一差異**：`context_moltenvk` 以外多了一個未定義符號 `_wcslen`，所以沒有發布。上游 213 個目標檔都不引用任何 `wcs*` 函式；mpv 在 iOS 會編譯的原始碼沒有直接呼叫 `wcslen`（直接呼叫都在 Windows 專用程式碼） |
+
+下一步（`IOS-POC-17I-1-symbol-diag`）：比對報告列出引用這類符號的成員與函式，只作診斷，不改變判定。依結果判斷是新版編譯器把迴圈換成 `wcslen`，還是 SDK 讓某個 config 檢查結果不同，再決定如何處理。
+
 ## Recovery anchor
 
 - 目前（2026-09-25）：17I-1 的 workflow、patch、lock、README、notice 已 commit 並 push，由 push 觸發 `iOS libmpv Build`。App 沒有任何修改，仍使用上游 MPVKit 1.0.0 與 17G 的重建。研究產物在本工作階段 scratchpad 的 `research2/`、`research3/`、`p17i/`，不進 repo。

@@ -262,6 +262,19 @@ jobs:
           changed="$(comm -3 <(symbols -guj "$ref_lib") <(symbols -guj "$new_lib") | tr -d '\t')"
           outside="$(comm -23 <(printf '%s\n' "$changed" | sed '/^$/d' | sort -u) <(printf '%s\n' "$allowed"))"
           check "undefined symbols outside $member" "none" "${outside:-none}"
+          # Name the members and functions behind any such symbol.
+          if [[ -n "$outside" ]]; then
+            mkdir -p "$work/new-members"
+            (cd "$work/new-members" && ar -x "$new_lib")
+            for sym in $outside; do
+              for o in "$work"/new-members/*.o; do
+                if symbols -uj "$o" | grep -qx "$sym"; then
+                  where="$(otool -tV "$o" | awk -v s="$sym" '/^[^ \t]+:$/ { fn = $0 } $0 ~ ("[ \t]" s "$") { print fn }' | sort -u | tr '\n' ' ')"
+                  echo "$sym is used by $(basename "$o") in: ${where:-unknown}" >> "$report"
+                fi
+              done
+            done
+          fi
           {
             echo "undefined symbols changed through $member: ${changed:-none}"
             echo "$member undefined, upstream: $(symbols -uj "$work/ref-moltenvk.o" | tr '\n' ' ')"

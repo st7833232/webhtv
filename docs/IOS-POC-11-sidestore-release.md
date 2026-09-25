@@ -422,7 +422,7 @@ WebHTV 0.1.17 (18)（未經真機驗收）
 
 ## 第十九次發布：`0.1.18 (19)`（2026-09-25，**已發布**）
 
-**目前最新版是 `0.1.18 (19)`。** 前面十八版都已被取代。
+**發布當時最新版是 `0.1.18 (19)`**（已被 `0.1.19 (20)` 取代，見第二十次發布）。前面十八版都已被取代。
 
 - 授權：使用者 2026-09-25 在選擇題中選「發布 0.1.18 (19)」。版號 `0.1.18`，build `19`。
 - 內容：`0.1.17 (18)` 的全部，加上 IOS-POC-20 的閃退修正 `0786a46e`：Release 版延後啟動 Python 時，多個 Python 站台同時建立會讓多條執行緒一起進入 `Py_Initialize`；現在 `PythonBoot.start()` 在鎖內只啟動一次。
@@ -446,4 +446,32 @@ WebHTV 0.1.18 (19)（未經真機驗收）
 
 修正
 - 送出全站台搜尋後 App 閃退：多個 Python 站台同時啟動時，Python 直譯器現在只會啟動一次，其他站台會等它啟動完成。
+```
+
+## 第二十次發布：`0.1.19 (20)`（2026-09-25，**已發布**）
+
+**目前最新版是 `0.1.19 (20)`。** 前面十九版都已被取代。
+
+- 授權：使用者 2026-09-25 在選擇題中選「發布 0.1.19 (20)（建議）」。版號 `0.1.19`，build `20`。
+- 內容：`0.1.18 (19)` 的全部，加上 IOS-POC-17I-2（`9186a272`）：App 改用本地 `ios/Vendor/MPVKit` package，`Libmpv` 換成 WebHTV 自建的 `mpvkit-1.0.0-webhtv.1`，其 `moltenvk` context 會自己跟著 layer 尺寸 resize；17G 的 300 ms 等待、vo 重建與 exact seek 都已移除。細節見 `docs/IOS-POC-17I-mpv-resize-libmpv.md` 第十三、十四節。
+- 發布序列：
+  1. 版號 commit `777aff2d`（Task-Guard `IOS-RELEASE-0.1.19-b20`）。
+  2. push `9186a272..777aff2d`。
+  3. `workflow_dispatch` run `36089814077`（`version=0.1.19`、`build_number=20`，success，2026-09-25 03:18:18Z → 03:21:04Z）。
+  4. workflow 建立 tag `ios-v0.1.19-b20`（target `777aff2d`），並推回 `source.json`（`883509b4`，共二十筆，第一筆 `0.1.19`，size 與 IPA 相同）。
+
+  **沒有手動建 tag。**
+- 產物：`WebHTV-0.1.19-20.ipa` **25,018,946 bytes**，SHA-256
+  `b8ad1d1f3fc6adfc7b2f57c9f76672322c60b637218cebd22ada981dc56c0a02`（與 GitHub asset digest 相同）。
+  **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`com.webhtv.ios.poc` / `0.1.19` / build `20` / minimum iOS `17.0`。
+  執行檔含 `_moltenvk_wait_events`（只有 WebHTV 的 patch 有這個函式），內嵌的 mpv 建置時間是 `Sep 25 2026 02:21:46`（17I-1 的建置），確認連結的是 WebHTV 的 `Libmpv`。
+- 發布前驗證：17I-2 沒有在本機編譯（本環境沒有 Swift 工具鏈），由本次 workflow 的 Release device build 第一次編譯即成功。**真機尚未驗收。**
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.19 (20)（未經真機驗收）
+
+修正
+- MPV 直向與橫向切換時畫面短暫跑版：改用 WebHTV 自建的 libmpv，旋轉時直接調整畫面尺寸，不再重建影片輸出或跳回目前位置；暫停中旋轉也會更新畫面。
 ```

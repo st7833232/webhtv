@@ -121,7 +121,12 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   `a076ab51`, `20c4bd53` and `616e182e` before, and a handoff arriving with **`035ad0bf` as "the
   latest on GitHub" was sixteen commits behind** — that commit is the roadmap-only one, an ancestor
   rather than the tip. Run `git log` and the `rev-list` above on resume instead of reading it here.
-- **Current release: `WebHTV 0.1.18 (19)`, published 2026-09-25 at the user's instruction** (run `36036441567`, tag
+- **Current release: `WebHTV 0.1.19 (20)`, published 2026-09-25 at the user's instruction** (run `36089814077`, tag
+  `ios-v0.1.19-b20` → `777aff2d`; `source.json` `883509b4`, IPA 25,018,946 bytes, SHA-256 `b8ad1d1f…`,
+  downloaded back and verified): `0.1.18 (19)` plus IOS-POC-17I-2 (`9186a272`: MPV links the WebHTV
+  Libmpv, whose moltenvk context follows layer resizes, and the 17G vo rebuild is gone). First CI compile
+  succeeded; **no device result yet**. Record: `docs/IOS-POC-11-sidestore-release.md` 第二十次發布.
+- **Previous release: `WebHTV 0.1.18 (19)`, published 2026-09-25 at the user's instruction** (run `36036441567`, tag
   `ios-v0.1.18-b19` → `ccfad785`; `source.json` `86eab8bb`, IPA 25,017,725 bytes, SHA-256 `8b5e203e…`,
   downloaded back and verified): `0.1.17 (18)` plus the fix for its crash on sending a search (`0786a46e`:
   a Release build boots Python lazily, and several Python spiders built at once raced into

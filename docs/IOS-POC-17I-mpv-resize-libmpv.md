@@ -1,6 +1,6 @@
 # IOS-POC-17I — MPV 旋轉根治：自建含 resize 修正的 Libmpv
 
-- 狀態：**17I-2 已實作**（2026-09-25，第十三節）：App 改用本地 `ios/Vendor/MPVKit` package 與 `mpvkit-1.0.0-webhtv.1` 的 `Libmpv`，並移除 17G 的 vo 重建。Swift 編譯要等 17I-3 的發版 workflow，行為要真機驗收；17I-3（SideStore 發版）需另外核准。17I-1 完成（2026-09-25）：使用者核准方案 E 與 17I-1，授權 notice 選「repo 先補，App 畫面另開任務」。CI 從 MPVKit 1.0.0 配方建出 `Libmpv.xcframework`，比對通過（含使用者核准的 `_wcslen` 具名例外），發布 prerelease `mpvkit-1.0.0-webhtv.1`（第十二節）。
+- 狀態：**17I-3 已發布** `0.1.19 (20)`（2026-09-25，第十四節），**待真機驗收**。17I-2 已實作（`9186a272`，第十三節）：App 改用本地 `ios/Vendor/MPVKit` package 與 `mpvkit-1.0.0-webhtv.1` 的 `Libmpv`，並移除 17G 的 vo 重建；發版 workflow 第一次編譯即成功。17I-1 完成（2026-09-25）：使用者核准方案 E 與 17I-1，授權 notice 選「repo 先補，App 畫面另開任務」。CI 從 MPVKit 1.0.0 配方建出 `Libmpv.xcframework`，比對通過（含使用者核准的 `_wcslen` 具名例外），發布 prerelease `mpvkit-1.0.0-webhtv.1`（第十二節）。
 - 使用者需求（2026-09-25，`0.1.18 (19)` 真機）：「MPV 螢幕直立橫向切換，畫面會短暫的跑版，然後恢復正常」。使用者在選擇題中選了「根本解法：自建 libmpv」，而不是「重建期間短暫蓋黑」的緩解做法。
 - 同一次回報的另一個問題（解除子母畫面時放大、進度往回），使用者決定「先不改，等有模擬器你再修改」，記錄在 `docs/IOS-POC-17H-mpv-picture-in-picture.md` 的「真機回報：解除子母畫面時放大、進度往回」一節，不在本任務範圍。
 - 研究基準：分支 `ios-poc`，HEAD `d960fcdffde7b8d129b79e7e3041d45a1f4d8237`；存取日期 2026-09-25。
@@ -143,6 +143,7 @@
 - **Q1**：核准方案 E，開始 17I-1（「核准，開始 17I-1」）。
 - **Q2**：授權 notice 選「repo 先補，App 畫面另開任務」。17I-1 補齊 `third_party/mpv-ios/licenses/`；App 內的「授權」畫面（IOS-POC-9A L4 的後半）另開任務，不併入 17I-2。
 - **Q3**：核准 17I-2（選擇題「核准，開新 session」），範圍依第四節第 4 點；暫停中旋轉由 patch 處理，App 不另加程式。
+- **Q4**：17I-2 push 後，選擇題「發布 0.1.19 (20)（建議）」，進行 17I-3。
 
 ## 十一、預估（本 agent 的執行時間）
 
@@ -337,8 +338,16 @@
 - 最快：把 `ios/Vendor/MPVKit/Package.swift` 的 `Libmpv` 改回上游 url 與 checksum `c381ceb4c1504efac12da95293e56585bbeb691634aa64e3a729f517169933ba`，並恢復 `MPVEngine.swift` 的 17G 重建。兩者必須一起回滾：只換回上游 Libmpv 而沒有 17G，旋轉會回到 17G 之前的錯誤畫面（一小條或裁切放大）。
 - 完整：revert 本 commit，恢復遠端 MPVKit 1.0.0、`Package.resolved` 與 17G。
 
+## 十四、17I-3 發布紀錄（2026-09-25）
+
+- 版號 commit `777aff2d`（Task-Guard `IOS-RELEASE-0.1.19-b20`）→ `workflow_dispatch` run [`36089814077`](https://github.com/st7833232/webhtv/actions/runs/36089814077)（success，03:18:18Z → 03:21:04Z）→ tag `ios-v0.1.19-b20`、`source.json` `883509b4`。完整紀錄在 `docs/IOS-POC-11-sidestore-release.md` 第二十次發布。
+- 驗收標準第 3 條通過：App 以本地 package 在既有發版 workflow 第一次編譯即成功，仍是 LGPL 的 `MPVKit` product。
+- IPA 回驗（25,018,946 bytes，SHA-256 `b8ad1d1f…0a02`，等於 asset digest）：執行檔含 `_moltenvk_wait_events`（只有 WebHTV 的 patch 有這個函式），內嵌的 mpv 建置時間 `Sep 25 2026 02:21:46` 是 17I-1 的建置。
+- build log 在 blob storage，本環境的 proxy 擋下，沒有讀到；上面的執行檔證據已足以確認連結的是 WebHTV 的 `Libmpv`。
+- 未驗證：第六節第 4～6 條（播放中與暫停中旋轉、子母畫面、背景播放、字幕、HDR 等）要使用者真機驗收；失敗時依第十三節回滾。
+
 ## Recovery anchor
 
-- 目前（2026-09-25）：17I-2 已實作並提交（Task-Guard `IOS-POC-17I-2`，push 到 `ios-poc`，第十三節）。App 改用本地 `ios/Vendor/MPVKit` package 與 WebHTV `Libmpv`，17G 的重建已移除。尚未編譯（本環境沒有 Xcode），也尚未發版。17I-1 的產物與授權紀錄見第十二節。
-- 未解：LGPLv3 安裝資訊義務屬法律判斷，待確認（第十二節「授權 notice」第 4 點）；App 內授權畫面另開任務（IOS-POC-9A L4）。兩者都不擋 17I-3。
-- 下一步（唯一）：以選擇題請使用者決定是否進行 17I-3（版號 bump、發版 workflow、SideStore 發布，流程見 `docs/IOS-POC-11-sidestore-release.md`）。發版 workflow 的建置就是 17I-2 的編譯驗證；失敗時依第十三節修正或回滾。
+- 目前（2026-09-25）：17I-3 已發布 `0.1.19 (20)`（第十四節），CI 編譯成功，IPA 確認連結 WebHTV `Libmpv`。17I-2 為 `9186a272`（第十三節）。尚未真機驗收。
+- 未解：LGPLv3 安裝資訊義務屬法律判斷，待確認（第十二節「授權 notice」第 4 點）；App 內授權畫面另開任務（IOS-POC-9A L4）。
+- 下一步（唯一）：等使用者在 `0.1.19 (20)` 真機回報第六節第 4～6 條；旋轉仍有問題或其他功能退步時，依第十三節回滾或修正。

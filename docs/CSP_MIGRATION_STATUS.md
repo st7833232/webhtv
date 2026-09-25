@@ -39,7 +39,10 @@ that was wrong, and this file supersedes it — `docs/IOS-TYPE3-REACHABILITY-202
 carries a banner saying so.
 
 **Since IOS-POC-5M these 32 sites are listed in the app UI**, which now offers 62 of 167 sources
-(30 native + 32 spider) through `SourceClient`.
+(30 native + 32 spider) through `SourceClient`. (Corrected 2026-09-25: 62 is the count from an
+imported file. A remote configuration also lists the 5 drpy sites (IOS-POC-6B) and the 42 Python
+sites (IOS-POC-7H), 109 in total; see `docs/current-task-state.md` "Source coverage" and
+`listsThePortedSpiderSitesAlongsideTheNativeCMSSites` in `ios/Tests/WebHTVCoreTests/SourceClientTests.swift`.)
 
 **A blocked class does not always mean a blocked site.** `JPianAmns` is an empty shim over an
 encrypted payload, but 薦片 is served today by river-fman's unprotected `JianPian`, registered under

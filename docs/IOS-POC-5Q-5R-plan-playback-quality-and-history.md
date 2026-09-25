@@ -4,6 +4,9 @@
 
 - 狀態：**5Q 與 5R（R1–R6）已實作**（2026-09-18）。**IOS-POC-5S 與 5R 的 R7 由使用者
   2026-09-18 明確指示 deferred**——設計保留在本文件中，不刪除，但不在目前主線。
+  （2026-09-25 更正：兩者後來都已實作。R7 即 IOS-POC-5S-2（`d47f549d`，2026-09-22）；5S-1 `ads`
+  `7b7ad584`（2026-09-22）、5S-3 `rules` `63040bb3`（2026-09-23）。5S 整體 code complete、真機未驗收，
+  實作紀錄在 `docs/IOS-POC-5S-ads-and-skip.md`；它與本計畫 V0–V2 的設計有偏離，以該文件為準。）
 - 建立：2026-09-18
 - 基線 HEAD：`0414c032`（IOS-POC-5P 之後），branch `ios-poc`。5Q 實作於 `d571f3a7` 之上，
   5R 實作於 `0ab06a3c` 之上。
@@ -11,10 +14,16 @@
   `durable docs reconciliation → drpy JavaScript loader → Python runtime 最小 POC → 第一次真機驗證`，
   之後才回頭做 5S。實作紀錄：`docs/IOS-POC-5Q-playback-quality.md`、
   `docs/IOS-POC-5R-watch-history.md`，兩份都列出與本計畫的偏離。
+  （2026-09-25 更正：這條主線已走完：文件對帳 `52af1362`、drpy loader `7c76d5c2`（2026-09-18）、
+  第一次真機執行 `ed3f2709`（2026-09-18）、Python runtime `42a0d82f`（2026-09-21）。5S 也已完成，
+  見上方狀態行。）
 
 ## Deferred（2026-09-18，使用者指示）
 
 以下**設計有效但不實作**，等 drpy + Python POC + 真機主線完成後再排：
+
+（2026-09-25 更正：這一節描述 2026-09-18 當時的排序。5S 與 R7 後來都已實作，m3u8 中插廣告過濾仍不做，
+見上方狀態行與 `docs/IOS-POC-5S-ads-and-skip.md`。）
 
 - **IOS-POC-5S 整段**：V0（`WebHTVConfig` 解碼 `ads`／`rules`）、V1（`ads` 兩層攔截）、
   V2（`rules.script` 注入）。
@@ -286,7 +295,8 @@ xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp \
   改寫為「`regex` 不用於候選判斷，`hosts` 仍用來挑 script」；`Playback`／`PlaybackSession.open`
   完全沒有站與片的身分（`WebHTVApp.swift:864`、`:969`），R2／R7 都要靠它 → 已寫進 R2 當前置。
 - **Blocking Decision**：None
-- **Next Governed Action**：`$execute-from-plan`，從 Q1 或 R1 起手
+- **Next Governed Action**：`$execute-from-plan`，從 Q1 或 R1 起手（2026-09-25 更正：5Q、5R 與 5S
+  都已實作，沒有剩下的 governed action。）
 - **Invalidation Reason**：2026-09-18 第二次修訂新增 IOS-POC-5S（V0/V1/V2）、R7、D8 改為預設最高畫質、
   D9 反轉、D13–D18、S9–S13、K7–K10，使第一次 `PASS` 的 Review Basis 不再涵蓋全部範圍；已就新增範圍
   重跑 gate，verdict 維持 `PASS`。
@@ -300,7 +310,7 @@ xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp \
 | 階段 | 狀態 | 下一步 |
 |---|---|---|
 | IOS-POC-5Q | **Done**（2026-09-18，Q1+Q2+Q3 一個 commit） | 無；紀錄在 `docs/IOS-POC-5Q-playback-quality.md` |
-| IOS-POC-5R | **Done — R1–R6**（2026-09-18）；**R7 deferred** | 無；紀錄在 `docs/IOS-POC-5R-watch-history.md` |
-| IOS-POC-5S | **Deferred**（2026-09-18，使用者指示；設計保留） | 等 drpy + Python POC + 真機主線完成後再排 |
+| IOS-POC-5R | **Done — R1–R6**（2026-09-18）；**R7 deferred**（2026-09-25 更正：R7 已由 IOS-POC-5S-2 實作，`d47f549d`，2026-09-22） | 無；紀錄在 `docs/IOS-POC-5R-watch-history.md` |
+| IOS-POC-5S | **Deferred**（2026-09-18，使用者指示；設計保留）（2026-09-25 更正：**code complete**，`7b7ad584`、`d47f549d`、`63040bb3`，2026-09-22–23；真機未驗收） | 無；紀錄在 `docs/IOS-POC-5S-ads-and-skip.md` |
 
 本 repo 沒有 `docs/todo.md`，這張表就是那一行 todo；狀態由 `$execute-from-plan` 推進。

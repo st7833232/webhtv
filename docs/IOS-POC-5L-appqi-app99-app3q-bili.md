@@ -13,6 +13,10 @@ largest remaining block after the three engines already shipped. Runtime contrac
   sites has a measured verdict — playable, provider-dead, or a named defect.
 - **Not in scope**: the remaining 23 portable classes, Python/drpy, per-request headers for
   `AVPlayer`, the protected `aowu`/`fan` JARs.
+- **Status (corrected 2026-09-25)**: finished and committed on 2026-09-17 — `67142485` (the four
+  ports) and `57b3aa65` (IOS-POC-5L-B, site identity). Still unverified, as recorded below:
+  `AppQi`'s detail and player paths (its hosts were down), and a `Bili` stream playing end to end
+  in the app.
 
 ## Sources read
 
@@ -120,7 +124,10 @@ request headers only through `AVURLAsset` options and `PlayerView` does not thre
 the limitation already documented in `SourceClient.swift`. **These four sites become playable the
 day per-request headers land, with no change to `Bili.js`.** (Not every mirror checks: an
 `upos-hz-mirrorakam.akamaized.net` URL served 206 to a bare request. Which CDN a request lands on is
-bilibili's choice, not ours.)
+bilibili's choice, not ours.) (Corrected 2026-09-25: per-request headers landed in IOS-POC-5P
+(`0414c032`), which re-measured that the CDN also checks the `User-Agent`; a bilibili stream has
+still not been observed playing end to end in the app — see
+`docs/IOS-POC-5P-player-request-headers.md`.)
 
 ### `AppQi`: ported, essentially unverified
 

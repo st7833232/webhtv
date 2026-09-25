@@ -5,7 +5,7 @@
 - Branch `ios-poc`, baseline HEAD `150181b1`, clean worktree, level with `origin/ios-poc`.
 - Objective: extend the WebHome bridge from IOS-POC-2B with the methods that need no new runtime and no new background service.
 - Status: COMPLETE. A1-A4 pass; B1-B4 verified in the simulator, with the page-driven coverage recorded honestly below.
-- Exactly one next action: agree the next slice with the user. Device deployment is still the largest open gap.
+- Exactly one next action: agree the next slice with the user. Device deployment is still the largest open gap. (Corrected 2026-09-25: the next slice was IOS-POC-2E, `docs/IOS-POC-2E-webhome-bridge-playback.md`; device deployment is no longer open, the IOS-POC-11 SideStore pipeline has published device builds since 2026-09-22.)
 
 ## Completion sentence
 

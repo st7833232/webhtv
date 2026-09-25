@@ -9,6 +9,8 @@
 
 No functional iOS implementation has been completed yet. The work performed so far is architecture assessment, compatibility analysis, distribution/signing planning, and repository inspection.
 
+(Corrected 2026-09-25: this was true on 2026-09-13 only. The iOS app has since been built on `ios-poc` and ships through SideStore; the latest release is `0.1.20 (21)`. Current state and next step: `docs/current-task-state.md` "Current handoff".)
+
 The Android `main` line must remain isolated from iOS experiments. Continue iOS work on `ios-poc` or on a task branch derived from `ios-poc` unless the user explicitly changes that policy.
 
 At the time this document was prepared, `ios-poc` was based on the Android source baseline `fc62397591701b2232ae7de4f50a032bd7742064`; the branch later received the documentation commit `816304563b0f9686bf241f7e3d84a2aa4c6f40ad` containing `docs/AGENT_HANDOFF.md`.
@@ -40,6 +42,8 @@ For functional implementation, architecture/dependency changes, Spider/runtime c
 5. Record both reviews in durable task evidence.
 
 If Ponytail is unavailable, read-only analysis and documentation may continue, but functional implementation must stop before the first functional edit. Do not claim a Ponytail review occurred when it did not.
+
+(Corrected 2026-09-25: this gate no longer applies. Since 2026-09-24, `ca413482`, Ponytail is an optional review aid and its absence never blocks functional edits, verification, commits, builds or an authorized release; never claim it ran when it did not. See `AGENTS.md` §4 "Optional Ponytail review". The task guard and verification rules are unchanged.)
 
 ## 4. Primary product direction
 
@@ -628,9 +632,9 @@ app/src/main/java/com/fongmi/android/tv/bean/Config.java
 app/src/main/java/com/fongmi/android/tv/player/Source.java
 app/src/main/java/com/fongmi/android/tv/web/HomeWebBridge.java
 app/src/main/java/com/fongmi/android/tv/db/AppDatabase.java
-app/src/main/java/com/fongmi/android/tv/spider/loader/BaseLoader.java
-app/src/main/java/com/fongmi/android/tv/spider/loader/JsLoader.java
-app/src/main/java/com/fongmi/android/tv/spider/loader/PyLoader.java
+app/src/main/java/com/fongmi/android/tv/api/loader/BaseLoader.java
+app/src/main/java/com/fongmi/android/tv/api/loader/JsLoader.java
+app/src/main/java/com/fongmi/android/tv/api/loader/PyLoader.java
 app/src/mobile/
 app/src/leanback/
 catvod/
@@ -640,6 +644,8 @@ webhome-devkit/
 ```
 
 The exact paths should be revalidated if upstream changes reorganize the repository.
+
+(Corrected 2026-09-25: the three loader paths read `.../tv/spider/loader/`, which has never existed in this repository; the files are in `.../tv/api/loader/`.)
 
 ## 23. Decisions future agents should not reopen without new evidence
 
@@ -668,6 +674,8 @@ The following are intentionally unresolved:
 - App Store viability of the final feature set; this must be reassessed against then-current App Review Guidelines before submission.
 
 ## 25. Next action for another window
+
+(Corrected 2026-09-25: this next action is done and superseded. POC-1 was implemented as IOS-POC-1A–1E on 2026-09-15, and the Ponytail condition no longer applies (see §3). Do not start from the steps below; take the next step from `docs/current-task-state.md` "Current handoff".)
 
 If the next session has Ponytail available and the user authorizes implementation, the recommended next task is POC-1 only:
 

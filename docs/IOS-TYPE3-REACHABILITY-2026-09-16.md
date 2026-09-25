@@ -10,6 +10,9 @@
 > distinct classes, of which
 > **15 are now ported and live-verified**; only **34 sites (23 classes)** are genuinely blocked, by a
 > native-encrypted payload rather than by DEX, and **2** are merely missing downloads.
+> (Corrected 2026-09-25: since IOS-POC-5L/5M, **32 sites over 8 classes** are ported and listed, and
+> every class but `AppQi` has a live golden run on at least one of its sites; that is not a per-site
+> verdict. See `docs/CSP_MIGRATION_STATUS.md`.)
 >
 > Live documents: `docs/CSP_PORTABILITY_MATRIX.md` (audit), `docs/CSP_MIGRATION_STATUS.md`
 > (progress), `docs/IOS_SPIDER_RUNTIME_SPEC.md` (runtime and ABI).
@@ -18,6 +21,12 @@
 > still the reference for those 47 sites. This document is kept because that measurement is the
 > reason the “132 out of reach” figure was retired; note that its own replacement figure was in turn
 > too pessimistic in exactly the same way.
+>
+> (Corrected 2026-09-25: B and C are no longer the reference for what runs. The 5 JavaScript sites are
+> listed and driven since IOS-POC-6B, and all four same-origin drpy2 sites reach media bytes; CPython
+> is embedded since IOS-POC-7E–7P, and **14 of 42 Python sites execute and 6 reach media bytes**. Both groups are listed
+> only under a remote configuration. See `docs/current-task-state.md` "Source coverage" and
+> `docs/IOS-POC-7A-python-runtime.md`. The import and host-API inventories below still stand.)
 
 ## Why this document exists
 
@@ -112,6 +121,11 @@ Worth knowing before anyone plans work on these:
 Even with a runtime, this resource set is incomplete.
 
 ## What to say from now on
+
+(Corrected 2026-09-25: all three bullets below are superseded. Of the 90 `csp_*` sites, 54 are
+portable and 32 are ported and listed; the Python and JavaScript sites are driven as described in the banner; and the app lists 62
+of 167 sources from an imported file and 109 from a remote URL. See `docs/current-task-state.md`
+"Source coverage".)
 
 - **90 sites** are structurally out of reach on iOS. Do not plan them.
 - **42 Python + 5 JavaScript = 47 sites** are unimplemented, at very different costs. Do not call

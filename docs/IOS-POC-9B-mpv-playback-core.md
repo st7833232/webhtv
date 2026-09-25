@@ -1,7 +1,13 @@
 # IOS-POC-9B — MPV 第二播放核心：技術可行性
 
 - 狀態（**2026-09-23 更新，IOS-POC-9G**）：**黑畫面根因已找到並修正——模擬器上 Metal 與 OpenGL
-  都出 first frame；真機尚未重跑**。見文末 9G 一節。下面這一段是 2026-09-22 的舊狀態，保留作歷史：
+  都出 first frame；真機尚未重跑**。見文末 9G 一節。
+  （2026-09-25 更正：MPV 已不是 spike。它由 IOS-POC-17 成為第二內部播放核心（`7d679d68`），17E 起在正式版開放（`a1bc5bb6`）；
+  2026-09-24 使用者在 `0.1.10 (11)` 真機回報 MPV 有畫面（正式版播放路徑，不是四格探針，見
+  `docs/IOS-POC-8L-core-real-device-acceptance.md` 7.2 表後）。相依也已改變：IOS-POC-17I-2（`9186a272`）起 App 改用本地
+  `ios/Vendor/MPVKit` package 與自建的 `mpvkit-1.0.0-webhtv.1` `Libmpv`，`Package.resolved` 已移除，釘版記錄在
+  `third_party/mpv-ios-lock.json`。後續狀態以 `docs/IOS-POC-17-dual-internal-player.md` 與 `docs/IOS-POC-17I-mpv-resize-libmpv.md` 為準。）
+  下面這一段是 2026-09-22 的舊狀態，保留作歷史：
 - 舊狀態：**已開始、部分完成、算繪未解、暫停中**（2026-09-22 於 IOS-POC-11B 校正措辭）。
   「進行中」不足以描述現況，因為它同時被讀成「還沒動」與「快好了」，兩者都錯。
   - **已完成**：9A 授權審查；MPVKit 1.0.0（非 GPL）接進 App target；靜態連結以 symbol table 證實；
@@ -195,6 +201,10 @@ client library 看起來與成功完全相同，這是 IOS-POC-7F 已經付過�
 4. **真機完全沒跑過。** 與 Python 一樣，全部是模擬器證據。
 5. **還沒播任何東西。** 本輪只證明直譯器層級的初始化，沒有算繪、沒有 Metal/MoltenVK 實測、
    沒有接 `PlaybackSession`。
+
+（2026-09-25 更正：gate 2、3 已於 IOS-POC-17I-1 在 repo 內補上：實際套用的 patch 見 `third_party/mpv-ios/README.md`
+「Corresponding source」，授權原文見 `third_party/mpv-ios/licenses/`（`85642ec5`、`9f2af62c`），App 內歸屬畫面另開任務；
+gate 4、5 已由本文件後面的 9F、9G 與 IOS-POC-17 取代。）
 
 ## 下一步（唯一）
 
@@ -602,6 +612,8 @@ xcrun devicectl device install app --device 00008160-00124C8200214036 …/WebHTV
 
 - **真機一次都還沒跑修正後的版本。** 真機那一格（Metal＋軟解，`FILE_LOADED` 後無 `VIDEO_RECONFIG`）
   的症狀與差異 1 完全吻合，但**吻合不是證明**——要真機重跑才算數。
+  （2026-09-25 更正：2026-09-24 使用者在 `0.1.10 (11)`（SideStore Release）真機回報 MPV 有畫面，修正後的正式版播放路徑已在真機出畫面；
+  四格探針、硬解與事件序列仍未逐項回報。）
 - 真機要跑需要一個含 Debug 探針的 build：SideStore 發的是 Release，探針是 `#if DEBUG`。
   （17E 起 `0.1.8 (9)` 以後的正式版可直接選 MPV 看 first frame；只有四格探針仍需 Debug build。）
   本輪使用者未授權 package／publish，也依既有決定不直接裝到手機，所以**本輪沒有真機證據**。

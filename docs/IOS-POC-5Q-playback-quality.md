@@ -213,3 +213,7 @@ live golden，不是截圖。
 計畫的建議提交順序是 `Q1+Q2+Q3` 一個 commit，接著 `R1+R2+R3+R5`。R2 的前置仍然成立且**還沒做**：
 `Playback` 與 `PlaybackSession.open` 目前只帶 `url/headers/title/artwork`，完全沒有站與片的身分
 （`ios/WebHTVApp/Sources/WebHTVApp.swift` 的 `Playback` 與 `PlaybackSession`），R2 與 R7 都要靠它。
+
+（2026-09-25 更正：這一步已完成。R2 的前置與 R1–R6 於 2026-09-18 在 IOS-POC-5R 實作（`261b5c03`，
+見 `docs/IOS-POC-5R-watch-history.md` 的 R2）；R7 於 2026-09-22 由 IOS-POC-5S-2 實作（`d47f549d`，
+見 `docs/IOS-POC-5S-ads-and-skip.md`）。）

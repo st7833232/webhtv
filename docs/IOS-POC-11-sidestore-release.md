@@ -32,7 +32,7 @@
 
 ## Recovery anchor
 
-- 狀態：完成，且已發過**十九個**版本，最新是 `0.1.18 (19)`（見文末各次發布）。
+- 狀態：完成，且已發過**二十一個**版本，最新是 `0.1.20 (21)`（見文末各次發布；`0.1.5 (6)` 沒有獨立段落，記在 `docs/current-task-state.md`）。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
 - 發布結果：`WebHTV-0.1-1.ipa`，24,563,162 bytes，GitHub asset SHA-256 `fcbf1531d9480f678ee0fac7ec5ce49010f3de51fc11b79f0ba88372e85812ed`；IPA plist 為 `com.webhtv.ios.poc`、`0.1`、build `1`、minimum iOS `17.0`。
@@ -41,7 +41,7 @@
 
 ## 第二次發布（2026-09-22，`0.1.1 (2)`）
 
-**目前最新版是 `0.1.1 (2)`，不是 `0.1 (1)`。** 上面的 Recovery anchor 記的是首發，保留不動。
+**發布當時最新版是 `0.1.1 (2)`，不是 `0.1 (1)`**（已被 `0.1.2 (3)` 取代，見「後續版本」）。上面的 Recovery anchor 記的是首發，保留不動。
 
 - 觸發方式：`workflow_dispatch`，輸入 `version=0.1.1`、`build_number=2` 與中文 release notes。
   使用者明確授權了這一次 push 與這一次觸發。
@@ -76,7 +76,7 @@
 
 ## 第七次發布（2026-09-23，`0.1.6 (7)`）
 
-**目前最新版是 `0.1.6 (7)`。** 前面六版都已被取代。
+**發布當時最新版是 `0.1.6 (7)`**（已被 `0.1.7 (8)` 取代，見第八次發布）。前面六版都已被取代。
 
 - 內容：IOS-POC-16 自建播放控制列（AVKit 的 transport bar 在 iOS 無法擴充，也無法得知它何時顯示，
   兩者都是 tvOS 專用 API），片頭／片尾移進控制列因此跟著它一起出現與隱藏；速度選單改為
@@ -96,7 +96,7 @@
 
 ## 第八次發布（2026-09-23，`0.1.7 (8)`）
 
-**目前最新版是 `0.1.7 (8)`。** 前面七版都已被取代。
+**發布當時最新版是 `0.1.7 (8)`**（已被 `0.1.8 (9)` 取代，見第九次發布）。前面七版都已被取代。
 
 - 內容：**IOS-POC-15 播放緩衝與下一集預解析**——VOD forward buffer 60／90／120 秒的
   hysteresis 狀態機（live 與長度未知維持系統管理）、只對真正多 variant 的 HLS 做 1080p／720p
@@ -195,7 +195,7 @@ tag `ios-v0.1.8-b9`（workflow 建立，target `0a57d545`），workflow 推回 `
   minimum iOS `17.0`；主執行檔含 `PlayerChrome`（16B）、`prefetched address failed`（15D）、`startupTimedOut`、
   `not started on`、`沒有網路連線`（17F）。
 - 發布前驗證：`swift test` 344／344（17F 後）；Simulator Debug build。**本機沒有另跑 iphoneos Release 預建置**——
-  workflow 的 Release device build 就是這一關，而且它成功了。**真機驗收尚未回報。**
+  workflow 的 Release device build 就是這一關，而且它成功了。**真機驗收尚未回報。**（2026-09-25 更正：使用者 2026-09-24 回報此版 SideStore 更新正常、MPV 有畫面，但 MPV 直橫旋轉跑版、沒有子母畫面，見 `docs/IOS-POC-8L-core-real-device-acceptance.md` ⑱⑲ 表格下方與 `docs/IOS-POC-17-dual-internal-player.md` 第十二之三節。）
 
 ### Release notes（實際送出的內容）
 
@@ -228,7 +228,7 @@ WebHTV 0.1.10 (11)（未經真機驗收）
   **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`Info.plist` 為 `com.webhtv.ios.poc` / `0.1.11` / build `12` /
   minimum iOS `17.0`；主執行檔含 `MPVPictureInPicture`、`MPVSoftwareRenderer`、`mpv will start`、`sw-fast`（17H）。
 - 發布前驗證：17H 的 final Simulator Debug build（17H 文件第六節之三）；Core 自 17F 後沒有變動，`swift test` 沿用 344／344，
-  本次沒有重跑；workflow 的 Release device build 成功。**真機驗收尚未回報；17H 的 PiP 畫面、自動 PiP、PiP 控制只能在真機驗。**
+  本次沒有重跑；workflow 的 Release device build 成功。**真機驗收尚未回報；17H 的 PiP 畫面、自動 PiP、PiP 控制只能在真機驗。**（2026-09-25 更正：使用者 2026-09-24 在此版回報「MPV PIP時解析度會降低」，表示真機 PiP 視窗有畫面，解析度修正隨 `0.1.12 (13)` 發布；自動 PiP、控制等其他項目仍未回報，見 `docs/IOS-POC-17H-mpv-picture-in-picture.md` 第六節之六。）
 
 ### Release notes（實際送出的內容）
 
@@ -404,7 +404,7 @@ WebHTV 0.1.16 (17)
 - 發布前驗證：
   - 這是 IOS-POC-20 的**第一次編譯**：本工作階段在 Linux 容器，沒有 Swift 編譯器，由 workflow 的 Release device build 編譯並一次成功。
   - `swift test` 依使用者選擇未執行，沒有模擬器情境。
-  - **真機尚未回報。**
+  - **真機尚未回報。**（2026-09-25 更正：使用者回報此版送出搜尋後閃退，見第十九次發布。）
 
 ### Release notes（實際送出的內容）
 
@@ -493,7 +493,7 @@ WebHTV 0.1.19 (20)（未經真機驗收）
   `b62548957d82b448fab17ad17bf5c40946379e3ff3baf1774a4f92ce1910ab70`（與 GitHub asset digest 相同）。
   **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`com.webhtv.ios.poc` / `0.1.20` / build `21` / minimum iOS `17.0`。
   執行檔含 IOS-POC-23 的 `[lifecycle]` 字串，也仍含 `_moltenvk_wait_events`（WebHTV 的 `Libmpv`）。
-- 發布前驗證：IOS-POC-23 沒有在本機編譯（本環境沒有 Swift 工具鏈），由本次 workflow 的 Release device build 第一次編譯即成功；單元測試未執行。**真機尚未驗收。**
+- 發布前驗證：IOS-POC-23 沒有在本機編譯（本環境沒有 Swift 工具鏈），由本次 workflow 的 Release device build 第一次編譯即成功；單元測試未執行。**真機尚未驗收。**（2026-09-25 更正：使用者以 SideStore 安裝此版，IOS-POC-23 的 T1～T15 全部通過，見 `docs/IOS-POC-23-pause-background-resume-stall.md` 第十二節。）
 
 ### Release notes（實際送出的內容）
 

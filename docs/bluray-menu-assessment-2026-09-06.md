@@ -9,7 +9,7 @@
 - 已完成：远端一致性核对、WebHTV/mpv/libbluray 当前实现盘点、HDMV 可行性判断、BD-J 暂缓初判。
 - 已完成：libbluray JVM/JAR 链路、VLC/Kodi/mpv 集成、BD-J 工具项目和 Android 构建条件核对。
 - 当前未决：没有经过真实 BD-J 原盘和 Android 设备验证，不能把“理论可移植”表述成产品兼容承诺。
-- 下一步：用户批准后才进入 HDMV 实施；BD-J 保持暂缓。
+- 下一步：用户批准后才进入 HDMV 实施；BD-J 保持暂缓。（2026-09-25 更正：用户已于 2026-09-06 批准 HDMV 实施，并决定遇到 BD-J 菜单时不提示、按现状播放最长标题；HDMV 以 P9 实施，首个提交 `2b36396c`，记录见 [P9-MPV-BLURAY-MENU.md](P9-MPV-BLURAY-MENU.md)。）
 
 ## 1. Git 状态
 

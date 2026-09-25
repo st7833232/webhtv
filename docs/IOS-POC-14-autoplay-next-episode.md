@@ -2,7 +2,7 @@
 
 > **Superseded by dual internal-player decision, 2026-09-23** — for every mention of third-party players here (Infuse / Fileball / SenPlayer / VidHub, URL-scheme handoff, "external player"): they were removed from the product; WebHTV plays only with its own AVPlayer and MPV engines. See `docs/IOS-POC-17-dual-internal-player.md`. The rest of this record stands as written.
 
-- 狀態：**已實作**，尚未有人在 App 裡看著它發生。
+- 狀態：**已實作**，尚未有人在 App 裡看著它發生。（2026-09-25 更正：使用者在 `0.1.20 (21)` 真機驗收 IOS-POC-23 T10（片尾前約 30 秒暫停、鎖螢幕 60 秒、回來播放）時回報「仍會自動播下一集」，見 `docs/IOS-POC-23-pause-background-resume-stall.md` 第十二節；「整條線播完關閉播放器」與 14A 換集沿用速度仍未在真機確認。）
 - **編號更正**：本階段原先寫成 `IOS-POC-12A`，與 `docs/IOS-POC-12-13-runtime-update-roadmap.md`
   已經佔用的 12／13 相撞。實作的 commit message 仍寫著 `IOS-POC-12A`——commit 訊息不改寫，
   這一行就是兩者的對照。
@@ -70,6 +70,8 @@ near-ending 規則通常會蓋掉這個問題，但**一個沒有 duration 的�
 - 選單關閉（取消，或改用外部播放器）→ 清掉 `advance` 與 `playingEpisode`。
 - 播放器關閉 → 清掉 `onPlaylistFinished`。
 
+（2026-09-25 更正：IOS-POC-17C 起沒有選單頁，外部播放器也已移除；`advance`、`playingEpisode` 與 `onPlaylistFinished` 現在都在關閉播放器時，由 `VodView` 的 `fullScreenCover(item:onDismiss:)` 一起清掉（`ios/WebHTVApp/Sources/WebHTVApp.swift:1519-1528`）。）
+
 外部播放器透過 URL scheme 開啟，**沒有回程**，所以它本來就不會有自動續播——這與 WatchHistory
 只記錄內建播放器（IOS-POC-5R K6）是同一個限制。
 
@@ -85,7 +87,7 @@ near-ending 規則通常會蓋掉這個問題，但**一個沒有 duration 的�
 
 **沒有人看著一集播完自動接下一集，也沒有人看著整條線播完後播放器關閉。** 上面全部是單元測試
 與 build 證據。核心規則（下一集是哪一集）有測試釘住，但「播放器真的接上去了」只有程式碼證據。
-真機或模擬器的目視確認仍然欠著。
+真機或模擬器的目視確認仍然欠著。（2026-09-25 更正：自動接下一集已在 `0.1.20 (21)` 真機看到，見文首狀態；整條線播完關閉播放器仍未確認。）
 
 ## 回滾
 
@@ -161,6 +163,7 @@ after play()                : 2.0  rate: 2.0
 上面的量測證明了機制（`defaultRate` 會被 `play()` 採用），
 但「AVKit 設的確實是 `rate`、而 KVO 確實抓得到」只有推論與程式碼證據。
 **這一項請在實機上確認。**
+（2026-09-25 更正：IOS-POC-16 起 AVKit 的速度選單已不存在，速度改由自建控制列經 `PlaybackSession.setRate` 寫入 `chosenRate`，再由 `AVPlayerEngine.setRate` 寫入 `defaultRate`（`ios/WebHTVApp/Sources/WebHTVApp.swift:2310-2313`、`:3034-3036`），不再依賴「AVKit 設的是 `rate`」這個推論；換集沿用速度本身仍未在真機確認。）
 
 ## 換站台會重置速度——使用者 2026-09-22 決定暫不修改
 

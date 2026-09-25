@@ -34,7 +34,7 @@
 
 ## 上一单元验证与交付（MPV-SCRIPT-TRIGGERS）
 
-- 状态：代码完成，首次合并自动化验证通过；手机安全锁屏，真机 UI/安装未执行。准备原子提交和恢复 tag。
+- 状态：代码完成，首次合并自动化验证通过；手机安全锁屏，真机 UI/安装未执行。准备原子提交和恢复 tag。（2026-09-25 更正：本单元已由 `1ce8df96` 原子提交；恢复 tag 按计划为本地 tag，本仓库标签中没有，无法核对。）
 - 文件/符号：`MpvConfigCreateDialog` 联动与创建参数，`MpvConfigDialog` 保存/导入，`MpvConfigStore` trigger 归一化及 Lua 生成，`MpvConfigStoreTest` 和 Lua fixture。
 - 已完成：开关联动/TV焦点、创建/导入设置透传、存储归一化、startup/short 共用函数、disabled managed script 启动执行、旧多段作用域保留；宿主 Lua 5.2.4 已构建在 `/private/tmp/webhtv-script-trigger.PIW3G6/lua`，仅测试工具，不更新产品 native 产物。
 - 验证：2026-09-11 17:49，单次 Gradle `BUILD SUCCESSFUL in 4m 1s`；`MpvConfigStoreTest` 12 tests / 0 failures / 0 errors / 0 skipped，包括实际 Lua 5.2.4 执行生成代码；mobile arm64 debug 打包、leanback arm64 Java 编译通过。测试还覆盖 hidden startup、click/long 无额外自动执行、旧多段 local 状态、运行时错误隔离及 return。Room 既有 QUERY_MISMATCH/弃用警告不在本轮范围。
@@ -64,4 +64,4 @@
 - 已验证：`MpvConfigStoreTest` 15 tests / 0 skipped / 0 failures / 0 errors，包含真实Lua执行；mobile arm64 debug打包和leanback arm64 Java编译通过；XML资源通过Android构建。报告在 app/build/test-results/testMobileArm64_v8aDebugUnitTest/TEST-com.fongmi.android.tv.player.mpv.MpvConfigStoreTest.xml。
 - 18:47进度：实际验证启动/工具等待超过原目标，停止额外检查；仅继续手机开关/列表及提交/tag。设备仍已解锁，安装助手日志同证据目录 install.log。
 - 验收：用户确认本次需求测试通过；不扩展相邻场景，不以编译替代用户实测。提交/tag 由 guard 原子生成，本轮不推送远端。
-- 唯一下一步：执行 guard finish 提交本单元并创建 annotated recovery tag。
+- 唯一下一步：执行 guard finish 提交本单元并创建 annotated recovery tag。（2026-09-25 更正：本单元已由 `f27805e3` 原子提交；恢复 tag 按计划为本地 tag，本仓库标签中没有，无法核对。）

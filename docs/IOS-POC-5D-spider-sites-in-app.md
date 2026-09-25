@@ -149,7 +149,9 @@ silently became `rule = {}` — zero categories, an empty screen indistinguishab
 `host.parseJSON` is now Gson-lenient (strips `//` and `/* */` outside strings, drops trailing
 commas, returns null rather than `{}` when the text is genuinely not JSON) and both engines use it.
 Those two sites went from 0 categories to 4 categories and 8 titles. Their **detail** still returns
-no flags, which is a separate unfixed issue.
+no flags, which is a separate unfixed issue. (Corrected 2026-09-25: fixed in IOS-POC-5F, which took
+both to a detail page with 158 episodes, and IOS-POC-5G's sniffer made both playable — see
+`docs/IOS-POC-5F-spider-defect-fixes.md` and `docs/IOS-POC-5G-media-sniffer.md`.)
 
 ### Simulator, end to end (iPhone 17 Pro, iOS 26.3)
 
@@ -171,14 +173,22 @@ remote URL. With an imported local file those three sites still cannot resolve t
 - **`header` from a spider play result is dropped.** `AVPlayer` takes request headers only through
   `AVURLAsset` options, which `PlayerView` does not thread through. A CDN that checks Referer will
   fail to play, visibly. No configured site has been observed needing it yet — AG動漫's failure is a
-  404, not a header rejection.
+  404, not a header rejection. (Corrected 2026-09-25: no longer dropped — IOS-POC-5P (`0414c032`)
+  carries the play result's headers into `AVURLAsset`; see `docs/IOS-POC-5P-player-request-headers.md`.)
 - **A site whose own category list contains 「全部」 shows two 「全部」 chips** (王子 does). The app adds
   its own, and `categoryGroups` keeps the provider's. This is pre-existing rendering behaviour that
   only became visible now that spider sites are listed; it is not introduced here and is left alone.
+  (Corrected 2026-09-25: fixed in IOS-POC-5J (`d786c627`), and since `f34ae805` the app adds no
+  「全部」 of its own, so a provider's own entry is the only one shown — see
+  `docs/IOS-POC-5J-category-filters.md`.)
 - `parse:1` and the `proxy` ABI remain unimplemented, as does `CatVodHost` RSA — `csp_AppDrama`
-  still needs it.
+  still needs it. (Corrected 2026-09-25: a `parse:1` result is now sniffed by the IOS-POC-5G
+  `MediaSniffer` — `ios/Sources/WebHTVCore/SourceClient.swift:116`. The `proxy` ABI and `CatVodHost`
+  RSA remain unimplemented.)
 - Still simulator-only. The project has no `CODE_SIGN` or `DEVELOPMENT_TEAM`; nothing here says
-  anything about a real device.
+  anything about a real device. (Corrected 2026-09-25: the app first ran on a real device on
+  2026-09-18 (`ed3f2709`) and now ships through SideStore — `docs/IOS-POC-11-sidestore-release.md`.
+  The project still carries no `CODE_SIGN` or `DEVELOPMENT_TEAM`.)
 
 ## Files
 

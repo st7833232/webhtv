@@ -1,9 +1,9 @@
 # IOS-POC-7A — Python runtime 最小可行性評估（使用者 roadmap 的 POC-4）
 
-- 狀態：**已核可（A）**。**P1 量測完成**（見文末），P2–P5 未開始。尚未改任何 production 程式碼。
+- 狀態：**已核可（A）**。**P1–P5 全部完成**（2026-09-18～21，見文末 P1 與 IOS-POC-7E～7P 各節；Python runtime 已在 App 內：`ios/WebHTVApp/Sources/PythonBoot.swift`、`PythonSpiderRuntime.swift`、`ios/WebHTVApp/Python/base/spider.py`、`ios/Sources/WebHTVCore/Spider/PythonSpiderSource.swift`），並已在真機驗證（IOS-POC-9F 一節）。（2026-09-25 更正：原寫「P1 量測完成，P2–P5 未開始。尚未改任何 production 程式碼」。）
 - 分支 `ios-poc`，基線 HEAD `a80cde63`
 - 日期：2026-09-18
-- 需要你決定的只有一件事：見「待你決定」
+- 需要你決定的只有一件事：見「待你決定」（2026-09-25 更正：該節已由使用者選 A，見上方狀態行；保留原文供追溯。）
 
 ## 量到的事實（不是推論）
 

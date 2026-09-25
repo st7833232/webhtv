@@ -104,11 +104,16 @@ worse than before this stage.
 - **Headers still do not reach `AVPlayer`.** The web view sends a correct `Referer` while sniffing,
   and then the resolved URL is handed to `AVPlayer` without one, because `PlayerView` does not
   thread `AVURLAsset` options through. A CDN that checks `Referer` on the stream itself will still
-  fail.
+  fail. (Corrected 2026-09-25: since IOS-POC-5P (`0414c032`) the headers the source attached travel
+  with the resolved URL into `AVURLAsset` — `ios/Sources/WebHTVCore/SourceClient.swift:124`,
+  `ios/WebHTVApp/Sources/WebHTVApp.swift:2938`. The sniffed page's own URL is still not added as a
+  `Referer`.)
 - The sniffer adds a web view and up to 12 seconds to the playback path **only** for URLs the probe
   classifies as a page.
 - `csp_AG動漫` is still DEAD-MEDIA: its media 404s, which no sniffer can fix.
-- `csp_YLSP` / `永乐影视` are still NO-EPISODE — the provider's listing URL 404s.
+- `csp_YLSP` / `永乐影视` are still NO-EPISODE — the provider's listing URL 404s. (Corrected
+  2026-09-25: IOS-POC-5I found this was an XBPQ defect, not the provider, fixed it, and both became
+  playable — `docs/IOS-POC-5I-xbpq-listing-templates.md`.)
 
 ## Pre-existing test flakiness this stage exposed
 

@@ -8,7 +8,7 @@
 - 当前状态（2026-09-11用户确认）：有界已访问父菜单记录、当前页未命中路由及原入口关闭/其它入口切换已实现。用户明确“我测试可以了，打个tag”，接受其已测试场景并关闭可选验证；不把此确认扩大为全部原盘或完整电视回归已通过。源码抽取测试（ASan/UBSan、原有副本/背景菜单、8层历史边界、生命周期接线）通过，双ABI libbluray/MPV构建与ELF校验通过，其余18个原生库哈希不变；两个Debug包构建1m45s成功且包内libmpv逐字节一致。证据 `/tmp/p9-parent-menu-20260911.q9clO3/`。
 - 产物：arm64 libmpv `df70eb842ff43bbe70bce56a9ec9dd05fd508511fffa8e1366ad5009135886c7`；armv7 libmpv `07cf1995f2733118b61333bc53b27d47cd352d152abe774a02fd1aa9cb6e75b5`；输入补丁 `260eac3a32d89b828d19b2aee82941b2a3282d9810773394fd9395670a55695a`。手机APK `d878e29dcd9a4914bc411c01ccbbe2da19ada9e4bab0037fa46a09ad81f4141d`；电视APK `c70c0633d48c81bc6959f7ab29b2db76b7313cf8211223c01b3712641ab5b8a2`。
 - 构建偏差已处理：并行MPV构建共享meson依赖路径导致arm64首次链接错用armv7 iconv，改为串行重链arm64成功；电视Gradle新生成34个不在scope的CMake缓存，已移至证据目录 `generated-cxx-armv7` / `generated-cxx-armv7-tools`，原有35个文件未改。未升级依赖或修改构建策略源码。
-- 唯一下一动作：按用户确认用当前guard原子提交并立即创建本地注释恢复tag，不push、不追加构建或设备取证。
+- 唯一下一动作：按用户确认用当前guard原子提交并立即创建本地注释恢复tag，不push、不追加构建或设备取证。（2026-09-25 更正：本单元已由 `aa676a94` 原子提交；恢复 tag 按计划为本地 tag，本仓库标签中没有，无法核对。）
 
 ### 2026-09-11 《夜王》父菜单未命中修复决策（已批准）
 
@@ -22,7 +22,7 @@
 
 - 当前修复单元（2026-09-10 13:18 Asia/Shanghai）：用户在手机菜单卡住与电视黑底/入口遗漏/片头循环诊断后明确“修复”。guard `P9-MPV-MENU-LIVENESS-TV`；基线 `1ec569658157d1a9323b5c2ef00cb3468b876fca`，保护既有 `app/.cxx/` 35个文件。以下此前已验收状态是历史，不代表本次缺陷已修复。
 - 本轮目标：暂停时HDMV菜单仍完成动画并可切换/关闭；TV底栏有原盘菜单入口；同次播放直出失败不循环重入；修正已捕获的MediaCodec flush/旧帧释放竞态，保留硬解、直出及既有作者菜单返回语义。仅MPV链及对应App接线，不扩展Exo/BD-J/网络缓存。
-- 当前状态（2026-09-10 构建完成）：三处App/菜单缺陷及MediaCodec竞态修复代码已完成；菜单活性/原输入测试、480组并发释放/flush/close测试、19项Java输出策略测试通过。完整补丁链prepare、双ABI FFmpeg/MPV实际编译链接、ELF/资产校验通过；两个Debug包2m15s构建成功且包内三库逐项SHA一致。手机在构建期间断开，ADB设备列表持续为空，**未安装本候选、未完成真机验收，未提交/tag**。不能宣称两片实机已修好。原定时长超出后已停止研究/可选检查，当前剩余门槛是设备连接和实机。具体产物/命令/风险见下方本轮验证记录。
+- 当前状态（2026-09-10 构建完成）：三处App/菜单缺陷及MediaCodec竞态修复代码已完成；菜单活性/原输入测试、480组并发释放/flush/close测试、19项Java输出策略测试通过。完整补丁链prepare、双ABI FFmpeg/MPV实际编译链接、ELF/资产校验通过；两个Debug包2m15s构建成功且包内三库逐项SHA一致。手机在构建期间断开，ADB设备列表持续为空，**未安装本候选、未完成真机验收，未提交/tag**。不能宣称两片实机已修好。原定时长超出后已停止研究/可选检查，当前剩余门槛是设备连接和实机。具体产物/命令/风险见下方本轮验证记录。（2026-09-25 更正：本候选其后已应用户要求由 `d4657ae8` 原子提交；该提交说明记录当时仍未安装、真机验收待定。）
 - 当前文件：新`mpv-discnav-poll.patch`、`mpv-mediacodec-embed-reset.patch`、`ffmpeg-mediacodec-output-serialization.patch`；TV Activity/layout、PlayerManager/MpvAutoOutputPolicy及Java测试；native构建/验证脚本、liveness/serialization源码抽取测试。临时派生源码只在`build/mpv-native`，版本锁/JNI/Exo不变。
 - 唯一下一动作：手机重新连接后，用OEM安装助手安装下列Mobile arm64 Debug包，直接验证《倩女幽魂》暂停菜单切换；随后继续TV armv7两片跳转/背景回归，验收通过才guard finish提交/tag。不要重新研究或重跑已通过的构建。
 

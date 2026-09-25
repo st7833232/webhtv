@@ -6,7 +6,7 @@
 
 - Branch `ios-poc`, baseline HEAD `e1db99d8`, clean worktree, level with `origin/ios-poc` (2026-09-16 13:50 CST).
 - Objective: complete the playback half of the WebHome contract — `player.playVod`, `player.playVodInline`, `player.control`, `player.status` — on a minimal persistent playback session.
-- Status: COMPLETE. A1-A6 pass offline; B1-B6 verified in the simulator. The one failing test is pre-existing and reproduced at baseline; the inline JS resolver is the one path this stage added that remains unexercised.
+- Status: COMPLETE. A1-A6 pass offline; B1-B6 verified in the simulator. The one failing test is pre-existing and reproduced at baseline; the inline JS resolver is the one path this stage added that remains unexercised. (Corrected 2026-09-25: IOS-POC-2F, below, drove the inline resolver and the `prev`, `stop`, `loop` and `replay` controls from the page, and all five work, `46a00eb4`.)
 - Exactly one next action: agree the next bounded stage with the user.
 
 ## Completion sentence

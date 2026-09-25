@@ -91,6 +91,9 @@ page with 158 episodes.** They still do not play — see below.
 The sniffer is the single largest remaining gain: it would recover the three `/share/` sources,
 88看球, the two 巴士 sites, and every `parse:1` spider.
 
+(Corrected 2026-09-25: the sniffer was built in IOS-POC-5G and recovered all six of those sources,
+29 → 35 of 45; only AG動漫's 404 remains from this list. See `docs/IOS-POC-5G-media-sniffer.md`.)
+
 ## Verification
 
 - `swift test --package-path ios` with `WANG_MOVIE_JSON` → **66 tests, 65 pass** (64 before; +2 new

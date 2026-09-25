@@ -5,8 +5,8 @@
 - 当前分支：`feature-menu`。
 - 当前修复基线：`969261479167bca3f8f16f11551de7dcc9290112`（2026-09-12）。
 - 历史完整评估：仓库历史提交 `3b346c85d0a3fb8e6078e4dbe4511f3aa15795a0` 中的同名文件；主线提交 `784b90420d646eb6c7ddcc63ad622a92c65b02b4` 删除了根目录本地任务文档，因此本分支只恢复当前实施需要的稳定索引。
-- 当前任务：`E9-3`，按用户授权默认启用现有 Exo DV5 GPU 映射，仅解除该 renderer 的实验门控；三个定向测试类及 Mobile/Leanback arm64 Java 编译已通过，未重建 native、打包或安装，当前偏色场景尚未真机复验。
-- 下一步：由当前 guard 原子提交本轮已验证改动并创建本地恢复 tag，不推送，详见 [E9-3-exo-dv5-vulkan-renderer.md](E9-3-exo-dv5-vulkan-renderer.md)。P9 的菜单历史记录继续保留在 [P9-MPV-BLURAY-MENU.md](P9-MPV-BLURAY-MENU.md)。
+- 当前任务：`E9-3`，按用户授权默认启用现有 Exo DV5 GPU 映射，仅解除该 renderer 的实验门控；三个定向测试类及 Mobile/Leanback arm64 Java 编译已通过，未重建 native、打包或安装，当前偏色场景尚未真机复验。（2026-09-25 更正：E9-3 已由 `d546c11c` 原子提交；其后本索引新增的 `P10-IOS-EMBEDDED-TRACK-SELECTION` 已在 `ios-poc` 分支由 `637d3597` 实现，见下表。）
+- 下一步：由当前 guard 原子提交本轮已验证改动并创建本地恢复 tag，不推送，详见 [E9-3-exo-dv5-vulkan-renderer.md](E9-3-exo-dv5-vulkan-renderer.md)。（2026-09-25 更正：该提交已完成，见上条；E9-3 的新版包原场景复测在本仓库仍无记录。）P9 的菜单历史记录继续保留在 [P9-MPV-BLURAY-MENU.md](P9-MPV-BLURAY-MENU.md)。
 
 ## 稳定任务 ID 与唯一文档索引
 
@@ -16,7 +16,7 @@
 | ---: | --- | --- | --- | --- | --- |
 | 22 | `E9-3` | Exo/App | 普通 HEVC 硬解 + Vulkan/libplacebo 的 DV5 色彩映射默认准入 | 2026-09-12默认准入已实现，三个定向测试类及 Mobile/Leanback arm64 Java 编译通过；保留原生杜比和设备能力门控，待新版包原场景复测 | [E9-3-exo-dv5-vulkan-renderer.md](E9-3-exo-dv5-vulkan-renderer.md) |
 | 38 | `P9-MPV-BLURAY-MENU` | MPV/native/App | HDMV Blu-ray 菜单画面、按钮高亮、方向/确认/返回/Popup、菜单跳转与 still frame；BD-J 无提示回退现状 | 2026-09-11父菜单未命中修复已实现，定向验证及构建通过，用户测试确认并要求tag | [P9-MPV-BLURAY-MENU.md](P9-MPV-BLURAY-MENU.md) |
-| 39 | `P10-IOS-EMBEDDED-TRACK-SELECTION` | iOS/App/MPV | AVPlayer + MPV 内嵌多音軌/字幕共用選擇、codec/channel layout 顯示與 diagnostics | 2026-09-24 已授權實作；不含 external audio、Atmos/passthrough、AirPlay Audio、鎖屏/控制中心 | [P10-IOS-EMBEDDED-TRACK-SELECTION.md](P10-IOS-EMBEDDED-TRACK-SELECTION.md) |
+| 39 | `P10-IOS-EMBEDDED-TRACK-SELECTION` | iOS/App/MPV | AVPlayer + MPV 内嵌多音軌/字幕共用選擇、codec/channel layout 顯示與 diagnostics | 2026-09-24 已授權實作；不含 external audio、Atmos/passthrough、AirPlay Audio、鎖屏/控制中心（2026-09-25 更正：已由 `637d3597` 實作，`7acb5db1` 修正編譯，隨 `0.1.16 (17)` 發布。） | [P10-IOS-EMBEDDED-TRACK-SELECTION.md](P10-IOS-EMBEDDED-TRACK-SELECTION.md) |
 
 ## Checkpoint 55：2026-09-06 P9 HDMV 菜单实施启动
 

@@ -121,7 +121,14 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   `a076ab51`, `20c4bd53` and `616e182e` before, and a handoff arriving with **`035ad0bf` as "the
   latest on GitHub" was sixteen commits behind** — that commit is the roadmap-only one, an ancestor
   rather than the tip. Run `git log` and the `rev-list` above on resume instead of reading it here.
-- **Current release: `WebHTV 0.1.19 (20)`, published 2026-09-25 at the user's instruction** (run `36089814077`, tag
+- **Current release: `WebHTV 0.1.20 (21)`, published 2026-09-25 at the user's instruction** (run `36100831753`, tag
+  `ios-v0.1.20-b21` → `957dc518`; `source.json` `dfbd997a`, IPA 25,029,164 bytes, SHA-256 `b6254895…`,
+  downloaded back and verified): `0.1.19 (20)` plus IOS-POC-23 phase 1 (`440d671e`, `51501cde`: a player
+  paused and then suspended in the background reloads, still paused and at the same position, when the
+  app returns). First CI compile succeeded; unit tests not run. **Device, user 2026-09-25: IOS-POC-23
+  T1–T15 all pass** (`docs/IOS-POC-23-pause-background-resume-stall.md` 第十二節). Record:
+  `docs/IOS-POC-11-sidestore-release.md` 第二十一次發布.
+- **Previous release: `WebHTV 0.1.19 (20)`, published 2026-09-25 at the user's instruction** (run `36089814077`, tag
   `ios-v0.1.19-b20` → `777aff2d`; `source.json` `883509b4`, IPA 25,018,946 bytes, SHA-256 `b8ad1d1f…`,
   downloaded back and verified): `0.1.18 (19)` plus IOS-POC-17I-2 (`9186a272`: MPV links the WebHTV
   Libmpv, whose moltenvk context follows layer resizes, and the 17G vo rebuild is gone). First CI compile
@@ -171,7 +178,9 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
 - **Previous release: `WebHTV 0.1.10 (11)`, published 2026-09-24** (run
   `35953397506`, tag `ios-v0.1.10-b11` → `5dadcd04`; `source.json` `d7a6e35e`, IPA 24,851,830 bytes,
   SHA-256 `01ff7bb6…`, downloaded back and verified): `0.1.9 (10)` plus IOS-POC-16B, 15D and 17F
-  (the bullet below). **No device result yet.** Record: `docs/IOS-POC-11-sidestore-release.md` 第十一次發布.
+  (the bullet below). **Device, user 2026-09-24:** the SideStore update works and MPV shows a picture;
+  MPV's portrait↔landscape rotation broke the layout (→ 17G, root fix 17I) and MPV had no PiP (→ 17H).
+  (This read "No device result yet" until 2026-09-25.) Record: `docs/IOS-POC-11-sidestore-release.md` 第十一次發布.
 - **Previous release: `WebHTV 0.1.9 (10)`, published 2026-09-23** (tag `ios-v0.1.9-b10` → `8df71c12`,
   Task-Guard `IOS-POC-18-source-identity`, run `35874971373`; `source.json` `dde455ba`, IPA
   24,767,406 bytes, GitHub asset SHA-256 `46385529…`): `0.1.8 (9)` plus **IOS-POC-18** — object-ext
@@ -197,7 +206,8 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   the other engine once per attempt; offline and source failures never switch
   (`docs/IOS-POC-17-dual-internal-player.md` 第十二之二節). `swift test`: 335／334 after 16B,
   340／339 after 15D, **344／344 after 17F** (the only failure ever is the weather test). **None of
-  the three has run on a device.** The MPV parity roadmap (P1 device baseline → P2 cache parity →
+  the three has run on a device.** (Corrected 2026-09-25: all three are in `0.1.10 (11)`, which the user
+  installed on 2026-09-24, but that report covered none of them; they remain device-unverified.) The MPV parity roadmap (P1 device baseline → P2 cache parity →
   P3 tracks → P4 external/ASS subtitles → P5 background audio/Now Playing → P6 PiP bridge → P7
   AirPlay Audio) is IOS-POC-17 第十四節.
 - **After `0.1.10 (11)` — shipped in `0.1.11 (12)` on 2026-09-24:** **IOS-POC-17G**
@@ -212,7 +222,8 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   17B, `a1750b8c` 17C, then 17D docs — all pushed since (on `origin/ios-poc`, released in `0.1.8 (9)`). External players are gone (17A). **MPV's
   black screen was our probe**: it drained mpv's events inside the wakeup callback, which
   `client.h` forbids and which deadlocks on the playloop at `FILE_LOADED`; fixed as MPVKit's demo
-  does it, and **both Metal and OpenGL draw on the simulator** (9G). **Device: not re-run.** Core now
+  does it, and **both Metal and OpenGL draw on the simulator** (9G). **Device: not re-run.** (Corrected 2026-09-25:
+  the user's 2026-09-24 report on `0.1.10 (11)` says MPV shows a picture on the device.) Core now
   has `PlaybackEngine` / `PlayerRouter` / `PlaybackEngineSelection` / `PlaybackFailure`;
   `AVPlayerEngine` is a thin adapter over the unchanged AVPlayer code (IOS-POC-15's policy runs only
   on AVPlayer), `MPVEngine` is the demo's Metal path; 「預設播放器」 in settings; the control bar
@@ -435,9 +446,11 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   acceptance.
   **Three things came off this list and must not be written back onto it.** The Python runtime left
   on 2026-09-21 (IOS-POC-7E–7P). **The SideStore/IPA release pipeline left on 2026-09-22**
-  (IOS-POC-11): the workflow and `source.json` exist and have published ten releases, through `0.1.9 (10)`.
+  (IOS-POC-11): the workflow and `source.json` exist and have published twenty-one releases, through `0.1.20 (21)`
+  (this read ten, through `0.1.9 (10)`, until 2026-09-25).
   **MPV is not on this list either** — it ships as the second engine since `0.1.8 (9)` (IOS-POC-17),
-  device first frame still owed; see the IOS-POC-17 bullet above. A source-specific DNS or TLS error does not prove a global iOS network bug.
+  and the user reported it showing a picture on the device on `0.1.10 (11)` (2026-09-24; this read
+  "device first frame still owed" until 2026-09-25); see the IOS-POC-17 bullet above. A source-specific DNS or TLS error does not prove a global iOS network bug.
 - **Superseded 2026-09-23 by IOS-POC-9G/17 — see the IOS-POC-17 bullet above.** The rest of this
   bullet is the pre-9G record: **MPV: started, implemented in part, rendering unresolved and paused.** MPVKit 1.0.0 (non-GPL) is
   wired into the App target, static linking is confirmed by symbol table rather than by configure
@@ -483,12 +496,19 @@ actual HEAD on 2026-09-21 (IOS-POC-7R). Detailed status: `docs/current-task-stat
   `AVURLAssetHTTPHeaderFieldsKey` works on a device at all, WatchHistory and resume, and MPV on a
   device (first frame, switching, fallback — 8L ⑱⑲). ~~Opening Infuse / Fileball / SenPlayer /
   VidHub~~ is superseded: they were removed on 2026-09-23.
+  (Corrected 2026-09-25: MPV showed a picture on `0.1.10 (11)` on 2026-09-24, and on `0.1.20 (21)`
+  IOS-POC-23 T1–T3 passed on both engines and T9 resumed from the watch history at the paused
+  position; device model, source type and site were not recorded. MPV switching and fallback, the
+  rest of this list and the 8L run itself are still owed.)
   **Picture in Picture foreground restore has a code fix and still needs device verification.**
   `PlayerSurface.Coordinator` now consumes one foreground request per active PiP session and uses
   the smallest public AVKit workaround: disable `allowsPictureInPicturePlayback`, then restore it on
   the next main runloop. It keeps a weak controller reference, removes its lifecycle observer, and
   does not touch the shared player or playback state. The current Linux execution host could not run
-  the Swift suite or Simulator build, so do not treat this as device closure. The required repeated
+  the Swift suite or Simulator build, so do not treat this as device closure. (Corrected 2026-09-25:
+  the fix was later compiled on macOS and its tests pass, `38df1710` (228 tests, the one failure the
+  standing weather test, and the Simulator build succeeds); see the `ecebeaa3` bullet above. The
+  device acceptance is still owed.) The required repeated
   real-device acceptance remains in `docs/bugs/IOS-PIP-foreground-restore.md`.
   **麻豆 playing settles none of the header question**: its only header is a `User-Agent` and that
   stream answers `HTTP 200` with or without one, measured with `curl` both ways.

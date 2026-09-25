@@ -4,26 +4,53 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-09-24 14:55 CST（讀這一節，再讀文末 Resume Prompt）
+## Current handoff — 2026-09-25（讀這一節，再讀文末 Resume Prompt）
 
-**Git（交接當下）**：分支 `ios-poc`；`0.1.12 (13)` 發布紀錄 commit 為止**都已 push**。接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認。
+**Git**：分支 `ios-poc`，已全部 push。接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認，以實際 Git 狀態為準，不要相信本文的 SHA。
 
-**目前最新已發布版本是 `0.1.20 (21)`**（2026-09-25，使用者授權；tag `ios-v0.1.20-b21` → `957dc518`，run `36100831753`，`source.json` `dfbd997a`，IPA 25,029,164 bytes，sha256 `b62548957d82b448fab17ad17bf5c40946379e3ff3baf1774a4f92ce1910ab70`，下載回驗通過）＝`0.1.19 (20)`＋IOS-POC-23（`440d671e`、`51501cde`，暫停中被系統暫停執行後回到 App 以暫停狀態重新載入；CI 第一次編譯即成功，單元測試未執行；2026-09-25 真機驗收 T1～T15 全部通過）。上一版 **`0.1.19 (20)`**（2026-09-25，使用者授權；tag `ios-v0.1.19-b20` → `777aff2d`，run `36089814077`，`source.json` `883509b4`，IPA 25,018,946 bytes，sha256 `b8ad1d1f3fc6adfc7b2f57c9f76672322c60b637218cebd22ada981dc56c0a02`，下載回驗通過）＝`0.1.18 (19)`＋IOS-POC-17I-2（`9186a272`，MPV 改用 WebHTV 自建 Libmpv，旋轉不再重建 VO；CI 第一次編譯即成功，真機未驗收）。上一版 **`0.1.18 (19)`**（2026-09-25，使用者授權；tag `ios-v0.1.18-b19` → `ccfad785`，run `36036441567`，`source.json` `86eab8bb`，IPA 25,017,725 bytes，sha256 `8b5e203ed9ff745b6a4cec6c7785977733243321e893cf270bff37ddb275583c`，下載回驗通過）＝`0.1.17 (18)`＋送出搜尋就閃退的修正（`0786a46e`，`PythonBoot` 只啟動一次）。上一版 **`0.1.17 (18)`**（2026-09-25，使用者授權；tag `ios-v0.1.17-b18` → `b3c19fd4`，run `36034238374`，`source.json` `0dff1af1`，IPA 25,017,556 bytes，sha256 `e9e5b5ddce9e8e219ad7493ba5c148f5e0a8e43882f7247f5a82f33feb2ce3f5`，下載回驗通過）＝`0.1.16 (17)`＋IOS-POC-20 全站台搜尋（`ee597124`，CI 第一次編譯即成功；單元測試未執行）。上一版 **`0.1.16 (17)`**（2026-09-24；tag `ios-v0.1.16-b17` → `7acb5db1`，run `36021136999`，`source.json` `507c49b6`，IPA 24,919,831 bytes，sha256 `5c20e0797b8299118758a1cc1024f00b9f47cb2eb329f917eb5bd354219d4e9b`，下載回驗通過）＝`0.1.15 (16)`＋內嵌音軌／字幕共用選擇（`637d3597`、編譯修正 `7acb5db1`，`docs/P10-IOS-EMBEDDED-TRACK-SELECTION.md`）。上一版 **`0.1.15 (16)`**（2026-09-24；tag `ios-v0.1.15-b16` → `0678deda`，run `36005131032`，`source.json` `882e6993`，IPA 24,882,568 bytes，sha256 `b3340f6d3ac317b862e97f69d716004d4a9f278092196677696f7bbd39732781`，下載回驗通過）＝`0.1.14 (15)`＋MPV 播放時螢幕常亮（`34d9043b`、`951426b3`）。這兩版的 commit 沒有 Task-Guard trailer，**也沒有發布前驗證紀錄**（P10-IOS 文件自述是在沒有本機工作區的 GitHub 連線環境中完成）；2026-09-25 依 Git／Release／Actions 補登於 IOS-POC-11 第十六、十七次發布。上一版 **`0.1.14 (15)`**（2026-09-24，使用者授權；tag `ios-v0.1.14-b15` → `618d6365`，run `35982550285`，`source.json` `13ef19d4`，IPA 24,881,108 bytes，sha256 `13ae6d001296b245a4ecde9fdca8f0bfb29edcab1a87f6aa39692873626af584`，下載回驗通過）＝`0.1.13 (14)`＋IOS-POC-22（2.5×／3× 在原生不支援時交給 MPV）。上一版 **`0.1.13 (14)`**（2026-09-24，使用者授權；tag `ios-v0.1.13-b14` → `8db58a0d`，run `35976794989`，`source.json` `1635289c`，IPA 24,880,231 bytes，sha256 `41ab26d0a9ef4b2c659e1fc0950eb63c71fb42e0a931e4dca7fbdfc84a553b08`，下載回驗通過）＝`0.1.12 (13)`＋IOS-POC-19（各資訊源記住站台）＋IOS-POC-21（換集從頭播）。上一版 **`0.1.12 (13)`**（2026-09-24，使用者授權；tag `ios-v0.1.12-b13` → `4548bf7b`，run `35971952291`，`source.json` `57b32ef2`，IPA 24,877,616 bytes，sha256 `a7170a0b3bb864aa46744845867d7f7284e8eb86343d9cf404260ea71ecb5f2f`，下載回驗通過）＝`0.1.11 (12)`＋17H PiP 解析度修正 `5613517a`。上一版 **`0.1.11 (12)`**（2026-09-24，使用者授權「push 並發布下一版到 SideStore」；tag `ios-v0.1.11-b12` → `aa30bc0f`，
-run `35968750165`，`source.json` `d681a72d`，IPA 24,877,389 bytes，sha256 `bbdbf06c2097ff65f72928b20a34d9e8590b7b57e0521651de0a5b94c41548ae`，
-下載回驗通過）＝`0.1.10 (11)`＋IOS-POC-17G／17H。上一版 `0.1.10 (11)`（tag `ios-v0.1.10-b11` → `5dadcd04`）＝`0.1.9 (10)`
-＋IOS-POC-16B／15D／17F。紀錄：`docs/IOS-POC-11-sidestore-release.md` 第十二次發布。`0.1.8 (9)` 起 Release 版就開放 MPV（17E）。
-使用者規定：**每次 push、bump 版本、tag、package、publish 或發 SideStore release 都要另外明確授權**；不要直接裝到使用者的 iPhone。
+**最新已發布版本是 `0.1.20 (21)`**（2026-09-25，使用者授權；tag `ios-v0.1.20-b21` → `957dc518`，run `36100831753`，`source.json` `dfbd997a`，IPA 25,029,164 bytes，SHA-256 `b62548957d82b448fab17ad17bf5c40946379e3ff3baf1774a4f92ce1910ab70`，下載回驗通過）。至今共發布 21 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
 
-**已完成（16B／15D／17F 在 `0.1.10 (11)` 發布；17G／17H 在 `0.1.11 (12)` 發布）**
+**近期各版內容（新到舊）**
 
-| 單元 | commit | 內容 | 驗證 | 未驗 |
-|---|---|---|---|---|
-| IOS-POC-16B | `a5f2678e` | 控制列七個二級選單改為自有 panel（`PlayerChrome`／`PlayerPanelPlacement`） | `swift test` 335／334（天氣）；模擬器直向實操 | 橫向 drawer、AirPlay 邊緣觸控、VoiceOver、真機。`docs/IOS-POC-16-custom-player-controls.md` 第十之一節 |
-| IOS-POC-15D | `6416c4d4` | IOS-POC-15 契約逐條補缺口＋`os.Logger` `[playback]` 量測 | `swift test` 340／339（天氣）；模擬器看到預載命中 | 真機效能（IOS-POC-15 §8 七項）仍 pending。`docs/IOS-POC-15-playback-buffering-preload.md` 第十二節 |
-| IOS-POC-17F | `b37751d2` | 播不出來就主動切換播放核心：network／unclassified 失敗切一次；`offline`／`source` 不切；目前核心接手 20 秒仍 preparing／buffering 就切（`PlayerRouter.startupTimeout`、`startupTimedOut()`；App 端在 `PlaybackSession.watchStartup()`）；不顯示成錯誤 | `PlaybackEngineTests` 29／29；全套 `swift test` **344／344**；Simulator Debug build；模擬器用本機假串流（每秒 1 byte 的 `.m3u8`）實播：原生→MPV、MPV→原生都在 20 秒切換，不會切第二次、不顯示錯誤 | 真機、真實來源上的切換。`docs/IOS-POC-17-dual-internal-player.md` 第十二之二節 |
-| IOS-POC-17G | `257553f2`（`0.1.11 (12)`） | MPV 旋轉後跑版（使用者 `0.1.10 (11)` 真機回報）：MPVKit `moltenvk` context 只在 VO 設定時讀尺寸、從不回報 resize（MPVKit issue #3）；`MPVVideoView` 在尺寸穩定 0.3 秒後更新 `drawableSize`，`MPVPlayerCore.rebuildVideoOutput()` 交替設定 `vo`（`gpu-next`↔`gpu-next,`）讓 mpv 同步重建 VO | 模擬器：修正前重現（橫向只剩一小條）；修正後直→橫、橫→直、暫停中旋轉都正確；Simulator Debug build | 真機。`docs/IOS-POC-17-dual-internal-player.md` 第十二之三節 |
-| IOS-POC-17H | `8824c8ee`（`0.1.11 (12)`） | MPV 子母畫面（MPV parity P6）：inline 維持 Metal，只在 PiP 期間把 `vo` 切到 libmpv SW render，以 PiP 寬度（上限 960 px）畫進 IOSurface BGRA buffer、送進 MPV view 裡 Metal 下方的 `AVSampleBufferDisplayLayer`；行為對齊 AVPlayer（離開 App 自動進 PiP、回 App 結束、沒有手動按鈕）；timebase 只在偏差 >1 秒時校正；`requiresFlushToResumeDecoding` 時 flush；final-diff review 找到並修掉 4 項（`sw-fast` 其實是 profile、背景 PiP 啟動失敗不再暫停、沒有影片時不自動開 PiP、沒內容時時間範圍 `.invalid`） | iPad mini 模擬器：SW 影格每秒 30 張、內容與 alpha 正確、CoreMedia「displayed 181／181」；PiP 開關 5 次都回到 Metal、尺寸正確；17G 旋轉仍正確；PiP 視窗全黑＝模擬器限制（最小 sample-buffer PiP 對照組也黑、AVPlayerLayer PiP 有畫面；SwiftVLC 記載同症狀）；final Simulator Debug build，`MPVEngine.swift` 0 warning | **PiP 畫面、自動 PiP、PiP 控制、回 App 恢復、背景 CPU、真機硬解（VT→copy）都真機未驗證**。`docs/IOS-POC-17H-mpv-picture-in-picture.md` 第六節 |
-| 文件整理 | 本次 commit | 依 `.codex/task-state/handoff-2026-09-24/stale-docs-inventory.txt`（gitignored）修正 7 份文件的過時現況陳述；IOS-POC-11 補「第十次發布 `0.1.9 (10)`」；MPV parity roadmap 寫進 IOS-POC-17 第十四節；本文件與 `docs/AGENT_HANDOFF.md` 補 IOS-POC-18／16B／15D／17F | 文件，無程式變更 | — |
+| 版本 | tag 指向 | 比上一版多了什麼 | 真機結果 |
+|---|---|---|---|
+| `0.1.20 (21)` | `957dc518` | IOS-POC-23：暫停中被系統暫停執行後，回到 App 以暫停狀態重新載入（`440d671e`）；MPV snapshot 修正（`51501cde`） | IOS-POC-23 T1～T15 全部通過（2026-09-25） |
+| `0.1.19 (20)` | `777aff2d` | IOS-POC-17I-2：MPV 改用 WebHTV 自建 Libmpv，旋轉不再重建 VO（`9186a272`） | 未驗證 |
+| `0.1.18 (19)` | `ccfad785` | 送出搜尋就閃退的修正：`PythonBoot` 只啟動一次（`0786a46e`） | 可以搜尋，不再閃退 |
+| `0.1.17 (18)` | `b3c19fd4` | IOS-POC-20 全站台搜尋（`ee597124`） | 送出搜尋就閃退（由 `0.1.18 (19)` 修正） |
+| `0.1.16 (17)` | `7acb5db1` | 內嵌音軌／字幕共用選擇（`637d3597`、編譯修正 `7acb5db1`）；沒有發布前驗證紀錄 | 未驗證 |
+| `0.1.15 (16)` | `0678deda` | MPV 播放時螢幕常亮（`34d9043b`、`951426b3`）；沒有發布前驗證紀錄 | 未驗證 |
+| `0.1.14 (15)` | `618d6365` | IOS-POC-22：2.5×／3× 在原生不支援時交給 MPV | 未驗證 |
+| `0.1.13 (14)` | `8db58a0d` | IOS-POC-19 各資訊源記住站台、IOS-POC-21 換集從頭播 | 未驗證 |
+| `0.1.12 (13)` | `4548bf7b` | 17H 子母畫面解析度修正（`5613517a`） | 未驗證 |
+| `0.1.11 (12)` | `aa30bc0f` | IOS-POC-17G（MPV 旋轉）、17H（MPV 子母畫面） | 未驗證 |
+| `0.1.10 (11)` | `5dadcd04` | IOS-POC-16B 控制列 panel、15D 緩衝契約、17F 播不出來就切換核心 | SideStore 更新正常；MPV 有畫面；MPV 旋轉跑版（→ 17G，後由 17I 根治）；MPV 沒有子母畫面（→ 17H） |
+
+更早的版本見 IOS-POC-11。`0.1.8 (9)` 起 Release 版就開放 MPV（17E）。
+
+**使用者規定**
+
+1. push 到 `ios-poc` 已授權（使用者 2026-09-25 交接）。bump 版本、tag、發布 SideStore release 前都要先問；發布流程見 IOS-POC-11 第二十一次發布。
+2. 不要直接裝到使用者的 iPhone；使用者用 SideStore 實機測試。真機沒測到的一律寫「未驗證」。
+3. 沒有指示前，不開始 MPV parity P2 以後的任何階段，也不開始 IOS-POC-12／13。
+
+**下一步（唯一）**：等使用者在 `0.1.20 (21)` 上真機回報，收到後逐列填進對應文件：
+
+1. MPV 旋轉（播放中、暫停中）與既有功能：`docs/IOS-POC-17I-mpv-resize-libmpv.md` 第六節第 4～6 條。
+2. MPV 子母畫面：`docs/IOS-POC-17H-mpv-picture-in-picture.md` 第四節（第六節之三的真機未驗證項目）。
+3. 搜尋分頁的其餘驗收項目：`docs/IOS-POC-20-aggregate-search.md` 的「驗收標準（更新）」。
+4. `0.1.15 (16)` 的 MPV 螢幕常亮、`0.1.16 (17)` 的內嵌音軌／字幕切換。
+5. 核心真機驗收：`docs/IOS-POC-8L-core-real-device-acceptance.md` 7.2，優先 ⑱⑲（＝MPV parity P1），並留意 16B 面板與 17F 自動切換。
+
+**任務狀態**
+
+- IOS-POC-23「暫停後離開 App 再回來，兩個核心都卡住」：已完成。第一階段在 `0.1.20 (21)` 真機驗收通過，後續階段依目前證據不需要；T13 時發現「暫停一段時間後按播放要等幾秒」，與本修正無關，使用者決定先不處理。見 `docs/IOS-POC-23-pause-background-resume-stall.md` 第十二節。
+- mpv 與 App 的音訊工作階段設定衝突（IOS-POC-23 第十節之三）：使用者 2026-09-25 要求修正，研究進行中，任務文件尚未建立。
+- IOS-POC-17I（MPV 旋轉根治）：17I-3 已發布，待真機驗收；見 17I 文件第十三節與 Recovery anchor。子母畫面解除時放大、進度往回已診斷，依使用者決定等有模擬器再修（17H 文件）。
+- IOS-POC-12／13：未開始。
+
+**已知但不修（已記錄）**：`MediaSelection` 只在開 panel／換 engine 時重讀（pre-existing）；滑動進度條可能同時觸發全畫面拖曳的
+相對 seek（pre-existing，未實測）；冷啟動會閃一下「尚未載入設定」（pre-existing）；17F：開播前按暫停，20 秒後仍會切到另一個核心並自動播放（罕見）。
 
 **17F 模擬器測法（要重做時）**：一個本機 Python HTTP server 提供假 `config.json`（一個 type-1 站 `api=http://127.0.0.1:8765/api`）、
 對任何 `/api` 回同一個含 `vod_play_url` 的 JSON、`.m3u8` 回 200 後每秒寫 1 byte；把 App 容器
@@ -32,28 +59,11 @@ run `35968750165`，`source.json` `d681a72d`，IPA 24,877,389 bytes，sha256 `bb
 偏好設定與 `Library/Application Support`（本次已還原，設定來源回到使用者的 `wang-movie.json`）。
 注意 AVPlayer 對**完全不回應**的網址約 10 秒就自己報錯，那會走「network 失敗切一次」而不是 20 秒逾時。
 
-**已知但不修（已記錄）**：`MediaSelection` 只在開 panel／換 engine 時重讀（pre-existing）；滑動進度條可能同時觸發全畫面拖曳的
-相對 seek（pre-existing，未實測）；冷啟動會閃一下「尚未載入設定」（pre-existing）；17F：開播前按暫停，20 秒後仍會切到另一個核心並自動播放（罕見）。
-
 **環境備忘**：模擬器 `7B4E9557-4774-4EB9-B408-BB544DCC8657`（iPhone 17 Pro, iOS 26.3）；`wang-movie.json` 的 SHA-256
 `b17576e34eb42b4c589a818ef8b5ec2655a2c7a188d626fc427c37d628897168`，需要時從使用者 GitLab 重抓；模擬器控制工具一次來回
 5～10 秒，比 5 秒自動隱藏長，互動測試時可暫時把 `PlayerChrome.autoHideSeconds` 改大、測完還原並重建（不要 commit）。
 
-**使用者 2026-09-24 真機回報（`0.1.10 (11)`）**：SideStore 正常更新；MPV 有畫面；MPV 直↔橫旋轉跑版（→ 17G，本機修正）；MPV 沒有 PiP（已知，MPV parity P6）。
-
-**IOS-POC-17H MPV 子母畫面（使用者 2026-09-24「MPV的pip 我要直接實作完成」）已完成到模擬器能驗的程度**：模擬器的 PiP 視窗對 sample-buffer
-內容一律全黑（診斷與對照實驗：`docs/IOS-POC-17H-mpv-picture-in-picture.md` 第六節之二），iPhone 17 Pro 模擬器根本不支援 PiP，自動 PiP（按 Home）兩台模擬器連 AVPlayer 都不觸發，
-所以 PiP 的實際畫面只能真機驗。模擬器上要手動開關 PiP 需要暫時的旗標檔程式（`TEMP-17H` 已全部移除；做法見 17H 文件第六節之二）；iPad 模擬器若出現
-`PGPegasusErrorDomain -1003`，先 `xcrun simctl shutdown`／`boot` 再測。iPad 模擬器 App 容器的 `webhtv.playback.defaultEngine=mpv` 是測試用設定，可留。
-
-**IOS-POC-17I**（MPV 旋轉根治：自建含 resize 修正的 Libmpv）：**17I-1 完成**（2026-09-25）。`.github/workflows/ios-libmpv-build.yml` 從 MPVKit 1.0.0 配方只重建 `Libmpv`，與上游比對通過（使用者核准 `_wcslen` 具名例外），發布 prerelease `mpvkit-1.0.0-webhtv.1`（run `36085794289`，`Libmpv.xcframework.zip` 3,553,297 bytes，SHA-256 `e87b4f5aea783beb2a02b4d3d1aab8197f38132d435e7907fb5ae3f6277771b4`，已寫入 `third_party/mpv-ios-lock.json`）；授權全文在 `third_party/mpv-ios/licenses/`；libbluray、libudfread、uchardet 與 `Libdovi` 內 Rust 程式碼的授權缺口已於 2026-09-25 補齊（GitHub runner 取得，逐檔核對 blob id）。**17I-2 已實作**（2026-09-25，`9186a272`）：App 改用本地 `ios/Vendor/MPVKit` package 與 WebHTV `Libmpv`，移除 17G 的 vo 重建。**17I-3 已發布** `0.1.19 (20)`（使用者選擇題核准；CI 編譯成功，IPA 確認連結 WebHTV Libmpv），待真機驗收。細節與唯一下一步見 `docs/IOS-POC-17I-mpv-resize-libmpv.md` 第十三節與 Recovery anchor。子母畫面解除時放大／進度往回已診斷，依使用者決定等有模擬器再修（17H 文件）。
-
-**下一步（唯一）**：IOS-POC-23 已在 `0.1.20 (21)` 真機驗收通過（T1～T15，文件第十二節）。使用者在 `0.1.20 (21)` 上依 `docs/IOS-POC-17I-mpv-resize-libmpv.md` 第六節第 4～6 條驗 MPV 旋轉（播放中、暫停中）與子母畫面等既有功能；搜尋在 `0.1.18 (19)` 已確認不再閃退。再依 `docs/IOS-POC-20-aggregate-search.md` 的「驗收標準（更新）」實測搜尋分頁，再在真機依 17H 文件第四節驗 MPV PiP（第六節之三的真機未驗證項目），並確認 `0.1.15 (16)` 的 MPV 螢幕常亮與 `0.1.16 (17)` 的內嵌音軌／字幕切換（兩者都沒有發布前驗證紀錄）。同時使用者繼續在 `0.1.10 (11)` 上依 `docs/IOS-POC-8L-core-real-device-acceptance.md` 7.2 回報，
-優先 ⑱⑲（＝MPV parity P1），並留意 16B 面板與 17F 自動切換；收到回報後逐列填進 8L 與 IOS-POC-17。
-使用者沒有指示前，不開始 MPV parity P2 以後的任何階段，也不開始 IOS-POC-12／13。
-**IOS-POC-19**「每個資訊源記住離開前的站台」已實作並在模擬器驗證，`0.1.13 (14)` 發布（`docs/IOS-POC-19-per-source-site-memory.md`）。**IOS-POC-21**「切換集數會跳到上一集的位置」已修正並在模擬器驗證，`0.1.13 (14)` 發布（`docs/IOS-POC-21-episode-switch-resume.md`）。**IOS-POC-20**「全站台搜尋」已於 2026-09-25 實作，並以 `0.1.17 (18)` 發布（底部「搜尋」分頁、上限 6、每站 30 秒、可載入更多、全站台與單站都繁轉簡、Python 移到專用 queue）；CI 第一次編譯即成功，單元測試依使用者選擇未執行。**使用者真機回報：`0.1.17 (18)` 送出搜尋就閃退**；根因推定為 Release 版延後啟動 Python 時的競態（多個 Python 站台同時進入 `Py_Initialize`），已在 `PythonBoot` 加鎖修正（`0786a46e`），以 `0.1.18 (19)` 發布；**使用者真機回報「可以搜尋了，沒有閃退」**，其餘驗收項目尚未回報。細節見 `docs/IOS-POC-20-aggregate-search.md` 的「實作紀錄」與「修正紀錄」。
-
-**IOS-POC-23**「暫停後離開 App 再回來，兩個核心都卡住」（2026-09-25）：第一階段已實作（`440d671e`），加上 MPV snapshot 修正（`MPVEngine.swift`，使用者同意納入範圍）；已以 `0.1.20 (21)` 發布（CI 第一次編譯即成功，單元測試未執行）。**2026-09-25 真機驗收 T1～T15 全部通過**，後續階段依目前證據不需要；T13 時發現「暫停一段時間後按播放要等幾秒」，與本修正無關，使用者決定先不處理。細節見 `docs/IOS-POC-23-pause-background-resume-stall.md` 第十一、十二節。
+**雲端工作階段的限制（2026-09-25）**：沒有 Swift／Xcode（download.swift.org 被 proxy 擋，apt 也沒有套件），編譯驗證靠發版 workflow，單元測試無法執行。17H 的模擬器限制與手動開關 PiP 的做法見 `docs/IOS-POC-17H-mpv-picture-in-picture.md` 第六節之二；iPad 模擬器 App 容器的 `webhtv.playback.defaultEngine=mpv` 是測試用設定，可留。
 
 ## Current Scope
 
@@ -105,8 +115,8 @@ run `35968750165`，`source.json` `d681a72d`，IPA 24,877,389 bytes，sha256 `bb
 | **IOS-POC-15D Buffering contract** | **Done 2026-09-24 (`6416c4d4`), shipped in `0.1.10 (11)`.** IOS-POC-15 checked line by line; `os.Logger` `[playback]` measurements. Device performance still pending. `docs/IOS-POC-15-playback-buffering-preload.md` 第十二節 |
 | **IOS-POC-17F Proactive engine fallback** | **Done to the simulator 2026-09-24 (`b37751d2`), shipped in `0.1.10 (11)`; device unverified.** Network/unclassified failures and a 20-second no-start try the other engine once per attempt; offline/source never switch; replaces 17B's capability-only rule (user decision). 344／344. `docs/IOS-POC-17-dual-internal-player.md` 第十二之二節; MPV parity roadmap 第十四節 |
 | **IOS-POC-17G / 17H MPV rotation, MPV PiP** | **Done to the simulator 2026-09-24 (17G `257553f2`, 17H `8824c8ee`), shipped in `0.1.11 (12)`; device unverified.** 17G rebuilds the VO once a rotation settles; 17H gives MPV Picture in Picture through the libmpv software renderer and a sample buffer layer (the simulator's sample-buffer PiP window is always black). `docs/IOS-POC-17-dual-internal-player.md` 第十二之三節; `docs/IOS-POC-17H-mpv-picture-in-picture.md` |
-| SideStore release pipeline (IOS-POC-11) | **Done** — `.github/workflows/ios-sidestore-release.yml` and `source.json` exist and have published every release since, through `0.1.10 (11)` |
-| Current release | **WebHTV `0.1.19 (20)`**, tag `ios-v0.1.19-b20` → `777aff2d`, published 2026-09-25 at the user's instruction (run `36089814077`, `WebHTV-0.1.19-20.ipa` 25,018,946 bytes, SHA-256 `b8ad1d1f…`, downloaded back and verified); `source.json` first entry `0.1.19`, pushed by the workflow as `883509b4`. The project carries `MARKETING_VERSION = 0.1.19` / `CURRENT_PROJECT_VERSION = 20`. It is `0.1.18 (19)` (`ccfad785`) plus IOS-POC-17I-2 (`9186a272`: MPV links the WebHTV Libmpv, whose moltenvk context follows layer resizes, and the 17G vo rebuild is gone). **No device result yet.** Record: `docs/IOS-POC-11-sidestore-release.md` 第二十次發布. |
+| SideStore release pipeline (IOS-POC-11) | **Done** — `.github/workflows/ios-sidestore-release.yml` and `source.json` exist and have published every release since, through `0.1.20 (21)` (21 releases, 2026-09-25) |
+| Current release | **WebHTV `0.1.20 (21)`**, tag `ios-v0.1.20-b21` → `957dc518`, published 2026-09-25 at the user's instruction (run `36100831753`, `WebHTV-0.1.20-21.ipa` 25,029,164 bytes, SHA-256 `b6254895…`, downloaded back and verified); `source.json` first entry `0.1.20`, pushed by the workflow as `dfbd997a`. It is `0.1.19 (20)` (`777aff2d`) plus IOS-POC-23 (`440d671e`, `51501cde`: a player paused while the app was suspended is reloaded paused on return; MPV no longer reads a paused load as playing). **Device: IOS-POC-23 T1–T15 all pass (2026-09-25); the 17I rotation fix from `0.1.19 (20)` has no device result yet.** Record: `docs/IOS-POC-11-sidestore-release.md` 第二十一次發布. |
 | IOS-POC-14 auto-advance | **Done and confirmed on the device by the user.** An episode that ends starts the next one on the same line; the last one closes the player |
 | IOS-POC-14A/14B playback speed | **Done, not device-verified.** The chosen speed carries across episodes **of the same title** — keyed on `WatchHistory.key`, so switching source resets it, which the user decided to leave (14C) |
 | Real-device acceptance (IOS-POC-8) | **Partial.** Several runs on hardware; the list below is what is and is not confirmed. Not to be recorded as complete. **IOS-POC-8L (2026-09-23) prepared the core acceptance: `docs/IOS-POC-8L-core-real-device-acceptance.md` is the matrix** (已驗證／這輪要驗／延後驗證／不適用, 14 user-run items). Two findings it recorded: `wang-movie.json` has **no source** that reaches either `script` rule host (`yeslivetv.com`, `www.maolvys.com`) and none that requests its only ad host `mozai.4gtv.tv`; and the sniffer web view and every `print` diagnostic are **invisible on a SideStore Release install** — so 5S-1/5S-3's positive behaviour has no on-device observation channel, only non-regression |
@@ -347,7 +357,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 20 | **Shipped in `0.1.17 (18)` (2026-09-25), not device-verified:** a 搜尋 tab searches every searchable site of the current source at once (limit 6, 30 s per site, load more per site, Traditional→Simplified for all searches, Python calls moved to a serial queue); first compiled by that release build; unit tests not run | `docs/IOS-POC-20-aggregate-search.md` |
 | 21 | **Fixed to the simulator 2026-09-24, shipped in `0.1.13 (14)`:** picking another episode no longer resumes at the previous episode's position; the same episode, or the same episode on another line, still resumes (Android `updateHistory`); `swift test` 351／351 | `docs/IOS-POC-21-episode-switch-resume.md` |
 | 22 | **Fixed to the simulator 2026-09-24, shipped in `0.1.14 (15)`: 2.5×／3× on an AVPlayer item that cannot fast-forward hands the playback to MPV (user's rule).** Diagnosis: AVPlayer cannot play above 2.0× when `canPlayFastForward` is false (SDK `AVPlayerItem.h`); on the simulator it discards its whole buffer at 2.5×／3× and loops wait/jump, while 2× and MPV 3× are smooth | `docs/IOS-POC-22-avplayer-high-speed.md` |
-| 23 | **Stage 1 implemented 2026-09-25 (user-approved), not compiled, tests not run, not device-verified:** a player paused in the background is reloaded paused on the same engine at its position when a background heartbeat gap shows the app was suspended (`appWasSuspended` is deprecated since iOS 16), its tracks are selected again, and the audio session is reactivated on the next play; `440d671e`, plus the MPV snapshot fix in `MPVEngine.swift` (a paused load onto a paused core read as playing) | `docs/IOS-POC-23-pause-background-resume-stall.md` |
+| 23 | **Stage 1 implemented 2026-09-25 (user-approved), shipped in `0.1.20 (21)` (first CI compile succeeded; unit tests not run); device acceptance T1–T15 all pass (2026-09-25):** a player paused in the background is reloaded paused on the same engine at its position when a background heartbeat gap shows the app was suspended (`appWasSuspended` is deprecated since iOS 16), its tracks are selected again, and the audio session is reactivated on the next play; `440d671e`, plus the MPV snapshot fix `51501cde` in `MPVEngine.swift` (a paused load onto a paused core read as playing) | `docs/IOS-POC-23-pause-background-resume-stall.md` |
 | 8L | **Core real-device acceptance preparation** — the acceptance matrix, the `wang-movie.json` rules/ads inventory, and the `0.1.8 (9)` release-candidate plan with a Release pre-flight build. Docs only; nothing was device-verified by it | `docs/IOS-POC-8L-core-real-device-acceptance.md` |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
 | 7E | The CPython payload arrives by `scripts/fetch_python_ios.sh` + `third_party/python-ios-lock.json`, not by commit | `docs/IOS-POC-7A-python-runtime.md` |
@@ -542,6 +552,8 @@ without further code, which is why they are worth more than their site counts su
   JARs, which are left alone.
 
 ## Build / Test / Verification Status
+
+**Corrected 2026-09-25:** the last full `swift test` recorded anywhere is IOS-POC-22's **354／354** (2026-09-24, `docs/IOS-POC-22-avplayer-high-speed.md` 第七節; IOS-POC-19 recorded 347／347 before it). IOS-POC-20 and IOS-POC-23 were built by the release workflow only — their unit tests have not been run, because the cloud sessions have no Swift toolchain.
 
 **Latest — after IOS-POC-17F (`b37751d2`), 2026-09-24:** `swift test --package-path ios` → **344 tests, all pass**
 (the weather test passed this time). Measured on the way: `dde455ba` (after IOS-POC-18) 326／325, after 16B 335／334,
@@ -933,7 +945,7 @@ have been collapsed into the first bullet.
 - **IOS-POC-2F closed the playback gaps.** All seven `player.control` actions and the inline JS resolver have now been driven from the page; see the IOS-POC-2F section of the 2E document for the evidence. No code changed.
 - `player.status.position` is the media's own playhead. A reading taken after a control tap includes the delay between the two taps — an earlier reading of `6000` right after `replay` was misread as an HLS timeline origin offset, and the normalisation written for it was measured, disproved and reverted.
 - `player.playUrl` reports an empty `artwork` because `Actions.play` carries only a URL and a title; `playVod`, `playVodInline` and the CMS path all report the real poster.
-- Playback has no background audio, media session or lock-screen controls. Closing the player pauses it; the session keeps the item so `player.status` still answers.
+- Playback has no background audio, media session or lock-screen controls. Closing the player pauses it; the session keeps the item so `player.status` still answers. (Corrected 2026-09-25: background audio has been declared since IOS-POC-10H (`UIBackgroundModes` `audio` in `ios/WebHTVApp/Info.plist`, with a `.playback` session at launch), and the user confirmed on `0.1.20 (21)` that sound continues when the app leaves the foreground while playing (IOS-POC-23 T4). The app still publishes no media session or lock-screen controls of its own; `AVPlayerViewController` supplies its defaults.)
 - Remote reachability is highly volatile. `itv666.cc` went from HTTP 200 to DNS failure within ten minutes, and the GitLab Raw host was unreachable for about a minute mid-session. Never treat one site's failure as a global app defect.
 - `URLSession.webHTV` caps request inactivity at 10 s. A type-4 home issues two sequential requests, so its worst case is about 20 s. This is an inactivity timeout, not a total-transfer cap. AVPlayer playback does not use this session.
 - A failed next page stops pagination silently, because the error surface only renders when the grid is empty.
@@ -1059,6 +1071,9 @@ is code complete.**
    **Prepared by IOS-POC-8L on 2026-09-23:** the full matrix, the per-item sources, steps and
    report format are in `docs/IOS-POC-8L-core-real-device-acceptance.md`. What is waiting is the
    user's report from `0.1.9 (10)`.
+   (Corrected 2026-09-25: the latest release is now `0.1.20 (21)`, which carries 16B, 15D, 17F and
+   everything after them; the 8L report is now owed from `0.1.20 (21)`. The current list of owed
+   device reports is the "Current handoff" section at the top.)
 2. ~~**MPV keep/drop decision** for the first stable product.~~ **Made on 2026-09-23: kept**
    (IOS-POC-17). What remains is MPV's **device** first frame, switching and fallback — 8L ⑱⑲,
    which the release build has offered since `0.1.8 (9)` (17E, user decision). The MPV parity
@@ -1193,10 +1208,10 @@ release version**.
 
 Paste this into a new session:
 
-> 接手 `/Users/chengchenchih/GIT/webhtv` 的 `ios-poc`，用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -6`、`git status`，以實際 Git 狀態為準、不要相信文件裡的 SHA。依 `AGENTS.md` 先讀 `AGENTS.md`、`docs/current-task-state.md` 最上方「Current handoff — 2026-09-24」一節、`docs/IOS-POC-17-dual-internal-player.md`（第十二之二節 17F、第十四節 MPV parity roadmap）。
+> 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -6`、`git status`，以實際 Git 狀態為準、不要相信文件裡的 SHA。依 `AGENTS.md` 先讀 `AGENTS.md`、`docs/current-task-state.md` 最上方「Current handoff — 2026-09-25」一節。
 >
-> 目前狀態：最新已發布版本是 `0.1.11 (12)`（2026-09-24）＝`0.1.10 (11)`（IOS-POC-16B 控制列 panel、15D 緩衝／預解析契約、17F 播不出來就主動切換播放核心）＋IOS-POC-17G（MPV 旋轉後跑版：尺寸穩定後重建 VO，MPVKit issue #3 的 App 端解法，`257553f2`）與 IOS-POC-17H（MPV 子母畫面＝MPV parity P6：只在 PiP 期間把 `vo` 切到 libmpv SW render、送進 sample buffer layer）；`ios-poc` 全部已 push；17H 的 PiP 畫面、自動 PiP、PiP 控制在模擬器驗不了（模擬器的 sample-buffer PiP 視窗一律全黑），**真機未驗證**。`0.1.8 (9)` 起 Release 開放 MPV。全套 `swift test` 344／344（天氣測試 `reportsLiveType4SitesFromProvidedConfig` 偶爾失敗，不要修）。
+> 目前狀態：最新已發布版本是 `0.1.20 (21)`（2026-09-25，tag `ios-v0.1.20-b21` → `957dc518`），IOS-POC-23 已在這一版真機驗收通過；其餘各版的內容與真機結果見 Current handoff 的表格。mpv 與 App 的音訊工作階段設定衝突，使用者已要求修正，狀態見 Current handoff 的「任務狀態」。
 >
-> 下一步：我用 SideStore 更新到 `0.1.11 (12)` 後，在真機依 `docs/IOS-POC-17H-mpv-picture-in-picture.md` 第四節驗 MPV PiP（第六節之三列的真機未驗證項目），並繼續在 `0.1.10 (11)`／下一版上依 8L 7.2 回報（優先 ⑱⑲＝MPV parity P1，並看 16B 面板與 17F 自動切換），你把結果填進 8L、IOS-POC-17 與 17H 文件。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不開始 IOS-POC-12／13。
+> 下一步：等我在 `0.1.20 (21)` 上真機回報（Current handoff「下一步」列的五項），你把結果填進對應文件。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不開始 IOS-POC-12／13。
 >
-> 規則：Ponytail 為可選 review；可用時可執行，若目前環境沒有就直接略過，不得因此阻擋功能修改、驗證、commit、build 或後續工作，也不得假稱已執行。功能修改仍須 `bash .codex/scripts/task_guard.sh start`，結束用 `finish --no-tag`。**未經我另外明確授權，不要 push、bump 版本、tag、package、publish 或發 SideStore release**；不要直接安裝到我的 iPhone（我用 SideStore）。真機沒測到的一律寫「未驗證」。
+> 規則：Ponytail 為可選 review；可用時可執行，若目前環境沒有就直接略過，不得因此阻擋功能修改、驗證、commit、build 或後續工作，也不得假稱已執行。功能修改仍須 `bash .codex/scripts/task_guard.sh start`，結束用 `finish --no-tag`。push 到 `ios-poc` 已授權；bump 版本、tag、package、publish 或發 SideStore release 前要先問我。不要直接安裝到我的 iPhone（我用 SideStore）。真機沒測到的一律寫「未驗證」。雲端工作階段沒有 Swift／Xcode，編譯靠發版 workflow，單元測試無法執行。

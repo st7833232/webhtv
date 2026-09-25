@@ -231,6 +231,9 @@ auto-advance／history 寫入／關閉播放器。
 > 它何時顯示**（`willTransitionToVisibilityOfTransportBar` 同樣是 tvOS 專用），所以「跟著控制列
 > 淡入淡出」這條路不存在。決定自建整條控制列：`docs/IOS-POC-16-custom-player-controls.md`。
 > **下面的描述仍然是目前 `0.1.5 (6)` 的實際行為**，在 16 落地前不變。
+> （2026-09-25 更正：IOS-POC-16 已落地，`2deac879`（2026-09-23），隨 `0.1.6 (7)` 發布。片頭／片尾
+> 控制現在在自建控制列 `PlayerControlBar` 裡（`ios/WebHTVApp/Sources/WebHTVApp.swift:3699`），下面的
+> overlay 只描述 `0.1.5 (6)` 及更早版本的行為。）
 
 **AVKit 在 iOS 上的控制列不能擴充**——`transportBarCustomMenuItems` 是 tvOS 的。所以 OP/ED 只能做成
 overlay，放在**右側邊緣、垂直置中**：那是 `AVPlayerViewController` 全螢幕版面裡上方列

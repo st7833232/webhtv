@@ -20,7 +20,10 @@ engine — so the order is now:
 
 1. ~~Remove external players~~ **done** (IOS-POC-17A).
 2. ~~MPV rendering recovery~~ **done on the simulator** (IOS-POC-9G: both Metal and OpenGL draw);
-   **the real-device first frame is still owed**.
+   **the real-device first frame is still owed**. (Corrected 2026-09-25: on `0.1.10 (11)` the user
+   reported MPV showing video on a real device, so MPV does draw there; the formal first-frame check,
+   item ⑱ of `docs/IOS-POC-8L-core-real-device-acceptance.md` with its event sequence and decoder
+   cells, is still not reported.)
 3. ~~Minimal `MPVEngine`~~, ~~AVPlayer + MPV dual-engine integration~~, ~~global default engine
    setting~~, ~~session engine selector~~, ~~manual engine switching~~, ~~classified automatic
    fallback~~ — **implemented** (IOS-POC-17B; widened by 17F on 2026-09-24 to network/unclassified

@@ -5,7 +5,7 @@
 - Branch `ios-poc`, baseline HEAD `2c1c2a35` (clean worktree at plan time, 2026-09-15 15:45 CST).
 - Objective: expose the 6 `type: 4` sites of the current `wang-movie.json` in the existing SwiftUI app, alongside the 22 `type: 1` sites, without changing type-1 behaviour.
 - Status: COMPLETE. Offline gates A1-A5 pass and B1-B3 are satisfied after the IOS-POC-4B ATS change recorded at the end of this file.
-- Exactly one next action: choose the next stage with the user; type-0 XML (2 sites) and the WebHome bridge remain the open candidates.
+- Exactly one next action: choose the next stage with the user; type-0 XML (2 sites) and the WebHome bridge remain the open candidates. (Corrected 2026-09-25: both have landed, type-0 XML in IOS-POC-4J (`4a9fd68f`, `docs/IOS-POC-4J-type0-xml-sources.md`) and the WebHome bridge in IOS-POC-2B to 2F (`docs/IOS-POC-2B-webhome-bridge.md`, `docs/IOS-POC-2D-webhome-bridge-ui-info.md`, `docs/IOS-POC-2E-webhome-bridge-playback.md`).)
 
 ## Completion sentence
 

@@ -5,6 +5,7 @@
 This document is the durable handoff for the iPhone/iOS work discussed on 2026-09-13. It is intended to let a new ChatGPT/Work/Codex session continue without reconstructing the conversation.
 
 > Scope note: this document began as an assessment/architecture handoff. Functional iOS POC stages are now recorded in its recovery anchor below; each bounded change remains gated by Ponytail review as described in `docs/AGENT_HANDOFF.md`.
+> (Corrected 2026-09-25: Ponytail has been optional since 2026-09-24, `ca413482`; see §2's note. The current iOS state is in `docs/current-task-state.md`, not in this file's recovery anchor.)
 
 ## 1. Repository, branch, and ownership
 
@@ -33,6 +34,8 @@ For any functional code, dependency, build, runtime, player, Spider, packaging/s
 If Ponytail is not available in the current runtime/session, do not claim it was run. Read-only analysis and documentation may continue, but functional implementation must stop before the first functional edit.
 
 At the time this document was created, Ponytail was searched for in the active ChatGPT environment but was not exposed as an available skill/plugin.
+
+(Corrected 2026-09-25: this gate no longer applies. Since 2026-09-24, `ca413482`, Ponytail is an optional review aid: use it when available, skip it when not, and its absence never blocks functional edits, verification, commits, builds or an authorized release. See `AGENTS.md` §4 "Optional Ponytail review" and `docs/AGENT_HANDOFF.md`. The task guard, verification and authorization rules are unchanged.)
 
 ## 3. User goals and hard constraints
 
@@ -787,6 +790,8 @@ A fresh session should recover in this order:
 4. `docs/IOS-PORTING-HANDOFF-2026-09-13.md` (this file)
 5. exact source files relevant to the current phase only
 
+(Corrected 2026-09-25: `docs/AGENT_HANDOFF.md` now has a fresh session read `docs/current-task-state.md`, starting with its "Current handoff" section, before this file; it holds the current iOS state. This file is the 2026-09-13 architecture record.)
+
 Do not restart the broad architecture search unless repository code or the external resource set has materially changed.
 
 ## 23. Key source files already inspected
@@ -921,3 +926,4 @@ Do not repeat these reads unless needed for a concrete implementation question:
 - POC-1E record: [config persistence task](IOS-POC-1E-config-persistence.md). The current Recha JSON was imported into Application Support with matching SHA-256; a non-first site key survived relaunch on iPhone 17 Pro Simulator. This is CMS configuration persistence, not support for the type-3/type-4 Spider sources. The invalid re-import UI path and provider-specific permission errors were not exercised.
 - Claude handoff decision: the planned WebHome bridge proof is still unimplemented, but the current 167-site `wang-movie.json` has no WebHome entry; that proof would not itself increase usable type-3/type-4 sources. The user has not chosen between hybrid-architecture proof and immediate source coverage. Do not present one as the other or implement both in one task.
 - Exactly one next action: Claude reconciles current Git/docs and asks the user which outcome is the priority, then prepares one bounded, research-backed unit and obtains explicit implementation approval. Keep the Android `main` line and all pre-existing behavior protected.
+- (Corrected 2026-09-25: this anchor stopped at POC-1E and is no longer the current state. The WebHome bridge was implemented in IOS-POC-2B–2F, type-3 spiders run on iOS (`csp_*` ports, drpy, Python), the app plays with its own AVPlayer and MPV engines, and SideStore releases have reached `0.1.20 (21)`. Current state and next step: `docs/current-task-state.md` "Current handoff"; do not act on the next action above.)

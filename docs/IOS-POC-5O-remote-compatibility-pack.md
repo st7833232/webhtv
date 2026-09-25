@@ -11,6 +11,8 @@ spider class, no Python, no CarPlay, no release work.
 - **Acceptance**: an offline launch, a 404, a timeout, a malformed manifest, a wrong hash and a
   too-new script each leave the app working; a pack-delivered spider drives a live site end to end.
 - **Not in scope**: new spider classes, Python/drpy, CarPlay, App Store packaging, a signature chain.
+- **Status (corrected 2026-09-25)**: finished and committed on 2026-09-17 in `67e02aad`. Nothing
+  here is still open; the known limits below still apply.
 
 ## Ponytail pre-review — findings acted on before writing code
 

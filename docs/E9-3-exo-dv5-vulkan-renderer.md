@@ -8,7 +8,7 @@
 - 范围：`ExoUtil.java`、`ExoDv5GpuRendererFactory.java`、`ExoDv5GpuRendererTest.java`、本文及任务索引。
 - 保护：任务开始前已有的 `app/.cxx/` 35 个未跟踪缓存文件，不修改或提交。
 - 状态：默认注册已实现；DV5 renderer、映射策略及实验策略定向单测通过，Mobile/Leanback arm64 Java 编译通过。未重建 native，未打包或安装，当前偏色场景尚未真机复验。
-- 下一动作：由当前 guard 原子提交已验证的本轮改动并创建本地注释恢复 tag，不推送。
+- 下一动作：由当前 guard 原子提交已验证的本轮改动并创建本地注释恢复 tag，不推送。（2026-09-25 更正：本轮改动已由 `d546c11c` 原子提交；恢复 tag 按计划为本地 tag，本仓库标签中没有，无法核对。当前偏色场景的新版包复测在本仓库仍无记录。）
 
 ## 历史记录与当前证据
 

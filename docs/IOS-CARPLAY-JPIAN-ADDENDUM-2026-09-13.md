@@ -6,6 +6,8 @@ This addendum records two decisions/findings discussed after `docs/IOS-PORTING-H
 
 The user's current WebHomeTV device is **Google TV / Android TV**, not iPhone. Diagnose the current `csp_JPianAmns` failure on the Android/Google TV runtime. Do not mix this failure with the future iOS port.
 
+(Corrected 2026-09-25: the Google TV `csp_JPianAmns` repair stopped being active on 2026-09-15 and is not in scope; see `docs/IOS-PORTING-HANDOFF-2026-09-13.md` §24 and `docs/current-task-state.md` "Original Goal". On iOS, 薦片 is driven through the ported `JianPian` spider, `docs/IOS-POC-5M-jianpian.md`.)
+
 ## `csp_JPianAmns` is not the JianPian playback extractor
 
 There are two different layers:
@@ -87,8 +89,8 @@ Do not couple CarPlay UI implementation to Spider runtime work. First complete t
 
 ## Recovery anchor
 
-- Current Android issue: diagnose `csp_JPianAmns` data retrieval on Google TV.
+- Current Android issue: diagnose `csp_JPianAmns` data retrieval on Google TV. (Corrected 2026-09-25: no longer active since 2026-09-15; see the note under "Current runtime platform" above.)
 - Leading suspect: effective AOWU JPian JAR/ext pairing or upstream protocol/network drift, not the JianPian P2P extractor.
 - Future iOS requirement: CarPlay support is required.
 - Full CarPlay support has an Apple Developer Program + entitlement dependency and conflicts with the earlier assumption that free SideStore provisioning alone can deliver every requested capability.
-- Functional code changes remain gated by Ponytail pre-review and final-diff review.
+- Functional code changes remain gated by Ponytail pre-review and final-diff review. (Corrected 2026-09-25: Ponytail has been an optional review aid since 2026-09-24, `ca413482`; see `AGENTS.md` §4 "Optional Ponytail review". The task guard and verification rules are unchanged.)

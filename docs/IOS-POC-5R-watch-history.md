@@ -200,3 +200,7 @@ builder、App target 串身分與取樣。
 
 使用者指定的順序：**durable documentation reconciliation**，然後才是 drpy JavaScript loader。
 5S（`ads`、`rules.script`、片頭片尾、m3u8 去廣告）保留在計畫文件中並標示 deferred，不刪除。
+
+（2026-09-25 更正：這兩步都已完成：文件對帳 `52af1362`、drpy loader `7c76d5c2`（都在 2026-09-18）。
+5S 也已實作：`ads` `7b7ad584`、片頭片尾 `d47f549d`（2026-09-22）、`rules` `63040bb3`（2026-09-23），
+記錄在 `docs/IOS-POC-5S-ads-and-skip.md`；m3u8 去廣告依 5S 的量測刻意不做。）

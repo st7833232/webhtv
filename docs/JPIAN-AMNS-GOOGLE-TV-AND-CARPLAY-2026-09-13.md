@@ -9,7 +9,7 @@ This document records diagnosis and the intended minimal repair. It does **not**
 
 ## A. Mandatory process gate
 
-Functional changes in this repository require Ponytail before implementation and again on the final diff. The user's established Ponytail workflow is:
+Functional changes in this repository require Ponytail before implementation and again on the final diff. (Corrected 2026-09-25: since `ca413482` on 2026-09-24, `AGENTS.md` §4 makes Ponytail an optional review aid; when it is unavailable it is skipped and does not block functional edits, verification, commits or releases.) The user's established Ponytail workflow is:
 
 1. inspect status/diff and relevant docs;
 2. invoke Ponytail before implementation;
@@ -198,9 +198,9 @@ For architecture, keep a shared media/library model so Android TV/Android Auto a
 
 ## Recovery anchor
 
-- Current active user issue: Google TV `csp_JPianAmns` returns no useful data.
+- Current active user issue: Google TV `csp_JPianAmns` returns no useful data. (Corrected 2026-09-25: from 2026-09-15 on, `docs/AGENT_HANDOFF.md` records that the Google TV `csp_JPianAmns` repair is explicitly not active; this repository holds no record that the override was applied.)
 - Most likely cause: old inherited global Amns JAR is out of sync with the current `JPianAmns`/`jpian.json` implementation.
 - Smallest proposed fix: add only the current maintained Amns JAR as the `jar` field on the 荐片 site entry; preserve current `jpian.json` ext.
 - Do not modify `JianPian.java` unless data retrieval is proven healthy and only playback remains broken.
 - Functional edit status in the session that wrote this document: **not started**, because Ponytail could not be invoked in that ChatGPT runtime.
-- Exactly one next action in a Ponytail-capable Work/Codex session: run Ponytail pre-review on the single-site resource override, apply it to the actual resource source used by Google TV, reload/clear the relevant cached Spider state, and execute the verification sequence in section G.
+- Exactly one next action in a Ponytail-capable Work/Codex session: run Ponytail pre-review on the single-site resource override, apply it to the actual resource source used by Google TV, reload/clear the relevant cached Spider state, and execute the verification sequence in section G. (Corrected 2026-09-25: Ponytail is optional since `ca413482`, so this action no longer requires a Ponytail-capable session.)

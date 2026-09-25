@@ -5,7 +5,7 @@
 - Branch `ios-poc`, baseline HEAD `f047d3de`, clean worktree, 2 commits ahead of `origin/ios-poc`.
 - Objective: make the configuration input an explicit choice between an imported local file and a remote Raw URL, and resolve config-relative resource references against the config's own directory.
 - Status: COMPLETE. A1-A5 and B1-B5 all pass, as recorded below.
-- Exactly one next action: agree the next stage with the user. Device deployment remains the largest open gap.
+- Exactly one next action: agree the next stage with the user. Device deployment remains the largest open gap. (Corrected 2026-09-25: device deployment is no longer open; the IOS-POC-11 SideStore pipeline has published device builds since 2026-09-22, see `docs/IOS-POC-11-sidestore-release.md`.)
 
 ## Completion sentence
 
@@ -131,4 +131,4 @@ Two further notes on that episode, recorded so the evidence is not overstated:
 
 ### Known gap, not addressed here
 
-The 從網址載入設定 dialog silently does nothing when the text is not a valid http(s) URL. It should say so. Out of scope for this commit; introduced in IOS-POC-1F.
+The 從網址載入設定 dialog silently does nothing when the text is not a valid http(s) URL. It should say so. Out of scope for this commit; introduced in IOS-POC-1F. (Corrected 2026-09-25: fixed in `150181b1`; `useRemote` now rejects such text with "請輸入 http:// 或 https:// 開頭的完整設定網址。", `ios/WebHTVApp/Sources/WebHTVApp.swift:244-248`.)

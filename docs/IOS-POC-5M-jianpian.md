@@ -111,3 +111,5 @@ The full sweep agrees, and puts the site in its listing:
 The other 33 sites behind `aowu-0722.jar` and `fan-0720.jar` are untouched. Whether any of them has
 an unprotected equivalent elsewhere in the JAR set is now a **concrete, answerable question** — this
 stage is the first evidence that the answer can be yes — but it has not been asked for any of them.
+(Corrected 2026-09-25: IOS-POC-5N asked it for all of them and found candidates for seven more
+sites; none has been ported yet — `docs/IOS-POC-5N-protected-site-equivalents.md`.)

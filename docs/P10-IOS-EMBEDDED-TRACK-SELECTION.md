@@ -7,7 +7,7 @@
 - Baseline: `882e6993b43535ea042c002d6e9c1a810182447d`.
 - Scope: `ios/Sources/WebHTVCore/PlaybackMediaSelection.swift`, `ios/Sources/WebHTVCore/PlaybackEngine.swift`, `ios/WebHTVApp/Sources/WebHTVApp.swift`, `ios/WebHTVApp/Sources/MPVEngine.swift`, `ios/Tests/WebHTVCoreTests/PlaybackEngineTests.swift`, this document and the assessment index.
 - Exclusions: external audio URL, Dolby Atmos/passthrough, AirPlay Audio, lock screen / Control Center.
-- Rollback: revert the single P10 atomic commit.
+- Rollback: revert the single P10 atomic commit. (Corrected 2026-09-25: implemented in `637d3597` with a follow-up compile fix `7acb5db1`, so a rollback reverts both. Released in `0.1.16 (17)`; no pre-release verification is recorded, and its track-switching device check is still listed as owed in `docs/current-task-state.md`. See `docs/IOS-POC-11-sidestore-release.md`, 第十七次發布.)
 - Ponytail: optional / skipped.
 - Task guard: unavailable in the current connected-GitHub runtime because no local workspace is mounted; equivalent branch/HEAD/scope checks are performed before the atomic Git commit.
 

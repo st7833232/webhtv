@@ -5,7 +5,9 @@ Stage record. Measured 2026-09-17 at HEAD `f0e42264`, against the user's own `wa
 
 > **Superseded as the current sweep by IOS-POC-5L.** This document records the 45-source sweep and
 > stays as that stage's record. The app now lists 61 sources; the current per-site table is in
-> `docs/IOS-POC-5L-appqi-app99-app3q-bili.md`.
+> `docs/IOS-POC-5L-appqi-app99-app3q-bili.md`. (Corrected 2026-09-25: the app now lists 62 of 167
+> sources from an imported file and 109 from a remote URL — `docs/AGENT_HANDOFF.md`; 5L's table
+> covers the 61 it measured.)
 
 ## What this stage is
 
@@ -88,7 +90,9 @@ Unchanged from the IOS-POC-5D sweep except that the media probe now separates �
 
 > **Superseded in part by IOS-POC-5F**, which fixed five of the defects below and corrected two
 > “ours” verdicts to “provider”. Playable went 27 → 29 of 45. Read
-> `docs/IOS-POC-5F-spider-defect-fixes.md` for the current state.
+> `docs/IOS-POC-5F-spider-defect-fixes.md` for the current state. (Corrected 2026-09-25: item 4
+> below was also done — IOS-POC-5G built the WebView sniffer and recovered those four sources plus
+> the two 巴士 sites, 29 → 35 of 45; see `docs/IOS-POC-5G-media-sniffer.md`.)
 
 ## Open defects, ranked by sources recovered
 

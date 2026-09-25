@@ -199,6 +199,8 @@ build script 從釘住的上游重建，重新連結的材料是齊的。
 2. **IOS-POC-9B（尚未授權）**：技術可行性 spike——`PlaybackTarget → PlayerRouter →
    AVPlayerEngine / MPVEngine`，共用既有 `PlaybackSession`、headers、history、resume、quality，
    不重造 `SourceClient`。**未經使用者明確指示不得開始。**
+   （2026-09-25 更正：IOS-POC-9B 已於 2026-09-21 開始並實作（`401b3076`），MPV 之後由 IOS-POC-17 成為第二內部播放核心，
+   見 `docs/IOS-POC-9B-mpv-playback-core.md` 與 `docs/IOS-POC-17-dual-internal-player.md`。）
 
 理由：授權問題已經收斂到可判定，而技術問題（App 體積再 +80 MB 以上、Metal/MoltenVK 在真機的表現、
 與 `PlaybackSession` 的生命週期整合）需要的是量測而不是閱讀，屬於另一個決策。
@@ -220,6 +222,10 @@ lock，`git revert` 即可；`WebHTVCore` 不會連結它（沿用 `PythonSpider
 讓 macOS 上的測試不受影響）。
 
 ## 未解 gate（刻意不臆測）
+
+（2026-09-25 更正：gate 1 與 gate 3 已由 IOS-POC-9B 讀 MPVKit 建置腳本關閉，見 `docs/IOS-POC-9B-mpv-playback-core.md`「9A 留下的 gate，本輪關閉情形」。
+方案 C 的 lock 與 notice 之後由 IOS-POC-17I-1 建立：`third_party/mpv-ios-lock.json`（`1fdce318`）與 `third_party/mpv-ios/licenses/`
+（`85642ec5`、`9f2af62c`）；驗收項 L4 的 App 內歸屬畫面仍是另一個任務（`third_party/mpv-ios/README.md` 末段）。）
 
 1. **MPVKit LGPL 變體的完整相依授權未逐一核對**：`Libdovi`、`MoltenVK`、`Libshaderc_combined`、
    `lcms2`、`Libuchardet`、`gnutls`／`nettle`／`hogweed`／`gmp`、`Libuavs3d`。要在 9B 開始前補完。
@@ -250,5 +256,7 @@ configure，因此 **App 目前出貨的九個 mpv `.so` 的授權狀態無法�
 
 ## 下一步（唯一）
 
-**等使用者決定要不要開 IOS-POC-9B（技術可行性 spike）。** 在那之前不得新增依賴、不得改
-`Package.swift`、不得下載任何 xcframework。
+**無。** 本審查已完成，IOS-POC-9B 之後已開始（`401b3076`）；MPV 的後續狀態見
+`docs/IOS-POC-9B-mpv-playback-core.md` 與 `docs/IOS-POC-17-dual-internal-player.md`。
+（2026-09-25 更正：原寫「等使用者決定要不要開 IOS-POC-9B（技術可行性 spike）。在那之前不得新增依賴、不得改
+`Package.swift`、不得下載任何 xcframework。」）

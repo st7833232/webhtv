@@ -3,6 +3,9 @@
 - 狀態（2026-09-24）：**17A／9G／17B／17C／17D／17E 完成；17F（主動切換播放核心）完成到模擬器。MPV rendering 在模擬器已解；真機仍未驗證。**
   **使用者 2026-09-23 決定直接開放 MPV**（17E）：正式版現在可選 MPV；防黑畫面的只剩 `MPVEngine` 的
   first-frame watchdog（10 秒沒畫面 → 回 AVPlayer）。不可宣稱 MPVEngine 已完成真機驗收。
+  （2026-09-25 更正：使用者 2026-09-24 在 `0.1.10 (11)` 真機回報 MPV 有畫面（`docs/IOS-POC-8L-core-real-device-acceptance.md` 7.2 表後的回報），
+  MPV 正式播放路徑已在真機出畫面；first frame 事件序列、headers、硬解仍未逐項回報。之後的 17G（旋轉）已由 IOS-POC-17I
+  自建含 resize 修正的 Libmpv 取代（`9186a272`，`0.1.19 (20)`）；17H（MPV 子母畫面）已於 `0.1.11 (12)` 發布；兩者真機驗收仍待回報。目前最新版為 `0.1.20 (21)`。）
 - 開始：2026-09-23 16:48 CST，起始 HEAD `2a46c3fb22e533588bee93cc0ac15d55c15736ca`
   （`git fetch` 後與 `origin/ios-poc` `0 0`，worktree clean）
 - Lane：`standard`（功能開發）；MPV 算繪那一段屬 IOS-POC-9 家族，記為 **IOS-POC-9G**，
@@ -96,6 +99,7 @@ hwdec／軟解對照、drawable／surface lifecycle、callback wiring、first-fr
 
 - 每個單元一個 commit，`git revert` 即可。
 - 旗標級：`PlaybackEngineAvailability` 只回 `[.native]`（現在 Release 就是如此）＝MPV 完全不出現。
+  （2026-09-25 更正：程式裡的旗標是 `PlaybackEngines.offered`（`ios/WebHTVApp/Sources/WebHTVApp.swift:2949-2950`），17E 起所有 build 都是 `[.native, .mpv]`；改回 `[.native]` 後，MPV 在設定頁與控制列仍會列出，但顯示為「MPV（尚未開放）」且不能選（`:1244`、`:3689`）。）
 - 外部播放器移除的 revert 會把 `ExternalPlayer.swift`、選單與測試整組還原。
 
 ## 八、17A — 外部播放器移除（完成）
@@ -342,7 +346,8 @@ Simulator Debug build → **BUILD SUCCEEDED**。全套 `swift test` 留到 17B �
 
 ### 限制／未驗證
 
-- **真機未驗證**：需要下一次經使用者授權的發布才會到手機上。
+- **真機未驗證**：需要下一次經使用者授權的發布才會到手機上。（2026-09-25 更正：17G 已隨 `0.1.11 (12)` 發布；使用者在 `0.1.18 (19)` 真機回報旋轉時「畫面會短暫的跑版，然後恢復正常」，
+  之後由 IOS-POC-17I 以自建含 resize 修正的 Libmpv 根治，並移除本節的 VO 重建（`9186a272`，`0.1.19 (20)` 發布，真機待驗），見 `docs/IOS-POC-17I-mpv-resize-libmpv.md`。）
 - 每次旋轉會重建一次 VO 並對目前位置 exact seek：模擬器上看不出卡頓，弱網路下若 demuxer cache 沒有涵蓋目前位置，可能短暫緩衝。
 - 根治是 libmpv 的 `moltenvk` context 自己回報 resize（上游 issue #3／edde746 修法），要自己編 libmpv；程式裡以 `ponytail:` 註記。
 
@@ -371,13 +376,17 @@ remove external players            ✓ 17A
 → IOS-POC-13
 ```
 
+（2026-09-25 更正：9G 的 MPV 畫面已在 `0.1.10 (11)` 真機看到（見文首狀態）；17G 已由 IOS-POC-17I（自建含 resize 修正的 Libmpv，`9186a272`，
+`0.1.19 (20)` 發布，真機待驗）取代並移除；17H 的 PiP 視窗在真機有畫面（`docs/IOS-POC-17H-mpv-picture-in-picture.md` 第六節之六），其餘 PiP 項目真機待驗；
+MPV 內嵌字幕／音軌切換已由 P10 實作（見第十四節 P3 列）。「core real-device acceptance」仍是下一步。）
+
 MPV parity 的後續階段（P2 前置緩衝 → P3 字幕／音軌 → P4 外掛字幕 ASS/SSA → P5 背景音訊／鎖屏／remote command →
 P6 PiP bridge → P7 AirPlay Audio；AirPlay Video 只做 feasibility）見第十四節；它們與 IOS-POC-12／13 的先後由使用者決定。
 
 只有當 MPV 在真機觸發第五節 stop condition 並被實證不適用：`MPV stop → minimal VLCKit spike →
 decision AVPlayer + VLC`（絕不三核心）。IOS-POC-15 真機效能測試依使用者決定延後，不是 blocker。
 
-## 十四、MPV parity roadmap（2026-09-24 起，使用者指示寫入；P6 已由 IOS-POC-17H 實作，其餘仍只是計畫）
+## 十四、MPV parity roadmap（2026-09-24 起，使用者指示寫入；P6 已由 IOS-POC-17H 實作，其餘仍只是計畫；2026-09-25 更正：P3 的內嵌字幕／音軌切換已由 P10 實作，見 P3 列）
 
 > **編號說明**：P1–P7 是本節內的先後順序，**不是** AGENTS.md §8 上游合併計畫的 `P*` 任務 ID；
 > 每一階段開始實作時另取 IOS-POC 家族的 stage ID（例如 `IOS-POC-17G`），並登記在第十三節與 `docs/current-task-state.md` 的 stage index。
@@ -392,10 +401,10 @@ IOS-POC-16B（控制列 panel）完成後，MPV 的後續工作依下列順序�
 |---|---|---|---|---|
 | P1 | **MPV 真機 baseline** | 先量，不先調 | first frame（`VIDEO_RECONFIG`＋`PLAYBACK_RESTART`）、`hwdec-current` 實際是 `videotoolbox` 還是 `videotoolbox-copy`、HLS／MP4、headers（Bili Referer＋UA）、2.5×／3×／4× 聲音與畫面、`demuxer-cache-state` 的 forward 秒數與 `cache-speed`、AVPlayer↔MPV 切換、**真實**失敗觸發的 fallback | 8L ⑱⑲ 全部有真機結果；每項記錄事件序列與數字，不寫「應該可以」 |
 | P2 | **MPV 前置緩衝 parity（IOS-POC-15 的 MPV 版）** | 與 AVPlayer 相同的產品目標：足夠的前置 buffer、可量測的 cache、弱網不抖動 | 用 libmpv 自己的機制，**不**照抄 `preferredForwardBufferDuration`：`cache=yes`（不靠 `auto` 啟發式）、`cache-secs`（以秒表達目標）、明確且較低的 `demuxer-max-bytes`／`demuxer-max-back-bytes`（預設 150／50 MiB，iOS 記憶體需另定）、`cache-pause-wait`（預設 1 秒，弱網易抖）、觀察 `demuxer-cache-state`（`cache-end`、`fw-bytes`、`raw-input-rate`）與 `cache-buffering-state`；live／未知長度不套 VOD 目標 | 真機比較 P1 baseline：startup、buffer-ahead、stall 次數；記憶體峰值 |
-| P3 | **subtitle／audio track parity** | 控制列的字幕／音軌 panel 在 MPV 也出現 | `track-list`（NODE）→ `aid`／`sid`／`secondary-sid`；IOS-POC-16B 的 panel 直接沿用，只補 MPV 的資料來源與 `PlaybackEngineCapabilities.trackSelection = true` | 多音軌／多字幕來源實測；切換不重開影片 |
+| P3 | **subtitle／audio track parity**（2026-09-25 更正：內嵌字幕／音軌切換已由 P10 實作，`637d3597`＋編譯修正 `7acb5db1`，於 `0.1.16 (17)` 發布；MPV 的 `trackSelection` 已是 true（`ios/Sources/WebHTVCore/PlaybackEngine.swift:31-34`），以 `track-list`＋`aid`／`sid` 實作，`secondary-sid` 未做；真機未驗證。見 `docs/P10-IOS-EMBEDDED-TRACK-SELECTION.md`） | 控制列的字幕／音軌 panel 在 MPV 也出現 | `track-list`（NODE）→ `aid`／`sid`／`secondary-sid`；IOS-POC-16B 的 panel 直接沿用，只補 MPV 的資料來源與 `PlaybackEngineCapabilities.trackSelection = true` | 多音軌／多字幕來源實測；切換不重開影片 |
 | P4 | **外掛字幕、ASS/SSA** | 來源提供的字幕網址可載入，ASS 樣式正確 | `sub-add <url> cached <title> <lang>`；libass 已在 MPVKit 1.0.0 LGPL 產品內（ISC 授權、CoreText 字型、無 fontconfig），中文字型走系統字型；需在授權聲明補 fribidi（LGPL）／freetype | CJK 字幕、ASS 特效、字幕與影片同步 |
 | P5 | **背景音訊、鎖屏、控制中心、耳機／AirPods／Bluetooth／車機控制** | 離開 App 或鎖屏時 MPV 繼續出聲，鎖屏／控制中心顯示並可操作 | App 已設 `.playback`／`.moviePlayback` 與 `UIBackgroundModes`；**但 mpv 的 `ao_audiounit` 預設把 session 設成 `mixWithOthers`**，可混音的 session 不具 Now Playing 資格 → 需 `audio-exclusive=yes`；非 AVPlayer engine 必須自己發 `MPNowPlayingInfoCenter.default().nowPlayingInfo`（只在 play/pause/seek/rate 變化時更新，不要每 tick）並註冊 `MPRemoteCommandCenter.shared()`（play/pause/toggle/skip±/changePlaybackPosition）；`MPNowPlayingSession` 只收 AVPlayer | 鎖屏、控制中心、AirPods 雙擊、車機上一首／下一首實測；uninit 的 `setActive:NO` 不得打斷 AVPlayer 路徑 |
-| P6 | **MPV PiP bridge** — **已實作：IOS-POC-17H（2026-09-24，`8824c8ee`，已於 `0.1.11 (12)` 發布；模擬器能驗的部分通過，PiP 畫面與自動 PiP 真機未驗證）** | MPV 也能子母畫面 | 唯一公開路徑：`AVPictureInPictureController.ContentSource(sampleBufferDisplayLayer:playbackDelegate:)`（iOS 15+）。原本的 feasibility 問題（拿不到 `CVPixelBuffer`）的答案：**inline 維持 Metal，只在 PiP 期間把 `vo` 切到 libmpv SW render**，以 PiP 視窗寬度（上限 960 px）畫進 IOSurface BGRA buffer 送進 MPV view 裡的 `AVSampleBufferDisplayLayer`；背景不能用 GPU（Apple），所以 PiP 畫面必須在 CPU 上產生。代價：PiP 開始／結束各一次 VO 重建＋exact seek。模擬器的 sample-buffer PiP 視窗一律全黑（SwiftVLC `0ec31e4e` 記載的限制；最小對照組也黑、AVPlayerLayer PiP 有畫面）。詳見 `docs/IOS-POC-17H-mpv-picture-in-picture.md` | play/pause/seek、背景播放、返回 App 自動恢復 inline player；**不建立第二個 MPV instance、不重開影片**，保留 position／rate／audio／subtitle；與 AVPlayer 相同，由使用者離開 App 自動進入（`canStartPictureInPictureAutomaticallyFromInline`），沒有手動 PiP 按鈕 |
+| P6 | **MPV PiP bridge** — **已實作：IOS-POC-17H（2026-09-24，`8824c8ee`，已於 `0.1.11 (12)` 發布；模擬器能驗的部分通過，PiP 畫面與自動 PiP 真機未驗證）**（2026-09-25 更正：使用者在 `0.1.11 (12)` 回報 PiP 解析度降低，表示真機 PiP 視窗有畫面，解析度已由 `5613517a` 修正；其餘 PiP 項目真機未驗證，見 17H 文件第六節之六與其後的真機回報） | MPV 也能子母畫面 | 唯一公開路徑：`AVPictureInPictureController.ContentSource(sampleBufferDisplayLayer:playbackDelegate:)`（iOS 15+）。原本的 feasibility 問題（拿不到 `CVPixelBuffer`）的答案：**inline 維持 Metal，只在 PiP 期間把 `vo` 切到 libmpv SW render**，以 PiP 視窗寬度（上限 960 px）畫進 IOSurface BGRA buffer 送進 MPV view 裡的 `AVSampleBufferDisplayLayer`；背景不能用 GPU（Apple），所以 PiP 畫面必須在 CPU 上產生。代價：PiP 開始／結束各一次 VO 重建＋exact seek。模擬器的 sample-buffer PiP 視窗一律全黑（SwiftVLC `0ec31e4e` 記載的限制；最小對照組也黑、AVPlayerLayer PiP 有畫面）。詳見 `docs/IOS-POC-17H-mpv-picture-in-picture.md` | play/pause/seek、背景播放、返回 App 自動恢復 inline player；**不建立第二個 MPV instance、不重開影片**，保留 position／rate／audio／subtitle；與 AVPlayer 相同，由使用者離開 App 自動進入（`canStartPictureInPictureAutomaticallyFromInline`），沒有手動 PiP 按鈕 |
 | P7 | **AirPlay Audio** | MPV 播放時可選 AirPlay 音訊輸出 | `AVRoutePickerView`（控制列已有）＋`AVAudioSession` route；需 P5 的 Now Playing／remote command 才完整 | 真機接 AirPlay 喇叭 |
 | — | **AirPlay Video：feasibility only** | **不承諾**與 AVPlayer 等價 | Apple 只把外部影片播放寫成 AVPlayer 的屬性（`allowsExternalPlayback`、`usesExternalPlaybackWhileExternalScreenIsActive`）；沒有文件說 AirPlay 影片必須 AVPlayer，但也沒有任何非 AVPlayer 的公開路徑——MPV 在實務上大概只剩螢幕鏡像或外接顯示視窗（A/V 同步風險）。AirPlay 影片維持由 AVPlayer 負責 | 只做可行性評估，不列入 parity 驗收 |
 
@@ -425,11 +434,15 @@ access-log 類診斷，MPV 對應項在 P2 補上。
   `source.json` `30af13f5`，IPA 下載回驗通過）。之後的 `0.1.9 (10)`（IOS-POC-18）也含上述全部。
 - 17F `b37751d2`（2026-09-24）：已 push，並於 2026-09-24 以 `0.1.10 (11)` 發布（run `35953397506`，tag `ios-v0.1.10-b11`）。
 - 17G `257553f2`（旋轉，第十二之三節）與 17H `8824c8ee`（MPV PiP，第十四節 P6、`docs/IOS-POC-17H-mpv-picture-in-picture.md`）：2026-09-24 已 push，並以 `0.1.11 (12)` 發布（run `35968750165`，tag `ios-v0.1.11-b12`）；
-  17H 的 PiP 畫面、自動 PiP、PiP 控制都是**真機未驗證**。
+  17H 的 PiP 畫面、自動 PiP、PiP 控制都是**真機未驗證**。（2026-09-25 更正：使用者在 `0.1.11 (12)` 回報 PiP 解析度降低，表示真機 PiP 視窗有畫面，見 17H 文件第六節之六；自動 PiP 與 PiP 控制仍未在真機驗證。）
 - 已驗證：macOS `swift test` 17E 後 323／323、17F 後 **344／344**；Simulator Debug build；模擬器上 MPV Metal／OpenGL
   first frame、AVPlayer↔MPV 手動切換保留位置／速度／暫停／target、點集數直接播放；iphoneos Release 預建置；
   17F 的 20 秒主動切換在模擬器上兩個方向都觸發過、且不會切第二次（第十二之二節）。
 - 未驗證：**任何真機行為**（MPV first frame、headers、硬解、切換、watchdog fallback、17F 的切換、背景／前景）；
   畫質選單沒有被真實多網址來源觸發過；自動 fallback 沒有被**真實來源**的失敗觸發過（17F 用的是本機假串流）。
+  （2026-09-25 更正：MPV 在真機出畫面已由 `0.1.10 (11)` 的使用者回報確認（見文首狀態）；IOS-POC-23 的 T1～T3 在 `0.1.20 (21)`
+  兩個核心都通過。其餘項目仍未在真機驗證。）
+- 17I（2026-09-25）：以自建含 resize 修正的 Libmpv 取代 17G 的 VO 重建（`9186a272`），以 `0.1.19 (20)` 發布，真機待驗；見 `docs/IOS-POC-17I-mpv-resize-libmpv.md`。
 - 下一步（唯一）：使用者用 SideStore 裝最新的 `0.1.11 (12)`，依 8L 7.2 回報，
   **優先 ⑱⑲（MPV 真機）**＝第十四節 P1，並回報 17F 的自動切換是否在真實來源上出現。
+  （2026-09-25 更正：目前最新為 `0.1.20 (21)`，使用者已安裝；在這一版上依 8L 7.2 回報，其餘不變。）

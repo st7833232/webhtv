@@ -5,7 +5,7 @@
 - Branch `ios-poc`, baseline HEAD `14bad772`, clean worktree, level with `origin/ios-poc` at plan time (2026-09-16 10:22 CST).
 - Objective: prove an existing WebHome page can call an iOS native bridge and complete a real request and playback flow, using a controlled subset of the established RPC contract.
 - Status: IMPLEMENTED. Offline gates A1-A5 pass; B1-B3 verified in the simulator; B4 partial and B5 not exercised live, as recorded below.
-- Exactly one next action: agree the following POC-2 slice with the user. Device deployment and the remaining bridge methods are both open.
+- Exactly one next action: agree the following POC-2 slice with the user. Device deployment and the remaining bridge methods are both open. (Corrected 2026-09-25: both have moved since. IOS-POC-2D (`6d926ebd`) added the UI, navigation and info methods, IOS-POC-2E (`588cb85a`) the playback methods, verified further in IOS-POC-2F (`46a00eb4`), and the IOS-POC-11 SideStore pipeline has published device builds since 2026-09-22. `net.resourceUrl`, `pan.*`, `app.open*`, `ui.setChrome`, `ui.restoreChrome` and `player.preloadArtwork` still reject through the `default` branch, `ios/Sources/WebHTVCore/WebHomeBridge.swift:305-396`.)
 
 ## Completion sentence
 
@@ -138,7 +138,7 @@ The page is long and its buttons carry emoji labels that the simulator renders a
 
 ### Out-of-scope defect observed
 
-Settings still reads "目前支援 28 個 type-1 JSON CMS 來源。" The count is right but the label has been stale since type-4 support landed in IOS-POC-4A. Not touched here.
+Settings still reads "目前支援 28 個 type-1 JSON CMS 來源。" The count is right but the label has been stale since type-4 support landed in IOS-POC-4A. Not touched here. (Corrected 2026-09-25: the footer was rewritten in IOS-POC-1F, see `docs/IOS-POC-1F-config-sources.md`.)
 
 
 ## IOS-POC-2C — Debug-only CJK fallback for the simulator (2026-09-16)

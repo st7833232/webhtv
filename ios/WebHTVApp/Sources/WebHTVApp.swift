@@ -2080,7 +2080,16 @@ extension Playback {
         NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
         ) { _ in
-            Task { @MainActor in await PlaybackSession.shared.persist() }
+            Task { @MainActor in
+                PlaybackSession.shared.noteEnteredBackground()
+                await PlaybackSession.shared.persist()
+            }
+        }
+        // IOS-POC-23: the return from the background.
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { _ in
+            Task { @MainActor in PlaybackSession.shared.noteBecameActive() }
         }
         // IOS-POC-17. The engines sit under this session, not beside it: everything above — the
         // record, resume, the ending, auto-next, the prefetch — stays here and asks `engine`.
@@ -2094,6 +2103,8 @@ extension Playback {
         router.onEngineChange = { [weak self] kind in
             guard let self else { return }
             self.engineStartedAt = .now
+            // Track ids belong to one engine adapter; the other engine's would match nothing.
+            self.tracksToRestore = nil
             self.mediaSelection = PlaybackMediaSelection()
             self.onMediaSelectionChange?(self.mediaSelection)
             self.onEngineChange?(kind)
@@ -2102,6 +2113,7 @@ extension Playback {
             guard let self else { return }
             self.mediaSelection = selection
             self.onMediaSelectionChange?(selection)
+            self.restoreTracksAfterReload(selection)
         }
         router.onUnrecoverable = { [weak self] failure in
             guard let self else { return }
@@ -2120,6 +2132,20 @@ extension Playback {
     // MARK: - IOS-POC-17: the engine under the session
 
     private(set) var router: PlayerRouter!
+
+    // MARK: IOS-POC-23 — paused, suspended, reloaded
+
+    private var pausedBackground = PausedBackgroundReload()
+    /// Beats while a paused player is in the background, so a suspension shows up as a gap.
+    private var heartbeat: Task<Void, Never>?
+    /// The app was suspended, which deactivates the audio session, and the next play has to
+    /// activate it again.
+    private var audioSessionSuspended = false
+    /// The embedded tracks from before a reload, selected again once the reloaded item lists its own.
+    private var tracksToRestore: PlaybackMediaSelection?
+    /// Kept by the player screen: AVKit or MPV has the video in a Picture in Picture window.
+    var pictureInPictureActive = false
+
     /// The player screen's hooks: which engine is drawing, and a failure to show.
     var onEngineChange: ((PlaybackEngineKind) -> Void)?
     var onFailure: ((PlaybackFailure) -> Void)?
@@ -2573,9 +2599,102 @@ extension Playback {
         return reached && !endingReached
     }
 
+    // MARK: - IOS-POC-23: paused in the background, suspended, loaded again on return
+
+    /// A paused player the viewer is looking at: open, loaded or still loading, paused, not in
+    /// Picture in Picture, and not showing a failure — the one state a reload on return puts back
+    /// exactly as it was. MPV reports a load in progress as not loaded yet, hence `.preparing`.
+    private var isPausedOnScreen: Bool {
+        guard router.sessionActive, router.failure == nil, started, let engine,
+              engine.isLoaded || engine.state == .preparing else { return false }
+        return engine.rate == 0 && !pictureInPictureActive
+    }
+
+    /// Where a reload starts. An item still preparing has not reached its own start yet, so it keeps
+    /// the one it was asked for; a live stream (no duration) goes back to its live edge.
+    private var reloadPosition: Double {
+        guard let engine else { return 0 }
+        if engine.state == .preparing { return router.request?.startSeconds ?? 0 }
+        return engine.duration > 0 ? engine.currentTime : 0
+    }
+
+    private func noteEnteredBackground() {
+        let eligible = isPausedOnScreen
+        pausedBackground.enteredBackground(eligible: eligible, position: reloadPosition, at: .now)
+        heartbeat?.cancel()
+        heartbeat = nil
+        guard eligible else { return }
+        heartbeat = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: PausedBackgroundReload.heartbeat)
+                if Task.isCancelled { return }
+                self.pausedBackground.stillRunning(at: .now)
+            }
+        }
+    }
+
+    private func noteBecameActive() {
+        heartbeat?.cancel()
+        heartbeat = nil
+        guard let seconds = pausedBackground.becameActive(at: .now) else { return }
+        audioSessionSuspended = true
+        reloadPaused(at: seconds)
+    }
+
+    /// Loads the paused item again where the viewer left it — what closing and reopening the player
+    /// did for them: the same engine, address and headers, still paused. The startup watch is not
+    /// re-armed, because its timeout hands over with autoplay and a paused reload must never start
+    /// playing by itself; a pre-resolved address's live retry would start it too, so it goes.
+    private func reloadPaused(at seconds: Double) {
+        guard isPausedOnScreen, let engine else { return }
+        var line = "[lifecycle] \(itemTitle) suspended while paused: reloading on \(engineKind.shortName)"
+            + " at \(Int(seconds))s state=\(engine.state)"
+        if engineKind == .native {
+            line += " control=\(player.timeControlStatus.rawValue)"
+                + " waiting=\(player.reasonForWaitingToPlay?.rawValue ?? "none")"
+        }
+        Self.log.notice("\(line, privacy: .public)")
+        startupWatch?.cancel()
+        retryWithoutPrefetch = nil
+        tracksToRestore = mediaSelection
+        router.reload(at: seconds, autoplay: false)
+    }
+
+    /// A reloaded item picks its own default tracks. The viewer's choice goes back once the item has
+    /// listed what it offers — the first listing with any tracks settles it.
+    private func restoreTracksAfterReload(_ selection: PlaybackMediaSelection) {
+        guard let saved = tracksToRestore, selection.audio != nil || selection.subtitle != nil
+        else { return }
+        tracksToRestore = nil
+        let choices = saved.reselections(after: selection)
+        guard !choices.isEmpty else { return }
+        Task { @MainActor in
+            for (kind, id) in choices { await self.selectMedia(kind, id: id) }
+        }
+    }
+
+    /// Apple documents that the system deactivates the audio session when it suspends the app, and
+    /// nothing else here activates it again: `WebHTVApp.init` does once at launch, mpv only when it
+    /// creates its audio output. Deferred to the next play, as Apple advises, so returning to a
+    /// paused player does not interrupt another app's audio. Activating an active session is
+    /// harmless, and a failure is tried again on the next play.
+    private func activateAudioSessionIfSuspended() {
+        guard audioSessionSuspended else { return }
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+            audioSessionSuspended = false
+        } catch {
+            Self.log.notice("[lifecycle] audio session not reactivated: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     func control(_ action: String) {
         switch action {
-        case "play": engine?.play()
+        case "play":
+            // IOS-POC-23: playing again leaves nothing to reload.
+            pausedBackground.cancel()
+            activateAudioSessionIfSuspended()
+            engine?.play()
         case "pause": engine?.pause()
         case "stop":
             // No foreground service to stop, so the equivalent is to drop what is loaded.
@@ -2589,6 +2708,7 @@ extension Playback {
         case "next": start(at: index + 1)
         case "loop": looping.toggle()
         case "replay":
+            activateAudioSessionIfSuspended()
             engine?.seek(toSeconds: 0)
             engine?.play()
         default: break
@@ -2667,6 +2787,11 @@ extension Playback {
     /// IOS-POC-17: what every path opens, engine-agnostic. The engine the router picks does the
     /// media part; the position to resume at and the speed travel in the request.
     private func load(_ url: URL, autoplay: Bool = true) {
+        // IOS-POC-23: a position or tracks kept for the previous item mean nothing for this one, and
+        // an item that starts playing needs the audio session a suspension took away.
+        pausedBackground.cancel()
+        tracksToRestore = nil
+        if autoplay { activateAudioSessionIfSuspended() }
         reportItem()
         itemTitle = title
         resolution = nextResolution
@@ -4046,6 +4171,8 @@ private struct PlayerView: View {
         // IOS-POC-16B. Every change to the bar or its panels restarts the countdown — or stops it,
         // when a panel has just opened. One place, so no path can open or close a panel and forget.
         .onChange(of: chrome) { scheduleHide() }
+        // IOS-POC-23: a player in Picture in Picture is never reloaded on return.
+        .onChange(of: pictureInPicture) { session.pictureInPictureActive = pictureInPicture }
         // The tap that brings a hidden bar back is not something VoiceOver can reach, so turning it
         // on brings the bar back instead.
         .onChange(of: voiceOver) { if voiceOver { chrome.show() } }
@@ -4073,6 +4200,7 @@ private struct PlayerView: View {
         .task {
             engineKind = session.engineKind
             failure = session.router.failure?.message
+            session.pictureInPictureActive = pictureInPicture
             session.onMediaSelectionChange = { selection in
                 media = selection
                 reconcileTrackPanel()

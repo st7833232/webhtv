@@ -422,6 +422,18 @@ public final class PlayerRouter {
 
     public func setGlobalDefault(_ kind: PlaybackEngineKind) { selection.setGlobalDefault(kind) }
 
+    /// IOS-POC-23: the same request again on the engine it is on, at `seconds` — what closing and
+    /// reopening the player does, without closing it. Zero is a real position here (the start, or a
+    /// live stream's edge), not "unknown": the caller already chose. The selection is left alone,
+    /// so this attempt's fallback is neither spent nor renewed.
+    public func reload(at seconds: Double, autoplay: Bool) {
+        guard let request else { return }
+        failure = nil
+        let again = request.resumed(at: max(seconds, 0), rate: request.rate, autoplay: autoplay)
+        self.request = again
+        run(again)
+    }
+
     /// The player closed. A running engine the next session would not start on is released.
     public func endSession() {
         sessionActive = false

@@ -470,6 +470,67 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     #expect(harness.made.flatMap(\.loads).allSatisfy { $0.target == target })
 }
 
+// MARK: - IOS-POC-23: reloading after a suspension
+
+@MainActor @Test func aReloadLoadsTheSameItemPausedOnTheSameEngine() throws {
+    let harness = Harness()
+    harness.router.open(request)
+    let native = harness.engine
+    harness.router.setRate(2)
+    harness.router.reload(at: 1234, autoplay: false)
+    // What reopening the player does: a new load on the same engine, not a new engine.
+    #expect(harness.engine === native)
+    #expect(harness.made.count == 1)
+    #expect(!native.tornDown)
+    #expect(native.loads.count == 2)
+    let loaded = try #require(native.loads.last)
+    #expect(loaded.target == target)
+    #expect(loaded.history == episode)
+    #expect(loaded.startSeconds == 1234)
+    #expect(loaded.rate == 2)
+    #expect(!loaded.autoplay, "a reload never starts playback by itself")
+}
+
+@MainActor @Test func aReloadNeitherSpendsNorRenewsTheFallback() throws {
+    let harness = Harness()
+    var shown: PlaybackFailure?
+    harness.router.onUnrecoverable = { shown = $0 }
+    harness.router.open(request)
+    harness.router.reload(at: 60, autoplay: false)
+    #expect(!harness.router.selection.fallbackSpent)
+    harness.engine.fail(avError(-11800), httpStatus: 403)
+    #expect(harness.engine.kind == .mpv, "the reload left this attempt's one switch in place")
+    #expect(try #require(harness.engine.loads.last).autoplay == false, "and the switch stays paused")
+    harness.router.reload(at: 60, autoplay: false)
+    harness.engine.fail(NSError(domain: PlaybackFailure.mpvDomain, code: -13))
+    #expect(harness.made.count == 2, "a reload is not a new attempt: the spent switch stays spent")
+    #expect(shown != nil)
+}
+
+@MainActor @Test func aReloadAtZeroIsTheStartNotTheResumePoint() throws {
+    // A viewer who scrubbed back to 0:00, or a live stream going back to its edge, is not sent to
+    // where the item was first opened.
+    let harness = Harness()
+    harness.router.open(PlaybackLoadRequest(target: target, startSeconds: 300, rate: 1.5,
+                                            title: "片名 EP08", history: episode))
+    harness.router.reload(at: 0, autoplay: false)
+    #expect(try #require(harness.engine.loads.last).startSeconds == 0)
+}
+
+@MainActor @Test func playPressedDuringAReloadThenAFallbackComesBackPaused() throws {
+    // The session's play goes straight to the engine, so the router still holds the reload's
+    // autoplay; the accepted cost is that a later switch lands paused rather than playing on its own.
+    let harness = Harness()
+    harness.router.open(request)
+    harness.router.reload(at: 60, autoplay: false)
+    harness.engine.play()
+    harness.engine.fail(avError(-11828))
+    let loaded = try #require(harness.engine.loads.last)
+    #expect(harness.engine.kind == .mpv)
+    #expect(loaded.startSeconds == 60)
+    #expect(!loaded.autoplay)
+}
+
 // MARK: - MPV headers
 
 @Test func everyHeaderReachesMPVAsOneField() {

@@ -1,6 +1,6 @@
 # IOS-POC-23 — 暫停後離開 App 再回來，兩個播放核心都卡住
 
-- 狀態：**研究與方案完成，等待使用者核准**（2026-09-25）。未修改任何程式、lock、patch 或二進位。
+- 狀態：**第一階段已實作（2026-09-25，使用者核准）**，但尚未編譯（本環境沒有 Swift，要等發版 workflow）、單元測試未執行、真機未驗證。MPV 的暫停重新載入還差一個 `MPVEngine.swift` 修正（第十一節），修正前不能發版。
 - 使用者原始提問（2026-09-25，`0.1.19 (20)` 之前的版本）：「暫停後跳出 App 再恢復播放，容易有問題，是不是連線沒有重新建立？」
 - 本文件依 AGENTS.md §7 記錄最佳實務研究、現況審查、方案比較、建議、驗收標準與回滾。核准前不實作。
 
@@ -113,7 +113,7 @@ App 沒有本地代理或 HTTP server；AVPlayer（`AVURLAsset`＋headers）與 
 | A4 | https://developer.apple.com/documentation/avfoundation/avplayer/timecontrolstatus-swift.enum/waitingtoplayatspecifiedrate ；`reasonForWaitingToPlay` | A | 從 0 變成非 0 速率但資料不足時進入等待 | log 時要記錄 `reasonForWaitingToPlay` |
 | A5 | https://developer.apple.com/videos/play/wwdc2017/514/ | A | HLS 時 AVPlayer 會自行重試與切換 variant，全部失敗才 failed | 永久等待而不報錯不在 Apple 描述的模型內 |
 | A6 | MediaPlaybackGuide（archive，2018-01-16） | A | 把 AVPlayer 與畫面分離只用於背景繼續播放聲音 | 不採用「分離再接回」作為修正 |
-| A7 | https://developer.apple.com/documentation/avfaudio/avaudiosession/interruptionnotification ；https://developer.apple.com/documentation/avfaudio/avaudiosession/interruptionreason/appwassuspended （iOS 14.5+） | A | 「Starting in iOS 10, the system deactivates an app's audio session when it suspends the app process.」恢復時收到中斷通知，原因為 `appWasSuspended`。非 mixable 的工作階段（`.playback` 預設），Apple 建議不在使用音訊時進背景前自行停用 | 這是「確實被暫停執行」的官方訊號，可以作為觸發條件；按播放前要重新啟用音訊 |
+| A7 | https://developer.apple.com/documentation/avfaudio/avaudiosession/interruptionnotification ；https://developer.apple.com/documentation/avfaudio/avaudiosession/interruptionreason/appwassuspended （iOS 14.5+） | A | 「Starting in iOS 10, the system deactivates an app's audio session when it suspends the app process.」恢復時收到中斷通知，原因為 `appWasSuspended`。非 mixable 的工作階段（`.playback` 預設），Apple 建議不在使用音訊時進背景前自行停用 | 按播放前要重新啟用音訊。**更正（2026-09-25）**：`appWasSuspended` 自 iOS 16.0 停用（「wasSuspended reason no longer present」），部署目標 17.0 收不到，不能當觸發條件（第十一節） |
 | A8 | https://developer.apple.com/documentation/avfoundation/configuring-your-app-for-media-playback | A | 建議把 `setActive` 延到開始播放時 | 重新啟用音訊放在按播放時，不放在回前景時（避免打斷別的 App 的聲音） |
 | A9 | `mediaServicesWereResetNotification` 文件 | A | 媒體服務重設時要重建音訊物件 | 只記錄；若出現，需要重建 AVPlayer 而不只是 item |
 | N1 | TN2277「Networking and Multitasking」（archive，2011-03-30）https://developer.apple.com/library/archive/technotes/tn2277/_index.html | A（已停止更新） | 暫停執行期間系統可以收回 socket；恢復後對該 socket 的操作都會失敗 | 回前景後要把播放器的連線視為不可用 |
@@ -196,8 +196,8 @@ App 沒有本地代理或 HTTP server；AVPlayer（`AVURLAsset`＋headers）與 
 
 1. **判斷型別（WebHTVCore，純邏輯，可單元測試）**，形式參考 `PictureInPictureForegroundRestoreState.swift`：
    - `didEnterBackground` 時記錄一次：播放器開著（router `sessionActive`）、已載入、使用者意圖是暫停、PiP 沒有啟用；以及位置、速率、進背景的時間。
-   - `didBecomeActive` 時消耗記錄並清除（只決定一次）：記錄符合條件，且 A「收到 `appWasSuspended` 中斷」或 B「在背景 ≥ 30 秒」其中一項成立，才重新載入。
-   - B 用來涵蓋音訊工作階段原本就沒啟用、收不到通知的情況。
+   - `didBecomeActive` 時消耗記錄並清除（只決定一次）：記錄符合條件，而且確實被暫停執行過，才重新載入。
+   - 偵測方式（實作時更正，見第十一節）：暫停中進背景後每 1 秒記一次「還在執行」；任兩次之間、或最後一次到回前景之間超過 3 秒，就是程序沒有執行（被暫停執行或裝置睡眠）。原本的 A「`appWasSuspended` 中斷」在 iOS 16 已停用，B「背景 ≥ 30 秒」一併移除。
    - 控制中心、通知中心、Face ID 只會觸發 resign／become active，不會觸發 `didEnterBackground`，所以沒有記錄可消耗，不會重新載入。
 2. **Router**：在 `handOff` 旁新增 `reload(at:autoplay:)`（`PlaybackEngine.swift:480-489`）：同一核心、同一 target、不改 selection、不消耗換核心的次數。
 3. **PlaybackSession.reloadCurrent**，參考 `selectQuality`（`WebHTVApp.swift:2246-2261`）：
@@ -207,7 +207,7 @@ App 沒有本地代理或 HTTP server；AVPlayer（`AVURLAsset`＋headers）與 
    - 不重新啟動會強制 `autoplay: true` 的開播逾時；
    - AVPlayer 在 readyToPlay 後重新套用音軌與字幕；
    - 記一行 `[lifecycle]` log，內容是重新載入前的 engine 狀態（AVPlayer 的 `timeControlStatus`／`reasonForWaitingToPlay`，或 mpv 的 snapshot），之後有 Console 時可以直接取證。
-4. **音訊工作階段（O8）**：收到 `appWasSuspended` 後設旗標；下一次按播放前呼叫 `setActive(true)`，成功後清旗標。MPV 重新載入時 ao 初始化本來就會啟用（`ao_audiounit.m:125`）。
+4. **音訊工作階段（O8）**：偵測到暫停執行時設旗標；下一次按播放前呼叫 `setActive(true)`，成功後清旗標。MPV 重新載入時 ao 初始化本來就會啟用（`ao_audiounit.m:125`）。
 5. **不改**：`vid=no`／`vid=auto`、mpv 網路選項、播放控制列 UI、AVPlayer 物件的擁有方式、Libmpv 二進位。
 6. 失敗時沿用既有路徑：重新載入失敗或首幀逾時，會走既有的一次換核心，換過去的核心維持暫停；再失敗就顯示錯誤。不會自動播放。
 
@@ -264,9 +264,54 @@ App 沒有本地代理或 HTTP server；AVPlayer（`AVURLAsset`＋headers）與 
    - mpv ao 初始化時改成 `MixWithOthers`，uninit 時整個 App 的工作階段 `setActive(NO)`（`ao_audiounit.m:118-125`、`:238-241`）；
    - 用過 MPV 之後，AVPlayer 與 PiP 所依賴的工作階段設定可能已經被改掉。建議另開任務處理。
 
+## 十一、實作紀錄（第一階段，2026-09-25）
+
+使用者核准第一階段，並選擇「回到 App 就載入」。第二～四節的行號指 `e352379c`。
+
+### 1. 與第六節設計的差異（實作與審查時發現）
+
+1. **觸發條件改為背景心跳**：`AVAudioSession.InterruptionReason.appWasSuspended` 在 iOS 16.0 停用（Apple 文件 metadata：`deprecatedAt 16.0`，「wasSuspended reason no longer present」；`AVAudioSessionInterruptionWasSuspendedKey` 在 14.5 停用），App 部署目標是 17.0，這個條件永遠不會成立。
+   - 改為：暫停中進背景後，每 1 秒記錄一次「還在執行」；任兩次之間、或最後一次到回前景之間超過 3 秒，視為程序曾經沒有執行，才重新載入。
+   - 沒有被暫停執行（程序一直在跑）就不重新載入，避免無謂的重新緩衝。
+   - 恢復後，睡著的心跳可能比 `didBecomeActive` 先執行；因此每一次心跳本身也會記下間隔，不會蓋掉證據。
+2. **音訊（O8）**：旗標改由同一個偵測設定；`setActive(true)` 成功才清旗標，失敗下一次再試。除了按播放，自動播放的新項目（下一集）與重播也會先重新啟用。
+3. **重新載入位置**：
+   - 還在準備中的項目，沿用原本要求的起點；
+   - 直播（沒有長度）用 0，回到最新位置；
+   - 0 是真實位置（使用者拖回開頭），不再被 router 換成原本的續播點。
+4. **不重新載入顯示錯誤中的項目**（`router.failure == nil`），避免錯誤訊息蓋在可播放的畫面上。仍在載入中的暫停項目也算（MPV 載入中回報為未載入，所以同時看 `.preparing`）。
+5. **換集時清除待恢復的音軌**（`load()`），避免上一集的選擇套到下一集。
+
+### 2. 修改的檔案
+
+1. `ios/Sources/WebHTVCore/PausedBackgroundReload.swift`（新）：判斷型別，以及重新載入後要重選的音軌／字幕（`PlaybackMediaSelection.reselections(after:)`）。
+2. `ios/Sources/WebHTVCore/PlaybackEngine.swift`：`PlayerRouter.reload(at:autoplay:)`。
+3. `ios/WebHTVApp/Sources/WebHTVApp.swift`：
+   - `PlaybackSession`：進背景記錄並啟動心跳、`didBecomeActive` 判斷、`reloadPaused`、音軌恢復、按播放前重新啟用音訊；
+   - `PlayerView`：回報子母畫面狀態（`pictureInPictureActive`）。
+4. 測試：`PausedBackgroundReloadTests.swift`（新，12 項）、`PlaybackEngineTests.swift`（新增 4 項 router 測試）。
+
+### 3. 驗證
+
+1. 本環境沒有 Swift（download.swift.org 被 proxy 擋，apt 沒有套件）：**未編譯、未執行測試**。第一次編譯會在發版 workflow。
+2. 多代理審查兩輪，每個發現都再做一次反駁驗證：
+   - 第一輪三個角度（編譯、行為退步、規格與測試），確認 8 項，除 MPV snapshot 外都已修正；
+   - 第二輪針對心跳偵測改寫後的 diff，確認 2 項次要問題，修正 1 項（載入中的項目），另 1 項即 T6（見下方待辦）；
+   - 第二輪的編譯審查沒有回傳結果，心跳相關程式沒有經過專門的編譯審查。
+
+### 4. 待辦（修正前不能發版）
+
+1. **MPV 暫停重新載入後，App 以為在播放**：`MPVEngine.swift:353` 的 `Snapshot(loading: true, …)` 把 `paused` 重設為 false；mpv 的 `pause` 本來就是 yes，不會再送變更事件，所以 `isPlaying` 變成 true，播放鍵顯示暫停且按了無效。
+   - 修正是一行：重設時帶入 `paused: !autoplay`。
+   - 同一問題也影響既有的「MPV 暫停中換畫質」。
+   - 這個檔案不在本 guard session 宣告的範圍內，待使用者同意後以第二個 guard session 修正。
+2. 已知缺口（不在第一階段範圍）：
+   - T6：播放中進子母畫面，在小視窗裡暫停並在背景關掉小視窗，之後才被暫停執行；進背景當下不符合條件，所以不會重新載入。
+   - 在 MPV 子母畫面視窗內按播放（`MPVEngine.swift:952`）不經過 session，不會重新啟用音訊。
+
 ## Recovery anchor
 
 - 目標：修正「暫停後離開 App 再回來，兩個核心都卡住」。第一階段＝第六節 O2＋O8，驗收標準見第七節。
-- 狀態（2026-09-25）：研究與方案完成，文件已 commit；未改程式；等待使用者核准第一階段，以及 T0 回報。
+- 狀態（2026-09-25）：第一階段已實作並 commit（第十一節），未編譯、未跑測試、真機未驗證；MPV 暫停重新載入的 snapshot 修正待使用者同意（第十一節之四）。T0 仍待回報。
 - 相關檔案：`ios/Sources/WebHTVCore/PlaybackEngine.swift`（`PlayerRouter`）、`ios/WebHTVApp/Sources/WebHTVApp.swift`（`PlaybackSession`、`AVPlayerEngine`）、`ios/WebHTVApp/Sources/MPVEngine.swift`、`ios/Sources/WebHTVCore/PictureInPictureForegroundRestoreState.swift`、`ios/Tests/WebHTVCoreTests/PlaybackEngineTests.swift`。
-- 下一步（唯一）：使用者核准第六節的第一階段後，以 `task_guard.sh start --id IOS-POC-23 --mode standard` 開新的 guard session 實作；未核准前不改程式。
+- 下一步（唯一）：使用者同意把 `ios/WebHTVApp/Sources/MPVEngine.swift` 納入範圍後，開第二個 guard session 修正第十一節之四，再詢問是否發版。

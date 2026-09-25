@@ -13,6 +13,11 @@ WebHTV context reports layer resizes to mpv as they happen.
 `.github/workflows/ios-libmpv-build.yml` is the only build path and the only
 reader of the lock. `MANIFEST.sha256` lists the files in this directory.
 
+The app takes the artifact through `ios/Vendor/MPVKit/Package.swift`, MPVKit
+1.0.0's manifest copied unchanged except for the `Libmpv` target's `url` and
+`checksum`, which are the lock's `artifact.url` and `artifact.sha256`. A new
+build has to change both files.
+
 ## Files
 
 - `patches/libmpv/0001-player-add-moltenvk-context.patch` replaces the MPVKit

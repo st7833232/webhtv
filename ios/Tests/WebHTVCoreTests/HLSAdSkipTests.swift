@@ -9,6 +9,8 @@ import Testing
 /// Serves playlists by address, in order when an address has several answers, and remembers every
 /// request — so a test can say what was read, how often, and what never was.
 private actor FakeServer {
+    /// An answer that is a failed request rather than a body.
+    static let failure = "\u{0}failure"
     private var responses: [String: [String]]
     private let redirects: [String: String]
     private(set) var hits = [String]()
@@ -24,6 +26,7 @@ private actor FakeServer {
         guard var answers = responses[key], !answers.isEmpty else { throw URLError(.fileDoesNotExist) }
         let text = answers.count > 1 ? answers.removeFirst() : answers[0]
         responses[key] = answers
+        guard text != Self.failure else { throw URLError(.networkConnectionLost) }
         return HLSFetchedPlaylist(text: text, url: redirects[key].flatMap(URL.init(string:)) ?? url)
     }
 
@@ -94,8 +97,12 @@ private func master(_ uris: [String]) -> String {
 }
 
 @Test func aSecondReadingThatFailsSkipsNothing() async {
-    let server = FakeServer([mediaURL.absoluteString: [withAd, "<html>gone</html>"]])
-    #expect(await HLSAdPlanner.plan(for: mediaURL, fetch: server.fetch).timeline.ranges.isEmpty)
+    // Without the second reading the first cannot be shown to be the one the engine got.
+    let server = FakeServer([mediaURL.absoluteString: [withAd, FakeServer.failure]])
+    let plan = await HLSAdPlanner.plan(for: mediaURL, fetch: server.fetch)
+    #expect(plan.timeline.ranges.isEmpty)
+    #expect(plan.timeline.reason == "fetch-failed")
+    #expect(await server.hits.count == 2)
 }
 
 @Test func aFailedFirstReadingSkipsNothing() async {
@@ -137,7 +144,27 @@ private func master(_ uris: [String]) -> String {
 @Test func aVariantThatCannotBeReadMeansNothingIsSkipped() async {
     let server = FakeServer([masterURL.absoluteString: [master(["low/index.m3u8", "mid/index.m3u8"])],
                              "https://cdn.example.com/show/ep1/low/index.m3u8": [withAd]])
-    #expect(await HLSAdPlanner.plan(for: masterURL, fetch: server.fetch).timeline.ranges.isEmpty)
+    let plan = await HLSAdPlanner.plan(for: masterURL, fetch: server.fetch)
+    #expect(plan.timeline.ranges.isEmpty)
+    #expect(plan.timeline.reason == "variant-unreadable")
+}
+
+@Test func anUnreadableVariantSharingABitrateIsNotMistakenForADuplicate() async {
+    // The resolver counts declared bitrates, so a 720p entry at the 360p entry's bandwidth adds
+    // nothing to the count: only reading every entry shows the player's choice was checked.
+    let text = """
+    #EXTM3U
+    #EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360
+    sd/index.m3u8
+    #EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=1280x720
+    hd/index.m3u8
+
+    """
+    let server = FakeServer([masterURL.absoluteString: [text],
+                             "https://cdn.example.com/show/ep1/sd/index.m3u8": [withAd]])
+    let plan = await HLSAdPlanner.plan(for: masterURL, fetch: server.fetch)
+    #expect(plan.timeline.ranges.isEmpty)
+    #expect(plan.timeline.reason == "variant-unreadable")
 }
 
 @Test func audioRenditionsAndIFramePlaylistsAreNeitherReadNorCounted() async {
@@ -292,15 +319,32 @@ private struct Drive {
     _ = drive.read(119.9)
     #expect(drive.read(120.0) == 134.9)
     #expect(drive.read(134.9, after: .milliseconds(300)) == nil)
+    #expect(drive.read(135.0) == nil)       // playing on from the target: landed
+    #expect(drive.read(135.1) == nil)
     #expect(drive.skipper.suspensionReason == nil)
+}
+
+@Test func mpvReportingItsSeekTargetIsNotALanding() {
+    // After a seek mpv reports the target itself as the position until the first frame decodes;
+    // only that frame says where the seek landed, here a whole segment late.
+    var drive = Drive(adPlan(discontinuity: false))
+    drive.engine = .mpv
+    _ = drive.read(119.9)
+    #expect(drive.read(120.0) == 134.9)
+    #expect(drive.read(134.9) == nil)
+    #expect(drive.read(134.9) == nil)
+    #expect(drive.read(141.0) == nil)
+    #expect(drive.skipper.suspensionReason == "landed-past-target")
 }
 
 @Test func aPausedPlayerInsideAnAdStaysThereUntilItPlays() {
     var drive = Drive(adPlan())
-    _ = drive.read(125, playing: false)
-    #expect(drive.read(125, playing: false) == nil)
-    #expect(drive.read(125, playing: true) == nil)      // play pressed: not advancing yet
-    #expect(drive.read(125.1) == 135)
+    _ = drive.read(125, playing: false, rate: 0)
+    #expect(drive.read(125, playing: false, rate: 0) == nil)
+    // A paused engine's position can still creep forward; only a playing one is skipped.
+    #expect(drive.read(125.1, playing: false, rate: 0) == nil)
+    #expect(drive.read(125.1, playing: true) == nil)    // play pressed: not advancing yet
+    #expect(drive.read(125.2) == 135)
 }
 
 @Test func aPlayerPausedJustBeforeAnAdSkipsItOnlyOnceItPlaysIntoIt() {
@@ -360,6 +404,29 @@ private struct Drive {
     #expect(drive.read(50.1) == nil)
     _ = drive.read(119.9, after: .seconds(70))
     #expect(drive.read(120.0) == 135)
+}
+
+@Test func aViewersSeekStopsHoldingSkipsBackOnceItsTargetIsLongOverdue() {
+    // The seek's target is never reported (another seek replaced it inside the engine): after
+    // `manualSettle`, playback inside an ad is skipped again.
+    var drive = Drive(adPlan())
+    #expect(drive.seek(50) == 50)
+    #expect(drive.read(125.0) == nil)
+    #expect(drive.read(125.1, after: .seconds(2)) == nil)
+    #expect(drive.read(125.2, after: .seconds(2)) == 135)
+}
+
+@Test func aJumpTheSessionDidNotMakeForgetsWhichAdsWereSkipped() {
+    // PiP's skip buttons and the system's controls seek the player without passing the session;
+    // an ad jumped back into is skipped again, as after the viewer's own seek.
+    var drive = Drive(adPlan())
+    _ = drive.read(119.9)
+    #expect(drive.read(120.0) == 135)
+    _ = drive.read(135.0)
+    _ = drive.read(135.1)                   // landed
+    #expect(drive.read(120.1) == nil)       // PiP's fifteen seconds back
+    #expect(drive.read(120.2) == 135)
+    #expect(drive.skipper.suspensionReason == nil)
 }
 
 @Test func seekingBackBeforeASkippedAdSkipsItAgain() {
@@ -446,10 +513,12 @@ private struct Drive {
     var skipper = HLSAdSkipper()
     let first = skipper.begin(url: mediaURL)
     let second = skipper.begin(url: URL(string: "https://cdn.example.com/show/ep2/index.m3u8")!)
-    #expect(!skipper.adopt(adPlan(), for: first))
+    let staleAdopted = skipper.adopt(adPlan(), for: first)
+    #expect(!staleAdopted)
     #expect(skipper.plan == nil)
     #expect(skipper.activeTimeline(engine: .native, duration: 255, enabled: true) == nil)
-    #expect(skipper.adopt(adPlan(), for: second))
+    let adopted = skipper.adopt(adPlan(), for: second)
+    #expect(adopted)
     #expect(skipper.activeTimeline(engine: .native, duration: 255, enabled: true) != nil)
 }
 

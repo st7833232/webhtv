@@ -85,10 +85,12 @@ public enum HLSAdPlanner {
         var timelines = [HLSAdTimeline.Variant: HLSAdTimeline]()
         var discontinuity = false
         for entry in entries {
-            // A variant that cannot be read is simply missing, which the resolver refuses.
+            // Every entry must be read: two entries can share a bitrate, and the resolver counts
+            // bitrates, so one left out would not be missed.
             guard let variantURL = URL(string: entry.uri, relativeTo: top.url)?.absoluteURL,
                   let first = try? await fetch(variantURL),
-                  let media = await stableTimeline(first: first, url: variantURL, fetch: fetch) else { continue }
+                  let media = await stableTimeline(first: first, url: variantURL, fetch: fetch)
+            else { return .unavailable("variant-unreadable") }
             discontinuity = discontinuity || media.discontinuity
             // Two entries declaring the same variant must cut the same ranges (Android's `merge`).
             timelines[entry.variant] = timelines[entry.variant].map { $0.sameCuts(media.timeline) ? $0 : HLSAdTimeline.none }
@@ -283,9 +285,11 @@ public enum HLSAdPlanner {
 ///   reading after a seek or the jump itself never count as "inside a range".
 /// - iOS: after a viewer's seek, automatic skips wait until the playhead is near where it was
 ///   sent (or `manualSettle` passes), so a reading from before the seek cannot pull it elsewhere.
-/// - iOS: after an automatic skip the playhead must be seen landing at the target. Short of it or
-///   past it means this engine does not play the plan's timeline, and it stops skipping for the
-///   rest of the item.
+/// - iOS: a seek made outside the session (PiP, the system's controls) is seen as a jump between
+///   readings (`jumpBack`, or further forward than the rate allows) and forgets the same way.
+/// - iOS: after an automatic skip the playhead must be seen playing on from the target. Short of
+///   it or past it means this engine does not play the plan's timeline, and it stops skipping for
+///   the rest of the item.
 /// - iOS, MPV: lands `mpvLandingMargin` before a range's end, inside the ad's last segment.
 ///   FFmpeg n8.1.2 (MPVKit 1.0.0) drops the first keyframe of a segment whose timestamp sits just
 ///   under its playlist start and resumes a whole segment later; a target inside the preceding
@@ -305,6 +309,8 @@ public struct HLSAdSkipper: Sendable {
     public static let landingWait: Duration = .seconds(3)
     /// MPV's landing point before a range's end (see the type's notes).
     public static let mpvLandingMargin = 0.1
+    /// A playhead seen this far behind its last reading was moved by a seek.
+    public static let jumpBack = 0.5
 
     public private(set) var generation = 0
     public private(set) var plan: HLSAdPlan?
@@ -342,8 +348,9 @@ public struct HLSAdSkipper: Sendable {
     }
 
     /// The generation to plan for, once per item: an HLS address, enabled, and an engine that has
-    /// opened the media (a duration is known). Planning after the engine's own playlist requests
-    /// means a one-time address is spent by the player, never by this.
+    /// opened the media (a duration is known). The item's own address is then already spent by the
+    /// engine, never by this; variant playlists the native engine has not loaded yet may still be
+    /// read here first.
     public mutating func planRequest(enabled: Bool, duration: Double) -> Int? {
         guard candidate, enabled, !requested, duration.isFinite, duration > 0 else { return nil }
         requested = true
@@ -380,7 +387,7 @@ public struct HLSAdSkipper: Sendable {
                                          engine: PlaybackEngineKind, enabled: Bool,
                                          endingThreshold: Double?, now: ContinuousClock.Instant) -> Double? {
         let advancing = observe(position: position, rate: rate, now: now)
-        checkLanding(position: position, engine: engine, now: now)
+        checkLanding(position: position, advancing: advancing, engine: engine, now: now)
         if let pending = pendingSeek {
             guard abs(position - pending.seconds) <= Self.manualSettleDistance
                     || now - pending.at > Self.manualSettle else { return nil }
@@ -437,15 +444,17 @@ public struct HLSAdSkipper: Sendable {
         return target
     }
 
-    /// An automatic skip is done when the playhead is seen near its target. Seen well past it, or
-    /// never seen near it, the engine's timeline is not the plan's: that engine stops skipping.
-    private mutating func checkLanding(position: Double, engine: PlaybackEngineKind, now: ContinuousClock.Instant) {
+    /// An automatic skip is done when the playhead is seen playing on from near its target: mpv
+    /// reports the target itself until the first frame after the seek decodes. Seen well past it,
+    /// or never seen near it, the engine's timeline is not the plan's: that engine stops skipping.
+    private mutating func checkLanding(position: Double, advancing: Bool, engine: PlaybackEngineKind,
+                                       now: ContinuousClock.Instant) {
         guard let landing else { return }
         guard landing.engine == engine else { self.landing = nil; return }
-        if position >= landing.target - Self.landingEarly, position <= landing.target + Self.landingLate {
-            self.landing = nil
-        } else if position > landing.target + Self.landingLate {
+        if position > landing.target + Self.landingLate {
             suspend(engine, "landed-past-target")
+        } else if position >= landing.target - Self.landingEarly {
+            if advancing { self.landing = nil }
         } else if now - landing.at > Self.landingWait {
             suspend(engine, "landed-short-of-target")
         }
@@ -458,13 +467,17 @@ public struct HLSAdSkipper: Sendable {
     }
 
     /// Whether the playhead moved forward about as far as `rate` says it should have since the
-    /// last reading. Always records this reading.
+    /// last reading. Always records this reading. A jump neither this nor the viewer's seek made
+    /// (PiP's skip buttons, the system's controls) forgets which ranges were skipped, as Android's
+    /// seek does, so an ad jumped back into is skipped again.
     private mutating func observe(position: Double, rate: Float, now: ContinuousClock.Instant) -> Bool {
         defer { self.last = (position, now) }
         guard position.isFinite, let last, now > last.at else { return false }
         let elapsed = Self.seconds(now - last.at)
         let advanced = position - last.position
-        return advanced > 0 && advanced <= elapsed * Double(max(rate, 0)) * 2 + 0.25
+        let reach = elapsed * Double(max(rate, 0)) * 2 + 0.25
+        if (advanced < -Self.jumpBack || advanced > reach), landing == nil, pendingSeek == nil { skips.clear() }
+        return advanced > 0 && advanced <= reach
     }
 
     /// Down, so a range is entered only once the playhead is really inside it.

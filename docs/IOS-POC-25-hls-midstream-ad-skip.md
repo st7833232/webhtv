@@ -259,7 +259,8 @@ rfc-editor.org、datatracker.ietf.org、trac.ffmpeg.org、code.ffmpeg.org、grea
 | 在廣告前暫停、之後播放 | 播到廣告起點時跳過 |
 | 從廣告邊界附近續播 | 起點在區間外不動；在區間內，播放一開始就跳到終點 |
 | 背景播放、子母畫面 | 監看是 App 內的 Task，App 在執行就照常；不依賴播放畫面 |
-| 同一廣告的舊讀值 | `SkipState` 只跳一次；自動跳過後在確認落點前不做下一次跳過 |
+| 同一廣告的舊讀值 | `SkipState` 只跳一次；自動跳過後在確認落點前不做下一次跳過。落點要看到播放頭**從目標附近繼續前進**才算確認：mpv 在 seek 後、第一個畫面解碼前會把 seek 目標本身當成位置回報，只有之後的讀值才代表實際落點 |
+| 子母畫面的跳秒鍵、系統控制的 seek（不經過 `PlaybackSession.seek`） | 讀值之間出現不是播放造成的跳動（往回超過 0.5 秒，或往前超過速率允許的距離），而且當下沒有自動跳過或使用者 seek 在等待落定，就同樣忘記已跳過的區間；往回跳進已跳過的廣告會再跳一次。這類 seek 不會被改寫到廣告終點，而是播放開始後由自動判斷跳過 |
 | 切換核心（手動、fallback、IOS-POC-22、17F 逾時）| `onEngineChange` 清除已跳過的區間與讀值；計畫屬於同一個項目，保留使用；新核心自己的 duration 要再比對一次；MPV 另受 discontinuity gate |
 | IOS-POC-23 暫停重載 | 同上（`reloadPaused` 清除） |
 | 新引擎的預設位置 0 或跳到交接位置 | 不算「在播」，不會觸發片頭廣告的跳過 |
@@ -394,11 +395,22 @@ App 端的接線（`PlaybackSession` 的監看 Task、設定頁）、AVPlayer �
 | `swift test` | **未執行**：本環境沒有 Swift 工具鏈（`download.swift.org` 被擋、apt 沒有套件）。沒有另外新增 CI workflow 跑測試：IOS-POC-20 Q6 使用者選擇不跑單元測試，另一個 session 也依此處理；本次指示只要求環境可跑才跑 | — |
 | 編譯（WebHTVCore、App） | **未編譯**。唯一的編譯關卡是發版 workflow 的 Release device build，要等使用者授權發布 | — |
 | Android 差分：26 筆 golden | JDK 21 執行 Android 的 `HlsAdsParser.java`、`HlsAdTimeline.java` 產生期望值，寫進 `HLSAdsParserTests` | Android 原始碼實際執行 |
-| Swift 邏輯的差分模糊測試 | 把本任務的 Swift 程式**逐行轉寫**成 Python（`HLSAdsParser`、`JavaText`、`HLSAdTimeline.from`／`parse`、`JavaBigDecimal`），與 Android Java 比對：golden 26／26 相同；隨機 playlist 4,000 筆 0 差異（其中 297 筆產生區間、336 筆保留長區塊、2 筆 `ambiguous-segments`）；見下方第二輪 | 轉寫版，不是 Swift 編譯結果 |
+| Swift 邏輯的差分模糊測試 | 把本任務的 Swift 程式**逐行轉寫**成 Python（`HLSAdsParser`、`JavaText`、`HLSAdTimeline.from`／`parse`、`JavaBigDecimal`），與 Android Java 比對：golden 26／26 相同；第一輪隨機 playlist 4,000 筆 0 差異（其中 297 筆產生區間、336 筆保留長區塊、2 筆 `ambiguous-segments`）；第二輪偏向廣告結構的產生器 8,000 筆 0 差異（其中 5,147 筆產生區間） | 轉寫版，不是 Swift 編譯結果 |
 | master variant 解析差分 | 隨機 master 1,500 筆（屬性順序、大小寫、引號內逗號、`+700`、`-5`、超出 long、錯誤的 RESOLUTION、I-frame、`EXT-X-MEDIA`、中文網址、CRLF），轉寫版與 Android `HlsPlaylistRewriter` 的 STREAM variant 0 差異 | 同上 |
 | 手寫測試的期望值 | 孤立 discontinuity、`parseDouble`、`BigDecimal`、master 解析、兩個不合理計畫，都先在 JDK 上執行 Android 程式確認；我原本推算錯的一條已依實際輸出修正 | Android 原始碼實際執行 |
-| 多代理審查 | （見下方） | 靜態 |
+| 多代理審查 | 對 `7530acf9` 做對抗式審查：7 項確認並修正（第十九節之四），4 項駁回（live playlist 會輪詢、緩衝時輪詢、AVPlayer variant 會被先讀、master 帶 `ENDLIST`；其中後兩項分別採納「暫停時 100 ms 讀一次」與「縮小 `planRequest` 註解的承諾」） | 靜態 |
+| `HLSAdSkipper` 情境模擬 | 審查修正後的 `HLSAdSkipper` 逐行轉寫成 Python，跑 `HLSAdSkipTests` 中全部 20 組 `Drive` 情境的期望值：全部相符。再把四條規則各自改回舊寫法（落點不需前進、沒有跳動偵測、不看 `playing`、`manualSettle` 不逾時），每一條都至少讓一個新測試失敗 | 轉寫版，不是 Swift 編譯結果 |
 | 模擬器、真機 | 未執行（本環境沒有） | — |
+
+### 4. 審查後修正（第二個 commit）
+
+1. `aPlanForThePreviousItemIsNeverAdopted` 在 `#expect` 內呼叫 `mutating` 方法，無法編譯；改為先取值再檢查。
+2. 落點確認：原本讀值一進入目標附近就算落定，mpv 回報的 seek 目標本身會被當成落點，之後晚一整段的真實落點不會被發現。改為要看到從目標附近繼續前進才算落定；超過目標 1.5 秒仍立即停止該核心。
+3. 子母畫面跳秒鍵（`MPVEngine` 的 PiP `skipByInterval` 直接呼叫 `engine.seek`）與系統控制的 seek 不經過 `adSeekTarget`，已跳過的區間不會被清除。改為在讀值之間偵測跳動（第十三節）。`MPVEngine.swift` 沒有修改。
+4. master 中讀不到的 variant 原本只是略過；兩個 entry 的 `BANDWIDTH` 相同時，`declaredVariantCount` 只算一個，略過的那條不會被發現。改為任一 variant 讀不到就整份不跳（`variant-unreadable`），與第十五節第 8 條一致。
+5. `aSecondReadingThatFailsSkipsNothing` 的第二次回應其實讀取成功（內容是 HTML），測的是 `unstable-playlist`；改為真的讀取失敗，並檢查 `fetch-failed`。
+6. 暫停測試補上「暫停中位置仍往前爬」的讀值，確認只有在播才跳。
+7. 補上使用者 seek 的目標一直沒出現時，3 秒後恢復自動判斷的測試。
 
 ## 二十、真機驗收（SideStore，待使用者授權發布後）
 
@@ -428,11 +440,13 @@ App 端的接線（`PlaybackSession` 的監看 Task、設定頁）、AVPlayer �
 4. **iOS 分開讀 playlist**：伺服器若每次插入位置不同但總長與兩次讀取剛好一致，仍可能對錯位置（機率低，有讀兩次與 duration 比對）。
 5. **AVPlayer 的前提待真機確認**：HLS VOD 的 `currentTime` 從 0 開始且跨 discontinuity 連續、`duration` 等於 EXTINF 總和（研究只有 A 級推論與 C 級 SDK 程式，R3、R4）。若 duration 不符，本功能會自動不動作。
 6. **MPV 選擇位元率**（方案 E）暫緩。
+7. **AVPlayer 的 variant 可能先被本功能讀到**：計畫在引擎開啟媒體後才讀，項目本身的網址一定已被引擎用過；但 AVPlayer 還沒載入的其他 variant，可能由本功能先讀。一次性網址的 variant 若因此失效，AVPlayer 之後切到那條會失敗。尚無案例，真機驗收時留意。
+8. **跳動偵測的邊界**：自動跳過或使用者 seek 等待落定的期間，其他來源的 seek 不會被偵測；落定後若引擎回報一次 seek 前的舊位置，可能多做一次跳到同一個廣告終點的 seek（不會跳掉正片）。
 
 ## Recovery anchor
 
 - 目標：Android main 的 HLS VOD 中段廣告偵測與自動跳過移植到 iOS，AVPlayer 與 MPV 共用同一份 detector／timeline；任何不確定都不跳。驗收標準見第十七節。
-- 狀態（2026-09-25）：實作、測試碼、文件完成；未編譯、未執行測試、真機未驗證。
+- 狀態（2026-09-25）：實作 `7530acf9`，審查修正為第二個 commit（見 `git log --grep IOS-POC-25`）；未編譯、未執行 Swift 測試、真機未驗證；未 bump 版本、未 tag、未發布。
 - 相關檔案：第十九節之一。
 - 關鍵決策：MPV discontinuity gate（第十一節）、iOS 額外保護（第七、十五節）、片尾優先（第十四節）、不做 native boundary（第十一節之二）。
 - 未解：第二十一節。

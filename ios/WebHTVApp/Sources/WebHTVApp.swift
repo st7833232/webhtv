@@ -2908,6 +2908,8 @@ extension Playback {
             engine.seek(toSeconds: target)
             return .milliseconds(100)
         }
+        // Paused or stalled: read often enough that playing again is seen at once.
+        guard engine.isPlaying else { return .milliseconds(100) }
         // Wake at the next range's start rather than a tick after it.
         guard let until = adSkip.secondsUntilNextRange(position: position, rate: rate, engine: engine.kind,
                                                        duration: duration, enabled: adSkipEnabled)

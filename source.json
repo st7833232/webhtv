@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.20",
+          "date": "2026-09-25",
+          "localizedDescription": "WebHTV 0.1.20 (21)（未經真機驗收）\n\n修正\n- 暫停後離開 App（回主畫面或鎖螢幕）再回來，畫面變黑、沒有聲音、按播放沒反應：App 被系統暫停執行過時，回來會在原位置以暫停狀態自動重新載入，並恢復原本選的音軌與字幕；按播放前重新啟用音訊。原生與 MPV 都適用；子母畫面中不會重新載入。\n- MPV 暫停中換畫質（或上述重新載入）後，App 誤以為正在播放，播放鍵按了沒反應。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.20-b21/WebHTV-0.1.20-21.ipa",
+          "size": 25029164,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.19",
           "date": "2026-09-25",
           "localizedDescription": "WebHTV 0.1.19 (20)（未經真機驗收）\n\n修正\n- MPV 直向與橫向切換時畫面短暫跑版：改用 WebHTV 自建的 libmpv，旋轉時直接調整畫面尺寸，不再重建影片輸出或跳回目前位置；暫停中旋轉也會更新畫面。",

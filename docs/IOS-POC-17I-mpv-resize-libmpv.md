@@ -196,6 +196,17 @@
 3. workflow：YAML 可解析，各 `run` 區塊 `bash -n` 通過，內嵌 Python 可編譯，lock 內兩個 WebHTV patch 的雜湊與檔案相同。
 4. 未驗證：C 編譯（本環境沒有 Apple SDK 與 Xcode），以及 CI 內的建置與比對。
 
+### 授權 notice（Q2：repo 先補）
+
+- `third_party/mpv-ios/licenses/` 收錄 57 個上游授權檔，涵蓋 LGPL `MPVKit` product 在 iOS 連結的元件與其內嵌程式碼（對照表在 `third_party/mpv-ios/README.md`）。由背景 agent 依 recipe 與各 `mpvkit/*-build` repo 在 lock 所列 tag 的建置腳本查出來源版本，逐檔以 `cmp` 確認與上游相同；我另以獨立 clone 抽查 4 檔（mpv 的 `LICENSE.LGPL` 與 `Copyright`、libplacebo、MoltenVK），結果相同。
+- 從二進位確認（agent 以 `llvm-nm` 檢查 ios-arm64 slice）：FFmpeg configure 沒有 `--enable-gpl`／`--enable-nonfree`；mpv 為 `-Dgpl=false`；lcms2 的 GPL-3.0 plugin 與 libsmbclient 都沒有連結；glslang 的 Bison 產生檔是 GPL-3.0 附 Bison exception。
+- **缺口**：
+  1. libbluray 1.4.0、內嵌的 libudfread 1.2.0、uchardet 0.0.8 的授權檔沒有收錄。它們的主機（code.videolan.org、gitlab.freedesktop.org）被本環境的對外連線政策擋下。
+  2. `Libdovi` 內靜態連結的 Rust 標準庫與 crate 授權沒有收集。
+  3. nettle、GMP 取自 GitHub 鏡像；uavs3d 實際建置的 commit 在上游找不到。
+  4. agent 的判讀：本 build 的 FFmpeg 是 LGPL v3 以上，gmp／nettle 也可選 LGPLv3。LGPLv3 對 iOS 這類使用者產品的安裝資訊義務，屬法律判斷，列為待確認，沒有結論。
+- App 內的授權畫面（IOS-POC-9A L4 的後半）依使用者決定另開任務。
+
 ### CI 紀錄
 
 | run | commit | 結果 |

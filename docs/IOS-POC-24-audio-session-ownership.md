@@ -206,8 +206,23 @@ iOS 一個 App 只有一個音訊工作階段（`AVAudioSession.sharedInstance()
 3. App 啟動就中斷其他 App 音樂（第四節之 7），另開任務時再評估。
 4. MPV 的「正在播放」與鎖定畫面控制是 MPV parity P5，不在本任務範圍。
 
+## 十、實作紀錄
+
+### 1. IOS-POC-24-1：Libmpv 選項（2026-09-25）
+
+1. 修改的檔案：
+   - `third_party/mpv-ios/patches/libmpv/0004-ao-app-owned-audio-session.patch`（新，sha256 `d00c58303b3233899410d9cb7c559f51f27fd3286cd9257d34d02410ed488f6c`）；
+   - `.github/workflows/ios-libmpv-build.yml`：驗證 hash、複製進 recipe、檢查原始碼、binary 正向檢查、release notes；
+   - `third_party/mpv-ios-lock.json`：`patches.ao_session`、`artifact.release_tag` 改成 `mpvkit-1.0.0-webhtv.2`。其餘 artifact 欄位仍是 webhtv.1，由 24-2 換成新值；
+   - `third_party/mpv-ios/README.md`、`MANIFEST.sha256`。
+2. 本機驗證（本環境沒有 Xcode，不能編譯 Objective-C）：
+   - patch 在 mpv v0.41.0＋WebHTV 0001＋MPVKit 0002／0003 上 `git apply --check` 通過；
+   - workflow YAML 可以解析；
+   - `MANIFEST.sha256` 以 `shasum -c` 全部通過，而且涵蓋目錄內每個檔案。
+3. 待 CI：push 後 Libmpv workflow 會自動建置，結果記在下一點。
+
 ## Recovery anchor
 
 - 目標：兩個核心共用一個由 App 擁有的音訊工作階段（不混音的 `.playback`，播放時啟用），不再被 mpv 改成混音或在換核心時停掉原生。
-- 狀態（2026-09-25）：使用者選定 O3；方案（第六節之二）已記錄。patch 草稿已在 mpv v0.41.0＋0001～0003 上通過 `git apply --check`（sha256 `d00c58303b3233899410d9cb7c559f51f27fd3286cd9257d34d02410ed488f6c`，尚未 commit）。
-- 下一步（唯一）：以新的 guard session `IOS-POC-24-1` 實作第六節之二第 1 點（patch、workflow、lock、README、MANIFEST），push 後等 Libmpv workflow 發布 `mpvkit-1.0.0-webhtv.2`。
+- 狀態（2026-09-25）：使用者選定 O3。24-1（patch、workflow、lock、README、MANIFEST）已 commit，push 後由 Libmpv workflow 建置 `mpvkit-1.0.0-webhtv.2`。
+- 下一步（唯一）：確認 Libmpv workflow 的結果；成功就開 guard session `IOS-POC-24-2`（lock artifact 欄位、`ios/Vendor/MPVKit/Package.swift`、`MPVEngine.swift`、`WebHTVApp.swift`、本文件、`docs/current-task-state.md`），失敗就依第六節之二第 2 點停下來記錄原因。

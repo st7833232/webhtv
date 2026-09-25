@@ -2,7 +2,9 @@ name: iOS libmpv Build
 
 # IOS-POC-17I-1. Rebuilds only Libmpv.xcframework from the MPVKit 1.0.0 recipe,
 # with the WebHTV moltenvk resize patch in place of the upstream one, checks it
-# against the upstream artifact, and publishes it as a prerelease. Every input
+# against the upstream artifact, and publishes it as a prerelease. IOS-POC-24
+# adds a second WebHTV patch, 0004, after the recipe's own: an option for each
+# iOS audio output to leave the app's audio session alone. Every input
 # is pinned in third_party/mpv-ios-lock.json. The push trigger fires only when
 # the patches or this file change, which is when a new build is needed.
 
@@ -128,12 +130,16 @@ jobs:
           for name in names:
               if sha(os.path.join(upstream_dir, name)) != patches["upstream"][name]:
                   sys.exit(f"::error title=Recipe patches::{name} does not match the lock")
-          for key in ("replacement", "buildscripts"):
+          for key in ("replacement", "buildscripts", "ao_session"):
               if sha(patches[key]["path"]) != patches[key]["sha256"]:
                   sys.exit(f"::error title=WebHTV patches::{patches[key]['path']} does not match the lock")
           EOF
           cp third_party/mpv-ios/patches/libmpv/0001-player-add-moltenvk-context.patch \
             "$WORKDIR/Sources/BuildScripts/patch/libmpv/0001-player-add-moltenvk-context.patch"
+          # IOS-POC-24. Named to sort after the recipe's 0003, which the recipe
+          # applies in file-name order.
+          cp third_party/mpv-ios/patches/libmpv/0004-ao-app-owned-audio-session.patch \
+            "$WORKDIR/Sources/BuildScripts/patch/libmpv/0004-ao-app-owned-audio-session.patch"
           git -C "$WORKDIR" apply "$GITHUB_WORKSPACE/third_party/mpv-ios/patches/buildscripts/0001-restore-prebuilt-ffmpeg.patch"
           git -C "$WORKDIR" status --short
 
@@ -179,6 +185,12 @@ jobs:
             echo "::error title=mpv source::the WebHTV moltenvk patch is not in the built source"
             exit 1
           fi
+          for ao in audiounit avfoundation; do
+            if ! grep -q skip_session_management "$src/audio/out/ao_$ao.m"; then
+              echo "::error title=mpv source::the WebHTV audio session patch is not in ao_$ao.m"
+              exit 1
+            fi
+          done
           python3 - <<'EOF'
           import glob, hashlib, json, os, sys
           lock = json.load(open("third_party/mpv-ios-lock.json"))
@@ -272,6 +284,10 @@ jobs:
           # Only the WebHTV context calls vo_wait_default (from wait_events).
           check "WebHTV moltenvk context in the binary" "yes" \
             "$(symbols -uj "$work/new-moltenvk.o" | grep -qx _vo_wait_default && echo yes || echo no)"
+          # IOS-POC-24: the audio outputs' skip-session-management option. It
+          # only guards calls both outputs already make, so it changes no symbol.
+          check "WebHTV audio session option in the binary" "yes" \
+            "$(strings -a "$new_lib" | grep -qx skip-session-management && echo yes || echo no)"
           changed="$(comm -3 <(symbols -guj "$ref_lib") <(symbols -guj "$new_lib") | tr -d '\t')"
           outside="$(comm -23 <(printf '%s\n' "$changed" | sed '/^$/d' | sort -u) \
                               <(printf '%s\n' "$allowed" "$toolchain_allowed" | sed '/^$/d' | sort -u))"
@@ -361,9 +377,9 @@ jobs:
             exit 1
           fi
           cat > "$RUNNER_TEMP/notes.md" <<EOF
-          Libmpv.xcframework for the WebHTV iOS app (IOS-POC-17I), not an app release.
+          Libmpv.xcframework for the WebHTV iOS app (IOS-POC-17I, IOS-POC-24), not an app release.
 
-          Built by this workflow from the MPVKit 1.0.0 recipe (LGPL product, no enable-gpl) with third_party/mpv-ios/patches/libmpv/0001-player-add-moltenvk-context.patch in place of the upstream 0001, which reports layer resizes to mpv. Every other library is the upstream 1.0.0 binary. Provenance: third_party/mpv-ios-lock.json and build-manifest.txt. The modified mpv source is mpv v0.41.0 plus the three patches applied by the recipe.
+          Built by this workflow from the MPVKit 1.0.0 recipe (LGPL product, no enable-gpl) with third_party/mpv-ios/patches/libmpv/0001-player-add-moltenvk-context.patch in place of the upstream 0001, which reports layer resizes to mpv, and third_party/mpv-ios/patches/libmpv/0004-ao-app-owned-audio-session.patch after the recipe's patches, which adds audiounit-skip-session-management and avfoundation-skip-session-management (default off). Every other library is the upstream 1.0.0 binary. Provenance: third_party/mpv-ios-lock.json and build-manifest.txt. The modified mpv source is mpv v0.41.0 plus the four patches applied by the recipe.
           EOF
           gh release create "$TAG" \
             "$RUNNER_TEMP/out/Libmpv.xcframework.zip" \

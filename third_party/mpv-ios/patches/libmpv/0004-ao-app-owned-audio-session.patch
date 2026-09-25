@@ -1,0 +1,145 @@
+diff --git a/audio/out/ao_audiounit.m b/audio/out/ao_audiounit.m
+index 8d4eb4d37..7f93ec37c 100644
+--- a/audio/out/ao_audiounit.m
++++ b/audio/out/ao_audiounit.m
+@@ -33,6 +33,7 @@
+ struct priv {
+     AudioUnit audio_unit;
+     double device_latency;
++    bool skip_session_management;
+ };
+ 
+ static OSStatus au_get_ary(AudioUnit unit, AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, void **data, UInt32 *outDataSize)
+@@ -115,14 +116,18 @@ static bool init_audiounit(struct ao *ao)
+ 
+     MP_VERBOSE(ao, "max channels: %ld, requested: %d\n", maxChannels, (int)ao->channels.num);
+ 
+-    AVAudioSessionCategoryOptions options = 0;
+-    if (!(ao->init_flags & AO_INIT_EXCLUSIVE)) {
+-        options |= AVAudioSessionCategoryOptionMixWithOthers;
+-    }
++    // WebHTV: an app that owns the process-wide session itself (another player
++    // shares it) asks mpv to leave its category and activation alone.
++    if (!p->skip_session_management) {
++        AVAudioSessionCategoryOptions options = 0;
++        if (!(ao->init_flags & AO_INIT_EXCLUSIVE)) {
++            options |= AVAudioSessionCategoryOptionMixWithOthers;
++        }
+ 
+-    [instance setCategory:AVAudioSessionCategoryPlayback withOptions:options error:nil];
+-    [instance setMode:AVAudioSessionModeMoviePlayback error:nil];
+-    [instance setActive:YES error:nil];
++        [instance setCategory:AVAudioSessionCategoryPlayback withOptions:options error:nil];
++        [instance setMode:AVAudioSessionModeMoviePlayback error:nil];
++        [instance setActive:YES error:nil];
++    }
+     [instance setPreferredOutputNumberOfChannels:prefChannels error:nil];
+ 
+     AudioComponentDescription desc = (AudioComponentDescription) {
+@@ -235,10 +240,12 @@ static void uninit(struct ao *ao)
+     AudioUnitUninitialize(p->audio_unit);
+     AudioComponentInstanceDispose(p->audio_unit);
+ 
+-    [AVAudioSession.sharedInstance
+-        setActive:NO
+-        withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
+-        error:nil];
++    if (!p->skip_session_management) {
++        [AVAudioSession.sharedInstance
++            setActive:NO
++            withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
++            error:nil];
++    }
+ }
+ 
+ static int init(struct ao *ao)
+@@ -262,4 +269,9 @@ const struct ao_driver audio_out_audiounit = {
+     .reset          = stop,
+     .start          = start,
+     .priv_size      = sizeof(struct priv),
++    .options        = (const struct m_option[]){
++        {"skip-session-management", OPT_BOOL(skip_session_management)},
++        {0}
++    },
++    .options_prefix = "audiounit",
+ };
+diff --git a/audio/out/ao_avfoundation.m b/audio/out/ao_avfoundation.m
+index c13f601d3..a38f52345 100644
+--- a/audio/out/ao_avfoundation.m
++++ b/audio/out/ao_avfoundation.m
+@@ -22,6 +22,7 @@
+ #include "common/common.h"
+ #include "common/msg.h"
+ #include "internal.h"
++#include "options/m_option.h"
+ #include "osdep/timer.h"
+ #include "ta/ta_talloc.h"
+ 
+@@ -45,6 +46,7 @@ struct priv {
+     CMAudioFormatDescriptionRef format_description;
+     AVObserver *observer;
+     int64_t end_time_av;
++    bool skip_session_management;
+ };
+ 
+ static int64_t CMTimeGetNanoseconds(CMTime time)
+@@ -224,9 +226,12 @@ static int init(struct ao *ao)
+     AVAudioSession *instance = AVAudioSession.sharedInstance;
+     NSInteger maxChannels = instance.maximumOutputNumberOfChannels;
+     NSInteger prefChannels = MIN(maxChannels, ao->channels.num);
+-    [instance setCategory:AVAudioSessionCategoryPlayback error:nil];
+-    [instance setMode:AVAudioSessionModeMoviePlayback error:nil];
+-    [instance setActive:YES error:nil];
++    // WebHTV: as in ao_audiounit, an app that owns the session keeps it.
++    if (!p->skip_session_management) {
++        [instance setCategory:AVAudioSessionCategoryPlayback error:nil];
++        [instance setMode:AVAudioSessionModeMoviePlayback error:nil];
++        [instance setActive:YES error:nil];
++    }
+     [instance setPreferredOutputNumberOfChannels:prefChannels error:nil];
+ #endif
+ 
+@@ -323,10 +328,12 @@ error:
+     if (p->format_description) CFRelease(p->format_description);
+ 
+ #if TARGET_OS_IPHONE
+-    [AVAudioSession.sharedInstance setActive:NO
+-        withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
+-        error:nil
+-    ];
++    if (!p->skip_session_management) {
++        [AVAudioSession.sharedInstance setActive:NO
++            withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
++            error:nil
++        ];
++    }
+ #endif
+ 
+     return CONTROL_ERROR;
+@@ -347,10 +354,12 @@ static void uninit(struct ao *ao)
+     [p->observer release];
+ 
+ #if TARGET_OS_IPHONE
+-    [AVAudioSession.sharedInstance setActive:NO
+-        withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
+-        error:nil
+-    ];
++    if (!p->skip_session_management) {
++        [AVAudioSession.sharedInstance setActive:NO
++            withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
++            error:nil
++        ];
++    }
+ #endif
+ }
+ 
+@@ -369,4 +378,9 @@ const struct ao_driver audio_out_avfoundation = {
+     .list_devs      = ca_get_device_list,
+ #endif
+     .priv_size      = sizeof(struct priv),
++    .options        = (const struct m_option[]){
++        {"skip-session-management", OPT_BOOL(skip_session_management)},
++        {0}
++    },
++    .options_prefix = "avfoundation",
+ };

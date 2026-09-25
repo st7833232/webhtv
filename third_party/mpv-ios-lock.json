@@ -1,5 +1,5 @@
 {
-  "_comment": "Provenance for the WebHTV build of Libmpv.xcframework. IOS-POC-17I-1. .github/workflows/ios-libmpv-build.yml is the only thing that reads this file: it rebuilds libmpv alone from the MPVKit 1.0.0 recipe with patches.replacement in place of the upstream 0001, restores every other library from the zips pinned under dependencies, compares the result with reference, and fails on any hash mismatch or unpinned download. The artifact is a GitHub release asset, not a tracked file.",
+  "_comment": "Provenance for the WebHTV build of Libmpv.xcframework. IOS-POC-17I-1. .github/workflows/ios-libmpv-build.yml is the only thing that reads this file: it rebuilds libmpv alone from the MPVKit 1.0.0 recipe with patches.replacement in place of the upstream 0001 and patches.ao_session after the upstream patches (IOS-POC-24), restores every other library from the zips pinned under dependencies, compares the result with reference, and fails on any hash mismatch or unpinned download. The artifact is a GitHub release asset, not a tracked file.",
   "recipe": {
     "project": "MPVKit",
     "repo": "https://github.com/mpvkit/MPVKit",
@@ -33,6 +33,11 @@
       "replaces": "0001-player-add-moltenvk-context.patch",
       "sha256": "6a4a83ee98198de00c16d6eb4601b8a3cd03ab87b201fa20980be0f8d719b82f",
       "note": "Identical to the upstream 0001 except video/out/vulkan/context_moltenvk.m, which now reports layer resizes to mpv. Resize logic from edde746/MPVKit e6b129fdd31347b25d5d862f73f52c23f9e55624, changed as docs/IOS-POC-17I-mpv-resize-libmpv.md records. Applies to mpv v0.41.0 before the upstream 0002 and 0003."
+    },
+    "ao_session": {
+      "path": "third_party/mpv-ios/patches/libmpv/0004-ao-app-owned-audio-session.patch",
+      "sha256": "d00c58303b3233899410d9cb7c559f51f27fd3286cd9257d34d02410ed488f6c",
+      "note": "IOS-POC-24. Copied into the recipe's patch directory as 0004, so the recipe applies it after the upstream 0002 and 0003 (file-name order, git apply). Adds audiounit-skip-session-management to audio/out/ao_audiounit.m and avfoundation-skip-session-management to audio/out/ao_avfoundation.m, both default off: when set, the output leaves the app's AVAudioSession category, mode and activation alone and does not deactivate it on uninit; setPreferredOutputNumberOfChannels stays. Option design after media-kit/libmpv-darwin-build patches/mpv-audiounit-shared-session.patch (159703a6f8b17bdb756d5a687d1ec1e29d90d366, 763a7fa17a1d66ebf29b8fe2fb46c15769d3a12e), changed as docs/IOS-POC-24-audio-session-ownership.md records."
     },
     "buildscripts": {
       "path": "third_party/mpv-ios/patches/buildscripts/0001-restore-prebuilt-ffmpeg.patch",
@@ -206,7 +211,7 @@
     "note": "The recipe runs tools with its own PATH and installs the newest meson from Homebrew if none is on it, so the workflow links the pinned meson into /opt/homebrew/bin and checks the version before building."
   },
   "artifact": {
-    "release_tag": "mpvkit-1.0.0-webhtv.1",
+    "release_tag": "mpvkit-1.0.0-webhtv.2",
     "name": "Libmpv.xcframework.zip",
     "url": "https://github.com/st7833232/webhtv/releases/download/mpvkit-1.0.0-webhtv.1/Libmpv.xcframework.zip",
     "bytes": 3553297,

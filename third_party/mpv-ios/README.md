@@ -3,11 +3,14 @@
 The iOS app plays through the LGPL `MPVKit` product of
 [MPVKit](https://github.com/mpvkit/MPVKit) 1.0.0. Every binary it links is the
 upstream 1.0.0 release asset except `Libmpv.xcframework`, which WebHTV
-rebuilds from the same recipe with one changed file, mpv's
+rebuilds from the same recipe with two changes to mpv. The first is
 `video/out/vulkan/context_moltenvk.m` (IOS-POC-17I). The upstream context reads
 the layer size only when the video output is configured, so after a rotation
 mpv kept drawing the old rectangle until the app rebuilt the whole output. The
-WebHTV context reports layer resizes to mpv as they happen.
+WebHTV context reports layer resizes to mpv as they happen. The second
+(IOS-POC-24) gives mpv's two iOS audio outputs an option to leave the app's
+audio session alone, because the app also plays through AVPlayer and owns the
+one session both engines share.
 
 `../mpv-ios-lock.json` pins every input and the published artifact.
 `.github/workflows/ios-libmpv-build.yml` is the only build path and the only
@@ -39,6 +42,20 @@ build has to change both files.
   was LGPL; the file keeps mpv's LGPL-2.1-or-later header.
   `docs/IOS-POC-17I-mpv-resize-libmpv.md` records the research and the
   changes made to it.
+- `patches/libmpv/0004-ao-app-owned-audio-session.patch` is applied after the
+  recipe's own patches (the workflow copies it in as `0004`, and the recipe
+  applies patches in file-name order). It adds
+  `audiounit-skip-session-management` to `audio/out/ao_audiounit.m` and
+  `avfoundation-skip-session-management` to `audio/out/ao_avfoundation.m`,
+  both off by default. When set, the output does not set the session's
+  category or mode, does not activate it, and does not deactivate it when the
+  output goes away; it still sets the preferred number of output channels.
+  The option follows media-kit's libmpv patch
+  (`media-kit/libmpv-darwin-build`
+  `159703a6f8b17bdb756d5a687d1ec1e29d90d366`,
+  `763a7fa17a1d66ebf29b8fe2fb46c15769d3a12e`);
+  `docs/IOS-POC-24-audio-session-ownership.md` records the research and what
+  WebHTV changed.
 - `patches/buildscripts/0001-restore-prebuilt-ffmpeg.patch` changes the
   recipe to restore FFmpeg from the 1.0.0 `FFmpeg-all.zip` instead of
   compiling it, so libmpv is the only thing built.
@@ -49,7 +66,7 @@ build has to change both files.
 
 The workflow runs on `macos-26` with the pinned Xcode and meson. It checks out
 the recipe at `recipe.build_commit` in the directory the 1.0.0 release was
-built in, verifies the upstream patches, swaps in the WebHTV 0001, places every
+built in, verifies the upstream patches, swaps in the WebHTV 0001, adds the WebHTV 0004, places every
 dependency zip from the lock (the recipe then never downloads), and runs
 `make build platform=ios`: `-Dgpl=false`, device arm64 plus the arm64 and
 x86_64 simulator. Before publishing it requires the device slice to match the
@@ -58,6 +75,9 @@ upstream `Libmpv` in:
 - the embedded `Configuration:` and `List of enabled features:` strings;
 - the static library's members and its defined external symbols;
 - every framework file other than the binary.
+
+It also requires the WebHTV changes to be in the result: the moltenvk context's
+reference to `vo_wait_default`, and the `skip-session-management` option name.
 
 Undefined symbols may differ only through the `context_moltenvk` member, with
 one named exception accepted on 2026-09-25: `_wcslen`, as long as
@@ -75,7 +95,7 @@ The modified library is mpv `v0.41.0`
 (`41f6a645068483470267271e1d09966ca3b9f413`) with, in order, the WebHTV
 `0001` above and MPVKit's `0002-revert-build-static.patch` and
 `0003-enable-avfoundation-ao-tvos.patch` from recipe commit
-`9d057f9c19fa704e242b199d26bc6c5cf23dd5d6`. The workflow and the lock rebuild
+`9d057f9c19fa704e242b199d26bc6c5cf23dd5d6`, then the WebHTV `0004` above. The workflow and the lock rebuild
 it from those inputs. FFmpeg and the other libraries are unmodified upstream
 binaries; their versions are in the lock and in `licenses/`.
 

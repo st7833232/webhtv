@@ -8,12 +8,13 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **Git**：分支 `ios-poc`，已全部 push。接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認，以實際 Git 狀態為準，不要相信本文的 SHA。
 
-**最新已發布版本是 `0.1.20 (21)`**（2026-09-25，使用者授權；tag `ios-v0.1.20-b21` → `957dc518`，run `36100831753`，`source.json` `dfbd997a`，IPA 25,029,164 bytes，SHA-256 `b62548957d82b448fab17ad17bf5c40946379e3ff3baf1774a4f92ce1910ab70`，下載回驗通過）。至今共發布 21 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
+**最新已發布版本是 `0.1.21 (22)`**（2026-09-25，使用者授權；tag `ios-v0.1.21-b22` → `255f4d8e`，run `36121327712`，`source.json` `4c15e7de`，IPA 25,030,951 bytes，SHA-256 `877db6d8c6114ae43f43061337f997388ad9c7342dfd783e52dac8dbf37c2c15`，下載回驗通過）。至今共發布 22 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
 
 **近期各版內容（新到舊）**
 
 | 版本 | tag 指向 | 比上一版多了什麼 | 真機結果 |
 |---|---|---|---|
+| `0.1.21 (22)` | `255f4d8e` | IOS-POC-24：MPV 改用 Libmpv `mpvkit-1.0.0-webhtv.2`，不再改動音訊工作階段；App 擁有工作階段（每次播放前啟用、被中斷時暫停）（`f2dc8e65`、`45357898`、`c472798b`） | 未驗證 |
 | `0.1.20 (21)` | `957dc518` | IOS-POC-23：暫停中被系統暫停執行後，回到 App 以暫停狀態重新載入（`440d671e`）；MPV snapshot 修正（`51501cde`） | IOS-POC-23 T1～T15 全部通過（2026-09-25） |
 | `0.1.19 (20)` | `777aff2d` | IOS-POC-17I-2：MPV 改用 WebHTV 自建 Libmpv，旋轉不再重建 VO（`9186a272`） | 未驗證 |
 | `0.1.18 (19)` | `ccfad785` | 送出搜尋就閃退的修正：`PythonBoot` 只啟動一次（`0786a46e`） | 可以搜尋，不再閃退 |
@@ -34,7 +35,9 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 2. 不要直接裝到使用者的 iPhone；使用者用 SideStore 實機測試。真機沒測到的一律寫「未驗證」。
 3. 沒有指示前，不開始 MPV parity P2 以後的任何階段，也不開始 IOS-POC-12／13。
 
-**下一步（唯一）**：等使用者在 `0.1.20 (21)` 上真機回報，收到後逐列填進對應文件：
+**下一步（唯一）**：等使用者在 `0.1.21 (22)` 上真機回報，收到後逐列填進對應文件：
+
+0. IOS-POC-24 的音訊驗收：`docs/IOS-POC-24-audio-session-ownership.md` 第七節。
 
 1. MPV 旋轉（播放中、暫停中）與既有功能：`docs/IOS-POC-17I-mpv-resize-libmpv.md` 第六節第 4～6 條。
 2. MPV 子母畫面：`docs/IOS-POC-17H-mpv-picture-in-picture.md` 第四節（第六節之三的真機未驗證項目）。
@@ -45,7 +48,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 **任務狀態**
 
 - IOS-POC-23「暫停後離開 App 再回來，兩個核心都卡住」：已完成。第一階段在 `0.1.20 (21)` 真機驗收通過，後續階段依目前證據不需要；T13 時發現「暫停一段時間後按播放要等幾秒」，與本修正無關，使用者決定先不處理。見 `docs/IOS-POC-23-pause-background-resume-stall.md` 第十二節。
-- IOS-POC-24「mpv 與 App 搶音訊工作階段」（IOS-POC-23 第十節之三）：研究完成，使用者 2026-09-25 選定 O3（修改 Libmpv，由 App 擁有工作階段），24-1 已發布 Libmpv prerelease `mpvkit-1.0.0-webhtv.2`（run `36118969804`，第一次即成功，比對沒有新增例外）；24-2（App 改用它，mpv 不再碰工作階段，App 每次播放前啟用）與 24-3（審查修正：中斷時暫停、類別被重設時改回）已 commit，**尚未編譯、真機未驗證**；使用者已同意審查後發布 `0.1.21 (22)`。見 `docs/IOS-POC-24-audio-session-ownership.md` 第十節與 Recovery anchor。
+- IOS-POC-24「mpv 與 App 搶音訊工作階段」（IOS-POC-23 第十節之三）：研究完成，使用者 2026-09-25 選定 O3（修改 Libmpv，由 App 擁有工作階段），24-1 已發布 Libmpv prerelease `mpvkit-1.0.0-webhtv.2`（run `36118969804`，第一次即成功，比對沒有新增例外）；24-2（App 改用它，mpv 不再碰工作階段，App 每次播放前啟用）與 24-3（審查修正：中斷時暫停、類別被重設時改回）已以 `0.1.21 (22)` 發布（CI 第一次編譯即成功），**真機未驗證**。見 `docs/IOS-POC-24-audio-session-ownership.md` 第十節與 Recovery anchor。
 - IOS-POC-17I（MPV 旋轉根治）：17I-3 已發布，待真機驗收；見 17I 文件第十三節與 Recovery anchor。子母畫面解除時放大、進度往回已診斷，依使用者決定等有模擬器再修（17H 文件）。
 - IOS-POC-12／13：未開始。
 
@@ -115,8 +118,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 | **IOS-POC-15D Buffering contract** | **Done 2026-09-24 (`6416c4d4`), shipped in `0.1.10 (11)`.** IOS-POC-15 checked line by line; `os.Logger` `[playback]` measurements. Device performance still pending. `docs/IOS-POC-15-playback-buffering-preload.md` 第十二節 |
 | **IOS-POC-17F Proactive engine fallback** | **Done to the simulator 2026-09-24 (`b37751d2`), shipped in `0.1.10 (11)`; device unverified.** Network/unclassified failures and a 20-second no-start try the other engine once per attempt; offline/source never switch; replaces 17B's capability-only rule (user decision). 344／344. `docs/IOS-POC-17-dual-internal-player.md` 第十二之二節; MPV parity roadmap 第十四節 |
 | **IOS-POC-17G / 17H MPV rotation, MPV PiP** | **Done to the simulator 2026-09-24 (17G `257553f2`, 17H `8824c8ee`), shipped in `0.1.11 (12)`; device unverified.** 17G rebuilds the VO once a rotation settles; 17H gives MPV Picture in Picture through the libmpv software renderer and a sample buffer layer (the simulator's sample-buffer PiP window is always black). `docs/IOS-POC-17-dual-internal-player.md` 第十二之三節; `docs/IOS-POC-17H-mpv-picture-in-picture.md` |
-| SideStore release pipeline (IOS-POC-11) | **Done** — `.github/workflows/ios-sidestore-release.yml` and `source.json` exist and have published every release since, through `0.1.20 (21)` (21 releases, 2026-09-25) |
-| Current release | **WebHTV `0.1.20 (21)`**, tag `ios-v0.1.20-b21` → `957dc518`, published 2026-09-25 at the user's instruction (run `36100831753`, `WebHTV-0.1.20-21.ipa` 25,029,164 bytes, SHA-256 `b6254895…`, downloaded back and verified); `source.json` first entry `0.1.20`, pushed by the workflow as `dfbd997a`. It is `0.1.19 (20)` (`777aff2d`) plus IOS-POC-23 (`440d671e`, `51501cde`: a player paused while the app was suspended is reloaded paused on return; MPV no longer reads a paused load as playing). **Device: IOS-POC-23 T1–T15 all pass (2026-09-25); the 17I rotation fix from `0.1.19 (20)` has no device result yet.** Record: `docs/IOS-POC-11-sidestore-release.md` 第二十一次發布. |
+| SideStore release pipeline (IOS-POC-11) | **Done** — `.github/workflows/ios-sidestore-release.yml` and `source.json` exist and have published every release since, through `0.1.21 (22)` (22 releases, 2026-09-25) |
+| Current release | **WebHTV `0.1.21 (22)`**, tag `ios-v0.1.21-b22` → `255f4d8e`, published 2026-09-25 at the user's instruction (run `36121327712`, `WebHTV-0.1.21-22.ipa` 25,030,951 bytes, SHA-256 `877db6d8…`, downloaded back and verified); `source.json` first entry `0.1.21`, pushed by the workflow as `4c15e7de`. It is `0.1.20 (21)` (`957dc518`) plus IOS-POC-24 (`f2dc8e65`, `45357898`, `c472798b`: MPV links Libmpv `mpvkit-1.0.0-webhtv.2` and no longer touches the audio session; the app owns it). **No device result yet.** Record: `docs/IOS-POC-11-sidestore-release.md` 第二十二次發布. |
 | IOS-POC-14 auto-advance | **Done and confirmed on the device by the user.** An episode that ends starts the next one on the same line; the last one closes the player |
 | IOS-POC-14A/14B playback speed | **Done, not device-verified.** The chosen speed carries across episodes **of the same title** — keyed on `WatchHistory.key`, so switching source resets it, which the user decided to leave (14C) |
 | Real-device acceptance (IOS-POC-8) | **Partial.** Several runs on hardware; the list below is what is and is not confirmed. Not to be recorded as complete. **IOS-POC-8L (2026-09-23) prepared the core acceptance: `docs/IOS-POC-8L-core-real-device-acceptance.md` is the matrix** (已驗證／這輪要驗／延後驗證／不適用, 14 user-run items). Two findings it recorded: `wang-movie.json` has **no source** that reaches either `script` rule host (`yeslivetv.com`, `www.maolvys.com`) and none that requests its only ad host `mozai.4gtv.tv`; and the sniffer web view and every `print` diagnostic are **invisible on a SideStore Release install** — so 5S-1/5S-3's positive behaviour has no on-device observation channel, only non-regression |
@@ -358,6 +361,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 21 | **Fixed to the simulator 2026-09-24, shipped in `0.1.13 (14)`:** picking another episode no longer resumes at the previous episode's position; the same episode, or the same episode on another line, still resumes (Android `updateHistory`); `swift test` 351／351 | `docs/IOS-POC-21-episode-switch-resume.md` |
 | 22 | **Fixed to the simulator 2026-09-24, shipped in `0.1.14 (15)`: 2.5×／3× on an AVPlayer item that cannot fast-forward hands the playback to MPV (user's rule).** Diagnosis: AVPlayer cannot play above 2.0× when `canPlayFastForward` is false (SDK `AVPlayerItem.h`); on the simulator it discards its whole buffer at 2.5×／3× and loops wait/jump, while 2× and MPV 3× are smooth | `docs/IOS-POC-22-avplayer-high-speed.md` |
 | 23 | **Stage 1 implemented 2026-09-25 (user-approved), shipped in `0.1.20 (21)` (first CI compile succeeded; unit tests not run); device acceptance T1–T15 all pass (2026-09-25):** a player paused in the background is reloaded paused on the same engine at its position when a background heartbeat gap shows the app was suspended (`appWasSuspended` is deprecated since iOS 16), its tracks are selected again, and the audio session is reactivated on the next play; `440d671e`, plus the MPV snapshot fix `51501cde` in `MPVEngine.swift` (a paused load onto a paused core read as playing) | `docs/IOS-POC-23-pause-background-resume-stall.md` |
+| 24 | **Implemented 2026-09-25 (user chose O3), shipped in `0.1.21 (22)` (Libmpv run `36118969804` and the release build both succeeded first time; unit tests not run); not device-verified:** WebHTV's Libmpv gains `audiounit-`/`avfoundation-skip-session-management` (patch 0004, prerelease `mpvkit-1.0.0-webhtv.2`), MPV sets them, and the app owns the audio session: it activates it before every start of playback and pauses the engine when an interruption begins; `f2dc8e65`, `45357898`, `c472798b` | `docs/IOS-POC-24-audio-session-ownership.md` |
 | 8L | **Core real-device acceptance preparation** — the acceptance matrix, the `wang-movie.json` rules/ads inventory, and the `0.1.8 (9)` release-candidate plan with a Release pre-flight build. Docs only; nothing was device-verified by it | `docs/IOS-POC-8L-core-real-device-acceptance.md` |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
 | 7E | The CPython payload arrives by `scripts/fetch_python_ios.sh` + `third_party/python-ios-lock.json`, not by commit | `docs/IOS-POC-7A-python-runtime.md` |

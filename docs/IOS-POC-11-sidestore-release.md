@@ -32,7 +32,7 @@
 
 ## Recovery anchor
 
-- 狀態：完成，且已發過**二十一個**版本，最新是 `0.1.20 (21)`（見文末各次發布；`0.1.5 (6)` 沒有獨立段落，記在 `docs/current-task-state.md`）。
+- 狀態：完成，且已發過**二十二個**版本，最新是 `0.1.21 (22)`（見文末各次發布；`0.1.5 (6)` 沒有獨立段落，記在 `docs/current-task-state.md`）。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
 - 發布結果：`WebHTV-0.1-1.ipa`，24,563,162 bytes，GitHub asset SHA-256 `fcbf1531d9480f678ee0fac7ec5ce49010f3de51fc11b79f0ba88372e85812ed`；IPA plist 為 `com.webhtv.ios.poc`、`0.1`、build `1`、minimum iOS `17.0`。
@@ -478,7 +478,7 @@ WebHTV 0.1.19 (20)（未經真機驗收）
 
 ## 第二十一次發布：`0.1.20 (21)`（2026-09-25，**已發布**）
 
-**目前最新版是 `0.1.20 (21)`。** 前面二十版都已被取代。
+**發布當時最新版是 `0.1.20 (21)`**（已被 `0.1.21 (22)` 取代，見第二十二次發布）。前面二十版都已被取代。
 
 - 授權：使用者 2026-09-25 在選擇題中選「要，修正後發布 0.1.20 (21)（建議）」。版號 `0.1.20`，build `21`。
 - 內容：`0.1.19 (20)` 的全部，加上 IOS-POC-23 第一階段（`440d671e`）與 MPV snapshot 修正（`51501cde`）：暫停中被系統暫停執行後，回到 App 時以同一核心在原位置以暫停狀態重新載入，恢復音軌與字幕，按播放前重新啟用音訊；MPV 暫停中重新載入或換畫質後不再誤判為播放中。細節見 `docs/IOS-POC-23-pause-background-resume-stall.md` 第十一節。
@@ -503,4 +503,37 @@ WebHTV 0.1.20 (21)（未經真機驗收）
 修正
 - 暫停後離開 App（回主畫面或鎖螢幕）再回來，畫面變黑、沒有聲音、按播放沒反應：App 被系統暫停執行過時，回來會在原位置以暫停狀態自動重新載入，並恢復原本選的音軌與字幕；按播放前重新啟用音訊。原生與 MPV 都適用；子母畫面中不會重新載入。
 - MPV 暫停中換畫質（或上述重新載入）後，App 誤以為正在播放，播放鍵按了沒反應。
+```
+
+## 第二十二次發布：`0.1.21 (22)`（2026-09-25，**已發布**）
+
+**目前最新版是 `0.1.21 (22)`。** 前面二十一版都已被取代。
+
+- 授權：使用者 2026-09-25 在選擇題中選「審查後發布 0.1.21 (22)（建議）」。版號 `0.1.21`，build `22`。
+- 內容：`0.1.20 (21)` 的全部，加上 IOS-POC-24（`f2dc8e65` Libmpv 選項、`45357898` App 改用 `mpvkit-1.0.0-webhtv.2` 並擁有音訊工作階段、`c472798b` 審查修正）。細節見 `docs/IOS-POC-24-audio-session-ownership.md` 第十節。
+- 發布序列：
+  1. 版號 commit `255f4d8e`（Task-Guard `IOS-RELEASE-0.1.21-b22`）。
+  2. push `c472798b..255f4d8e`。
+  3. `workflow_dispatch` run `36121327712`（`version=0.1.21`、`build_number=22`，success，2026-09-25 09:57:34Z 建立，10:01:31Z 發布；以 GitHub MCP 觸發）。
+  4. workflow 建立 tag `ios-v0.1.21-b22`（target `255f4d8e`），並推回 `source.json`（`4c15e7de`，共二十二筆，第一筆 `0.1.21`，size 與 IPA 相同）。
+
+  **沒有手動建 tag。**
+- 產物：`WebHTV-0.1.21-22.ipa` **25,030,951 bytes**，SHA-256
+  `877db6d8c6114ae43f43061337f997388ad9c7342dfd783e52dac8dbf37c2c15`（與 GitHub asset digest 相同）。
+  **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`com.webhtv.ios.poc` / `0.1.21` / build `22` / minimum iOS `17.0` / `UIBackgroundModes` `audio`。
+  執行檔含 `audiounit-skip-session-management`、`avfoundation-skip-session-management`（App 設定的選項名稱）、`[audio] session not activated`，也仍含 `_moltenvk_wait_events`（WebHTV 的 `Libmpv`）。
+- 發布前驗證：IOS-POC-24 的 Swift 改動沒有在本機編譯（本環境沒有 Swift 工具鏈），由本次 workflow 的 Release device build 第一次編譯即成功；Libmpv 由 run `36118969804` 建置並通過與上游的比對。單元測試未執行。**真機尚未驗收。**
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.21 (22)（未經真機驗收）
+
+修正
+- MPV 播放時會和其他 App 的音樂混在一起；用過 MPV 之後，原生播放也變成混音。現在兩個播放核心都和原生一樣：開始播放時，其他 App 的音樂會停止。
+- 從 MPV 換到原生時，原生可能被停掉或沒有聲音。
+- MPV 被來電、Siri 或其他 App 的聲音打斷後，畫面停住卻仍顯示播放中；現在會暫停，按播放即可繼續。
+
+內部
+- MPV 改用 WebHTV 自建的 Libmpv mpvkit-1.0.0-webhtv.2：mpv 不再改動 App 的音訊設定，由 App 統一管理。
 ```

@@ -350,7 +350,9 @@ final class MPVPlayerCore: @unchecked Sendable {
     }
 
     func load(url: String, headerFields: [String], startSeconds: Double, rate: Float, autoplay: Bool) {
-        update { $0 = Snapshot(loading: true, speed: Double(rate), volume: $0.volume) }
+        // IOS-POC-23: the pause state this load sets, not the default. mpv reports `pause` only when
+        // it changes, so a paused load onto a paused core would otherwise read as playing for good.
+        update { $0 = Snapshot(loading: true, paused: !autoplay, speed: Double(rate), volume: $0.volume) }
         queue.async { [self] in
             guard let mpv else { return }
             // Headers are per source: clear the list, then append one entry at a time —

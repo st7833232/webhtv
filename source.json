@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.19",
+          "date": "2026-09-25",
+          "localizedDescription": "WebHTV 0.1.19 (20)（未經真機驗收）\n\n修正\n- MPV 直向與橫向切換時畫面短暫跑版：改用 WebHTV 自建的 libmpv，旋轉時直接調整畫面尺寸，不再重建影片輸出或跳回目前位置；暫停中旋轉也會更新畫面。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.19-b20/WebHTV-0.1.19-20.ipa",
+          "size": 25018946,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.18",
           "date": "2026-09-24",
           "localizedDescription": "WebHTV 0.1.18 (19)（未經真機驗收）\n\n修正\n- 送出全站台搜尋後 App 閃退：多個 Python 站台同時啟動時，Python 直譯器現在只會啟動一次，其他站台會等它啟動完成。",

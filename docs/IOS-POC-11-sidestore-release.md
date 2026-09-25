@@ -450,7 +450,7 @@ WebHTV 0.1.18 (19)（未經真機驗收）
 
 ## 第二十次發布：`0.1.19 (20)`（2026-09-25，**已發布**）
 
-**目前最新版是 `0.1.19 (20)`。** 前面十九版都已被取代。
+**發布當時最新版是 `0.1.19 (20)`**（已被 `0.1.20 (21)` 取代，見第二十一次發布）。前面十九版都已被取代。
 
 - 授權：使用者 2026-09-25 在選擇題中選「發布 0.1.19 (20)（建議）」。版號 `0.1.19`，build `20`。
 - 內容：`0.1.18 (19)` 的全部，加上 IOS-POC-17I-2（`9186a272`）：App 改用本地 `ios/Vendor/MPVKit` package，`Libmpv` 換成 WebHTV 自建的 `mpvkit-1.0.0-webhtv.1`，其 `moltenvk` context 會自己跟著 layer 尺寸 resize；17G 的 300 ms 等待、vo 重建與 exact seek 都已移除。細節見 `docs/IOS-POC-17I-mpv-resize-libmpv.md` 第十三、十四節。
@@ -474,4 +474,33 @@ WebHTV 0.1.19 (20)（未經真機驗收）
 
 修正
 - MPV 直向與橫向切換時畫面短暫跑版：改用 WebHTV 自建的 libmpv，旋轉時直接調整畫面尺寸，不再重建影片輸出或跳回目前位置；暫停中旋轉也會更新畫面。
+```
+
+## 第二十一次發布：`0.1.20 (21)`（2026-09-25，**已發布**）
+
+**目前最新版是 `0.1.20 (21)`。** 前面二十版都已被取代。
+
+- 授權：使用者 2026-09-25 在選擇題中選「要，修正後發布 0.1.20 (21)（建議）」。版號 `0.1.20`，build `21`。
+- 內容：`0.1.19 (20)` 的全部，加上 IOS-POC-23 第一階段（`440d671e`）與 MPV snapshot 修正（`51501cde`）：暫停中被系統暫停執行後，回到 App 時以同一核心在原位置以暫停狀態重新載入，恢復音軌與字幕，按播放前重新啟用音訊；MPV 暫停中重新載入或換畫質後不再誤判為播放中。細節見 `docs/IOS-POC-23-pause-background-resume-stall.md` 第十一節。
+- 發布序列：
+  1. 版號 commit `957dc518`（Task-Guard `IOS-RELEASE-0.1.20-b21`）。
+  2. push `51501cde..957dc518`。
+  3. `workflow_dispatch` run `36100831753`（`version=0.1.20`、`build_number=21`，success，2026-09-25 05:58:50Z → 06:02:56Z 前後；以 GitHub MCP 觸發）。
+  4. workflow 建立 tag `ios-v0.1.20-b21`（target `957dc518`），並推回 `source.json`（`dfbd997a`，共二十一筆，第一筆 `0.1.20`，size 與 IPA 相同）。
+
+  **沒有手動建 tag。**
+- 產物：`WebHTV-0.1.20-21.ipa` **25,029,164 bytes**，SHA-256
+  `b62548957d82b448fab17ad17bf5c40946379e3ff3baf1774a4f92ce1910ab70`（與 GitHub asset digest 相同）。
+  **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`com.webhtv.ios.poc` / `0.1.20` / build `21` / minimum iOS `17.0`。
+  執行檔含 IOS-POC-23 的 `[lifecycle]` 字串，也仍含 `_moltenvk_wait_events`（WebHTV 的 `Libmpv`）。
+- 發布前驗證：IOS-POC-23 沒有在本機編譯（本環境沒有 Swift 工具鏈），由本次 workflow 的 Release device build 第一次編譯即成功；單元測試未執行。**真機尚未驗收。**
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.20 (21)（未經真機驗收）
+
+修正
+- 暫停後離開 App（回主畫面或鎖螢幕）再回來，畫面變黑、沒有聲音、按播放沒反應：App 被系統暫停執行過時，回來會在原位置以暫停狀態自動重新載入，並恢復原本選的音軌與字幕；按播放前重新啟用音訊。原生與 MPV 都適用；子母畫面中不會重新載入。
+- MPV 暫停中換畫質（或上述重新載入）後，App 誤以為正在播放，播放鍵按了沒反應。
 ```

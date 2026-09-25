@@ -1,6 +1,6 @@
 # IOS-POC-23 — 暫停後離開 App 再回來，兩個播放核心都卡住
 
-- 狀態：**第一階段已實作（2026-09-25，使用者核准）**，含 MPV snapshot 修正（第十一節之四，使用者同意納入範圍）；尚未編譯（本環境沒有 Swift，要等發版 workflow）、單元測試未執行、真機未驗證。
+- 狀態：**第一階段已實作（2026-09-25，使用者核准）**，含 MPV snapshot 修正（第十一節之四，使用者同意納入範圍）；已以 `0.1.20 (21)` 發布，CI 第一次編譯即成功；單元測試未執行、真機未驗證。
 - 使用者原始提問（2026-09-25，`0.1.19 (20)` 之前的版本）：「暫停後跳出 App 再恢復播放，容易有問題，是不是連線沒有重新建立？」
 - 本文件依 AGENTS.md §7 記錄最佳實務研究、現況審查、方案比較、建議、驗收標準與回滾。核准前不實作。
 
@@ -299,7 +299,7 @@ App 沒有本地代理或 HTTP server；AVPlayer（`AVURLAsset`＋headers）與 
    - 第二輪針對心跳偵測改寫後的 diff，確認 2 項次要問題，修正 1 項（載入中的項目），另 1 項即 T6（見下方待辦）；
    - 第二輪的編譯審查沒有回傳結果，心跳相關程式沒有經過專門的編譯審查。
 
-### 4. MPV snapshot 修正（已修正，第二個 commit）
+### 4. MPV snapshot 修正（已修正，第二個 commit `51501cde`）
 
 1. **MPV 暫停重新載入後，App 以為在播放**：`MPVEngine.swift:353` 的 `Snapshot(loading: true, …)` 把 `paused` 重設為 false；mpv 的 `pause` 本來就是 yes，不會再送變更事件，所以 `isPlaying` 變成 true，播放鍵顯示暫停且按了無效。
    - 修正是一行：重設時帶入 `paused: !autoplay`。
@@ -308,10 +308,13 @@ App 沒有本地代理或 HTTP server；AVPlayer（`AVURLAsset`＋headers）與 
 2. 已知缺口（不在第一階段範圍）：
    - T6：播放中進子母畫面，在小視窗裡暫停並在背景關掉小視窗，之後才被暫停執行；進背景當下不符合條件，所以不會重新載入。
    - 在 MPV 子母畫面視窗內按播放（`MPVEngine.swift:952`）不經過 session，不會重新啟用音訊。
+### 5. 發布
+
+以 `0.1.20 (21)` 發布（run `36100831753`，tag `ios-v0.1.20-b21` → `957dc518`），Release device build 第一次編譯即成功；細節見 `docs/IOS-POC-11-sidestore-release.md` 第二十一次發布。T0 需要舊版，更新後已無法測。
 
 ## Recovery anchor
 
 - 目標：修正「暫停後離開 App 再回來，兩個核心都卡住」。第一階段＝第六節 O2＋O8，驗收標準見第七節。
-- 狀態（2026-09-25）：第一階段與 MPV snapshot 修正都已 commit（第十一節），未編譯、未跑測試、真機未驗證；使用者同意修正後發布 `0.1.20 (21)`。T0 仍待回報。
+- 狀態（2026-09-25）：第一階段（`440d671e`）與 MPV snapshot 修正（`51501cde`）已以 `0.1.20 (21)` 發布，CI 編譯成功；單元測試未執行、真機未驗證。
 - 相關檔案：`ios/Sources/WebHTVCore/PlaybackEngine.swift`（`PlayerRouter`）、`ios/WebHTVApp/Sources/WebHTVApp.swift`（`PlaybackSession`、`AVPlayerEngine`）、`ios/WebHTVApp/Sources/MPVEngine.swift`、`ios/Sources/WebHTVCore/PictureInPictureForegroundRestoreState.swift`、`ios/Tests/WebHTVCoreTests/PlaybackEngineTests.swift`。
-- 下一步（唯一）：依 `docs/IOS-POC-11-sidestore-release.md` 發布 `0.1.20 (21)`（第一次編譯）；之後請使用者依第八節真機測試。
+- 下一步（唯一）：等使用者在 `0.1.20 (21)` 依第八節 T1～T15 真機回報；有問題依第九節回滾或修正，並依回報決定是否進行第十節的後續階段。

@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.25",
+          "date": "2026-09-26",
+          "localizedDescription": "WebHTV 0.1.25 (26)（未經真機驗收）\n\n修正\n- 原生播放器開不了的線路：原本黑畫面 20 秒才改用 MPV，現在 5 秒就改用 MPV，並在畫面上方顯示原因約 4 秒。AirPlay 或子母畫面中仍等 20 秒。\n- 載入或卡住時顯示轉圈。\n- 播放／暫停鍵依「想不想播」切換：卡住時可以按暫停；開播中按暫停，不會被自動改用 MPV 並播放。\n- 卡住時從控制列切到 MPV 或換畫質，會繼續播放。\n- 首頁與搜尋結果：點左邊影片卡的右半部，不再開到右邊的影片。\n\n改善\n- 原生播放器的預讀量依倍速放大：2 倍速時實際緩衝由約 30 秒增為約 60 秒（上限 120 秒影片時間）；1 倍不變。\n\n已知限制\n- 慢但能播的原生開播（超過 5 秒）也可能改用 MPV。\n- 卡住時快轉／倒退仍要等資料到才完成。\n- 原生切到 MPV 會先黑一陣子，尚未處理。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.25-b26/WebHTV-0.1.25-26.ipa",
+          "size": 25129553,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.24",
           "date": "2026-09-26",
           "localizedDescription": "WebHTV 0.1.24 (25)（未經真機驗收）\n\n新增\n- MPV 播放含插播廣告的影片（播放清單有 EXT-X-DISCONTINUITY）時，「智慧去廣」也會自動跳過廣告：播到廣告約 0.25 秒後跳到廣告結束前 0.1 秒；拖進度條到廣告中會落在廣告尾端。\n- 原生播放器、沒有插播標記的影片，行為不變。\n\n已知限制\n- MPV 在這類影片上，每段廣告會先露出約 0.25～0.45 秒的開頭，以及最後 0.1 秒。\n- 連續經過多段廣告後，MPV 的時間可能比播放清單多出 0.25 秒以上，這時廣告前最後一小段正片可能被跳掉；發現時請回報。\n- 設定頁關閉「智慧去廣」即可停用。",

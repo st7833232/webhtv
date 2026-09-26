@@ -1,4 +1,4 @@
-From d8fcd30a032f213ef2e5ea859ca7a81c0b696fc6 Mon Sep 17 00:00:00 2001
+From 5675e45b486925b7a56ab01d1b7ed6520d617d31 Mon Sep 17 00:00:00 2001
 From: IOS-POC-26-2b backport <noreply@anthropic.com>
 Date: Sat, 26 Sep 2026 02:33:51 +0000
 Subject: [PATCH] avformat/hls: anchor discontinuity sequences to the playlist
@@ -19,32 +19,97 @@ time.
 For playlists that are finished when first normalized (EXT-X-ENDLIST):
 
 - EXT-X-DISCONTINUITY is kept per segment. read_data_continuous() records
-  the byte position at which each opened segment starts, and packets are
-  attributed to their segment by pkt->pos, so late packets of the previous
-  segment (demuxer and parser delay) are not taken for the new one.
+  the byte position at which each opened segment starts (only for finished
+  playlists with discontinuities, with the EXTINF sums accumulated
+  incrementally), and packets are attributed to their segment by pkt->pos,
+  so late packets of an earlier segment (demuxer and parser delay) keep the
+  offset their stream last used in that sequence instead of being taken for
+  the new one. A video frame held across an audio-only ad therefore keeps
+  the content's offset, not the ad's.
 - The first packet delivered from a new discontinuity sequence decides the
-  offset of that sequence. It is re-anchored to its segment's playlist
-  start (first_timestamp + the EXTINF durations before it + the stream
-  baseline, the value seeking uses; RFC 8216 section 6.3.3, which is what
-  AVPlayer and Media3's per-discontinuity TimestampAdjuster follow) only if,
-  mapped with the current offset, it is more than 1 s away both from that
-  start and from its own stream's continuity. Timestamps that really are
-  continuous across the tag are therefore left exactly as stock delivers
-  them, even with EXTINF drift (integer or rounded EXTINF). 1 s is about
-  20 times the anchor error of a stream's first packet in a segment (up to
-  ~53 ms) and well above per-segment EXTINF rounding, while real splices
-  differ by seconds.
-- The offset is shared by the playlist's streams, which keeps the
-  segment's own A/V relation. Late packets of the previous sequence keep
-  the previous offset. The first packet of each stream in a sequence is not
-  clamped: a sub-frame splice overlap passes through as it does on a
-  continuous splice. A re-anchor that would put the deciding stream a frame
-  or more behind its last dts is moved to one frame after it instead of
-  pinning a stretch of packets.
-- After a seek, the anchor is taken from the seek stream's first packet
-  instead of whichever packet comes first; the other streams' packets read
-  before it are discarded anyway. The landing keyframe then maps exactly
-  onto the seek threshold, and post-seek time-pos matches linear playback.
+  offset of that sequence, shared by the playlist's streams, which keeps
+  the segment's own A/V relation. Mapped with the current offset, it keeps
+  that offset only if it continues its stream within 1.5 frames and at
+  most 60 ms (continuous across the tag), or continues it within 1 s while
+  its playlist position is more than 1 s away (EXTINF drift, e.g. integer
+  EXTINF). Otherwise it is re-anchored to its segment's playlist start:
+  first_timestamp + the EXTINF durations before it + the stream baseline,
+  the value seeking uses (RFC 8216 section 6.3.3, which is what AVPlayer
+  and Media3's per-discontinuity TimestampAdjuster follow). Timestamps
+  really continuous across the tag are left exactly as stock delivers
+  them. A sequence further off its position than that window (1.5 frames,
+  at most 60 ms) is re-anchored rather than kept, so it neither steps back
+  nor passes its offset on to the content after it; one inside the window
+  keeps its offset, which then stays in the content after it (+0.040 and
+  +0.060 s for an ad 1 and 1.5 frames off at 25 fps, as in the port).
+- No video dts steps back. A deciding video packet at or behind its last
+  dts, and the first video packet of a sequence that audio decided, are
+  moved to one frame after that dts, with the shared offset. Deciding audio
+  may overlap its previous packet by less than a packet (its duration, or
+  its dts step since MPEG-TS audio has none here), as on a continuous
+  splice.
+  Accepted consequence: when a sequence whose encode ends at the cut (an
+  ad, or content before a post-roll) has audio leading its video by 2048
+  AAC samples or more (encoder priming; FFmpeg's own encoder uses 1024),
+  the first audio of the sequence after it overlaps that audio by two
+  packets or more, so that sequence is delayed by the overlap, and the
+  delay adds up across the following cuts until a seek re-anchors. A/V
+  stay together and seeks land exactly. Measured with 2048- and
+  2112-sample leads: +0.044-0.061 s per ad-to-ad cut, +0.044-0.093 s per
+  ad-to-content cut, +0.059-0.064 s per content-to-post-roll cut;
+  0.097-0.129 s after one two-ad break (up to 0.178 s when the break
+  follows a seek), 0.232 s after two. Allowing an overlap of less than
+  four packets removes most of it (0-0.096 s) but steps audio back by up
+  to 0.031-0.040 s at ad exits.
+  Accepted consequence: when the media before a splice runs longer than
+  its EXTINF, what follows is delayed by that overrun, rounded up to a
+  frame, and the delay persists, adding up across breaks, until a sequence
+  has room to land on its position or a seek re-anchors. Measured: +0.060 s
+  after one 60 ms understatement, +0.120 s after a video-only ad whose
+  media overruns its last EXTINF by 120 ms; 2.4 s after 60 breaks whose
+  content EXTINF is 40 ms short each (port 6.24 s, stock 596 s). The
+  alternative, landing on the position, repeats a video dts and steps
+  audio back by more than a frame at every such break.
+  Likewise the first packet decides with its own baseline: when an ad's
+  audio leads its video, the audio lands on the position and the video
+  follows late by the lead (0.2 s lead: 0.200 s, port 0.168 s), as with a
+  TimestampAdjuster initialised by the first sample.
+  Accepted consequence: audio following a sequence that video decided
+  keeps the shared offset, so when the new video has a shorter dts-to-pts
+  reorder delay than the previous video, that audio steps back by the
+  difference plus the source's own overlap (less than a packet): 0.024 s at
+  a 25 to 30 fps splice, 0.064 s from 15 fps content into a 25 fps ad.
+  Moving the offset on instead delays the video already delivered and the
+  rest of the sequence (tried: 0.013 -> 0.045 s linear on the 30 fps
+  splices, 0.053 -> 0.160 s at 15 fps).
+- A stream's baseline is measured at its first packet against its own
+  segment start on the mapped timeline. For a stream present from the start
+  this is dts - first_timestamp as before; a stream first seen later (a
+  video-only pre-roll followed by A/V content on another clock) no longer
+  carries its distance to the playlist start into every re-anchor it
+  decides. The measurement falls back to the playlist's own baseline when
+  it is more than 1 s away from it, or more than 100 ms for a stream first
+  seen after the playlist's first segment, which must then start at its
+  segment start. Audio measures it again where it starts together with the
+  video: at its first packet of a sequence that another stream decided or
+  a seek anchored, in that packet's segment, and, while its baseline is
+  more than 100 ms from the playlist's (a start delay inside the first
+  segment), at its first packet of each later segment; a new value is only
+  taken within 100 ms of the playlist's baseline. Audio starting 0.6 s
+  after video inside the first segment therefore no longer places every
+  cut it decides 0.6 s late (0.643 s -> 0.043 s with an ad before the
+  cut, 0.077 s without one; port 0.080 and 0.040 s).
+  Known limitation: a video stream first seen when it decides a sequence
+  (an audio-only first segment whose PMT already lists video) takes the
+  playlist's baseline, so its frames land late by its reorder delay:
+  +0.080 s at 25 fps and +0.133 s at 15 fps with 2 B-frames (port and stock
+  56 s off).
+- After a seek, the anchor is taken from the seek stream's first packet, at
+  the start of the segment that packet comes from (the seek segment, unless
+  it has no packet of that stream). The other streams' packets read before
+  it are discarded anyway and no longer touch any state. The landing
+  keyframe then maps exactly onto the seek threshold, and post-seek
+  time-pos matches linear playback.
 
 Live playlists keep the continuity-only mapping of 5805f936 unchanged.
 
@@ -52,42 +117,64 @@ The seek discard compared the packet dts rounded down to microseconds with
 the threshold, while normalized timestamps are rounded to the nearest
 tick, so a segment's first keyframe could compare 1 us short and be
 dropped, landing one GOP late (EXTINF 15.166667, 16.633333, 6.666667 ...).
-Compare in the packet's time base against the threshold rounded down
-(ff_hls_timestamp_reached()). The caa3fa6a/e27ad576 clamp and baseline
-semantics are unchanged.
+For playlists whose timestamps are normalized, compare in the packet's time
+base against the threshold rounded down (ff_hls_timestamp_reached());
+playlists without discontinuities keep the upstream comparison. The
+caa3fa6a/e27ad576 clamp and baseline semantics are unchanged.
+
+Tested on 76 local fixture playlists (MPEG-TS and fMP4; VOD, event, live;
+master with alternate audio; ads with 1024- to 2112-sample AAC priming)
+against stock n8.1.2 and the port. Playlists without EXT-X-DISCONTINUITY,
+or with timestamps continuous across it, are byte-identical to stock in
+play and seeks, except a lone tag before the first segment, which plays
+as the port (same timing, one audio packet differs); live and event
+playlists are identical to the port. On VOD with discontinuities, video
+dts strictly increase everywhere, no pinned span exceeds one frame, every
+in-range seek lands on the right frame except where the playlist has no
+video at the target, the late video above, a splice into an ad of a
+higher frame rate (15 to 25 fps: time-pos -0.053 s, one target +0.060 s)
+and EXTINF that misstates the media, and linear playback stays within
+0.1 s of the EXTINF timeline on every ad layout except the accepted
+consequences and the known limitation above and the port behaviour
+below. As in the port (within 0.04 s): +/-1.5 s EXTINF drift (seeks
+follow EXTINF, playback the media) and masters where only one rendition
+carries the tags. Playlists without discontinuities keep stock's seeks,
+including one GOP late when the audio leads the video by more than a
+frame but less than its reorder delay (upstream, not addressed here).
 
 No public API/ABI change: hls.c internals and the internal
 hls_timestamp.{c,h} only. libavformat/tests/hls_timestamp.c gains cases for
-within tolerance, EXTINF drift, pre-roll reset, mid-roll content skip,
-backward and forward jumps, late packets, the one-frame absorb, the
-seek-stream anchor and the rounding case.
-
-[IOS-POC-26-2b: on the synthetic fixture matrix, linear |time-pos - EXTINF|
- <= 0.043 s on every VOD ad layout (port: up to 28.15 s), every in-range
- video seek lands, no dts is pinned more than once, M0/L4/DALL playback and
- seeks are byte-identical to stock, and LIVE/EVENT output is byte-identical
- to the port.]
+continuity within tolerance, EXTINF drift, pre-roll reset, mid-roll content
+skip, backward and forward jumps, late packets (including one held across a
+sequence without its stream), both keep legs, sequences 80 ms and 0.8 s
+before/after their position (and the content after them) and on a repeated
+clock, half-frame jitter, the 60 ms continuity limit at 12.5 fps, the
+monotonic moves (re-anchor, kept offset, a following video stream; audio
+sub-frame overlap with and without packet durations), streams appearing
+after the playlist start and mid-segment, a start delay inside the first
+segment with and without an ad before the cut, both seek-anchor cases and
+the rounding case.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01H1rQEzEEyLNPgtsUgoq9T6
 ---
- libavformat/hls.c                 | 118 ++++++++++++++-
- libavformat/hls_timestamp.c       | 149 +++++++++++++++++++
- libavformat/hls_timestamp.h       |  63 ++++++++
- libavformat/tests/hls_timestamp.c | 240 +++++++++++++++++++++++++++++-
- 4 files changed, 561 insertions(+), 9 deletions(-)
+ libavformat/hls.c                 | 130 +++++++-
+ libavformat/hls_timestamp.c       | 255 ++++++++++++++
+ libavformat/hls_timestamp.h       | 102 ++++++
+ libavformat/tests/hls_timestamp.c | 533 +++++++++++++++++++++++++++++-
+ 4 files changed, 1016 insertions(+), 4 deletions(-)
 
 diff --git a/libavformat/hls.c b/libavformat/hls.c
-index ebd70c14f3..b253dfee19 100644
+index ebd70c14f3..c73530dca6 100644
 --- a/libavformat/hls.c
 +++ b/libavformat/hls.c
 @@ -51,6 +51,11 @@
  
  #define INITIAL_BUFFER_SIZE 32768
  
-+/* A new discontinuity sequence of a finished playlist is re-anchored to its
-+ * playlist position only if it is more than this far from it (and from its
-+ * own continuity). */
++/* Largest deviation of a new discontinuity sequence of a finished playlist
++ * from its playlist position, or from its own continuity, that is still taken
++ * as EXTINF drift; see ff_hls_timestamp_map_segment(). */
 +#define HLS_REANCHOR_TOLERANCE AV_TIME_BASE
 +
  #define MAX_FIELD_LEN 64
@@ -109,7 +196,7 @@ index ebd70c14f3..b253dfee19 100644
  };
  
  struct rendition;
-@@ -166,6 +180,10 @@ struct playlist {
+@@ -166,6 +180,12 @@ struct playlist {
      FFHLSTimestampState timestamp_state;
      FFHLSTimestampStreamState *stream_timestamp_states;
      int n_stream_timestamp_states;
@@ -117,10 +204,12 @@ index ebd70c14f3..b253dfee19 100644
 +    int64_t io_pos;     /* bytes handed to pb since it was last reset */
 +    struct segment_mark seg_marks[32];
 +    int n_seg_marks;    /* marks recorded since pb was last reset */
++    struct segment_mark mark_sum; /* sums over the first mark_sum_n segments */
++    int64_t mark_sum_n;
      int64_t seek_timestamp;
      int seek_flags;
      int seek_stream_index; /* into subdemuxer stream array */
-@@ -1090,6 +1108,7 @@ static int parse_playlist(HLSContext *c, const char *url,
+@@ -1090,6 +1110,7 @@ static int parse_playlist(HLSContext *c, const char *url,
                  }
                  seg->duration = duration;
                  seg->key_type = key_type;
@@ -128,7 +217,7 @@ index ebd70c14f3..b253dfee19 100644
                  pls->has_discontinuity |= discontinuity;
                  dynarray_add(&pls->segments, &pls->n_segments, seg);
                  is_segment = 0;
-@@ -1667,6 +1686,47 @@ reload:
+@@ -1667,6 +1688,53 @@ reload:
      return ret;
  }
  
@@ -141,20 +230,26 @@ index ebd70c14f3..b253dfee19 100644
 +static void mark_segment_start(struct playlist *pls)
 +{
 +    int64_t n = pls->cur_seq_no - pls->start_seq_no;
-+    int64_t start = 0, sequence = 0;
++    struct segment_mark *sum = &pls->mark_sum;
 +    struct segment_mark *m;
 +
-+    if (n < 0 || n >= pls->n_segments)
++    /* Marks are only used on the playlist timeline: a finished playlist
++     * with discontinuities, whose segment list no longer changes. */
++    if (!pls->has_discontinuity || !pls->finished || pls->timestamp_mode == 1 ||
++        n < 0 || n >= pls->n_segments)
 +        return;
-+    for (int64_t i = 0; i <= n; i++) {
-+        sequence += pls->segments[i]->discontinuity;
-+        if (i < n)
-+            start += pls->segments[i]->duration;
++    if (n < pls->mark_sum_n) {
++        pls->mark_sum_n = 0;
++        sum->start = sum->sequence = 0;
++    }
++    for (; pls->mark_sum_n < n; pls->mark_sum_n++) {
++        sum->sequence += pls->segments[pls->mark_sum_n]->discontinuity;
++        sum->start    += pls->segments[pls->mark_sum_n]->duration;
 +    }
 +    m = &pls->seg_marks[pls->n_seg_marks++ % FF_ARRAY_ELEMS(pls->seg_marks)];
 +    m->pos      = pls->io_pos;
-+    m->sequence = sequence;
-+    m->start    = start;
++    m->sequence = sum->sequence + pls->segments[n]->discontinuity;
++    m->start    = sum->start;
 +}
 +
 +static const struct segment_mark *find_segment_mark(const struct playlist *pls,
@@ -176,7 +271,7 @@ index ebd70c14f3..b253dfee19 100644
  static int read_data_continuous(void *opaque, uint8_t *buf, int buf_size)
  {
      struct playlist *v = opaque;
-@@ -1724,6 +1784,7 @@ restart:
+@@ -1724,6 +1792,7 @@ restart:
          }
          segment_retries = 0;
          just_opened = 1;
@@ -184,7 +279,7 @@ index ebd70c14f3..b253dfee19 100644
      }
  
      if (c->http_multiple == -1) {
-@@ -1755,6 +1816,7 @@ restart:
+@@ -1755,6 +1824,7 @@ restart:
          int copy_size = FFMIN(v->init_sec_data_len - v->init_sec_buf_read_offset, buf_size);
          memcpy(buf, v->init_sec_buf, copy_size);
          v->init_sec_buf_read_offset += copy_size;
@@ -192,7 +287,7 @@ index ebd70c14f3..b253dfee19 100644
          return copy_size;
      }
  
-@@ -1767,6 +1829,8 @@ restart:
+@@ -1767,6 +1837,8 @@ restart:
              intercept_id3(v, buf, buf_size, &ret);
          }
  
@@ -201,7 +296,7 @@ index ebd70c14f3..b253dfee19 100644
          return ret;
      }
      if (c->http_persistent &&
-@@ -2335,6 +2399,7 @@ static int hls_read_header(AVFormatContext *s)
+@@ -2335,6 +2407,7 @@ static int hls_read_header(AVFormatContext *s)
              pls->pb.pub.buf_end = pls->pb.pub.buf_ptr = pls->pb.pub.buffer;
              /* Reset the position */
              pls->pb.pub.pos = 0;
@@ -209,24 +304,48 @@ index ebd70c14f3..b253dfee19 100644
          }
  
          /*
-@@ -2628,8 +2693,46 @@ static int normalize_playlist_timestamp(HLSContext *c, struct playlist *pls)
-     discontinuity_threshold = FFMAX(av_sat_add64(pls->target_duration,
-                                                  pls->target_duration),
-                                     AV_TIME_BASE);
--    mapped_dts = ff_hls_timestamp_map(&pls->timestamp_state, stream_state,
--                                      dts, duration, discontinuity_threshold);
+@@ -2598,6 +2671,7 @@ static int normalize_playlist_timestamp(HLSContext *c, struct playlist *pls)
+     int64_t mapped_dts;
+     int64_t packet_offset;
+     int64_t old_offset;
++    const struct segment_mark *mark = NULL;
+     int ret;
+ 
+     if (!pls->has_discontinuity || pls->pkt->dts == AV_NOPTS_VALUE)
+@@ -2616,8 +2690,17 @@ static int normalize_playlist_timestamp(HLSContext *c, struct playlist *pls)
+     dts = av_rescale_q(pls->pkt->dts, time_base, AV_TIME_BASE_Q);
+     duration = av_rescale_q(pls->pkt->duration, time_base, AV_TIME_BASE_Q);
+     stream_state = &pls->stream_timestamp_states[pls->pkt->stream_index];
 +    /* A playlist that will not change has a fixed EXTINF timeline (RFC 8216
 +     * section 6.3.3), which is what seeking uses: anchor each discontinuity
 +     * sequence to it. Live playlists keep continuity-only mapping. */
 +    if (!pls->timestamp_mode)
 +        pls->timestamp_mode = pls->finished ? 2 : 1;
++    if (pls->timestamp_mode == 2)
++        mark = find_segment_mark(pls, pls->pkt->pos);
++    /* On the playlist timeline, a packet attributed to its segment has its
++     * baseline measured against that segment's start instead. */
+     if (stream_state->baseline == AV_NOPTS_VALUE &&
+-        c->first_timestamp != AV_NOPTS_VALUE) {
++        c->first_timestamp != AV_NOPTS_VALUE && !mark) {
+         if (pls->timestamp_state.segment_start == AV_NOPTS_VALUE)
+             stream_state->baseline = av_sat_sub64(dts, c->first_timestamp);
+         else
+@@ -2628,8 +2711,43 @@ static int normalize_playlist_timestamp(HLSContext *c, struct playlist *pls)
+     discontinuity_threshold = FFMAX(av_sat_add64(pls->target_duration,
+                                                  pls->target_duration),
+                                     AV_TIME_BASE);
+-    mapped_dts = ff_hls_timestamp_map(&pls->timestamp_state, stream_state,
+-                                      dts, duration, discontinuity_threshold);
 +    if (pls->timestamp_mode == 2) {
-+        const struct segment_mark *mark = find_segment_mark(pls, pls->pkt->pos);
 +        FFHLSTimestampSegment seg = {
-+            .sequence   = AV_NOPTS_VALUE,
-+            .start      = AV_NOPTS_VALUE,
-+            .tolerance  = HLS_REANCHOR_TOLERANCE,
-+            .may_anchor = 1,
++            .sequence       = AV_NOPTS_VALUE,
++            .start          = AV_NOPTS_VALUE,
++            .tolerance      = HLS_REANCHOR_TOLERANCE,
++            .baseline       = get_timestamp_baseline(pls, -1),
++            .strict         = stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO,
++            .may_anchor     = 1,
++            .playlist_start = c->first_timestamp,
 +        };
 +
 +        if (mark) {
@@ -258,31 +377,19 @@ index ebd70c14f3..b253dfee19 100644
      if (pls->timestamp_state.offset != old_offset)
          av_log(pls->parent, AV_LOG_VERBOSE,
                 "HLS timestamp discontinuity in playlist %d: offset %"PRId64" -> %"PRId64"\n",
-@@ -2667,7 +2770,6 @@ static int hls_read_packet(AVFormatContext *s, AVPacket *pkt)
-          * stream */
-         if (pls->needed && !pls->pkt->data) {
-             while (1) {
--                int64_t ts_diff;
-                 AVRational tb;
-                 struct segment *seg = NULL;
-                 if (pls->is_subtitle)
-@@ -2720,11 +2822,10 @@ static int hls_read_packet(AVFormatContext *s, AVPacket *pkt)
-                     }
- 
-                     tb = get_timebase(pls);
--                    ts_diff = av_rescale_rnd(pls->pkt->dts, AV_TIME_BASE,
--                                            tb.den, AV_ROUND_DOWN) -
--                            pls->seek_timestamp;
--                    if (ts_diff >= 0 && (pls->seek_flags  & AVSEEK_FLAG_ANY ||
--                                        pls->pkt->flags & AV_PKT_FLAG_KEY)) {
-+                    if (ff_hls_timestamp_reached(pls->pkt->dts, tb,
-+                                                 pls->seek_timestamp) &&
-+                        (pls->seek_flags  & AVSEEK_FLAG_ANY ||
-+                         pls->pkt->flags & AV_PKT_FLAG_KEY)) {
+@@ -2723,6 +2841,11 @@ static int hls_read_packet(AVFormatContext *s, AVPacket *pkt)
+                     ts_diff = av_rescale_rnd(pls->pkt->dts, AV_TIME_BASE,
+                                             tb.den, AV_ROUND_DOWN) -
+                             pls->seek_timestamp;
++                    /* Normalized timestamps are rounded to the nearest tick,
++                     * so compare them in their own time base. */
++                    if (pls->has_discontinuity)
++                        ts_diff = ff_hls_timestamp_reached(pls->pkt->dts, tb,
++                                                           pls->seek_timestamp) ? 0 : -1;
+                     if (ts_diff >= 0 && (pls->seek_flags  & AVSEEK_FLAG_ANY ||
+                                         pls->pkt->flags & AV_PKT_FLAG_KEY)) {
                          pls->seek_timestamp = AV_NOPTS_VALUE;
-                         break;
-                     }
-@@ -2883,6 +2984,7 @@ static int hls_read_seek(AVFormatContext *s, int stream_index,
+@@ -2883,6 +3006,7 @@ static int hls_read_seek(AVFormatContext *s, int stream_index,
          pb->buf_end = pb->buf_ptr = pb->buffer;
          /* Reset the pos, to let the mpegts/mov demuxer know we've seeked. */
          pb->pos = 0;
@@ -291,10 +398,10 @@ index ebd70c14f3..b253dfee19 100644
          if (pls->ctx)
              ff_read_frame_flush(pls->ctx);
 diff --git a/libavformat/hls_timestamp.c b/libavformat/hls_timestamp.c
-index 37fec7b309..5c5404fb88 100644
+index 37fec7b309..a09af7193a 100644
 --- a/libavformat/hls_timestamp.c
 +++ b/libavformat/hls_timestamp.c
-@@ -16,6 +16,7 @@
+@@ -16,9 +16,14 @@
   */
  
  #include "libavutil/common.h"
@@ -302,40 +409,52 @@ index 37fec7b309..5c5404fb88 100644
  
  #include "hls_timestamp.h"
  
-@@ -31,6 +32,8 @@ void ff_hls_timestamp_init(FFHLSTimestampState *state)
++/* Largest gap from a stream's continuity across a tag that still counts as
++ * continuous (1.5 frames at 25 fps). */
++#define HLS_CONTINUITY_MAX (AV_TIME_BASE * 3 / 50)
++
+ static int is_timestamp_discontinuous(int64_t timestamp, int64_t reference,
+                                       int64_t threshold)
+ {
+@@ -31,6 +36,9 @@ void ff_hls_timestamp_init(FFHLSTimestampState *state)
      state->offset        = 0;
      state->segment_start = AV_NOPTS_VALUE;
      state->last_dts      = AV_NOPTS_VALUE;
 +    state->sequence      = AV_NOPTS_VALUE;
 +    state->prev_offset   = 0;
++    state->decided_start = AV_NOPTS_VALUE;
  }
  
  void ff_hls_timestamp_stream_init(FFHLSTimestampStreamState *state)
-@@ -38,6 +41,8 @@ void ff_hls_timestamp_stream_init(FFHLSTimestampStreamState *state)
+@@ -38,6 +46,10 @@ void ff_hls_timestamp_stream_init(FFHLSTimestampStreamState *state)
      state->baseline      = AV_NOPTS_VALUE;
      state->last_dts      = AV_NOPTS_VALUE;
      state->last_duration = 0;
 +    state->last_step     = 0;
 +    state->sequence      = AV_NOPTS_VALUE;
++    state->offset        = 0;
++    state->segment_start = AV_NOPTS_VALUE;
  }
  
  void ff_hls_timestamp_reset(FFHLSTimestampState *state,
-@@ -47,10 +52,14 @@ void ff_hls_timestamp_reset(FFHLSTimestampState *state,
+@@ -47,10 +59,16 @@ void ff_hls_timestamp_reset(FFHLSTimestampState *state,
      state->offset        = 0;
      state->segment_start = segment_start;
      state->last_dts      = AV_NOPTS_VALUE;
 +    state->sequence      = AV_NOPTS_VALUE;
 +    state->prev_offset   = 0;
++    state->decided_start = AV_NOPTS_VALUE;
  
      for (int i = 0; i < nb_streams; i++) {
          streams[i].last_dts      = AV_NOPTS_VALUE;
          streams[i].last_duration = 0;
 +        streams[i].last_step     = 0;
 +        streams[i].sequence      = AV_NOPTS_VALUE;
++        streams[i].segment_start = AV_NOPTS_VALUE;
      }
  }
  
-@@ -93,3 +102,143 @@ int64_t ff_hls_timestamp_map(FFHLSTimestampState *state,
+@@ -93,3 +111,240 @@ int64_t ff_hls_timestamp_map(FFHLSTimestampState *state,
          state->last_dts = mapped;
      return mapped;
  }
@@ -375,18 +494,56 @@ index 37fec7b309..5c5404fb88 100644
 +static int64_t update_stream(FFHLSTimestampState *state,
 +                             FFHLSTimestampStreamState *stream,
 +                             int64_t mapped, int64_t duration,
-+                             int64_t sequence, int first_in_sequence)
++                             int64_t sequence, int first_in_sequence,
++                             int64_t offset, const FFHLSTimestampSegment *seg)
 +{
 +    if (!first_in_sequence && stream->last_dts != AV_NOPTS_VALUE &&
 +        mapped > stream->last_dts)
 +        stream->last_step = mapped - stream->last_dts;
 +    stream->last_dts      = mapped;
 +    stream->last_duration = duration;
++    stream->offset        = offset;
++    stream->segment_start = seg->start;
 +    if (sequence != AV_NOPTS_VALUE)
 +        stream->sequence = sequence;
 +    if (state->last_dts == AV_NOPTS_VALUE || mapped > state->last_dts)
 +        state->last_dts = mapped;
 +    return mapped;
++}
++
++/* Baseline of a stream at its first packet: its offset to its own segment
++ * start on the mapped timeline. For a stream present from the playlist start
++ * this is dts - first timestamp; a stream that appears later, possibly on
++ * another clock, gets the same relation to its segment instead of its
++ * distance to the playlist start. That is only a baseline if the packet is at
++ * its segment start, so after the playlist's first segment a measurement
++ * more than a tenth of the tolerance from the playlist's own baseline (a
++ * stream starting mid-segment) is replaced by that baseline. */
++static void measure_baseline(FFHLSTimestampStreamState *stream, int64_t mapped,
++                             const FFHLSTimestampSegment *seg)
++{
++    int64_t measured, limit = seg->tolerance;
++
++    if (stream->baseline != AV_NOPTS_VALUE || seg->start == AV_NOPTS_VALUE)
++        return;
++    if (seg->playlist_start != AV_NOPTS_VALUE && seg->start > seg->playlist_start)
++        limit /= 10;
++    measured = av_sat_sub64(mapped, seg->start);
++    stream->baseline = is_timestamp_discontinuous(measured, seg->baseline,
++                                                  limit) ?
++                       seg->baseline : measured;
++}
++
++/* Measure the baseline of a non-strict stream again at a packet that is
++ * expected near its segment start; only a value within tolerance / 10 of the
++ * playlist's own baseline is taken. */
++static void remeasure_baseline(FFHLSTimestampStreamState *stream, int64_t mapped,
++                               const FFHLSTimestampSegment *seg)
++{
++    int64_t measured = av_sat_sub64(mapped, seg->start);
++
++    if (!is_timestamp_discontinuous(measured, seg->baseline, seg->tolerance / 10))
++        stream->baseline = measured;
 +}
 +
 +int64_t ff_hls_timestamp_map_segment(FFHLSTimestampState *state,
@@ -395,26 +552,33 @@ index 37fec7b309..5c5404fb88 100644
 +                                     int64_t discontinuity_threshold,
 +                                     const FFHLSTimestampSegment *seg)
 +{
-+    int64_t baseline, sequence, mapped;
++    int64_t sequence, mapped;
 +
 +    if (dts == AV_NOPTS_VALUE)
 +        return dts;
 +
-+    baseline = stream->baseline == AV_NOPTS_VALUE ? 0 : stream->baseline;
 +    sequence = seg->sequence != AV_NOPTS_VALUE ? seg->sequence : stream->sequence;
 +
 +    if (state->segment_start != AV_NOPTS_VALUE) {
 +        /* Seek anchor. Packets of other streams read before the seek
-+         * stream are dropped by the caller; do not let them take it. */
++         * stream are dropped by the caller; do not let them take it. The
++         * anchor is the packet's own segment start, which is the seek
++         * segment unless that segment has no packet of this stream. */
++        int64_t start = seg->start != AV_NOPTS_VALUE ? seg->start :
++                        state->segment_start;
++
 +        if (!seg->may_anchor)
 +            return av_sat_add64(dts, state->offset);
-+        state->offset        = av_sat_sub64(av_sat_add64(state->segment_start,
-+                                                         baseline), dts);
++        if (stream->baseline == AV_NOPTS_VALUE)
++            stream->baseline = seg->baseline;
++        state->offset        = av_sat_sub64(av_sat_add64(start, stream->baseline),
++                                            dts);
 +        state->prev_offset   = state->offset;
 +        state->segment_start = AV_NOPTS_VALUE;
 +        state->sequence      = sequence;
++        state->decided_start = start;
 +        return update_stream(state, stream, av_sat_add64(dts, state->offset),
-+                             duration, sequence, 1);
++                             duration, sequence, 1, state->offset, seg);
 +    }
 +
 +    if (state->sequence == AV_NOPTS_VALUE)
@@ -424,55 +588,107 @@ index 37fec7b309..5c5404fb88 100644
 +
 +    if (sequence != AV_NOPTS_VALUE && sequence > state->sequence) {
 +        /* First packet delivered from a new discontinuity sequence: it
-+         * decides the offset of the whole sequence. Keep the current offset
-+         * if the packet is near its playlist position or continues its
-+         * stream; otherwise re-anchor to the playlist timeline. */
-+        int64_t target = seg->start == AV_NOPTS_VALUE ? AV_NOPTS_VALUE :
-+                         av_sat_add64(seg->start, baseline);
++         * decides the offset of the whole sequence. */
++        int64_t baseline = stream->baseline != AV_NOPTS_VALUE ?
++                           stream->baseline : seg->baseline;
++        int64_t target   = seg->start == AV_NOPTS_VALUE ? AV_NOPTS_VALUE :
++                           av_sat_add64(seg->start, baseline);
++        int64_t last     = stream->last_dts;
++        int64_t step     = stream_step(stream);
++        int64_t next     = last == AV_NOPTS_VALUE ? AV_NOPTS_VALUE :
++                           av_sat_add64(last, step);
++        /* Continuity across a tag holds within a frame; allow half a frame
++         * of jitter, but no more than 60 ms: at low frame rates 1.5 frames
++         * would keep a splice 100-120 ms off, and the offset kept passes on
++         * to the content after it. */
++        int64_t cont     = FFMIN3(av_sat_add64(step, step / 2), seg->tolerance,
++                                  HLS_CONTINUITY_MAX);
++        int keep         = target == AV_NOPTS_VALUE;
 +
-+        state->prev_offset = state->offset;
-+        state->sequence    = sequence;
++        state->prev_offset   = state->offset;
++        state->sequence      = sequence;
++        state->decided_start = seg->start;
 +        mapped = av_sat_add64(dts, state->offset);
-+        if (target != AV_NOPTS_VALUE &&
-+            is_timestamp_discontinuous(mapped, target, seg->tolerance) &&
-+            (stream->last_dts == AV_NOPTS_VALUE ||
-+             is_timestamp_discontinuous(mapped,
-+                                        av_sat_add64(stream->last_dts,
-+                                                     stream_step(stream)),
-+                                        seg->tolerance))) {
-+            state->offset = av_sat_sub64(target, dts);
-+            mapped        = target;
-+            /* Clamping would pin more than one frame of this stream: move
-+             * the anchor to one frame after its last packet instead. */
-+            if (stream->last_dts != AV_NOPTS_VALUE &&
-+                mapped <= av_sat_sub64(stream->last_dts, stream_step(stream))) {
-+                int64_t shift = av_sat_sub64(av_sat_add64(stream->last_dts,
-+                                                          stream_step(stream)),
-+                                             mapped);
-+                state->offset = av_sat_add64(state->offset, shift);
-+                mapped        = av_sat_add64(mapped, shift);
-+            }
-+        }
-+        return update_stream(state, stream, mapped, duration, sequence, 1);
++
++        /* Keep the offset if the packet continues its stream across the tag,
++         * or nearly continues it while its playlist position is further off
++         * (EXTINF drift). Otherwise re-anchor it onto that position. */
++        if (!keep && next != AV_NOPTS_VALUE)
++            keep = !is_timestamp_discontinuous(mapped, next, cont) ||
++                   (mapped > last &&
++                    !is_timestamp_discontinuous(mapped, next, seg->tolerance) &&
++                    is_timestamp_discontinuous(mapped, target, seg->tolerance));
++        if (!keep)
++            mapped = target;
++        /* Never move the deciding stream back: it may overlap the previous
++         * sequence by less than a packet, as a continuous splice does, but
++         * never for a strict stream. */
++        if (last != AV_NOPTS_VALUE &&
++            mapped <= (seg->strict ? last : av_sat_sub64(last, step)))
++            mapped = next;
++        state->offset = av_sat_sub64(mapped, dts);
++        measure_baseline(stream, mapped, seg);
++        return update_stream(state, stream, mapped, duration, sequence, 1,
++                             state->offset, seg);
 +    }
 +
 +    if (sequence != AV_NOPTS_VALUE && sequence < state->sequence) {
-+        /* Late packet of the previous sequence (demuxer/parser delay). */
-+        mapped = map_continuous(state, stream, &state->prev_offset, dts,
++        /* Late packet of an earlier sequence (demuxer/parser delay): the
++         * offset its stream last used in that sequence, which is not the
++         * previous sequence's when the stream was held across a sequence
++         * without it; else the previous sequence's. */
++        int64_t *offset = stream->last_dts != AV_NOPTS_VALUE &&
++                          stream->sequence == sequence ?
++                          &stream->offset : &state->prev_offset;
++
++        mapped = map_continuous(state, stream, offset, dts,
 +                                discontinuity_threshold);
-+        return update_stream(state, stream, mapped, duration, sequence, 0);
++        measure_baseline(stream, mapped, seg);
++        return update_stream(state, stream, mapped, duration, sequence, 0,
++                             *offset, seg);
 +    }
 +
-+    if (sequence != AV_NOPTS_VALUE && stream->sequence != sequence)
++    if (sequence != AV_NOPTS_VALUE && stream->sequence != sequence) {
 +        /* First packet of this stream in a sequence another stream has
-+         * already decided: same offset, and pass splice overlaps through
-+         * unclamped as a continuous splice would be. */
-+        return update_stream(state, stream, av_sat_add64(dts, state->offset),
-+                             duration, sequence, 1);
++         * already decided: same offset, which keeps the segment's own A/V
++         * relation; a splice overlap passes through as it would on a
++         * continuous splice. */
++        mapped = av_sat_add64(dts, state->offset);
++        /* A strict stream still never steps back: move the shared offset on,
++         * so the rest of the sequence keeps this relation. */
++        if (seg->strict && stream->last_dts != AV_NOPTS_VALUE &&
++            mapped <= stream->last_dts) {
++            int64_t next = av_sat_add64(stream->last_dts, stream_step(stream));
++
++            state->offset = av_sat_add64(state->offset, av_sat_sub64(next, mapped));
++            mapped        = next;
++        }
++        /* A non-strict stream measures its baseline again in the segment of
++         * the packet that decided or seek-anchored the sequence, where it
++         * starts with the other stream: a start delay inside the playlist's
++         * first segment does not persist into the sequences it decides. */
++        if (!seg->strict && stream->baseline != AV_NOPTS_VALUE &&
++            seg->start != AV_NOPTS_VALUE && seg->start == state->decided_start)
++            remeasure_baseline(stream, mapped, seg);
++        measure_baseline(stream, mapped, seg);
++        return update_stream(state, stream, mapped, duration, sequence, 1,
++                             state->offset, seg);
++    }
 +
 +    mapped = map_continuous(state, stream, &state->offset, dts,
 +                            discontinuity_threshold);
-+    return update_stream(state, stream, mapped, duration, sequence, 0);
++    /* A baseline more than tolerance / 10 from the playlist's can only have
++     * been measured in the first segment, as a start delay; measure it again
++     * at the stream's first packet in each later segment until it fits. */
++    if (!seg->strict && stream->baseline != AV_NOPTS_VALUE &&
++        seg->start != AV_NOPTS_VALUE && stream->segment_start != AV_NOPTS_VALUE &&
++        seg->start != stream->segment_start &&
++        is_timestamp_discontinuous(stream->baseline, seg->baseline,
++                                   seg->tolerance / 10))
++        remeasure_baseline(stream, mapped, seg);
++    measure_baseline(stream, mapped, seg);
++    return update_stream(state, stream, mapped, duration, sequence, 0,
++                         state->offset, seg);
 +}
 +
 +int ff_hls_timestamp_reached(int64_t dts, AVRational tb, int64_t threshold)
@@ -480,16 +696,17 @@ index 37fec7b309..5c5404fb88 100644
 +    return dts >= av_rescale_q_rnd(threshold, AV_TIME_BASE_Q, tb, AV_ROUND_DOWN);
 +}
 diff --git a/libavformat/hls_timestamp.h b/libavformat/hls_timestamp.h
-index 8f7d5ad646..5107ace85b 100644
+index 8f7d5ad646..7985e1c3ca 100644
 --- a/libavformat/hls_timestamp.h
 +++ b/libavformat/hls_timestamp.h
-@@ -24,14 +24,51 @@ typedef struct FFHLSTimestampState {
+@@ -24,14 +24,76 @@ typedef struct FFHLSTimestampState {
      int64_t offset;
      int64_t segment_start;
      int64_t last_dts;
 +    /* Playlist-timeline mapping (ff_hls_timestamp_map_segment()) only. */
 +    int64_t sequence;     ///< discontinuity sequence that offset belongs to
 +    int64_t prev_offset;  ///< offset of the previous sequence, for its late packets
++    int64_t decided_start; ///< segment start of the packet that decided or seek-anchored the sequence
  } FFHLSTimestampState;
  
  typedef struct FFHLSTimestampStreamState {
@@ -499,6 +716,8 @@ index 8f7d5ad646..5107ace85b 100644
 +    /* Playlist-timeline mapping (ff_hls_timestamp_map_segment()) only. */
 +    int64_t last_step;    ///< last positive mapped dts increment
 +    int64_t sequence;     ///< discontinuity sequence of the last packet
++    int64_t offset;       ///< offset the last packet was mapped with
++    int64_t segment_start; ///< segment start of the last packet
  } FFHLSTimestampStreamState;
  
 +/**
@@ -519,39 +738,48 @@ index 8f7d5ad646..5107ace85b 100644
 +     */
 +    int64_t start;
 +    /**
-+     * The first packet of a new sequence is re-anchored to start (plus the
-+     * stream baseline) only if it deviates by more than this from both
-+     * start and its own stream's continuity.
++     * Largest deviation of a new sequence from its playlist position, or
++     * from its stream's continuity, that is still taken as EXTINF drift
++     * rather than a splice.
 +     */
 +    int64_t tolerance;
++    /**
++     * Baseline for a stream that has none yet and whose first packet cannot
++     * measure it (it takes a seek anchor, decides a new sequence, or lands
++     * more than tolerance away from its segment start, or more than
++     * tolerance / 10 after the playlist's first segment): the playlist's own
++     * offset to the first timestamp.
++     */
++    int64_t baseline;
++    /**
++     * Nonzero if the stream's dts must strictly increase across sequences
++     * (video). Otherwise (audio) the first packet of a sequence, kept or
++     * re-anchored, may overlap the previous one by less than a packet (its
++     * duration, or its last dts step without one), as a continuous splice
++     * does.
++     */
++    int strict;
 +    /**
 +     * Nonzero if this packet may take a pending seek anchor. A pending
 +     * anchor is kept for the seek stream; other packets read before it are
 +     * mapped without touching any state (they are discarded by the caller).
 +     */
 +    int may_anchor;
++    /**
++     * Playlist-timeline start of the playlist's first segment (the first
++     * timestamp), or AV_NOPTS_VALUE. A stream first seen in a later segment
++     * needs its first packet near its segment start to measure its baseline.
++     */
++    int64_t playlist_start;
 +} FFHLSTimestampSegment;
 +
  void ff_hls_timestamp_init(FFHLSTimestampState *state);
  void ff_hls_timestamp_stream_init(FFHLSTimestampStreamState *state);
  void ff_hls_timestamp_reset(FFHLSTimestampState *state,
-@@ -42,4 +79,30 @@ int64_t ff_hls_timestamp_map(FFHLSTimestampState *state,
+@@ -42,4 +104,44 @@ int64_t ff_hls_timestamp_map(FFHLSTimestampState *state,
                               int64_t dts, int64_t duration,
                               int64_t discontinuity_threshold);
  
-+/**
-+ * Map a packet dts onto the playlist timeline (RFC 8216 section 6.3.3),
-+ * for playlists that will not change (EXT-X-ENDLIST).
-+ *
-+ * Within a discontinuity sequence this behaves like ff_hls_timestamp_map().
-+ * The first packet delivered from a new sequence decides that sequence's
-+ * offset: it is re-anchored to seg->start plus its stream baseline only if
-+ * it is off by more than seg->tolerance from that and from its stream's
-+ * continuity; otherwise the current offset is kept. First packets of each
-+ * stream in a sequence are never clamped, late packets of the previous
-+ * sequence keep the previous offset, and a re-anchor that would put a stream
-+ * a frame or more behind its last dts is moved forward to one frame after it.
-+ */
 +/**
 + * Seek discard test: nonzero if a packet dts (in tb) has reached threshold
 + * (in AV_TIME_BASE units). The threshold is rounded down to tb, so a dts
@@ -559,6 +787,33 @@ index 8f7d5ad646..5107ace85b 100644
 + */
 +int ff_hls_timestamp_reached(int64_t dts, AVRational tb, int64_t threshold);
 +
++/**
++ * Map a packet dts onto the playlist timeline (RFC 8216 section 6.3.3),
++ * for playlists that will not change (EXT-X-ENDLIST).
++ *
++ * Within a discontinuity sequence this behaves like ff_hls_timestamp_map().
++ * The first packet delivered from a new sequence decides that sequence's
++ * offset, shared by all streams. The current offset is kept if the packet
++ * continues its stream within 1.5 frames (at most 60 ms), or continues it
++ * within tolerance while its playlist position is more than tolerance away
++ * (EXTINF drift); otherwise it is re-anchored to seg->start plus its stream
++ * baseline. No strict stream steps back: a deciding packet at or behind its
++ * last dts is moved to one frame after it, and so is the first packet of
++ * another strict stream in the sequence, with the shared offset. A non-strict
++ * deciding packet may overlap its last one by less than a packet.
++ *
++ * A stream's baseline is measured at its first packet as its offset to its
++ * own segment start on the mapped timeline, so a stream that appears after
++ * the playlist start (on another clock) anchors like one present from the
++ * start. A non-strict stream measures it again at its first packet in a
++ * sequence another stream decided or a seek anchored, in that packet's
++ * segment, and, while its baseline is more than tolerance / 10 away from
++ * seg->baseline (a start delay inside the first segment), at its first packet
++ * in each later segment; a new measurement is only taken within tolerance / 10
++ * of seg->baseline. Late packets of an earlier sequence keep the offset their
++ * stream last used in that sequence (else the previous sequence's), and a
++ * seek anchor is taken at the anchoring packet's own segment start.
++ */
 +int64_t ff_hls_timestamp_map_segment(FFHLSTimestampState *state,
 +                                     FFHLSTimestampStreamState *stream,
 +                                     int64_t dts, int64_t duration,
@@ -567,7 +822,7 @@ index 8f7d5ad646..5107ace85b 100644
 +
  #endif /* AVFORMAT_HLS_TIMESTAMP_H */
 diff --git a/libavformat/tests/hls_timestamp.c b/libavformat/tests/hls_timestamp.c
-index 1b7a810c3b..42dd263f7c 100644
+index 1b7a810c3b..ddc04da2d3 100644
 --- a/libavformat/tests/hls_timestamp.c
 +++ b/libavformat/tests/hls_timestamp.c
 @@ -12,6 +12,8 @@
@@ -579,7 +834,7 @@ index 1b7a810c3b..42dd263f7c 100644
  #include "libavformat/hls_timestamp.h"
  
  /* Microsecond timestamps sampled at the two splice boundaries of the
-@@ -141,10 +143,246 @@ static int test_interleaved_stream_gap(void)
+@@ -141,10 +143,539 @@ static int test_interleaved_stream_gap(void)
      return 0;
  }
  
@@ -594,16 +849,20 @@ index 1b7a810c3b..42dd263f7c 100644
 +#define MAPSEG(st, dts, dur, sq, start) \
 +    map_segment(&state, st, dts, dur, sq, start, 1)
 +
++/* Video packets (no duration here) are strict, audio packets are not. */
 +static int64_t map_segment(FFHLSTimestampState *state,
 +                           FFHLSTimestampStreamState *stream,
 +                           int64_t dts, int64_t duration, int64_t sequence,
 +                           int64_t start, int may_anchor)
 +{
 +    FFHLSTimestampSegment seg = {
-+        .sequence   = sequence,
-+        .start      = start == AV_NOPTS_VALUE ? AV_NOPTS_VALUE : first_ts + start,
-+        .tolerance  = AV_TIME_BASE,
-+        .may_anchor = may_anchor,
++        .sequence       = sequence,
++        .start          = start == AV_NOPTS_VALUE ? AV_NOPTS_VALUE : first_ts + start,
++        .tolerance      = AV_TIME_BASE,
++        .baseline       = 0,
++        .strict         = !duration,
++        .may_anchor     = may_anchor,
++        .playlist_start = first_ts,
 +    };
 +    return ff_hls_timestamp_map_segment(state, stream, dts, duration,
 +                                        discontinuity_threshold, &seg);
@@ -732,7 +991,10 @@ index 1b7a810c3b..42dd263f7c 100644
 +}
 +
 +/* The first packet of the new sequence decides; late packets of the previous
-+ * sequence (parser/demuxer delay) keep the previous offset. */
++ * sequence (parser/demuxer delay) keep the previous offset. A late packet of
++ * a stream held across a sequence without it (XVGAPN: content video released
++ * after an audio-only ad on a clock 5 s off) keeps the offset its stream last
++ * used, not the ad's, which would repeat its last dts. */
 +static int test_segment_late_packet(void)
 +{
 +    FFHLSTimestampState state;
@@ -747,11 +1009,21 @@ index 1b7a810c3b..42dd263f7c 100644
 +        /* unknown segment (no byte position): the stream's last sequence */
 +        check_timestamp("unknown segment", MAPSEG(&audio, 1421333, aframe, AV_NOPTS_VALUE, AV_NOPTS_VALUE), 61421333))
 +        return 1;
++    init_av(&state, &video, &audio);
++    if (play_tail(&state, &video, &audio, 0, 0, 61280000, 61389333, 61280000, 61389333) ||
++        check_timestamp("audio-only ad", MAPSEG(&audio, 66378667, aframe, 1, 60000000), 61378667) ||
++        check_timestamp("audio-only ad offset", state.offset, -5000000) ||
++        check_timestamp("content audio decides", MAPSEG(&audio, 93378667, aframe, 2, 76000000), first_ts + 76000000 + abase) ||
++        check_timestamp("held content video", MAPSEG(&video, 61320000, 0, 0, 0), 61320000) ||
++        check_timestamp("content video", MAPSEG(&video, 93320000, 0, 2, 76000000), first_ts + 76000000))
++        return 1;
 +    return 0;
 +}
 +
-+/* A re-anchor that would pin more than one frame of the deciding stream is
-+ * moved to one frame after its last dts; a sub-frame overlap is kept. */
++/* The deciding stream never steps back. A re-anchor behind the last video
++ * dts (EXTINF understated by 60 ms before an own-clock ad) moves to one
++ * frame after it; the other stream keeps the shared offset, so only the
++ * source's sub-frame audio overlap remains. */
 +static int test_segment_absorb(void)
 +{
 +    FFHLSTimestampState state;
@@ -764,14 +1036,275 @@ index 1b7a810c3b..42dd263f7c 100644
 +        check_timestamp("absorbed audio", MAPSEG(&audio, 1378667, aframe, 1, 60000000), 61698667))
 +        return 1;
 +    init_av(&state, &video, &audio);
++    if (play_tail(&state, &video, &audio, 0, 0, 61280000, 61389333, 61280000, 61389333) ||
++        check_timestamp("understated EXTINF video", MAPSEG(&video, 1320000, 0, 1, 59940000), 61320000) ||
++        check_timestamp("understated EXTINF audio", MAPSEG(&audio, 1378667, aframe, 1, 59940000), 61378667) ||
++        check_timestamp("understated EXTINF offset", state.offset, 60000000))
++        return 1;
++    /* one frame of overlap: a sub-frame one is moved just as well */
++    init_av(&state, &video, &audio);
 +    if (play_tail(&state, &video, &audio, 0, 0, 61340000, 61389333, 61340000, 61389333) ||
-+        check_timestamp("sub-frame overlap", MAPSEG(&video, 1320000, 0, 1, 60000000), 61320000))
++        check_timestamp("sub-frame overlap", MAPSEG(&video, 1320000, 0, 1, 60000000), 61380000))
++        return 1;
++    return 0;
++}
++
++/* A strict stream repeating its last dts across the tag is moved one frame
++ * on. Audio, kept or re-anchored, keeps a sub-frame overlap but not a full
++ * frame; a re-anchor exactly onto the last dts is kept (one duplicate). */
++static int test_segment_keep_monotonic(void)
++{
++    FFHLSTimestampState state;
++    FFHLSTimestampStreamState video, audio;
++
++    init_av(&state, &video, &audio);
++    if (play_tail(&state, &video, &audio, 0, 0, 61280000, 61389333, 61280000, 61389333) ||
++        check_timestamp("repeated video dts", MAPSEG(&video, 61280000, 0, 1, 60000000), 61320000) ||
++        check_timestamp("repeated video offset", state.offset, 40000))
++        return 1;
++    init_av(&state, &video, &audio);
++    if (play_tail(&state, &video, &audio, 0, 0, 61280000, 61389333, 61280000, 61389333) ||
++        check_timestamp("audio sub-frame overlap", MAPSEG(&audio, 61378667, aframe, 1, 60000000), 61378667))
++        return 1;
++    init_av(&state, &video, &audio);
++    if (play_tail(&state, &video, &audio, 0, 0, 61280000, 61389333, 61280000, 61389333) ||
++        check_timestamp("audio re-anchor sub-frame overlap", MAPSEG(&audio, 1378667, aframe, 1, 60000000), 61378667))
++        return 1;
++    init_av(&state, &video, &audio);
++    if (play_tail(&state, &video, &audio, 0, 0, 61280000, 61400000, 61280000, 61400000) ||
++        check_timestamp("audio re-anchor frame overlap", MAPSEG(&audio, 1378667, aframe, 1, 60000000), 61421333))
++        return 1;
++    init_av(&state, &video, &audio);
++    if (play_tail(&state, &video, &audio, 0, 0, 61280000, 61378667, 61280000, 61378667) ||
++        check_timestamp("audio re-anchor onto last", MAPSEG(&audio, 1378667, aframe, 1, 60000000), 61378667))
++        return 1;
++    return 0;
++}
++
++/* MPEG-TS audio reaches the demuxer without packet durations: the overlap
++ * a non-strict deciding packet may keep is then its last dts step (XALEAD:
++ * an audio re-anchor 10.7 ms behind the last packet stays on its position). */
++static int test_segment_audio_no_duration(void)
++{
++    FFHLSTimestampState state;
++    FFHLSTimestampStreamState video, audio;
++    FFHLSTimestampSegment seg = {
++        .sequence       = 0,
++        .start          = first_ts,
++        .tolerance      = AV_TIME_BASE,
++        .baseline       = 0,
++        .strict         = 0,
++        .may_anchor     = 1,
++        .playlist_start = first_ts,
++    };
++
++    init_av(&state, &video, &audio);
++    for (int64_t dts = 61346667; dts <= 61389333; dts += aframe)
++        if (check_timestamp("audio tail", ff_hls_timestamp_map_segment(&state, &audio, dts, 0,
++                                                                       discontinuity_threshold, &seg), dts))
++            return 1;
++    seg.sequence = 1;
++    seg.start    = first_ts + 60000000;
++    if (check_timestamp("re-anchor overlap without duration",
++                        ff_hls_timestamp_map_segment(&state, &audio, 1378667, 0,
++                                                     discontinuity_threshold, &seg), 61378667))
++        return 1;
++    return 0;
++}
++
++/* A sequence 0.8 s off its playlist position, before (XNEARE) or after
++ * (XNEARL), is re-anchored instead of kept: kept, the earlier one would step
++ * back 0.76 s. So is a sequence repeating the previous one's clock (XB2B,
++ * an ad after a 0.96 s bumper on the same clock). */
++static int test_segment_near_position(void)
++{
++    FFHLSTimestampState state;
++    FFHLSTimestampStreamState video, audio;
++
++    init_av(&state, &video, &audio);
++    if (play_tail(&state, &video, &audio, 0, 0, 61280000, 61389333, 61280000, 61389333) ||
++        check_timestamp("0.8 s early", MAPSEG(&video, 60520000, 0, 1, 60000000), 61320000))
++        return 1;
++    init_av(&state, &video, &audio);
++    if (play_tail(&state, &video, &audio, 0, 0, 61280000, 61389333, 61280000, 61389333) ||
++        check_timestamp("0.8 s late", MAPSEG(&video, 62120000, 0, 1, 60000000), 61320000))
++        return 1;
++    init_av(&state, &video, &audio);
++    state.offset = 64000000;                      /* bumper anchored at 64 s */
++    if (check_timestamp("bumper last", MAPSEG(&video, 2240000, 0, 3, 64000000), first_ts + 64920000) ||
++        check_timestamp("ad on the bumper clock", MAPSEG(&video, 1320000, 0, 4, 64960000), first_ts + 64960000))
++        return 1;
++    return 0;
++}
++
++/* Which leg keeps the offset: a 0.3 s gap with the position 1.5 s away is
++ * EXTINF drift (kept); a discontinuous packet 30 ms after its position is
++ * re-anchored onto it; so is one 0.2 s from continuity and 0.3 s from the
++ * position. */
++static int test_segment_keep_legs(void)
++{
++    FFHLSTimestampState state;
++    FFHLSTimestampStreamState video, audio;
++
++    init_av(&state, &video, &audio);
++    if (play_tail(&state, &video, &audio, 0, 0, 61280000, 61389333, 61280000, 61389333) ||
++        check_timestamp("drifted near-continuous", MAPSEG(&video, 61620000, 0, 1, 61500000), 61620000))
++        return 1;
++    init_av(&state, &video, &audio);
++    if (play_tail(&state, &video, &audio, 0, 0, 61280000, 61389333, 61280000, 61389333) ||
++        check_timestamp("near position", MAPSEG(&video, 61850000, 0, 1, 60500000), first_ts + 60500000))
++        return 1;
++    init_av(&state, &video, &audio);
++    if (play_tail(&state, &video, &audio, 0, 0, 61280000, 61389333, 61280000, 61389333) ||
++        check_timestamp("between", MAPSEG(&video, 61520000, 0, 1, 60500000), first_ts + 60500000))
++        return 1;
++    return 0;
++}
++
++/* An ad on the content clock 80 ms off its EXTINF position (XOFFE080,
++ * XOFFL080) is two frames from continuity: it is re-anchored onto its
++ * position, and the content after it, exactly on EXTINF, is re-anchored back
++ * instead of inheriting the ad's correction. Half a frame of jitter is still
++ * continuity, and so are 1.5 frames at 25 fps (60 ms, XOFFL060), but at
++ * 12.5 fps 1.5 frames (120 ms, XK2L12) are a splice: the window is at most
++ * 60 ms. */
++static int test_segment_continuity(void)
++{
++    FFHLSTimestampState state;
++    FFHLSTimestampStreamState video, audio;
++
++    init_av(&state, &video, &audio);
++    if (play_tail(&state, &video, &audio, 0, 0, 61280000, 61389333, 61280000, 61389333) ||
++        check_timestamp("80 ms late", MAPSEG(&video, 61400000, 0, 1, 60000000), 61320000))
++        return 1;
++    init_av(&state, &video, &audio);
++    if (play_tail(&state, &video, &audio, 0, 0, 61280000, 61389333, 61280000, 61389333) ||
++        check_timestamp("60 ms late at 25 fps", MAPSEG(&video, 61380000, 0, 1, 60000000), 61380000))
++        return 1;
++    init_av(&state, &video, &audio);
++    if (check_timestamp("12.5 fps video 1", MAPSEG(&video, 61160000, 0, 0, 0), 61160000) ||
++        check_timestamp("12.5 fps video 2", MAPSEG(&video, 61240000, 0, 0, 0), 61240000) ||
++        check_timestamp("120 ms late at 12.5 fps", MAPSEG(&video, 61440000, 0, 1, 60000000), 61320000) ||
++        check_timestamp("12.5 fps ad offset", state.offset, -120000))
++        return 1;
++    init_av(&state, &video, &audio);
++    if (play_tail(&state, &video, &audio, 0, 0, 61280000, 61389333, 61280000, 61389333) ||
++        check_timestamp("80 ms early", MAPSEG(&video, 61240000, 0, 1, 60000000), 61320000) ||
++        check_timestamp("early ad offset", state.offset, 80000) ||
++        play_tail(&state, &video, &audio, 1, 60000000, 63200000, 63309333, 63280000, 63389333) ||
++        check_timestamp("content on EXTINF", MAPSEG(&video, 63320000, 0, 2, 62000000), 63320000) ||
++        check_timestamp("content offset", state.offset, 0))
++        return 1;
++    init_av(&state, &video, &audio);
++    if (play_tail(&state, &video, &audio, 0, 0, 61280000, 61389333, 61280000, 61389333) ||
++        check_timestamp("jitter", MAPSEG(&video, 61340000, 0, 1, 60500000), 61340000))
++        return 1;
++    return 0;
++}
++
++/* Audio decides a sequence on its position while the previous sequence's
++ * video ran 80 ms past it: the video's first packet would step back, so it
++ * moves one frame after its last dts and takes the shared offset along. */
++static int test_segment_follower_monotonic(void)
++{
++    FFHLSTimestampState state;
++    FFHLSTimestampStreamState video, audio;
++
++    init_av(&state, &video, &audio);
++    if (play_tail(&state, &video, &audio, 0, 0, 61360000, 61298667, 61360000, 61298667) ||
++        check_timestamp("audio decides", MAPSEG(&audio, 1378667, aframe, 1, 60000000), 61378667) ||
++        check_timestamp("follower video", MAPSEG(&video, 1320000, 0, 1, 60000000), 61400000) ||
++        check_timestamp("follower offset", state.offset, 60080000) ||
++        check_timestamp("audio after", MAPSEG(&audio, 1400000, aframe, 1, 60000000), 61480000))
++        return 1;
++    return 0;
++}
++
++/* XVPRE: video-only pre-roll, then A/V content on the 61.4 s clock, a
++ * mid-roll, and the content again, decided by audio (2 s blocks here). The
++ * audio baseline is measured in its own sequence, not against the playlist
++ * start, which would put the last block 60 s late. An audio stream first
++ * seen 2.5 s into the first segment falls back to the playlist's baseline;
++ * so does one first seen 0.6 s into a later segment (XAMID), which would
++ * otherwise place a sequence it decides 0.66 s late. */
++static int test_segment_late_stream(void)
++{
++    FFHLSTimestampState state;
++    FFHLSTimestampStreamState video, audio;
++
++    init_av(&state, &video, &audio);
++    audio.baseline = AV_NOPTS_VALUE;
++    if (check_timestamp("preroll video", MAPSEG(&video, 1320000, 0, 0, 0), 1320000) ||
++        check_timestamp("preroll video 2", MAPSEG(&video, 3240000, 0, 0, 0), 3240000) ||
++        check_timestamp("preroll video 3", MAPSEG(&video, 3280000, 0, 0, 0), 3280000) ||
++        check_timestamp("content video", MAPSEG(&video, 61320000, 0, 1, 2000000), 3320000) ||
++        check_timestamp("content first audio", MAPSEG(&audio, 61378667, aframe, 1, 2000000), 3378667) ||
++        check_timestamp("late audio baseline", audio.baseline, abase) ||
++        play_tail(&state, &video, &audio, 1, 2000000, 63280000, 63368000, 5280000, 5368000) ||
++        check_timestamp("midroll video", MAPSEG(&video, 1320000, 0, 2, 4000000), 5320000) ||
++        play_tail(&state, &video, &audio, 2, 4000000, 3280000, 3368000, 7280000, 7368000) ||
++        check_timestamp("resume audio decides", MAPSEG(&audio, 63378667, aframe, 3, 6000000), 7378667) ||
++        check_timestamp("resume video", MAPSEG(&video, 63320000, 0, 3, 6000000), 7320000))
++        return 1;
++    init_av(&state, &video, &audio);
++    audio.baseline = AV_NOPTS_VALUE;
++    if (check_timestamp("video", MAPSEG(&video, 1320000, 0, 0, 0), 1320000) ||
++        check_timestamp("audio 2.5 s in", MAPSEG(&audio, 3820000, aframe, 0, 0), 3820000) ||
++        check_timestamp("implausible baseline", audio.baseline, 0))
++        return 1;
++    init_av(&state, &video, &audio);
++    audio.baseline = AV_NOPTS_VALUE;
++    if (check_timestamp("segment 1 video", MAPSEG(&video, 1320000, 0, 0, 0), 1320000) ||
++        check_timestamp("segment 2 video", MAPSEG(&video, 9320000, 0, 0, 8000000), 9320000) ||
++        check_timestamp("audio 0.6 s in", MAPSEG(&audio, 9978667, aframe, 0, 8000000), 9978667) ||
++        check_timestamp("mid-segment baseline", audio.baseline, 0) ||
++        play_tail(&state, &video, &audio, 0, 8000000, 11280000, 11389333, 11280000, 11389333) ||
++        check_timestamp("cut decided by audio", MAPSEG(&audio, 61378667, aframe, 1, 12000000), first_ts + 12000000) ||
++        check_timestamp("cut video", MAPSEG(&video, 61320000, 0, 1, 12000000), first_ts + 12000000 - abase))
++        return 1;
++    return 0;
++}
++
++/* XAMID1: audio starts 0.6 s after video inside the playlist's FIRST segment,
++ * which keeps that start delay as its baseline. It is measured again where the
++ * audio starts with the video: in the deciding segment of an ad that video
++ * decided, so the cut after the ad that audio decides lands on its position,
++ * not 0.6 s late. XAMID1N: without the ad, at its first packet of the next
++ * segment. */
++static int test_segment_first_segment_delay(void)
++{
++    FFHLSTimestampState state;
++    FFHLSTimestampStreamState video, audio;
++
++    init_av(&state, &video, &audio);
++    audio.baseline = AV_NOPTS_VALUE;
++    if (check_timestamp("video", MAPSEG(&video, 1320000, 0, 0, 0), 1320000) ||
++        check_timestamp("audio 0.6 s in", MAPSEG(&audio, 1978667, aframe, 0, 0), 1978667) ||
++        check_timestamp("start delay baseline", audio.baseline, 600000 + abase) ||
++        play_tail(&state, &video, &audio, 0, 8000000, 11280000, 11389333, 11280000, 11389333) ||
++        check_timestamp("ad video decides", MAPSEG(&video, 1320000, 0, 1, 12000000), first_ts + 12000000) ||
++        check_timestamp("ad audio", MAPSEG(&audio, 1378667, aframe, 1, 12000000), first_ts + 12000000 + abase) ||
++        check_timestamp("baseline measured in the ad", audio.baseline, abase) ||
++        play_tail(&state, &video, &audio, 1, 12000000, 5280000, 5389333, 17280000, 17389333) ||
++        check_timestamp("cut decided by audio", MAPSEG(&audio, 61378667, aframe, 2, 16000000), first_ts + 16000000 + abase) ||
++        check_timestamp("cut video", MAPSEG(&video, 61320000, 0, 2, 16000000), first_ts + 16000000))
++        return 1;
++    init_av(&state, &video, &audio);
++    audio.baseline = AV_NOPTS_VALUE;
++    if (check_timestamp("no ad: video", MAPSEG(&video, 1320000, 0, 0, 0), 1320000) ||
++        check_timestamp("no ad: audio 0.6 s in", MAPSEG(&audio, 1978667, aframe, 0, 0), 1978667) ||
++        check_timestamp("no ad: segment 2 video", MAPSEG(&video, 5320000, 0, 0, 4000000), 5320000) ||
++        check_timestamp("no ad: segment 2 audio", MAPSEG(&audio, 5378667, aframe, 0, 4000000), 5378667) ||
++        check_timestamp("baseline measured in segment 2", audio.baseline, abase) ||
++        play_tail(&state, &video, &audio, 0, 4000000, 7280000, 7389333, 7280000, 7389333) ||
++        check_timestamp("no ad: cut decided by audio", MAPSEG(&audio, 61378667, aframe, 1, 8000000), first_ts + 8000000 + abase) ||
++        check_timestamp("no ad: cut video", MAPSEG(&video, 61320000, 0, 1, 8000000), first_ts + 8000000))
 +        return 1;
 +    return 0;
 +}
 +
 +/* After a seek, other streams read before the seek stream do not take the
-+ * anchor; the seek stream maps exactly onto the segment start. */
++ * anchor; the seek stream maps exactly onto its segment start. */
 +static int test_segment_seek_anchor(void)
 +{
 +    FFHLSTimestampState state;
@@ -783,6 +1316,13 @@ index 1b7a810c3b..42dd263f7c 100644
 +        check_timestamp("anchor pending", state.segment_start, first_ts + 76000000) ||
 +        check_timestamp("anchor video", MAPSEG(&streams[0], 1320000, 0, 2, 76000000), first_ts + 76000000) ||
 +        check_timestamp("anchored audio", MAPSEG(&streams[1], 1400000, aframe, 2, 76000000), 77400000))
++        return 1;
++    /* The seek segment has no packet of the seek stream: the anchor is the
++     * start of the segment the anchoring packet comes from. */
++    init_av(&state, &streams[0], &streams[1]);
++    ff_hls_timestamp_reset(&state, streams, 2, first_ts + 76000000);
++    if (check_timestamp("audio-only segment", map_segment(&state, &streams[1], 1400000, aframe, 2, 76000000, 0), 1400000) ||
++        check_timestamp("anchor next segment", MAPSEG(&streams[0], 5320000, 0, 2, 80000000), first_ts + 80000000))
 +        return 1;
 +    return 0;
 +}
@@ -824,6 +1364,14 @@ index 1b7a810c3b..42dd263f7c 100644
 +           test_segment_backward_forward() ||
 +           test_segment_late_packet() ||
 +           test_segment_absorb() ||
++           test_segment_keep_monotonic() ||
++           test_segment_audio_no_duration() ||
++           test_segment_near_position() ||
++           test_segment_keep_legs() ||
++           test_segment_continuity() ||
++           test_segment_follower_monotonic() ||
++           test_segment_late_stream() ||
++           test_segment_first_segment_delay() ||
 +           test_segment_seek_anchor() ||
 +           test_seek_discard_rounding();
  }

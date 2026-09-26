@@ -242,7 +242,7 @@
         "0003-avformat-hls-rebase-seek-discard-threshold-to-each-p.patch": "8fff53d1bfa8114c430e7154eca046cccb8f45828fcdce2a16e48bfbec235c0a",
         "0004-tests-fate-seek-exclude-hls-seek-test-without-aresam.patch": "2194bf9bc9330949f066a16584ff242f528b71fb4cb2b10d7100f9f27218124d",
         "0005-avformat-hls-normalize-timestamps-across-discontinui.patch": "12617510bdff0273b190a6c843038b424d487e32cb3f983873e2fe8049415cb6",
-        "0006-avformat-hls-anchor-discontinuity-sequences-to-the-p.patch": "3bc7f780b4ae4b7e7a8ecc6595e4b15d33e3fb3fb8b089fd04117bac478a948b"
+        "0006-avformat-hls-anchor-discontinuity-sequences-to-the-p.patch": "173c6328a65943e5e9306809cf7cf5607a28d4ea17340087eb64b80c1220f74b"
       },
       "sources": {
         "0001": "cherry-pick of FFmpeg f699b3a8f52c151f61318b757abf04cab0811724 (test only)",
@@ -250,7 +250,7 @@
         "0003": "cherry-pick of FFmpeg e27ad5760c0c8eca7c95bb907dc6e4e62dbf129b, two conflicts resolved (new_playlist keeps n8.1.2's code; the EVENT-only lines from 6d98a9a2e8757d6eb616501ade06877389a31597 are left out)",
         "0004": "cherry-pick of FFmpeg c3ca443969af0ef075fff5636c8516e21a1924d6 (test only)",
         "0005": "FongMi/FFmpeg 5805f9364c2e9a5f6ce625c9077b308c3ed4014d, every line identical; hls_timestamp.{c,h} and its test byte-identical to FongMi 177f090e0503b7e013922ca903bde14b1c375f18",
-        "0006": "WebHTV adaptation of 5805f936: finished playlists anchor each discontinuity sequence to its playlist start when it is off by more than 1 s, and the seek discard compares in the packet time base (docs/IOS-POC-26-engine-switch-position.md)"
+        "0006": "WebHTV adaptation of 5805f936: on finished playlists a discontinuity sequence keeps its offset only if its first packet continues its stream (within 1.5 frames and 60 ms, or within 1 s when its playlist position is more than 1 s away) and is otherwise anchored to its playlist position, moved just after the previous packet where that would step video back or overlap audio by a packet or more; for playlists with normalized timestamps the seek discard compares in the packet time base (tag-free playlists keep the upstream comparison). Final round 3 (reviewed as 282f102c07371dd33440588c38447552099ee22b; this export only amends its message); accepted consequences and bounds in docs/IOS-POC-26-engine-switch-position.md"
       }
     },
     "buildscripts": {

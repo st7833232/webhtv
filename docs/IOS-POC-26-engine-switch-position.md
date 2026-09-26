@@ -156,10 +156,17 @@ FongMi 的 FFmpeg 是 8.2 開發版（`177f090e0503b7e013922ca903bde14b1c375f18`
 
 0006 的規則（只用於一開始就有 `EXT-X-ENDLIST` 的播放清單；直播維持 5805f936 原樣）：
 
-1. 逐分段記錄 `EXT-X-DISCONTINUITY`。封包依 `pkt->pos` 歸到它所屬的分段，前一段延遲送出的封包沿用前一段的偏移。
-2. 新 discontinuity 序列的第一個封包決定整段的偏移：只有當它和該分段的播放清單起點（`first_timestamp` 加前面的 EXTINF，與 seek 用的值相同）**以及**自己串流的連續值都差超過 1 秒，才對齊到播放清單起點（RFC 8216 §6.3.3，也是 AVPlayer 與 Media3 的做法）。時間戳真的連續的串流（包括每段都有 discontinuity 標記、EXTINF 有捨入誤差的串流）完全不動。
-3. 對齊後若會讓串流落後超過一格，改成接在最後一格之後，不再夾出一整段相同的時間戳。
-4. seek 之後以 seek 所用串流的第一個封包對齊；丟棄比較改在封包的時間基底上進行，修掉捨入缺陷。
+1. 逐分段記錄 `EXT-X-DISCONTINUITY`。封包依 `pkt->pos` 歸到它所屬的分段，前一段延遲送出的封包沿用它自己串流在那一段用過的偏移。
+2. 新 discontinuity 序列由第一個送出的封包決定整段的偏移，各串流共用，保留該段自己的影音關係。以目前偏移換算後，只有兩種情況維持原偏移：
+   - 與自己串流連續（1.5 格以內，且不超過 60 ms）；
+   - 1 秒內連續，但與播放清單位置差超過 1 秒（EXTINF 累積誤差，例如整數 EXTINF）。
+
+   其餘一律對齊到該分段的播放清單起點：`first_timestamp` 加前面的 EXTINF 再加串流基準，與 seek 用的值相同（RFC 8216 §6.3.3，也是 AVPlayer 與 Media3 的做法）。時間戳真的連續的串流完全不動。
+3. 影像 dts 不倒退：會倒退時改接在最後一格之後。決定序列的音訊可與前一個封包重疊不到一個封包。
+4. 各串流的基準在它的第一個封包、相對它自己的分段起點量測。音訊在與影像一起開始的地方重新量測，第一段內音訊晚開始時不再讓每個切點都晚同樣的量。
+5. seek 之後以 seek 所用串流第一個封包所在的分段對齊；丟棄比較改在封包的時間基底上進行，修掉捨入缺陷。
+
+0006 每一輪都經過獨立審查，找到的缺陷在下一輪修正，或寫明上限後接受。最終版是第三輪：審查的是 `282f102c07371dd33440588c38447552099ee22b`，repo 內的 patch 是同一個程式碼樹（`c468e13bbd0d4e3daaa4f0d966ecd276206e2975`）只修改 commit message（加入 H1、依最終核對修正數字範圍）的 `5675e45b486925b7a56ab01d1b7ed6520d617d31`。最終審查只剩 H1，使用者 2026-09-26 選擇記錄為已知限制（見 5.3a）。
 
 公開 API／ABI 不變：只改 `hls.c` 內部與內部檔 `hls_timestamp.{c,h}`，新增的內部符號共 6 個（`ff_hls_timestamp_*`）。
 
@@ -167,18 +174,39 @@ FongMi 的 FFmpeg 是 8.2 開發版（`177f090e0503b7e013922ca903bde14b1c375f18`
 
 - 建置：原版 n8.1.2、FongMi `177f090e`、忠實移植、WebHTV 調整版，四份使用相同的 configure。
 - FATE：調整版 12／12 通過（含 `fate-hls_timestamp`、`fate-seek-hls`）；原版有其中 10 項，10／10 通過。新增的單元測試有三種故意改壞的版本（不重新對齊、舊捨入、夾住第一個封包），每一種都會讓測試失敗。
-- 行為比對：以模擬 mpv `demux_lavf` 的 seek 方式（`av_seek_frame(..., AVSEEK_FLAG_BACKWARD)`，再解碼到 hr-seek 的落點）逐一播放與 seek 合成素材。素材共 20 多種配置：片頭、中段、片尾廣告，兩段連續廣告，時間戳在 10 小時附近，byte range，AES-128 隱含 IV，純音訊，分開的音訊 rendition，每段都有標記但時間戳連續，直播，EVENT。結果：
+- 行為比對：以模擬 mpv `demux_lavf` 的 seek 方式（`av_seek_frame(..., AVSEEK_FLAG_BACKWARD)`，再解碼到 hr-seek 的落點）逐一播放與 seek 合成素材。原有素材共 20 多種配置：片頭、中段、片尾廣告，兩段連續廣告，時間戳在 10 小時附近，byte range，AES-128 隱含 IV，純音訊，分開的音訊 rendition，每段都有標記但時間戳連續，直播，EVENT。結果（WebHTV 欄為第三輪）：
 
-| 指標 | 原版 n8.1.2 | 忠實移植（＝FongMi／Android） | WebHTV 調整版 |
+| 指標 | 原版 n8.1.2 | 忠實移植（＝FongMi／Android） | WebHTV 調整版（第三輪） |
 |---|---|---|---|
 | 線性播放與 EXTINF 時間軸的最大差距（點播廣告配置） | 60 秒；時間戳在 10 小時附近時 59,383 秒 | 多數 0.08 秒；片頭或中段重設、兩段廣告時 15～28 秒 | **≤ 0.043 秒** |
 | seek 落點 | 廣告內與廣告後偏 16～32 秒，或一路讀到檔尾 | 幾乎都對；A2r 有一處因捨入晚 7.3～8.3 秒 | **全部正確**（最差 0.020 秒，是 hr-seek 的影格量化） |
 | 被夾成同一值的時間戳 | 無（但有乾淨的往回跳） | 最多 457 個影像、754 個音訊封包 | 影像 0；音訊每個素材最多 1 個（一格） |
-| 沒有廣告的對照組（M0、L4、DALL） | — | L4 有 1 個封包不同 | **與原版逐 byte 相同** |
+| 沒有廣告的對照組（M0、L4、DALL） | — | L4、DALL 的 seek 落點與原版不同 | **與原版逐 byte 相同** |
 | 直播、EVENT | — | — | 與忠實移植逐 byte 相同 |
 
-- 未涵蓋：fMP4 在廣告處換 `EXT-X-MAP`、帶 ID3 時間戳的 packed audio、`http_persistent`，以及 mpv 或真機上的實際播放（mpv 的 demuxer cache、`ts_resets_possible` 行為沒有在這裡驗證）。
-- 證據檔在 session scratchpad 的 `ff/results/`（`adapted-tables.txt`、`adapted-report.txt`、`tables.md`）。
+- 第三輪另有審查追加的素材，共 76 個（X*、CN* 等，含 AAC priming 1024～2112 樣本、24／25／30 fps 廣告、兩個廣告時段相隔 20 分鐘的配置）。超過 0.1 秒的情況都列在 5.3a；在 CN* 上原版差 84～36,000 秒，忠實移植差 15～30 秒。
+- 未涵蓋：CN* 等配置的 fMP4 版本（fMP4 換 `EXT-X-MAP` 的結果見 5.3a 第 6 項）、帶 ID3 時間戳的 packed audio、`http_persistent`，以及 mpv 或真機上的實際播放（mpv 的 demuxer cache、`ts_resets_possible` 行為沒有在這裡驗證）。
+- 證據檔在 session scratchpad 的 `ff/results/`（`adapted-tables.txt`、`adapted-report.txt`、`tables.md`；第三輪 `adapted3-report.txt`、`adapted3-tables.txt`）與 `ff/rv9/`（最終審查 `REVIEW.txt`、76 個素材的 `final-tables.txt`、`c0land-final.txt`）。
+- 第三輪由審查者從 0001～0006 重新套用、建置：FATE 12／12 通過，單元測試 21 個測試函式通過（`ff/rv9/fate-r3.log`、`ut-r3.log`），新增的內部符號仍是 6 個，公開標頭不變。修正者的 mutation check 另顯示第三輪新增的 G1、G4、G5 測試在第二輪程式碼上都會失敗（審查者未重跑）。
+
+#### 5.3a 已知限制與上限（第三輪，已接受）
+
+1. **H1：音訊 priming 較長時，切點後的時間逐次變晚**（使用者 2026-09-26 接受）。
+   - 機制：在切點結束編碼的序列（廣告，或片尾廣告前的正片）音訊比影像早 2048 樣本以上時（部分 AAC 編碼器的 priming；FFmpeg 自己的編碼器是 1024），下一個序列的第一個音訊會與它的音訊重疊兩個封包以上，下一個序列就整段延後這個重疊量，並累加到下一次 seek。影音同步與 seek 落點不受影響。
+   - 量測：廣告接廣告每次 +0.044～0.061 秒，廣告回正片 +0.044～0.093 秒，正片進片尾廣告 +0.059～0.064 秒；一個兩支廣告的時段後 0.097～0.129 秒（該時段在 seek 之後時最多 0.178 秒）；兩個時段後 0.232 秒。沒有固定上限，隨沒有 seek 的切點數增加。
+   - 影響：畫面時間與依播放清單時間對齊的外掛字幕偏同樣的量；切到原生時的接續位置應也如此（推論，未量測）。
+   - 未採用的修法：容許重疊到四個封包以內，可降到 0～0.096 秒，但廣告出口的音訊會倒退最多 0.031～0.040 秒，mpv 未驗證；等真機結果再決定是否另開階段。
+2. **F2（含 G6）媒體超過 EXTINF**：切點前的媒體比 EXTINF 長時，之後延後這個超出量（進位到一格），累加到有空間對齊或 seek。60 次廣告、正片 EXTINF 每次少 40 ms：2.4 秒（忠實移植 6.24 秒、原版 596 秒）。只有影像的廣告超出 120 ms 時，之後延後 0.120 秒，影音也差 0.120 秒（XFOLLOW）。
+3. **F4 廣告音訊比影像早開始**：由音訊決定位置，影像晚這個提前量，保留來源本身的影音關係。0.2 秒提前量：0.200 秒（忠實移植 0.168 秒）。
+4. **G2 影格率不同的切點**：影像決定的序列之後，音訊倒退兩段 reorder delay 的差再加不到一個封包：25→30 fps 0.024 秒；15→25 fps 0.064 秒，該段影像早 0.053 秒（與忠實移植相同），切點處影音差 0.107 秒，一個 seek 目標晚 0.060 秒（XCUT15）。
+5. **G3 第一段宣告影像卻沒有影像**：影像晚它的 reorder delay，seek 早同樣的量（25 fps 0.080 秒、15 fps 0.133 秒；忠實移植與原版差 56 秒）。打包器依影像關鍵格切段，真實串流不會出現。
+6. **其他殘留**：
+   - G1：音訊基準在切點所在分段重新量測，只在與播放清單基準差 100 ms 以內時採用，音訊決定的切點最多差這個值（XAMID1N 0.077 秒，忠實移植 0.040 秒）；seek 後與線性播放最多差 0.032 秒。
+   - G4：與連續值差 1.5 格且 60 ms 以內的切點保留原偏移，並延續到之後的正片（+0.040、+0.060 秒，與忠實移植相同）。
+   - G5：前一個序列的延遲封包，若它串流的上一個封包來自別的序列，仍用前一個序列的偏移（未另外量測）。
+   - 純音訊的 seek 可能晚一個 AAC 封包（上游丟棄規則）。
+7. **沿用忠實移植的行為**：EXTINF 與媒體不符時 seek 依 EXTINF、播放依媒體（上限＝EXTINF 累積誤差，比忠實移植最多多 0.040 秒）；master 只有一個 rendition 帶標記時影音不同步（不符規範）；fMP4 每段換 `EXT-X-MAP` 時換 init 後第一段不解碼（所有版本相同）。
+8. **U1（上游 n8.1.2 本來就有，不屬於 0006）**：沒有 discontinuity 的一般點播，音訊比影像早超過一格但小於影像的 reorder delay 時（25 fps、2 個 B-frame 時為 40～80 ms，涵蓋 2048／2112 樣本的 priming），以 `AVSEEK_FLAG_BACKWARD` seek（mpv 的一般 seek，不限往回）可能晚一個 GOP（合成素材 12 個目標有 8 個晚 1～2 秒；mpv 的 hr-seek 在真機上的補救未驗證）。原版、忠實移植、0006 逐 byte 相同；0006 依規定不得改變沒有標記的播放清單，需另開任務（尚未編號）。
 
 #### 5.4 iOS 建置管線（26-2b-1）
 
@@ -219,7 +247,7 @@ FongMi 的 FFmpeg 是 8.2 開發版（`177f090e0503b7e013922ca903bde14b1c375f18`
 ## Recovery anchor
 
 - 目標：MPV／原生切換從當下位置接續；MPV 在有廣告的 HLS 上 seek 正確，且不會卡到要重啟 App。
-- 狀態：26-1 已隨 `0.1.22 (23)` 發布；26-2b 的 FFmpeg patch（0001～0006）已在 Linux 驗證（第六節之五），iOS 建置管線 26-2b-1 已 commit，patch 0006 的獨立審查執行中。
+- 狀態：26-1 已隨 `0.1.22 (23)` 發布；26-2b 的 FFmpeg patch（0001～0006）已在 Linux 驗證（第六節之五），0006 為第三輪最終版（H1 記錄為已知限制，5.3a）；iOS 建置管線 26-2b-1 已 commit，尚未在 `ios-poc` 上以最終版建置。
 - 目前檔案：`PlaybackEngine.swift`（`PlaybackLoadRequest.exactStart`、`PlayerRouter.handOff`／`reload`／`setRate`）、`WebHTVApp.swift`（`loadNative`、`router.onEngineChange`）、`PlaybackEngineTests.swift`。
-- 未解風險：iOS FFmpeg 不對齊 discontinuity（26-2b 待核准）；就緒前零容差 seek 在真機上的行為；真實串流的 PTS 配置未量測。
-- 下一步（唯一）：在工作分支 dispatch `ios-ffmpeg-build.yml` 試跑（不發布），通過且審查無阻擋問題後合進 `ios-poc`，發布 prerelease，再做 26-2b-2（App 改用新的 Libavformat）。
+- 未解風險：就緒前零容差 seek 在真機上的行為；真實串流的 PTS 配置未量測；H1 與 U1（5.3a）；mpv 的 demuxer cache 與 `ts_resets_possible` 行為未在真機驗證。
+- 下一步（唯一）：fetch 並 merge `origin/ios-poc` 後推送，讓 `ios-ffmpeg-build.yml` 以最終版建置並發布 prerelease `ffmpeg-n8.1.2-webhtv.1`，再做 26-2b-2（App 改用新的 Libavformat）。

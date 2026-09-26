@@ -119,6 +119,6 @@ bd67de76082d0f9926ced69b3c74f249f01629a5142bae2e02430d403fb45ba2  patches/ffmpeg
 8fff53d1bfa8114c430e7154eca046cccb8f45828fcdce2a16e48bfbec235c0a  patches/ffmpeg/0003-avformat-hls-rebase-seek-discard-threshold-to-each-p.patch
 2194bf9bc9330949f066a16584ff242f528b71fb4cb2b10d7100f9f27218124d  patches/ffmpeg/0004-tests-fate-seek-exclude-hls-seek-test-without-aresam.patch
 12617510bdff0273b190a6c843038b424d487e32cb3f983873e2fe8049415cb6  patches/ffmpeg/0005-avformat-hls-normalize-timestamps-across-discontinui.patch
-3bc7f780b4ae4b7e7a8ecc6595e4b15d33e3fb3fb8b089fd04117bac478a948b  patches/ffmpeg/0006-avformat-hls-anchor-discontinuity-sequences-to-the-p.patch
+173c6328a65943e5e9306809cf7cf5607a28d4ea17340087eb64b80c1220f74b  patches/ffmpeg/0006-avformat-hls-anchor-discontinuity-sequences-to-the-p.patch
 6a4a83ee98198de00c16d6eb4601b8a3cd03ab87b201fa20980be0f8d719b82f  patches/libmpv/0001-player-add-moltenvk-context.patch
 d00c58303b3233899410d9cb7c559f51f27fd3286cd9257d34d02410ed488f6c  patches/libmpv/0004-ao-app-owned-audio-session.patch

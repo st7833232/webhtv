@@ -3646,8 +3646,10 @@ private struct PlayerControlBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The speeds the viewer picked (2026-09-23). `AVPlaybackSpeed.systemDefaultSpeeds` is AVKit's
-    /// and is not reachable once its bar is gone, so this list is ours to choose.
-    private static let speeds: [Float] = [0.5, 1, 1.25, 1.5, 2, 2.5, 3]
+    /// and is not reachable once its bar is gone, so this list is ours to choose. It lives in
+    /// `PlaybackSpeedPreference.choices` since IOS-POC-29, so the settings page's default speed can
+    /// only ever name a speed this menu shows.
+    private static let speeds = PlaybackSpeedPreference.choices
 
     /// Every control answers a 48 pt square (Apple's minimum is 44) while drawing exactly what it
     /// drew before: the square is the touch area, not the glyph.

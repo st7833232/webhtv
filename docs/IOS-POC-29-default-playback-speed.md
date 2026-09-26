@@ -78,7 +78,8 @@
 2. `ios/WebHTVApp/Sources/WebHTVApp.swift`：`PlaybackSession.open(url:…)` 與 `open(_ vod: InlineVod)` 的 `chosenRate = 1` 改為 `PlaybackSpeedPreference().defaultSpeed`；`SettingsView` 在「預設播放器」下方新增「預設播放速度」區（勾選目前值、VoiceOver 讀「2 倍」並標示已選取）。
 3. `ios/Tests/WebHTVCoreTests/PlaybackSpeedPreferenceTests.swift`：4 個測試（未設定為 1、每個選項可存可讀、不在選項內的值不寫入、儲存了不合法的值讀成 1）。
 4. 文件：IOS-POC-14 的 14B 表格註明改為預設播放速度。
-5. 驗證：本環境沒有 Swift，未編譯、單元測試未執行；commit 前經對抗式查核（結果記在本節之後）。
+5. 驗證：本環境沒有 Swift，未編譯、單元測試未執行。實作 commit `06c775379d5b4f8090e31f64ffac14d30bb3d1b8`。
+6. 對抗式查核（commit 之後，3 個角度，確認 6 項皆為次要、推翻 2 項），修正在其後一個 commit：播放器選單改用 `PlaybackSpeedPreference.choices`，只剩一份速度清單；測試中儲存 `true` 會被讀成 1.0 而永遠通過，改為 `4` 與 `Data()`；文件同步（本節、IOS-POC-14 第 171 行）。
 
 ## Recovery anchor
 

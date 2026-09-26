@@ -35,9 +35,11 @@ private func freshDefaults() -> UserDefaults {
 }
 
 @Test func aStoredValueTheMenuDoesNotOfferStartsAtOneTimes() {
-    // A hand-edited or future value must not start a title at a speed the player cannot show.
+    // A hand-edited or future value must not start a title at a speed the player cannot show: a
+    // number the menu does not offer, or something that is not a stored speed at all (the reader
+    // takes only a number, so the text "2" is not read as 2×).
     let defaults = freshDefaults()
-    for stored: Any in [0.0, 7.0, 1.75, "2", true] {
+    for stored: Any in [0.0, 7.0, 1.75, 4, "2", Data()] {
         defaults.set(stored, forKey: PlaybackSpeedPreference.key)
         #expect(PlaybackSpeedPreference(defaults: defaults).defaultSpeed == 1, "\(stored)")
     }

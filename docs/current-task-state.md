@@ -8,12 +8,13 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **Git**：分支 `ios-poc`，已全部 push。接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認，以實際 Git 狀態為準，不要相信本文的 SHA。
 
-**最新已發布版本是 `0.1.25 (26)`**（2026-09-26，使用者授權；tag `ios-v0.1.25-b26` → `96d20a98`，run `36255311859`，`source.json` `99410d5a`，IPA 25,129,553 bytes，SHA-256 `3ed1f4ab184ab98419d75d8f0705af311b50c909a7edcf2a0db3fcafcfc4ca65`，下載回驗通過）。至今共發布 26 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
+**最新已發布版本是 `0.1.26 (27)`**（2026-09-26，使用者授權；tag `ios-v0.1.26-b27` → `c6502228`，run `36257981098`，`source.json` `db76a8c3`，IPA 25,139,377 bytes，SHA-256 `5d2825d2afa79900971c046feda904a2a904aaf6c604a48d79e332faa6960191`，下載回驗通過）。至今共發布 27 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
 
 **近期各版內容（新到舊）**
 
 | 版本 | tag 指向 | 比上一版多了什麼 | 真機結果 |
 |---|---|---|---|
+| `0.1.26 (27)` | `c6502228` | IOS-POC-29：設定頁預設播放速度（`06c77537`、`95e507fa`）；IOS-POC-30：觀看記錄的清除與滑動刪除只影響目前來源（`a52ab2dd`、`1e8677b7`、`6f14069d`） | 未驗證 |
 | `0.1.25 (26)` | `96d20a98` | IOS-POC-27A：載入轉圈、按鍵依意圖、原生開播逾時 5 秒並顯示原因（`96b714df`、`a21bad25`）；IOS-POC-27B：原生預讀依倍速放大，上限 120 秒（`80f949ff`、`25b91739`）；IOS-POC-28：影片卡點擊範圍（`f5c7d889`） | 未驗證 |
 | `0.1.24 (25)` | `5da03a4a` | IOS-POC-25-2：MPV 在有 discontinuity 的播放清單上也自動跳廣告（進入區間 0.25 秒後才觸發），`-u _ff_hls_timestamp_map_segment` 綁定 WebHTV `Libavformat`（`45be83c4`） | 未驗證 |
 | `0.1.23 (24)` | `9ef8116d` | IOS-POC-26-2b：App 改用 WebHTV 自建 Libavformat `ffmpeg-n8.1.2-webhtv.1`（FFmpeg n8.1.2 加 patch 0001～0006），MPV 在有 discontinuity 的播放清單上時間軸對齊、seek 正確（`c1bb4d19`、`e5f15c73`、`a3ca072c`） | 未驗證 |
@@ -51,8 +52,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **任務狀態**
 
-- IOS-POC-30「觀看記錄的清除會刪到其他來源的記錄」（2026-09-26 使用者回報）：列表只顯示目前來源（`records(for:)`），「清除」卻呼叫 `WatchHistoryStore.clear()` 刪光所有來源。修正：新增 `clear(for:)`，只刪目前來源擁有的記錄，與 Android `History.deleteAndSync(cid)` 一致；IOS-POC-10E 以前沒有來源的舊記錄在每個來源都會顯示，查核後改為只對目前來源隱藏（新欄位 `hiddenFrom`），不再刪掉而影響其他來源；單筆滑動刪除同樣處理（`remove(key:for:)`，不會刪到其他來源擁有的記錄）；WebHome 的 `app.history` 也改為只回目前來源的列表（與 Android `History.get()` 一致）。未編譯，真機未驗證。
-- IOS-POC-29「設定頁的預設播放速度」（2026-09-26 使用者要求）：使用者核准 O1 與發布 `0.1.26 (27)`；已實作，未編譯、單元測試未執行、真機未驗證。O1：新片以設定頁的速度開始，同一部片內沿用播放中調整的速度（IOS-POC-14B 不變），播放中調整不改設定。見 `docs/IOS-POC-29-default-playback-speed.md`。
+- IOS-POC-30「觀看記錄的清除會刪到其他來源的記錄」（2026-09-26 使用者回報）：列表只顯示目前來源（`records(for:)`），「清除」卻呼叫 `WatchHistoryStore.clear()` 刪光所有來源。修正：新增 `clear(for:)`，只刪目前來源擁有的記錄，與 Android `History.deleteAndSync(cid)` 一致；IOS-POC-10E 以前沒有來源的舊記錄在每個來源都會顯示，查核後改為只對目前來源隱藏（新欄位 `hiddenFrom`），不再刪掉而影響其他來源；單筆滑動刪除同樣處理（`remove(key:for:)`，不會刪到其他來源擁有的記錄）；WebHome 的 `app.history` 也改為只回目前來源的列表（與 Android `History.get()` 一致）。已隨 `0.1.26 (27)` 發布（編譯成功），單元測試未執行、真機未驗證。
+- IOS-POC-29「設定頁的預設播放速度」（2026-09-26 使用者要求）：使用者核准 O1 與發布；已隨 `0.1.26 (27)` 發布（Release build 第一次即編譯成功），單元測試未執行、真機未驗證。O1：新片以設定頁的速度開始，同一部片內沿用播放中調整的速度（IOS-POC-14B 不變），播放中調整不改設定。見 `docs/IOS-POC-29-default-playback-speed.md`。
 - IOS-POC-28「點左邊影片卡的右半部，會開到右邊的影片」（2026-09-26 真機回報，附截圖）：`VodCard` 的海報以 `scaledToFill` 填滿，寬圖超出卡片；`.clipped()` 只裁掉繪製、不裁觸控範圍，所以右邊卡片的圖蓋住左邊卡片的右半部並接走點擊。修正：卡片加 `.contentShape(.rect(cornerRadius: 10))`，首頁格狀與搜尋結果共用。未編譯（無 Swift 工具鏈），真機未驗證。
 - IOS-POC-27「原生播放器：部分線路黑畫面、2 倍速容易中斷、卡住時按鍵沒反應」（2026-09-26，`0.1.24 (25)` 真機回報）：使用者核准 27A、27B（上限 120 秒）與發布 `0.1.25 (26)`。27A（`96b714df`）：載入轉圈、按鍵依意圖、開播檢查只算想播的時間、原生開播逾時 5 秒（使用者指定；AirPlay／子母畫面時 20 秒；MPV 維持 20 秒）、原生開不了時顯示原因。27B（`80f949ff`）：預讀依倍速放大，上限 120 秒。兩輪對抗式查核修正已提交（`25b91739`、`a21bad25`）。已隨 `0.1.25 (26)` 發布（Release build 第一次即編譯成功），**單元測試未執行、真機未驗證**。 黑畫面不是 0.1.24 的回歸。原生切到 MPV 會黑一陣子（使用者追加回報）列為後續研究。見 `docs/IOS-POC-27-avplayer-2x-buffer-stall-controls.md`。
 - IOS-POC-25「HLS 串流中段廣告自動跳過（Android parity）」（2026-09-25，另一個 session 並行做 IOS-POC-26）：已隨 `0.1.22 (23)` 發布（Release build 編譯通過，單元測試未執行）。第一次真機回報：原生仍露出不到約 1 秒的廣告開頭，正片未察覺缺少；MPV 未察覺廣告；原因未定。使用者決定有 Mac 時由 agent 補測（單元測試、模擬器量測、接 Mac 的真機 log），見 IOS-POC-25 文件第二十節之三。Android 的 `HlsAdsParser`／`HlsAdTimeline`／`resolveAdTimeline` 逐條移植成 Swift，AVPlayer 與 MPV 共用同一份計畫，以既有位置讀值與 `seek` 跳過；iOS 另外讀 playlist，所以加了讀兩次一致、duration 比對、比例上限、落點驗證等只會少跳的保護。MPV 在有 `#EXT-X-DISCONTINUITY` 的 playlist 上不跳（iOS 的 FFmpeg n8.1.2 沒有 Android FongMi 版的時間戳對齊，與 IOS-POC-26 RC3 同一原因），native-output-boundary 本階段不做。設定頁新增「智慧去廣」（預設開）。見 `docs/IOS-POC-25-hls-midstream-ad-skip.md`（第二十節為真機待驗項目）。**IOS-POC-25-2**（2026-09-26，使用者看完評估選 D，要求在 `0.1.23 (24)` 真機確認前先做出來測試）：MPV 在有 discontinuity 的播放清單上也跳，位置讀到區間起點 0.25 秒後才觸發，避開 IOS-POC-26 的 H1 與 mpv demuxer cache 造成的位置超前；App target 以 `-Wl,-u,_ff_hls_timestamp_map_segment` 綁定 WebHTV `Libavformat`（連回上游會連結失敗，要先 revert 本階段）。已隨 `0.1.24 (25)` 發布（Release build 第一次即編譯、連結成功），真機未驗證。見 IOS-POC-25 文件第二十二節。

@@ -2366,14 +2366,23 @@ extension Playback {
     private func reapplyBufferPolicy() {
         guard started, engineKind == .native, appliedPolicy != nil, let item = player.currentItem
         else { return }
+        // IOS-POC-22: a speed this item cannot play is about to move it to MPV; its target is moot.
+        if item.status == .readyToPlay,
+           PlaybackRateSupport.needsOtherEngine(rate: chosenRate,
+                                                canPlayFastForward: item.canPlayFastForward) { return }
         let runtime = item.duration.seconds
+        let kind: PlaybackItemKind = runtime.isFinite && runtime > 0 ? .onDemand : .liveOrUnknown
+        let viewerQuality = quality?.offersChoice ?? false
         let policy = PlaybackBufferPolicy.policy(
-            for: network.state, kind: runtime.isFinite && runtime > 0 ? .onDemand : .liveOrUnknown,
-            variantCount: variantCount, viewerChoseQuality: quality?.offersChoice ?? false,
-            rate: Double(chosenRate))
+            for: network.state, kind: kind, variantCount: variantCount,
+            viewerChoseQuality: viewerQuality, rate: Double(chosenRate))
         guard apply(policy, to: item) else { return }
+        // Everything the transition line carries: this write can also carry a change of kind or of
+        // ceiling that the next tick, finding the policy already applied, would not report.
         let line = "[playback] speed \(Self.oneDecimal(Double(chosenRate)))x → forward="
-            + "\(Int(policy.forwardBufferSeconds))s state=\(network.state)"
+            + "\(Self.oneDecimal(policy.forwardBufferSeconds))s state=\(network.state) \(kind)"
+            + " variants=\(variantCount)\(viewerQuality ? " viewer-quality" : "")"
+            + " cap=\(policy.maximumResolutionHeight.map { "\($0)p" } ?? "none")"
         Self.log.notice("\(line, privacy: .public)")
     }
 
@@ -2542,7 +2551,7 @@ extension Playback {
         if bufferReportTicks % 6 == 0, sample.playing, let policy = appliedPolicy {
             let holding = "[playback] holding buffer=\(Self.oneDecimal(sample.bufferAhead))s"
                 + "/\(Self.oneDecimal(sample.bufferAheadPlaybackSeconds))s@\(Self.oneDecimal(sample.rate))x"
-                + " target=\(Int(policy.forwardBufferSeconds))s state=\(network.state)"
+                + " target=\(Self.oneDecimal(policy.forwardBufferSeconds))s state=\(network.state)"
                 + " stalls=\(sample.stalls) observed=\(Self.kbps(sample.observedBitrate))"
                 + " indicated=\(Self.kbps(sample.indicatedBitrate))"
             Self.log.notice("\(holding, privacy: .public)")
@@ -2568,7 +2577,7 @@ extension Playback {
             + " observed=\(Self.kbps(sample.observedBitrate))"
             + " indicated=\(Self.kbps(sample.indicatedBitrate))"
             + " variants=\(sample.variantCount)\(sample.viewerChoseQuality ? " viewer-quality" : "")"
-            + " → forward=\(Int(policy.forwardBufferSeconds))s"
+            + " → forward=\(Self.oneDecimal(policy.forwardBufferSeconds))s"
             + " cap=\(policy.maximumResolutionHeight.map { "\($0)p" } ?? "none")"
         Self.log.notice("\(line, privacy: .public)")
     }

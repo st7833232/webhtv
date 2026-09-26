@@ -158,9 +158,13 @@ public enum PlaybackNetworkThresholds {
     public static let riskForwardBufferSeconds: Double = 90
     public static let poorForwardBufferSeconds: Double = 120
     /// IOS-POC-27B: the most any speed may ask for — the `poor` target, which the model already
-    /// asked for at 1×. So no speed holds more media, or more memory, than a stalled 1× stream
-    /// already could, and the wait to refill after a stall is no longer than it was. Whether
-    /// AVPlayer honours more than about 100 s is unmeasured; the 30-second buffer line says.
+    /// asked for at 1×. So no speed holds more media seconds than a stalled 1× stream already
+    /// could, and the wait to refill after a stall is no longer than it was. **It can hold more
+    /// memory**: at 1× an adaptive source reached 120 s only in `poor`, capped at 720p, while at 2×
+    /// `normal` and `good` ask for 120 s of the uncapped variant — as much as a single-variant or
+    /// viewer-chosen source already held at 1×. IOS-POC-27 T6 (45 minutes at 2×) is the memory
+    /// check. Whether AVPlayer honours more than about 100 s is unmeasured; the 30-second buffer
+    /// line says.
     public static let maximumForwardBufferSeconds: Double = 120
 
     /// Resolution ceilings, in pixel height. `nil` is unrestricted.

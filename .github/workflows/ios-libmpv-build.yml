@@ -16,6 +16,9 @@ on:
     paths:
       - ".github/workflows/ios-libmpv-build.yml"
       - "third_party/mpv-ios/patches/**"
+      # IOS-POC-26-2b: the FFmpeg lane's inputs, built by ios-ffmpeg-build.yml.
+      - "!third_party/mpv-ios/patches/ffmpeg/**"
+      - "!third_party/mpv-ios/patches/buildscripts/0002-build-ffmpeg-only.patch"
 
 permissions:
   contents: write

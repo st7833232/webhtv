@@ -288,6 +288,20 @@ jobs:
             echo "Libavformat undefined symbols that differ from upstream: ${changed:-none}"
             echo "Libavformat members, upstream: $(ar t "$ref_lib" | grep -vc '^__.SYMDEF'); new: $(ar t "$new_lib" | grep -vc '^__.SYMDEF')"
           } >> "$report"
+          # Name the members behind every undefined symbol that differs, on both sides.
+          mkdir -p "$work/ref-all" "$work/new-all"
+          (cd "$work/ref-all" && ar -x "$ref_lib")
+          (cd "$work/new-all" && ar -x "$new_lib")
+          for sym in $changed; do
+            for side in ref new; do
+              users="$(cd "$work/$side-all" && for o in *.o; do if symbols -uj "$o" | grep -qx "$sym"; then echo "$o"; fi; done | tr '\n' ' ')"
+              echo "$sym, $side users: ${users:-none}" >> "$report"
+            done
+          done
+          echo "config.h, upstream against new:" >> "$report"
+          diff "$ref_fw/Headers/config.h" "$new_fw/Headers/config.h" >> "$report" || true
+          mkdir -p "$RUNNER_TEMP/out/new-libs"
+          cp "$WORKDIR/dist/release/Libavformat.xcframework.zip" "$WORKDIR/dist/release/Libavutil.xcframework.zip" "$RUNNER_TEMP/out/new-libs/"
           cat "$report"
           exit "$fail"
 

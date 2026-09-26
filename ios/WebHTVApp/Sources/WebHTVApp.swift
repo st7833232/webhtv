@@ -926,6 +926,10 @@ private struct VodCard: View {
             }
         }
         .clipShape(.rect(cornerRadius: 10))
+        // IOS-POC-28: clipping hides the overflow of a filled poster but does not stop it taking
+        // touches, so a wide artwork reached into the card beside it and a tap there opened this
+        // title. The tappable area is the card's own shape.
+        .contentShape(.rect(cornerRadius: 10))
         .accessibilityElement(children: .combine)
     }
 }

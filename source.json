@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.22",
+          "date": "2026-09-26",
+          "localizedDescription": "WebHTV 0.1.22 (23)（未經真機驗收）\n\n修正\n- MPV 與原生互切時，換過去的播放器從切換當下的時間接著播：原生接手改為精確落點，不再退回前一個關鍵影格。\n\n新增\n- 智慧去廣（設定頁，預設開啟）：HLS 點播影片中段插播的廣告自動跳過，偵測規則與 Android 相同；手動拖進廣告時落在廣告結束；判斷不確定時一律不跳。\n\n已知限制\n- 含插播廣告的影片（播放清單有 EXT-X-DISCONTINUITY）：MPV 不會自動跳廣告，快轉或倒退可能回到片頭，請先改用原生播放器。修正（自建 FFmpeg 對齊時間軸）開發中。\n- 含插播廣告的影片在兩個播放器之間切換，位置可能差一段廣告長度。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.22-b23/WebHTV-0.1.22-23.ipa",
+          "size": 25107276,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.21",
           "date": "2026-09-25",
           "localizedDescription": "WebHTV 0.1.21 (22)（未經真機驗收）\n\n修正\n- MPV 播放時會和其他 App 的音樂混在一起；用過 MPV 之後，原生播放也變成混音。現在兩個播放核心都和原生一樣：開始播放時，其他 App 的音樂會停止。\n- 從 MPV 換到原生時，原生可能被停掉或沒有聲音。\n- MPV 被來電、Siri 或其他 App 的聲音打斷後，畫面停住卻仍顯示播放中；現在會暫停，按播放即可繼續。\n\n內部\n- MPV 改用 WebHTV 自建的 Libmpv mpvkit-1.0.0-webhtv.2：mpv 不再改動 App 的音訊設定，由 App 統一管理。",

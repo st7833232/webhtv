@@ -1,6 +1,6 @@
 # IOS-POC-27 — 原生播放器：部分線路黑畫面、2 倍速容易中斷、卡住時按鍵沒反應
 
-- 狀態：**27A、27B 已實作並提交（第十二節），兩輪對抗式查核的修正已套用；未編譯（本環境沒有 Swift 工具鏈）、單元測試未執行、真機未驗證。** 使用者 2026-09-26 核准 27A、27B（上限 120 秒）與發布 `0.1.25 (26)`。
+- 狀態：**27A、27B 已實作，兩輪對抗式查核的修正已套用，已隨 `0.1.25 (26)` 發布（Release build 第一次即編譯成功，第十二節）；單元測試未執行、真機未驗證。** 使用者 2026-09-26 核准 27A、27B（上限 120 秒）與發布。
 - 版本：使用者在 `0.1.24 (25)` 上回報。
 - 使用者原始回報（2026-09-26）：
   1. 「幫我加大 avplayer 的快取或暫存，很容易影片中斷，中斷時播放、暫停、前進後退都不能使用，mpv 的緩衝就可以下載的很快。」
@@ -259,15 +259,16 @@
 | `96b714dfb2007ab5b0e62de1bdbbfd1a0f0683ad` | 27A 第六節第 1～9 點：`PlaybackActivity.swift`（按鍵與轉圈判斷、`PlaybackStartupWatch`、`PlaybackStartupReason`、`PlaybackLogRedaction`）與 `PlaybackActivityTests.swift`；`startupTimeout(for:)` 原生 5 秒、MPV 20 秒；App 接線 | 未編譯、單元測試未執行 |
 | `80f949ffa66422b49ad594cfdf6a6ebf2f184334` | 27B：`policy(for:…rate:)`、`speedFactor`、`maximumForwardBufferSeconds` 120 秒；`setRate` 立即重新套用；每 30 秒 `holding` 記錄；`PlaybackNetworkPolicyTests` 新增 6 個（共 32 個） | 未編譯、單元測試未執行 |
 | `25b917390e94fb90065be31707dbdc109b30f7e3` | 27B 對抗式查核（3 個角度、確認 5 項、推翻 1 項）：倍速記錄補上 kind、variants、cap；IOS-POC-22 改用 MPV 前不再寫入目標；目標記錄到小數一位；修正記憶體說明 | 未編譯 |
-| 本 commit | 27A 對抗式查核（3 個角度、確認 15 項、推翻 1 項）：測試中 `#expect` 內呼叫 mutating 方法的編譯錯誤（與 IOS-POC-25 同一類）；`startupTimeout(for:)` 加 `nonisolated`，避免 Swift 6 下測試無法編譯；AirPlay／子母畫面時原生維持 20 秒；子母畫面中關閉播放畫面時停止計時器；記錄的隱私說明；文件與契約列同步 | 未編譯 |
+| `a21bad25607dfb6181bfe4548169474d9067a279` | 27A 對抗式查核（3 個角度、確認 15 項、推翻 1 項）：測試中 `#expect` 內呼叫 mutating 方法的編譯錯誤（與 IOS-POC-25 同一類）；`startupTimeout(for:)` 加 `nonisolated`，避免 Swift 6 下測試無法編譯；AirPlay／子母畫面時原生維持 20 秒；子母畫面中關閉播放畫面時停止計時器；記錄的隱私說明；文件與契約列同步 | 未編譯 |
 
 - 使用者選擇：27B 上限 120 秒（未採用 240 秒的 O2+）；原生逾時 5 秒（使用者指定，風險見第六節 27A 第 9 點）。
 - 兩個查核都沒有執行任何編譯；Release workflow 只編譯 App target，不編譯測試，所以測試的編譯與執行要等有 Mac 時做。
+- **發布 `0.1.25 (26)`**（使用者授權）：版號 commit `96d20a98`，`ios-poc` 快轉到該 commit，run `36255311859` 成功，tag `ios-v0.1.25-b26`，`source.json` `99410d5a`；IPA 25,129,553 bytes，SHA-256 `3ed1f4ab184ab98419d75d8f0705af311b50c909a7edcf2a0db3fcafcfc4ca65`，下載回驗含本任務的記錄字串。**這是 27A、27B 第一次在 Xcode 上編譯，一次成功**；單元測試仍未執行。詳見 IOS-POC-11 第二十六次發布。
 
 ## Recovery anchor
 
 - 目標：解決原生播放器的部分線路黑畫面、2 倍速容易中斷、卡住時按鍵沒反應。建議 27A 與 27B（第六節），驗收見第七、八節。
-- 狀態（2026-09-26）：27A、27B 與兩輪查核修正已提交（第十二節），未編譯、單元測試未執行、真機未驗證。
+- 狀態（2026-09-26）：27A、27B 與兩輪查核修正已隨 `0.1.25 (26)` 發布（Release build 編譯成功）；單元測試未執行、真機未驗證。
 - 相關檔案：`ios/Sources/WebHTVCore/PlaybackActivity.swift`、`ios/Sources/WebHTVCore/PlaybackNetworkPolicy.swift`、`ios/Sources/WebHTVCore/PlaybackEngine.swift`、`ios/WebHTVApp/Sources/WebHTVApp.swift`、`ios/Tests/WebHTVCoreTests/PlaybackActivityTests.swift`、`ios/Tests/WebHTVCoreTests/PlaybackNetworkPolicyTests.swift`。
 - 未解：第十節。
-- 下一步（唯一）：發布 `0.1.25 (26)`（使用者已授權），以 Release workflow 第一次編譯，再請使用者做第八節 T1～T12。
+- 下一步（唯一）：等使用者在 `0.1.25 (26)` 上做第八節 T1～T12 並回報，逐列填入。

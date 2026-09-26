@@ -161,7 +161,7 @@ FongMi 的 FFmpeg 是 8.2 開發版（`177f090e0503b7e013922ca903bde14b1c375f18`
 3. 對齊後若會讓串流落後超過一格，改成接在最後一格之後，不再夾出一整段相同的時間戳。
 4. seek 之後以 seek 所用串流的第一個封包對齊；丟棄比較改在封包的時間基底上進行，修掉捨入缺陷。
 
-公開 API／ABI 不變：只改 `hls.c` 內部與內部檔 `hls_timestamp.{c,h}`，另外新增 2 個內部符號。
+公開 API／ABI 不變：只改 `hls.c` 內部與內部檔 `hls_timestamp.{c,h}`，新增的內部符號共 6 個（`ff_hls_timestamp_*`）。
 
 #### 5.3 Linux 驗證（2026-09-26，原生編譯，不是 iOS）
 
@@ -185,7 +185,7 @@ FongMi 的 FFmpeg 是 8.2 開發版（`177f090e0503b7e013922ca903bde14b1c375f18`
 - `.github/workflows/ios-ffmpeg-build.yml`：沿用 libmpv 管線的 recipe、工具鏈與固定版本的依賴（`FFmpeg-all.zip` 除外），把 `third_party/mpv-ios/patches/ffmpeg` 放進 recipe 的 `patch/FFmpeg`，以 `patches/buildscripts/0002-build-ffmpeg-only.patch` 只建 FFmpeg。
 - 發布前的比對：
   - 沒有任何 patch 碰到的 `Libavutil` 必須與上游 1.0.0 相同（configure 字串、成員、已定義與未定義的外部符號），證明這條管線重現了 recipe 的建置。
-  - `Libavformat` 必須與上游相同，只多 `hls_timestamp.o` 一個成員與 4 個 `ff_hls_timestamp_*` 符號；未定義符號的差異只能來自 `hls.o`、`hls_timestamp.o`。
+  - `Libavformat` 必須與上游相同，只多 `hls_timestamp.o` 一個成員與 6 個 `ff_hls_timestamp_*` 符號（5805f936 的 4 個與 0006 的 `map_segment`、`reached`）；未定義符號的差異只能來自 `hls.o`、`hls_timestamp.o`。
 - 發布：只有在 `ios-poc` 上才發布 prerelease `ffmpeg-n8.1.2-webhtv.1`。App 在 26-2b-2 才改用它，在那之前仍連結上游的 `Libavformat`。
 - 鎖定：`third_party/mpv-ios-lock.json` 的 `ffmpeg` 區段記錄來源、每個 patch 的 SHA-256、比對基準與 artifact。
 

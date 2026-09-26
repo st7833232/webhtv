@@ -120,7 +120,7 @@ Before publishing `Libavformat.xcframework.zip` as a prerelease under
   symbols (the evidence that the lane reproduces the recipe's FFmpeg build);
 - `Libavformat` identical to upstream 1.0.0 in its configuration and version
   strings and every framework file but the binary, with exactly one added
-  member (`hls_timestamp.o`), exactly four added defined symbols
+  member (`hls_timestamp.o`), exactly six added defined symbols
   (`ff_hls_timestamp_*`), nothing removed, and undefined symbols changed only
   through `hls.o` and `hls_timestamp.o`.
 

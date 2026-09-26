@@ -273,6 +273,7 @@ Simulator Debug build → **BUILD SUCCEEDED**。全套 `swift test` 留到 17B �
 - 「目前這個核心接手的時間」`engineStartedAt`：`load` 時設定，`router.onEngineChange` 時重設。因此
   使用者剛手動選的核心、或 fallback 過去的核心，都有自己完整的 20 秒；檢查一次後就清掉，不會每 0.1 秒重打。
 - 切換時寫一行 `[playback] <片名> not started on <核心> after 20s — trying <另一個>`（`os.Logger`）。
+- **IOS-POC-27A（2026-09-26）修改**：`startupTimeout` 改為 `startupTimeout(for:)`，原生 5 秒、MPV 20 秒（使用者要求）；`engineStartedAt` 改為只計算想播時間的 `PlaybackStartupWatch`，暫停中不逾時；原生逾時時記錄等待原因與 error log，畫面顯示原因約 4 秒。見 `docs/IOS-POC-27-avplayer-2x-buffer-stall-controls.md`。
 
 ### 驗證
 

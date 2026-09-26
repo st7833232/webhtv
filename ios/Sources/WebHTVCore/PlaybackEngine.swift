@@ -406,7 +406,16 @@ public final class PlayerRouter {
     /// IOS-POC-17F: how long an engine may take, from being handed a request, to actually playing
     /// before the other engine is tried. Long enough for a slow resolve-to-first-segment on a weak
     /// line; short enough that a stream that will never start is not waited on for a minute.
-    public static let startupTimeout: Double = 20
+    ///
+    /// IOS-POC-27A: **5 s for AVPlayer, at the viewer's request (2026-09-26)** — a line AVPlayer
+    /// cannot open sat black for 20 s before MPV took it. The one start measured so far took about
+    /// 6 s on a slow simulator network (IOS-POC-15), so a slow AVPlayer start that would have
+    /// played can now go to MPV instead; the viewer chose that trade. MPV keeps 20 s: it is the
+    /// compatibility engine, and its slow start is not handed to the engine less likely to play it.
+    /// Only time the viewer means it to play counts (`PlaybackStartupWatch`).
+    public static func startupTimeout(for kind: PlaybackEngineKind) -> Double {
+        kind == .native ? 5 : 20
+    }
 
     /// The session saw the engine not start playing within `startupTimeout`: try the other engine,
     /// if this attempt has not already switched. Answers whether it did.

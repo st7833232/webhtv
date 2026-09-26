@@ -2050,8 +2050,12 @@ extension Playback {
     private var startupMilliseconds: Int?
     private var startupWatch: Task<Void, Never>?
     /// When the engine now under the item was handed it (IOS-POC-17F): the open, or the last engine
-    /// change — so an engine the viewer just picked gets its own 20 seconds. Nil once checked.
-    private var engineStartedAt: ContinuousClock.Instant?
+    /// change — so an engine the viewer just picked gets its own timeout. Since IOS-POC-27A it counts
+    /// only the time the viewer means it to play (`PlaybackStartupWatch`).
+    private var startupClock = PlaybackStartupWatch()
+    /// The zero the startup watch's seconds are counted from.
+    private let clockOrigin = ContinuousClock.now
+    private var monotonicSeconds: Double { (ContinuousClock.now - clockOrigin) / .seconds(1) }
     /// The prefetch in flight, so the handoff can wait for it instead of racing it.
     private var prefetchTask: Task<Void, Never>?
     /// How this item became an address. The detail screen reports it just *before* opening the
@@ -2127,7 +2131,7 @@ extension Playback {
             if let request = self.router.request {
                 Self.log.notice("[playback] \(self.itemTitle, privacy: .public) on \(kind.shortName, privacy: .public) from \(request.startSeconds)s exact=\(request.exactStart ? "yes" : "no", privacy: .public)")
             }
-            self.engineStartedAt = .now
+            self.startupClock.restart(at: self.monotonicSeconds)
             // IOS-POC-25: which ads were skipped belongs to the engine that skipped them.
             self.adSkip.engineReloaded()
             // Track ids belong to one engine adapter; the other engine's would match nothing.
@@ -2173,6 +2177,9 @@ extension Playback {
     /// The player screen's hooks: which engine is drawing, and a failure to show.
     var onEngineChange: ((PlaybackEngineKind) -> Void)?
     var onFailure: ((PlaybackFailure) -> Void)?
+    /// IOS-POC-27A: a short message the player screen shows for a few seconds — why a start was
+    /// handed to the other engine.
+    var onNotice: ((String) -> Void)?
     var onMediaSelectionChange: ((PlaybackMediaSelection) -> Void)?
     private(set) var mediaSelection = PlaybackMediaSelection()
 
@@ -2181,8 +2188,16 @@ extension Playback {
     var engineKind: PlaybackEngineKind { router.selection.currentSessionEngine }
     var globalDefaultEngine: PlaybackEngineKind { router.selection.globalDefaultEngine }
     func isEngineAvailable(_ kind: PlaybackEngineKind) -> Bool { router.selection.isAvailable(kind) }
-    /// The control bar's switch: this session only.
-    func selectEngine(_ kind: PlaybackEngineKind) { router.select(kind) }
+    /// IOS-POC-27A: whether the viewer means it to play — also while it waits for data, which
+    /// `isPlaying` does not count. A switch or a quality change mid-stall used to arrive paused.
+    private var intendsToPlay: Bool { (engine?.rate ?? 0) != 0 }
+    /// IOS-POC-27A: what the bar's play/pause button and the spinner show.
+    var activity: PlaybackActivity {
+        PlaybackActivity(state: engine?.state ?? .idle, rate: engine?.rate ?? 0,
+                         failed: router.failure != nil)
+    }
+    /// The control bar's switch: this session only, playing or paused as the viewer left it.
+    func selectEngine(_ kind: PlaybackEngineKind) { router.select(kind, playing: intendsToPlay) }
 
     /// IOS-POC-22 — AVPlayer cannot play this item at the viewer's speed (2.5× or 3× on an item
     /// that cannot fast-forward): MPV takes it over for the rest of this session through the same
@@ -2304,7 +2319,7 @@ extension Playback {
         prefetchRequested = false
         retryWithoutPrefetch = nil
         resumeTo = position > 0 ? position * 1000 : nil
-        let playing = isPlaying
+        let playing = intendsToPlay
         items = [.init(name: "", url: quality.url)]
         index = 0
         load(quality.url, autoplay: playing)
@@ -2482,7 +2497,20 @@ extension Playback {
         let reading = PlaybackNetworkMonitor.limit(of: sample)
         if reading != .healthy { limitSamples[reading, default: 0] += 1 }
 
-        // **A change of policy or of state, and nothing else.** A line every tick would be a
+        // IOS-POC-27A: every tick the player is waiting for data, one line — why, and what it holds —
+        // so a stall's cause and, to five seconds, its length reach the log. Only while waiting, so a
+        // stream that plays still writes nothing here.
+        if sample.waitingToPlay {
+            let waiting = "[playback] waiting reason=\(player.reasonForWaitingToPlay?.rawValue ?? "none")"
+                + " buffer=\(Self.oneDecimal(sample.bufferAhead))s@\(Self.oneDecimal(sample.rate))x"
+                + " keepUp=\(sample.likelyToKeepUp) stalls=\(sample.stalls)"
+                + " observed=\(Self.kbps(sample.observedBitrate))"
+                + " indicated=\(Self.kbps(sample.indicatedBitrate)) state=\(network.state)"
+            Self.log.notice("\(waiting, privacy: .public)")
+        }
+
+        // **A change of policy or of state, and nothing else** — apart from the waiting line above,
+        // which is the stall itself rather than a reading of it. A line every tick would be a
         // permanent verbose network logger in release; a transition has to get through the
         // hysteresis first, so even a genuinely flapping source cannot produce one more often than
         // every two samples. The first application counts as a change, which is the only record
@@ -2666,8 +2694,10 @@ extension Playback {
 
     /// Loads the paused item again where the viewer left it — what closing and reopening the player
     /// did for them: the same engine, address and headers, still paused. The startup watch is not
-    /// re-armed, because its timeout hands over with autoplay and a paused reload must never start
-    /// playing by itself; a pre-resolved address's live retry would start it too, so it goes.
+    /// re-armed. It was left out because its timeout hands over with autoplay and a paused reload
+    /// must never start playing by itself; since IOS-POC-27A a paused player no longer times out at
+    /// all, but this path was accepted on the device without the watch (IOS-POC-23) and re-arming
+    /// it is left to IOS-POC-27C. A pre-resolved address's live retry would start it too, so it goes.
     private func reloadPaused(at seconds: Double) {
         guard isPausedOnScreen, let engine else { return }
         var line = "[lifecycle] \(itemTitle) suspended while paused: reloading on \(engineKind.shortName)"
@@ -2945,24 +2975,36 @@ extension Playback {
     /// slightly before the first frame.
     ///
     /// IOS-POC-17F: the same watch is what notices a start that never comes. An engine still
-    /// preparing or buffering `PlayerRouter.startupTimeout` after it was handed the item is replaced
-    /// by the other engine — once per attempt, never as an error. `ready` (loaded but paused) is not
-    /// a stuck start and is left alone.
+    /// preparing or buffering `PlayerRouter.startupTimeout(for:)` after it was handed the item is
+    /// replaced by the other engine — once per attempt, never as an error. `ready` (loaded but
+    /// paused) is not a stuck start and is left alone.
+    ///
+    /// IOS-POC-27A: only the time the viewer means it to play counts, so a viewer who pauses a slow
+    /// start is not switched and played anyway; and a native start that is given up on says why.
     private func watchStartup() {
         startupWatch?.cancel()
         loadedAt = .now
-        engineStartedAt = .now
+        startupClock.restart(at: monotonicSeconds)
         startupMilliseconds = nil
         startupWatch = Task { @MainActor in
             while !Task.isCancelled {
-                if let engine, !engine.isPlaying, [.preparing, .buffering].contains(engine.state),
-                   let since = engineStartedAt,
-                   ContinuousClock.now - since > .seconds(PlayerRouter.startupTimeout) {
-                    engineStartedAt = nil
-                    let stuck = engineKind.shortName
-                    // The switch re-arms `engineStartedAt` through `onEngineChange`.
-                    if router.startupTimedOut() {
-                        Self.log.notice("[playback] \(self.itemTitle, privacy: .public) not started on \(stuck, privacy: .public) after \(Int(PlayerRouter.startupTimeout))s — trying \(self.engineKind.shortName, privacy: .public)")
+                if let engine, !engine.isPlaying {
+                    let stuck = engineKind
+                    let timeout = PlayerRouter.startupTimeout(for: stuck)
+                    // The switch restarts the clock for the engine taking over, through `onEngineChange`.
+                    if startupClock.timedOut(now: monotonicSeconds, intends: engine.rate != 0,
+                                             stuck: [.preparing, .buffering].contains(engine.state),
+                                             timeout: timeout) {
+                        // Read before the switch: handing over tears the native item down, and its
+                        // error log with it.
+                        let diagnosis = stuck == .native ? nativeStartupDiagnosis() : nil
+                        if router.startupTimedOut() {
+                            Self.log.notice("[playback] \(self.itemTitle, privacy: .public) not started on \(stuck.shortName, privacy: .public) after \(Int(timeout))s — trying \(self.engineKind.shortName, privacy: .public)")
+                            if let diagnosis {
+                                Self.log.notice("\(diagnosis.line, privacy: .public)")
+                                onNotice?(diagnosis.reason.notice(from: stuck, to: engineKind))
+                            }
+                        }
                     }
                 }
                 if let engine, engine.isPlaying, let loadedAt {
@@ -2975,6 +3017,34 @@ extension Playback {
                 try? await Task.sleep(for: .milliseconds(100))
             }
         }
+    }
+
+    /// IOS-POC-27A: what the native item holds when its start is given up on — its status, why the
+    /// player waits, and the last error-log entry — as one log line and the reason the screen shows.
+    /// The line is public, and a media address carries tokens, so addresses and free text go through
+    /// `PlaybackLogRedaction`; the entry's `uri` and `serverAddress` never go in whole.
+    private func nativeStartupDiagnosis() -> (line: String, reason: PlaybackStartupReason)? {
+        guard let item = player.currentItem else { return nil }
+        let events = item.errorLog()?.events ?? []
+        let status = events.reversed().lazy
+            .compactMap { PlaybackFailure.httpStatus(statusCode: $0.errorStatusCode, comment: $0.errorComment) }
+            .first
+        let last = events.last
+        let waiting = player.reasonForWaitingToPlay
+        let reason = PlaybackStartupReason(httpStatus: status, ready: item.status == .readyToPlay,
+                                           tooSlow: waiting == .toMinimizeStalls,
+                                           evaluating: waiting == .evaluatingBufferingRate)
+        let itemError = item.error as NSError?
+        let line = "[playback] native start given up: reason=\(reason) item=\(item.status.rawValue)"
+            + " control=\(player.timeControlStatus.rawValue)"
+            + " waiting=\(waiting?.rawValue ?? "none")"
+            + " error-log=\(events.count)"
+            + " last=\(last.map { "\($0.errorDomain) \($0.errorStatusCode)" } ?? "none")"
+            + " comment=\(PlaybackLogRedaction.comment(last?.errorComment))"
+            + " uri=\(PlaybackLogRedaction.urlSummary(last?.uri))"
+            + " item-error=\(itemError.map { "\($0.domain) \($0.code)" } ?? "none")"
+            + " buffer=\(Self.oneDecimal(bufferAhead(of: item)))s"
+        return (line, reason)
     }
 
     /// One line per item when it is replaced, stopped or closed (IOS-POC-15D): how it started, and
@@ -3442,7 +3512,9 @@ private struct PlayerControlBar: View {
     let duration: Double
     /// Seconds already buffered ahead, or nil when nothing has been reported yet.
     let buffered: Double?
-    let playing: Bool
+    /// IOS-POC-27A: whether the viewer means it to play — also while it waits for data. The toggle
+    /// follows this, not `isPlaying`, so a stall offers pause instead of a ▶ that does nothing.
+    let intendsToPlay: Bool
     /// The chosen speed, observed rather than read from the session on each render: a plain class
     /// publishes nothing, so a label reading it directly would only refresh when something else
     /// happened to redraw the body.
@@ -3625,13 +3697,13 @@ private struct PlayerControlBar: View {
             }
             .accessibilityLabel("倒退 10 秒")
 
-            Button(action: { interacted(); session.control(playing ? "pause" : "play") }) {
-                Image(systemName: playing ? "pause.fill" : "play.fill")
+            Button(action: { interacted(); session.control(intendsToPlay ? "pause" : "play") }) {
+                Image(systemName: intendsToPlay ? "pause.fill" : "play.fill")
                     .font(.system(size: 40))
                     .frame(width: 52, height: 52)
                     .contentShape(Rectangle())
             }
-            .accessibilityLabel(playing ? "暫停" : "播放")
+            .accessibilityLabel(intendsToPlay ? "暫停" : "播放")
 
             Button(action: { interacted(); session.seek(toSeconds: shown + 10) }) {
                 Image(systemName: "goforward.10").font(.system(size: 28)).playerHitTarget()
@@ -4187,7 +4259,14 @@ private struct PlayerView: View {
     @State private var position: Double = 0
     @State private var duration: Double = 0
     @State private var buffered: Double?
-    @State private var playing = false
+    /// IOS-POC-27A: the bar's toggle, from `PlaybackActivity`.
+    @State private var intendsToPlay = false
+    /// IOS-POC-27A: consecutive quarter-second ticks with something on its way. The spinner shows
+    /// from the second, so a seek that lands at once does not flash it.
+    @State private var spinnerTicks = 0
+    /// IOS-POC-27A: why a start was handed to the other engine, shown for a few seconds.
+    @State private var notice: String?
+    @State private var noticeTimer: Task<Void, Never>?
     /// The chosen speed. Observed alongside position, because `PlaybackSession` is a plain class
     /// and the speed can also change without the menu — `load` re-applies it on the next episode.
     @State private var rate: Float = 1
@@ -4196,7 +4275,8 @@ private struct PlayerView: View {
     /// IOS-POC-17: which engine is drawing, and what failed if nothing can.
     @State private var engineKind = PlaybackEngineKind.native
     @State private var failure: String?
-    /// MPV has no periodic observer to hand; the bar reads its snapshot on the same quarter second.
+    /// The quarter-second tick the bar's state is read on — MPV's snapshot, and since IOS-POC-27A
+    /// AVPlayer's state too, whose periodic observer stops with the item's clock in a stall.
     @State private var engineTicker: Task<Void, Never>?
 
     private enum DragKind { case seek, volume, brightness }
@@ -4238,6 +4318,32 @@ private struct PlayerView: View {
             }
         }
         .overlay {
+            // IOS-POC-27A: a start or a stall is on its way. Never takes a touch, so the bar and the
+            // tap layer stay usable under it.
+            if spinnerTicks >= 2 {
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(.white)
+                    .allowsHitTesting(false)
+            }
+        }
+        .overlay(alignment: .top) {
+            // IOS-POC-27A: below the bar's top row, so it covers neither the close button nor the
+            // spinner of the engine that just took over.
+            if let notice {
+                Text(notice)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal, 32)
+                    .padding(.top, 72)
+                    .allowsHitTesting(false)
+            }
+        }
+        .overlay {
             if let hud {
                 Text(hud)
                     .font(.system(.title3, design: .rounded).weight(.semibold))
@@ -4263,7 +4369,7 @@ private struct PlayerView: View {
         .overlay {
             PlayerControlBar(
                 session: session, position: position, duration: duration, buffered: buffered,
-                playing: playing, rate: rate, watching: watching, media: media,
+                intendsToPlay: intendsToPlay, rate: rate, watching: watching, media: media,
                 engine: engineKind,
                 isAvailable: { session.isEngineAvailable($0) },
                 selectEngine: { session.selectEngine($0) },
@@ -4325,6 +4431,8 @@ private struct PlayerView: View {
             hideTimer?.cancel()
             session.onEngineChange = nil
             session.onFailure = nil
+            session.onNotice = nil
+            noticeTimer?.cancel()
             session.onMediaSelectionChange = nil
         }
         .task {
@@ -4344,6 +4452,7 @@ private struct PlayerView: View {
                 reloadMedia()
             }
             session.onFailure = { failure = $0.message }
+            session.onNotice = { showNotice($0) }
             startObserving()
             scheduleHide()
             media = await session.refreshMediaSelection()
@@ -4360,22 +4469,32 @@ private struct PlayerView: View {
 
     /// A quarter-second tick. Fine enough that the scrubber does not visibly step, coarse enough
     /// that it costs nothing — AVKit's own bar reads about the same.
+    ///
+    /// IOS-POC-27A: **one tick for both engines.** AVPlayer's periodic observer runs on the item's
+    /// timeline, which stops in a stall (`AVPlayer.h`), so the bar froze exactly when it mattered:
+    /// the toggle kept ▶ and the total never arrived for an item that became ready while waiting.
+    /// The observer now only moves AVPlayer's playhead, the one value it reports better than a poll.
     private func startObserving() {
         stopObserving()
-        // IOS-POC-17. The AVPlayer path below is unchanged; MPV is read on the same cadence.
-        if engineKind == .mpv {
-            engineTicker = Task { @MainActor in
-                while !Task.isCancelled {
-                    position = session.position
-                    duration = session.duration
-                    playing = session.isPlaying
-                    rate = session.rate
-                    buffered = session.bufferedUntil
-                    try? await Task.sleep(for: .seconds(0.25))
-                }
+        let native = engineKind != .mpv
+        engineTicker = Task { @MainActor in
+            while !Task.isCancelled {
+                if !native { position = session.position }
+                duration = session.duration
+                // The session's remembered speed, not the engine's rate: a paused player reports zero
+                // and the menu must still show what the viewer picked.
+                rate = session.rate
+                // What is already on the device, from the range **containing the playhead** — the
+                // same reading IOS-POC-15's policy takes, so the bar and the policy never disagree.
+                buffered = session.bufferedUntil
+                let activity = session.activity
+                intendsToPlay = activity.showsPause
+                // Held at two: past the half second nothing changes, so nothing redraws.
+                spinnerTicks = activity.showsSpinner ? min(spinnerTicks + 1, 2) : 0
+                try? await Task.sleep(for: .seconds(0.25))
             }
-            return
         }
+        guard native else { return }
         timeObserver = session.player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
         ) { time in
@@ -4383,24 +4502,6 @@ private struct PlayerView: View {
                 // No guard against an in-flight drag is needed: `PlayerControlBar` holds the
                 // dragged value itself and prefers it over this one until the finger lifts.
                 position = time.seconds.isFinite ? time.seconds : 0
-                playing = session.player.timeControlStatus == .playing
-                // The session's remembered speed, not `player.rate`: a paused player reports zero
-                // and the menu must still show what the viewer picked.
-                rate = session.rate
-                guard let item = session.player.currentItem else { return }
-                let length = item.duration.seconds
-                duration = length.isFinite && length > 0 ? length : 0
-                // What is already on the device — the same `loadedTimeRanges` IOS-POC-15's policy
-                // reads, which is why the bar draws it rather than hiding it.
-                //
-                // The range **containing the playhead**, not `.first`. After a seek the player keeps
-                // more than one range and the first is often the part already watched, so the bar
-                // drew a comfortable cushion at the exact moment there was none. Reading it the same
-                // way the policy does is also what stops the bar and the policy disagreeing.
-                buffered = item.loadedTimeRanges
-                    .map(\.timeRangeValue)
-                    .first { $0.containsTime(time) }
-                    .map { ($0.start + $0.duration).seconds }
             }
         }
     }
@@ -4487,6 +4588,18 @@ private struct PlayerView: View {
         }
         drag = nil
         flashHUD()
+    }
+
+    /// IOS-POC-27A: a message long enough to read — four seconds — on its own state, so a gesture's
+    /// readout neither replaces it nor is replaced by it.
+    private func showNotice(_ text: String) {
+        notice = text
+        noticeTimer?.cancel()
+        noticeTimer = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            notice = nil
+        }
     }
 
     /// Shows a readout, or leaves the one already up, and takes it away a moment later. Vanishing

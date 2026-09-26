@@ -22,7 +22,7 @@
 | RC3 | 有 `EXT-X-DISCONTINUITY` 的 HLS（插播廣告）上兩個核心的時間軸不同：AVPlayer 用播放清單時間（EXTINF 累加，RFC 8216），mpv 的 `time-pos` 跟著封包 PTS，只在檔案開頭 rebase 一次。FFmpeg n8.1.2 `hls.c` 完全沒有處理 discontinuity | 雙向 | 每段廣告約 15～17 秒並累加；在廣告內切換可能落到片頭附近 | 第一則回報時為低；**第二則回報後提高**，26-2 量測中 |
 | RC2 | MPV 播放中失敗時，`END_FILE` 錯誤先把 `loaded` 設成 false，`handOff` 因此改用 `request.startSeconds`（開播點），不是當下位置 | MPV→原生（自動 fallback） | 可能回到開播點 | 中 |
 | RC4 | 切換後一瞬間控制列讀到 0:00，這時按 ±10 秒會以 0 為基準 | 雙向 | 回到片頭附近 | 低（既有） |
-| A1 | 控制列切換帶的是 `engine.isPlaying`，緩衝中切換會以暫停狀態載入 | — | 播放狀態，不是位置 | 中（既有） |
+| A1 | 控制列切換帶的是 `engine.isPlaying`，緩衝中切換會以暫停狀態載入 | — | 播放狀態，不是位置 | 中（既有） （IOS-POC-27A 已修正：改傳播放意圖） |
 
 MPV 一側在沒有 discontinuity 時是精確的：mpv v0.41.0 `loadfile.c:1908-1909` 以 `MPSEEK_ABSOLUTE` 排入 `start`，`playloop.c:335-338` 在預設 `hr_seek=2`（`options.c:1021`）下改為 hr-seek；FFmpeg `hls.c:2719-2724` 把 BACKWARD 的影像 seek 移到分段開頭，再解碼到目標。
 

@@ -135,8 +135,9 @@ side. `Headers/config.h` may differ only in `CC_IDENT` and three probes
 reach libavcodec's assembly and the VideoToolbox encoder. `Libavutil`, compared
 in full, showed no difference at all.
 
-Until the app's `Libavformat` target points at that artifact, the app still
-links the upstream 1.0.0 `Libavformat`.
+Since IOS-POC-26-2b-2 the app's `Libavformat` target is that artifact
+(`ffmpeg-n8.1.2-webhtv.1`, run `36226970983`). Like the libmpv lane's
+`Libmpv`, it carries only the iOS device and simulator slices.
 
 ## Corresponding source
 
@@ -145,8 +146,11 @@ The modified library is mpv `v0.41.0`
 `0001` above and MPVKit's `0002-revert-build-static.patch` and
 `0003-enable-avfoundation-ao-tvos.patch` from recipe commit
 `9d057f9c19fa704e242b199d26bc6c5cf23dd5d6`, then the WebHTV `0004` above. The workflow and the lock rebuild
-it from those inputs. FFmpeg and the other libraries are unmodified upstream
-binaries; their versions are in the lock and in `licenses/`.
+it from those inputs. `Libavformat` is FFmpeg `n8.1.2`
+(`38b88335f99e76ed89ff3c93f877fdefce736c13`) with `patches/ffmpeg/0001`…`0006`
+above, rebuilt by the FFmpeg lane from the lock's `ffmpeg` section. The other
+FFmpeg libraries and the other libraries are unmodified upstream binaries;
+their versions are in the lock and in `licenses/`.
 
 ## Licences
 

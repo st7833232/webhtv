@@ -1846,7 +1846,8 @@ private struct HistoryView: View {
             if !records.isEmpty {
                 Button("清除") {
                     records = []
-                    Task { await WatchHistoryStore.shared.clear() }
+                    // IOS-POC-30: this source's list only; another source's history stays.
+                    Task { await WatchHistoryStore.shared.clear(for: source.identity) }
                 }
             }
         }

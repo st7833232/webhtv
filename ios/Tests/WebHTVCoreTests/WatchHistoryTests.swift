@@ -131,6 +131,27 @@ private func record(_ vodId: String, siteKey: String = "s", siteID: String = "s\
     #expect(await WatchHistoryStore(directory: directory).records().isEmpty)
 }
 
+@Test func clearingOneSourcesListLeavesEveryOtherSourcesHistory() async throws {
+    // IOS-POC-30, the viewer's report: 清除 on one source's history list wiped every source's.
+    let (store, directory) = try scratchStore("clear-per-source")
+    func watched(_ vodId: String, on sourceID: String?) -> WatchHistory {
+        WatchHistory(key: WatchHistory.key(siteID: "site", vodId: vodId), siteKey: "s",
+                     sourceID: sourceID, vodId: vodId, position: 60_000, duration: 2_400_000)
+    }
+    await store.save(watched("a1", on: "configA"))
+    await store.save(watched("a2", on: "configA"))
+    await store.save(watched("b1", on: "configB"))
+    // Written before sources were separable: listed under every configuration.
+    await store.save(watched("old", on: nil))
+
+    await store.clear(for: "configA")
+
+    let reread = WatchHistoryStore(directory: directory)
+    #expect(await reread.records(for: "configA").isEmpty, "the list the viewer cleared stays empty")
+    #expect(await reread.records(for: "configB").map(\.vodId) == ["b1"], "another source keeps its history")
+    #expect(await reread.records().map(\.vodId) == ["b1"])
+}
+
 @Test func concurrentSavesAllLand() async throws {
     let (store, directory) = try scratchStore("concurrent")
     await withTaskGroup(of: Void.self) { group in

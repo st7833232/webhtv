@@ -341,8 +341,21 @@ public actor WatchHistoryStore {
         store(loaded().filter { $0.key != key })
     }
 
+    /// Every configuration's records. **Not what the history list's 清除 does** (IOS-POC-30): that
+    /// is `clear(for:)`.
     public func clear() {
         store([])
+    }
+
+    /// Clears what one configuration's history list shows, and nothing else (IOS-POC-30) — exactly
+    /// the records `records(for:)` answers, so 清除 empties the list on screen without touching the
+    /// history of any other source. Android's 清除 is the same: `History.deleteAndSync(cid)` for the
+    /// current configuration only.
+    ///
+    /// A record with no `sourceID` predates IOS-POC-10E and is listed under every configuration, so
+    /// it goes too: keeping it would leave a row on the list the viewer has just cleared.
+    public func clear(for sourceID: String) {
+        store(loaded().filter { $0.sourceID != nil && $0.sourceID != sourceID })
     }
 
     private func prune(_ records: [WatchHistory], now: Date) -> [WatchHistory] {

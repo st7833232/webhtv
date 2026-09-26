@@ -56,14 +56,20 @@ import Testing
 
 // MARK: - The startup watch counts only intended playback
 
+// `timedOut` is mutating, and `#expect` wraps a call it is handed in a closure whose argument is
+// immutable — the IOS-POC-25 review's compile error — so each result is taken first and then checked.
+
 @Test func aStartThatNeverComesTimesOutOnceAfterTheTimeout() {
     var watch = PlaybackStartupWatch()
     watch.restart(at: 0)
 
-    #expect(!watch.timedOut(now: 4.9, intends: true, stuck: true, timeout: 5))
-    #expect(watch.timedOut(now: 5.1, intends: true, stuck: true, timeout: 5))
+    let early = watch.timedOut(now: 4.9, intends: true, stuck: true, timeout: 5)
+    #expect(!early)
+    let due = watch.timedOut(now: 5.1, intends: true, stuck: true, timeout: 5)
+    #expect(due)
     // Once per engine: the hand-off that follows restarts the watch for the engine taking over.
-    #expect(!watch.timedOut(now: 30, intends: true, stuck: true, timeout: 5))
+    let again = watch.timedOut(now: 30, intends: true, stuck: true, timeout: 5)
+    #expect(!again)
 }
 
 @Test func aViewerWhoPausesASlowStartIsNotSwitchedAndPlayedAnyway() {
@@ -71,9 +77,11 @@ import Testing
     var watch = PlaybackStartupWatch()
     watch.restart(at: 0)
 
-    #expect(!watch.timedOut(now: 2, intends: true, stuck: true, timeout: 5))
+    let beforePause = watch.timedOut(now: 2, intends: true, stuck: true, timeout: 5)
+    #expect(!beforePause)
     for second in stride(from: 3.0, through: 60, by: 1) {
-        #expect(!watch.timedOut(now: second, intends: false, stuck: true, timeout: 5))
+        let paused = watch.timedOut(now: second, intends: false, stuck: true, timeout: 5)
+        #expect(!paused, "paused at \(second) s")
     }
 }
 
@@ -84,26 +92,33 @@ import Testing
     watch.restart(at: 0)
     _ = watch.timedOut(now: 1, intends: false, stuck: true, timeout: 5)
 
-    #expect(!watch.timedOut(now: 100, intends: true, stuck: true, timeout: 5))
-    #expect(!watch.timedOut(now: 104.9, intends: true, stuck: true, timeout: 5))
-    #expect(watch.timedOut(now: 105.1, intends: true, stuck: true, timeout: 5))
+    let onPlay = watch.timedOut(now: 100, intends: true, stuck: true, timeout: 5)
+    #expect(!onPlay)
+    let justBefore = watch.timedOut(now: 104.9, intends: true, stuck: true, timeout: 5)
+    #expect(!justBefore)
+    let due = watch.timedOut(now: 105.1, intends: true, stuck: true, timeout: 5)
+    #expect(due)
 }
 
 @Test func anEngineThatIsReadyOrPlayingIsNotStuck() {
     var watch = PlaybackStartupWatch()
     watch.restart(at: 0)
 
-    #expect(!watch.timedOut(now: 60, intends: true, stuck: false, timeout: 5))
+    let ready = watch.timedOut(now: 60, intends: true, stuck: false, timeout: 5)
+    #expect(!ready)
 }
 
 @Test func theEngineTakingOverGetsItsOwnTimeout() {
     var watch = PlaybackStartupWatch()
     watch.restart(at: 0)
-    #expect(watch.timedOut(now: 6, intends: true, stuck: true, timeout: 5))
+    let first = watch.timedOut(now: 6, intends: true, stuck: true, timeout: 5)
+    #expect(first)
 
     watch.restart(at: 6)
-    #expect(!watch.timedOut(now: 20, intends: true, stuck: true, timeout: 20))
-    #expect(watch.timedOut(now: 26.1, intends: true, stuck: true, timeout: 20))
+    let early = watch.timedOut(now: 20, intends: true, stuck: true, timeout: 20)
+    #expect(!early)
+    let due = watch.timedOut(now: 26.1, intends: true, stuck: true, timeout: 20)
+    #expect(due)
 }
 
 @Test func aNativeStartIsGivenUpOnSoonerThanAnMPVStart() {

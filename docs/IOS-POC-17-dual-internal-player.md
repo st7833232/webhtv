@@ -296,8 +296,8 @@ Simulator Debug build → **BUILD SUCCEEDED**。全套 `swift test` 留到 17B �
 ### 沒有驗到的／已知限制
 
 - **真機一次都沒跑**：真實來源上的 403／逾時切換、20 秒門檻在弱網路下是否太短或太長。
-- 使用者在開播前按暫停：AVPlayer 仍回報 `preparing`，20 秒後會切到另一個核心並自動播放。罕見，沒有另外處理。
-- 20 秒是常數；要調整就改 `PlayerRouter.startupTimeout`。
+- 使用者在開播前按暫停：AVPlayer 仍回報 `preparing`，20 秒後會切到另一個核心並自動播放。罕見，沒有另外處理。（IOS-POC-27A 已修正：開播檢查只計算想播的時間，暫停中不逾時）
+- 20 秒是常數；要調整就改 `PlayerRouter.startupTimeout`。（IOS-POC-27A：改為 `PlayerRouter.startupTimeout(for:)`，原生 5 秒、MPV 20 秒）
 
 ### 回滾
 

@@ -413,12 +413,14 @@ public final class PlayerRouter {
     /// played can now go to MPV instead; the viewer chose that trade. MPV keeps 20 s: it is the
     /// compatibility engine, and its slow start is not handed to the engine less likely to play it.
     /// Only time the viewer means it to play counts (`PlaybackStartupWatch`).
-    public static func startupTimeout(for kind: PlaybackEngineKind) -> Double {
+    ///
+    /// `nonisolated`: it reads no state, and `PlayerRouter` is main-actor isolated.
+    nonisolated public static func startupTimeout(for kind: PlaybackEngineKind) -> Double {
         kind == .native ? 5 : 20
     }
 
-    /// The session saw the engine not start playing within `startupTimeout`: try the other engine,
-    /// if this attempt has not already switched. Answers whether it did.
+    /// The session saw the engine not start playing within `startupTimeout(for:)`: try the other
+    /// engine, if this attempt has not already switched. Answers whether it did.
     ///
     /// **Never shown as a failure.** The engine may still start — a slow start is not an error — so
     /// when no switch is possible nothing happens, and playback is left to begin when it can.

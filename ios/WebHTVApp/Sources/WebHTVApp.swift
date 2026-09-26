@@ -2047,7 +2047,11 @@ extension Playback {
     /// The `[playback]` diagnostics (IOS-POC-15D). `Logger`, not `print`: a SideStore Release build
     /// has no debugger attached, and stdout goes nowhere there, while the unified log reaches
     /// Console.app on a Mac the phone is connected to. `.public` because every value in these lines
-    /// is a timing, a count or an episode label, and redacted numbers would measure nothing.
+    /// is a timing, a count, a bitrate, an episode label, an engine or AVFoundation status, a waiting
+    /// reason or an error domain and code — or, since IOS-POC-27A, something passed through
+    /// `PlaybackLogRedaction`: a media address only as host and extension, and an error-log comment
+    /// flattened to one line and cut to 80 characters, not otherwise redacted. Redacted numbers
+    /// would measure nothing.
     static let log = Logger(subsystem: "com.webhtv.ios.poc", category: "playback")
 
     // IOS-POC-15D: what one item did, reported once when it is replaced or closed.
@@ -2746,7 +2750,8 @@ extension Playback {
     /// re-armed. It was left out because its timeout hands over with autoplay and a paused reload
     /// must never start playing by itself; since IOS-POC-27A a paused player no longer times out at
     /// all, but this path was accepted on the device without the watch (IOS-POC-23) and re-arming
-    /// it is left to IOS-POC-27C. A pre-resolved address's live retry would start it too, so it goes.
+    /// it is listed under IOS-POC-27C. A pre-resolved address's live retry would start it too, so it
+    /// goes.
     private func reloadPaused(at seconds: Double) {
         guard isPausedOnScreen, let engine else { return }
         var line = "[lifecycle] \(itemTitle) suspended while paused: reloading on \(engineKind.shortName)"
@@ -3039,7 +3044,11 @@ extension Playback {
             while !Task.isCancelled {
                 if let engine, !engine.isPlaying {
                     let stuck = engineKind
-                    let timeout = PlayerRouter.startupTimeout(for: stuck)
+                    // On AirPlay or in AVKit's PiP window, MPV would take the video off the TV or
+                    // out of the window, so a native start keeps the pre-27A 20 s there.
+                    let presentedElsewhere = stuck == .native
+                        && (player.isExternalPlaybackActive || pictureInPictureActive)
+                    let timeout = PlayerRouter.startupTimeout(for: presentedElsewhere ? .mpv : stuck)
                     // The switch restarts the clock for the engine taking over, through `onEngineChange`.
                     if startupClock.timedOut(now: monotonicSeconds, intends: engine.rate != 0,
                                              stuck: [.preparing, .buffering].contains(engine.state),
@@ -4465,6 +4474,11 @@ private struct PlayerView: View {
         // Closing the screen pauses rather than tears down, so a page can read the position it
         // reached and resume it with player.control.
         .onDisappear {
+            // The screen is gone either way, so its bar's ticker and observer go with it — PiP
+            // playback needs neither (IOS-POC-27A: the ticker now runs for AVPlayer too, and one
+            // left behind by each dismissal in PiP would poll for the rest of the app's life). One
+            // `AVPlayer` outlives this screen, so an observer left on it would outlive it too.
+            stopObserving()
             // Unless PiP has the video: pausing there would stop the little window the viewer
             // just asked for, which is the one thing PiP must survive.
             guard !pictureInPicture else { return }
@@ -4476,8 +4490,6 @@ private struct PlayerView: View {
                 await session.persist()
                 session.closePlayer()
             }
-            // One `AVPlayer` outlives this screen, so an observer left on it would outlive it too.
-            stopObserving()
             hideTimer?.cancel()
             session.onEngineChange = nil
             session.onFailure = nil

@@ -48,9 +48,14 @@ public struct PlaybackNetworkSample: Sendable, Equatable {
     ///
     /// **This is why the viewer's 3× report belongs to this stage.** Thirty seconds of buffered
     /// media is thirty seconds of cushion at 1× and ten at 3×, so the thresholds below compare
-    /// against `bufferAheadPlaybackSeconds` rather than against the raw figure. A fast rate pushes
-    /// the state down by itself, which raises the forward-buffer target — using the mechanism that
-    /// is already here instead of adding a second one.
+    /// against `bufferAheadPlaybackSeconds` rather than against the raw figure.
+    ///
+    /// IOS-POC-15 stopped there: a fast rate pushed the state down by itself, which raised the
+    /// target, "using the mechanism that is already here instead of adding a second one". That
+    /// raises it only once the cushion is already thin, which for a viewer who always watches at 2×
+    /// is too late — 60 seconds of media held only 30 of their viewing. **Since IOS-POC-27B the
+    /// target follows the speed too** (`PlaybackBufferPolicy.policy(…rate:)`), capped at the most
+    /// the model already asked for.
     public var rate: Double
     /// `AVPlayerItemAccessLogEvent.observedBitrate`, bits per second. Zero or negative when the log
     /// has not reported yet, which is treated as "no evidence" rather than as "slow".
@@ -98,8 +103,7 @@ public struct PlaybackNetworkSample: Sendable, Equatable {
 
     /// The cushion measured in seconds of *playback* rather than seconds of media.
     public var bufferAheadPlaybackSeconds: Double {
-        let speed = rate.isFinite && rate > 1 ? rate : 1
-        return max(bufferAhead, 0) / speed
+        max(bufferAhead, 0) / PlaybackBufferPolicy.speedFactor(rate)
     }
 
     /// Whether the access log has said anything usable about throughput yet.
@@ -153,6 +157,11 @@ public enum PlaybackNetworkThresholds {
     public static let normalForwardBufferSeconds: Double = 60
     public static let riskForwardBufferSeconds: Double = 90
     public static let poorForwardBufferSeconds: Double = 120
+    /// IOS-POC-27B: the most any speed may ask for — the `poor` target, which the model already
+    /// asked for at 1×. So no speed holds more media, or more memory, than a stalled 1× stream
+    /// already could, and the wait to refill after a stall is no longer than it was. Whether
+    /// AVPlayer honours more than about 100 s is unmeasured; the 30-second buffer line says.
+    public static let maximumForwardBufferSeconds: Double = 120
 
     /// Resolution ceilings, in pixel height. `nil` is unrestricted.
     public static let riskMaximumHeight = 1080
@@ -200,21 +209,35 @@ public struct PlaybackBufferPolicy: Sendable, Equatable {
         self.peakBitRate = 0
     }
 
+    /// The speed a cushion or a target is scaled by. Anything slower than 1×, and anything that is
+    /// not a real speed — NaN, infinite, zero, negative — counts as 1×: a slow speed needs no less
+    /// than the model already asks for, and a bad reading must never become a bad target.
+    public static func speedFactor(_ rate: Double) -> Double {
+        rate.isFinite && rate > 1 ? rate : 1
+    }
+
     /// The policy for one state and one item. Pure, so every cell of the table has a test.
+    ///
+    /// `rate` (IOS-POC-27B): the target is media seconds (`preferredForwardBufferDuration`), so at
+    /// 2× the 1× table holds half the viewing. It is scaled by the speed — as Media3's
+    /// `DefaultLoadControl` scales its buffer — and capped at
+    /// `PlaybackNetworkThresholds.maximumForwardBufferSeconds`, as Media3 caps it at its maximum.
     public static func policy(for state: PlaybackNetworkState,
                               kind: PlaybackItemKind,
                               variantCount: Int,
-                              viewerChoseQuality: Bool = false) -> PlaybackBufferPolicy {
+                              viewerChoseQuality: Bool = false,
+                              rate: Double = 1) -> PlaybackBufferPolicy {
         // A stream with no known end must not inherit a minute of VOD buffering, and capping its
         // resolution would be guessing at a ladder we have not been shown.
         guard kind == .onDemand else { return .systemManaged }
 
-        let forward: Double
+        let base: Double
         switch state {
-        case .good, .normal: forward = PlaybackNetworkThresholds.normalForwardBufferSeconds
-        case .risk: forward = PlaybackNetworkThresholds.riskForwardBufferSeconds
-        case .poor: forward = PlaybackNetworkThresholds.poorForwardBufferSeconds
+        case .good, .normal: base = PlaybackNetworkThresholds.normalForwardBufferSeconds
+        case .risk: base = PlaybackNetworkThresholds.riskForwardBufferSeconds
+        case .poor: base = PlaybackNetworkThresholds.poorForwardBufferSeconds
         }
+        let forward = min(base * speedFactor(rate), PlaybackNetworkThresholds.maximumForwardBufferSeconds)
 
         // Only a genuinely multi-variant asset has anything to step down to. Anything else keeps the
         // one stream it has — and so does a quality the viewer chose.
@@ -339,7 +362,8 @@ public struct PlaybackNetworkMonitor: Sendable {
 
         return PlaybackBufferPolicy.policy(for: state, kind: sample.kind,
                                            variantCount: sample.variantCount,
-                                           viewerChoseQuality: sample.viewerChoseQuality)
+                                           viewerChoseQuality: sample.viewerChoseQuality,
+                                           rate: sample.rate)
     }
 
     /// Names what is limiting playback, so a log line says which case this is.

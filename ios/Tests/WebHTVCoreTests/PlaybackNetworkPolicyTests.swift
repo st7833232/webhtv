@@ -400,3 +400,74 @@ private func poorish(variantCount: Int = 0, stalls: Int = 0) -> PlaybackNetworkS
     paused.playing = false
     #expect(PlaybackNetworkMonitor.limit(of: paused) == .healthy)
 }
+
+// MARK: - 27B: the target follows the speed, up to what the model already asked for
+
+/// The viewer watches everything at 2× (2026-09-26): 60 seconds of media was 30 of their viewing.
+@Test func theTargetHoldsTheSameViewingAtAFastSpeedUpToTheCeiling() {
+    let table: [(rate: Double, targets: [PlaybackNetworkState: Double])] = [
+        (1, [.good: 60, .normal: 60, .risk: 90, .poor: 120]),
+        (1.25, [.good: 75, .normal: 75, .risk: 112.5, .poor: 120]),
+        (1.5, [.good: 90, .normal: 90, .risk: 120, .poor: 120]),
+        (2, [.good: 120, .normal: 120, .risk: 120, .poor: 120]),
+        (3, [.good: 120, .normal: 120, .risk: 120, .poor: 120]),
+    ]
+    for (rate, targets) in table {
+        for (state, target) in targets {
+            let policy = PlaybackBufferPolicy.policy(for: state, kind: .onDemand, variantCount: 0,
+                                                     rate: rate)
+            #expect(policy.forwardBufferSeconds == target, "\(state) at \(rate)×")
+        }
+    }
+}
+
+@Test func noSpeedAsksForMoreThanAStalledOneTimesStreamAlreadyDid() {
+    // The ceiling is the memory and refill-wait bound: nothing may hold more than `poor` at 1×.
+    for state in PlaybackNetworkState.allCases {
+        for rate in stride(from: 0.5, through: 10, by: 0.25) {
+            let target = PlaybackBufferPolicy.policy(for: state, kind: .onDemand, variantCount: 0,
+                                                     rate: rate).forwardBufferSeconds
+            #expect(target <= PlaybackNetworkThresholds.poorForwardBufferSeconds, "\(state) at \(rate)×")
+        }
+    }
+}
+
+@Test func aSlowOrMeaninglessSpeedGetsTheOneTimesTable() {
+    // Swift's max/min pass NaN through, so a bad reading must be normalised before it can reach
+    // `preferredForwardBufferDuration`.
+    for rate in [Double.nan, .infinity, -.infinity, 0, -1, 0.5] {
+        for state in PlaybackNetworkState.allCases {
+            let scaled = PlaybackBufferPolicy.policy(for: state, kind: .onDemand, variantCount: 0,
+                                                     rate: rate).forwardBufferSeconds
+            let oneTimes = PlaybackBufferPolicy.policy(for: state, kind: .onDemand, variantCount: 0)
+                .forwardBufferSeconds
+            #expect(scaled == oneTimes, "\(state) at \(rate)")
+        }
+        #expect(PlaybackBufferPolicy.speedFactor(rate) == 1)
+    }
+}
+
+@Test func liveAtTwoTimesIsStillLeftToTheSystem() {
+    for state in PlaybackNetworkState.allCases {
+        #expect(PlaybackBufferPolicy.policy(for: state, kind: .liveOrUnknown, variantCount: 4,
+                                            rate: 2).forwardBufferSeconds == 0)
+    }
+}
+
+@Test func theSpeedChangesTheTargetButNotTheCeilingOnResolution() {
+    // 27B scales the read-ahead only; the resolution caps stay exactly IOS-POC-15's.
+    for state in PlaybackNetworkState.allCases {
+        let oneTimes = PlaybackBufferPolicy.policy(for: state, kind: .onDemand, variantCount: 4)
+        let twoTimes = PlaybackBufferPolicy.policy(for: state, kind: .onDemand, variantCount: 4, rate: 2)
+        #expect(twoTimes.maximumResolutionHeight == oneTimes.maximumResolutionHeight)
+        #expect(twoTimes.peakBitRate == 0)
+    }
+}
+
+@Test func aHealthyTwoTimesStreamIsAskedForOneHundredAndTwentySeconds() {
+    var monitor = PlaybackNetworkMonitor()
+    let policy = monitor.ingest(healthy(rate: 2))
+
+    #expect(monitor.state == .normal)
+    #expect(policy.forwardBufferSeconds == 120, "the monitor must pass the sample's speed to the policy")
+}

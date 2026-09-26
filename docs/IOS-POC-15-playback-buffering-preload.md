@@ -65,6 +65,8 @@ cushion、`likelyToKeepUp`、`bufferEmpty`、`waitingToPlay` 與比值，**任�
 所以高倍速**自己**會把狀態往下推、把 forward buffer target 往上調，
 用既有機制而不是在旁邊加第二套。測試：`theCushionIsCountedInPlaybackSecondsSoAFastRateCountsAgainstIt`。
 
+**IOS-POC-27B（2026-09-26）推翻這個決定的後半**：這套機制要等緩衝已經變薄才加大目標，對一律用 2 倍速觀看的使用者太晚（一般狀態 60 秒影片只撐 30 秒）。目標改為直接乘上倍速，上限 120 秒（`PlaybackNetworkThresholds.maximumForwardBufferSeconds`）；判斷「還剩多少」仍依本節。見 `docs/IOS-POC-27-avplayer-2x-buffer-stall-controls.md` 第六節 27B。
+
 ## 二、狀態機與 hysteresis
 
 `good / normal / risk / poor`，起始 `.normal`。

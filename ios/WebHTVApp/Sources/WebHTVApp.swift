@@ -2004,6 +2004,8 @@ extension Playback {
     /// Stalls on the current item, from `AVPlayerItem.playbackStalledNotification` — the platform's
     /// own signal rather than anything inferred from the buffer.
     private var stalls = 0
+    /// IOS-POC-27B: sampler ticks on this item, so the buffer line is written every thirtieth second.
+    private var bufferReportTicks = 0
     /// Whether the next episode has already been asked for on this item. One per item is the whole
     /// of IOS-POC-15C's "pre-resolve **one**".
     private var prefetchRequested = false
@@ -2349,6 +2351,26 @@ extension Playback {
     func setRate(_ value: Float) {
         chosenRate = value
         router.setRate(value)
+        reapplyBufferPolicy()
+    }
+
+    /// IOS-POC-27B: a new speed moves the read-ahead target now, not at the next five-second tick.
+    ///
+    /// Computed from the state the monitor is already in rather than by taking a sample: `ingest`
+    /// would count one more reading into the hysteresis and shorten the documented recovery. Only
+    /// once the first tick has applied a policy, so the start-up path stays as IOS-POC-15 left it.
+    private func reapplyBufferPolicy() {
+        guard started, engineKind == .native, appliedPolicy != nil, let item = player.currentItem
+        else { return }
+        let runtime = item.duration.seconds
+        let policy = PlaybackBufferPolicy.policy(
+            for: network.state, kind: runtime.isFinite && runtime > 0 ? .onDemand : .liveOrUnknown,
+            variantCount: variantCount, viewerChoseQuality: quality?.offersChoice ?? false,
+            rate: Double(chosenRate))
+        guard apply(policy, to: item) else { return }
+        let line = "[playback] speed \(Self.oneDecimal(Double(chosenRate)))x → forward="
+            + "\(Int(policy.forwardBufferSeconds))s state=\(network.state)"
+        Self.log.notice("\(line, privacy: .public)")
     }
 
     /// Seeks, in seconds, clamped to the item. The control bar's scrubber and its ±10 s.
@@ -2509,8 +2531,22 @@ extension Playback {
             Self.log.notice("\(waiting, privacy: .public)")
         }
 
+        // IOS-POC-27B: every thirtieth second of playback, what is actually held against the target.
+        // The one measurement 27B's ceiling rests on — whether AVPlayer really reads ahead as far as
+        // it is asked at 2× — and whether stalls come before or after the first one.
+        bufferReportTicks += 1
+        if bufferReportTicks % 6 == 0, sample.playing, let policy = appliedPolicy {
+            let holding = "[playback] holding buffer=\(Self.oneDecimal(sample.bufferAhead))s"
+                + "/\(Self.oneDecimal(sample.bufferAheadPlaybackSeconds))s@\(Self.oneDecimal(sample.rate))x"
+                + " target=\(Int(policy.forwardBufferSeconds))s state=\(network.state)"
+                + " stalls=\(sample.stalls) observed=\(Self.kbps(sample.observedBitrate))"
+                + " indicated=\(Self.kbps(sample.indicatedBitrate))"
+            Self.log.notice("\(holding, privacy: .public)")
+        }
+
         // **A change of policy or of state, and nothing else** — apart from the waiting line above,
-        // which is the stall itself rather than a reading of it. A line every tick would be a
+        // which is the stall itself rather than a reading of it, and the half-minute buffer line
+        // (IOS-POC-27B), which is the measurement a ceiling needs. A line every tick would be a
         // permanent verbose network logger in release; a transition has to get through the
         // hysteresis first, so even a genuinely flapping source cannot produce one more often than
         // every two samples. The first application counts as a change, which is the only record
@@ -3100,6 +3136,7 @@ extension Playback {
         appliedPolicy = nil
         variantCount = 0
         stalls = 0
+        bufferReportTicks = 0
 
         player.replaceCurrentItem(with: item)
         loadVariantCount(of: asset)

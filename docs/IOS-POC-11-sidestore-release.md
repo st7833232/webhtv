@@ -540,7 +540,7 @@ WebHTV 0.1.21 (22)（未經真機驗收）
 
 ## 第二十三次發布：`0.1.22 (23)`（2026-09-26，**已發布**）
 
-**目前最新版是 `0.1.22 (23)`。** 前面二十二版都已被取代。
+**發布當時最新版是 `0.1.22 (23)`**（已被 `0.1.23 (24)` 取代，見第二十四次發布）。前面二十二版都已被取代。
 
 - 授權：使用者 2026-09-25 要求 IOS-POC-26「開發完成發佈」；2026-09-26 在選擇題中選「現在發，連 IOS-POC-25 一起」。版號 `0.1.22`，build `23`。
 - 內容：`0.1.21 (22)` 的全部，加上：
@@ -574,4 +574,41 @@ WebHTV 0.1.22 (23)（未經真機驗收）
 已知限制
 - 含插播廣告的影片（播放清單有 EXT-X-DISCONTINUITY）：MPV 不會自動跳廣告，快轉或倒退可能回到片頭，請先改用原生播放器。修正（自建 FFmpeg 對齊時間軸）開發中。
 - 含插播廣告的影片在兩個播放器之間切換，位置可能差一段廣告長度。
+```
+
+## 第二十四次發布：`0.1.23 (24)`（2026-09-26，**已發布**）
+
+**目前最新版是 `0.1.23 (24)`。** 前面二十三版都已被取代。
+
+- 授權：使用者 2026-09-26 要求 26-2b 完成後「pull merge 在 push 發佈」，並選 A（H1 記錄為已知限制後出貨）。版號 `0.1.23`，build `24`。
+- 內容：`0.1.22 (23)` 的全部，加上 IOS-POC-26-2b：
+  - 26-2b-1：FFmpeg patch 0006 第三輪最終版（`c1bb4d19`）；FFmpeg lane run `36226970983` 建置並通過與上游的比對，發布 prerelease `ffmpeg-n8.1.2-webhtv.1`（`Libavformat.xcframework.zip` 3,133,759 bytes，SHA-256 `ba3e718df7a81fcdda220068b8df74b37a2bcdde3f5edb5ae759c967a614c8ff`）。
+  - 26-2b-2：App 的 `Libavformat` 改用它（`e5f15c73`），README 記錄來源（`a3ca072c`）。
+  - 細節見 `docs/IOS-POC-26-engine-switch-position.md` 第六節之五與第八節。
+- 發布序列：
+  1. 版號 commit `9ef8116d`（Task-Guard `IOS-RELEASE-0.1.23-b24`）。
+  2. fetch 並 merge `origin/ios-poc`（已是最新），push `c1bb4d19..9ef8116d`。
+  3. `workflow_dispatch` run `36227910147`（`version=0.1.23`、`build_number=24`，success，2026-09-26 07:48:40Z 建立，07:51:32Z 發布；以 GitHub MCP 觸發）。
+  4. workflow 建立 tag `ios-v0.1.23-b24`（target `9ef8116d`），並推回 `source.json`（`7097b677`，共二十四筆，第一筆 `0.1.23`，size 與 IPA 相同）。
+
+  **沒有手動建 tag。**
+- 產物：`WebHTV-0.1.23-24.ipa` **25,114,842 bytes**，SHA-256
+  `cfc4a7130bc01a74d1ae9003437ee0fa07495875895f2359fdaf042857f0e029`（與 GitHub asset digest 相同）。
+  **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`com.webhtv.ios.poc` / `0.1.23` / build `24` / minimum iOS `17.0` / `UIBackgroundModes` `audio`。
+  執行檔含 patch 0005 的 `HLS timestamp discontinuity in playlist`（`0.1.22 (23)` 沒有，證明連結的是 WebHTV 的 `Libavformat`），也仍含 IOS-POC-26-1 的 `exact=`、IOS-POC-25 的 `[adskip]`，以及 `_moltenvk_wait_events` 與 `audiounit-skip-session-management`（WebHTV 的 `Libmpv`）。
+- 發布前驗證：`Libavformat` 由 FFmpeg lane 比對（`Libavutil` 與上游逐項相同；`Libavformat` 只多 `hls_timestamp.o` 與 6 個符號，另兩項具名的工具鏈例外）；patch 在 Linux 以 76 個合成素材、FATE 與單元測試驗證。App 改用新二進位後的編譯由本次 workflow 的 Release device build 第一次即成功；單元測試未執行（IOS-POC-20 Q6）。**真機尚未驗收**，驗收項目見 IOS-POC-26 文件 5.5 與第七節。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.23 (24)（未經真機驗收）
+
+修正
+- MPV 播放含插播廣告的影片（播放清單有 EXT-X-DISCONTINUITY）時，快轉、倒退或拖進度條會回到片頭，多操作幾次後 MPV 無法播放、要重啟 App。現在 iOS 改用自建的 FFmpeg Libavformat（與 Android 同源的時間軸對齊，並針對常見廣告配置調整）：廣告內與廣告後的時間接在影集的時間軸上，seek 落在指定位置。
+- 含插播廣告的影片在 MPV 與原生之間切換，位置不再差一段廣告長度。
+- 沒有插播標記的影片，MPV 的行為不變。
+
+已知限制
+- 含插播廣告的影片在 MPV 上連續播放、中間沒有 seek 時，顯示時間可能比播放清單時間多約 0.1～0.2 秒，經過多段廣告會累加，seek 後歸零；影音同步不受影響。
+- 含插播廣告標記的影片，MPV 仍不會自動跳廣告（智慧去廣的限制不變）。
 ```

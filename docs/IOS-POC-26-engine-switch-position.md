@@ -246,10 +246,29 @@ FongMi 的 FFmpeg 是 8.2 開發版（`177f090e0503b7e013922ca903bde14b1c375f18`
 7. 暫停後鎖螢幕超過 60 秒再回來：仍是暫停、同一個畫面。
 8. 若某些片在兩個方向都差約 15～17 秒，請提供站台、線路、集數（RC3 的特徵）。
 
+## 八、交接給 IOS-POC-25（2026-09-26）
+
+1. **26-2b 改了什麼**
+   - 自 `0.1.23 (24)` 起，App 的 `Libavformat` 是 `ffmpeg-n8.1.2-webhtv.1`（FFmpeg n8.1.2 加 `third_party/mpv-ios/patches/ffmpeg/0001`～`0006`）；其他 FFmpeg 函式庫仍是 MPVKit 1.0.0。
+   - 一開始就有 `EXT-X-ENDLIST`、且有 `EXT-X-DISCONTINUITY` 的播放清單：MPV 的封包時間戳（因此 `time-pos`）對齊播放清單時間軸，也就是前面 EXTINF 的累加（RFC 8216 §6.3.3，與 AVPlayer 相同），seek 也落在同一時間軸。
+   - 沒有標記、或時間戳跨標記仍連續的播放清單，與原版 n8.1.2 逐 byte 相同。直播與 EVENT 與 FongMi 原版相同，只修正超過 `max(2×TARGETDURATION, 1 秒)` 的跳動。
+2. **對 MPV 跳廣告的意義**
+   - IOS-POC-25 以播放清單算出的廣告區間比對 MPV 的 `time-pos`，再以 seek 跳過。0006 之後兩者在同一時間軸，差異的上限見 5.3a。
+   - H1：前一段廣告沒有被跳過（沒有 seek）時，之後的 `time-pos` 會比播放清單時間多 0.044～0.232 秒，觸發點因此提早同樣的量。每次跳廣告本身就是一次 seek，偏差會歸零（依合成素材推論，真機未驗證）。
+3. **解除「MPV 在有 discontinuity 的播放清單上不跳」的條件**
+   1. 使用者在 `0.1.23 (24)` 真機確認 5.5 第 1、2 項：有插播廣告的影片在 MPV 上 seek 落在指定位置，多次操作後仍可播放。
+   2. 同一支影片在 MPV 與原生之間切換，廣告前後的時間一致（5.5 第 3 項）。
+   3. 只對點播（`EXT-X-ENDLIST`）解除；0006 不處理直播與 EVENT。
+   4. 在這之前，IOS-POC-25 維持目前的停用；解除需要 IOS-POC-25 自己的評估與使用者核准。
+4. **仍存在的風險**
+   - master 只有一個 rendition 帶標記時影音不同步（5.3a 第 7 項，與 FongMi 原版相同）。
+   - U1：沒有標記的點播，特定 priming 下 seek 可能晚一個 GOP（5.3a 第 8 項）。這類播放清單 IOS-POC-25 本來就允許 MPV 跳，行為與 `0.1.22 (23)` 相同。
+5. **檔案所有權**：`third_party/mpv-ios/patches/ffmpeg/`、`.github/workflows/ios-ffmpeg-build.yml`、`third_party/mpv-ios-lock.json` 的 `ffmpeg` 區段、`ios/Vendor/MPVKit/Package.swift` 的 `Libavformat` 屬於 IOS-POC-26；IOS-POC-25 不要修改。
+
 ## Recovery anchor
 
 - 目標：MPV／原生切換從當下位置接續；MPV 在有廣告的 HLS 上 seek 正確，且不會卡到要重啟 App。
-- 狀態：26-1 已隨 `0.1.22 (23)` 發布；26-2b 的 FFmpeg patch（0001～0006）已在 Linux 驗證（第六節之五），0006 為第三輪最終版（H1 記錄為已知限制，5.3a）；iOS 建置管線以最終版建置並發布 prerelease（run `36226970983`）；26-2b-2 已讓 App 改用它，待隨 `0.1.23 (24)` 發布。
+- 狀態：26-1 已隨 `0.1.22 (23)` 發布；26-2b 的 FFmpeg patch（0001～0006）已在 Linux 驗證（第六節之五），0006 為第三輪最終版（H1 記錄為已知限制，5.3a）；iOS 建置管線以最終版建置並發布 prerelease（run `36226970983`）；26-2b-2 已讓 App 改用它，已隨 `0.1.23 (24)` 發布（run `36227910147`，IPA 下載回驗含新的 `Libavformat`）；交接給 IOS-POC-25 見第八節。
 - 目前檔案：`PlaybackEngine.swift`（`PlaybackLoadRequest.exactStart`、`PlayerRouter.handOff`／`reload`／`setRate`）、`WebHTVApp.swift`（`loadNative`、`router.onEngineChange`）、`PlaybackEngineTests.swift`。
 - 未解風險：就緒前零容差 seek 在真機上的行為；真實串流的 PTS 配置未量測；H1 與 U1（5.3a）；mpv 的 demuxer cache 與 `ts_resets_possible` 行為未在真機驗證。
-- 下一步（唯一）：bump 到 `0.1.23 (24)`，fetch 並 merge `origin/ios-poc` 後推送，dispatch `ios-sidestore-release.yml` 發布。
+- 下一步（唯一）：等使用者在 `0.1.23 (24)` 回報 5.5 與第七節的真機結果；未回報前不再改動 IOS-POC-26 的程式與二進位。

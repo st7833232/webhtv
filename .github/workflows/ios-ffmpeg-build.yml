@@ -258,15 +258,18 @@ jobs:
             check "Libavformat strings containing $text" "$(strings -a "$ref_lib" | grep -F -- "$text" | sort -u)" \
                                                          "$(strings -a "$new_lib" | grep -F -- "$text" | sort -u)"
           done
-          check "Libavformat archive members added" "hls_timestamp.o" \
-            "$(comm -13 <(ar t "$ref_lib" | grep -v '^__.SYMDEF' | sort) <(ar t "$new_lib" | grep -v '^__.SYMDEF' | sort) | tr '\n' ' ' | sed 's/ $//')"
-          check "Libavformat archive members removed" "none" \
-            "$(comm -23 <(ar t "$ref_lib" | grep -v '^__.SYMDEF' | sort) <(ar t "$new_lib" | grep -v '^__.SYMDEF' | sort) | tr '\n' ' ' | sed 's/ $//' | sed 's/^$/none/')"
+          words() { tr '\n' ' ' | sed 's/ $//'; }
+          members() { ar t "$1" | grep -v '^__.SYMDEF' | sort; }
+          added="$(comm -13 <(members "$ref_lib") <(members "$new_lib") | words)"
+          removed="$(comm -23 <(members "$ref_lib") <(members "$new_lib") | words)"
+          check "Libavformat archive members added" "hls_timestamp.o" "${added:-none}"
+          check "Libavformat archive members removed" "none" "${removed:-none}"
+          added="$(comm -13 <(symbols -gUj "$ref_lib") <(symbols -gUj "$new_lib") | words)"
+          removed="$(comm -23 <(symbols -gUj "$ref_lib") <(symbols -gUj "$new_lib") | words)"
           check "Libavformat defined external symbols added" \
-            "_ff_hls_timestamp_init _ff_hls_timestamp_map _ff_hls_timestamp_reset _ff_hls_timestamp_stream_init" \
-            "$(comm -13 <(symbols -gUj "$ref_lib") <(symbols -gUj "$new_lib") | tr '\n' ' ' | sed 's/ $//')"
-          check "Libavformat defined external symbols removed" "none" \
-            "$(comm -23 <(symbols -gUj "$ref_lib") <(symbols -gUj "$new_lib") | tr '\n' ' ' | sed 's/ $//' | sed 's/^$/none/')"
+            "_ff_hls_timestamp_init _ff_hls_timestamp_map _ff_hls_timestamp_map_segment _ff_hls_timestamp_reached _ff_hls_timestamp_reset _ff_hls_timestamp_stream_init" \
+            "${added:-none}"
+          check "Libavformat defined external symbols removed" "none" "${removed:-none}"
           # Undefined symbols may differ only through hls.o and hls_timestamp.o.
           mkdir -p "$work/ref-members" "$work/new-members"
           (cd "$work/ref-members" && ar -x "$ref_lib" hls.o)

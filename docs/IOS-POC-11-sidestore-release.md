@@ -507,7 +507,7 @@ WebHTV 0.1.20 (21)（未經真機驗收）
 
 ## 第二十二次發布：`0.1.21 (22)`（2026-09-25，**已發布**）
 
-**目前最新版是 `0.1.21 (22)`。** 前面二十一版都已被取代。
+**發布當時最新版是 `0.1.21 (22)`**（已被 `0.1.22 (23)` 取代，見第二十三次發布）。前面二十一版都已被取代。
 
 - 授權：使用者 2026-09-25 在選擇題中選「審查後發布 0.1.21 (22)（建議）」。版號 `0.1.21`，build `22`。
 - 內容：`0.1.20 (21)` 的全部，加上 IOS-POC-24（`f2dc8e65` Libmpv 選項、`45357898` App 改用 `mpvkit-1.0.0-webhtv.2` 並擁有音訊工作階段、`c472798b` 審查修正）。細節見 `docs/IOS-POC-24-audio-session-ownership.md` 第十節。
@@ -536,4 +536,42 @@ WebHTV 0.1.21 (22)（未經真機驗收）
 
 內部
 - MPV 改用 WebHTV 自建的 Libmpv mpvkit-1.0.0-webhtv.2：mpv 不再改動 App 的音訊設定，由 App 統一管理。
+```
+
+## 第二十三次發布：`0.1.22 (23)`（2026-09-26，**已發布**）
+
+**目前最新版是 `0.1.22 (23)`。** 前面二十二版都已被取代。
+
+- 授權：使用者 2026-09-25 要求 IOS-POC-26「開發完成發佈」；2026-09-26 在選擇題中選「現在發，連 IOS-POC-25 一起」。版號 `0.1.22`，build `23`。
+- 內容：`0.1.21 (22)` 的全部，加上：
+  - IOS-POC-26-1（`a6652cc3`）：MPV 與原生互切時，原生接手以零容差 seek 精確落在切換當下的時間。細節見 `docs/IOS-POC-26-engine-switch-position.md` 第四節。
+  - IOS-POC-25（`7530acf9`、`3243e9e0`，另一個 session 開發）：HLS 點播影片中段廣告自動跳過（設定頁「智慧去廣」，預設開啟）。MPV 在有 `EXT-X-DISCONTINUITY` 的播放清單上不跳。細節見 `docs/IOS-POC-25-hls-midstream-ad-skip.md`。
+  - 文件：IOS-POC-12 規劃（`4227fc82`）、IOS-POC-26-2 研究（`08378702`）。
+- 發布序列：
+  1. 版號 commit `450bd061`（Task-Guard `IOS-RELEASE-0.1.22-b23`）。
+  2. push `08378702..450bd061`。
+  3. `workflow_dispatch` run `36205981537`（`version=0.1.22`、`build_number=23`，success，2026-09-26 00:45:03Z 建立，00:47:36Z 發布；以 GitHub MCP 觸發）。
+  4. workflow 建立 tag `ios-v0.1.22-b23`（target `450bd061`），並推回 `source.json`（`b69583b2`，共二十三筆，第一筆 `0.1.22`，size 與 IPA 相同）。
+
+  **沒有手動建 tag。**
+- 產物：`WebHTV-0.1.22-23.ipa` **25,107,276 bytes**，SHA-256
+  `4065b6bdbcfc9f237029d6c9bd4cb6c3190ae41307e6d11a9119a0ac7e87fd3f`（與 GitHub asset digest 相同）。
+  **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`com.webhtv.ios.poc` / `0.1.22` / build `23` / minimum iOS `17.0` / `UIBackgroundModes` `audio`。
+  執行檔含 IOS-POC-26 的 `exact=` log 字串與 IOS-POC-25 的 `[adskip]`，也仍含 `_moltenvk_wait_events` 與 `audiounit-skip-session-management`（WebHTV 的 `Libmpv`）。
+- 發布前驗證：IOS-POC-25 與 IOS-POC-26-1 的 Swift 改動沒有在本機編譯（本環境沒有 Swift 工具鏈），由本次 workflow 的 Release device build 第一次編譯即成功；單元測試未執行（IOS-POC-20 Q6）。**真機尚未驗收。**
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.22 (23)（未經真機驗收）
+
+修正
+- MPV 與原生互切時，換過去的播放器從切換當下的時間接著播：原生接手改為精確落點，不再退回前一個關鍵影格。
+
+新增
+- 智慧去廣（設定頁，預設開啟）：HLS 點播影片中段插播的廣告自動跳過，偵測規則與 Android 相同；手動拖進廣告時落在廣告結束；判斷不確定時一律不跳。
+
+已知限制
+- 含插播廣告的影片（播放清單有 EXT-X-DISCONTINUITY）：MPV 不會自動跳廣告，快轉或倒退可能回到片頭，請先改用原生播放器。修正（自建 FFmpeg 對齊時間軸）開發中。
+- 含插播廣告的影片在兩個播放器之間切換，位置可能差一段廣告長度。
 ```

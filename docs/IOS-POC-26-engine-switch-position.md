@@ -1,6 +1,6 @@
 # IOS-POC-26 — MPV／原生切換與 MPV seek 的位置正確性
 
-- 狀態：**26-1 已實作（未編譯、未執行測試、真機未驗證）；26-2 研究完成，等使用者決定**（2026-09-25）。
+- 狀態：**26-1 已隨 `0.1.22 (23)` 發布（Release build 編譯通過、單元測試未執行、真機未驗證）；26-2 研究完成，使用者 2026-09-26 核准 26-2b（自建 iOS FFmpeg），進行中**。
 - Lane：`standard`。Ponytail：unavailable / skipped。
 - 編號說明：原本預定用 IOS-POC-25，因使用者另開 session 把 IOS-POC-25 給「HLS 串流中段跳廣告」，本任務改為 IOS-POC-26。
 - 並行開發：另一個 session 同時在 `ios-poc` 開發 IOS-POC-25。本任務只做一般 push，push 前先 pull 並 merge，不 force push（使用者 2026-09-25 規定）。
@@ -68,7 +68,7 @@ MPV 一側在沒有 discontinuity 時是精確的：mpv v0.41.0 `loadfile.c:1908
 | 檢查 | 結果 |
 |---|---|
 | 本機 `swift test` | **未執行**：本環境沒有 Swift 工具鏈；且使用者 2026-09-25 決定不跑單元測試、不新增 push 觸發的 CI（IOS-POC-20 Q6）。測試已寫入 repo |
-| 編譯 | **未編譯**。唯一的編譯關卡是發版 workflow 的 Release device build |
+| 編譯 | 發版 workflow run `36205981537` 的 Release device build 第一次編譯即成功（`0.1.22 (23)`，2026-09-26） |
 | 靜態複查 | 已逐一核對 `resumed` 的三個呼叫端、`PlaybackLoadRequest` 的唯一 App 建構點（`PlaybackSession.load`，使用預設值）、測試 harness 的假引擎語意 |
 | 真機 | 未驗證（見第七節） |
 
@@ -121,7 +121,13 @@ MPV 一側在沒有 discontinuity 時是精確的：mpv v0.41.0 `loadfile.c:1908
 | 有廣告的串流交給原生 | 偵測到 discontinuity 或時間戳重設就換原生 | 這些影片的 seek 立即正確 | 違反使用者選的核心；部分站台幾乎每集都有 discontinuity | 否 |
 | Swift 保護層（26-2a） | seek 監看、假 EOF 保護、壞核心不重用、位置不採用廣告時間 | MPV 卡住後可以恢復，不用重啟 App | **不能修「影片重頭」本身**；審查找出 12 個具體問題（慢網路誤判、PiP 被拆、位置可能超前觀眾等），照原設計不能出貨 | 否 |
 
-### 4. 決定（待使用者回覆）
+### 4. 決定（使用者 2026-09-26 回覆）
+
+- 26-2b：**核准**。
+- `0.1.22 (23)`：**現在發布，連 IOS-POC-25 一起**（已發布，見 `docs/IOS-POC-11-sidestore-release.md` 第二十三次發布）。
+- 重現情況：**同一集從頭播**（不是跳到下一集），符合第二節的主要機制。
+
+原本列出的待決事項：
 
 1. 26-2b（FFmpeg 對齊）要不要做。
 2. `0.1.22 (23)` 是只帶 26-1 先發，還是等 26-2b。
@@ -141,7 +147,7 @@ MPV 一側在沒有 discontinuity 時是精確的：mpv v0.41.0 `loadfile.c:1908
 ## Recovery anchor
 
 - 目標：MPV／原生切換從當下位置接續；MPV 在有廣告的 HLS 上 seek 正確，且不會卡到要重啟 App。
-- 狀態：26-1 已 commit（`a6652cc3`，未編譯、未執行測試）；26-2 研究完成（第六節），等使用者決定 26-2b 與發布範圍。
+- 狀態：26-1 已隨 `0.1.22 (23)` 發布；26-2b（自建 iOS FFmpeg，移植 FongMi `5805f936`）已核准，Linux 上的移植與驗證 workflow 執行中。
 - 目前檔案：`PlaybackEngine.swift`（`PlaybackLoadRequest.exactStart`、`PlayerRouter.handOff`／`reload`／`setRate`）、`WebHTVApp.swift`（`loadNative`、`router.onEngineChange`）、`PlaybackEngineTests.swift`。
 - 未解風險：iOS FFmpeg 不對齊 discontinuity（26-2b 待核准）；就緒前零容差 seek 在真機上的行為；真實串流的 PTS 配置未量測。
-- 下一步（唯一）：依使用者對第六節之四的回覆執行（26-2b 與 `0.1.22 (23)` 的發布範圍）。
+- 下一步（唯一）：讀取 FFmpeg n8.1.2 移植 workflow 的結果（`scratchpad/ff/REPORT.md`、`REVIEW.md`），把 26-2b 的實作設計與驗收寫進第六節，再做 iOS 建置管線。

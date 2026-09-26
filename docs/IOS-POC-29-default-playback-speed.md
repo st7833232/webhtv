@@ -1,6 +1,6 @@
 # IOS-POC-29 — 設定頁的預設播放速度
 
-- 狀態：**研究與規劃完成（2026-09-26），等待使用者核准；核准前不實作。**
+- 狀態：**已實作（第九節）；使用者 2026-09-26 核准 O1 與發布 `0.1.26 (27)`。未編譯（本環境沒有 Swift 工具鏈）、單元測試未執行、真機未驗證。**
 - 使用者原始要求（2026-09-26，`0.1.25 (26)` 發布後）：「幫我在設定頁多一個預設速度的設定」。背景：使用者一律用 2 倍速觀看（IOS-POC-27）。
 - 本文件依 AGENTS.md §7 記錄研究、現況審查、方案比較、建議、驗收標準與回滾。
 
@@ -72,9 +72,17 @@
 
 1. 直播或長度未知的影片也會以預設速度開始（O3 未採用）。本 App 目前沒有直播專區；若之後出現，再評估 O3。
 
+## 九、實作紀錄（2026-09-26）
+
+1. `ios/Sources/WebHTVCore/PlaybackSpeedPreference.swift`：`PlaybackSpeedPreference`（鍵 `webhtv.playback.defaultSpeed`，以 `Double` 儲存；選項 `choices` 與播放器選單相同；不在選項內的值讀成 1、寫入時忽略）。
+2. `ios/WebHTVApp/Sources/WebHTVApp.swift`：`PlaybackSession.open(url:…)` 與 `open(_ vod: InlineVod)` 的 `chosenRate = 1` 改為 `PlaybackSpeedPreference().defaultSpeed`；`SettingsView` 在「預設播放器」下方新增「預設播放速度」區（勾選目前值、VoiceOver 讀「2 倍」並標示已選取）。
+3. `ios/Tests/WebHTVCoreTests/PlaybackSpeedPreferenceTests.swift`：4 個測試（未設定為 1、每個選項可存可讀、不在選項內的值不寫入、儲存了不合法的值讀成 1）。
+4. 文件：IOS-POC-14 的 14B 表格註明改為預設播放速度。
+5. 驗證：本環境沒有 Swift，未編譯、單元測試未執行；commit 前經對抗式查核（結果記在本節之後）。
+
 ## Recovery anchor
 
 - 目標：設定頁新增「預設播放速度」，新片以此速度開始。
-- 狀態（2026-09-26）：研究與規劃完成，未實作；使用者尚未核准。
-- 相關檔案：`ios/Sources/WebHTVCore/HLSAdSkip.swift`（寫法參考）、`ios/WebHTVApp/Sources/WebHTVApp.swift`（`PlaybackSession.open`、`SettingsView`）。
-- 下一步（唯一）：等使用者核准 O1（或選 O2、O3）。
+- 狀態（2026-09-26）：已實作，未編譯、單元測試未執行、真機未驗證；使用者已核准 O1 與發布。
+- 相關檔案：`ios/Sources/WebHTVCore/PlaybackSpeedPreference.swift`、`ios/Tests/WebHTVCoreTests/PlaybackSpeedPreferenceTests.swift`、`ios/WebHTVApp/Sources/WebHTVApp.swift`（`PlaybackSession.open`、`SettingsView`）。
+- 下一步（唯一）：查核後發布 `0.1.26 (27)`，再請使用者做第六節 T1～T6。

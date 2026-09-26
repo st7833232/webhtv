@@ -1234,6 +1234,8 @@ private struct SettingsView: View {
     @State private var defaultEngine = PlaybackSession.shared.globalDefaultEngine
     /// IOS-POC-25: Android's 智慧去廣. Mirrored here only so the switch redraws.
     @State private var adSkip = PlaybackSession.shared.adSkipEnabled
+    /// IOS-POC-29: the speed a new title starts at. Mirrored here only so the checkmark redraws.
+    @State private var defaultSpeed = PlaybackSpeedPreference().defaultSpeed
 
     var body: some View {
         List {
@@ -1260,6 +1262,32 @@ private struct SettingsView: View {
                 }
             } header: {
                 Text("預設播放器")
+            }
+
+            // IOS-POC-29. Read by the next title opened; a playing one keeps its speed.
+            Section {
+                ForEach(PlaybackSpeedPreference.choices, id: \.self) { speed in
+                    Button {
+                        PlaybackSpeedPreference().setDefaultSpeed(speed)
+                        defaultSpeed = speed
+                    } label: {
+                        HStack {
+                            Text(speed.formatted(.number.precision(.fractionLength(0...2))) + "×")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if speed == defaultSpeed {
+                                Image(systemName: "checkmark").foregroundStyle(appAccent)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel(speed.formatted(.number.precision(.fractionLength(0...2))) + " 倍")
+                    .accessibilityAddTraits(speed == defaultSpeed ? .isSelected : [])
+                }
+            } header: {
+                Text("預設播放速度")
+            } footer: {
+                Text("開新的影片時使用。同一部片換集沿用播放中調整的速度；播放中調整不會改變這裡的設定。2.5×、3× 在原生播放器不支援的影片上會改用 MPV。")
             }
 
             // IOS-POC-25: Android's 智慧去廣 (`Setting.isAdblock()`), on by default.
@@ -2266,9 +2294,12 @@ extension Playback {
         // The chosen speed belongs to the **title**, not to the app session (IOS-POC-14B). The
         // history key is site plus vod, so it is exactly the identity "the same film or series" —
         // which means a hand-picked episode carries the speed the same way an auto-advance does,
-        // while opening something else starts at 1× the way it always did. No key at all (a bare
-        // URL from the bridge) carries nothing, because there is no title to carry it within.
-        if history?.key == nil || history?.key != record?.key { chosenRate = 1 }
+        // while opening something else starts over. No key at all (a bare URL from the bridge)
+        // carries nothing, because there is no title to carry it within. Starting over used to mean
+        // 1×; since IOS-POC-29 it is the settings page's default speed, which is 1× until changed.
+        if history?.key == nil || history?.key != record?.key {
+            chosenRate = PlaybackSpeedPreference().defaultSpeed
+        }
         items = [.init(name: "", url: url)]
         self.headers = headers
         self.title = title
@@ -2434,8 +2465,9 @@ extension Playback {
     /// Not recorded: an inline vod is a page's own playlist addressed under the pseudo-site
     /// `webhome_inline`, so it has no site or vod identity the history could be keyed on.
     func open(_ vod: WebHomeBridge.InlineVod) {
-        // A page's own playlist has no title identity the speed could belong to (IOS-POC-14B).
-        chosenRate = 1
+        // A page's own playlist has no title identity the speed could belong to (IOS-POC-14B), so it
+        // starts at the settings page's default (IOS-POC-29).
+        chosenRate = PlaybackSpeedPreference().defaultSpeed
         quality = nil
         retryWithoutPrefetch = nil
         items = vod.items

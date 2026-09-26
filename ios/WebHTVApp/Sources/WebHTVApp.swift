@@ -1831,7 +1831,13 @@ private struct HistoryView: View {
                     .onDelete { offsets in
                         let removing = offsets.map { records[$0] }
                         records.remove(atOffsets: offsets)
-                        Task { for record in removing { await WatchHistoryStore.shared.remove(key: record.key) } }
+                        // IOS-POC-30: off this source's list only, like 清除.
+                        let sourceID = source.identity
+                        Task {
+                            for record in removing {
+                                await WatchHistoryStore.shared.remove(key: record.key, for: sourceID)
+                            }
+                        }
                     }
                     .listRowBackground(appSurface)
                 }

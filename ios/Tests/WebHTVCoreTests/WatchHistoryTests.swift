@@ -134,10 +134,6 @@ private func record(_ vodId: String, siteKey: String = "s", siteID: String = "s\
 @Test func clearingOneSourcesListLeavesEveryOtherSourcesHistory() async throws {
     // IOS-POC-30, the viewer's report: 清除 on one source's history list wiped every source's.
     let (store, directory) = try scratchStore("clear-per-source")
-    func watched(_ vodId: String, on sourceID: String?) -> WatchHistory {
-        WatchHistory(key: WatchHistory.key(siteID: "site", vodId: vodId), siteKey: "s",
-                     sourceID: sourceID, vodId: vodId, position: 60_000, duration: 2_400_000)
-    }
     await store.save(watched("a1", on: "configA"))
     await store.save(watched("a2", on: "configA"))
     await store.save(watched("b1", on: "configB"))
@@ -148,8 +144,41 @@ private func record(_ vodId: String, siteKey: String = "s", siteID: String = "s\
 
     let reread = WatchHistoryStore(directory: directory)
     #expect(await reread.records(for: "configA").isEmpty, "the list the viewer cleared stays empty")
-    #expect(await reread.records(for: "configB").map(\.vodId) == ["b1"], "another source keeps its history")
-    #expect(await reread.records().map(\.vodId) == ["b1"])
+    // Another source keeps all of its list — including the record every list shows.
+    #expect(await reread.records(for: "configB").map(\.vodId).sorted() == ["b1", "old"])
+    #expect(await reread.records(for: "configC").map(\.vodId) == ["old"])
+}
+
+@Test func swipingARowAwayTakesItOffThisSourcesListOnly() async throws {
+    let (store, directory) = try scratchStore("remove-per-source")
+    await store.save(watched("a1", on: "configA"))
+    await store.save(watched("old", on: nil))
+
+    await store.remove(key: WatchHistory.key(siteID: "site", vodId: "a1"), for: "configA")
+    await store.remove(key: WatchHistory.key(siteID: "site", vodId: "old"), for: "configA")
+
+    let reread = WatchHistoryStore(directory: directory)
+    #expect(await reread.records(for: "configA").isEmpty)
+    #expect(await reread.records(for: "configB").map(\.vodId) == ["old"], "a shared row stays on other lists")
+    // A record the source owned is gone for good, not merely hidden.
+    #expect(await reread.records().map(\.vodId) == ["old"])
+}
+
+@Test func watchingAHiddenRecordAgainListsItUnderThatSource() async throws {
+    let (store, _) = try scratchStore("hidden-rewatched")
+    await store.save(watched("old", on: nil))
+    await store.clear(for: "configA")
+
+    // The app saves the record it builds for the current source, which replaces the stored one.
+    await store.save(watched("old", on: "configA"))
+
+    #expect(await store.records(for: "configA").map(\.vodId) == ["old"])
+    #expect(await store.records(for: "configB").isEmpty, "it now belongs to the source it was watched on")
+}
+
+private func watched(_ vodId: String, on sourceID: String?) -> WatchHistory {
+    WatchHistory(key: WatchHistory.key(siteID: "site", vodId: vodId), siteKey: "s",
+                 sourceID: sourceID, vodId: vodId, position: 60_000, duration: 2_400_000)
 }
 
 @Test func concurrentSavesAllLand() async throws {

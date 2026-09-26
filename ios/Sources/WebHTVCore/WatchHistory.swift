@@ -33,6 +33,13 @@ public struct WatchHistory: Codable, Sendable, Equatable, Identifiable {
     /// folding the configuration into the key would split one title's progress in two if the same
     /// source were reached through two configurations.
     public var sourceID: String?
+    /// IOS-POC-30: the configurations whose history list has let this record go.
+    ///
+    /// Only a record with no `sourceID` is listed under more than one configuration, so only such a
+    /// record is ever hidden rather than deleted: clearing or swiping it away on one source's list
+    /// must not take it off another's. Optional for the reason `sourceID` is. A save replaces the
+    /// whole record, so watching the title again drops this along with giving it an owner.
+    public var hiddenFrom: [String]?
     public let siteKey: String
     /// Shown in the history list; `History.getSiteName()` looks it up from the config instead.
     public var siteName: String
@@ -88,7 +95,7 @@ public struct WatchHistory: Codable, Sendable, Equatable, Identifiable {
             siteKey: siteKey, siteName: siteName, sourceID: sourceID, vodId: vodId,
             vodName: vodName, vodPic: vodPic, vodFlag: vodFlag, vodRemarks: vodRemarks,
             episodeUrl: episodeUrl, quality: quality, position: position, duration: duration,
-            createTime: createTime, opening: opening, ending: ending
+            createTime: createTime, opening: opening, ending: ending, hiddenFrom: hiddenFrom
         )
     }
 
@@ -96,9 +103,10 @@ public struct WatchHistory: Codable, Sendable, Equatable, Identifiable {
                 vodName: String = "", vodPic: String = "", vodFlag: String = "",
                 vodRemarks: String = "", episodeUrl: String = "", quality: String = "",
                 position: Double = 0, duration: Double = 0, createTime: Double = 0,
-                opening: Double? = nil, ending: Double? = nil) {
+                opening: Double? = nil, ending: Double? = nil, hiddenFrom: [String]? = nil) {
         self.key = key
         self.sourceID = sourceID
+        self.hiddenFrom = hiddenFrom
         self.siteKey = siteKey
         self.siteName = siteName
         self.vodId = vodId
@@ -291,9 +299,24 @@ public actor WatchHistoryStore {
     /// The records belonging to one configuration, newest first.
     ///
     /// A record with no `sourceID` predates IOS-POC-10E and is included everywhere, which is the
-    /// only behaviour that does not look like lost history to someone upgrading.
+    /// only behaviour that does not look like lost history to someone upgrading — except on a list
+    /// that has already cleared or swiped it away (IOS-POC-30, `hiddenFrom`).
     public func records(for sourceID: String, now: Date = .now) -> [WatchHistory] {
-        records(now: now).filter { $0.sourceID == nil || $0.sourceID == sourceID }
+        records(now: now).filter { Self.isListed($0, under: sourceID) }
+    }
+
+    private static func isListed(_ record: WatchHistory, under sourceID: String) -> Bool {
+        if let owner = record.sourceID { return owner == sourceID }
+        return !(record.hiddenFrom ?? []).contains(sourceID)
+    }
+
+    /// The same record, no longer listed under `sourceID`.
+    private static func hiding(_ record: WatchHistory, from sourceID: String) -> WatchHistory {
+        var hidden = record
+        var sources = record.hiddenFrom ?? []
+        if !sources.contains(sourceID) { sources.append(sourceID) }
+        hidden.hiddenFrom = sources
+        return hidden
     }
 
     public func records(now: Date = .now) -> [WatchHistory] {
@@ -341,21 +364,34 @@ public actor WatchHistoryStore {
         store(loaded().filter { $0.key != key })
     }
 
+    /// One row swiped away on one configuration's list (IOS-POC-30): a record that configuration
+    /// owns is deleted; one from before sources were separable, which every list shows, is only
+    /// hidden from this one.
+    public func remove(key: String, for sourceID: String) {
+        store(loaded().compactMap { (record: WatchHistory) -> WatchHistory? in
+            guard record.key == key else { return record }
+            return record.sourceID == nil ? Self.hiding(record, from: sourceID) : nil
+        })
+    }
+
     /// Every configuration's records. **Not what the history list's 清除 does** (IOS-POC-30): that
     /// is `clear(for:)`.
     public func clear() {
         store([])
     }
 
-    /// Clears what one configuration's history list shows, and nothing else (IOS-POC-30) — exactly
-    /// the records `records(for:)` answers, so 清除 empties the list on screen without touching the
-    /// history of any other source. Android's 清除 is the same: `History.deleteAndSync(cid)` for the
-    /// current configuration only.
+    /// Clears what one configuration's history list shows, and nothing else (IOS-POC-30), so 清除
+    /// empties the list on screen without touching the history of any other source. Android's 清除
+    /// is the same: `History.deleteAndSync(cid)` for the current configuration only.
     ///
-    /// A record with no `sourceID` predates IOS-POC-10E and is listed under every configuration, so
-    /// it goes too: keeping it would leave a row on the list the viewer has just cleared.
+    /// The records this configuration owns are deleted. A record with no `sourceID` predates
+    /// IOS-POC-10E and is listed under every configuration, so deleting it would take it off every
+    /// other list too; it is hidden from this one instead.
     public func clear(for sourceID: String) {
-        store(loaded().filter { $0.sourceID != nil && $0.sourceID != sourceID })
+        store(loaded().compactMap { (record: WatchHistory) -> WatchHistory? in
+            if record.sourceID == sourceID { return nil }
+            return record.sourceID == nil ? Self.hiding(record, from: sourceID) : record
+        })
     }
 
     private func prune(_ records: [WatchHistory], now: Date) -> [WatchHistory] {

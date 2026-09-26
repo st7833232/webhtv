@@ -51,7 +51,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **任務狀態**
 
-- IOS-POC-30「觀看記錄的清除會刪到其他來源的記錄」（2026-09-26 使用者回報）：列表只顯示目前來源（`records(for:)`），「清除」卻呼叫 `WatchHistoryStore.clear()` 刪光所有來源。修正：新增 `clear(for:)`，只刪目前來源列表上顯示的記錄（含 IOS-POC-10E 以前沒有來源的舊記錄，它們在每個來源都會顯示），與 Android `History.deleteAndSync(cid)` 一致。未編譯，真機未驗證。
+- IOS-POC-30「觀看記錄的清除會刪到其他來源的記錄」（2026-09-26 使用者回報）：列表只顯示目前來源（`records(for:)`），「清除」卻呼叫 `WatchHistoryStore.clear()` 刪光所有來源。修正：新增 `clear(for:)`，只刪目前來源擁有的記錄，與 Android `History.deleteAndSync(cid)` 一致；IOS-POC-10E 以前沒有來源的舊記錄在每個來源都會顯示，查核後改為只對目前來源隱藏（新欄位 `hiddenFrom`），不再刪掉而影響其他來源；單筆滑動刪除同樣處理（`remove(key:for:)`）。未編譯，真機未驗證。
 - IOS-POC-29「設定頁的預設播放速度」（2026-09-26 使用者要求）：使用者核准 O1 與發布 `0.1.26 (27)`；已實作，未編譯、單元測試未執行、真機未驗證。O1：新片以設定頁的速度開始，同一部片內沿用播放中調整的速度（IOS-POC-14B 不變），播放中調整不改設定。見 `docs/IOS-POC-29-default-playback-speed.md`。
 - IOS-POC-28「點左邊影片卡的右半部，會開到右邊的影片」（2026-09-26 真機回報，附截圖）：`VodCard` 的海報以 `scaledToFill` 填滿，寬圖超出卡片；`.clipped()` 只裁掉繪製、不裁觸控範圍，所以右邊卡片的圖蓋住左邊卡片的右半部並接走點擊。修正：卡片加 `.contentShape(.rect(cornerRadius: 10))`，首頁格狀與搜尋結果共用。未編譯（無 Swift 工具鏈），真機未驗證。
 - IOS-POC-27「原生播放器：部分線路黑畫面、2 倍速容易中斷、卡住時按鍵沒反應」（2026-09-26，`0.1.24 (25)` 真機回報）：使用者核准 27A、27B（上限 120 秒）與發布 `0.1.25 (26)`。27A（`96b714df`）：載入轉圈、按鍵依意圖、開播檢查只算想播的時間、原生開播逾時 5 秒（使用者指定；AirPlay／子母畫面時 20 秒；MPV 維持 20 秒）、原生開不了時顯示原因。27B（`80f949ff`）：預讀依倍速放大，上限 120 秒。兩輪對抗式查核修正已提交（`25b91739`、`a21bad25`）。已隨 `0.1.25 (26)` 發布（Release build 第一次即編譯成功），**單元測試未執行、真機未驗證**。 黑畫面不是 0.1.24 的回歸。原生切到 MPV 會黑一陣子（使用者追加回報）列為後續研究。見 `docs/IOS-POC-27-avplayer-2x-buffer-stall-controls.md`。

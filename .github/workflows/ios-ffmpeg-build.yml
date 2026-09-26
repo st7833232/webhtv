@@ -216,8 +216,8 @@ jobs:
               fail=1
             fi
           }
-          symbols() { # flags, archive
-            nm "$1" "$2" 2>/dev/null | grep -v -e '^$' -e ':$' | sort -u
+          symbols() { # flags, archive or object; an empty list is not an error
+            nm "$1" "$2" 2>/dev/null | { grep -v -e '^$' -e ':$' || true; } | sort -u
           }
           thin() { # universal or thin archive, output
             if lipo -info "$1" | grep -q '^Non-fat'; then cp "$1" "$2"; else lipo -thin arm64 "$1" -output "$2"; fi
@@ -259,7 +259,7 @@ jobs:
                                                          "$(strings -a "$new_lib" | grep -F -- "$text" | sort -u)"
           done
           words() { tr '\n' ' ' | sed 's/ $//'; }
-          members() { ar t "$1" | grep -v '^__.SYMDEF' | sort; }
+          members() { ar t "$1" | { grep -v '^__.SYMDEF' || true; } | sort; }
           added="$(comm -13 <(members "$ref_lib") <(members "$new_lib") | words)"
           removed="$(comm -23 <(members "$ref_lib") <(members "$new_lib") | words)"
           check "Libavformat archive members added" "hls_timestamp.o" "${added:-none}"

@@ -124,6 +124,17 @@ Before publishing `Libavformat.xcframework.zip` as a prerelease under
   (`ff_hls_timestamp_*`), nothing removed, and undefined symbols changed only
   through `hls.o` and `hls_timestamp.o`.
 
+Two toolchain differences are allowed by name, accepted by the user on
+2026-09-26 after run `36215262840` (this lane uses Xcode 26.6; the upstream
+build used Xcode 15.4). `dashdec.o` may call `free`/`realloc` where upstream
+calls libxml2's `xmlFree`/`xmlRealloc`, because the Xcode 26.6 SDK's libxml2
+headers map them so; it must be the only user of those four symbols on each
+side. `Headers/config.h` may differ only in `CC_IDENT` and three probes
+(`HAVE_AS_ARCHEXT_DOTPROD_DIRECTIVE`, `HAVE_AS_ARCHEXT_I8MM_DIRECTIVE`,
+`HAVE_KVTQPMODULATIONLEVEL_DEFAULT`), with Xcode 26.6's values; the probes only
+reach libavcodec's assembly and the VideoToolbox encoder. `Libavutil`, compared
+in full, showed no difference at all.
+
 Until the app's `Libavformat` target points at that artifact, the app still
 links the upstream 1.0.0 `Libavformat`.
 

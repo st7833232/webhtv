@@ -186,6 +186,9 @@ FongMi 的 FFmpeg 是 8.2 開發版（`177f090e0503b7e013922ca903bde14b1c375f18`
 - 發布前的比對：
   - 沒有任何 patch 碰到的 `Libavutil` 必須與上游 1.0.0 相同（configure 字串、成員、已定義與未定義的外部符號），證明這條管線重現了 recipe 的建置。
   - `Libavformat` 必須與上游相同，只多 `hls_timestamp.o` 一個成員與 6 個 `ff_hls_timestamp_*` 符號（5805f936 的 4 個與 0006 的 `map_segment`、`reached`）；未定義符號的差異只能來自 `hls.o`、`hls_timestamp.o`。
+- 第一次建置（run `36213278635`、`36215262840`，2026-09-26）：`Libavutil` 與上游逐項相同；`Libavformat` 的 configure 與版本字串、新增成員（只有 `hls_timestamp.o`）、新增符號（6 個 `ff_hls_timestamp_*`）都符合。只剩兩項工具鏈差異（本 lane 用 Xcode 26.6，上游用 15.4），使用者 2026-09-26 認可寫成具名例外：
+  1. `dashdec.o` 呼叫 `free`／`realloc`，上游呼叫 libxml2 的 `xmlFree`／`xmlRealloc`。Xcode 26.6 SDK 的 libxml2 標頭這樣對應；App 沒有替 libxml2 設定自訂配置器，是同一套配置。條件是兩邊都只有 `dashdec.o` 使用這 4 個符號。
+  2. `Headers/config.h` 只容許 `CC_IDENT`、`HAVE_AS_ARCHEXT_DOTPROD_DIRECTIVE`、`HAVE_AS_ARCHEXT_I8MM_DIRECTIVE`、`HAVE_KVTQPMODULATIONLEVEL_DEFAULT` 4 行不同，而且必須是 Xcode 26.6 的值。後三項只影響 libavcodec 的組語與 VideoToolbox 編碼器，App 使用的 libavcodec 仍是上游的。
 - 發布：只有在 `ios-poc` 上才發布 prerelease `ffmpeg-n8.1.2-webhtv.1`。App 在 26-2b-2 才改用它，在那之前仍連結上游的 `Libavformat`。
 - 鎖定：`third_party/mpv-ios-lock.json` 的 `ffmpeg` 區段記錄來源、每個 patch 的 SHA-256、比對基準與 artifact。
 

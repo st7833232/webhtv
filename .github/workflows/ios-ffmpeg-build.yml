@@ -270,17 +270,51 @@ jobs:
             "_ff_hls_timestamp_init _ff_hls_timestamp_map _ff_hls_timestamp_map_segment _ff_hls_timestamp_reached _ff_hls_timestamp_reset _ff_hls_timestamp_stream_init" \
             "${added:-none}"
           check "Libavformat defined external symbols removed" "none" "${removed:-none}"
-          # Undefined symbols may differ only through hls.o and hls_timestamp.o.
-          mkdir -p "$work/ref-members" "$work/new-members"
+          # Undefined symbols may differ only through hls.o and hls_timestamp.o,
+          # plus one named SDK exception accepted by the user on 2026-09-26 after
+          # run 36215262840: the Xcode 26.6 SDK's libxml2 headers turn dashdec.c's
+          # xmlFree/xmlRealloc into the system free/realloc (the upstream build,
+          # made with Xcode 15.4, calls libxml2's). Allowed only while dashdec.o
+          # is the one user on each side and nothing else uses the four symbols.
+          mkdir -p "$work/ref-members" "$work/new-members" "$work/ref-all" "$work/new-all"
           (cd "$work/ref-members" && ar -x "$ref_lib" hls.o)
           (cd "$work/new-members" && ar -x "$new_lib" hls.o hls_timestamp.o)
+          (cd "$work/ref-all" && ar -x "$ref_lib")
+          (cd "$work/new-all" && ar -x "$new_lib")
+          users() { # side, symbol: the members referencing it, space-separated
+            (cd "$work/$1-all" && for o in *.o; do if symbols -uj "$o" | grep -qx "$2"; then echo "$o"; fi; done) | tr '\n' ' ' | sed 's/ $//'
+          }
           allowed="$( (symbols -uj "$work/ref-members/hls.o"; symbols -uj "$work/new-members/hls.o"; symbols -uj "$work/new-members/hls_timestamp.o") | sort -u)"
+          sdk_allowed=""
+          for pair in xmlFree:free xmlRealloc:realloc; do
+            old="_${pair%%:*}"; new="_${pair##*:}"
+            if [[ "$(users ref "$old")" == dashdec.o && -z "$(users new "$old")" \
+                  && -z "$(users ref "$new")" && "$(users new "$new")" == dashdec.o ]]; then
+              sdk_allowed="$sdk_allowed $old $new"
+            fi
+          done
+          echo "SDK exception applied to: ${sdk_allowed:- none}" >> "$report"
           changed="$(comm -3 <(symbols -guj "$ref_lib") <(symbols -guj "$new_lib") | tr -d '\t' | sed '/^$/d' | sort -u)"
-          outside="$(comm -23 <(printf '%s\n' "$changed" | sed '/^$/d') <(printf '%s\n' "$allowed" | sed '/^$/d'))"
+          outside="$(comm -23 <(printf '%s\n' "$changed" | sed '/^$/d') \
+                              <(printf '%s\n' "$allowed" $sdk_allowed | sed '/^$/d' | sort -u))"
           check "Libavformat undefined symbols outside hls.o and hls_timestamp.o" "none" "${outside:-none}"
-          check "Libavformat framework files other than the binary" \
-            "$(cd "$ref_fw" && find . -type f ! -name Libavformat -exec shasum -a 256 {} + | sort -k 2)" \
-            "$(cd "$new_fw" && find . -type f ! -name Libavformat -exec shasum -a 256 {} + | sort -k 2)"
+          check "Libavformat framework files other than the binary and config.h" \
+            "$(cd "$ref_fw" && find . -type f ! -name Libavformat ! -name config.h -exec shasum -a 256 {} + | sort -k 2)" \
+            "$(cd "$new_fw" && find . -type f ! -name Libavformat ! -name config.h -exec shasum -a 256 {} + | sort -k 2)"
+          # config.h records the build machine. Named toolchain exception accepted
+          # by the user on 2026-09-26 (run 36215262840): only the compiler
+          # identifier and three assembler/SDK probes may differ, and only to the
+          # values Xcode 26.6 gives. None of the three probes reaches libavformat.
+          toolchain_lines='^#define (CC_IDENT|HAVE_AS_ARCHEXT_DOTPROD_DIRECTIVE|HAVE_AS_ARCHEXT_I8MM_DIRECTIVE|HAVE_KVTQPMODULATIONLEVEL_DEFAULT) '
+          check "Libavformat config.h outside the toolchain lines" \
+            "$(grep -Ev "$toolchain_lines" "$ref_fw/Headers/config.h" | shasum -a 256)" \
+            "$(grep -Ev "$toolchain_lines" "$new_fw/Headers/config.h" | shasum -a 256)"
+          check "Libavformat config.h toolchain lines" \
+            "$(printf '%s\n' '#define CC_IDENT "Apple clang version 21.0.0 (clang-2100.1.1.101)"' \
+                              '#define HAVE_AS_ARCHEXT_DOTPROD_DIRECTIVE 1' \
+                              '#define HAVE_AS_ARCHEXT_I8MM_DIRECTIVE 1' \
+                              '#define HAVE_KVTQPMODULATIONLEVEL_DEFAULT 1')" \
+            "$(grep -E "$toolchain_lines" "$new_fw/Headers/config.h")"
           check "Libavformat simulator architectures" \
             "$(lipo -archs "$work/ref/Libavformat.xcframework/ios-arm64_x86_64-simulator/Libavformat.framework/Libavformat")" \
             "$(lipo -archs "$work/new/Libavformat.xcframework/ios-arm64_x86_64-simulator/Libavformat.framework/Libavformat")"
@@ -289,13 +323,10 @@ jobs:
             echo "Libavformat members, upstream: $(ar t "$ref_lib" | grep -vc '^__.SYMDEF'); new: $(ar t "$new_lib" | grep -vc '^__.SYMDEF')"
           } >> "$report"
           # Name the members behind every undefined symbol that differs, on both sides.
-          mkdir -p "$work/ref-all" "$work/new-all"
-          (cd "$work/ref-all" && ar -x "$ref_lib")
-          (cd "$work/new-all" && ar -x "$new_lib")
           for sym in $changed; do
             for side in ref new; do
-              users="$(cd "$work/$side-all" && for o in *.o; do if symbols -uj "$o" | grep -qx "$sym"; then echo "$o"; fi; done | tr '\n' ' ')"
-              echo "$sym, $side users: ${users:-none}" >> "$report"
+              who="$(users "$side" "$sym")"
+              echo "$sym, $side users: ${who:-none}" >> "$report"
             done
           done
           echo "config.h, upstream against new:" >> "$report"

@@ -263,7 +263,7 @@
       "url": "https://github.com/mpvkit/MPVKit/releases/download/1.0.0/Libavformat.xcframework.zip",
       "bytes": 13695240,
       "sha256": "2afb601375929640e743e7bdaa6c4a88e2b582a07e1c5f2dc95cc7f5b26a0810",
-      "note": "The upstream Libavformat the app links until this lane's artifact replaces it. The ios-arm64 slice of the new build must match it in the configuration and version strings and in every framework file but the binary; archive members may differ only by the added hls_timestamp.o, defined external symbols only by the six ff_hls_timestamp_* functions (four from 5805f936, map_segment and reached from 0006), undefined symbols only through hls.o and hls_timestamp.o. Two named toolchain exceptions, accepted by the user on 2026-09-26 after run 36215262840 (this lane uses Xcode 26.6, the upstream build Xcode 15.4): dashdec.o may call free/realloc where upstream calls libxml2's xmlFree/xmlRealloc, as the Xcode 26.6 SDK's libxml2 headers make it, provided dashdec.o is the only user of those four symbols on each side; and Headers/config.h may differ only in CC_IDENT, HAVE_AS_ARCHEXT_DOTPROD_DIRECTIVE, HAVE_AS_ARCHEXT_I8MM_DIRECTIVE and HAVE_KVTQPMODULATIONLEVEL_DEFAULT, with the values Xcode 26.6 gives (the three probes only reach libavcodec's assembly and VideoToolbox encoder, not libavformat)."
+      "note": "The upstream Libavformat the app linked before IOS-POC-26-2b-2, and the rollback target. The ios-arm64 slice of the new build must match it in the configuration and version strings and in every framework file but the binary; archive members may differ only by the added hls_timestamp.o, defined external symbols only by the six ff_hls_timestamp_* functions (four from 5805f936, map_segment and reached from 0006), undefined symbols only through hls.o and hls_timestamp.o. Two named toolchain exceptions, accepted by the user on 2026-09-26 after run 36215262840 (this lane uses Xcode 26.6, the upstream build Xcode 15.4): dashdec.o may call free/realloc where upstream calls libxml2's xmlFree/xmlRealloc, as the Xcode 26.6 SDK's libxml2 headers make it, provided dashdec.o is the only user of those four symbols on each side; and Headers/config.h may differ only in CC_IDENT, HAVE_AS_ARCHEXT_DOTPROD_DIRECTIVE, HAVE_AS_ARCHEXT_I8MM_DIRECTIVE and HAVE_KVTQPMODULATIONLEVEL_DEFAULT, with the values Xcode 26.6 gives (the three probes only reach libavcodec's assembly and VideoToolbox encoder, not libavformat)."
     },
     "reproducibility": {
       "name": "Libavutil.xcframework.zip",
@@ -275,8 +275,9 @@
       "release_tag": "ffmpeg-n8.1.2-webhtv.1",
       "name": "Libavformat.xcframework.zip",
       "url": "https://github.com/st7833232/webhtv/releases/download/ffmpeg-n8.1.2-webhtv.1/Libavformat.xcframework.zip",
-      "sha256": null,
-      "note": "Filled in from the published build manifest; ios/Vendor/MPVKit/Package.swift takes url and sha256 as the Libavformat target's url and checksum."
+      "bytes": 3133759,
+      "sha256": "ba3e718df7a81fcdda220068b8df74b37a2bcdde3f5edb5ae759c967a614c8ff",
+      "note": "Published by run 36226970983 from c1bb4d19a750ca0a4ee8c67bdc342e11b67ecad5 (build-manifest.txt with the release; sha256 checked on the downloaded asset). Only the ios-arm64 and ios-arm64_x86_64-simulator slices, as the libmpv lane's Libmpv. ios/Vendor/MPVKit/Package.swift takes url and sha256 as the Libavformat target's url and checksum since IOS-POC-26-2b-2."
     }
   }
 }

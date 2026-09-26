@@ -218,6 +218,8 @@ FongMi 的 FFmpeg 是 8.2 開發版（`177f090e0503b7e013922ca903bde14b1c375f18`
   1. `dashdec.o` 呼叫 `free`／`realloc`，上游呼叫 libxml2 的 `xmlFree`／`xmlRealloc`。Xcode 26.6 SDK 的 libxml2 標頭這樣對應；App 沒有替 libxml2 設定自訂配置器，是同一套配置。條件是兩邊都只有 `dashdec.o` 使用這 4 個符號。
   2. `Headers/config.h` 只容許 `CC_IDENT`、`HAVE_AS_ARCHEXT_DOTPROD_DIRECTIVE`、`HAVE_AS_ARCHEXT_I8MM_DIRECTIVE`、`HAVE_KVTQPMODULATIONLEVEL_DEFAULT` 4 行不同，而且必須是 Xcode 26.6 的值。後三項只影響 libavcodec 的組語與 VideoToolbox 編碼器，App 使用的 libavcodec 仍是上游的。
 - 發布：只有在 `ios-poc` 上才發布 prerelease `ffmpeg-n8.1.2-webhtv.1`。App 在 26-2b-2 才改用它，在那之前仍連結上游的 `Libavformat`。
+- 第三次建置（run `36226970983`，`c1bb4d19`，最終版 0006，2026-09-26）：比對全部通過，只用到上述兩項具名例外，已發布 prerelease。`Libavformat.xcframework.zip` 3,133,759 bytes，SHA-256 `ba3e718df7a81fcdda220068b8df74b37a2bcdde3f5edb5ae759c967a614c8ff`（下載後自行計算相符），只含 `ios-arm64` 與 `ios-arm64_x86_64-simulator`，與 libmpv 管線的 `Libmpv` 相同；App 只建 `iphoneos`。
+- 26-2b-2：`ios/Vendor/MPVKit/Package.swift` 的 `Libavformat` 改用上述 URL 與 checksum，lock 的 `ffmpeg.artifact` 記錄 bytes 與 SHA-256，README 的 Corresponding source 列出 `Libavformat` 的來源。編譯由發布 workflow 驗證。
 - 鎖定：`third_party/mpv-ios-lock.json` 的 `ffmpeg` 區段記錄來源、每個 patch 的 SHA-256、比對基準與 artifact。
 
 #### 5.5 驗收（真機，發布後）
@@ -247,7 +249,7 @@ FongMi 的 FFmpeg 是 8.2 開發版（`177f090e0503b7e013922ca903bde14b1c375f18`
 ## Recovery anchor
 
 - 目標：MPV／原生切換從當下位置接續；MPV 在有廣告的 HLS 上 seek 正確，且不會卡到要重啟 App。
-- 狀態：26-1 已隨 `0.1.22 (23)` 發布；26-2b 的 FFmpeg patch（0001～0006）已在 Linux 驗證（第六節之五），0006 為第三輪最終版（H1 記錄為已知限制，5.3a）；iOS 建置管線 26-2b-1 已 commit，尚未在 `ios-poc` 上以最終版建置。
+- 狀態：26-1 已隨 `0.1.22 (23)` 發布；26-2b 的 FFmpeg patch（0001～0006）已在 Linux 驗證（第六節之五），0006 為第三輪最終版（H1 記錄為已知限制，5.3a）；iOS 建置管線以最終版建置並發布 prerelease（run `36226970983`）；26-2b-2 已讓 App 改用它，待隨 `0.1.23 (24)` 發布。
 - 目前檔案：`PlaybackEngine.swift`（`PlaybackLoadRequest.exactStart`、`PlayerRouter.handOff`／`reload`／`setRate`）、`WebHTVApp.swift`（`loadNative`、`router.onEngineChange`）、`PlaybackEngineTests.swift`。
 - 未解風險：就緒前零容差 seek 在真機上的行為；真實串流的 PTS 配置未量測；H1 與 U1（5.3a）；mpv 的 demuxer cache 與 `ts_resets_possible` 行為未在真機驗證。
-- 下一步（唯一）：fetch 並 merge `origin/ios-poc` 後推送，讓 `ios-ffmpeg-build.yml` 以最終版建置並發布 prerelease `ffmpeg-n8.1.2-webhtv.1`，再做 26-2b-2（App 改用新的 Libavformat）。
+- 下一步（唯一）：bump 到 `0.1.23 (24)`，fetch 並 merge `origin/ios-poc` 後推送，dispatch `ios-sidestore-release.yml` 發布。

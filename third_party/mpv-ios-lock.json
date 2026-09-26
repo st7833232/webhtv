@@ -1,5 +1,5 @@
 {
-  "_comment": "Provenance for the WebHTV build of Libmpv.xcframework. IOS-POC-17I-1. .github/workflows/ios-libmpv-build.yml is the only thing that reads this file: it rebuilds libmpv alone from the MPVKit 1.0.0 recipe with patches.replacement in place of the upstream 0001 and patches.ao_session after the upstream patches (IOS-POC-24), restores every other library from the zips pinned under dependencies, compares the result with reference, and fails on any hash mismatch or unpinned download. The artifact is a GitHub release asset, not a tracked file.",
+  "_comment": "Provenance for the WebHTV build of Libmpv.xcframework. IOS-POC-17I-1. .github/workflows/ios-libmpv-build.yml is the only thing that reads this file outside its ffmpeg section, which only .github/workflows/ios-ffmpeg-build.yml reads (IOS-POC-26-2b): it rebuilds libmpv alone from the MPVKit 1.0.0 recipe with patches.replacement in place of the upstream 0001 and patches.ao_session after the upstream patches (IOS-POC-24), restores every other library from the zips pinned under dependencies, compares the result with reference, and fails on any hash mismatch or unpinned download. The artifact is a GitHub release asset, not a tracked file.",
   "recipe": {
     "project": "MPVKit",
     "repo": "https://github.com/mpvkit/MPVKit",
@@ -227,5 +227,56 @@
   "licences": {
     "path": "third_party/mpv-ios/licenses",
     "note": "Notices for everything the LGPL MPVKit product links on iOS; see third_party/mpv-ios/README.md."
+  },
+  "ffmpeg": {
+    "_comment": "IOS-POC-26-2b. Inputs of .github/workflows/ios-ffmpeg-build.yml, which rebuilds FFmpeg n8.1.2 with the MPVKit recipe above, the same toolchain and the dependencies above except FFmpeg-all.zip, applies patches.files in file-name order (the recipe's patch/FFmpeg mechanism; the recipe itself has none), stops after FFmpeg (buildscripts), checks Libavutil against reproducibility and Libavformat against reference, and publishes Libavformat.xcframework.zip as artifact. Only Libavformat changes; the app keeps every other FFmpeg library from MPVKit 1.0.0.",
+    "repo": "https://github.com/FFmpeg/FFmpeg",
+    "tag": "n8.1.2",
+    "commit": "38b88335f99e76ed89ff3c93f877fdefce736c13",
+    "commit_note": "The recipe clones the tag; the workflow fails if its HEAD is not this commit. The tag object is 1c2c67c0b9f7f66ab32c19dcf7f227bcd290aa4c.",
+    "patches": {
+      "dir": "third_party/mpv-ios/patches/ffmpeg",
+      "files": {
+        "0001-tests-fate-seek-add-HLS-multi-playlist-seek-test.patch": "4dc74c7a2e2397a77c4ac7d8b133c85ff7411b7a3482180065ef9a9670e31a8d",
+        "0002-avformat-hls-fix-seeking-to-before-the-first-timesta.patch": "bd67de76082d0f9926ced69b3c74f249f01629a5142bae2e02430d403fb45ba2",
+        "0003-avformat-hls-rebase-seek-discard-threshold-to-each-p.patch": "8fff53d1bfa8114c430e7154eca046cccb8f45828fcdce2a16e48bfbec235c0a",
+        "0004-tests-fate-seek-exclude-hls-seek-test-without-aresam.patch": "2194bf9bc9330949f066a16584ff242f528b71fb4cb2b10d7100f9f27218124d",
+        "0005-avformat-hls-normalize-timestamps-across-discontinui.patch": "12617510bdff0273b190a6c843038b424d487e32cb3f983873e2fe8049415cb6",
+        "0006-avformat-hls-anchor-discontinuity-sequences-to-the-p.patch": "3bc7f780b4ae4b7e7a8ecc6595e4b15d33e3fb3fb8b089fd04117bac478a948b"
+      },
+      "sources": {
+        "0001": "cherry-pick of FFmpeg f699b3a8f52c151f61318b757abf04cab0811724 (test only)",
+        "0002": "cherry-pick of FFmpeg caa3fa6af070c1eeee59da027fdcde326fc64a89",
+        "0003": "cherry-pick of FFmpeg e27ad5760c0c8eca7c95bb907dc6e4e62dbf129b, two conflicts resolved (new_playlist keeps n8.1.2's code; the EVENT-only lines from 6d98a9a2e8757d6eb616501ade06877389a31597 are left out)",
+        "0004": "cherry-pick of FFmpeg c3ca443969af0ef075fff5636c8516e21a1924d6 (test only)",
+        "0005": "FongMi/FFmpeg 5805f9364c2e9a5f6ce625c9077b308c3ed4014d, every line identical; hls_timestamp.{c,h} and its test byte-identical to FongMi 177f090e0503b7e013922ca903bde14b1c375f18",
+        "0006": "WebHTV adaptation of 5805f936: finished playlists anchor each discontinuity sequence to its playlist start when it is off by more than 1 s, and the seek discard compares in the packet time base (docs/IOS-POC-26-engine-switch-position.md)"
+      }
+    },
+    "buildscripts": {
+      "path": "third_party/mpv-ios/patches/buildscripts/0002-build-ffmpeg-only.patch",
+      "sha256": "1681d736aa2506b6854dbe9a8efd4483ee0d0f5594555f2196b7438a65866a09",
+      "note": "Ends the recipe after FFmpeg, so libmpv and its dependencies after FFmpeg are not built in this lane."
+    },
+    "reference": {
+      "name": "Libavformat.xcframework.zip",
+      "url": "https://github.com/mpvkit/MPVKit/releases/download/1.0.0/Libavformat.xcframework.zip",
+      "bytes": 13695240,
+      "sha256": "2afb601375929640e743e7bdaa6c4a88e2b582a07e1c5f2dc95cc7f5b26a0810",
+      "note": "The upstream Libavformat the app links until this lane's artifact replaces it. The ios-arm64 slice of the new build must match it in the configuration and version strings and in every framework file but the binary; archive members may differ only by the added hls_timestamp.o, defined external symbols only by the four ff_hls_timestamp_* functions, undefined symbols only through hls.o and hls_timestamp.o."
+    },
+    "reproducibility": {
+      "name": "Libavutil.xcframework.zip",
+      "url": "https://github.com/mpvkit/MPVKit/releases/download/1.0.0/Libavutil.xcframework.zip",
+      "sha256": "5dc251c8807c501982edfb0bc9bddfee4148733142d6ebb947738c60fb3bf8d8",
+      "note": "No WebHTV change reaches Libavutil, so its ios-arm64 slice must match upstream in configuration, archive members and defined and undefined external symbols: the evidence that this lane reproduces the recipe's FFmpeg build."
+    },
+    "artifact": {
+      "release_tag": "ffmpeg-n8.1.2-webhtv.1",
+      "name": "Libavformat.xcframework.zip",
+      "url": "https://github.com/st7833232/webhtv/releases/download/ffmpeg-n8.1.2-webhtv.1/Libavformat.xcframework.zip",
+      "sha256": null,
+      "note": "Filled in from the published build manifest; ios/Vendor/MPVKit/Package.swift takes url and sha256 as the Libavformat target's url and checksum."
+    }
   }
 }

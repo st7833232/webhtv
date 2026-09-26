@@ -1,0 +1,179 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Kacper=20Michaj=C5=82ow?= <kasper93@gmail.com>
+Date: Wed, 17 Jun 2026 07:00:42 +0200
+Subject: [PATCH 3/5] avformat/hls: rebase seek discard threshold to each
+ playlist's DTS baseline
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+After a seek, hls_read_packet drops packets until each playlist reaches
+seek_timestamp. That threshold lives on c->first_timestamp's baseline,
+i.e. the DTS of whichever stream produced the very first packet. Streams
+can have different DTS baselines though. So comparing one stream's
+threshold against another stream's DTS is wrong. A stream whose first
+keyframe precedes the global baseline gets its segment keyframe dropped
+and resumes a segment (or more) late.
+
+Track the first DTS per playlist and rebase the threshold onto each
+playlist's own baseline. Since HLS segments are presentation-aligned
+across renditions, every stream then resumes at the same presentation
+time. seek_timestamp keeps its meaning on the global timeline, only the
+per-playlist comparison value is translated.
+
+This fixes playlists that would be unable to play from the start, and
+instead skip one or more segments, before data is output.
+
+Signed-off-by: Kacper Michajłow <kasper93@gmail.com>
+(cherry picked from commit e27ad5760c0c8eca7c95bb907dc6e4e62dbf129b)
+
+[IOS-POC-26-2b backport to n8.1.2, conflicts resolved by hand in libavformat/hls.c:
+ - new_playlist(): n8.1.2 still builds pls->url with ff_make_absolute_url()
+   (master's abs_url/av_strlcpy() comes from 54f0296dfe, not backported);
+   kept the n8.1.2 code and only added "pls->ts_offset = AV_NOPTS_VALUE;".
+ - hls_read_packet(): master's hunk rewrites EVENT-playlist code added by
+   6d98a9a2e8 (not backported, not needed for VOD discontinuity handling);
+   dropped the EVENT-only seg_idx/duration subtraction and start_time
+   assignment, kept the per-playlist ts_offset capture unchanged.]
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01H1rQEzEEyLNPgtsUgoq9T6
+---
+ libavformat/hls.c  | 28 +++++++++++++++++++++++-----
+ tests/ref/seek/hls | 20 ++++++++++----------
+ 2 files changed, 33 insertions(+), 15 deletions(-)
+
+diff --git a/libavformat/hls.c b/libavformat/hls.c
+index 8765f1d289..aec83459d7 100644
+--- a/libavformat/hls.c
++++ b/libavformat/hls.c
+@@ -158,6 +158,9 @@ struct playlist {
+ 
+     HLSAudioSetupInfo audio_setup_info;
+ 
++    /* Constant offset of this playlist's DTS baseline relative to
++     * c->first_timestamp. */
++    int64_t ts_offset;
+     int64_t seek_timestamp;
+     int seek_flags;
+     int seek_stream_index; /* into subdemuxer stream array */
+@@ -331,6 +334,7 @@ static struct playlist *new_playlist(HLSContext *c, const char *url,
+         av_free(pls);
+         return NULL;
+     }
++    pls->ts_offset = AV_NOPTS_VALUE;
+     pls->seek_timestamp = AV_NOPTS_VALUE;
+ 
+     pls->is_id3_timestamped = -1;
+@@ -2467,7 +2471,8 @@ static int recheck_discard_flags(AVFormatContext *s, int first)
+             pls->pb.pub.eof_reached = 0;
+             if (c->cur_timestamp != AV_NOPTS_VALUE) {
+                 /* catch up */
+-                pls->seek_timestamp = c->cur_timestamp;
++                pls->seek_timestamp = c->cur_timestamp +
++                    (pls->ts_offset != AV_NOPTS_VALUE ? pls->ts_offset : 0);
+                 pls->seek_flags = AVSEEK_FLAG_ANY;
+                 pls->seek_stream_index = -1;
+             }
+@@ -2561,10 +2566,15 @@ static int hls_read_packet(AVFormatContext *s, AVPacket *pkt)
+                         fill_timing_for_id3_timestamped_stream(pls);
+                     }
+ 
+-                    if (c->first_timestamp == AV_NOPTS_VALUE &&
+-                        pls->pkt->dts       != AV_NOPTS_VALUE)
+-                        c->first_timestamp = av_rescale_q(pls->pkt->dts,
++                    if (pls->ts_offset == AV_NOPTS_VALUE &&
++                        pls->pkt->dts    != AV_NOPTS_VALUE) {
++                        int64_t ts = av_rescale_q(pls->pkt->dts,
+                             get_timebase(pls), AV_TIME_BASE_Q);
++
++                        if (c->first_timestamp == AV_NOPTS_VALUE)
++                            c->first_timestamp = ts;
++                        pls->ts_offset = ts - c->first_timestamp;
++                    }
+                 }
+ 
+                 seg = current_segment(pls);
+@@ -2753,7 +2763,15 @@ static int hls_read_seek(AVFormatContext *s, int stream_index,
+         /* Reset the init segment so it's re-fetched and served appropriately */
+         pls->cur_init_section = NULL;
+ 
+-        pls->seek_timestamp = seek_timestamp;
++        /* The discard in hls_read_packet compares this playlist's packet DTS
++         * against seek_timestamp, but seek_timestamp is on c->first_timestamp's
++         * baseline (whichever stream produced the first packet). Streams can
++         * have different DTS baselines, so translate the threshold onto this
++         * playlist's own baseline using its captured offset. */
++        if (pls->ts_offset != AV_NOPTS_VALUE)
++            pls->seek_timestamp = seek_timestamp + pls->ts_offset;
++        else
++            pls->seek_timestamp = seek_timestamp;
+         pls->seek_flags = flags;
+ 
+         if (pls != seek_pls) {
+diff --git a/tests/ref/seek/hls b/tests/ref/seek/hls
+index a9b3badaf8..0f2085916b 100644
+--- a/tests/ref/seek/hls
++++ b/tests/ref/seek/hls
+@@ -2,19 +2,19 @@ ret: 0         st: 1 flags:1 dts: 1.400000 pts: 1.500000 pos:    564 size:  3913
+ ret: 0         st:-1 flags:0  ts:-1.000000
+ ret: 0         st: 1 flags:1 dts: 1.400000 pts: 1.500000 pos:    564 size:  3913
+ ret: 0         st:-1 flags:1  ts:-0.105833
+-ret: 0         st: 0 flags:1 dts: 1.515211 pts: 1.515211 pos:     -1 size:  1254
++ret: 0         st: 1 flags:1 dts: 1.400000 pts: 1.500000 pos:    564 size:  3913
+ ret: 0         st: 0 flags:0  ts: 0.788333
+ ret: 0         st: 1 flags:1 dts: 1.400000 pts: 1.500000 pos:    564 size:  3913
+ ret: 0         st: 0 flags:1  ts: 1.682500
+-ret: 0         st: 0 flags:1 dts: 1.698078 pts: 1.698078 pos:  11092 size:  1253
++ret: 0         st: 1 flags:0 dts: 1.600000 pts: 1.600000 pos:   8836 size:  2330
+ ret: 0         st: 1 flags:0  ts: 2.576667
+ ret: 0         st: 0 flags:1 dts: 2.586233 pts: 2.586233 pos:  55836 size:  1254
+ ret: 0         st: 1 flags:1  ts: 3.470833
+-ret: 0         st: 0 flags:1 dts: 1.515211 pts: 1.515211 pos:     -1 size:  1254
++ret: 0         st: 1 flags:1 dts: 1.400000 pts: 1.500000 pos:    564 size:  3913
+ ret: 0         st:-1 flags:0  ts: 4.365002
+ ret: 0         st: 0 flags:1 dts: 4.388689 pts: 4.388689 pos:  45308 size:  1254
+ ret: 0         st:-1 flags:1  ts:-0.740831
+-ret: 0         st: 0 flags:1 dts: 1.515211 pts: 1.515211 pos:     -1 size:  1254
++ret: 0         st: 1 flags:1 dts: 1.400000 pts: 1.500000 pos:    564 size:  3913
+ ret: 0         st: 0 flags:0  ts: 0.153333
+ ret: 0         st: 1 flags:1 dts: 1.400000 pts: 1.500000 pos:    564 size:  3913
+ ret: 0         st: 0 flags:1  ts: 1.047500
+@@ -22,7 +22,7 @@ ret: 0         st: 1 flags:1 dts: 1.400000 pts: 1.500000 pos:    564 size:  3913
+ ret: 0         st: 1 flags:0  ts: 1.941667
+ ret: 0         st: 0 flags:1 dts: 1.959300 pts: 1.959300 pos:  24252 size:  1254
+ ret: 0         st: 1 flags:1  ts: 2.835833
+-ret: 0         st: 0 flags:1 dts: 1.515211 pts: 1.515211 pos:     -1 size:  1254
++ret: 0         st: 1 flags:1 dts: 1.400000 pts: 1.500000 pos:    564 size:  3913
+ ret: 0         st:-1 flags:0  ts: 3.730004
+ ret: 0         st: 0 flags:1 dts: 3.735622 pts: 3.735622 pos:     -1 size:  1254
+ ret: 0         st:-1 flags:1  ts: 4.624171
+@@ -34,20 +34,20 @@ ret: 0         st: 1 flags:1 dts: 1.400000 pts: 1.500000 pos:    564 size:  3913
+ ret: 0         st: 1 flags:0  ts: 1.306667
+ ret: 0         st: 1 flags:1 dts: 1.400000 pts: 1.500000 pos:    564 size:  3913
+ ret: 0         st: 1 flags:1  ts: 2.200844
+-ret: 0         st: 0 flags:1 dts: 1.515211 pts: 1.515211 pos:     -1 size:  1254
++ret: 0         st: 1 flags:1 dts: 1.400000 pts: 1.500000 pos:    564 size:  3913
+ ret: 0         st:-1 flags:0  ts: 3.095006
+ ret: 0         st: 0 flags:1 dts: 3.108689 pts: 3.108689 pos:  82156 size:  1254
+ ret: 0         st:-1 flags:1  ts: 3.989173
+-ret: 0         st: 0 flags:1 dts: 1.515211 pts: 1.515211 pos:     -1 size:  1254
++ret: 0         st: 1 flags:1 dts: 1.400000 pts: 1.500000 pos:    564 size:  3913
+ ret: 0         st: 0 flags:0  ts: 4.883344
+-ret: 0         st: 0 flags:1 dts: 4.885011 pts: 4.885011 pos:     -1 size:  1253
++ret: 0         st: 1 flags:0 dts: 4.800000 pts: 5.100000 pos:  20492 size:  3860
+ ret: 0         st: 0 flags:1  ts:-0.222489
+ ret: 0         st: 1 flags:1 dts: 1.400000 pts: 1.500000 pos:    564 size:  3913
+ ret: 0         st: 1 flags:0  ts: 0.671678
+ ret: 0         st: 1 flags:1 dts: 1.400000 pts: 1.500000 pos:    564 size:  3913
+ ret: 0         st: 1 flags:1  ts: 1.565844
+-ret: 0         st: 0 flags:1 dts: 1.515211 pts: 1.515211 pos:     -1 size:  1254
++ret: 0         st: 1 flags:1 dts: 1.400000 pts: 1.500000 pos:    564 size:  3913
+ ret: 0         st:-1 flags:0  ts: 2.460008
+ ret: 0         st: 0 flags:1 dts: 2.481744 pts: 2.481744 pos:  50572 size:  1254
+ ret: 0         st:-1 flags:1  ts: 3.354175
+-ret: 0         st: 0 flags:1 dts: 1.515211 pts: 1.515211 pos:     -1 size:  1254
++ret: 0         st: 1 flags:1 dts: 1.400000 pts: 1.500000 pos:    564 size:  3913
+-- 
+2.43.0
+

@@ -133,6 +133,75 @@ MPV 一側在沒有 discontinuity 時是精確的：mpv v0.41.0 `loadfile.c:1908
 2. `0.1.22 (23)` 是只帶 26-1 先發，還是等 26-2b。
 3. 26-2b 完成前，含廣告的影片建議改用原生播放器；IOS-POC-25 已在有 discontinuity 的播放清單上停用 MPV 的自動跳廣告（`docs/IOS-POC-25-hls-midstream-ad-skip.md` 第十一節），兩者結論一致。
 
+### 5. 26-2b：自建 iOS FFmpeg（Libavformat）
+
+#### 5.1 移植範圍（FFmpeg n8.1.2 `38b88335f99e76ed89ff3c93f877fdefce736c13`）
+
+FongMi 的 FFmpeg 是 8.2 開發版（`177f090e0503b7e013922ca903bde14b1c375f18`），不能整份換進 iOS：其他 FFmpeg 函式庫都是 MPVKit 1.0.0 的 n8.1.2，混用不同版本的 libavformat 有內部 ABI 風險。所以只在 n8.1.2 上移植最少的必要 commit。n8.1 分支點（`67c886222f5fcb4c53d6f5a8b41faec8668b6229`）之後到 `177f090e`，動到 `hls.c` 的 commit 共 16 個：
+
+| commit | 處理 |
+|---|---|
+| `caa3fa6af070c1eeee59da027fdcde326fc64a89` seek 到第一個時間戳之前 | **需要**：5805f936 依它回傳的分段起點重新對齊；少了它，上游 `fate-seek-hls` 有 11 次 seek 失敗 |
+| `e27ad5760c0c8eca7c95bb907dc6e4e62dbf129b` seek 丟棄門檻改以各 playlist 的 DTS 基準 | **需要**：新增 5805f936 讀取的 `ts_offset`；兩處衝突手動解決（`new_playlist` 保留 n8.1.2 寫法；`hls_read_packet` 不帶 `6d98a9a2` 的 EVENT 專用行） |
+| `5805f9364c2e9a5f6ce625c9077b308c3ed4014d` FongMi 時間戳正規化 | **目標**，每一行與原 commit 相同；`hls_timestamp.{c,h}` 與測試與 FongMi 逐 byte 相同 |
+| `59094859a8affb9f8715a003d9fa3d0c13041d56`、`c2047918e627dd0e2e83df8faf6f1e9c69e68514` | n8.1.2 已有 backport（`69ca310f`、`61ffafe9`） |
+| `6d98a9a2e8757d6eb616501ade06877389a31597`、`d768bd564ee66a57d1ebd828d05fa1347ca94f12`、`17bc88e67feb841cd342eba33df7a93d9a05819f`、`e8cfe912f48b30077d8df87abeb09d39bf93fe37`、`54f0296dfefd43858ad607a3e5499f5fce35cf92`、`0616685b1eefefdb5794b9334b40510377df92af`、`50209cd0c025af07dff4dafbb1ac747c6287a248`、`0e6eef35517af086419c5157980e926a81070c2a`、`01044d04536eec6e2f5f48ef404cf45d15feb461` | 不需要：與本修正無關，或只是文字上的前後文。`17bc88e6`、`01044d04` 是另外可以考慮的強化 |
+| `e8392b0b0fb0ae6a827fa65f678cd4d6827f6f74`、`e640443a24dc89993042a99ade8a02a4d5ac2a81`（FongMi 自己的功能） | 不需要；`e640443a` 會改公開的 `avformat.h`，本來就排除 |
+
+另帶兩個只含測試的上游 commit（`f699b3a8f52c151f61318b757abf04cab0811724`、`c3ca443969af0ef075fff5636c8516e21a1924d6`），讓 `tests/ref/seek/hls` 有檔可套。
+
+#### 5.2 WebHTV 調整（patch 0006）
+
+忠實移植在合成素材上重現了 FongMi／Android 的已知缺陷：時間戳跳動必須超過 `max(2×TARGETDURATION, 1 秒)` 才修正，較小的往回跳一律夾住。片頭廣告後正片從 0 附近重新開始、中段廣告時正片時間跳過廣告、兩段廣告各自的時鐘，這些常見配置下，線性播放會差 15～28 秒，並出現數百個被夾成同一值的時間戳；seek 還會把 AVPlayer 的播放清單位置 seek 到 PTS 時間軸上的錯誤位置。另有捨入缺陷：約一半的分段邊界（EXTINF 15.166667、16.633333、6.666667 等）seek 時會丟掉該段的關鍵影格，晚一個 GOP 才落地。
+
+0006 的規則（只用於一開始就有 `EXT-X-ENDLIST` 的播放清單；直播維持 5805f936 原樣）：
+
+1. 逐分段記錄 `EXT-X-DISCONTINUITY`。封包依 `pkt->pos` 歸到它所屬的分段，前一段延遲送出的封包沿用前一段的偏移。
+2. 新 discontinuity 序列的第一個封包決定整段的偏移：只有當它和該分段的播放清單起點（`first_timestamp` 加前面的 EXTINF，與 seek 用的值相同）**以及**自己串流的連續值都差超過 1 秒，才對齊到播放清單起點（RFC 8216 §6.3.3，也是 AVPlayer 與 Media3 的做法）。時間戳真的連續的串流（包括每段都有 discontinuity 標記、EXTINF 有捨入誤差的串流）完全不動。
+3. 對齊後若會讓串流落後超過一格，改成接在最後一格之後，不再夾出一整段相同的時間戳。
+4. seek 之後以 seek 所用串流的第一個封包對齊；丟棄比較改在封包的時間基底上進行，修掉捨入缺陷。
+
+公開 API／ABI 不變：只改 `hls.c` 內部與內部檔 `hls_timestamp.{c,h}`，另外新增 2 個內部符號。
+
+#### 5.3 Linux 驗證（2026-09-26，原生編譯，不是 iOS）
+
+- 建置：原版 n8.1.2、FongMi `177f090e`、忠實移植、WebHTV 調整版，四份使用相同的 configure。
+- FATE：調整版 12／12 通過（含 `fate-hls_timestamp`、`fate-seek-hls`）；原版有其中 10 項，10／10 通過。新增的單元測試有三種故意改壞的版本（不重新對齊、舊捨入、夾住第一個封包），每一種都會讓測試失敗。
+- 行為比對：以模擬 mpv `demux_lavf` 的 seek 方式（`av_seek_frame(..., AVSEEK_FLAG_BACKWARD)`，再解碼到 hr-seek 的落點）逐一播放與 seek 合成素材。素材共 20 多種配置：片頭、中段、片尾廣告，兩段連續廣告，時間戳在 10 小時附近，byte range，AES-128 隱含 IV，純音訊，分開的音訊 rendition，每段都有標記但時間戳連續，直播，EVENT。結果：
+
+| 指標 | 原版 n8.1.2 | 忠實移植（＝FongMi／Android） | WebHTV 調整版 |
+|---|---|---|---|
+| 線性播放與 EXTINF 時間軸的最大差距（點播廣告配置） | 60 秒；時間戳在 10 小時附近時 59,383 秒 | 多數 0.08 秒；片頭或中段重設、兩段廣告時 15～28 秒 | **≤ 0.043 秒** |
+| seek 落點 | 廣告內與廣告後偏 16～32 秒，或一路讀到檔尾 | 幾乎都對；A2r 有一處因捨入晚 7.3～8.3 秒 | **全部正確**（最差 0.020 秒，是 hr-seek 的影格量化） |
+| 被夾成同一值的時間戳 | 無（但有乾淨的往回跳） | 最多 457 個影像、754 個音訊封包 | 影像 0；音訊每個素材最多 1 個（一格） |
+| 沒有廣告的對照組（M0、L4、DALL） | — | L4 有 1 個封包不同 | **與原版逐 byte 相同** |
+| 直播、EVENT | — | — | 與忠實移植逐 byte 相同 |
+
+- 未涵蓋：fMP4 在廣告處換 `EXT-X-MAP`、帶 ID3 時間戳的 packed audio、`http_persistent`，以及 mpv 或真機上的實際播放（mpv 的 demuxer cache、`ts_resets_possible` 行為沒有在這裡驗證）。
+- 證據檔在 session scratchpad 的 `ff/results/`（`adapted-tables.txt`、`adapted-report.txt`、`tables.md`）。
+
+#### 5.4 iOS 建置管線（26-2b-1）
+
+- `.github/workflows/ios-ffmpeg-build.yml`：沿用 libmpv 管線的 recipe、工具鏈與固定版本的依賴（`FFmpeg-all.zip` 除外），把 `third_party/mpv-ios/patches/ffmpeg` 放進 recipe 的 `patch/FFmpeg`，以 `patches/buildscripts/0002-build-ffmpeg-only.patch` 只建 FFmpeg。
+- 發布前的比對：
+  - 沒有任何 patch 碰到的 `Libavutil` 必須與上游 1.0.0 相同（configure 字串、成員、已定義與未定義的外部符號），證明這條管線重現了 recipe 的建置。
+  - `Libavformat` 必須與上游相同，只多 `hls_timestamp.o` 一個成員與 4 個 `ff_hls_timestamp_*` 符號；未定義符號的差異只能來自 `hls.o`、`hls_timestamp.o`。
+- 發布：只有在 `ios-poc` 上才發布 prerelease `ffmpeg-n8.1.2-webhtv.1`。App 在 26-2b-2 才改用它，在那之前仍連結上游的 `Libavformat`。
+- 鎖定：`third_party/mpv-ios-lock.json` 的 `ffmpeg` 區段記錄來源、每個 patch 的 SHA-256、比對基準與 artifact。
+
+#### 5.5 驗收（真機，發布後）
+
+1. 有插播廣告的影片在 MPV 上：播到廣告時進度條不再掉回 0 附近；在廣告內或廣告後按 +10／-10 秒，前後移動 10 秒，不會回到片頭；拖進度條落在拖到的位置。
+2. 多次快轉、倒退後 MPV 仍可播放，不需重啟 App。
+3. 同一集在 MPV 與原生之間切換，畫面接在同一個時刻（26-1 加上 26-2b）。
+4. 沒有廣告的影片在 MPV 上的開播、seek、背景回來、子母畫面與以前相同。
+5. 直播頻道在 MPV 上與以前相同。
+
+#### 5.6 回滾
+
+- 26-2b-1：revert 本 commit；已發布的 prerelease 不影響 App。
+- 26-2b-2：把 `ios/Vendor/MPVKit/Package.swift` 的 `Libavformat` 改回 MPVKit 1.0.0 的 URL 與 checksum（即 lock 的 `ffmpeg.reference`：checksum `2afb601375929640e743e7bdaa6c4a88e2b582a07e1c5f2dc95cc7f5b26a0810`），再發一版。
+
 ## 七、真機驗收（SideStore，待使用者回報）
 
 1. 同一部片、同一集：原生播到一個不是整數的時間（例如 12:34），播放中切到 MPV，應顯示約 12:34 並接著同一個畫面。
@@ -147,7 +216,7 @@ MPV 一側在沒有 discontinuity 時是精確的：mpv v0.41.0 `loadfile.c:1908
 ## Recovery anchor
 
 - 目標：MPV／原生切換從當下位置接續；MPV 在有廣告的 HLS 上 seek 正確，且不會卡到要重啟 App。
-- 狀態：26-1 已隨 `0.1.22 (23)` 發布；26-2b（自建 iOS FFmpeg，移植 FongMi `5805f936`）已核准，Linux 上的移植與驗證 workflow 執行中。
+- 狀態：26-1 已隨 `0.1.22 (23)` 發布；26-2b 的 FFmpeg patch（0001～0006）已在 Linux 驗證（第六節之五），iOS 建置管線 26-2b-1 已 commit，patch 0006 的獨立審查執行中。
 - 目前檔案：`PlaybackEngine.swift`（`PlaybackLoadRequest.exactStart`、`PlayerRouter.handOff`／`reload`／`setRate`）、`WebHTVApp.swift`（`loadNative`、`router.onEngineChange`）、`PlaybackEngineTests.swift`。
 - 未解風險：iOS FFmpeg 不對齊 discontinuity（26-2b 待核准）；就緒前零容差 seek 在真機上的行為；真實串流的 PTS 配置未量測。
-- 下一步（唯一）：讀取 FFmpeg n8.1.2 移植 workflow 的結果（`scratchpad/ff/REPORT.md`、`REVIEW.md`），把 26-2b 的實作設計與驗收寫進第六節，再做 iOS 建置管線。
+- 下一步（唯一）：在工作分支 dispatch `ios-ffmpeg-build.yml` 試跑（不發布），通過且審查無阻擋問題後合進 `ios-poc`，發布 prerelease，再做 26-2b-2（App 改用新的 Libavformat）。

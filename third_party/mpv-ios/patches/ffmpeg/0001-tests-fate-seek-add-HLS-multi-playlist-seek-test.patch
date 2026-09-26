@@ -1,0 +1,113 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Kacper=20Michaj=C5=82ow?= <kasper93@gmail.com>
+Date: Wed, 17 Jun 2026 17:18:58 +0200
+Subject: [PATCH 1/5] tests/fate/seek: add HLS multi-playlist seek test
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add a seek test for an HLS master playlist with separate audio and video
+media playlists with different DTS baselines.
+
+Signed-off-by: Kacper Michajłow <kasper93@gmail.com>
+(cherry picked from commit f699b3a8f52c151f61318b757abf04cab0811724)
+
+[IOS-POC-26-2b backport to n8.1.2: test-only; applied cleanly. Carried so that the
+ tests/ref/seek/hls updates of caa3fa6af0 and e27ad5760c have a file to apply to.]
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01H1rQEzEEyLNPgtsUgoq9T6
+---
+ tests/fate/seek.mak | 19 +++++++++++++++++--
+ tests/ref/seek/hls  | 42 ++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 59 insertions(+), 2 deletions(-)
+ create mode 100644 tests/ref/seek/hls
+
+diff --git a/tests/fate/seek.mak b/tests/fate/seek.mak
+index 5504e331e6..c0ef3490e9 100644
+--- a/tests/fate/seek.mak
++++ b/tests/fate/seek.mak
+@@ -197,15 +197,30 @@ fate-seek-test-iibbibb-neg-ctts-mp4:  CMD = run libavformat/tests/seek$(EXESUF)
+ fate-seek-cache-pipe: CMD = cat $(SAMPLES)/gapless/gapless.mp3 | run libavformat/tests/seek$(EXESUF) cache:pipe:0 -read_ahead_limit -1
+ fate-seek-mkv-codec-delay:   CMD = run libavformat/tests/seek$(EXESUF) $(TARGET_SAMPLES)/mkv/codec_delay_opus.mkv
+ 
++# A master playlist with separate audio and video media playlists with different DTS.
++tests/data/hls-seek.m3u8: ffmpeg$(PROGSSUF)$(EXESUF) | tests/data
++	$(M)$(TARGET_EXEC) $(TARGET_PATH)/$< -nostdin \
++        -f lavfi -i "testsrc2=size=128x72:rate=10:d=6" \
++        -f lavfi -i "aevalsrc=cos(2*PI*t)*sin(2*PI*(440+4*t)*t):d=6" \
++        -map 0:v -map 1:a -c:v mpeg2video -bf 2 -g 15 -dct int -idct int -flags +bitexact -c:a mp2fixed \
++        -f hls -hls_time 2 -hls_list_size 0 \
++        -var_stream_map "v:0,agroup:a a:0,agroup:a,default:yes" -master_pl_name hls-seek.m3u8 \
++        -hls_segment_filename $(TARGET_PATH)/tests/data/hls-seek-s%v-%d.ts \
++        $(TARGET_PATH)/tests/data/hls-seek-v%v.m3u8 2>/dev/null
++
+ FATE_SEEK_EXTRA += $(FATE_SEEK_EXTRA-yes)
+ 
++FATE_SEEK_FFMPEG-$(call ALLYES, TESTSRC2_FILTER AEVALSRC_FILTER LAVFI_INDEV MPEG2VIDEO_ENCODER MP2FIXED_ENCODER HLS_MUXER MPEGTS_MUXER HLS_DEMUXER MPEGTS_DEMUXER FILE_PROTOCOL) += fate-seek-hls
++fate-seek-hls: tests/data/hls-seek.m3u8
++fate-seek-hls: CMD = run libavformat/tests/seek$(EXESUF) $(TARGET_PATH)/tests/data/hls-seek.m3u8 -duration 6
+ 
+-$(FATE_SEEK) $(FATE_SAMPLES_SEEK) $(FATE_SEEK_EXTRA): libavformat/tests/seek$(EXESUF)
++$(FATE_SEEK) $(FATE_SAMPLES_SEEK) $(FATE_SEEK_EXTRA) $(FATE_SEEK_FFMPEG-yes): libavformat/tests/seek$(EXESUF)
+ $(FATE_SEEK) $(FATE_SAMPLES_SEEK): CMD = run libavformat/tests/seek$(EXESUF) $(TARGET_PATH)/tests/data/$(SRC)
+ $(FATE_SEEK) $(FATE_SAMPLES_SEEK): fate-seek-%: fate-%
+ $(subst fate-seek-,fate-,$(FATE_SAMPLES_SEEK) $(FATE_SEEK)): KEEP_FILES ?= 1
+ fate-seek-%: REF = $(SRC_PATH)/tests/ref/seek/$(@:fate-seek-%=%)
+ 
+ FATE_AVCONV += $(FATE_SEEK)
++FATE_FFMPEG += $(FATE_SEEK_FFMPEG-yes)
+ FATE_SAMPLES_AVCONV += $(FATE_SAMPLES_SEEK) $(FATE_SEEK_EXTRA)
+-fate-seek:     $(FATE_SEEK) $(FATE_SAMPLES_SEEK) $(FATE_SEEK_EXTRA)
++fate-seek:     $(FATE_SEEK) $(FATE_SAMPLES_SEEK) $(FATE_SEEK_EXTRA) $(FATE_SEEK_FFMPEG-yes)
+diff --git a/tests/ref/seek/hls b/tests/ref/seek/hls
+new file mode 100644
+index 0000000000..5b23cf6f96
+--- /dev/null
++++ b/tests/ref/seek/hls
+@@ -0,0 +1,42 @@
++ret: 0         st: 1 flags:1 dts: 1.400000 pts: 1.500000 pos:    564 size:  3913
++ret:-1         st:-1 flags:0  ts:-1.000000
++ret:-1         st:-1 flags:1  ts:-0.105833
++ret:-1         st: 0 flags:0  ts: 0.788333
++ret: 0         st: 0 flags:1  ts: 1.682500
++ret: 0         st: 0 flags:1 dts: 1.698078 pts: 1.698078 pos:  11092 size:  1253
++ret: 0         st: 1 flags:0  ts: 2.576667
++ret: 0         st: 0 flags:1 dts: 2.586233 pts: 2.586233 pos:  55836 size:  1254
++ret: 0         st: 1 flags:1  ts: 3.470833
++ret: 0         st: 0 flags:1 dts: 1.515211 pts: 1.515211 pos:     -1 size:  1254
++ret: 0         st:-1 flags:0  ts: 4.365002
++ret: 0         st: 0 flags:1 dts: 4.388689 pts: 4.388689 pos:  45308 size:  1254
++ret:-1         st:-1 flags:1  ts:-0.740831
++ret:-1         st: 0 flags:0  ts: 0.153333
++ret:-1         st: 0 flags:1  ts: 1.047500
++ret: 0         st: 1 flags:0  ts: 1.941667
++ret: 0         st: 0 flags:1 dts: 1.959300 pts: 1.959300 pos:  24252 size:  1254
++ret: 0         st: 1 flags:1  ts: 2.835833
++ret: 0         st: 0 flags:1 dts: 1.515211 pts: 1.515211 pos:     -1 size:  1254
++ret: 0         st:-1 flags:0  ts: 3.730004
++ret: 0         st: 0 flags:1 dts: 3.735622 pts: 3.735622 pos:     -1 size:  1254
++ret: 0         st:-1 flags:1  ts: 4.624171
++ret: 0         st: 0 flags:1 dts: 4.493178 pts: 4.493178 pos:  50572 size:  1254
++ret:-1         st: 0 flags:0  ts:-0.481667
++ret:-1         st: 0 flags:1  ts: 0.412500
++ret:-1         st: 1 flags:0  ts: 1.306667
++ret: 0         st: 1 flags:1  ts: 2.200844
++ret: 0         st: 0 flags:1 dts: 1.515211 pts: 1.515211 pos:     -1 size:  1254
++ret: 0         st:-1 flags:0  ts: 3.095006
++ret: 0         st: 0 flags:1 dts: 3.108689 pts: 3.108689 pos:  82156 size:  1254
++ret: 0         st:-1 flags:1  ts: 3.989173
++ret: 0         st: 0 flags:1 dts: 1.515211 pts: 1.515211 pos:     -1 size:  1254
++ret: 0         st: 0 flags:0  ts: 4.883344
++ret: 0         st: 0 flags:1 dts: 4.885011 pts: 4.885011 pos:     -1 size:  1253
++ret:-1         st: 0 flags:1  ts:-0.222489
++ret:-1         st: 1 flags:0  ts: 0.671678
++ret: 0         st: 1 flags:1  ts: 1.565844
++ret: 0         st: 0 flags:1 dts: 1.515211 pts: 1.515211 pos:     -1 size:  1254
++ret: 0         st:-1 flags:0  ts: 2.460008
++ret: 0         st: 0 flags:1 dts: 2.481744 pts: 2.481744 pos:  50572 size:  1254
++ret: 0         st:-1 flags:1  ts: 3.354175
++ret: 0         st: 0 flags:1 dts: 1.515211 pts: 1.515211 pos:     -1 size:  1254
+-- 
+2.43.0
+

@@ -1,0 +1,16 @@
+diff --git a/Sources/BuildScripts/XCFrameworkBuild/main.swift b/Sources/BuildScripts/XCFrameworkBuild/main.swift
+index e5f872c..754fa82 100644
+--- a/Sources/BuildScripts/XCFrameworkBuild/main.swift
++++ b/Sources/BuildScripts/XCFrameworkBuild/main.swift
+@@ -33,6 +33,11 @@ do {
+     try BuildDav1d().buildALL()
+     try BuildFFMPEG().buildALL()
+ 
++    // WebHTV (IOS-POC-26-2b): this lane builds FFmpeg only, with the WebHTV
++    // HLS patches the workflow places in patch/FFmpeg. libmpv has its own lane
++    // (0001-restore-prebuilt-ffmpeg.patch), so nothing after FFmpeg runs here.
++    exit(0)
++
+     // mpv
+     try BuildUchardet().buildALL()
+     try BuildLuaJIT().buildALL()

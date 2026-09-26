@@ -1,0 +1,368 @@
+name: iOS FFmpeg Build
+
+# IOS-POC-26-2b. Rebuilds FFmpeg n8.1.2 with the MPVKit 1.0.0 recipe and the
+# WebHTV HLS patches (third_party/mpv-ios/patches/ffmpeg), which put packet
+# timestamps on the playlist timeline across EXT-X-DISCONTINUITY, as the
+# FongMi FFmpeg that WebHTV Android ships does. Only Libavformat changes; it is
+# checked against the upstream 1.0.0 Libavformat and published as a prerelease.
+# Every other FFmpeg library the app links stays the upstream 1.0.0 binary.
+# Every input is pinned in the "ffmpeg" section of third_party/mpv-ios-lock.json.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ios-poc
+    paths:
+      - ".github/workflows/ios-ffmpeg-build.yml"
+      - "third_party/mpv-ios/patches/ffmpeg/**"
+      - "third_party/mpv-ios/patches/buildscripts/0002-build-ffmpeg-only.patch"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-ffmpeg-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 150
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read lock
+        id: lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - >> "$GITHUB_OUTPUT" <<'EOF'
+          import json
+          lock = json.load(open("third_party/mpv-ios-lock.json"))
+          ff = lock["ffmpeg"]
+          values = {
+              "mpvkit_repo": lock["recipe"]["repo"],
+              "mpvkit_commit": lock["recipe"]["build_commit"],
+              "workdir": lock["recipe"]["workdir"],
+              "xcode": lock["toolchain"]["xcode"],
+              "python": lock["toolchain"]["python"],
+              "meson": lock["toolchain"]["meson"],
+              "ff_tag": ff["tag"],
+              "ff_commit": ff["commit"],
+              "ref_url": ff["reference"]["url"],
+              "ref_sha256": ff["reference"]["sha256"],
+              "repro_url": ff["reproducibility"]["url"],
+              "repro_sha256": ff["reproducibility"]["sha256"],
+              "tag": ff["artifact"]["release_tag"],
+          }
+          for key, value in values.items():
+              print(f"{key}={value}")
+          EOF
+          mkdir -p "$RUNNER_TEMP/out"
+
+      - name: Select Xcode
+        env:
+          XCODE: ${{ steps.lock.outputs.xcode }}
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+          swift --version
+          clang --version | head -n 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ steps.lock.outputs.python }}
+
+      - name: Install pinned meson
+        env:
+          MESON: ${{ steps.lock.outputs.meson }}
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/meson"
+          "$RUNNER_TEMP/meson/bin/python" -m pip install --disable-pip-version-check --quiet "meson==$MESON"
+          ln -sf "$RUNNER_TEMP/meson/bin/meson" /opt/homebrew/bin/meson
+          echo "meson $(meson --version)"
+
+      - name: Fetch the MPVKit recipe
+        env:
+          REPO: ${{ steps.lock.outputs.mpvkit_repo }}
+          COMMIT: ${{ steps.lock.outputs.mpvkit_commit }}
+          WORKDIR: ${{ steps.lock.outputs.workdir }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORKDIR"
+          git -C "$WORKDIR" init -q
+          git -C "$WORKDIR" fetch -q --depth 1 "$REPO" "$COMMIT"
+          git -C "$WORKDIR" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$WORKDIR" rev-parse HEAD)" = "$COMMIT"
+
+      - name: Apply the WebHTV patches to the recipe
+        env:
+          WORKDIR: ${{ steps.lock.outputs.workdir }}
+        run: |
+          set -euo pipefail
+          python3 - <<'EOF'
+          import hashlib, json, os, sys
+          ff = json.load(open("third_party/mpv-ios-lock.json"))["ffmpeg"]
+          def sha(path):
+              return hashlib.sha256(open(path, "rb").read()).hexdigest()
+          patch_dir = ff["patches"]["dir"]
+          names = sorted(n for n in os.listdir(patch_dir) if n.endswith(".patch"))
+          if names != sorted(ff["patches"]["files"]):
+              sys.exit(f"::error title=FFmpeg patches::expected {sorted(ff['patches']['files'])}, found {names}")
+          for name in names:
+              if sha(os.path.join(patch_dir, name)) != ff["patches"]["files"][name]:
+                  sys.exit(f"::error title=FFmpeg patches::{name} does not match the lock")
+          if sha(ff["buildscripts"]["path"]) != ff["buildscripts"]["sha256"]:
+              sys.exit(f"::error title=Buildscripts patch::{ff['buildscripts']['path']} does not match the lock")
+          # The recipe has no FFmpeg patches of its own; ours must be the only ones.
+          upstream = os.path.join(os.environ["WORKDIR"], "Sources/BuildScripts/patch/FFmpeg")
+          if os.path.exists(upstream):
+              sys.exit(f"::error title=Recipe patches::the recipe now ships {upstream}; review it before building")
+          EOF
+          mkdir -p "$WORKDIR/Sources/BuildScripts/patch/FFmpeg"
+          cp third_party/mpv-ios/patches/ffmpeg/*.patch "$WORKDIR/Sources/BuildScripts/patch/FFmpeg/"
+          git -C "$WORKDIR" apply "$GITHUB_WORKSPACE/third_party/mpv-ios/patches/buildscripts/0002-build-ffmpeg-only.patch"
+          git -C "$WORKDIR" status --short
+
+      - name: Place the pinned dependency zips
+        env:
+          WORKDIR: ${{ steps.lock.outputs.workdir }}
+        run: |
+          set -euo pipefail
+          # FFmpeg is built from source here, so its zip is not placed: the
+          # recipe would take an existing FFmpeg directory as already cloned.
+          python3 - > "$RUNNER_TEMP/deps.tsv" <<'EOF'
+          import json
+          for dep in json.load(open("third_party/mpv-ios-lock.json"))["dependencies"]:
+              if dep["name"] != "FFmpeg":
+                  print("\t".join([dep["name"], dep["version"], dep["url"], dep["sha256"]]))
+          EOF
+          while IFS=$'\t' read -r name version url sha256; do
+            dir="$WORKDIR/dist/$name-$version"
+            mkdir -p "$dir"
+            curl -fsSL --retry 3 -o "$dir/$name.zip" "$url"
+            echo "$sha256  $dir/$name.zip" | shasum -a 256 -c -
+            unzip -q -o "$dir/$name.zip" -d "$dir"
+          done < "$RUNNER_TEMP/deps.tsv"
+
+      - name: Build FFmpeg
+        working-directory: ${{ steps.lock.outputs.workdir }}
+        env:
+          TAG: ${{ steps.lock.outputs.tag }}
+        run: |
+          set -euo pipefail
+          echo "nasm: $(command -v nasm || echo none) $(nasm -v 2>/dev/null || true)"
+          make build platform=ios "version=$TAG" 2>&1 | tee "$RUNNER_TEMP/out/build.log"
+
+      - name: Check what the build used
+        env:
+          WORKDIR: ${{ steps.lock.outputs.workdir }}
+          FF_TAG: ${{ steps.lock.outputs.ff_tag }}
+          FF_COMMIT: ${{ steps.lock.outputs.ff_commit }}
+        run: |
+          set -euo pipefail
+          src="$WORKDIR/dist/FFmpeg-$FF_TAG"
+          if [[ "$(git -C "$src" rev-parse HEAD)" != "$FF_COMMIT" ]]; then
+            echo "::error title=FFmpeg source::$FF_TAG is not $FF_COMMIT"
+            exit 1
+          fi
+          for f in libavformat/hls_timestamp.c libavformat/hls_timestamp.h; do
+            test -f "$src/$f" || { echo "::error title=FFmpeg source::$f is missing: the WebHTV patches were not applied"; exit 1; }
+          done
+          grep -q ff_hls_timestamp_map "$src/libavformat/hls.c" || { echo "::error title=FFmpeg source::hls.c does not call the timestamp mapping"; exit 1; }
+          git -C "$src" status --short | tee "$RUNNER_TEMP/out/ffmpeg-source-status.txt"
+          python3 - <<'EOF'
+          import glob, hashlib, json, os, sys
+          lock = json.load(open("third_party/mpv-ios-lock.json"))
+          dist = os.path.join(os.environ["WORKDIR"], "dist")
+          pinned = {f"{d['name']}-{d['version']}/{d['name']}.zip": d["sha256"] for d in lock["dependencies"] if d["name"] != "FFmpeg"}
+          found = {os.path.relpath(p, dist) for p in glob.glob(os.path.join(dist, "*", "*.zip"))}
+          found = {p for p in found if not p.startswith("release/")}
+          if found != set(pinned):
+              sys.exit(f"::error title=Dependencies::unpinned {sorted(found - set(pinned))}, missing {sorted(set(pinned) - found)}")
+          for rel, want in pinned.items():
+              if hashlib.sha256(open(os.path.join(dist, rel), "rb").read()).hexdigest() != want:
+                  sys.exit(f"::error title=Dependencies::{rel} changed during the build")
+          print(f"{len(found)} dependency zips, all pinned")
+          EOF
+
+      - name: Compare with the upstream FFmpeg libraries
+        env:
+          WORKDIR: ${{ steps.lock.outputs.workdir }}
+          REF_URL: ${{ steps.lock.outputs.ref_url }}
+          REF_SHA256: ${{ steps.lock.outputs.ref_sha256 }}
+          REPRO_URL: ${{ steps.lock.outputs.repro_url }}
+          REPRO_SHA256: ${{ steps.lock.outputs.repro_sha256 }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/compare"
+          mkdir -p "$work"
+          report="$RUNNER_TEMP/out/compare.txt"
+          : > "$report"
+          fail=0
+          check() { # name, reference text, new text
+            if [[ "$2" == "$3" && -n "$2" ]]; then
+              echo "same: $1" >> "$report"
+            else
+              echo "DIFFERENT: $1" >> "$report"
+              diff <(printf '%s\n' "$2") <(printf '%s\n' "$3") >> "$report" || true
+              echo "::error title=Compare::$1"
+              fail=1
+            fi
+          }
+          symbols() { # flags, archive
+            nm "$1" "$2" 2>/dev/null | grep -v -e '^$' -e ':$' | sort -u
+          }
+          thin() { # universal or thin archive, output
+            if lipo -info "$1" | grep -q '^Non-fat'; then cp "$1" "$2"; else lipo -thin arm64 "$1" -output "$2"; fi
+          }
+          unpack() { # name, url, sha256, dir
+            curl -fsSL --retry 3 -o "$work/$1.zip" "$2"
+            echo "$3  $work/$1.zip" | shasum -a 256 -c -
+            mkdir -p "$4"
+            unzip -q "$work/$1.zip" -d "$4"
+          }
+          unpack ref-avformat "$REF_URL" "$REF_SHA256" "$work/ref"
+          unpack ref-avutil "$REPRO_URL" "$REPRO_SHA256" "$work/ref"
+          for lib in Libavformat Libavutil; do
+            unzip -q "$WORKDIR/dist/release/$lib.xcframework.zip" -d "$work/new"
+          done
+
+          # 1. Reproducibility: Libavutil has no WebHTV change, so this build
+          # must reproduce the upstream one in everything compared here.
+          ref_fw="$work/ref/Libavutil.xcframework/ios-arm64/Libavutil.framework"
+          new_fw="$work/new/Libavutil.xcframework/ios-arm64/Libavutil.framework"
+          thin "$ref_fw/Libavutil" "$work/ref-avutil.a"
+          thin "$new_fw/Libavutil" "$work/new-avutil.a"
+          check "Libavutil configuration" "$(strings -a "$work/ref-avutil.a" | grep -F -- '--disable-armv5te' | sort -u)" \
+                                          "$(strings -a "$work/new-avutil.a" | grep -F -- '--disable-armv5te' | sort -u)"
+          check "Libavutil archive members" "$(ar t "$work/ref-avutil.a" | grep -v '^__.SYMDEF' | sort)" \
+                                            "$(ar t "$work/new-avutil.a" | grep -v '^__.SYMDEF' | sort)"
+          check "Libavutil defined external symbols" "$(symbols -gUj "$work/ref-avutil.a")" "$(symbols -gUj "$work/new-avutil.a")"
+          check "Libavutil undefined symbols" "$(symbols -guj "$work/ref-avutil.a")" "$(symbols -guj "$work/new-avutil.a")"
+
+          # 2. Libavformat: the upstream library plus exactly the WebHTV change.
+          ref_fw="$work/ref/Libavformat.xcframework/ios-arm64/Libavformat.framework"
+          new_fw="$work/new/Libavformat.xcframework/ios-arm64/Libavformat.framework"
+          ref_lib="$work/ref-avformat.a"
+          new_lib="$work/new-avformat.a"
+          thin "$ref_fw/Libavformat" "$ref_lib"
+          thin "$new_fw/Libavformat" "$new_lib"
+          for text in "--disable-armv5te" "FFmpeg version"; do
+            check "Libavformat strings containing $text" "$(strings -a "$ref_lib" | grep -F -- "$text" | sort -u)" \
+                                                         "$(strings -a "$new_lib" | grep -F -- "$text" | sort -u)"
+          done
+          check "Libavformat archive members added" "hls_timestamp.o" \
+            "$(comm -13 <(ar t "$ref_lib" | grep -v '^__.SYMDEF' | sort) <(ar t "$new_lib" | grep -v '^__.SYMDEF' | sort) | tr '\n' ' ' | sed 's/ $//')"
+          check "Libavformat archive members removed" "none" \
+            "$(comm -23 <(ar t "$ref_lib" | grep -v '^__.SYMDEF' | sort) <(ar t "$new_lib" | grep -v '^__.SYMDEF' | sort) | tr '\n' ' ' | sed 's/ $//' | sed 's/^$/none/')"
+          check "Libavformat defined external symbols added" \
+            "_ff_hls_timestamp_init _ff_hls_timestamp_map _ff_hls_timestamp_reset _ff_hls_timestamp_stream_init" \
+            "$(comm -13 <(symbols -gUj "$ref_lib") <(symbols -gUj "$new_lib") | tr '\n' ' ' | sed 's/ $//')"
+          check "Libavformat defined external symbols removed" "none" \
+            "$(comm -23 <(symbols -gUj "$ref_lib") <(symbols -gUj "$new_lib") | tr '\n' ' ' | sed 's/ $//' | sed 's/^$/none/')"
+          # Undefined symbols may differ only through hls.o and hls_timestamp.o.
+          mkdir -p "$work/ref-members" "$work/new-members"
+          (cd "$work/ref-members" && ar -x "$ref_lib" hls.o)
+          (cd "$work/new-members" && ar -x "$new_lib" hls.o hls_timestamp.o)
+          allowed="$( (symbols -uj "$work/ref-members/hls.o"; symbols -uj "$work/new-members/hls.o"; symbols -uj "$work/new-members/hls_timestamp.o") | sort -u)"
+          changed="$(comm -3 <(symbols -guj "$ref_lib") <(symbols -guj "$new_lib") | tr -d '\t' | sed '/^$/d' | sort -u)"
+          outside="$(comm -23 <(printf '%s\n' "$changed" | sed '/^$/d') <(printf '%s\n' "$allowed" | sed '/^$/d'))"
+          check "Libavformat undefined symbols outside hls.o and hls_timestamp.o" "none" "${outside:-none}"
+          check "Libavformat framework files other than the binary" \
+            "$(cd "$ref_fw" && find . -type f ! -name Libavformat -exec shasum -a 256 {} + | sort -k 2)" \
+            "$(cd "$new_fw" && find . -type f ! -name Libavformat -exec shasum -a 256 {} + | sort -k 2)"
+          check "Libavformat simulator architectures" \
+            "$(lipo -archs "$work/ref/Libavformat.xcframework/ios-arm64_x86_64-simulator/Libavformat.framework/Libavformat")" \
+            "$(lipo -archs "$work/new/Libavformat.xcframework/ios-arm64_x86_64-simulator/Libavformat.framework/Libavformat")"
+          {
+            echo "Libavformat undefined symbols that differ from upstream: ${changed:-none}"
+            echo "Libavformat members, upstream: $(ar t "$ref_lib" | grep -vc '^__.SYMDEF'); new: $(ar t "$new_lib" | grep -vc '^__.SYMDEF')"
+          } >> "$report"
+          cat "$report"
+          exit "$fail"
+
+      - name: Write the build manifest
+        env:
+          WORKDIR: ${{ steps.lock.outputs.workdir }}
+          TAG: ${{ steps.lock.outputs.tag }}
+          FF_TAG: ${{ steps.lock.outputs.ff_tag }}
+        run: |
+          set -euo pipefail
+          release="$WORKDIR/dist/release"
+          zip="$release/Libavformat.xcframework.zip"
+          sha256="$(shasum -a 256 "$zip" | cut -d ' ' -f 1)"
+          checksum="$(tr -d '[:space:]' < "$release/Libavformat.xcframework.checksum.txt")"
+          if [[ "$sha256" != "$checksum" ]]; then
+            echo "::error title=Checksum::SwiftPM checksum $checksum is not the zip's sha256 $sha256"
+            exit 1
+          fi
+          cp "$zip" "$RUNNER_TEMP/out/Libavformat.xcframework.zip"
+          {
+            echo "artifact: Libavformat.xcframework.zip"
+            echo "release tag: $TAG"
+            echo "bytes: $(stat -f %z "$zip")"
+            echo "sha256 (SwiftPM checksum): $sha256"
+            echo "source: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
+            echo "run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "runner image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
+            echo "xcode: $(xcodebuild -version | tr '\n' ' ')"
+            echo "nasm: $(nasm -v 2>/dev/null || echo none)"
+            echo "recipe: $(git -C "$WORKDIR" rev-parse HEAD)"
+            echo "ffmpeg: $(git -C "$WORKDIR/dist/FFmpeg-$FF_TAG" rev-parse HEAD)"
+            echo "ffmpeg patches:"
+            (cd "$WORKDIR/Sources/BuildScripts/patch/FFmpeg" && shasum -a 256 *.patch)
+            shasum -a 256 third_party/mpv-ios/patches/buildscripts/0002-build-ffmpeg-only.patch
+            echo "dependency zips:"
+            (cd "$WORKDIR/dist" && shasum -a 256 */*.zip | grep -v ' release/')
+          } > "$RUNNER_TEMP/out/build-manifest.txt"
+          cat "$RUNNER_TEMP/out/build-manifest.txt"
+          {
+            echo "### Libavformat.xcframework.zip"
+            echo
+            echo "- sha256 (SwiftPM checksum): \`$sha256\`"
+            echo "- release tag: \`$TAG\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/out
+            ${{ steps.lock.outputs.workdir }}/dist/*.log
+          if-no-files-found: warn
+
+      - name: Publish the prerelease
+        if: github.ref == 'refs/heads/ios-poc'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.lock.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error title=Release exists::$TAG is already published; bump ffmpeg.artifact.release_tag in third_party/mpv-ios-lock.json to publish a new build"
+            exit 1
+          fi
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          Libavformat.xcframework for the WebHTV iOS app (IOS-POC-26-2b), not an app release.
+
+          FFmpeg n8.1.2 built by this workflow with the MPVKit 1.0.0 recipe (LGPL product) and the patches in third_party/mpv-ios/patches/ffmpeg: upstream caa3fa6af070c1eeee59da027fdcde326fc64a89 and e27ad5760c0c8eca7c95bb907dc6e4e62dbf129b with their test commits, FongMi/FFmpeg 5805f9364c2e9a5f6ce625c9077b308c3ed4014d, and a WebHTV adaptation. HLS packet timestamps follow the playlist timeline across EXT-X-DISCONTINUITY. Every other FFmpeg library the app links is the upstream 1.0.0 binary. Provenance: third_party/mpv-ios-lock.json and build-manifest.txt; the modified FFmpeg source is n8.1.2 plus those patches.
+          EOF
+          gh release create "$TAG" \
+            "$RUNNER_TEMP/out/Libavformat.xcframework.zip" \
+            "$RUNNER_TEMP/out/build-manifest.txt" \
+            "$RUNNER_TEMP/out/compare.txt" \
+            "$RUNNER_TEMP/out/build.log" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --latest=false \
+            --title "Libavformat for WebHTV ($TAG)" \
+            --notes-file "$RUNNER_TEMP/notes.md"

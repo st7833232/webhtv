@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Kacper=20Michaj=C5=82ow?= <kasper93@gmail.com>
+Date: Wed, 24 Jun 2026 16:13:53 +0200
+Subject: [PATCH 4/5] tests/fate/seek: exclude hls-seek test without aresample
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Fixes build with --disable-swresample.
+
+Signed-off-by: Kacper Michajłow <kasper93@gmail.com>
+(cherry picked from commit c3ca443969af0ef075fff5636c8516e21a1924d6)
+
+[IOS-POC-26-2b backport to n8.1.2: test-only; applied cleanly.]
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01H1rQEzEEyLNPgtsUgoq9T6
+---
+ tests/fate/seek.mak | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tests/fate/seek.mak b/tests/fate/seek.mak
+index c0ef3490e9..69b621c2cd 100644
+--- a/tests/fate/seek.mak
++++ b/tests/fate/seek.mak
+@@ -210,7 +210,7 @@ tests/data/hls-seek.m3u8: ffmpeg$(PROGSSUF)$(EXESUF) | tests/data
+ 
+ FATE_SEEK_EXTRA += $(FATE_SEEK_EXTRA-yes)
+ 
+-FATE_SEEK_FFMPEG-$(call ALLYES, TESTSRC2_FILTER AEVALSRC_FILTER LAVFI_INDEV MPEG2VIDEO_ENCODER MP2FIXED_ENCODER HLS_MUXER MPEGTS_MUXER HLS_DEMUXER MPEGTS_DEMUXER FILE_PROTOCOL) += fate-seek-hls
++FATE_SEEK_FFMPEG-$(call ALLYES, TESTSRC2_FILTER AEVALSRC_FILTER ARESAMPLE_FILTER LAVFI_INDEV MPEG2VIDEO_ENCODER MP2FIXED_ENCODER HLS_MUXER MPEGTS_MUXER HLS_DEMUXER MPEGTS_DEMUXER FILE_PROTOCOL) += fate-seek-hls
+ fate-seek-hls: tests/data/hls-seek.m3u8
+ fate-seek-hls: CMD = run libavformat/tests/seek$(EXESUF) $(TARGET_PATH)/tests/data/hls-seek.m3u8 -duration 6
+ 
+-- 
+2.43.0
+

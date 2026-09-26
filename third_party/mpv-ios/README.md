@@ -61,6 +61,22 @@ build has to change both files.
   compiling it, so libmpv is the only thing built.
 - `licenses/` holds the notices of everything the LGPL `MPVKit` product links
   on iOS.
+- `patches/ffmpeg/0001`…`0006` (IOS-POC-26-2b) are the FFmpeg patches of the
+  second lane, `.github/workflows/ios-ffmpeg-build.yml`. Applied in order to
+  FFmpeg `n8.1.2` (`38b88335f99e76ed89ff3c93f877fdefce736c13`), they give HLS
+  packet timestamps the playlist timeline across `EXT-X-DISCONTINUITY`, which
+  FFmpeg ignores: without it mpv's `time-pos` inside an inserted ad is the ad's
+  own clock, and a seek from there lands near the start of the episode.
+  `0002` and `0003` are upstream `caa3fa6af070c1eeee59da027fdcde326fc64a89`
+  and `e27ad5760c0c8eca7c95bb907dc6e4e62dbf129b` (`0001` and `0004` carry
+  their test), `0005` is FongMi/FFmpeg
+  `5805f9364c2e9a5f6ce625c9077b308c3ed4014d`, the fix WebHTV Android ships, and
+  `0006` is the WebHTV adaptation recorded in
+  `docs/IOS-POC-26-engine-switch-position.md`. Only libavformat's internals
+  change; no installed header does.
+- `patches/buildscripts/0002-build-ffmpeg-only.patch` ends the recipe after
+  FFmpeg in that lane, which uses neither the WebHTV libmpv patches nor
+  `0001-restore-prebuilt-ffmpeg.patch`.
 
 ## Build and checks
 
@@ -88,6 +104,28 @@ the upstream build, made with Xcode 15.4, keeps the loop. The result is
 published as a prerelease under `artifact.release_tag`, with the
 build manifest, the comparison report and the build log. The workflow refuses
 to replace a published tag, so a new build needs a new tag in the lock.
+
+## FFmpeg lane (IOS-POC-26-2b)
+
+`.github/workflows/ios-ffmpeg-build.yml` reads the lock's `ffmpeg` section. It
+uses the same recipe checkout, toolchain and dependency zips as the libmpv
+lane except `FFmpeg-all.zip`, places `patches/ffmpeg` where the recipe applies
+FFmpeg patches (the recipe has none of its own, and the workflow fails if that
+changes), and runs `make build platform=ios` with the `0002` buildscripts patch.
+Before publishing `Libavformat.xcframework.zip` as a prerelease under
+`ffmpeg.artifact.release_tag`, it requires the device slices to show:
+
+- `Libavutil`, which no patch touches, identical to upstream 1.0.0 in its
+  configuration string, archive members and defined and undefined external
+  symbols (the evidence that the lane reproduces the recipe's FFmpeg build);
+- `Libavformat` identical to upstream 1.0.0 in its configuration and version
+  strings and every framework file but the binary, with exactly one added
+  member (`hls_timestamp.o`), exactly four added defined symbols
+  (`ff_hls_timestamp_*`), nothing removed, and undefined symbols changed only
+  through `hls.o` and `hls_timestamp.o`.
+
+Until the app's `Libavformat` target points at that artifact, the app still
+links the upstream 1.0.0 `Libavformat`.
 
 ## Corresponding source
 

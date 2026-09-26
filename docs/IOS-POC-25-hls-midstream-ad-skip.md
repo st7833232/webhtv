@@ -1,7 +1,7 @@
 # IOS-POC-25 — HLS 串流中段廣告自動跳過（Android parity）
 
 - 狀態（2026-09-26）：**已隨 `0.1.22 (23)` 發布**（使用者 2026-09-26 在發版 session 選「現在發，連 IOS-POC-25 一起」，見 `docs/IOS-POC-11-sidestore-release.md` 第二十三次發布）。Release build 編譯通過；單元測試未執行。第一次真機回報：原生仍露出不到約 1 秒的廣告開頭，正片未察覺缺少；MPV 未察覺廣告。診斷與待回報的免建置檢查見第二十節之二。
-- IOS-POC-25-2（2026-09-26）：MPV 在有 `#EXT-X-DISCONTINUITY` 的播放清單上也自動跳廣告（進入區間 0.25 秒後才觸發），以連結期檢查綁定 WebHTV `Libavformat`。已 commit，**尚未發布**，編譯與真機都未驗證。見第二十二節。
+- IOS-POC-25-2（2026-09-26）：MPV 在有 `#EXT-X-DISCONTINUITY` 的播放清單上也自動跳廣告（進入區間 0.25 秒後才觸發），以連結期檢查綁定 WebHTV `Libavformat`（`45be83c4`）。**已隨 `0.1.24 (25)` 發布**（run `36230882448`，Release build 第一次即編譯、連結成功，見 `docs/IOS-POC-11-sidestore-release.md` 第二十五次發布）；單元測試未執行，真機未驗證。見第二十二節。
 - 開始：2026-09-25 15:10 UTC。Lane：`standard`。Task guard：`IOS-POC-25`（`--no-tag`）。
 - 授權：使用者 2026-09-25 明確要求建立並開發本項目，一次完成文件、實作、測試、commit 與 push（本任務的核准，AGENTS.md §7 的實作前核准在此成立）。不含 bump 版號、tag、SideStore release、IPA、安裝到 iPhone。
 - 並行：另一個 session 同時開發 IOS-POC-26（MPV／原生切換位置）與 `0.1.22 (23)` 發布。本任務在 IOS-POC-26-1（`a6652cc3`）之上開發（第十三節記錄兩者的互動）。
@@ -563,13 +563,13 @@ IOS-POC-25-2 之後的版本，D5、D6 的 MPV 部分改用第二十二節之七
 | 檢查 | 結果 | 證據等級 |
 |---|---|---|
 | `swift test` | **未執行**：本環境沒有 Swift 工具鏈 | — |
-| 編譯（WebHTVCore、App） | **未編譯**。唯一的編譯關卡是下次發版的 Release build；它不編譯 `WebHTVCoreTests`，測試檔的編譯仍要等有 Mac | — |
-| `-u` 連結檢查 | 以 ld64.lld-18 代替 Apple 的連結器，對實際下載的 artifact 連結：新 `Libavformat`（裝置 arm64、模擬器 arm64／x86_64）找得到 `_ff_hls_timestamp_map_segment`（`hls_timestamp.o`，一般的外部符號，patch 沒有 hidden visibility）；上游 MPVKit 1.0.0 的 `Libavformat` 報 `undefined symbol: _ff_hls_timestamp_map_segment`。`hls.o` 本來就引用它，`-u` 不改變連結內容。Apple 連結器上的結果等 Release build | 代理連結器，不是 Xcode |
+| 編譯（WebHTVCore、App） | `0.1.24 (25)` 的 Release device build（run `36230882448`）第一次即成功。它不編譯 `WebHTVCoreTests`，測試檔的編譯仍要等有 Mac | CI 編譯 |
+| `-u` 連結檢查 | 以 ld64.lld-18 代替 Apple 的連結器，對實際下載的 artifact 連結：新 `Libavformat`（裝置 arm64、模擬器 arm64／x86_64）找得到 `_ff_hls_timestamp_map_segment`（`hls_timestamp.o`，一般的外部符號，patch 沒有 hidden visibility）；上游 MPVKit 1.0.0 的 `Libavformat` 報 `undefined symbol: _ff_hls_timestamp_map_segment`。`hls.o` 本來就引用它，`-u` 不改變連結內容。正向在 Apple 連結器上由 run `36230882448` 的 Release build 確認（連結成功）；反向只以代理連結器驗證 | 代理連結器＋CI 連結 |
 | Python 逐行轉寫 `HLSAdSkipper` | 全部 24 個 `Drive` 與喚醒情境：修改後 24／24 通過；`0.1.23 (24)` 的程式 20／24，只在 4 個新或改寫的測試失敗（既有 20 個情境不變）；延遲改在 `nextTargetMs` 之後檢查、喚醒不含延遲，這兩種寫法各被一個新測試抓到 | 轉寫版，不是 Swift 編譯結果 |
 | 多代理審查 | workflow `wf_5b11e198-a2f`，三個角度（Swift 編譯、行為與回歸、連結檢查）：沒有 blocker 或 major。1 個 minor（延遲常數與測試的註解寫成 H1 有上限）與 3 個措辭 nit 已修正；「片頭廣告與 H-D 第二段也多等 0.25 秒」記為代價（本節之五）；「cache 內的手動 seek 仍帶偏差」記為已接受的邊界。原生與沒有標記的 MPV 在邏輯上逐條確認不變 | 靜態 |
 | 真機 | **未驗證** | — |
 
-### 7. 真機驗收（下一版，全部未驗證）
+### 7. 真機驗收（`0.1.24 (25)`，全部未驗證）
 
 | # | 核心 | 步驟 | 通過條件 |
 |---|---|---|---|
@@ -593,15 +593,15 @@ IOS-POC-25-2 之後的版本，D5、D6 的 MPV 部分改用第二十二節之七
 
 1. cache 內的 seek 是否讓 d 累加（E3），只有真機接 Mac 才能判斷。量到 d 超過 0.25 秒時，再決定調整延遲或恢復 gate。
 2. 真實串流的 H1 量級未量測（5.3a 是合成素材）。
-3. `-u` 的正反兩面只以代理連結器（ld64.lld-18）驗證，Apple 連結器要等 Release build；IOS-POC-25 的測試仍從未編譯過。
+3. `-u` 的反向（連上游時連結失敗）只以代理連結器（ld64.lld-18）驗證；正向已由 `0.1.24 (25)` 的 Release build 確認。IOS-POC-25 的測試仍從未編譯過。
 4. H-D（相隔 1 ms 的兩個區間）在 MPV 上會跳兩次，之間多一個切點；第二十節之二的候選 2 可處理，不在本階段。
 5. master 只有一個 rendition 帶標記時影音不同步（IOS-POC-26 第八節之四），本階段不改變。
 
 ## Recovery anchor
 
 - 目標：Android main 的 HLS VOD 中段廣告偵測與自動跳過移植到 iOS，AVPlayer 與 MPV 共用同一份 detector／timeline；任何不確定都不跳。驗收標準見第十七節。
-- 狀態（2026-09-26）：IOS-POC-25-2（MPV 在有 discontinuity 的播放清單上也跳，進入區間 0.25 秒後才觸發，`-u` 連結期檢查）已 commit，尚未發布，編譯與真機未驗證（第二十二節）。第一階段：實作 `7530acf9`、審查修正 `3243e9e0`，已隨 `0.1.22 (23)` 發布（tag `ios-v0.1.22-b23` → `450bd061`，Release build 編譯通過）；Swift 單元測試未執行。第一次真機回報：原生露出不到約 1 秒的廣告開頭，原因未定（第二十節之二）。
+- 狀態（2026-09-26）：IOS-POC-25-2（MPV 在有 discontinuity 的播放清單上也跳，進入區間 0.25 秒後才觸發，`-u` 連結期檢查，`45be83c4`）已隨 `0.1.24 (25)` 發布（tag `ios-v0.1.24-b25` → `5da03a4a`，Release build 編譯、連結成功），真機未驗證（第二十二節）。第一階段：實作 `7530acf9`、審查修正 `3243e9e0`，已隨 `0.1.22 (23)` 發布（tag `ios-v0.1.22-b23` → `450bd061`，Release build 編譯通過）；Swift 單元測試未執行。第一次真機回報：原生露出不到約 1 秒的廣告開頭，原因未定（第二十節之二）。
 - 相關檔案：第十九節之一。
 - 關鍵決策：MPV discontinuity gate（第十一節，IOS-POC-25-2 改為 0.25 秒觸發延遲與 `-u` 連結期檢查，第二十二節）、iOS 額外保護（第七、十五節）、片尾優先（第十四節）、不做 native boundary（第十一節之二）。
 - 未解：第二十一節、第二十二節之九。
-- 下一步（唯一）：等使用者決定是否以 IOS-POC-25-2 發下一版；發布後依第二十二節之七收真機結果。有 Mac 時仍依第二十節之三補測（先單元測試，執行前向使用者確認一次），並量測第二十二節之九第 1 項；測到正片變少時先處理該問題。
+- 下一步（唯一）：等使用者在 `0.1.24 (25)` 回報第二十二節之七的 M1～M7，逐列填入。有 Mac 時仍依第二十節之三補測（先單元測試，執行前向使用者確認一次），並量測第二十二節之九第 1 項；測到正片變少時先處理該問題。

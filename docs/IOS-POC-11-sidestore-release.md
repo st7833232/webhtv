@@ -578,7 +578,7 @@ WebHTV 0.1.22 (23)（未經真機驗收）
 
 ## 第二十四次發布：`0.1.23 (24)`（2026-09-26，**已發布**）
 
-**目前最新版是 `0.1.23 (24)`。** 前面二十三版都已被取代。
+**發布當時最新版是 `0.1.23 (24)`**（已被 `0.1.24 (25)` 取代，見第二十五次發布）。前面二十三版都已被取代。
 
 - 授權：使用者 2026-09-26 要求 26-2b 完成後「pull merge 在 push 發佈」，並選 A（H1 記錄為已知限制後出貨）。版號 `0.1.23`，build `24`。
 - 內容：`0.1.22 (23)` 的全部，加上 IOS-POC-26-2b：
@@ -611,4 +611,41 @@ WebHTV 0.1.23 (24)（未經真機驗收）
 已知限制
 - 含插播廣告的影片在 MPV 上連續播放、中間沒有 seek 時，顯示時間可能比播放清單時間多約 0.1～0.2 秒，經過多段廣告會累加，seek 後歸零；影音同步不受影響。
 - 含插播廣告標記的影片，MPV 仍不會自動跳廣告（智慧去廣的限制不變）。
+```
+
+## 第二十五次發布：`0.1.24 (25)`（2026-09-26，**已發布**）
+
+**目前最新版是 `0.1.24 (25)`。** 前面二十四版都已被取代。
+
+- 授權：使用者 2026-09-26 看完 IOS-POC-25-2 的交付報告後回覆「發佈」。版號 `0.1.24`，build `25`。
+- 內容：`0.1.23 (24)` 的全部，加上 IOS-POC-25-2（`45be83c4`）：
+  - MPV 在有 `#EXT-X-DISCONTINUITY` 的播放清單上也自動跳廣告，位置讀到區間起點 0.25 秒後才觸發（避開 IOS-POC-26 的 H1 與 mpv demuxer cache 造成的位置超前）；手動 seek 進廣告落在終點前 0.1 秒。
+  - App target 以 `-Wl,-u,_ff_hls_timestamp_map_segment` 綁定 WebHTV `Libavformat`。
+  - 細節見 `docs/IOS-POC-25-hls-midstream-ad-skip.md` 第二十二節。
+- 發布序列：
+  1. 版號 commit `5da03a4a`（Task-Guard `IOS-RELEASE-0.1.24-b25`）。
+  2. fetch 並 merge `origin/ios-poc`（已是最新），push `45be83c4..5da03a4a`。
+  3. `workflow_dispatch` run `36230882448`（`version=0.1.24`、`build_number=25`，success，2026-09-26 08:48:22Z 建立，08:52:13Z 發布；以 GitHub MCP 觸發）。
+  4. workflow 建立 tag `ios-v0.1.24-b25`（target `5da03a4a`），並推回 `source.json`（`d22fead2`，共二十五筆，第一筆 `0.1.24`，size 與 IPA 相同）。
+
+  **沒有手動建 tag。**
+- 產物：`WebHTV-0.1.24-25.ipa` **25,114,911 bytes**，SHA-256
+  `f817206adea80a41aaf388957c51b80092fd66adf0e53b2ab5f2137bb62a7fd7`（與 GitHub asset digest 相同）。
+  **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`com.webhtv.ios.poc` / `0.1.24` / build `25` / minimum iOS `17.0` / `UIBackgroundModes` `audio`。
+  執行檔含 patch 0005 的 `HLS timestamp discontinuity in playlist`（WebHTV 的 `Libavformat`）、IOS-POC-25 的 `[adskip]`、IOS-POC-26-1 的 `exact=`，以及 `_moltenvk_wait_events` 與 `audiounit-skip-session-management`（WebHTV 的 `Libmpv`）。
+- 發布前驗證：IOS-POC-25-2 在本環境沒有 Swift，只以 Python 逐行轉寫（24／24 個情境）、ld64.lld-18 代理連結與三角度審查驗證（IOS-POC-25 第二十二節之六）。本次 workflow 的 Release device build 第一次即成功，**這是 IOS-POC-25-2 與 `-u` 連結檢查第一次在 Xcode 上編譯與連結**；單元測試未執行，也不在這個 build 內（IOS-POC-20 Q6）。**真機尚未驗收**，驗收項目見 IOS-POC-25 文件第二十二節之七。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.24 (25)（未經真機驗收）
+
+新增
+- MPV 播放含插播廣告的影片（播放清單有 EXT-X-DISCONTINUITY）時，「智慧去廣」也會自動跳過廣告：播到廣告約 0.25 秒後跳到廣告結束前 0.1 秒；拖進度條到廣告中會落在廣告尾端。
+- 原生播放器、沒有插播標記的影片，行為不變。
+
+已知限制
+- MPV 在這類影片上，每段廣告會先露出約 0.25～0.45 秒的開頭，以及最後 0.1 秒。
+- 連續經過多段廣告後，MPV 的時間可能比播放清單多出 0.25 秒以上，這時廣告前最後一小段正片可能被跳掉；發現時請回報。
+- 設定頁關閉「智慧去廣」即可停用。
 ```

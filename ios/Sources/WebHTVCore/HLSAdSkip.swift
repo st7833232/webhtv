@@ -16,13 +16,16 @@ public struct HLSAdPlan: Sendable, Equatable {
     public let timeline: HLSAdTimeline
     /// Whether any media playlist behind the item carries `#EXT-X-DISCONTINUITY`.
     ///
-    /// **Why MPV needs to know.** MPV's FFmpeg (MPVKit 1.0.0, FFmpeg n8.1.2, unmodified) ignores the
-    /// tag: `hls.c` passes each segment's own timestamps through and seeks by comparing packet
-    /// timestamps with a playlist-time target. Across an inserted ad those two timelines differ by
-    /// the ad's length, so a source-time seek past it would drop programme content, and `time-pos`
-    /// stops being source time. Android does not have this problem because its FFmpeg
-    /// (FongMi `177f090e`) maps timestamps onto the playlist timeline (`hls_timestamp.c`). AVPlayer
-    /// keeps the playlist timeline itself.
+    /// **Why MPV needs to know.** Stock FFmpeg n8.1.2 ignores the tag: `hls.c` passes each
+    /// segment's own timestamps through, so across an inserted ad MPV's `time-pos` stops being
+    /// source time, and IOS-POC-25 kept MPV off such playlists. Since `0.1.23 (24)` the app links
+    /// WebHTV's Libavformat (`ffmpeg-n8.1.2-webhtv.1`, IOS-POC-26-2b), whose patch 0006 anchors a
+    /// VOD's timestamps to the playlist timeline (Android's FFmpeg, FongMi `177f090e`, only corrects
+    /// large jumps), so MPV acts on these playlists too (IOS-POC-25-2), waiting
+    /// `HLSAdSkipper.mpvDiscontinuityEntryDelay` for the offsets that mapping leaves. The app
+    /// target links with `-u _ff_hls_timestamp_map_segment`, so a build against the stock
+    /// Libavformat fails unless this change is reverted with it. AVPlayer keeps the playlist
+    /// timeline itself.
     public let hasDiscontinuity: Bool
 
     public init(timeline: HLSAdTimeline, hasDiscontinuity: Bool) {
@@ -30,10 +33,10 @@ public struct HLSAdPlan: Sendable, Equatable {
         self.hasDiscontinuity = hasDiscontinuity
     }
 
-    /// The ranges `engine` may act on, or nil: nothing to skip, or MPV on a playlist whose
-    /// timestamps it cannot place on the source timeline.
-    public func timeline(for engine: PlaybackEngineKind) -> HLSAdTimeline? {
-        guard !timeline.ranges.isEmpty, engine == .native || !hasDiscontinuity else { return nil }
+    /// The ranges an engine may act on, or nil when there is nothing to skip. Both engines act on
+    /// the same ranges (IOS-POC-25-2, see `hasDiscontinuity`).
+    public func timeline(for _: PlaybackEngineKind) -> HLSAdTimeline? {
+        guard !timeline.ranges.isEmpty else { return nil }
         return timeline
     }
 
@@ -291,9 +294,18 @@ public enum HLSAdPlanner {
 ///   it or past it means this engine does not play the plan's timeline, and it stops skipping for
 ///   the rest of the item.
 /// - iOS, MPV: lands `mpvLandingMargin` before a range's end, inside the ad's last segment.
-///   FFmpeg n8.1.2 (MPVKit 1.0.0) drops the first keyframe of a segment whose timestamp sits just
-///   under its playlist start and resumes a whole segment later; a target inside the preceding
-///   segment cannot lose programme that way. The price is at most that margin of the ad.
+///   FFmpeg n8.1.2 drops the first keyframe of a segment whose timestamp sits just under its
+///   playlist start and resumes a whole segment later (WebHTV's Libavformat still does on a
+///   playlist without `#EXT-X-DISCONTINUITY`); a target inside the preceding segment cannot lose
+///   programme that way. The price is at most that margin of the ad.
+/// - iOS, MPV on a playlist with `#EXT-X-DISCONTINUITY` (IOS-POC-25-2): an automatic skip waits
+///   until the position reads `mpvDiscontinuityEntryDelay` into a range. After a cut crossed
+///   without a seek that reached FFmpeg, WebHTV's Libavformat can leave `time-pos` later than the
+///   playlist time of the frame on screen (IOS-POC-26 H1: 0.044-0.093 s per cut, 0.232 s after two
+///   breaks on its fixtures, no fixed bound), and mpv serves seeks inside its demuxer cache
+///   without FFmpeg, so a skip may not clear that.
+///   Skipping at the range's start would cut that much programme; waiting costs at most that much
+///   more ad. A viewer's seek is not delayed.
 public struct HLSAdSkipper: Sendable {
     /// Plan and engine durations must agree this closely, in seconds.
     public static let durationTolerance = 1.0
@@ -309,6 +321,10 @@ public struct HLSAdSkipper: Sendable {
     public static let landingWait: Duration = .seconds(3)
     /// MPV's landing point before a range's end (see the type's notes).
     public static let mpvLandingMargin = 0.1
+    /// How far into a range MPV must read before skipping it on a playlist with discontinuities
+    /// (see the type's notes). Covers the H1 offsets IOS-POC-26 measured (0.232 s after two breaks);
+    /// H1 has no fixed bound, and an offset beyond this still cuts the difference.
+    public static let mpvDiscontinuityEntryDelay = 0.25
     /// A playhead seen this far behind its last reading was moved by a seek.
     public static let jumpBack = 0.5
 
@@ -398,7 +414,9 @@ public struct HLSAdSkipper: Sendable {
         else { return nil }
         if let endingThreshold, position >= endingThreshold { return nil }
         let positionMs = Self.milliseconds(position)
+        // The delay is checked first: a range `nextTargetMs` has seen counts as skipped.
         guard let range = timeline.range(at: positionMs),
+              positionMs >= range.startMs + entryDelayMs(engine),
               skips.nextTargetMs(timeline, positionMs) != nil else { return nil }
         let target = landingPoint(range, engine: engine, endingThreshold: endingThreshold)
         guard target > position else { return nil }
@@ -424,15 +442,22 @@ public struct HLSAdSkipper: Sendable {
         return target
     }
 
-    /// Seconds of playback until the next range starts at `rate`, zero inside one, nil when there
-    /// is none — so the caller can wake at the boundary instead of a tick after it.
+    /// Seconds of playback until the next range can be skipped at `rate` (its start, plus MPV's
+    /// entry delay where that applies), zero once it can, nil when there is none — so the caller
+    /// can wake at the boundary instead of a tick after it.
     public func secondsUntilNextRange(position: Double, rate: Float, engine: PlaybackEngineKind,
                                       duration: Double, enabled: Bool) -> Double? {
         guard rate > 0,
               let timeline = activeTimeline(engine: engine, duration: duration, enabled: enabled),
               let next = timeline.nextRange(Self.milliseconds(position)) else { return nil }
-        let start = Double(next.startMs) / 1000
+        let start = Double(next.startMs + entryDelayMs(engine)) / 1000
         return start > position ? (start - position) / Double(rate) : 0
+    }
+
+    /// How far into a range `engine` must read before an automatic skip, in milliseconds.
+    private func entryDelayMs(_ engine: PlaybackEngineKind) -> Int64 {
+        guard engine == .mpv, plan?.hasDiscontinuity == true else { return 0 }
+        return Int64((Self.mpvDiscontinuityEntryDelay * 1000).rounded())
     }
 
     private func landingPoint(_ range: HLSAdTimeline.Range, engine: PlaybackEngineKind,

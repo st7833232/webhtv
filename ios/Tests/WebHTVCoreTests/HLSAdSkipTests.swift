@@ -255,13 +255,13 @@ private func master(_ uris: [String]) -> String {
 
 // MARK: - Which engine may act
 
-@Test func mpvNeverActsOnAPlaylistWithDiscontinuities() {
-    // FFmpeg n8.1.2 keeps each segment's own timestamps across #EXT-X-DISCONTINUITY, so MPV's
-    // position is not the playlist's there. AVPlayer's is.
+@Test func bothEnginesActOnAPlaylistWithDiscontinuities() {
+    // Since 0.1.23 (24) MPV's Libavformat maps timestamps across #EXT-X-DISCONTINUITY onto the
+    // playlist timeline (IOS-POC-26-2b), the one AVPlayer keeps; the app refuses to link without it.
     let plan = HLSAdPlanner.plan(mediaPlaylist: withAd)
     #expect(plan.hasDiscontinuity)
     #expect(plan.timeline(for: .native)?.ranges == [adRange])
-    #expect(plan.timeline(for: .mpv) == nil)
+    #expect(plan.timeline(for: .mpv)?.ranges == [adRange])
     #expect(HLSAdPlan(timeline: plan.timeline, hasDiscontinuity: false).timeline(for: .mpv)?.ranges == [adRange])
 }
 
@@ -335,6 +335,33 @@ private struct Drive {
     #expect(drive.read(134.9) == nil)
     #expect(drive.read(141.0) == nil)
     #expect(drive.skipper.suspensionReason == "landed-past-target")
+}
+
+@Test func mpvWaitsAQuarterSecondIntoAnAdOnAPlaylistWithDiscontinuities() {
+    // IOS-POC-26 H1: past a cut crossed without a seek, MPV's position can read later than the
+    // playlist time on screen (0.232 s after two breaks on its fixtures, no fixed bound). Skipping
+    // when it reads 120.0 would cut that much programme; waiting shows ad instead.
+    var drive = Drive(adPlan())
+    drive.engine = .mpv
+    _ = drive.read(119.9)
+    #expect(drive.read(120.0) == nil)
+    #expect(drive.read(120.1) == nil)
+    #expect(drive.read(120.2) == nil)
+    // Readings inside the delay must not use the range up: it is still skipped once it is over.
+    #expect(drive.read(120.25) == 134.9)
+    #expect(drive.read(134.9, after: .milliseconds(300)) == nil)
+    #expect(drive.read(135.0) == nil)
+    #expect(drive.skipper.suspensionReason == nil)
+}
+
+@Test func aViewersSeekIntoAnAdOnMpvIsNotDelayed() {
+    // The delay guards playback; a seek's target is where the viewer chose to be. (A seek mpv
+    // serves from its cache keeps any offset, so a target just inside the start can still be
+    // programme on screen: an accepted edge of at most that offset.)
+    var drive = Drive(adPlan())
+    drive.engine = .mpv
+    #expect(drive.seek(120.1) == 134.9)
+    #expect(drive.seek(119.0) == 119.0)
 }
 
 @Test func aPausedPlayerInsideAnAdStaysThereUntilItPlays() {
@@ -550,6 +577,17 @@ private struct Drive {
     #expect(skipper.secondsUntilNextRange(position: 125, rate: 1, engine: .native, duration: 255, enabled: true) == 0)
     #expect(skipper.secondsUntilNextRange(position: 140, rate: 1, engine: .native, duration: 255, enabled: true) == nil)
     #expect(skipper.secondsUntilNextRange(position: 118, rate: 0, engine: .native, duration: 255, enabled: true) == nil)
+}
+
+@Test func theWatchWakesMpvWhenItsDelayIsOver() {
+    // Waking at the range's start would only read inside the delay; MPV's boundary is 0.25 s in.
+    let skipper = Drive(adPlan()).skipper
+    #expect(skipper.secondsUntilNextRange(position: 118, rate: 2, engine: .mpv, duration: 255, enabled: true) == 1.125)
+    #expect(skipper.secondsUntilNextRange(position: 120, rate: 1, engine: .mpv, duration: 255, enabled: true) == 0.25)
+    #expect(skipper.secondsUntilNextRange(position: 125, rate: 1, engine: .mpv, duration: 255, enabled: true) == 0)
+    // Without discontinuities MPV's boundary is the range's start, as AVPlayer's is.
+    let plain = Drive(adPlan(discontinuity: false)).skipper
+    #expect(plain.secondsUntilNextRange(position: 118, rate: 2, engine: .mpv, duration: 255, enabled: true) == 1)
 }
 
 @Test func theSwitchIsOnUntilTheViewerTurnsItOff() {

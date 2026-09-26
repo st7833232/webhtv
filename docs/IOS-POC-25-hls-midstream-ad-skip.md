@@ -1,6 +1,7 @@
 # IOS-POC-25 — HLS 串流中段廣告自動跳過（Android parity）
 
 - 狀態（2026-09-26）：**已隨 `0.1.22 (23)` 發布**（使用者 2026-09-26 在發版 session 選「現在發，連 IOS-POC-25 一起」，見 `docs/IOS-POC-11-sidestore-release.md` 第二十三次發布）。Release build 編譯通過；單元測試未執行。第一次真機回報：原生仍露出不到約 1 秒的廣告開頭，正片未察覺缺少；MPV 未察覺廣告。診斷與待回報的免建置檢查見第二十節之二。
+- IOS-POC-25-2（2026-09-26）：MPV 在有 `#EXT-X-DISCONTINUITY` 的播放清單上也自動跳廣告（進入區間 0.25 秒後才觸發），以連結期檢查綁定 WebHTV `Libavformat`。已 commit，**尚未發布**，編譯與真機都未驗證。見第二十二節。
 - 開始：2026-09-25 15:10 UTC。Lane：`standard`。Task guard：`IOS-POC-25`（`--no-tag`）。
 - 授權：使用者 2026-09-25 明確要求建立並開發本項目，一次完成文件、實作、測試、commit 與 push（本任務的核准，AGENTS.md §7 的實作前核准在此成立）。不含 bump 版號、tag、SideStore release、IPA、安裝到 iPhone。
 - 並行：另一個 session 同時開發 IOS-POC-26（MPV／原生切換位置）與 `0.1.22 (23)` 發布。本任務在 IOS-POC-26-1（`a6652cc3`）之上開發（第十三節記錄兩者的互動）。
@@ -181,7 +182,7 @@ rfc-editor.org、datatracker.ietf.org、trac.ffmpeg.org、code.ffmpeg.org、grea
 | 判斷時機 | `time-pos` 事件，`playbackRestarted` 之後 | 引擎無關的監看：0.1 秒（距下一個起點不到 0.1 秒時睡到起點），且必須看到播放頭以播放速率前進 | 等價 |
 | 手動 seek 進廣告 | 改到終點 | 改到終點；之後等播放頭到達新位置才恢復自動判斷 | 相同，加保護 |
 | 自動跳過後 | 無檢查 | 落點不在目標附近（早 0.25 秒以上或晚 1.5 秒以上）就停止該核心本項目的跳過 | iOS 更保守 |
-| MPV 時間軸 | FongMi FFmpeg 對齊 discontinuity | FFmpeg n8.1.2 不對齊：**playlist 有 `#EXT-X-DISCONTINUITY` 時 MPV 不跳**；其餘落點在終點前 0.1 秒 | iOS 更保守 |
+| MPV 時間軸 | FongMi FFmpeg 對齊 discontinuity | FFmpeg n8.1.2 不對齊：**playlist 有 `#EXT-X-DISCONTINUITY` 時 MPV 不跳**；其餘落點在終點前 0.1 秒。IOS-POC-25-2 起改為進入區間 0.25 秒後才跳（第二十二節） | iOS 更保守 |
 | native-output-boundary | 有 | **沒有**（第十一節） | iOS 可能露出廣告最初約 0.1 秒 |
 | ExoPlayer 刪段 | 有 | 不適用（iOS 沒有 Exo，也不刪段） | — |
 | 片尾（ending）| 各自獨立 | 片尾之後的範圍交給片尾處理，跨過片尾的廣告只跳到片尾點 | iOS 明確定義 |
@@ -228,6 +229,7 @@ rfc-editor.org、datatracker.ietf.org、trac.ffmpeg.org、code.ffmpeg.org、grea
 3. **有 discontinuity 的 playlist 上 MPV 不跳**（手動 seek 也不改寫）。原因見第四節 S4、S5：iOS 的 FFmpeg 不把 discontinuity 後的時間戳對到 playlist 時間軸，`time-pos` 不是 source time；在這種 playlist 上以 source time seek 過廣告，FFmpeg 會丟掉封包直到 DTS 追上目標，等於丟掉約一個廣告長度的正片。IOS-POC-26 的 RC3 也獨立得到相同結論。
 4. 沒有 discontinuity 時落點在終點前 0.1 秒（廣告最後一段內），避開 n8.1.2 邊界 seek 晚一段的問題（S6）。代價是最多多看 0.1 秒廣告。
 5. 實際效果：插播廣告幾乎都帶 discontinuity，所以**在 iOS 的 MPV 上，大多數含廣告的影片目前不會自動跳過**，改用原生播放器才會跳。要讓 MPV 完全對齊 Android，需要把 FongMi 的 `hls_timestamp.c` 對齊（與 S6 的 seek 修正）移植到 iOS 的 FFmpeg；那是替換二進位的獨立任務，需要使用者核准，也與 IOS-POC-26-2 的研究有關。
+6. **IOS-POC-25-2 更新**：`0.1.23 (24)` 起 App 連結 WebHTV `Libavformat`（IOS-POC-26-2b），第 3、5 點的限制已解除，改為進入區間 0.25 秒後才跳，見第二十二節。
 
 ### 2. native-output-boundary：本階段不做
 
@@ -261,7 +263,7 @@ rfc-editor.org、datatracker.ietf.org、trac.ffmpeg.org、code.ffmpeg.org、grea
 | 背景播放、子母畫面 | 監看是 App 內的 Task，App 在執行就照常；不依賴播放畫面 |
 | 同一廣告的舊讀值 | `SkipState` 只跳一次；自動跳過後在確認落點前不做下一次跳過。落點要看到播放頭**從目標附近繼續前進**才算確認：mpv 在 seek 後、第一個畫面解碼前會把 seek 目標本身當成位置回報，只有之後的讀值才代表實際落點 |
 | 子母畫面的跳秒鍵、系統控制的 seek（不經過 `PlaybackSession.seek`） | 讀值之間出現不是播放造成的跳動（往回超過 0.5 秒，或往前超過速率允許的距離），而且當下沒有自動跳過或使用者 seek 在等待落定，就同樣忘記已跳過的區間；往回跳進已跳過的廣告會再跳一次。這類 seek 不會被改寫到廣告終點，而是播放開始後由自動判斷跳過 |
-| 切換核心（手動、fallback、IOS-POC-22、17F 逾時）| `onEngineChange` 清除已跳過的區間與讀值；計畫屬於同一個項目，保留使用；新核心自己的 duration 要再比對一次；MPV 另受 discontinuity gate |
+| 切換核心（手動、fallback、IOS-POC-22、17F 逾時）| `onEngineChange` 清除已跳過的區間與讀值；計畫屬於同一個項目，保留使用；新核心自己的 duration 要再比對一次；MPV 在有 discontinuity 的播放清單上另有 0.25 秒觸發延遲（IOS-POC-25-2，第二十二節） |
 | IOS-POC-23 暫停重載 | 同上（`reloadPaused` 清除） |
 | 新引擎的預設位置 0 或跳到交接位置 | 不算「在播」，不會觸發片頭廣告的跳過 |
 | 下一集、換畫質、換片、WebHome 內嵌下一項、停止 | 新的 generation，上一項的計畫、已跳過的區間、暫停狀態全部清除；停止時結束監看 |
@@ -296,7 +298,7 @@ rfc-editor.org、datatracker.ietf.org、trac.ffmpeg.org、code.ffmpeg.org、grea
 9. 同一 playlist 讀兩次切點不同，或第二次讀取失敗。
 10. 跳過總長超過 25%、區間數超過 detector 的斷點上限。
 11. 引擎 duration 與計畫相差超過 1 秒。
-12. MPV 且任一 media playlist 有 `#EXT-X-DISCONTINUITY`。
+12. MPV 且任一 media playlist 有 `#EXT-X-DISCONTINUITY`。IOS-POC-25-2 起不再整份不跳，改為播放頭進入區間 0.25 秒前不自動跳（第二十二節）。
 13. 播放頭沒有以播放速率前進（暫停、緩衝、剛載入、剛 seek）。
 14. 使用者 seek 還沒落定。
 15. 位置在片尾點之後。
@@ -352,7 +354,7 @@ App 端的接線（`PlaybackSession` 的監看 Task、設定頁）、AVPlayer �
 2. 原生播放器：含插播廣告的 HLS VOD 在廣告開始後約 0.1 秒內跳到廣告結束；正片沒有被跳掉；同一廣告只跳一次；往回 seek 越過廣告後再播會再跳。
 3. 手動 seek 進廣告落在廣告結束；seek 到正片落點不變。
 4. 片尾、auto-next、WatchHistory 續播、播放速度、畫質、暫停、背景、子母畫面、IOS-POC-23 暫停重載、IOS-POC-26 切換都維持既有行為。
-5. MPV：有 discontinuity 的廣告影片不跳（照播廣告）且 seek 行為與以前相同；沒有 discontinuity 的可偵測廣告會跳。
+5. MPV：有 discontinuity 的廣告影片不跳（照播廣告）且 seek 行為與以前相同；沒有 discontinuity 的可偵測廣告會跳。IOS-POC-25-2 的驗收標準改為第二十二節之七。
 6. 關閉「智慧去廣」後立即不再跳。
 7. 單元測試全部通過（要在有 Swift 的環境執行）。
 
@@ -361,6 +363,7 @@ App 端的接線（`PlaybackSession` 的監看 Task、設定頁）、AVPlayer �
 1. 單一功能 commit，`git revert` 即可；沒有資料格式、lock、二進位、patch 或 workflow 變更。
 2. 不 revert 的關閉方式：設定頁關閉「智慧去廣」；或讓 `HLSAdPlanner.isCandidate` 永遠回 false（完全不讀 playlist、不監看）。
 3. 使用者也可以在 SideStore 裝回上一版。偏好 `webhtv.playback.hlsAdSkip` 留在 UserDefaults 不影響舊版。
+4. IOS-POC-25-2 的回滾與連結期檢查的順序見第二十二節之八。
 
 ## 十九、實作紀錄（2026-09-25）
 
@@ -434,6 +437,8 @@ App 端的接線（`PlaybackSession` 的監看 Task、設定頁）、AVPlayer �
 | D12 | 原生 | 1.5× 播放到廣告 | 跳過，速度不變 |
 | D13 | 原生 | 暫停、鎖螢幕 60 秒、回來（IOS-POC-23）後播到廣告 | 跳過 |
 
+IOS-POC-25-2 之後的版本，D5、D6 的 MPV 部分改用第二十二節之七的 M 項目。
+
 ### 2. 第一次真機回報與診斷（2026-09-26）
 
 **回報**（D1、部分 D6）：原生在廣告開始後，畫面在動、有廣告聲音，不到約 1 秒（使用者未計秒）才跳走；跳過後正片沒有察覺缺少。MPV 沒感覺到廣告，不確定進度是否往前跳。沒有裝置 log（沒有 Mac）。
@@ -479,7 +484,7 @@ App 端的接線（`PlaybackSession` 的監看 Task、設定頁）、AVPlayer �
 
 ## 二十一、已知限制與後續
 
-1. **MPV 在大多數插播廣告影片上不跳**（第十一節之一第 5 點）。後續：iOS FFmpeg 的 discontinuity 時間戳對齊（需核准的二進位任務），與 IOS-POC-26-2 一起評估。
+1. **MPV 在大多數插播廣告影片上不跳**（第十一節之一第 5 點）。IOS-POC-26-2b 已在 `0.1.23 (24)` 對齊時間戳；IOS-POC-25-2 解除限制，剩下的 H1 與 cache 風險見第二十二節之九。
 2. **沒有 native-output-boundary**：設計預估兩個核心會露出廣告最初約 0.1 秒；真機原生實測不到約 1 秒，原因未定（第二十節之二）。
 3. **偵測本身是 Android 的啟發式**，會繼承它的誤判：例如 golden `h-disc-fallback` 中兩個 4 段的區塊被當成廣告（總長未超過上限時仍會跳）；同一集的正片分散在兩個 CDN 主機、檔名序號進位，也可能被當成廣告。iOS 的比例與區間數上限只能擋住極端情況。
 4. **iOS 分開讀 playlist**：伺服器若每次插入位置不同但總長與兩次讀取剛好一致，仍可能對錯位置（機率低，有讀兩次與 duration 比對）。
@@ -488,11 +493,115 @@ App 端的接線（`PlaybackSession` 的監看 Task、設定頁）、AVPlayer �
 7. **AVPlayer 的 variant 可能先被本功能讀到**：計畫在引擎開啟媒體後才讀，項目本身的網址一定已被引擎用過；但 AVPlayer 還沒載入的其他 variant，可能由本功能先讀。一次性網址的 variant 若因此失效，AVPlayer 之後切到那條會失敗。尚無案例，真機驗收時留意。
 8. **跳動偵測的邊界**：自動跳過或使用者 seek 等待落定的期間，其他來源的 seek 不會被偵測；落定後若引擎回報一次 seek 前的舊位置，可能多做一次跳到同一個廣告終點的 seek（不會跳掉正片）。
 
+## 二十二、IOS-POC-25-2：MPV 在有 discontinuity 的播放清單上跳廣告（2026-09-26）
+
+### 1. 授權與前提
+
+1. 使用者 2026-09-26 讀完評估（方案 A～F）後，選 D，指示「先測試D試試」：在 `0.1.23 (24)` 真機確認 IOS-POC-26 第八節之三的條件之前，先實作供下一版測試。這是使用者對原本「確認之前只能規劃，不能解除」的明確變更。bump 版本、tag、發布仍要先問。
+2. Lane `standard`，task guard `IOS-POC-25-2`（`--no-tag`）。Ponytail：unavailable／skipped。
+3. 基底：`origin/ios-poc` `07539268`（含 `0.1.23 (24)`：`Package.swift` 的 `Libavformat` 是 `ffmpeg-n8.1.2-webhtv.1`，checksum `ba3e718d…`，`e5f15c73`）。
+4. 指定分支 `claude/ios-poc-25-ad-skip-assessment-whmqwu` 開始時是 `main` 的 `58562327`。`main` 有 68 個 commit 不在 `ios-poc`（Android 與 CI），所以無法 fast-forward；本機分支改以 `origin/ios-poc` 為基底（該分支沒有獨有 commit，不會遺失內容）。
+5. 不修改 IOS-POC-26 所有的檔案（第八節之五）：`third_party/mpv-ios/patches/ffmpeg/`、`.github/workflows/ios-ffmpeg-build.yml`、lock 的 `ffmpeg` 區段、`Package.swift` 的 `Libavformat`。
+
+### 2. 研究（評估 workflow `wf_17dc2eee-a8c`，2026-09-26 讀取）
+
+| # | 來源 | 等級 | 支持的論點 | 對決策的影響 |
+|---|---|---|---|---|
+| E1 | IOS-POC-26 文件 5.3a、第八節；patch 0006 的 commit message | A | H1：切點前的編碼音訊領先影像 2048 樣本以上時，之後的序列整段延後。每個切點 +0.044～0.093 秒，兩個時段後 0.232 秒，沒有固定上限。F2、G4 與它同方向 | MPV 的 `time-pos` 比畫面多 d，自動跳過提早 d，丟掉廣告前 d 秒正片 |
+| E2 | patch 0006（seek 後重建的狀態） | A（推論） | seek 之後偏移重設，但下一個切點仍套用 H1 的重疊規則 | MPV 落在終點前 0.1 秒後會線性越過「廣告→正片」切點，所以有跳也可能留下 +0.044～0.093 秒 |
+| E3 | mpv v0.41.0 `demux/demux.c:2463-2474`、`:3841-3863`、`stream/stream_lavf.c:450`；`MPVEngine.swift` 沒有設 cache 選項 | A | lavf 串流預設開啟 seekable demuxer cache（`cache-secs` 1 小時、前向 150 MiB）；目標在 cache 內時走 `execute_cache_seek`，不呼叫 `hls_read_seek` | 跳廣告的 seek 可能不會把 d 歸零，d 可能隨讀過的切點累加（推論，未驗證）。這與 IOS-POC-26 第八節之二「每次跳廣告本身就是一次 seek，偏差會歸零」衝突，兩邊都是推論 |
+| E4 | `HLSAdSkip.swift` 的落點檢查、跳動偵測、duration 比對 | A | 三者都看不到 d：落點看 seek 之後；1× 每 0.1 秒容許 0.45 秒；duration 兩邊都是 EXTINF 總和 | 只能靠設計上的餘量 |
+| E5 | IOS-POC-26 第六節；`ios-ffmpeg-build.yml:257-272` | A | 連上游 `Libavformat` 時，廣告自帶 PTS 會讓跳過落錯位置（推論：丟約 15 秒正片或跳回片頭）；duration 分不出兩版；lane 要求版本與 configure 字串和上游相同，執行期沒有公開字串可以分辨 | 解除必須與新 `Libavformat` 綁定，而且綁錯時要 fail loud |
+| E6 | Apple ld64 `-u symbol_name`（`man ld`） | A | 指定的符號必須有定義，否則連結失敗 | 連結期耦合 |
+| E7 | IOS-POC-26 5.3 表（忠實移植＝FongMi／Android） | A | Android 的 FFmpeg 線性播放多數差 0.08 秒，部分配置 15～28 秒；Android 的 MPV 在區間起點就跳 | iOS 的 0006 加延遲比 Android parity 更保守 |
+
+論文、部落格與上游討論：這一階段的決策只取決於 E1～E6 的原始碼與量測，沒有會被它們改變的問題，不另外檢索。
+
+### 3. 方案比較
+
+| 方案 | 內容 | 判斷 |
+|---|---|---|
+| A 不改 | 維持 gate，MPV 照播廣告 | 使用者要先測 |
+| B 只刪 gate | 一行 | 否決：丟 d 秒正片；FFmpeg 回滾時無聲跳錯 |
+| C B 加連結期耦合 | `-u _ff_hls_timestamp_map_segment` | 可行，但 H1 仍丟正片 |
+| **D C 加觸發延遲（採用）** | 只在 MPV 且 `hasDiscontinuity` 時，位置讀到區間起點 0.25 秒後才自動跳 | 使用者選定。d ≤ 0.25 秒時不丟正片（涵蓋 5.3a 所有 H1 量測）；延後是安全方向，第二十節之二第 4 條否決的是提早觸發 |
+| E 落點改到終點之後 | margin 0 | 否決：`endMs` 捨去，目標仍可能在廣告最後一段；cache seek 時無效 |
+| F 放寬 0006 的音訊重疊 | 改 patch | 不在範圍（IOS-POC-26 所有） |
+
+其他耦合做法：執行期偵測不可行（E5）；發版 workflow 檢查只在發版時生效；只寫文件在回滾時不會報錯。
+
+### 4. 實作
+
+| 檔案 | 內容 |
+|---|---|
+| `ios/Sources/WebHTVCore/HLSAdSkip.swift` | `HLSAdPlan.timeline(for:)` 不再排除 MPV；新增 `HLSAdSkipper.mpvDiscontinuityEntryDelay = 0.25`；`automaticTarget` 在 `skips.nextTargetMs` **之前**檢查延遲（否則延遲期間的讀值會把區間記成已跳，之後永遠不跳）；`secondsUntilNextRange` 在 `起點 + 延遲` 喚醒；新增 `entryDelayMs`；更新 `hasDiscontinuity`、`timeline(for:)` 與型別說明的註解。手動 seek 不延遲，MPV 落點仍是終點前 0.1 秒 |
+| `ios/WebHTVApp/WebHTVApp.xcodeproj/project.pbxproj` | App target 的 Debug 與 Release 加 `OTHER_LDFLAGS = ("$(inherited)", "-Wl,-u,_ff_hls_timestamp_map_segment")`。連到上游 `Libavformat` 時連結失敗 |
+| `ios/Tests/WebHTVCoreTests/HLSAdSkipTests.swift` | `mpvNeverActsOnAPlaylistWithDiscontinuities` 改為 `bothEnginesActOnAPlaylistWithDiscontinuities`；新增 `mpvWaitsAQuarterSecondIntoAnAdOnAPlaylistWithDiscontinuities`、`aViewersSeekIntoAnAdOnMpvIsNotDelayed`、`theWatchWakesMpvWhenItsDelayIsOver` |
+
+`WebHTVApp.swift`、`MPVEngine.swift`、`PlaybackEngine.swift`、IOS-POC-26 所有的檔案都沒有修改。
+
+### 5. 行為
+
+| 情境 | 行為 |
+|---|---|
+| MPV、有 discontinuity、播到廣告 | 位置讀到起點 + 0.25 秒後跳到終點前 0.1 秒 |
+| MPV、有 discontinuity、使用者 seek 進廣告 | 落在終點前 0.1 秒（不延遲） |
+| MPV、沒有 discontinuity | 與 `0.1.23 (24)` 相同 |
+| 原生 | 與 `0.1.23 (24)` 相同 |
+| 關閉「智慧去廣」 | 兩個核心都不跳 |
+
+代價與殘留：
+
+1. MPV 在這類影片上每個時段約露出 0.25 秒加監看間隔（≤ 0.1 秒）加 seek 時間的廣告開頭，以及最後 0.1 秒。
+2. d 超過 0.25 秒時（cache 讓 d 累加、F2 的長期累加），仍會丟 d − 0.25 秒正片。
+3. cache 處理的 seek 落點也會早 d 秒：多看 d 秒廣告，不丟正片。
+4. 0.35 秒以下的區間在 MPV 上不會自動跳。
+5. 延遲也作用在不需要它的地方：片頭廣告（區間從 0 開始，前面沒有切點）與 H-D 的第二段（前面是廣告，不是正片），各多露出約 0.25 秒廣告。為了規則單純，不另設例外。
+
+### 6. 驗證
+
+| 檢查 | 結果 | 證據等級 |
+|---|---|---|
+| `swift test` | **未執行**：本環境沒有 Swift 工具鏈 | — |
+| 編譯（WebHTVCore、App） | **未編譯**。唯一的編譯關卡是下次發版的 Release build；它不編譯 `WebHTVCoreTests`，測試檔的編譯仍要等有 Mac | — |
+| `-u` 連結檢查 | 以 ld64.lld-18 代替 Apple 的連結器，對實際下載的 artifact 連結：新 `Libavformat`（裝置 arm64、模擬器 arm64／x86_64）找得到 `_ff_hls_timestamp_map_segment`（`hls_timestamp.o`，一般的外部符號，patch 沒有 hidden visibility）；上游 MPVKit 1.0.0 的 `Libavformat` 報 `undefined symbol: _ff_hls_timestamp_map_segment`。`hls.o` 本來就引用它，`-u` 不改變連結內容。Apple 連結器上的結果等 Release build | 代理連結器，不是 Xcode |
+| Python 逐行轉寫 `HLSAdSkipper` | 全部 24 個 `Drive` 與喚醒情境：修改後 24／24 通過；`0.1.23 (24)` 的程式 20／24，只在 4 個新或改寫的測試失敗（既有 20 個情境不變）；延遲改在 `nextTargetMs` 之後檢查、喚醒不含延遲，這兩種寫法各被一個新測試抓到 | 轉寫版，不是 Swift 編譯結果 |
+| 多代理審查 | workflow `wf_5b11e198-a2f`，三個角度（Swift 編譯、行為與回歸、連結檢查）：沒有 blocker 或 major。1 個 minor（延遲常數與測試的註解寫成 H1 有上限）與 3 個措辭 nit 已修正；「片頭廣告與 H-D 第二段也多等 0.25 秒」記為代價（本節之五）；「cache 內的手動 seek 仍帶偏差」記為已接受的邊界。原生與沒有標記的 MPV 在邏輯上逐條確認不變 | 靜態 |
+| 真機 | **未驗證** | — |
+
+### 7. 真機驗收（下一版，全部未驗證）
+
+| # | 核心 | 步驟 | 通過條件 |
+|---|---|---|---|
+| M1 | MPV | 從頭播有插播廣告（有 discontinuity）的影片到第一個廣告 | 廣告開始後約 0.5 秒內跳到廣告尾端 |
+| M2 | MPV | 拖進度條到廣告中間 | 落在廣告尾端 |
+| M3 | MPV | 不操作，連續播過第一個時段到第二個 | 第二個也跳過；廣告前的正片沒有察覺缺少 |
+| M4 | MPV | 關閉「智慧去廣」播同一集 | 照播廣告，seek 與 `0.1.23 (24)` 相同 |
+| M5 | 兩者 | 原生播同一集、MPV 播沒有廣告的影片 | 與以前相同 |
+| M6 | MPV | 尾端廣告 | 只換一集 |
+| M7 | MPV | 1.5× 播到廣告 | 跳過，速度不變 |
+
+有 Mac 時（第二十節之三）另外量測：`[adskip] skip from=` 與區間起點的差、廣告前最後一個正片畫面在開關前後是否相同、cache 內與 cache 外的 seek 是否讓 d 歸零。
+
+### 8. 回滾
+
+1. revert 本階段的 commit：同時恢復 gate、移除延遲與 `-u` 連結檢查。
+2. 若 IOS-POC-26-2b-2 要回滾（`Package.swift` 的 `Libavformat` 改回上游），**必須先 revert 本階段**，否則 Release build 會因 `_ff_hls_timestamp_map_segment` undefined 而連結失敗。這是刻意的 fail loud：避免 MPV 在沒有時間戳對齊的 FFmpeg 上跳錯位置。
+3. 不 revert 的關閉方式：設定頁關閉「智慧去廣」。
+
+### 9. 未解
+
+1. cache 內的 seek 是否讓 d 累加（E3），只有真機接 Mac 才能判斷。量到 d 超過 0.25 秒時，再決定調整延遲或恢復 gate。
+2. 真實串流的 H1 量級未量測（5.3a 是合成素材）。
+3. `-u` 的正反兩面只以代理連結器（ld64.lld-18）驗證，Apple 連結器要等 Release build；IOS-POC-25 的測試仍從未編譯過。
+4. H-D（相隔 1 ms 的兩個區間）在 MPV 上會跳兩次，之間多一個切點；第二十節之二的候選 2 可處理，不在本階段。
+5. master 只有一個 rendition 帶標記時影音不同步（IOS-POC-26 第八節之四），本階段不改變。
+
 ## Recovery anchor
 
 - 目標：Android main 的 HLS VOD 中段廣告偵測與自動跳過移植到 iOS，AVPlayer 與 MPV 共用同一份 detector／timeline；任何不確定都不跳。驗收標準見第十七節。
-- 狀態（2026-09-26）：實作 `7530acf9`、審查修正 `3243e9e0`，已隨 `0.1.22 (23)` 發布（tag `ios-v0.1.22-b23` → `450bd061`，Release build 編譯通過）；Swift 單元測試未執行。第一次真機回報：原生露出不到約 1 秒的廣告開頭，原因未定（第二十節之二）。
+- 狀態（2026-09-26）：IOS-POC-25-2（MPV 在有 discontinuity 的播放清單上也跳，進入區間 0.25 秒後才觸發，`-u` 連結期檢查）已 commit，尚未發布，編譯與真機未驗證（第二十二節）。第一階段：實作 `7530acf9`、審查修正 `3243e9e0`，已隨 `0.1.22 (23)` 發布（tag `ios-v0.1.22-b23` → `450bd061`，Release build 編譯通過）；Swift 單元測試未執行。第一次真機回報：原生露出不到約 1 秒的廣告開頭，原因未定（第二十節之二）。
 - 相關檔案：第十九節之一。
-- 關鍵決策：MPV discontinuity gate（第十一節）、iOS 額外保護（第七、十五節）、片尾優先（第十四節）、不做 native boundary（第十一節之二）。
-- 未解：第二十一節。
-- 下一步（唯一）：有 Mac 時依第二十節之三補測，第一步是單元測試，執行前先向使用者確認一次；測到正片變少時先處理該問題。沒有 Mac 之前本任務不再動程式。
+- 關鍵決策：MPV discontinuity gate（第十一節，IOS-POC-25-2 改為 0.25 秒觸發延遲與 `-u` 連結期檢查，第二十二節）、iOS 額外保護（第七、十五節）、片尾優先（第十四節）、不做 native boundary（第十一節之二）。
+- 未解：第二十一節、第二十二節之九。
+- 下一步（唯一）：等使用者決定是否以 IOS-POC-25-2 發下一版；發布後依第二十二節之七收真機結果。有 Mac 時仍依第二十節之三補測（先單元測試，執行前向使用者確認一次），並量測第二十二節之九第 1 項；測到正片變少時先處理該問題。

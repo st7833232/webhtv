@@ -343,7 +343,9 @@ public struct WebHomeBridge: Sendable {
             await actions.search(keyword)
             return "{}"
         case "app.history":
-            return Self.historyText(await history.records())
+            // IOS-POC-30: this configuration's list, as the history screen shows it — Android's
+            // `HomeWebBridge.history()` is `History.get()`, the current configuration's only.
+            return Self.historyText(await history.records(for: source.identity))
         case "cache.get":
             return Self.jsonText(defaults.string(forKey: Self.cacheKey(payload)) ?? "")
         case "cache.set":

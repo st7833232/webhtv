@@ -153,15 +153,19 @@ private func record(_ vodId: String, siteKey: String = "s", siteID: String = "s\
     let (store, directory) = try scratchStore("remove-per-source")
     await store.save(watched("a1", on: "configA"))
     await store.save(watched("old", on: nil))
+    await store.save(watched("b1", on: "configB"))
 
     await store.remove(key: WatchHistory.key(siteID: "site", vodId: "a1"), for: "configA")
     await store.remove(key: WatchHistory.key(siteID: "site", vodId: "old"), for: "configA")
+    // A's list can be a moment behind a save made under B; a swipe there must not reach B's record.
+    await store.remove(key: WatchHistory.key(siteID: "site", vodId: "b1"), for: "configA")
 
     let reread = WatchHistoryStore(directory: directory)
     #expect(await reread.records(for: "configA").isEmpty)
-    #expect(await reread.records(for: "configB").map(\.vodId) == ["old"], "a shared row stays on other lists")
+    #expect(await reread.records(for: "configB").map(\.vodId).sorted() == ["b1", "old"],
+            "a shared row and B's own row stay on B's list")
     // A record the source owned is gone for good, not merely hidden.
-    #expect(await reread.records().map(\.vodId) == ["old"])
+    #expect(await reread.records().map(\.vodId).sorted() == ["b1", "old"])
 }
 
 @Test func watchingAHiddenRecordAgainListsItUnderThatSource() async throws {

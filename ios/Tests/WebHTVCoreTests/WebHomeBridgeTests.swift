@@ -72,6 +72,29 @@ private func scratchDefaults(_ name: String) throws -> UserDefaults {
     #expect(items.first?["position"] as? Double == 42_000)
 }
 
+/// IOS-POC-30: a page sees this configuration's list, as the history screen does — not another
+/// configuration's records, and not a shared one this configuration has cleared.
+@Test func appHistoryReportsOnlyThisConfigurationsList() async throws {
+    let defaults = try scratchDefaults("history-per-source")
+    let store = WatchHistoryStore(directory: URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("webhome-history-\(UUID().uuidString)", isDirectory: true))
+    await store.save(WatchHistory(key: "site\u{0}{}@@@1", siteKey: "site", sourceID: "imported",
+                                  vodId: "1", position: 42_000, duration: 2_400_000))
+    await store.save(WatchHistory(key: "site\u{0}{}@@@2", siteKey: "site",
+                                  sourceID: "https://other.example/c.json",
+                                  vodId: "2", position: 42_000, duration: 2_400_000))
+    let subject = bridge(defaults: defaults, history: store)
+
+    let text = try await subject.handle(method: "app.history", payload: [:])
+    let items = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [[String: Any]])
+    #expect(items.map { $0["key"] as? String } == ["site@@@1"])
+
+    await store.save(WatchHistory(key: "site\u{0}{}@@@3", siteKey: "site", vodId: "3",
+                                  position: 42_000, duration: 2_400_000))
+    await store.clear(for: "imported")
+    #expect(try await subject.handle(method: "app.history", payload: [:]) == "[]")
+}
+
 @Test func reportsAnEmptyHistoryAndRejectsUnsupportedMethods() async throws {
     let defaults = try scratchDefaults("misc")
     let subject = bridge(defaults: defaults)

@@ -366,11 +366,13 @@ public actor WatchHistoryStore {
 
     /// One row swiped away on one configuration's list (IOS-POC-30): a record that configuration
     /// owns is deleted; one from before sources were separable, which every list shows, is only
-    /// hidden from this one.
+    /// hidden from this one; and one another configuration owns — the list can be a moment behind
+    /// a save made from Picture in Picture — is left alone, as `clear(for:)` leaves it.
     public func remove(key: String, for sourceID: String) {
         store(loaded().compactMap { (record: WatchHistory) -> WatchHistory? in
             guard record.key == key else { return record }
-            return record.sourceID == nil ? Self.hiding(record, from: sourceID) : nil
+            if record.sourceID == sourceID { return nil }
+            return record.sourceID == nil ? Self.hiding(record, from: sourceID) : record
         })
     }
 

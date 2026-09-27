@@ -1282,6 +1282,9 @@ private struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                // The collapsed row is what VoiceOver meets first, and nothing guarantees an option's
+                // label reaches it; stated here so it reads 「2 倍」, never 「2 乘」.
+                .accessibilityValue(defaultSpeed.formatted(.number.precision(.fractionLength(0...2))) + " 倍")
             } header: {
                 Text("預設播放速度")
             } footer: {

@@ -28,7 +28,7 @@
 
 `ios/WebHTVApp/Sources/WebHTVApp.swift`：
 
-1. 預設播放器：`Picker("播放器")`（`:1249`）＋ `.pickerStyle(.menu)`。選單項目無法停用，尚未開放的核心仍標示「（尚未開放）」，選到時由 setter 拒絕。
+1. 預設播放器：`Picker("播放器")`（`:1249`）＋ `.pickerStyle(.menu)`。選單項目未停用（iOS 17 起才有的 `selectionDisabled` 未使用），尚未開放的核心仍標示「（尚未開放）」，選到時由 setter 拒絕。
 2. 預設播放速度：`Picker("速度")`（`:1271`）＋ `.pickerStyle(.menu)`；選項讀 `PlaybackSpeedPreference.choices`。收合列加 `.accessibilityValue`，VoiceOver 讀「N 倍」，不讀「N 乘」。
 3. 內容來源：一列 `NavigationLink`，標籤 `LabeledContent("目前來源")`（`:1308`，值來自 `currentSiteName`，`:1405`）；推入 `SiteChoiceList`（`:1436`），開啟時捲到目前來源（與首頁來源切換同一做法），選了之後返回並跳回首頁，與原本一樣。
 4. 區塊標題、說明文字、智慧去廣、已存來源、設定來源都不變。

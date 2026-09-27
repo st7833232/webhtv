@@ -1243,8 +1243,8 @@ private struct SettingsView: View {
             // without touching this. An engine that is not offered yet is listed but not choosable.
             //
             // IOS-POC-31: one row with a pop-up menu, not a row per engine — the page was too long.
-            // A menu item cannot be disabled, so an engine not offered yet is still labelled and the
-            // choice is refused.
+            // Menu items are not disabled (`selectionDisabled` is not used), so an engine not offered
+            // yet is still labelled and the setter refuses the choice.
             Section {
                 Picker("播放器", selection: Binding(
                     get: { defaultEngine },

@@ -1503,7 +1503,8 @@ private struct VodView: View {
             if let detail {
                 VStack(alignment: .leading, spacing: 24) {
                     // IOS-POC-32: the poster sits above the title and is shown whole. Beside the
-                    // title it was cut to 112×168, and a landscape image ran under the text.
+                    // title it was sized to 112×168, and a wider image ran past that box, to the
+                    // screen edge and under the text.
                     VStack(alignment: .leading, spacing: 16) {
                         VodPoster(vod: summary)
                         VStack(alignment: .leading, spacing: 8) {
@@ -1970,8 +1971,8 @@ private struct VodPoster: View {
 
     var body: some View {
         // The box has a fixed height and the artwork fits inside it, so any ratio is shown whole:
-        // a landscape image spans the width, a portrait one is centred. The corners are cut on the
-        // fitted image itself. Filling and then clipping, as before, clipped to the overflowing
+        // an image wider than the box spans its width, and any other is centred at full height.
+        // The corners are cut on the fitted image itself. Filling and then clipping, as before, clipped to the overflowing
         // image rather than the box, so nothing was cut.
         AsyncImage(url: URL(string: vod.picture)) { phase in
             switch phase {

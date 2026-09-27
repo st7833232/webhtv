@@ -62,7 +62,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **任務狀態**
 
-- IOS-POC-32「詳情頁：海報蓋到標題、顯示年份簡介演員、簡體顯示為台灣繁體、日文翻譯」（2026-09-27 使用者要求，附截圖）：只做規劃，未改程式。A 海報版面（quick-fix：`VodPoster` 的 `clipShape` 在呼叫端 `.frame` 之前，橫向海報超出約 93 pt；改用 `VodCard` 的 2:3 容器做法）；B 年份、地區、類型、導演、演員、簡介；C 只在顯示時把簡體轉成台灣繁體（OpenCC 衍生，只轉簡體輸入，搜尋與身分值不動）；D iOS 18 Apple Translation 把日文翻成中文。等使用者對文件第十節做決定。見 `docs/IOS-POC-32-detail-metadata-zhtw.md`。
+- IOS-POC-32「詳情頁：海報蓋到標題、顯示年份簡介演員、簡體顯示為台灣繁體、日文翻譯」（2026-09-27 使用者要求，附截圖）：A 海報版面已實作（`VodPoster` 的 `clipShape` 在呼叫端 `.frame` 之前，橫向海報超出約 93 pt；使用者改定為海報在上、標題在下、完整顯示，固定 240 pt 高的框內 `scaledToFit`），未編譯、真機未驗證；使用者另選：測試只靠編譯與真機、C 用 OpenCC 衍生、統一用「台」。待核准：B 年份、地區、類型、導演、演員、簡介；C 只在顯示時把簡體轉成台灣繁體（OpenCC 衍生，只轉簡體輸入，搜尋與身分值不動）；D iOS 18 Apple Translation 把日文翻成中文。等使用者對文件第十節做決定。見 `docs/IOS-POC-32-detail-metadata-zhtw.md`。
 - IOS-POC-31「設定頁太長」（2026-09-27 使用者要求）：預設播放器、預設播放速度改為一列的下拉選單（`Picker` `.menu`），區塊與說明文字不變（使用者選擇）；內容來源（67 個）改為一列「目前來源 ›」，點進去是開在目前來源的清單（不用選單：選單無法捲到目前項目，首頁來源切換已實測）。已隨 `0.1.27 (28)` 發布（Release build 第一次即編譯成功），真機未驗證。見 `docs/IOS-POC-31-settings-menus.md`。
 - IOS-POC-30「觀看記錄的清除會刪到其他來源的記錄」（2026-09-26 使用者回報）：列表只顯示目前來源（`records(for:)`），「清除」卻呼叫 `WatchHistoryStore.clear()` 刪光所有來源。修正：新增 `clear(for:)`，只刪目前來源擁有的記錄，與 Android `History.deleteAndSync(cid)` 一致；IOS-POC-10E 以前沒有來源的舊記錄在每個來源都會顯示，查核後改為只對目前來源隱藏（新欄位 `hiddenFrom`），不再刪掉而影響其他來源；單筆滑動刪除同樣處理（`remove(key:for:)`，不會刪到其他來源擁有的記錄）；WebHome 的 `app.history` 也改為只回目前來源的列表（與 Android `History.get()` 一致）。已隨 `0.1.26 (27)` 發布（編譯成功），單元測試未執行、真機未驗證。見 `docs/IOS-POC-30-history-clear-per-source.md`。
 - IOS-POC-29「設定頁的預設播放速度」（2026-09-26 使用者要求）：使用者核准 O1 與發布；已隨 `0.1.26 (27)` 發布（Release build 第一次即編譯成功），單元測試未執行、真機未驗證。O1：新片以設定頁的速度開始，同一部片內沿用播放中調整的速度（IOS-POC-14B 不變），播放中調整不改設定。見 `docs/IOS-POC-29-default-playback-speed.md`。

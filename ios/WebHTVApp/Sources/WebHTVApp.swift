@@ -1502,9 +1502,10 @@ private struct VodView: View {
         ScrollView {
             if let detail {
                 VStack(alignment: .leading, spacing: 24) {
-                    HStack(alignment: .top, spacing: 16) {
+                    // IOS-POC-32: the poster sits above the title and is shown whole. Beside the
+                    // title it was cut to 112×168, and a landscape image ran under the text.
+                    VStack(alignment: .leading, spacing: 16) {
                         VodPoster(vod: summary)
-                            .frame(width: 112, height: 168)
                         VStack(alignment: .leading, spacing: 8) {
                             Text(summary.name).font(.title2.weight(.bold))
                             if !summary.remarks.isEmpty {
@@ -1968,13 +1969,21 @@ private struct VodPoster: View {
     let vod: Vod
 
     var body: some View {
+        // The box has a fixed height and the artwork fits inside it, so any ratio is shown whole:
+        // a landscape image spans the width, a portrait one is centred. The corners are cut on the
+        // fitted image itself. Filling and then clipping, as before, clipped to the overflowing
+        // image rather than the box, so nothing was cut.
         AsyncImage(url: URL(string: vod.picture)) { phase in
             switch phase {
-            case .success(let image): image.resizable().scaledToFill()
-            default: appSurface.overlay { Image(systemName: "film").foregroundStyle(.secondary) }
+            case .success(let image):
+                image.resizable().scaledToFit().clipShape(.rect(cornerRadius: 10))
+            default:
+                appSurface.overlay { Image(systemName: "film").foregroundStyle(.secondary) }
+                    .clipShape(.rect(cornerRadius: 10))
             }
         }
-        .clipShape(.rect(cornerRadius: 10))
+        .frame(maxWidth: .infinity)
+        .frame(height: 240)
     }
 }
 

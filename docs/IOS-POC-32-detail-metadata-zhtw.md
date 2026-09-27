@@ -1,9 +1,9 @@
 # IOS-POC-32 — 詳情頁：海報蓋到標題、顯示年份簡介演員、簡體顯示為台灣繁體、日文翻譯
 
-- 狀態：**規劃完成，待使用者核准；未修改任何程式。**
+- 狀態：**階段 A 已實作（使用者改定設計：海報在上、完整顯示），對抗式查核進行中，未編譯、真機未驗證；階段 B、C、D 待核准。**
 - 使用者要求（2026-09-27，附詳情頁截圖，橫向海報超出左緣並蓋住標題）：「這個幫我規劃要怎麼處理，並且之後還需要顯示年份、簡介、演員相關訊息。然後 UI 呈現簡體中文都要顯示成台灣繁體中文，不要動到搜尋邏輯，最好日文也可以幫忙翻譯成中文。」
 - 分類：
-  - 階段 A（海報版面）：quick-fix，設計已確立（與 IOS-POC-28 同一做法），依 AGENTS.md §7 免設計研究門檻。
+  - 階段 A（海報版面）：quick-fix，設計由使用者指定（第四節），依 AGENTS.md §7 免設計研究門檻。
   - 階段 B（詳情資料）、C（簡轉繁）、D（日文翻譯）：新功能、新增內建資源、iOS 18 框架，適用 AGENTS.md §7 設計研究門檻；本文件即其研究與計畫紀錄，每個階段各自核准後才實作。
 - 研究方式：四個主題各由一個代理研究（版面、資料欄位、簡轉繁、翻譯），綜合成設計後由兩個獨立代理對照程式碼與原始資料查核。查核推翻或修正的內容已改進本文件（第十一節）。
 - 本環境沒有 Swift，本文件的程式片段都**未編譯**。
@@ -113,41 +113,49 @@
 |---|---|---|
 | 不改 | 問題留著 | 不採用 |
 | 在 `:1507` 的 `.frame` 之後補 `.clipShape` | 一行 | 可行，但每個呼叫端都要記得順序 |
-| **`VodPoster` 自己決定 2:3 尺寸** | `Color.clear.aspectRatio(2/3, .fit)` 決定尺寸，`AsyncImage` 放在 `.overlay`，再 `.clipShape` 與 `.contentShape`；與 `VodCard`、IOS-POC-28 同一做法 | **建議** |
-| 橫向海報完整顯示（模糊背景或 16:9 橫幅） | 需要圖片尺寸或 Android 的 `land`／`ratio` 提示（`Vod.java:75-81`） | 延後，不在本階段 |
+| `VodPoster` 自己決定 2:3 尺寸 | `Color.clear.aspectRatio(2/3, .fit)` 決定尺寸，`AsyncImage` 放在 `.overlay`；與 `VodCard`、IOS-POC-28 同一做法；橫向海報會被裁切 | 原建議，**使用者未採用** |
+| **海報在上、標題在下，海報完整顯示** | 固定高度的框內以 `scaledToFit` 顯示整張圖，任何比例都不裁切 | **使用者指定（2026-09-27）** |
 
-### 2. 設計
+### 2. 設計（使用者指定後）
 
-1. `VodPoster`：
+1. 使用者選擇（2026-09-27）：「修改一個海報在上、標題在下，但是海報要完整顯示。」
+2. 表頭（`VodView`）：原本的 `HStack` 改為 `VStack(alignment: .leading, spacing: 16)`，海報在上；標題、備註、來源標籤的 `VStack` 不變。
+3. `VodPoster`：
 
    ```swift
-   Color.clear
-       .aspectRatio(2 / 3, contentMode: .fit)
-       .overlay { AsyncImage(...) { phase in ... } }   // 圖只填滿容器，不改變容器尺寸
-       .clipShape(.rect(cornerRadius: 10))
-       .contentShape(.rect(cornerRadius: 10))          // IOS-POC-28：觸控範圍等於可見範圍
-       .accessibilityHidden(true)                      // 裝飾用，旁邊就是標題
+   AsyncImage(url: URL(string: vod.picture)) { phase in
+       switch phase {
+       case .success(let image):
+           image.resizable().scaledToFit().clipShape(.rect(cornerRadius: 10))  // 圓角裁在縮放後的圖上
+       default:
+           appSurface.overlay { Image(systemName: "film").foregroundStyle(.secondary) }
+               .clipShape(.rect(cornerRadius: 10))
+       }
+   }
+   .frame(maxWidth: .infinity)
+   .frame(height: 240)
    ```
 
-2. 表頭改成 `header` 屬性：
-   - 一般字級用 `HStackLayout`；輔助使用字級（`dynamicTypeSize.isAccessibilitySize`）改用 `VStackLayout`，海報在上。以 `AnyLayout` 切換（iOS 16 起，部署版本 17.0 可用）。
-   - 標題完整換行（`fixedSize(horizontal: false, vertical: true)`），因為導覽列的標題會截斷，這裡是唯一顯示全名的地方；備註 `lineLimit(2)`；來源標籤 `lineLimit(1)`。
-3. 只改 `ios/WebHTVApp/Sources/WebHTVApp.swift`，約 40 行。首頁格狀、搜尋結果的 `VodCard` 不動。
+   - 固定高度 240 pt：`ScrollView` 在垂直方向不給高度；`maxHeight` 在這種情況下是否仍限制子 view 未驗證，所以不依賴它，改用固定高度，讓 `scaledToFit` 收到明確的寬高，載入前後的框高度也相同。
+   - 16:9 的圖：寬度填滿（約 343～398 pt），高約 193～224 pt，上下留一點空白。
+   - 2:3 的圖：高 240 pt、寬 160 pt，置中。
+   - 載入中與失敗：整個框顯示佔位色塊與圖示。
+4. 只改 `ios/WebHTVApp/Sources/WebHTVApp.swift`。首頁格狀、搜尋結果的 `VodCard` 不動；`VodPoster` 只有這一個呼叫端。
 
 ### 3. 驗收（真機；這是畫面程式，沒有核心單元測試）
 
 | # | 步驟 | 預期 |
 |---|---|---|
-| T1 | 開啟截圖中的那部片 | 海報在 112×168 圓角框內，不蓋到文字 |
-| T2 | 直式（2:3、3:4）與很高（1:2）的海報各一部 | 外觀與目前相同或更整齊，不超出框 |
+| T1 | 開啟截圖中的那部片 | 海報在標題上方，整張圖都看得到，四角是圓角，不蓋到文字 |
+| T2 | 直式（2:3、3:4）與很高（1:2）的海報各一部 | 整張圖置中顯示，不裁切，不超出框 |
 | T3 | 標題超過 40 字的片 | 標題完整換行，不截斷 |
-| T4 | 設定 > 輔助使用 > 更大字體開到最大後開啟詳情 | 海報在上、文字在下，不重疊 |
+| T4 | 設定 > 輔助使用 > 更大字體開到最大後開啟詳情 | 文字在海報下方換行，不重疊 |
 | T5 | 橫向旋轉 | 版面不重疊 |
 | T6 | 從觀看記錄開啟 | 同 T1 |
-| T7 | 網路很慢或圖片失敗時 | 佔位圖大小不變 |
+| T7 | 網路很慢或圖片失敗時 | 佔位色塊與圖片載入後的框高度相同，版面不跳動 |
 | T8 | 首頁與搜尋結果 | 與目前相同 |
 
-- 風險：橫向海報改為置中裁成 2:3，與格狀卡片相同的裁法。
+- 風險：直式海報兩側、橫向海報上下會有空白；很小的圖會被放大而變模糊。
 - 回滾：`git revert`。
 
 ## 五、階段 B：年份、簡介、演員等資料
@@ -341,16 +349,26 @@
 
 選方案 3 時，文件會寫明「單元測試未執行」，與 IOS-POC-29、30 相同。
 
+**使用者選擇（2026-09-27）：方案 3，只靠編譯與真機。** B、C 的單元測試照常撰寫，但文件會寫明未執行。
+
 ## 十、需要你決定的事
 
-1. **階段 A**：是否核准實作（建議核准，可隨下一次發布）。
-2. **測試執行環境**：第九節方案 1、2 或 3。
+已決定（2026-09-27）：
+
+| 項目 | 使用者選擇 |
+|---|---|
+| 階段 A | 實作，改為海報在上、標題在下、完整顯示（第四節） |
+| 測試執行環境 | 只靠編譯與真機（第九節方案 3） |
+| 階段 C 轉換方式 | OpenCC 衍生 |
+| 台／臺 | 台 |
+
+尚待決定：
+
+1. 階段 B、C、D 是否開始實作（各自核准）。
 3. **階段 B**：
    - 是否顯示評分。
    - 演員、類型之後是否要可點（開分類頁，不是搜尋）；本階段不做。
 4. **階段 C**：
-   - 轉換方式：(c) OpenCC 衍生（建議）或 (b) ICU（先真機確認）。
-   - 「台」或「臺」。
    - 設定頁開關：加（只當回滾用）或不加。
    - 簡介是否換成台灣用語（`s2twp`：視頻→影片、網絡→網路）；建議不換，因為也會改到畫質名稱與專有名詞。
 5. **階段 D**：
@@ -384,7 +402,7 @@
 
 ## Recovery anchor
 
-- 目標：規劃詳情頁的海報版面修正，以及年份、簡介、演員顯示、簡體顯示為台灣繁體（不動搜尋）、日文翻成中文。
-- 狀態（2026-09-27）：規劃完成，待使用者對第十節做決定；**未修改任何程式**。
-- 相關檔案：`ios/WebHTVApp/Sources/WebHTVApp.swift`（`VodView` 表頭 `:1503-1519`、`VodPoster` `:1967-1979`）、`ios/Sources/WebHTVCore/CMSClient.swift`（`Vod` `:166-199`）、`ios/Sources/WebHTVCore/MacCMSXML.swift`。
-- 下一步（唯一）：等使用者回覆第十節；核准階段 A 後，以 quick-fix 修改 `VodPoster` 與表頭。
+- 目標：詳情頁的海報版面修正，以及年份、簡介、演員顯示、簡體顯示為台灣繁體（不動搜尋）、日文翻成中文。
+- 狀態（2026-09-27）：階段 A 已實作（海報在上、完整顯示），對抗式查核進行中；未編譯、真機未驗證。B、C、D 未實作。
+- 相關檔案：`ios/WebHTVApp/Sources/WebHTVApp.swift`（`VodView` 表頭約 `:1503-1520`、`VodPoster` 約 `:1968-1988`）、`ios/Sources/WebHTVCore/CMSClient.swift`（`Vod` `:166-199`）、`ios/Sources/WebHTVCore/MacCMSXML.swift`。
+- 下一步（唯一）：依階段 A 對抗式查核的確認項目修正並提交；之後等使用者決定是否發布與第十節尚待決定的項目。

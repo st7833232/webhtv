@@ -1241,49 +1241,47 @@ private struct SettingsView: View {
         List {
             // IOS-POC-17. Where a new playback starts; the player's own bar can switch one session
             // without touching this. An engine that is not offered yet is listed but not choosable.
+            //
+            // IOS-POC-31: one row with a pop-up menu, not a row per engine — the page was too long.
+            // A menu item cannot be disabled, so an engine not offered yet is still labelled and the
+            // choice is refused.
             Section {
-                ForEach(PlaybackEngineKind.allCases, id: \.self) { kind in
-                    let available = PlaybackSession.shared.isEngineAvailable(kind)
-                    Button {
+                Picker("播放器", selection: Binding(
+                    get: { defaultEngine },
+                    set: { kind in
+                        guard PlaybackSession.shared.isEngineAvailable(kind) else { return }
                         PlaybackSession.shared.setGlobalDefaultEngine(kind)
                         defaultEngine = kind
-                    } label: {
-                        HStack {
-                            Text(available ? kind.displayName : "\(kind.displayName)（尚未開放）")
-                                .foregroundStyle(available ? .primary : .secondary)
-                            Spacer()
-                            if kind == defaultEngine {
-                                Image(systemName: "checkmark").foregroundStyle(appAccent)
-                            }
-                        }
-                        .contentShape(Rectangle())
                     }
-                    .disabled(!available)
+                )) {
+                    ForEach(PlaybackEngineKind.allCases, id: \.self) { kind in
+                        Text(PlaybackSession.shared.isEngineAvailable(kind)
+                             ? kind.displayName : "\(kind.displayName)（尚未開放）")
+                            .tag(kind)
+                    }
                 }
+                .pickerStyle(.menu)
             } header: {
                 Text("預設播放器")
             }
 
             // IOS-POC-29. Read by the next title opened; a playing one keeps its speed.
+            // IOS-POC-31: one row with a pop-up menu, as the engine above.
             Section {
-                ForEach(PlaybackSpeedPreference.choices, id: \.self) { speed in
-                    Button {
+                Picker("速度", selection: Binding(
+                    get: { defaultSpeed },
+                    set: { speed in
                         PlaybackSpeedPreference().setDefaultSpeed(speed)
                         defaultSpeed = speed
-                    } label: {
-                        HStack {
-                            Text(speed.formatted(.number.precision(.fractionLength(0...2))) + "×")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            if speed == defaultSpeed {
-                                Image(systemName: "checkmark").foregroundStyle(appAccent)
-                            }
-                        }
-                        .contentShape(Rectangle())
                     }
-                    .accessibilityLabel(speed.formatted(.number.precision(.fractionLength(0...2))) + " 倍")
-                    .accessibilityAddTraits(speed == defaultSpeed ? .isSelected : [])
+                )) {
+                    ForEach(PlaybackSpeedPreference.choices, id: \.self) { speed in
+                        Text(speed.formatted(.number.precision(.fractionLength(0...2))) + "×")
+                            .accessibilityLabel(speed.formatted(.number.precision(.fractionLength(0...2))) + " 倍")
+                            .tag(speed)
+                    }
                 }
+                .pickerStyle(.menu)
             } header: {
                 Text("預設播放速度")
             } footer: {
@@ -1298,21 +1296,13 @@ private struct SettingsView: View {
                 Text("HLS 點播影片偵測到插入的廣告片段時自動跳過。判斷不確定時照常播放。")
             }
 
+            // IOS-POC-31: one row that opens the list, not 67 rows on the settings page. Not a menu:
+            // a menu cannot open scrolled to the source in use (the home screen's picker found that).
             Section("內容來源") {
-                ForEach(sites) { site in
-                    Button {
-                        selectedSiteID = site.id
-                        onOpenHome()
-                    } label: {
-                        HStack {
-                            Text(site.name.displayName).foregroundStyle(.primary)
-                            Spacer()
-                            if site.id == selectedSiteID {
-                                Image(systemName: "checkmark").foregroundStyle(appAccent)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                    }
+                NavigationLink {
+                    SiteChoiceList(sites: sites, selectedSiteID: $selectedSiteID, onOpenHome: onOpenHome)
+                } label: {
+                    LabeledContent("目前來源", value: currentSiteName)
                 }
             }
 
@@ -1408,6 +1398,11 @@ private extension SettingsView {
         }
     }
 
+    /// IOS-POC-31: the source the 內容來源 row names — the home screen's fallback when none is chosen.
+    var currentSiteName: String {
+        (sites.first { $0.id == selectedSiteID } ?? sites.first)?.name.displayName ?? "—"
+    }
+
     /// Which saved entry the live configuration came from, so the list can tick it.
     var activeSourceID: SavedSource.ID? {
         guard case .remote(let url) = source else { return nil }
@@ -1429,6 +1424,50 @@ private extension SettingsView {
     var updatedLabel: String {
         guard let updatedAt else { return "尚未記錄" }
         return updatedAt.formatted(date: .abbreviated, time: .shortened)
+    }
+}
+
+/// IOS-POC-31: the settings page's 內容來源, one screen down. Opens on the source in use, as the home
+/// screen's picker does; choosing one goes back to the home screen with it, as the list on the
+/// settings page used to.
+private struct SiteChoiceList: View {
+    let sites: [Site]
+    @Binding var selectedSiteID: Site.ID?
+    let onOpenHome: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private var currentID: Site.ID? {
+        (sites.first { $0.id == selectedSiteID } ?? sites.first)?.id
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            List(sites) { site in
+                Button {
+                    selectedSiteID = site.id
+                    dismiss()
+                    onOpenHome()
+                } label: {
+                    HStack {
+                        Text(site.name.displayName).foregroundStyle(.primary)
+                        Spacer()
+                        if site.id == currentID {
+                            Image(systemName: "checkmark").foregroundStyle(appAccent)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .id(site.id)
+                .listRowBackground(Color.black.opacity(0.22))
+            }
+            .scrollContentBackground(.hidden)
+            // After the rows exist, as on the home screen's picker; on the stack it would scroll nothing.
+            .onAppear { if let currentID { proxy.scrollTo(currentID, anchor: .center) } }
+        }
+        .appWallpaper()
+        .navigationTitle("內容來源")
+        .navigationBarTitleDisplayMode(.inline)
+        .appNavigationBar()
     }
 }
 

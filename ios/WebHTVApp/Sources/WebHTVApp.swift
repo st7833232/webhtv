@@ -1497,6 +1497,7 @@ private struct VodView: View {
     /// full grid, so a title with four lines and eighty episodes meant scrolling past three
     /// hundred buttons to reach the bottom one.
     @State private var selectedFlag: String?
+    @State private var synopsisExpanded = false
 
     var body: some View {
         ScrollView {
@@ -1506,11 +1507,20 @@ private struct VodView: View {
                     // title it was sized to 112×168, and a wider image ran past that box, to the
                     // screen edge and under the text.
                     VStack(alignment: .leading, spacing: 16) {
-                        VodPoster(vod: summary)
+                        // IOS-POC-32 B: the list item's values stay (the header must not change
+                        // under the user); the detail fills whatever it lacked, as a title opened
+                        // from history carries only its id, name and poster.
+                        VodPoster(picture: summary.picture.isEmpty ? detail.picture : summary.picture)
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(summary.name).font(.title2.weight(.bold))
-                            if !summary.remarks.isEmpty {
-                                Text(summary.remarks).foregroundStyle(.secondary)
+                            Text(VodText.plain(summary.name.isEmpty ? detail.name : summary.name))
+                                .font(.title2.weight(.bold))
+                            let remarks = summary.remarks.isEmpty ? detail.remarks : summary.remarks
+                            if !remarks.isEmpty {
+                                Text(remarks).foregroundStyle(.secondary)
+                            }
+                            let facts = factsLine(detail)
+                            if !facts.isEmpty {
+                                Text(facts).font(.subheadline).foregroundStyle(.secondary)
                             }
                             Text(site.name.displayName)
                                 .font(.caption.weight(.semibold))
@@ -1519,6 +1529,8 @@ private struct VodView: View {
                                 .background(appSurface, in: Capsule())
                         }
                     }
+
+                    metadataRows(detail)
 
                     if let flag = currentFlag(in: detail.flags) {
                         let blocks = episodeBlocks(of: flag)
@@ -1622,6 +1634,60 @@ private struct VodView: View {
     }
 
     private var historyKey: String { WatchHistory.key(siteID: site.id, vodId: summary.id) }
+
+    /// IOS-POC-32 B: the detail is the full record, but a list item may carry a field the detail
+    /// left out, so either can supply it. Display only — `VodText` output never goes back into
+    /// search, playback or history.
+    private func metadata(_ field: KeyPath<Vod, String>, in detail: Vod) -> String {
+        let value = VodText.plain(detail[keyPath: field])
+        return value.isEmpty ? VodText.plain(summary[keyPath: field]) : value
+    }
+
+    /// 年份 · 地區 · 類型, leaving out whichever the source did not send.
+    private func factsLine(_ detail: Vod) -> String {
+        let year = VodText.year(detail.year) ?? VodText.year(summary.year) ?? ""
+        return [year, metadata(\.area, in: detail), metadata(\.typeName, in: detail)]
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+    }
+
+    /// Director, cast and synopsis, each row only when a source has it (Android hides empty rows
+    /// the same way, `VideoActivity.java:1327`).
+    @ViewBuilder
+    private func metadataRows(_ detail: Vod) -> some View {
+        let director = metadata(\.director, in: detail)
+        let actor = metadata(\.actor, in: detail)
+        let content = metadata(\.content, in: detail)
+        if !director.isEmpty || !actor.isEmpty || !content.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                if !director.isEmpty { metadataRow("導演", director) }
+                if !actor.isEmpty { metadataRow("演員", actor) }
+                if !content.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("簡介").foregroundStyle(.secondary)
+                        Text(content)
+                            .lineLimit(synopsisExpanded ? nil : 4)
+                            .textSelection(.enabled)
+                        // Four lines hold about 80 characters at this size; below that there is
+                        // nothing to expand.
+                        if content.count > 80 || content.contains("\n") {
+                            Button(synopsisExpanded ? "收起" : "更多") { synopsisExpanded.toggle() }
+                                .fontWeight(.semibold)
+                        }
+                    }
+                }
+            }
+            .font(.subheadline)
+        }
+    }
+
+    private func metadataRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label).foregroundStyle(.secondary)
+            Text(value).lineLimit(2)
+        }
+        .accessibilityElement(children: .combine)
+    }
 
     /// Episodes per block in the picker. Sources number long dramas in the hundreds, and 100 is
     /// the step their own numbering follows.
@@ -1967,14 +2033,14 @@ private struct HistoryView: View {
 }
 
 private struct VodPoster: View {
-    let vod: Vod
+    let picture: String
 
     var body: some View {
         // The box has a fixed height and the artwork fits inside it, so any ratio is shown whole:
         // an image wider than the box spans its width, and any other is centred at full height.
         // The corners are cut on the fitted image itself. Filling and then clipping, as before,
         // clipped to the overflowing image rather than the box, so nothing was cut.
-        AsyncImage(url: URL(string: vod.picture)) { phase in
+        AsyncImage(url: URL(string: picture)) { phase in
             switch phase {
             case .success(let image):
                 image.resizable().scaledToFit().clipShape(.rect(cornerRadius: 10))

@@ -170,6 +170,14 @@ public struct Vod: Decodable, Identifiable, Sendable {
     public let remarks: String
     public let playFrom: String
     public let playURL: String
+    /// IOS-POC-32 B: shown on the detail screen and nowhere else. Raw source text, possibly HTML or
+    /// CatVod link markup; `VodText` makes it presentable. Empty when a source leaves one out.
+    public let year: String
+    public let area: String
+    public let typeName: String
+    public let director: String
+    public let actor: String
+    public let content: String
 
     enum CodingKeys: String, CodingKey {
         case id = "vod_id"
@@ -178,6 +186,14 @@ public struct Vod: Decodable, Identifiable, Sendable {
         case remarks = "vod_remarks"
         case playFrom = "vod_play_from"
         case playURL = "vod_play_url"
+        case year = "vod_year"
+        case area = "vod_area"
+        case typeName = "type_name"
+        case vodClass = "vod_class"
+        case director = "vod_director"
+        case actor = "vod_actor"
+        case content = "vod_content"
+        case blurb = "vod_blurb"
     }
 
     public init(from decoder: Decoder) throws {
@@ -189,14 +205,26 @@ public struct Vod: Decodable, Identifiable, Sendable {
         remarks = try values.decodeIfPresent(String.self, forKey: .remarks) ?? ""
         playFrom = try values.decodeIfPresent(String.self, forKey: .playFrom) ?? ""
         playURL = try values.decodeIfPresent(String.self, forKey: .playURL) ?? ""
+        // Sources send these as strings, numbers, null or even arrays, and the same decoder reads
+        // every list and search page, so none of them may fail the record: anything that is not a
+        // string or a whole number reads as empty.
+        year = values.decodeText(forKey: .year)
+        area = values.decodeText(forKey: .area)
+        typeName = values.decodeText(forKey: .typeName, orElse: .vodClass)
+        director = values.decodeText(forKey: .director)
+        actor = values.decodeText(forKey: .actor)
+        content = values.decodeText(forKey: .content, orElse: .blurb)
     }
 
     /// Built rather than decoded: `player.playVod` names a vod by id, and the MacCMS XML decoder
     /// assembles one from parsed elements. The playback fields default to empty because `playVod`
-    /// has none — `VodView` fetches the real detail by id — while the XML decoder passes all three.
+    /// has none — `VodView` fetches the real detail by id — while the XML decoder passes all three,
+    /// and the metadata it carries too.
     public init(
         id: String, name: String, picture: String,
-        remarks: String = "", playFrom: String = "", playURL: String = ""
+        remarks: String = "", playFrom: String = "", playURL: String = "",
+        year: String = "", area: String = "", typeName: String = "",
+        director: String = "", actor: String = "", content: String = ""
     ) {
         self.id = id
         self.name = name
@@ -204,6 +232,12 @@ public struct Vod: Decodable, Identifiable, Sendable {
         self.remarks = remarks
         self.playFrom = playFrom
         self.playURL = playURL
+        self.year = year
+        self.area = area
+        self.typeName = typeName
+        self.director = director
+        self.actor = actor
+        self.content = content
     }
 
     public var flags: [Flag] {
@@ -407,5 +441,12 @@ private extension KeyedDecodingContainer {
     func decodeString(forKey key: Key) throws -> String {
         if let value = try? decode(String.self, forKey: key) { return value }
         return String(try decode(Int.self, forKey: key))
+    }
+
+    /// A display-only field: never throws, and an empty value falls through to `fallback`.
+    func decodeText(forKey key: Key, orElse fallback: Key? = nil) -> String {
+        let value = (try? decodeString(forKey: key)) ?? ""
+        guard value.isEmpty, let fallback else { return value }
+        return (try? decodeString(forKey: fallback)) ?? ""
     }
 }

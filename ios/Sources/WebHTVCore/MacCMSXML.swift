@@ -26,6 +26,12 @@ final class MacCMSXMLDecoder: NSObject, XMLParserDelegate {
     private var name = ""
     private var picture = ""
     private var remarks = ""
+    private var year = ""
+    private var area = ""
+    private var typeName = ""
+    private var director = ""
+    private var actor = ""
+    private var content = ""
     private var flags = [String]()
     private var urls = [String]()
     private var flag = ""
@@ -51,6 +57,12 @@ final class MacCMSXMLDecoder: NSObject, XMLParserDelegate {
             name = ""
             picture = ""
             remarks = ""
+            year = ""
+            area = ""
+            typeName = ""
+            director = ""
+            actor = ""
+            content = ""
             flags = []
             urls = []
         case "ty":
@@ -86,6 +98,20 @@ final class MacCMSXMLDecoder: NSObject, XMLParserDelegate {
             picture = value
         case "note" where inVideo:
             remarks = value
+        // IOS-POC-32 B: the same fields vod_year … vod_content fill on JSON sites, for the detail
+        // screen (Android maps them the same way, `bean/Vod.java:41-63`).
+        case "year" where inVideo:
+            year = value
+        case "area" where inVideo:
+            area = value
+        case "type" where inVideo:
+            typeName = value
+        case "director" where inVideo:
+            director = value
+        case "actor" where inVideo:
+            actor = value
+        case "des" where inVideo:
+            content = value
         case "dd" where inVideo:
             // One <dd> per flag; Vod.flags zips the two "$$$"-joined lists back together.
             flags.append(flag)
@@ -94,12 +120,14 @@ final class MacCMSXMLDecoder: NSObject, XMLParserDelegate {
             list.append(Vod(
                 id: id, name: name, picture: picture, remarks: remarks,
                 playFrom: flags.joined(separator: "$$$"),
-                playURL: urls.joined(separator: "$$$")
+                playURL: urls.joined(separator: "$$$"),
+                year: year, area: area, typeName: typeName,
+                director: director, actor: actor, content: content
             ))
             inVideo = false
         default:
-            // last, tid, dt, lang, area, year, state, actor, director, des: nothing downstream
-            // reads them, so they are parsed past rather than carried.
+            // last, tid, dt, lang, state: nothing downstream reads them, so they are parsed past
+            // rather than carried.
             break
         }
         text = ""

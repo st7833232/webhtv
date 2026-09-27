@@ -1972,8 +1972,8 @@ private struct VodPoster: View {
     var body: some View {
         // The box has a fixed height and the artwork fits inside it, so any ratio is shown whole:
         // an image wider than the box spans its width, and any other is centred at full height.
-        // The corners are cut on the fitted image itself. Filling and then clipping, as before, clipped to the overflowing
-        // image rather than the box, so nothing was cut.
+        // The corners are cut on the fitted image itself. Filling and then clipping, as before,
+        // clipped to the overflowing image rather than the box, so nothing was cut.
         AsyncImage(url: URL(string: vod.picture)) { phase in
             switch phase {
             case .success(let image):

@@ -4,24 +4,32 @@ import Foundation
 /// rest) presentable on the detail screen. Display only: nothing here feeds search, playback or
 /// history, which keep the raw strings.
 ///
-/// A deliberate superset of Android's `Util.clean` (`utils/Util.java:126-132`): Android runs
-/// `Html.fromHtml` only when the text has a `<`, turns U+00A0 and U+3000 into spaces and trims each
-/// line. This also decodes entities in text without tags, and collapses runs of blank lines.
+/// Modelled on Android's `Util.clean` (`utils/Util.java:126-132`), which returns text without a `<`
+/// unchanged and otherwise runs `Html.fromHtml`, turns U+00A0 and U+3000 into spaces and trims each
+/// line. Differences: entities are decoded even without tags, but only the numeric forms and the
+/// named set below (Android: the full HTML set); U+00A0/U+3000 and line trimming apply to every
+/// text (Android: only when a tag is present); `</p>` gives one line break, not a blank line; runs
+/// of blank lines collapse to one.
 public enum VodText {
     /// Plain text: CatVod link markup reduced to its label, HTML tags removed, entities decoded,
     /// each line trimmed, and at most one blank line in a row.
     public static func plain(_ raw: String) -> String {
         var text = raw
         // `[a=cr:{"id":"…","name":"…"}/]周杰伦[/a]` links a name to a category page in drpy
-        // sources; only the label is text (`utils/Sniffer.java:24`, Android's `CLICKER`).
+        // sources; only the label is text. Android's `CLICKER` shape, label trimmed as Android
+        // does (`utils/Sniffer.java:24`, `:62`).
         if text.contains("[a=cr:") {
             text = text.replacingOccurrences(
-                of: #"\[a=cr:.*?/\](.*?)\[/a\]"#, with: "$1", options: .regularExpression)
+                of: #"\[a=cr:\{.*?\}/\]\s*(.*?)\s*\[/a\]"#, with: "$1", options: .regularExpression)
         }
         if text.contains("<") {
+            // A break tag already ends the line, so a source line break right after it (PHP's
+            // nl2br writes `<br />` then a newline) is part of the same break, not a blank line.
             text = text
-                .replacingOccurrences(of: #"(?i)<br\s*/?>"#, with: "\n", options: .regularExpression)
-                .replacingOccurrences(of: #"(?i)</(p|div|li)\s*>"#, with: "\n", options: .regularExpression)
+                .replacingOccurrences(
+                    of: #"(?i)<br\s*/?\s*>[ \t]*(?:\r\n|\r|\n)?"#, with: "\n", options: .regularExpression)
+                .replacingOccurrences(
+                    of: #"(?i)</(p|div|li)\s*>[ \t]*(?:\r\n|\r|\n)?"#, with: "\n", options: .regularExpression)
                 .replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
         }
         // After the tags, so an escaped `&lt;b&gt;` stays visible text rather than becoming a tag.
@@ -75,18 +83,31 @@ public enum VodText {
     }
 
     private static func entity(_ name: String) -> Character? {
+        let digits: Substring
+        let radix: Int
         if name.hasPrefix("#x") || name.hasPrefix("#X") {
-            return UInt32(name.dropFirst(2), radix: 16).flatMap { Unicode.Scalar($0) }.map { Character($0) }
+            digits = name.dropFirst(2)
+            radix = 16
+        } else if name.hasPrefix("#") {
+            digits = name.dropFirst()
+            radix = 10
+        } else {
+            return named[name]
         }
-        if name.hasPrefix("#") {
-            return UInt32(name.dropFirst(), radix: 10).flatMap { Unicode.Scalar($0) }.map { Character($0) }
-        }
-        return named[name]
+        // Digits only (the integer parser would accept a sign), and never NUL.
+        guard !digits.isEmpty, digits.allSatisfy({ $0.isASCII && $0.isHexDigit }),
+              let value = UInt32(digits, radix: radix), value != 0,
+              let scalar = Unicode.Scalar(value) else { return nil }
+        return Character(scalar)
     }
 
     private static let named: [String: Character] = [
         "amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'", "nbsp": "\u{00A0}",
+        "AMP": "&", "LT": "<", "GT": ">", "QUOT": "\"",
         "ldquo": "\u{201C}", "rdquo": "\u{201D}", "lsquo": "\u{2018}", "rsquo": "\u{2019}",
         "hellip": "\u{2026}", "mdash": "\u{2014}", "ndash": "\u{2013}", "middot": "\u{00B7}",
+        "emsp": "\u{2003}", "ensp": "\u{2002}", "thinsp": "\u{2009}", "bull": "\u{2022}",
+        "laquo": "\u{00AB}", "raquo": "\u{00BB}", "times": "\u{00D7}", "copy": "\u{00A9}",
+        "reg": "\u{00AE}", "trade": "\u{2122}", "yen": "\u{00A5}",
     ]
 }

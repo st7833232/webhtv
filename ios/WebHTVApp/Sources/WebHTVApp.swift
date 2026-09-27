@@ -1498,6 +1498,11 @@ private struct VodView: View {
     /// hundred buttons to reach the bottom one.
     @State private var selectedFlag: String?
     @State private var synopsisExpanded = false
+    /// The synopsis as shown (at most four lines) and in full, so 更多 appears only when the limit
+    /// actually hides something, at any text size or screen width.
+    @State private var synopsisShownHeight: CGFloat = 0
+    @State private var synopsisFullHeight: CGFloat = 0
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         ScrollView {
@@ -1512,8 +1517,7 @@ private struct VodView: View {
                         // from history carries only its id, name and poster.
                         VodPoster(picture: summary.picture.isEmpty ? detail.picture : summary.picture)
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(VodText.plain(summary.name.isEmpty ? detail.name : summary.name))
-                                .font(.title2.weight(.bold))
+                            Text(displayName).font(.title2.weight(.bold))
                             let remarks = summary.remarks.isEmpty ? detail.remarks : summary.remarks
                             if !remarks.isEmpty {
                                 Text(remarks).foregroundStyle(.secondary)
@@ -1601,7 +1605,7 @@ private struct VodView: View {
             }
         }
         .appWallpaper()
-        .navigationTitle(summary.name)
+        .navigationTitle(displayName)
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBar()
         .task {
@@ -1635,6 +1639,17 @@ private struct VodView: View {
 
     private var historyKey: String { WatchHistory.key(siteID: site.id, vodId: summary.id) }
 
+    /// IOS-POC-32 B: the title as shown in the header and the navigation bar. Display only:
+    /// history, the player and every identity value keep the raw `summary.name`. Cleaning can
+    /// empty a name made of markup, so it falls back to the detail's name, then to the raw text.
+    private var displayName: String {
+        for raw in [summary.name, detail?.name ?? ""] {
+            let clean = VodText.plain(raw)
+            if !clean.isEmpty { return clean }
+        }
+        return summary.name.isEmpty ? (detail?.name ?? "") : summary.name
+    }
+
     /// IOS-POC-32 B: the detail is the full record, but a list item may carry a field the detail
     /// left out, so either can supply it. Display only — `VodText` output never goes back into
     /// search, playback or history.
@@ -1652,7 +1667,7 @@ private struct VodView: View {
     }
 
     /// Director, cast and synopsis, each row only when a source has it (Android hides empty rows
-    /// the same way, `VideoActivity.java:1327`).
+    /// the same way, mobile `VideoActivity.setText(TextView, int, String)`).
     @ViewBuilder
     private func metadataRows(_ detail: Vod) -> some View {
         let director = metadata(\.director, in: detail)
@@ -1668,11 +1683,31 @@ private struct VodView: View {
                         Text(content)
                             .lineLimit(synopsisExpanded ? nil : 4)
                             .textSelection(.enabled)
-                        // Four lines hold about 80 characters at this size; below that there is
-                        // nothing to expand.
-                        if content.count > 80 || content.contains("\n") {
-                            Button(synopsisExpanded ? "收起" : "更多") { synopsisExpanded.toggle() }
-                                .fontWeight(.semibold)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                                synopsisShownHeight = $0
+                            }
+                            // The same text without the limit, at the same width but not shown:
+                            // what it is taller by is what the four-line limit hides.
+                            .background(alignment: .topLeading) {
+                                Text(content)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .hidden()
+                                    .accessibilityHidden(true)
+                                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                                        synopsisFullHeight = $0
+                                    }
+                            }
+                        if synopsisExpanded || synopsisFullHeight > synopsisShownHeight + 1 {
+                            Button {
+                                synopsisExpanded.toggle()
+                            } label: {
+                                // 44 pt, like every other control on this screen.
+                                Text(synopsisExpanded ? "收起" : "更多")
+                                    .fontWeight(.semibold)
+                                    .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                                    .contentShape(Rectangle())
+                            }
+                            .accessibilityLabel(Text(synopsisExpanded ? "收起簡介" : "展開簡介"))
                         }
                     }
                 }
@@ -1682,9 +1717,14 @@ private struct VodView: View {
     }
 
     private func metadataRow(_ label: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        // At accessibility text sizes a label beside the value leaves a few characters a line.
+        let stacked = dynamicTypeSize.isAccessibilitySize
+        let layout = stacked
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
+        return layout {
             Text(label).foregroundStyle(.secondary)
-            Text(value).lineLimit(2)
+            Text(value).lineLimit(stacked ? 4 : 2)
         }
         .accessibilityElement(children: .combine)
     }

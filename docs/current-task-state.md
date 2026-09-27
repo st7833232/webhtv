@@ -8,12 +8,13 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **Git**：分支 `ios-poc`，已全部 push。接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認，以實際 Git 狀態為準，不要相信本文的 SHA。
 
-**最新已發布版本是 `0.1.26 (27)`**（2026-09-26，使用者授權；tag `ios-v0.1.26-b27` → `c6502228`，run `36257981098`，`source.json` `db76a8c3`，IPA 25,139,377 bytes，SHA-256 `5d2825d2afa79900971c046feda904a2a904aaf6c604a48d79e332faa6960191`，下載回驗通過）。至今共發布 27 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
+**最新已發布版本是 `0.1.27 (28)`**（2026-09-27，使用者授權；tag `ios-v0.1.27-b28` → `67d7fe78`，run `36281807118`，`source.json` `2a4ce060`，IPA 25,149,798 bytes，SHA-256 `096730d9ef34075e0e9175e334077c5c4440b58eb4bb37bfc090286b84550a2e`，下載回驗通過）。至今共發布 28 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
 
 **近期各版內容（新到舊）**
 
 | 版本 | tag 指向 | 比上一版多了什麼 | 真機結果 |
 |---|---|---|---|
+| `0.1.27 (28)` | `67d7fe78` | IOS-POC-31：設定頁的預設播放器、預設播放速度改為下拉選單，內容來源收成一列（`97417be4`、`616b3fc9`） | 未驗證 |
 | `0.1.26 (27)` | `c6502228` | IOS-POC-29：設定頁預設播放速度（`06c77537`、`95e507fa`）；IOS-POC-30：觀看記錄的清除與滑動刪除只影響目前來源（`a52ab2dd`、`1e8677b7`、`6f14069d`） | 未驗證 |
 | `0.1.25 (26)` | `96d20a98` | IOS-POC-27A：載入轉圈、按鍵依意圖、原生開播逾時 5 秒並顯示原因（`96b714df`、`a21bad25`）；IOS-POC-27B：原生預讀依倍速放大，上限 120 秒（`80f949ff`、`25b91739`）；IOS-POC-28：影片卡點擊範圍（`f5c7d889`） | 未驗證 |
 | `0.1.24 (25)` | `5da03a4a` | IOS-POC-25-2：MPV 在有 discontinuity 的播放清單上也自動跳廣告（進入區間 0.25 秒後才觸發），`-u _ff_hls_timestamp_map_segment` 綁定 WebHTV `Libavformat`（`45be83c4`） | 未驗證 |
@@ -52,7 +53,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **任務狀態**
 
-- IOS-POC-31「設定頁太長」（2026-09-27 使用者要求）：預設播放器、預設播放速度改為一列的下拉選單（`Picker` `.menu`），區塊與說明文字不變（使用者選擇）；內容來源（67 個）改為一列「目前來源 ›」，點進去是開在目前來源的清單（不用選單：選單無法捲到目前項目，首頁來源切換已實測）。未編譯，真機未驗證；使用者已授權發布 `0.1.27 (28)`。
+- IOS-POC-31「設定頁太長」（2026-09-27 使用者要求）：預設播放器、預設播放速度改為一列的下拉選單（`Picker` `.menu`），區塊與說明文字不變（使用者選擇）；內容來源（67 個）改為一列「目前來源 ›」，點進去是開在目前來源的清單（不用選單：選單無法捲到目前項目，首頁來源切換已實測）。已隨 `0.1.27 (28)` 發布（Release build 第一次即編譯成功），真機未驗證。
 - IOS-POC-30「觀看記錄的清除會刪到其他來源的記錄」（2026-09-26 使用者回報）：列表只顯示目前來源（`records(for:)`），「清除」卻呼叫 `WatchHistoryStore.clear()` 刪光所有來源。修正：新增 `clear(for:)`，只刪目前來源擁有的記錄，與 Android `History.deleteAndSync(cid)` 一致；IOS-POC-10E 以前沒有來源的舊記錄在每個來源都會顯示，查核後改為只對目前來源隱藏（新欄位 `hiddenFrom`），不再刪掉而影響其他來源；單筆滑動刪除同樣處理（`remove(key:for:)`，不會刪到其他來源擁有的記錄）；WebHome 的 `app.history` 也改為只回目前來源的列表（與 Android `History.get()` 一致）。已隨 `0.1.26 (27)` 發布（編譯成功），單元測試未執行、真機未驗證。
 - IOS-POC-29「設定頁的預設播放速度」（2026-09-26 使用者要求）：使用者核准 O1 與發布；已隨 `0.1.26 (27)` 發布（Release build 第一次即編譯成功），單元測試未執行、真機未驗證。O1：新片以設定頁的速度開始，同一部片內沿用播放中調整的速度（IOS-POC-14B 不變），播放中調整不改設定。見 `docs/IOS-POC-29-default-playback-speed.md`。
 - IOS-POC-28「點左邊影片卡的右半部，會開到右邊的影片」（2026-09-26 真機回報，附截圖）：`VodCard` 的海報以 `scaledToFill` 填滿，寬圖超出卡片；`.clipped()` 只裁掉繪製、不裁觸控範圍，所以右邊卡片的圖蓋住左邊卡片的右半部並接走點擊。修正：卡片加 `.contentShape(.rect(cornerRadius: 10))`，首頁格狀與搜尋結果共用。未編譯（無 Swift 工具鏈），真機未驗證。

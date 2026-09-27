@@ -32,7 +32,7 @@
 
 ## Recovery anchor
 
-- 狀態：完成，且已發過**二十八個**版本，最新是 `0.1.27 (28)`（見文末各次發布；`0.1.5 (6)` 沒有獨立段落，記在 `docs/current-task-state.md`）。
+- 狀態：完成，且已發過**二十九個**版本，最新是 `0.1.28 (29)`（見文末各次發布；`0.1.5 (6)` 沒有獨立段落，記在 `docs/current-task-state.md`）。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
 - 發布結果：`WebHTV-0.1-1.ipa`，24,563,162 bytes，GitHub asset SHA-256 `fcbf1531d9480f678ee0fac7ec5ce49010f3de51fc11b79f0ba88372e85812ed`；IPA plist 為 `com.webhtv.ios.poc`、`0.1`、build `1`、minimum iOS `17.0`。
@@ -734,7 +734,7 @@ WebHTV 0.1.26 (27)（未經真機驗收）
 
 ## 第二十八次發布：`0.1.27 (28)`（2026-09-27，**已發布**）
 
-**目前最新版是 `0.1.27 (28)`。** 前面二十七版都已被取代。
+前面二十七版都已被取代，本版又被 `0.1.28 (29)` 取代。
 
 - 授權：使用者 2026-09-27 看完 IOS-POC-31 的設計建議後選「授權發布」（流程與前兩版相同）。版號 `0.1.27`，build `28`。
 - 內容：`0.1.26 (27)` 的全部，加上 IOS-POC-31（`97417be4`、查核修正 `616b3fc9`）：設定頁的預設播放器、預設播放速度改為下拉選單；內容來源收成一列，推入頁開在目前來源。
@@ -761,4 +761,35 @@ WebHTV 0.1.27 (28)（未經真機驗收）
 - 內容來源收成一列「目前來源」，點進去是會捲到目前來源的清單；選了照舊跳回首頁。
 
 其他設定（智慧去廣、已存來源、設定來源）不變。
+```
+
+## 第二十九次發布：`0.1.28 (29)`（2026-09-27，**已發布**）
+
+**目前最新版是 `0.1.28 (29)`。** 前面二十八版都已被取代。
+
+- 授權：使用者 2026-09-27 對「階段 A 要不要發布」選「等 B 一起發布」，並選擇接著做階段 B；階段 B 完成並查核後依此發布。版號 `0.1.28`，build `29`。
+- 內容：`0.1.27 (28)` 的全部，加上 IOS-POC-32 階段 A（`73c96c56`、`5d393196`、`e6771a5f`：詳情頁海報在標題上方、完整顯示）與階段 B（`07a18fd1`、查核修正 `96e9997b`：詳情頁顯示年份、地區、類型、導演、演員、簡介）。
+- 發布序列：
+  1. 版號 commit `f5fe582c`（Task-Guard `IOS-RELEASE-0.1.28-b29`），在工作分支上。
+  2. `ios-poc` 從 `96e9997b` 快轉到 `f5fe582c`（不改歷史）。
+  3. `workflow_dispatch` run `36291272405`（ref `ios-poc`，success，2026-09-27 03:23:39Z 建立，03:28:00Z 完成；以 GitHub MCP 觸發）。
+  4. workflow 建立 tag `ios-v0.1.28-b29`（target `f5fe582c`），並推回 `source.json`（`d8d1302e`，共二十九筆，第一筆 `0.1.28`，size 與 IPA 相同）。
+
+  **沒有手動建 tag。**
+- 產物：`WebHTV-0.1.28-29.ipa` **25,180,758 bytes**，SHA-256
+  `08d75500f663184439df385202b65695e77cbfbef1cbfd7883c790b9359c590c`。
+  **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`com.webhtv.ios.poc` / `0.1.28` / build `29` / minimum iOS `17.0` / `UIBackgroundModes` `audio`。
+  執行檔含階段 B 的 `VodText`、`metadataRows`、`decodeText` 與 `vod_blurb`、`vod_director`、`vod_class` 等欄位名稱。
+- 發布前驗證：本環境沒有 Swift；階段 A 經三個角度對抗式查核（確認 1 項，只改註解），階段 B 經五個角度對抗式查核（確認 11 項次要或建議修正，已修正）；`VodText` 的預期值以 Python 移植版逐條執行 21／21 符合。本次 Release build 第一次即成功，這是階段 A、B 第一次在 Xcode 上編譯；單元測試未執行（使用者選擇只靠編譯與真機）。**真機尚未驗收**。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.28 (29)（未經真機驗收）
+
+改善
+- 詳情頁的海報移到標題上方，整張圖完整顯示，不再蓋到標題或超出畫面。
+- 詳情頁顯示年份、地區、類型、導演、演員與簡介（來源有提供才顯示）；簡介預設 4 行，可按「更多」展開。
+
+搜尋與播放不變。
 ```

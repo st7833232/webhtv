@@ -8,12 +8,13 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **Git**：分支 `ios-poc`，已全部 push。接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認，以實際 Git 狀態為準，不要相信本文的 SHA。
 
-**最新已發布版本是 `0.1.27 (28)`**（2026-09-27，使用者授權；tag `ios-v0.1.27-b28` → `67d7fe78`，run `36281807118`，`source.json` `2a4ce060`，IPA 25,149,798 bytes，SHA-256 `096730d9ef34075e0e9175e334077c5c4440b58eb4bb37bfc090286b84550a2e`，下載回驗通過）。至今共發布 28 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
+**最新已發布版本是 `0.1.28 (29)`**（2026-09-27，使用者授權；tag `ios-v0.1.28-b29` → `f5fe582c`，run `36291272405`，`source.json` `d8d1302e`，IPA 25,180,758 bytes，SHA-256 `08d75500f663184439df385202b65695e77cbfbef1cbfd7883c790b9359c590c`，下載回驗通過）。至今共發布 29 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
 
 **近期各版內容（新到舊）**
 
 | 版本 | tag 指向 | 比上一版多了什麼 | 真機結果 |
 |---|---|---|---|
+| `0.1.28 (29)` | `f5fe582c` | IOS-POC-32 A：詳情頁海報在標題上方、完整顯示（`73c96c56`、`5d393196`、`e6771a5f`）；IOS-POC-32 B：詳情頁顯示年份、地區、類型、導演、演員、簡介（`07a18fd1`、`96e9997b`） | 未驗證 |
 | `0.1.27 (28)` | `67d7fe78` | IOS-POC-31：設定頁的預設播放器、預設播放速度改為下拉選單，內容來源收成一列（`97417be4`、`616b3fc9`） | 未驗證 |
 | `0.1.26 (27)` | `c6502228` | IOS-POC-29：設定頁預設播放速度（`06c77537`、`95e507fa`）；IOS-POC-30：觀看記錄的清除與滑動刪除只影響目前來源（`a52ab2dd`、`1e8677b7`、`6f14069d`） | 未驗證 |
 | `0.1.25 (26)` | `96d20a98` | IOS-POC-27A：載入轉圈、按鍵依意圖、原生開播逾時 5 秒並顯示原因（`96b714df`、`a21bad25`）；IOS-POC-27B：原生預讀依倍速放大，上限 120 秒（`80f949ff`、`25b91739`）；IOS-POC-28：影片卡點擊範圍（`f5c7d889`） | 未驗證 |
@@ -41,7 +42,9 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 2. 不要直接裝到使用者的 iPhone；使用者用 SideStore 實機測試。真機沒測到的一律寫「未驗證」。
 3. 沒有指示前，不開始 MPV parity P2 以後的任何階段，也不開始 IOS-POC-12／13。
 
-**下一步（唯一）**：等使用者在 `0.1.27 (28)` 上真機回報，收到後逐列填進對應文件（`0.1.27 (28)` 含前面各版的全部內容）：
+**下一步（唯一）**：等使用者在 `0.1.28 (29)` 上真機回報，收到後逐列填進對應文件（`0.1.28 (29)` 含前面各版的全部內容）：
+
+0. IOS-POC-32（`0.1.28 (29)`）：詳情頁海報版面與年份、簡介、演員：`docs/IOS-POC-32-detail-metadata-zhtw.md` 第四節第 3 點 T1～T8、第五節第 3 點的真機項目。
 
 1. IOS-POC-27（`0.1.25 (26)` 起）：黑畫面線路 5 秒改用 MPV 並顯示原因、轉圈、卡住時可暫停、2 倍速緩衝：`docs/IOS-POC-27-avplayer-2x-buffer-stall-controls.md` 第八節 T1～T12。**原生開不了時畫面顯示的原因**決定 27C 的方向，要請使用者回報原文。
 2. IOS-POC-28（`0.1.25 (26)` 起）：影片卡點擊範圍：`docs/IOS-POC-28-card-hit-area.md` 第四節。
@@ -62,7 +65,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **任務狀態**
 
-- IOS-POC-32「詳情頁：海報蓋到標題、顯示年份簡介演員、簡體顯示為台灣繁體、日文翻譯」（2026-09-27 使用者要求，附截圖）：A 海報版面已實作（`VodPoster` 的 `clipShape` 在呼叫端 `.frame` 之前，橫向海報超出約 93 pt；使用者改定為海報在上、標題在下、完整顯示，固定 240 pt 高的框內 `scaledToFit`），未編譯、真機未驗證；使用者另選：測試只靠編譯與真機、C 用 OpenCC 衍生、統一用「台」、C 不加設定開關。B（年份、地區、類型、導演、演員、簡介；評分不顯示）已實作並查核（確認 11 項次要問題已修正），單元測試未執行。A、B 一起發布為 `0.1.28 (29)`。待核准：C 只在顯示時把簡體轉成台灣繁體（OpenCC 衍生，只轉簡體輸入，搜尋與身分值不動）；D iOS 18 Apple Translation 把日文翻成中文。等使用者對文件第十節做決定。見 `docs/IOS-POC-32-detail-metadata-zhtw.md`。
+- IOS-POC-32「詳情頁：海報蓋到標題、顯示年份簡介演員、簡體顯示為台灣繁體、日文翻譯」（2026-09-27 使用者要求，附截圖）：A 海報版面已實作（`VodPoster` 的 `clipShape` 在呼叫端 `.frame` 之前，橫向海報超出約 93 pt；使用者改定為海報在上、標題在下、完整顯示，固定 240 pt 高的框內 `scaledToFit`），未編譯、真機未驗證；使用者另選：測試只靠編譯與真機、C 用 OpenCC 衍生、統一用「台」、C 不加設定開關。B（年份、地區、類型、導演、演員、簡介；評分不顯示）已實作並查核（確認 11 項次要問題已修正），單元測試未執行。A、B 已隨 `0.1.28 (29)` 發布（Release build 第一次即編譯成功），真機未驗證。待核准：C 只在顯示時把簡體轉成台灣繁體（OpenCC 衍生，只轉簡體輸入，搜尋與身分值不動）；D iOS 18 Apple Translation 把日文翻成中文。等使用者對文件第十節做決定。見 `docs/IOS-POC-32-detail-metadata-zhtw.md`。
 - IOS-POC-31「設定頁太長」（2026-09-27 使用者要求）：預設播放器、預設播放速度改為一列的下拉選單（`Picker` `.menu`），區塊與說明文字不變（使用者選擇）；內容來源（67 個）改為一列「目前來源 ›」，點進去是開在目前來源的清單（不用選單：選單無法捲到目前項目，首頁來源切換已實測）。已隨 `0.1.27 (28)` 發布（Release build 第一次即編譯成功），真機未驗證。見 `docs/IOS-POC-31-settings-menus.md`。
 - IOS-POC-30「觀看記錄的清除會刪到其他來源的記錄」（2026-09-26 使用者回報）：列表只顯示目前來源（`records(for:)`），「清除」卻呼叫 `WatchHistoryStore.clear()` 刪光所有來源。修正：新增 `clear(for:)`，只刪目前來源擁有的記錄，與 Android `History.deleteAndSync(cid)` 一致；IOS-POC-10E 以前沒有來源的舊記錄在每個來源都會顯示，查核後改為只對目前來源隱藏（新欄位 `hiddenFrom`），不再刪掉而影響其他來源；單筆滑動刪除同樣處理（`remove(key:for:)`，不會刪到其他來源擁有的記錄）；WebHome 的 `app.history` 也改為只回目前來源的列表（與 Android `History.get()` 一致）。已隨 `0.1.26 (27)` 發布（編譯成功），單元測試未執行、真機未驗證。見 `docs/IOS-POC-30-history-clear-per-source.md`。
 - IOS-POC-29「設定頁的預設播放速度」（2026-09-26 使用者要求）：使用者核准 O1 與發布；已隨 `0.1.26 (27)` 發布（Release build 第一次即編譯成功），單元測試未執行、真機未驗證。O1：新片以設定頁的速度開始，同一部片內沿用播放中調整的速度（IOS-POC-14B 不變），播放中調整不改設定。見 `docs/IOS-POC-29-default-playback-speed.md`。
@@ -141,8 +144,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 | **IOS-POC-15D Buffering contract** | **Done 2026-09-24 (`6416c4d4`), shipped in `0.1.10 (11)`.** IOS-POC-15 checked line by line; `os.Logger` `[playback]` measurements. Device performance still pending. `docs/IOS-POC-15-playback-buffering-preload.md` 第十二節 |
 | **IOS-POC-17F Proactive engine fallback** | **Done to the simulator 2026-09-24 (`b37751d2`), shipped in `0.1.10 (11)`; device unverified.** Network/unclassified failures and a 20-second no-start try the other engine once per attempt; offline/source never switch; replaces 17B's capability-only rule (user decision). 344／344. `docs/IOS-POC-17-dual-internal-player.md` 第十二之二節; MPV parity roadmap 第十四節 |
 | **IOS-POC-17G / 17H MPV rotation, MPV PiP** | **Done to the simulator 2026-09-24 (17G `257553f2`, 17H `8824c8ee`), shipped in `0.1.11 (12)`; device unverified.** 17G rebuilds the VO once a rotation settles; 17H gives MPV Picture in Picture through the libmpv software renderer and a sample buffer layer (the simulator's sample-buffer PiP window is always black). `docs/IOS-POC-17-dual-internal-player.md` 第十二之三節; `docs/IOS-POC-17H-mpv-picture-in-picture.md` |
-| SideStore release pipeline (IOS-POC-11) | **Done** — `.github/workflows/ios-sidestore-release.yml` and `source.json` exist and have published every release since, through `0.1.27 (28)` (28 releases, 2026-09-27) |
-| Current release | **WebHTV `0.1.27 (28)`**, tag `ios-v0.1.27-b28` → `67d7fe78`, published 2026-09-27 at the user's instruction (run `36281807118`, `WebHTV-0.1.27-28.ipa` 25,149,798 bytes, SHA-256 `096730d9…`, downloaded back and verified); `source.json` first entry `0.1.27`, pushed by the workflow as `2a4ce060`. It is `0.1.26 (27)` plus IOS-POC-31 (`97417be4`, `616b3fc9`: the settings page's engine and speed choices are one-row menus; the content source is one row that pushes a list opened at the current source). The release build was IOS-POC-31's first compile. **No device result yet.** Record: `docs/IOS-POC-11-sidestore-release.md` 第二十八次發布. |
+| SideStore release pipeline (IOS-POC-11) | **Done** — `.github/workflows/ios-sidestore-release.yml` and `source.json` exist and have published every release since, through `0.1.28 (29)` (29 releases, 2026-09-27) |
+| Current release | **WebHTV `0.1.28 (29)`**, tag `ios-v0.1.28-b29` → `f5fe582c`, published 2026-09-27 at the user's instruction (run `36291272405`, `WebHTV-0.1.28-29.ipa` 25,180,758 bytes, SHA-256 `08d75500…`, downloaded back and verified); `source.json` first entry `0.1.28`, pushed by the workflow as `d8d1302e`. It is `0.1.27 (28)` plus IOS-POC-32 A (`73c96c56`, `5d393196`, `e6771a5f`: the detail poster sits above the title, shown whole) and B (`07a18fd1`, `96e9997b`: year, area, type, director, cast and synopsis on the detail screen). The release build was their first compile; unit tests not run. **No device result yet.** Record: `docs/IOS-POC-11-sidestore-release.md` 第二十九次發布. |
 | IOS-POC-14 auto-advance | **Done and confirmed on the device by the user.** An episode that ends starts the next one on the same line; the last one closes the player |
 | IOS-POC-14A/14B playback speed | **Done, not device-verified.** The chosen speed carries across episodes **of the same title** — keyed on `WatchHistory.key`, so switching source resets it, which the user decided to leave (14C) |
 | Real-device acceptance (IOS-POC-8) | **Partial.** Several runs on hardware; the list below is what is and is not confirmed. Not to be recorded as complete. **IOS-POC-8L (2026-09-23) prepared the core acceptance: `docs/IOS-POC-8L-core-real-device-acceptance.md` is the matrix** (已驗證／這輪要驗／延後驗證／不適用, 14 user-run items). Two findings it recorded: `wang-movie.json` has **no source** that reaches either `script` rule host (`yeslivetv.com`, `www.maolvys.com`) and none that requests its only ad host `mozai.4gtv.tv`; and the sniffer web view and every `print` diagnostic are **invisible on a SideStore Release install** — so 5S-1/5S-3's positive behaviour has no on-device observation channel, only non-regression |
@@ -390,6 +393,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 28 | **Shipped in `0.1.25 (26)`; not device-verified.** A filled poster's overflow took taps for the card beside it; `VodCard` takes taps only inside its own shape. `f5c7d889` | `docs/IOS-POC-28-card-hit-area.md` |
 | 29 | **Shipped in `0.1.26 (27)`; unit tests not run; not device-verified.** A default playback speed on the settings page for a new title; the same title still carries the speed set in the player (14B). `06c77537`, `95e507fa` | `docs/IOS-POC-29-default-playback-speed.md` |
 | 30 | **Shipped in `0.1.26 (27)`; unit tests not run; not device-verified.** The history list's clear and swipe delete touch only the current configuration; a record from before sources were separable is hidden, not deleted; `app.history` is per configuration. `a52ab2dd`, `1e8677b7`, `6f14069d` | `docs/IOS-POC-30-history-clear-per-source.md` |
+| 32 | **A and B shipped in `0.1.28 (29)`; unit tests not run; not device-verified. C and D planned, awaiting approval.** A: the detail poster above the title, whole, in a 240 pt box (user's design). B: year / area / type line and director, cast, synopsis rows (display only; lenient decode; no score, user decision). C (display-only Simplified to Taiwan Traditional, OpenCC-derived, 台) and D (iOS 18 Translation, Japanese) researched. `73c96c56`, `5d393196`, `e6771a5f`, `07a18fd1`, `96e9997b` | `docs/IOS-POC-32-detail-metadata-zhtw.md` |
 | 31 | **Shipped in `0.1.27 (28)`; not device-verified.** The settings page's default engine and speed are pop-up menus; the 67 content sources sit behind one row that opens scrolled to the one in use. `97417be4`, `616b3fc9` | `docs/IOS-POC-31-settings-menus.md` |
 | 8L | **Core real-device acceptance preparation** — the acceptance matrix, the `wang-movie.json` rules/ads inventory, and the `0.1.8 (9)` release-candidate plan with a Release pre-flight build. Docs only; nothing was device-verified by it | `docs/IOS-POC-8L-core-real-device-acceptance.md` |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
@@ -405,7 +409,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 7P | `requests` + `urllib3` + `certifi` + `idna` + `charset-normalizer` vendored as pinned pure-Python wheels; sites reaching media bytes went 1 → 6, executing 4 → 14 | same document |
 | 10F–10Q | **Eleven more user-reported items, 2026-09-22.** Player gestures (seek / volume / brightness); the close button removed and Picture in Picture enabled; `DrpyError` and `CMSClientError` made readable; pull to refresh was being answered by `URLCache` and no longer is; three drpy configuration shapes reconciled; and **麻豆(js) diagnosed as a CatVod JS spider this app does not implement** | `docs/IOS-POC-10-plan-ux-and-sources.md` |
 | 14 / 14A / 14B / 14C | **An episode that ends starts the next one, and the last one closes the player**, plus the playback speed carried within one title. The auto-advance is **confirmed on the device by the user**; the speed is not. 14C records the decision to leave the source switch resetting it | `docs/IOS-POC-14-autoplay-next-episode.md` |
-| 11 | **SideStore release pipeline.** `.github/workflows/ios-sidestore-release.yml` builds an unsigned device IPA on GitHub `macos-26`, validates it against SideStore's own schema, publishes a Release and updates `source.json` on this branch. **Twenty-eight releases so far, through `0.1.27 (28)`**; `source.json` carries all twenty-eight (each release is recorded in the IOS-POC-11 doc) | `docs/IOS-POC-11-sidestore-release.md` |
+| 11 | **SideStore release pipeline.** `.github/workflows/ios-sidestore-release.yml` builds an unsigned device IPA on GitHub `macos-26`, validates it against SideStore's own schema, publishes a Release and updates `source.json` on this branch. **Twenty-nine releases so far, through `0.1.28 (29)`**; `source.json` carries all twenty-nine (each release is recorded in the IOS-POC-11 doc) | `docs/IOS-POC-11-sidestore-release.md` |
 | 10W–10Z | **荐片's posters and filter rows, and the defect underneath them.** The poster host was the first entry of a list whose first two were dead; the filter rows were missing because `SpiderSessionStore.reset()` called `destroy()` on a session its caller still held, wiping what `init` had built between `start()` and `homeContent()`. **Not specific to one spider** | `docs/IOS-POC-10-plan-ux-and-sources.md` |
 | 10S | The source list follows the configuration's own order — `drivableSites` was four concatenated per-kind filters, so 麻豆(js), seventh in the file, was buried among the drpy sites | `docs/IOS-POC-10-plan-ux-and-sources.md` |
 | 10V | **麻豆 confirmed on the iPhone 18 Pro by the user** — listed and playing. Does **not** settle the `AVURLAssetHTTPHeaderFieldsKey` question: that stream serves without a `User-Agent` | `docs/IOS-POC-10-plan-ux-and-sources.md` |
@@ -1104,8 +1108,8 @@ is code complete.**
    **Prepared by IOS-POC-8L on 2026-09-23:** the full matrix, the per-item sources, steps and
    report format are in `docs/IOS-POC-8L-core-real-device-acceptance.md`. What is waiting is the
    user's report from `0.1.9 (10)`.
-   (Corrected 2026-09-27: the latest release is now `0.1.27 (28)`, which carries 16B, 15D, 17F and
-   everything after them; the 8L report is now owed from `0.1.27 (28)`. The current list of owed
+   (Corrected 2026-09-27: the latest release is now `0.1.28 (29)`, which carries 16B, 15D, 17F and
+   everything after them; the 8L report is now owed from `0.1.28 (29)`. The current list of owed
    device reports is the "Current handoff" section at the top.)
 2. ~~**MPV keep/drop decision** for the first stable product.~~ **Made on 2026-09-23: kept**
    (IOS-POC-17). What remains is MPV's **device** first frame, switching and fallback — 8L ⑱⑲,
@@ -1243,8 +1247,8 @@ Paste this into a new session:
 
 > 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -6`、`git status`，以實際 Git 狀態為準、不要相信文件裡的 SHA。依 `AGENTS.md` 先讀 `AGENTS.md`、`docs/current-task-state.md` 最上方「Current handoff — 2026-09-27」一節。
 >
-> 目前狀態：最新已發布版本是 `0.1.27 (28)`（2026-09-27，tag `ios-v0.1.27-b28` → `67d7fe78`）；`0.1.25 (26)`～`0.1.27 (28)` 帶入 IOS-POC-27～31，都還沒有真機驗收。其餘各版的內容與真機結果見 Current handoff 的表格，各任務狀態見「任務狀態」。
+> 目前狀態：最新已發布版本是 `0.1.28 (29)`（2026-09-27，tag `ios-v0.1.28-b29` → `f5fe582c`）；`0.1.25 (26)`～`0.1.28 (29)` 帶入 IOS-POC-27～32（32 為階段 A、B），都還沒有真機驗收。IOS-POC-32 的 C、D 已規劃，等我核准。其餘各版的內容與真機結果見 Current handoff 的表格，各任務狀態見「任務狀態」。
 >
-> 下一步：等我在 `0.1.27 (28)` 上真機回報（Current handoff「下一步」列的項目），你把結果填進對應文件。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不開始 IOS-POC-12／13。
+> 下一步：等我在 `0.1.28 (29)` 上真機回報（Current handoff「下一步」列的項目），你把結果填進對應文件。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不開始 IOS-POC-12／13。
 >
 > 規則：Ponytail 為可選 review；可用時可執行，若目前環境沒有就直接略過，不得因此阻擋功能修改、驗證、commit、build 或後續工作，也不得假稱已執行。功能修改仍須 `bash .codex/scripts/task_guard.sh start`，結束用 `finish --no-tag`。push 到 `ios-poc` 已授權；bump 版本、tag、package、publish 或發 SideStore release 前要先問我。不要直接安裝到我的 iPhone（我用 SideStore）。真機沒測到的一律寫「未驗證」。雲端工作階段沒有 Swift／Xcode，編譯靠發版 workflow，單元測試無法執行。

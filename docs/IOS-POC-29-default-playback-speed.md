@@ -83,9 +83,11 @@
 
 7. 發布 `0.1.26 (27)`：版號 commit `c6502228`，run `36257981098` 成功，tag `ios-v0.1.26-b27`，IPA 25,139,377 bytes，SHA-256 `5d2825d2afa79900971c046feda904a2a904aaf6c604a48d79e332faa6960191`，執行檔含「預設播放速度」；詳見 IOS-POC-11 第二十七次發布。
 
+8. 之後的變更：IOS-POC-31（`0.1.27 (28)`）把設定頁的速度清單改為一列的下拉選單，行為不變，見 `docs/IOS-POC-31-settings-menus.md`。
+
 ## Recovery anchor
 
 - 目標：設定頁新增「預設播放速度」，新片以此速度開始。
 - 狀態（2026-09-26）：已隨 `0.1.26 (27)` 發布；單元測試未執行、真機未驗證。
 - 相關檔案：`ios/Sources/WebHTVCore/PlaybackSpeedPreference.swift`、`ios/Tests/WebHTVCoreTests/PlaybackSpeedPreferenceTests.swift`、`ios/WebHTVApp/Sources/WebHTVApp.swift`（`PlaybackSession.open`、`SettingsView`）。
-- 下一步（唯一）：等使用者在 `0.1.26 (27)` 上做第六節 T1～T6 並回報。
+- 下一步（唯一）：等使用者在 `0.1.26 (27)` 或之後的版本（目前最新 `0.1.27 (28)`，設定頁的速度改為下拉選單，見 IOS-POC-31）上做第六節 T1～T6 並回報。

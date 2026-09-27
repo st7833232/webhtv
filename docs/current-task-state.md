@@ -4,7 +4,7 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-09-25（讀這一節，再讀文末 Resume Prompt）
+## Current handoff — 2026-09-27（讀這一節，再讀文末 Resume Prompt）
 
 **Git**：分支 `ios-poc`，已全部 push。接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認，以實際 Git 狀態為準，不要相信本文的 SHA。
 
@@ -41,7 +41,15 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 2. 不要直接裝到使用者的 iPhone；使用者用 SideStore 實機測試。真機沒測到的一律寫「未驗證」。
 3. 沒有指示前，不開始 MPV parity P2 以後的任何階段，也不開始 IOS-POC-12／13。
 
-**下一步（唯一）**：等使用者在 `0.1.21 (22)` 上真機回報，收到後逐列填進對應文件：
+**下一步（唯一）**：等使用者在 `0.1.27 (28)` 上真機回報，收到後逐列填進對應文件（`0.1.27 (28)` 含前面各版的全部內容）：
+
+1. IOS-POC-27（`0.1.25 (26)` 起）：黑畫面線路 5 秒改用 MPV 並顯示原因、轉圈、卡住時可暫停、2 倍速緩衝：`docs/IOS-POC-27-avplayer-2x-buffer-stall-controls.md` 第八節 T1～T12。**原生開不了時畫面顯示的原因**決定 27C 的方向，要請使用者回報原文。
+2. IOS-POC-28（`0.1.25 (26)` 起）：影片卡點擊範圍：`docs/IOS-POC-28-card-hit-area.md` 第四節。
+3. IOS-POC-29（`0.1.26 (27)` 起）：預設播放速度：`docs/IOS-POC-29-default-playback-speed.md` 第六節。
+4. IOS-POC-30（`0.1.26 (27)` 起）：觀看記錄的清除只影響目前來源：`docs/IOS-POC-30-history-clear-per-source.md` 第四節。
+5. IOS-POC-31（`0.1.27 (28)`）：設定頁下拉選單與內容來源清單：`docs/IOS-POC-31-settings-menus.md` 第五節。
+
+較早各版仍待回報的項目（未變）：
 
 0. IOS-POC-24 的音訊驗收：`docs/IOS-POC-24-audio-session-ownership.md` 第七節。
 
@@ -53,10 +61,10 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **任務狀態**
 
-- IOS-POC-31「設定頁太長」（2026-09-27 使用者要求）：預設播放器、預設播放速度改為一列的下拉選單（`Picker` `.menu`），區塊與說明文字不變（使用者選擇）；內容來源（67 個）改為一列「目前來源 ›」，點進去是開在目前來源的清單（不用選單：選單無法捲到目前項目，首頁來源切換已實測）。已隨 `0.1.27 (28)` 發布（Release build 第一次即編譯成功），真機未驗證。
-- IOS-POC-30「觀看記錄的清除會刪到其他來源的記錄」（2026-09-26 使用者回報）：列表只顯示目前來源（`records(for:)`），「清除」卻呼叫 `WatchHistoryStore.clear()` 刪光所有來源。修正：新增 `clear(for:)`，只刪目前來源擁有的記錄，與 Android `History.deleteAndSync(cid)` 一致；IOS-POC-10E 以前沒有來源的舊記錄在每個來源都會顯示，查核後改為只對目前來源隱藏（新欄位 `hiddenFrom`），不再刪掉而影響其他來源；單筆滑動刪除同樣處理（`remove(key:for:)`，不會刪到其他來源擁有的記錄）；WebHome 的 `app.history` 也改為只回目前來源的列表（與 Android `History.get()` 一致）。已隨 `0.1.26 (27)` 發布（編譯成功），單元測試未執行、真機未驗證。
+- IOS-POC-31「設定頁太長」（2026-09-27 使用者要求）：預設播放器、預設播放速度改為一列的下拉選單（`Picker` `.menu`），區塊與說明文字不變（使用者選擇）；內容來源（67 個）改為一列「目前來源 ›」，點進去是開在目前來源的清單（不用選單：選單無法捲到目前項目，首頁來源切換已實測）。已隨 `0.1.27 (28)` 發布（Release build 第一次即編譯成功），真機未驗證。見 `docs/IOS-POC-31-settings-menus.md`。
+- IOS-POC-30「觀看記錄的清除會刪到其他來源的記錄」（2026-09-26 使用者回報）：列表只顯示目前來源（`records(for:)`），「清除」卻呼叫 `WatchHistoryStore.clear()` 刪光所有來源。修正：新增 `clear(for:)`，只刪目前來源擁有的記錄，與 Android `History.deleteAndSync(cid)` 一致；IOS-POC-10E 以前沒有來源的舊記錄在每個來源都會顯示，查核後改為只對目前來源隱藏（新欄位 `hiddenFrom`），不再刪掉而影響其他來源；單筆滑動刪除同樣處理（`remove(key:for:)`，不會刪到其他來源擁有的記錄）；WebHome 的 `app.history` 也改為只回目前來源的列表（與 Android `History.get()` 一致）。已隨 `0.1.26 (27)` 發布（編譯成功），單元測試未執行、真機未驗證。見 `docs/IOS-POC-30-history-clear-per-source.md`。
 - IOS-POC-29「設定頁的預設播放速度」（2026-09-26 使用者要求）：使用者核准 O1 與發布；已隨 `0.1.26 (27)` 發布（Release build 第一次即編譯成功），單元測試未執行、真機未驗證。O1：新片以設定頁的速度開始，同一部片內沿用播放中調整的速度（IOS-POC-14B 不變），播放中調整不改設定。見 `docs/IOS-POC-29-default-playback-speed.md`。
-- IOS-POC-28「點左邊影片卡的右半部，會開到右邊的影片」（2026-09-26 真機回報，附截圖）：`VodCard` 的海報以 `scaledToFill` 填滿，寬圖超出卡片；`.clipped()` 只裁掉繪製、不裁觸控範圍，所以右邊卡片的圖蓋住左邊卡片的右半部並接走點擊。修正：卡片加 `.contentShape(.rect(cornerRadius: 10))`，首頁格狀與搜尋結果共用。未編譯（無 Swift 工具鏈），真機未驗證。
+- IOS-POC-28「點左邊影片卡的右半部，會開到右邊的影片」（2026-09-26 真機回報，附截圖）：`VodCard` 的海報以 `scaledToFill` 填滿，寬圖超出卡片；`.clipped()` 只裁掉繪製、不裁觸控範圍，所以右邊卡片的圖蓋住左邊卡片的右半部並接走點擊。修正：卡片加 `.contentShape(.rect(cornerRadius: 10))`，首頁格狀與搜尋結果共用。已隨 `0.1.25 (26)` 發布（Release build 編譯成功），真機未驗證。見 `docs/IOS-POC-28-card-hit-area.md`。
 - IOS-POC-27「原生播放器：部分線路黑畫面、2 倍速容易中斷、卡住時按鍵沒反應」（2026-09-26，`0.1.24 (25)` 真機回報）：使用者核准 27A、27B（上限 120 秒）與發布 `0.1.25 (26)`。27A（`96b714df`）：載入轉圈、按鍵依意圖、開播檢查只算想播的時間、原生開播逾時 5 秒（使用者指定；AirPlay／子母畫面時 20 秒；MPV 維持 20 秒）、原生開不了時顯示原因。27B（`80f949ff`）：預讀依倍速放大，上限 120 秒。兩輪對抗式查核修正已提交（`25b91739`、`a21bad25`）。已隨 `0.1.25 (26)` 發布（Release build 第一次即編譯成功），**單元測試未執行、真機未驗證**。 黑畫面不是 0.1.24 的回歸。原生切到 MPV 會黑一陣子（使用者追加回報）列為後續研究。見 `docs/IOS-POC-27-avplayer-2x-buffer-stall-controls.md`。
 - IOS-POC-25「HLS 串流中段廣告自動跳過（Android parity）」（2026-09-25，另一個 session 並行做 IOS-POC-26）：已隨 `0.1.22 (23)` 發布（Release build 編譯通過，單元測試未執行）。第一次真機回報：原生仍露出不到約 1 秒的廣告開頭，正片未察覺缺少；MPV 未察覺廣告；原因未定。使用者決定有 Mac 時由 agent 補測（單元測試、模擬器量測、接 Mac 的真機 log），見 IOS-POC-25 文件第二十節之三。Android 的 `HlsAdsParser`／`HlsAdTimeline`／`resolveAdTimeline` 逐條移植成 Swift，AVPlayer 與 MPV 共用同一份計畫，以既有位置讀值與 `seek` 跳過；iOS 另外讀 playlist，所以加了讀兩次一致、duration 比對、比例上限、落點驗證等只會少跳的保護。MPV 在有 `#EXT-X-DISCONTINUITY` 的 playlist 上不跳（iOS 的 FFmpeg n8.1.2 沒有 Android FongMi 版的時間戳對齊，與 IOS-POC-26 RC3 同一原因），native-output-boundary 本階段不做。設定頁新增「智慧去廣」（預設開）。見 `docs/IOS-POC-25-hls-midstream-ad-skip.md`（第二十節為真機待驗項目）。**IOS-POC-25-2**（2026-09-26，使用者看完評估選 D，要求在 `0.1.23 (24)` 真機確認前先做出來測試）：MPV 在有 discontinuity 的播放清單上也跳，位置讀到區間起點 0.25 秒後才觸發，避開 IOS-POC-26 的 H1 與 mpv demuxer cache 造成的位置超前；App target 以 `-Wl,-u,_ff_hls_timestamp_map_segment` 綁定 WebHTV `Libavformat`（連回上游會連結失敗，要先 revert 本階段）。已隨 `0.1.24 (25)` 發布（Release build 第一次即編譯、連結成功），真機未驗證。見 IOS-POC-25 文件第二十二節。
 - IOS-POC-26「MPV／原生切換位置不對；MPV 在有廣告的影片上 seek 回到片頭、之後要重啟 App」（2026-09-25 真機回報，另一個 session 並行做 IOS-POC-25）：26-1（交接時 AVPlayer 精確落點）已 commit（`a6652cc3`），已隨 `0.1.22 (23)` 發布（Release build 編譯通過），真機未驗證；26-2 研究完成：iOS 的 FFmpeg n8.1.2 不處理 `EXT-X-DISCONTINUITY`，Android 靠 FongMi FFmpeg `5805f936` 才正確，修法是自建 iOS FFmpeg（26-2b，替換二進位，使用者 2026-09-26 核准）：FFmpeg patch 0001～0006 已在 Linux 驗證，0006 為第三輪最終版（審查剩下的 H1 由使用者 2026-09-26 選擇記錄為已知限制）；iOS 建置管線 `.github/workflows/ios-ffmpeg-build.yml` 建置並發布 prerelease `ffmpeg-n8.1.2-webhtv.1`（run `36226970983`），App 改用它（26-2b-2），已隨 `0.1.23 (24)` 發布，真機未驗證。**MPV 在有 discontinuity 的播放清單上仍不做 source-time 跳廣告**（IOS-POC-25 維持停用），解除條件（真機確認 MPV seek 正常等）見 IOS-POC-26 文件第八節。使用者 2026-09-26 要求先測：IOS-POC-25-2 已解除，隨 `0.1.24 (25)` 發布，見上一條。見 `docs/IOS-POC-26-engine-switch-position.md`。
@@ -376,6 +384,11 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 22 | **Fixed to the simulator 2026-09-24, shipped in `0.1.14 (15)`: 2.5×／3× on an AVPlayer item that cannot fast-forward hands the playback to MPV (user's rule).** Diagnosis: AVPlayer cannot play above 2.0× when `canPlayFastForward` is false (SDK `AVPlayerItem.h`); on the simulator it discards its whole buffer at 2.5×／3× and loops wait/jump, while 2× and MPV 3× are smooth | `docs/IOS-POC-22-avplayer-high-speed.md` |
 | 23 | **Stage 1 implemented 2026-09-25 (user-approved), shipped in `0.1.20 (21)` (first CI compile succeeded; unit tests not run); device acceptance T1–T15 all pass (2026-09-25):** a player paused in the background is reloaded paused on the same engine at its position when a background heartbeat gap shows the app was suspended (`appWasSuspended` is deprecated since iOS 16), its tracks are selected again, and the audio session is reactivated on the next play; `440d671e`, plus the MPV snapshot fix `51501cde` in `MPVEngine.swift` (a paused load onto a paused core read as playing) | `docs/IOS-POC-23-pause-background-resume-stall.md` |
 | 24 | **Implemented 2026-09-25 (user chose O3), shipped in `0.1.21 (22)` (Libmpv run `36118969804` and the release build both succeeded first time; unit tests not run); not device-verified:** WebHTV's Libmpv gains `audiounit-`/`avfoundation-skip-session-management` (patch 0004, prerelease `mpvkit-1.0.0-webhtv.2`), MPV sets them, and the app owns the audio session: it activates it before every start of playback and pauses the engine when an interruption begins; `f2dc8e65`, `45357898`, `c472798b` | `docs/IOS-POC-24-audio-session-ownership.md` |
+| 27 | **Shipped in `0.1.25 (26)` (2026-09-26, first CI compile succeeded; unit tests not run); not device-verified.** 27A: a spinner while a start or a stall is on its way, the play/pause button follows intent, the startup watch counts only intended playback, AVPlayer is given up on after 5 s (20 s on AirPlay/PiP; MPV keeps 20 s) with the reason captured and shown; 27B: AVPlayer's read-ahead scaled by the playback speed, capped at 120 s. The black screen was not a 0.1.24 regression: AVPlayer could not open one line and the 20 s fallback had no visible sign. `96b714df`, `80f949ff`, `25b91739`, `a21bad25` | `docs/IOS-POC-27-avplayer-2x-buffer-stall-controls.md` |
+| 28 | **Shipped in `0.1.25 (26)`; not device-verified.** A filled poster's overflow took taps for the card beside it; `VodCard` takes taps only inside its own shape. `f5c7d889` | `docs/IOS-POC-28-card-hit-area.md` |
+| 29 | **Shipped in `0.1.26 (27)`; unit tests not run; not device-verified.** A default playback speed on the settings page for a new title; the same title still carries the speed set in the player (14B). `06c77537`, `95e507fa` | `docs/IOS-POC-29-default-playback-speed.md` |
+| 30 | **Shipped in `0.1.26 (27)`; unit tests not run; not device-verified.** The history list's clear and swipe delete touch only the current configuration; a record from before sources were separable is hidden, not deleted; `app.history` is per configuration. `a52ab2dd`, `1e8677b7`, `6f14069d` | `docs/IOS-POC-30-history-clear-per-source.md` |
+| 31 | **Shipped in `0.1.27 (28)`; not device-verified.** The settings page's default engine and speed are pop-up menus; the 67 content sources sit behind one row that opens scrolled to the one in use. `97417be4`, `616b3fc9` | `docs/IOS-POC-31-settings-menus.md` |
 | 8L | **Core real-device acceptance preparation** — the acceptance matrix, the `wang-movie.json` rules/ads inventory, and the `0.1.8 (9)` release-candidate plan with a Release pre-flight build. Docs only; nothing was device-verified by it | `docs/IOS-POC-8L-core-real-device-acceptance.md` |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
 | 7E | The CPython payload arrives by `scripts/fetch_python_ios.sh` + `third_party/python-ios-lock.json`, not by commit | `docs/IOS-POC-7A-python-runtime.md` |
@@ -1226,10 +1239,10 @@ release version**.
 
 Paste this into a new session:
 
-> 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -6`、`git status`，以實際 Git 狀態為準、不要相信文件裡的 SHA。依 `AGENTS.md` 先讀 `AGENTS.md`、`docs/current-task-state.md` 最上方「Current handoff — 2026-09-25」一節。
+> 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -6`、`git status`，以實際 Git 狀態為準、不要相信文件裡的 SHA。依 `AGENTS.md` 先讀 `AGENTS.md`、`docs/current-task-state.md` 最上方「Current handoff — 2026-09-27」一節。
 >
-> 目前狀態：最新已發布版本是 `0.1.20 (21)`（2026-09-25，tag `ios-v0.1.20-b21` → `957dc518`），IOS-POC-23 已在這一版真機驗收通過；其餘各版的內容與真機結果見 Current handoff 的表格。mpv 與 App 的音訊工作階段設定衝突，使用者已要求修正，狀態見 Current handoff 的「任務狀態」。
+> 目前狀態：最新已發布版本是 `0.1.27 (28)`（2026-09-27，tag `ios-v0.1.27-b28` → `67d7fe78`）；`0.1.25 (26)`～`0.1.27 (28)` 帶入 IOS-POC-27～31，都還沒有真機驗收。其餘各版的內容與真機結果見 Current handoff 的表格，各任務狀態見「任務狀態」。
 >
-> 下一步：等我在 `0.1.20 (21)` 上真機回報（Current handoff「下一步」列的五項），你把結果填進對應文件。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不開始 IOS-POC-12／13。
+> 下一步：等我在 `0.1.27 (28)` 上真機回報（Current handoff「下一步」列的項目），你把結果填進對應文件。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不開始 IOS-POC-12／13。
 >
 > 規則：Ponytail 為可選 review；可用時可執行，若目前環境沒有就直接略過，不得因此阻擋功能修改、驗證、commit、build 或後續工作，也不得假稱已執行。功能修改仍須 `bash .codex/scripts/task_guard.sh start`，結束用 `finish --no-tag`。push 到 `ios-poc` 已授權；bump 版本、tag、package、publish 或發 SideStore release 前要先問我。不要直接安裝到我的 iPhone（我用 SideStore）。真機沒測到的一律寫「未驗證」。雲端工作階段沒有 Swift／Xcode，編譯靠發版 workflow，單元測試無法執行。

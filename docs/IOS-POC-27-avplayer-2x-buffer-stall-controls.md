@@ -271,4 +271,4 @@
 - 狀態（2026-09-26）：27A、27B 與兩輪查核修正已隨 `0.1.25 (26)` 發布（Release build 編譯成功）；單元測試未執行、真機未驗證。
 - 相關檔案：`ios/Sources/WebHTVCore/PlaybackActivity.swift`、`ios/Sources/WebHTVCore/PlaybackNetworkPolicy.swift`、`ios/Sources/WebHTVCore/PlaybackEngine.swift`、`ios/WebHTVApp/Sources/WebHTVApp.swift`、`ios/Tests/WebHTVCoreTests/PlaybackActivityTests.swift`、`ios/Tests/WebHTVCoreTests/PlaybackNetworkPolicyTests.swift`。
 - 未解：第十節。
-- 下一步（唯一）：等使用者在 `0.1.25 (26)` 上做第八節 T1～T12 並回報，逐列填入。
+- 下一步（唯一）：等使用者在 `0.1.25 (26)` 或之後的版本（目前最新 `0.1.27 (28)`）上做第八節 T1～T12 並回報，逐列填入；原生開不了時畫面顯示的原因請回報原文，它決定 27C 的方向。

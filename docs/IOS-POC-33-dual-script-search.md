@@ -1,6 +1,6 @@
 # IOS-POC-33 — 搜尋時簡體、繁體各搜一次，合併結果後顯示
 
-- 狀態：**已實作（2026-09-28，使用者核准第九節四項建議；第十節）：未編譯、單元測試未執行、真機未驗證、尚未發布。**
+- 狀態：**已實作（2026-09-28，使用者核准第九節四項建議；第十節），隨 `0.1.29 (30)` 發布（Release build 第一次即編譯成功）；單元測試未執行、真機未驗證。**
 - 使用者要求（2026-09-28）：「在執行搜尋功能 簡體繁體都搜尋一次 把結果merge後再顯示」
 - 分類：新功能，改變每次搜尋送出的請求數與結果內容，適用 AGENTS.md §7 設計研究門檻；本文件是它的研究、計畫與實作紀錄。
 - 研究方式：workflow `wf_51a0f1ba-938` 的六個代理分別研讀核心搜尋、App 搜尋流程、各類來源、Android、外部證據，最後由一個代理做風險批判並抽查程式行號。
@@ -129,13 +129,13 @@
    - 語法：tree-sitter-swift 分析新增與修改的 6 個 Swift 檔，沒有新的語法錯誤（`WebHTVApp.swift` 另有 3 個既有的分析器誤報）。
    - 預期值：新測試的預期值以 Python 模擬 `forms`、`firstPage`、`nextPage` 的規則重算，全部相符。
    - 查核：workflow `wf_5f88a792-0aa` 以四個面向（Swift 6 編譯、既有行為、測試、App 流程）審查，每個發現再由獨立代理嘗試推翻。確認 9 個次要問題，沒有編譯阻斷；9 個都已修正（本節第 2 點與新增的測試）。修正後由 workflow `wf_9c0f247e-ef7` 複審（編譯、邏輯兩個面向）：沒有確認的問題。唯一的發現「期限到時第一種寫法回了空結果，會顯示沒有找到而不是逾時」經驗證是設計本意（第五節第 3、4 點：改之前這個站會準時回報沒有找到，不能因為第二種寫法慢而變成逾時）。
-   - **未編譯**：容器沒有 Swift。單元測試未執行、真機未驗證。第一次編譯是下一次發布的 Release build，會與 IOS-POC-32 C 一起編譯。
+   - **未編譯**：容器沒有 Swift。單元測試未執行、真機未驗證。2026-09-28 的 `0.1.29 (30)` Release build（run `36373454196`，與 IOS-POC-32 C 一起）第一次編譯即成功。
    - Ponytail：unavailable / skipped。
 4. 待真機驗收：第七節的真機項目。
 
 ## Recovery anchor
 
 - 目標：搜尋時簡體、繁體寫法各搜一次，同一站合併後再顯示。
-- 狀態（2026-09-28）：已實作並 commit（第十節）；未編譯、單元測試未執行、真機未驗證、未發布。
+- 狀態（2026-09-28）：已隨 `0.1.29 (30)` 發布（第十節；發布紀錄在 IOS-POC-11 第三十次發布），Release build 第一次即編譯成功；單元測試未執行、真機未驗證。
 - 相關檔案：`ios/Sources/WebHTVCore/DualScriptSearch.swift`、`ios/Sources/WebHTVCore/AggregateSearch.swift`、`ios/WebHTVApp/Sources/WebHTVApp.swift`（`AggregateSearchView`、`CMSView`）、`ios/Tests/WebHTVCoreTests/DualScriptSearchTests.swift`、`AggregateSearchTests.swift`。
-- 下一步（唯一）：請使用者決定是否把 IOS-POC-32 C 與本任務一起發布為 `0.1.29 (30)`（bump 版本、tag、發布前都要先問）。
+- 下一步（唯一）：等使用者在 `0.1.29 (30)` 上做第七節的真機項目並回報。

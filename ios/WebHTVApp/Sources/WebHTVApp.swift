@@ -1,6 +1,7 @@
 import AVKit
 import AudioToolbox
 import CoreMedia
+import Observation
 import os
 import SwiftUI
 import UIKit
@@ -48,6 +49,9 @@ struct WebHTVApp: App {
         PythonSpiderSupport.makeRuntime = { script, siteKey in
             try PythonSpiderRuntime(script: script, siteKey: siteKey)
         }
+        // IOS-POC-32 C: the Simplified → Taiwan Traditional dictionaries, parsed off the main thread.
+        // A screen drawn before they arrive shows the source's text and is redrawn once they have.
+        Task { await TaiwanDisplay.shared.load() }
         #if DEBUG
         // IOS-POC-9B: does libmpv link and initialise inside this app? Debug-only, and nothing
         // downstream depends on it yet — AVPlayer is still the only playback core.
@@ -504,7 +508,7 @@ private struct HomeView: View {
                         picking = false
                     } label: {
                         HStack {
-                            Text(site.name.displayName).foregroundStyle(.primary)
+                            Text(zhTW: site.name.displayName).foregroundStyle(.primary)
                             Spacer()
                             if site.id == selectedSite.id {
                                 Image(systemName: "checkmark").foregroundStyle(appAccent)
@@ -538,14 +542,14 @@ private struct HomeView: View {
                             picking = true
                         } label: {
                             HStack(spacing: 8) {
-                                Text(selectedSite.name.displayName).font(.headline)
+                                Text(zhTW: selectedSite.name.displayName).font(.headline)
                                 Image(systemName: "chevron.down").font(.caption2)
                             }
                             .foregroundStyle(.white)
                             .lineLimit(1)
                             .frame(minHeight: 44)
                         }
-                        .accessibilityLabel("切換內容來源，目前為 \(selectedSite.name)")
+                        .accessibilityLabel("切換內容來源，目前為 \(zhTW(selectedSite.name))")
                     }
                 }
                 .sheet(isPresented: $picking) { sourcePicker }
@@ -610,7 +614,7 @@ private struct CMSView: View {
                 if !groups.isEmpty {
                     categoryRow(parentChips)
                     if showsChildRow, let children = activeGroup?.children, !children.isEmpty {
-                        categoryRow(ForEach(children) { chip($0.name, id: $0.id) })
+                        categoryRow(ForEach(children) { chip(zhTW($0.name), id: $0.id) })
                     }
                     // Filter rows belong to a category, so they only appear once one is listed, and
                     // only for a source whose API publishes them at all.
@@ -702,7 +706,7 @@ private struct CMSView: View {
     private func filterRow(_ row: CMSFilter) -> some View {
         categoryRow(
             HStack(spacing: 8) {
-                Text(row.displayName)
+                Text(zhTW: row.displayName)
                     .font(.caption).bold()
                     .foregroundStyle(.white.opacity(0.75))
                     .frame(minWidth: 34, alignment: .leading)
@@ -721,7 +725,7 @@ private struct CMSView: View {
             else { chosenFilters[row] = option.value }
             Task { await load(category: selectedCategory) }
         } label: {
-            Text(option.name)
+            Text(zhTW: option.name)
                 .font(.footnote)
                 .foregroundStyle(isActive ? appSurface : .white)
                 .padding(.horizontal, 11)
@@ -774,7 +778,7 @@ private struct CMSView: View {
             Task { await load(category: target) }
         } label: {
             HStack(spacing: 4) {
-                Text(group.parent.name)
+                Text(zhTW: group.parent.name)
                 if hasChildren {
                     // Points down when the children are hidden, up when they are showing.
                     Image(systemName: isActive && !isCollapsed ? "chevron.up" : "chevron.down")
@@ -908,7 +912,7 @@ private struct VodCard: View {
             LinearGradient(colors: [.clear, .black.opacity(0.88)], startPoint: .top, endPoint: .bottom)
                 .frame(height: 86)
                 .overlay(alignment: .bottomLeading) {
-                    Text(vod.name)
+                    Text(zhTW: vod.name)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
                         .padding(10)
@@ -916,7 +920,7 @@ private struct VodCard: View {
         }
         .overlay(alignment: .topTrailing) {
             if !vod.remarks.isEmpty {
-                Text(vod.remarks)
+                Text(zhTW: vod.remarks)
                     .font(.caption2.weight(.semibold))
                     .lineLimit(1)
                     .padding(.horizontal, 7)
@@ -992,7 +996,7 @@ private struct AggregateSearchView: View {
                         } label: {
                             VStack(alignment: .leading, spacing: 4) {
                                 VodCard(vod: hit.vod)
-                                Text(hit.site.name.displayName)
+                                Text(zhTW: hit.site.name.displayName)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
@@ -1058,7 +1062,7 @@ private struct AggregateSearchView: View {
             HStack(spacing: 8) {
                 chip("全部 \(groups.reduce(0) { $0 + $1.vods.count })", index: nil)
                 ForEach(groups, id: \.index) { group in
-                    chip("\(group.site.name.displayName) \(group.vods.count)", index: group.index)
+                    chip("\(zhTW(group.site.name.displayName)) \(group.vods.count)", index: group.index)
                 }
             }
             .padding(.horizontal, 12)
@@ -1403,7 +1407,7 @@ private extension SettingsView {
 
     /// IOS-POC-31: the source the 內容來源 row names — the home screen's fallback when none is chosen.
     var currentSiteName: String {
-        (sites.first { $0.id == selectedSiteID } ?? sites.first)?.name.displayName ?? "—"
+        zhTW((sites.first { $0.id == selectedSiteID } ?? sites.first)?.name.displayName ?? "—")
     }
 
     /// Which saved entry the live configuration came from, so the list can tick it.
@@ -1452,7 +1456,7 @@ private struct SiteChoiceList: View {
                     onOpenHome()
                 } label: {
                     HStack {
-                        Text(site.name.displayName).foregroundStyle(.primary)
+                        Text(zhTW: site.name.displayName).foregroundStyle(.primary)
                         Spacer()
                         if site.id == currentID {
                             Image(systemName: "checkmark").foregroundStyle(appAccent)
@@ -1517,16 +1521,16 @@ private struct VodView: View {
                         // from history carries only its id, name and poster.
                         VodPoster(picture: summary.picture.isEmpty ? detail.picture : summary.picture)
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(displayName).font(.title2.weight(.bold))
+                            Text(zhTW: displayName).font(.title2.weight(.bold))
                             let remarks = summary.remarks.isEmpty ? detail.remarks : summary.remarks
                             if !remarks.isEmpty {
-                                Text(remarks).foregroundStyle(.secondary)
+                                Text(zhTW: remarks).foregroundStyle(.secondary)
                             }
                             let facts = factsLine(detail)
                             if !facts.isEmpty {
-                                Text(facts).font(.subheadline).foregroundStyle(.secondary)
+                                Text(zhTW: facts).font(.subheadline).foregroundStyle(.secondary)
                             }
-                            Text(site.name.displayName)
+                            Text(zhTW: site.name.displayName)
                                 .font(.caption.weight(.semibold))
                                 .padding(.horizontal, 9)
                                 .padding(.vertical, 5)
@@ -1548,7 +1552,7 @@ private struct VodView: View {
                                 ScrollView(.horizontal, showsIndicators: false) {
                                     HStack(spacing: 8) {
                                         ForEach(detail.flags, id: \.name) { line in
-                                            Button(line.name) { selectedFlag = line.name }
+                                            Button(zhTW(line.name)) { selectedFlag = line.name }
                                                 .buttonStyle(.bordered)
                                                 .tint(line.name == flag.name ? .accentColor : nil)
                                                 .fontWeight(line.name == flag.name ? .bold : nil)
@@ -1557,7 +1561,7 @@ private struct VodView: View {
                                     }
                                 }
                             } else {
-                                Text(flag.name).font(.headline)
+                                Text(zhTW: flag.name).font(.headline)
                             }
                             // A few hundred buttons in one grid is unnavigable. Offer the 100-episode
                             // blocks the numbering already follows, and only when there is more than one.
@@ -1580,7 +1584,7 @@ private struct VodView: View {
                                 ForEach(Array(flag.episodes.enumerated())[blocks[max(0, chunk)]], id: \.offset) { _, episode in
                                     let lastWatched = watched?.vodFlag == flag.name
                                         && watched?.episodeUrl == episode.url
-                                    Button(episode.name) {
+                                    Button(zhTW(episode.name)) {
                                         Task { await play(episode, flag: flag.name) }
                                     }
                                     .buttonStyle(.bordered)
@@ -1605,7 +1609,7 @@ private struct VodView: View {
             }
         }
         .appWallpaper()
-        .navigationTitle(displayName)
+        .navigationTitle(zhTW(displayName))
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBar()
         .task {
@@ -1670,9 +1674,10 @@ private struct VodView: View {
     /// the same way, mobile `VideoActivity.setText(TextView, int, String)`).
     @ViewBuilder
     private func metadataRows(_ detail: Vod) -> some View {
-        let director = metadata(\.director, in: detail)
-        let actor = metadata(\.actor, in: detail)
-        let content = metadata(\.content, in: detail)
+        // IOS-POC-32 C: names keep the surnames a plain conversion misreads (于 → 於, 范 → 範).
+        let director = zhTW(metadata(\.director, in: detail), .names)
+        let actor = zhTW(metadata(\.actor, in: detail), .names)
+        let content = zhTW(metadata(\.content, in: detail))
         if !director.isEmpty || !actor.isEmpty || !content.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 if !director.isEmpty { metadataRow("導演", director) }
@@ -2047,8 +2052,8 @@ private struct HistoryView: View {
             .clipShape(.rect(cornerRadius: 6))
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(record.vodName).font(.headline).lineLimit(2)
-                Text([record.siteName.displayName, record.vodFlag, record.vodRemarks]
+                Text(zhTW: record.vodName).font(.headline).lineLimit(2)
+                Text(zhTW: [record.siteName.displayName, record.vodFlag, record.vodRemarks]
                     .filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -3896,20 +3901,20 @@ private struct PlayerControlBar: View {
             // of one decides nothing, so a track button needs more than one option (IOS-POC-5Q).
             if engine.capabilities.trackSelection {
                 if let subtitle = media.subtitle, subtitle.options.count > 1 {
-                    panelButton(.subtitle, value: Self.selectedName(subtitle)) {
+                    panelButton(.subtitle, value: zhTW(Self.selectedName(subtitle))) {
                         Image(systemName: "captions.bubble").font(.system(size: 17))
                     }
                 }
                 if let audio = media.audio, audio.options.count > 1 {
-                    panelButton(.audio, value: Self.selectedName(audio)) {
+                    panelButton(.audio, value: zhTW(Self.selectedName(audio))) {
                         Image(systemName: "waveform").font(.system(size: 17))
                     }
                 }
             }
             // IOS-POC-17E: only when the source offers more than one entry.
             if let quality = session.quality, quality.offersChoice {
-                panelButton(.quality, value: quality.name) {
-                    Text(quality.name.isEmpty ? "畫質" : quality.name)
+                panelButton(.quality, value: zhTW(quality.name)) {
+                    Text(zhTW: quality.name.isEmpty ? "畫質" : quality.name)
                         .font(.footnote.weight(.semibold))
                         .lineLimit(1)
                         .frame(maxWidth: 80)
@@ -4136,7 +4141,7 @@ private struct PlayerControlBar: View {
             case .quality:
                 if let quality = session.quality {
                     ForEach(Array(quality.qualities.enumerated()), id: \.offset) { entry, option in
-                        choiceRow(option.name.isEmpty ? "畫質 \(entry + 1)" : option.name,
+                        choiceRow(option.name.isEmpty ? "畫質 \(entry + 1)" : zhTW(option.name),
                                   selected: entry == quality.selected) {
                             session.selectQuality(entry)
                         }
@@ -4197,7 +4202,7 @@ private struct PlayerControlBar: View {
     private func trackRows(_ track: PlaybackMediaTrack?, kind: PlaybackMediaKind) -> some View {
         if let track {
             ForEach(track.options) { option in
-                choiceRow(option.displayName, selected: option.id == track.selectedID) {
+                choiceRow(zhTW(option.displayName), selected: option.id == track.selectedID) {
                     Task { @MainActor in
                         await session.selectMedia(kind, id: option.id)
                         mediaChanged()
@@ -5039,6 +5044,66 @@ private struct WebHomeView: View {
             AggregateSearchView(sites: sites, source: source, initialQuery: request.keyword, isSheet: true)
         }
         .fullScreenCover(isPresented: $playingInline) { PlayerView() }
+    }
+}
+
+/// IOS-POC-32 C: a source's Simplified Chinese on screen in Taiwan Traditional (`TaiwanTraditional`).
+/// The converter loads once, off the main thread. Until it has, text shows as the source sent it, and
+/// every view that asked is redrawn when it arrives, because Observation tracks the read of
+/// `converter`. **Display only**: a converted string never goes back into search, watch history,
+/// identity values or the WebHome bridge.
+@MainActor @Observable
+final class TaiwanDisplay {
+    static let shared = TaiwanDisplay()
+
+    private var converter: TaiwanTraditional? = nil
+    @ObservationIgnored private var loading = false
+    /// What each string became, so a redrawn grid does not convert its titles again. Cleared when full.
+    @ObservationIgnored private var cache: [Key: String] = [:]
+
+    private struct Key: Hashable {
+        let text: String
+        let mode: TaiwanTraditional.Mode
+    }
+
+    private static let cacheLimit = 4096
+    private static let log = Logger(subsystem: "com.webhtv.ios.poc", category: "zhtw")
+
+    func text(_ raw: String, _ mode: TaiwanTraditional.Mode) -> String {
+        guard let converter else { return raw }
+        let key = Key(text: raw, mode: mode)
+        if let converted = cache[key] { return converted }
+        if cache.count >= Self.cacheLimit { cache.removeAll(keepingCapacity: true) }
+        let converted = converter.convert(raw, mode: mode)
+        cache[key] = converted
+        return converted
+    }
+
+    func load() async {
+        guard converter == nil, !loading else { return }
+        loading = true
+        let loaded = await Task.detached(priority: .userInitiated) {
+            Result { try TaiwanTraditional.bundled() }
+        }.value
+        switch loaded {
+        case .success(let value):
+            converter = value
+        case .failure(let error):
+            // Text stays as the sources send it; nothing else depends on the conversion.
+            Self.log.error("[zhtw] dictionaries unavailable: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+}
+
+/// IOS-POC-32 C: `text` as it should read on screen. Call it only where a string is drawn.
+@MainActor func zhTW(_ text: String, _ mode: TaiwanTraditional.Mode = .text) -> String {
+    TaiwanDisplay.shared.text(text, mode)
+}
+
+extension Text {
+    /// IOS-POC-32 C: a source's string, shown verbatim after `zhTW(_:_:)`.
+    @MainActor init(zhTW text: String, _ mode: TaiwanTraditional.Mode = .text) {
+        self.init(verbatim: zhTW(text, mode))
     }
 }
 

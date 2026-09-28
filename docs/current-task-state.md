@@ -6,7 +6,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current handoff — 2026-09-27（讀這一節，再讀文末 Resume Prompt）
 
-**Git**：分支 `ios-poc`，已全部 push。接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認，以實際 Git 狀態為準，不要相信本文的 SHA。
+**Git**：分支 `ios-poc`，已全部 push。接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認，以實際 Git 狀態為準，不要相信本文的 SHA。遠端分支只保留 `main` 與 `ios-poc`（使用者 2026-09-28 決定，其餘分支由使用者在 Mac 上刪除）；工作一律在 `ios-poc`，不 merge 到 `main`。
 
 **最新已發布版本是 `0.1.28 (29)`**（2026-09-27，使用者授權；tag `ios-v0.1.28-b29` → `f5fe582c`，run `36291272405`，`source.json` `d8d1302e`，IPA 25,180,758 bytes，SHA-256 `08d75500f663184439df385202b65695e77cbfbef1cbfd7883c790b9359c590c`，下載回驗通過）。至今共發布 29 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
 
@@ -41,9 +41,11 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 1. push 到 `ios-poc` 已授權（使用者 2026-09-25 交接）。bump 版本、tag、發布 SideStore release 前都要先問；發布流程見 IOS-POC-11 第二十一次發布。
 2. 不要直接裝到使用者的 iPhone；使用者用 SideStore 實機測試。真機沒測到的一律寫「未驗證」。
 3. 沒有指示前，不開始 MPV parity P2 以後的任何階段，也不開始 IOS-POC-12／13。
+4. commit 一律用 task guard（`start --scope` 每個路徑各帶一次，`finish` 加 `--no-tag`）。
 
-**下一步（唯一）**：等使用者在 `0.1.28 (29)` 上真機回報，收到後逐列填進對應文件（`0.1.28 (29)` 含前面各版的全部內容）：
+**下一步（唯一）**：請使用者決定是否把 IOS-POC-32 C 發布為 `0.1.29 (30)`（bump 版本、tag、發布前都要先問）。真機回報隨時可收，收到後逐列填進對應文件（`0.1.28 (29)` 含前面各版的全部內容）：
 
+0. IOS-POC-32 C（已 commit、未發布）：發布後驗收 `docs/IOS-POC-32-detail-metadata-zhtw.md` 第六節第 4 點的真機項目與第 5 點第 5 項。
 0. IOS-POC-32（`0.1.28 (29)`）：詳情頁海報版面與年份、簡介、演員：`docs/IOS-POC-32-detail-metadata-zhtw.md` 第四節第 3 點 T1～T8、第五節第 3 點的真機項目。
 
 1. IOS-POC-27（`0.1.25 (26)` 起）：黑畫面線路 5 秒改用 MPV 並顯示原因、轉圈、卡住時可暫停、2 倍速緩衝：`docs/IOS-POC-27-avplayer-2x-buffer-stall-controls.md` 第八節 T1～T12。**原生開不了時畫面顯示的原因**決定 27C 的方向，要請使用者回報原文。
@@ -65,7 +67,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **任務狀態**
 
-- IOS-POC-32「詳情頁：海報蓋到標題、顯示年份簡介演員、簡體顯示為台灣繁體、日文翻譯」（2026-09-27 使用者要求，附截圖）：A 海報版面已實作（`VodPoster` 的 `clipShape` 在呼叫端 `.frame` 之前，橫向海報超出約 93 pt；使用者改定為海報在上、標題在下、完整顯示，固定 240 pt 高的框內 `scaledToFit`），未編譯、真機未驗證；使用者另選：測試只靠編譯與真機、C 用 OpenCC 衍生、統一用「台」、C 不加設定開關。B（年份、地區、類型、導演、演員、簡介；評分不顯示）已實作並查核（確認 11 項次要問題已修正），單元測試未執行。A、B 已隨 `0.1.28 (29)` 發布（Release build 第一次即編譯成功），真機未驗證。待核准：C 只在顯示時把簡體轉成台灣繁體（OpenCC 衍生，只轉簡體輸入，搜尋與身分值不動）；D iOS 18 Apple Translation 把日文翻成中文。等使用者對文件第十節做決定。見 `docs/IOS-POC-32-detail-metadata-zhtw.md`。
+- IOS-POC-32「詳情頁：海報蓋到標題、顯示年份簡介演員、簡體顯示為台灣繁體、日文翻譯」（2026-09-27 使用者要求，附截圖）：A 海報版面已實作（`VodPoster` 的 `clipShape` 在呼叫端 `.frame` 之前，橫向海報超出約 93 pt；使用者改定為海報在上、標題在下、完整顯示，固定 240 pt 高的框內 `scaledToFit`），未編譯、真機未驗證；使用者另選：測試只靠編譯與真機、C 用 OpenCC 衍生、統一用「台」、C 不加設定開關。B（年份、地區、類型、導演、演員、簡介；評分不顯示）已實作並查核（確認 11 項次要問題已修正），單元測試未執行。A、B 已隨 `0.1.28 (29)` 發布（Release build 第一次即編譯成功），真機未驗證。C（簡體只在顯示時轉成台灣繁體）已實作並 commit（2026-09-28 使用者核准；簡介不換台灣用語）：OpenCC `528ae262` 的 `s2tw` 以 Swift 重寫，6 份字典未修改地內建（約 1.1 MB）；只轉含簡體專用字的字串、日文不轉、統一用「台」、演員導演保留 于朴范姜余沈 並把 钟 寫成 鍾；32 處顯示位置，搜尋、身分值、觀看記錄與橋接資料不動。Python 對照實作與 OpenCC CLI 比對 134,127 行 0 差異；Swift 未編譯、單元測試未執行、真機未驗證、未發布。D（iOS 18 Apple Translation 把日文翻成中文）待核准；使用者 2026-09-28 回答 iPhone 是 iOS 26.x、預設「關」，iOS 17 的做法與 `.lowLatency` 未決定。見 `docs/IOS-POC-32-detail-metadata-zhtw.md`。
 - IOS-POC-31「設定頁太長」（2026-09-27 使用者要求）：預設播放器、預設播放速度改為一列的下拉選單（`Picker` `.menu`），區塊與說明文字不變（使用者選擇）；內容來源（67 個）改為一列「目前來源 ›」，點進去是開在目前來源的清單（不用選單：選單無法捲到目前項目，首頁來源切換已實測）。已隨 `0.1.27 (28)` 發布（Release build 第一次即編譯成功），真機未驗證。見 `docs/IOS-POC-31-settings-menus.md`。
 - IOS-POC-30「觀看記錄的清除會刪到其他來源的記錄」（2026-09-26 使用者回報）：列表只顯示目前來源（`records(for:)`），「清除」卻呼叫 `WatchHistoryStore.clear()` 刪光所有來源。修正：新增 `clear(for:)`，只刪目前來源擁有的記錄，與 Android `History.deleteAndSync(cid)` 一致；IOS-POC-10E 以前沒有來源的舊記錄在每個來源都會顯示，查核後改為只對目前來源隱藏（新欄位 `hiddenFrom`），不再刪掉而影響其他來源；單筆滑動刪除同樣處理（`remove(key:for:)`，不會刪到其他來源擁有的記錄）；WebHome 的 `app.history` 也改為只回目前來源的列表（與 Android `History.get()` 一致）。已隨 `0.1.26 (27)` 發布（編譯成功），單元測試未執行、真機未驗證。見 `docs/IOS-POC-30-history-clear-per-source.md`。
 - IOS-POC-29「設定頁的預設播放速度」（2026-09-26 使用者要求）：使用者核准 O1 與發布；已隨 `0.1.26 (27)` 發布（Release build 第一次即編譯成功），單元測試未執行、真機未驗證。O1：新片以設定頁的速度開始，同一部片內沿用播放中調整的速度（IOS-POC-14B 不變），播放中調整不改設定。見 `docs/IOS-POC-29-default-playback-speed.md`。
@@ -92,7 +94,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 `b17576e34eb42b4c589a818ef8b5ec2655a2c7a188d626fc427c37d628897168`，需要時從使用者 GitLab 重抓；模擬器控制工具一次來回
 5～10 秒，比 5 秒自動隱藏長，互動測試時可暫時把 `PlayerChrome.autoHideSeconds` 改大、測完還原並重建（不要 commit）。
 
-**雲端工作階段的限制（2026-09-25）**：沒有 Swift／Xcode（download.swift.org 被 proxy 擋，apt 也沒有套件），編譯驗證靠發版 workflow，單元測試無法執行。17H 的模擬器限制與手動開關 PiP 的做法見 `docs/IOS-POC-17H-mpv-picture-in-picture.md` 第六節之二；iPad 模擬器 App 容器的 `webhtv.playback.defaultEngine=mpv` 是測試用設定，可留。
+**雲端工作階段的限制（2026-09-25）**：沒有 Swift／Xcode（download.swift.org 被 proxy 擋，apt 也沒有套件；2026-09-28 再確認 GitHub releases 也回 403），編譯驗證靠發版 workflow，單元測試無法執行。語法檢查可用 PyPI 的 `tree-sitter` 加 `tree-sitter-swift`（`WebHTVApp.swift` 有 3 個既有誤報，都在 `as? … ??` 的寫法）。17H 的模擬器限制與手動開關 PiP 的做法見 `docs/IOS-POC-17H-mpv-picture-in-picture.md` 第六節之二；iPad 模擬器 App 容器的 `webhtv.playback.defaultEngine=mpv` 是測試用設定，可留。
 
 ## Current Scope
 
@@ -393,7 +395,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 28 | **Shipped in `0.1.25 (26)`; not device-verified.** A filled poster's overflow took taps for the card beside it; `VodCard` takes taps only inside its own shape. `f5c7d889` | `docs/IOS-POC-28-card-hit-area.md` |
 | 29 | **Shipped in `0.1.26 (27)`; unit tests not run; not device-verified.** A default playback speed on the settings page for a new title; the same title still carries the speed set in the player (14B). `06c77537`, `95e507fa` | `docs/IOS-POC-29-default-playback-speed.md` |
 | 30 | **Shipped in `0.1.26 (27)`; unit tests not run; not device-verified.** The history list's clear and swipe delete touch only the current configuration; a record from before sources were separable is hidden, not deleted; `app.history` is per configuration. `a52ab2dd`, `1e8677b7`, `6f14069d` | `docs/IOS-POC-30-history-clear-per-source.md` |
-| 32 | **A and B shipped in `0.1.28 (29)`; unit tests not run; not device-verified. C and D planned, awaiting approval.** A: the detail poster above the title, whole, in a 240 pt box (user's design). B: year / area / type line and director, cast, synopsis rows (display only; lenient decode; no score, user decision). C (display-only Simplified to Taiwan Traditional, OpenCC-derived, 台) and D (iOS 18 Translation, Japanese) researched. `73c96c56`, `5d393196`, `e6771a5f`, `07a18fd1`, `96e9997b` | `docs/IOS-POC-32-detail-metadata-zhtw.md` |
+| 32 | **A and B shipped in `0.1.28 (29)`; unit tests not run; not device-verified. C implemented and committed (2026-09-28), not compiled, tests not run, not released: display-only Simplified → Taiwan Traditional from OpenCC `528ae262` `s2tw` (Python mirror matched OpenCC on 134,127 lines), 台 throughout, only Simplified-only input, Japanese untouched, surname rule for cast lists, 32 display sites. D awaiting approval.** A: the detail poster above the title, whole, in a 240 pt box (user's design). B: year / area / type line and director, cast, synopsis rows (display only; lenient decode; no score, user decision). C (display-only Simplified to Taiwan Traditional, OpenCC-derived, 台) and D (iOS 18 Translation, Japanese) researched. `73c96c56`, `5d393196`, `e6771a5f`, `07a18fd1`, `96e9997b` | `docs/IOS-POC-32-detail-metadata-zhtw.md` |
 | 31 | **Shipped in `0.1.27 (28)`; not device-verified.** The settings page's default engine and speed are pop-up menus; the 67 content sources sit behind one row that opens scrolled to the one in use. `97417be4`, `616b3fc9` | `docs/IOS-POC-31-settings-menus.md` |
 | 8L | **Core real-device acceptance preparation** — the acceptance matrix, the `wang-movie.json` rules/ads inventory, and the `0.1.8 (9)` release-candidate plan with a Release pre-flight build. Docs only; nothing was device-verified by it | `docs/IOS-POC-8L-core-real-device-acceptance.md` |
 | 6C | The sniffer unwraps a wrapper page that carries the stream in its own query string; one shared candidate test for both sniff paths | `docs/IOS-POC-6A-drpy-loader.md` |
@@ -1247,7 +1249,7 @@ Paste this into a new session:
 
 > 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -6`、`git status`，以實際 Git 狀態為準、不要相信文件裡的 SHA。依 `AGENTS.md` 先讀 `AGENTS.md`、`docs/current-task-state.md` 最上方「Current handoff — 2026-09-27」一節。
 >
-> 目前狀態：最新已發布版本是 `0.1.28 (29)`（2026-09-27，tag `ios-v0.1.28-b29` → `f5fe582c`）；`0.1.25 (26)`～`0.1.28 (29)` 帶入 IOS-POC-27～32（32 為階段 A、B），都還沒有真機驗收。IOS-POC-32 的 C、D 已規劃，等我核准。其餘各版的內容與真機結果見 Current handoff 的表格，各任務狀態見「任務狀態」。
+> 目前狀態：最新已發布版本是 `0.1.28 (29)`（2026-09-27，tag `ios-v0.1.28-b29` → `f5fe582c`）；`0.1.25 (26)`～`0.1.28 (29)` 帶入 IOS-POC-27～32（32 為階段 A、B），都還沒有真機驗收。IOS-POC-32 C（簡體顯示為台灣繁體）已實作、未發布，等我決定是否發布 `0.1.29 (30)`；D 等我核准。其餘各版的內容與真機結果見 Current handoff 的表格，各任務狀態見「任務狀態」。
 >
 > 下一步：等我在 `0.1.28 (29)` 上真機回報（Current handoff「下一步」列的項目），你把結果填進對應文件。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不開始 IOS-POC-12／13。
 >

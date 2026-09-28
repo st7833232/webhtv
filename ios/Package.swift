@@ -7,7 +7,7 @@ let package = Package(
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [.library(name: "WebHTVCore", targets: ["WebHTVCore"])],
     targets: [
-        .target(name: "WebHTVCore", resources: [.copy("Resources/Spiders")]),
+        .target(name: "WebHTVCore", resources: [.copy("Resources/Spiders"), .copy("Resources/OpenCC")]),
         .testTarget(name: "WebHTVCoreTests", dependencies: ["WebHTVCore"]),
     ]
 )

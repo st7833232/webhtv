@@ -15,11 +15,14 @@ import os
 /// has really ended (a spider past its deadline still holds a thread), and a site still busy with an
 /// earlier search is reported as busy instead of being queued behind itself. The deadline decides
 /// only what the screen says: it can stop a CMS request, never a spider.
+///
+/// IOS-POC-33: a call asks each keyword form (`DualScriptSearch`) in turn within its one slot, and
+/// the site is still reported once, with the forms' titles merged.
 public struct AggregateSearch: Sendable {
     public static let defaultLimit = 6
     public static let defaultDeadline: Duration = .seconds(30)
 
-    /// One page of one site's results, for a keyword that is already simplified.
+    /// One page of one site's results, for one keyword form (`DualScriptSearch.forms(of:)`).
     public typealias Search = @Sendable (_ site: Site, _ keyword: String, _ page: Int) async throws -> [Vod]
 
     public struct Report: Sendable {
@@ -27,6 +30,8 @@ public struct AggregateSearch: Sendable {
         public let index: Int
         public let site: Site
         public let outcome: Outcome
+        /// IOS-POC-33: where this site's 載入更多 starts. Finished unless something was found.
+        public let cursor: DualScriptSearch.Cursor
     }
 
     public enum Outcome: Sendable {
@@ -62,19 +67,23 @@ public struct AggregateSearch: Sendable {
     /// request is cancelled, and a spider already running finishes on its own.
     public func run(_ sites: [Site], keyword: String) -> AsyncStream<Report> {
         let (stream, continuation) = AsyncStream.makeStream(of: Report.self)
-        let simplified = TraditionalSimplified.toSimplified(keyword)
+        let forms = DualScriptSearch.forms(of: keyword)
         let task = Task {
-            await drive(sites, keyword: simplified, into: continuation)
+            await drive(sites, forms: forms, into: continuation)
             continuation.finish()
         }
         continuation.onTermination = { _ in task.cancel() }
         return stream
     }
 
-    /// A further page of one site, for that site's 載入更多. It is one call the user asked for, so it
+    /// A further page of one site, for that site's 載入更多: the next page of every keyword form still
+    /// adding titles, merged onto what is shown (IOS-POC-33). It is one request the user made, so it
     /// is neither limited nor skipped; a spider still busy runs it after the call before it.
-    public func page(_ page: Int, of site: Site, keyword: String) async throws -> [Vod] {
-        try await search(site, TraditionalSimplified.toSimplified(keyword), page)
+    public func more(after shown: [Vod], cursor: DualScriptSearch.Cursor, of site: Site) async
+        -> (vods: [Vod], cursor: DualScriptSearch.Cursor) {
+        await DualScriptSearch.nextPage(after: shown, cursor: cursor) { [search] keyword, page in
+            try await search(site, keyword, page)
+        }
     }
 
     // MARK: - Scheduling
@@ -85,7 +94,7 @@ public struct AggregateSearch: Sendable {
     /// shared app-wide (`SpiderSessionStore`), so this is too.
     private static let calls = InFlightCalls()
 
-    private func drive(_ sites: [Site], keyword: String,
+    private func drive(_ sites: [Site], forms: [String],
                        into continuation: AsyncStream<Report>.Continuation) async {
         let began = ContinuousClock.now
         await withTaskGroup(of: Void.self) { group in
@@ -95,14 +104,15 @@ public struct AggregateSearch: Sendable {
                 while running < limit, let next = pending.next() {
                     guard await Self.calls.begin(next.element.id) else {
                         Self.log.notice("[search] \(next.element.name, privacy: .public) is still busy with an earlier search")
-                        continuation.yield(Report(index: next.offset, site: next.element, outcome: .busy))
+                        continuation.yield(Report(index: next.offset, site: next.element, outcome: .busy,
+                                                  cursor: DualScriptSearch.Cursor(pending: [])))
                         continue
                     }
                     running += 1
                     let count = running
                     Self.log.notice("[search] ask \(next.element.name, privacy: .public), \(count) running")
                     group.addTask {
-                        await call(next.element, at: next.offset, keyword: keyword, into: continuation)
+                        await call(next.element, at: next.offset, forms: forms, into: continuation)
                     }
                 }
                 guard running > 0 else { break }
@@ -113,30 +123,49 @@ public struct AggregateSearch: Sendable {
         Self.log.notice("[search] \(sites.count) sites done in \(Self.milliseconds(since: began))ms")
     }
 
-    private func call(_ site: Site, at index: Int, keyword: String,
+    private func call(_ site: Site, at index: Int, forms: [String],
                       into continuation: AsyncStream<Report>.Continuation) async {
         guard !Task.isCancelled else {
             await Self.calls.end(site.id)
             return
         }
         let began = ContinuousClock.now
-        let work = Task { [search] () -> Outcome in
-            let outcome: Outcome
+        // What the forms have found so far, for a deadline that passes between two of them.
+        let partial = Partial()
+        let work = Task { [search] () -> Answer in
+            let answer: Answer
             do {
-                outcome = .found(try await search(site, keyword, 1))
+                let found = try await DualScriptSearch.firstPage(
+                    forms: forms, titles: { $0 },
+                    progress: { form, vods, cursor in
+                        // Only a later form can still be waiting, so one form keeps the old timeout.
+                        guard forms.count > 1 else { return }
+                        partial.set(vods, cursor)
+                        Self.log.notice("[search] \(site.name, privacy: .public) form \(form + 1)/\(forms.count): \(vods.count) titles in \(Self.milliseconds(since: began))ms")
+                    },
+                    search: { keyword in try await search(site, keyword, 1) })
+                answer = Answer(outcome: .found(found.vods), cursor: found.cursor)
             } catch {
-                outcome = .failed(error.localizedDescription)
+                answer = Answer(outcome: .failed(error.localizedDescription), cursor: DualScriptSearch.Cursor(pending: []))
             }
             await Self.calls.end(site.id)
-            return outcome
+            return answer
         }
         switch await Self.race(work, deadline: deadline) {
-        case .finished(let outcome):
+        case .finished(let answer):
             Self.log.notice("[search] \(site.name, privacy: .public) answered in \(Self.milliseconds(since: began))ms")
-            continuation.yield(Report(index: index, site: site, outcome: outcome))
+            continuation.yield(Report(index: index, site: site, outcome: answer.outcome, cursor: answer.cursor))
         case .timedOut:
-            Self.log.notice("[search] \(site.name, privacy: .public) timed out")
-            continuation.yield(Report(index: index, site: site, outcome: .timedOut))
+            // IOS-POC-33: a form that answered in time is shown; only a site with nothing to show has
+            // timed out.
+            if let found = partial.value {
+                Self.log.notice("[search] \(site.name, privacy: .public) timed out after \(found.vods.count) titles")
+                continuation.yield(Report(index: index, site: site, outcome: .found(found.vods), cursor: found.cursor))
+            } else {
+                Self.log.notice("[search] \(site.name, privacy: .public) timed out")
+                continuation.yield(Report(index: index, site: site, outcome: .timedOut,
+                                          cursor: DualScriptSearch.Cursor(pending: [])))
+            }
             // Stops a CMS request. A spider runs on, and its slot stays taken until it returns, so no
             // more than `limit` threads are ever blocked under one search.
             work.cancel()
@@ -146,8 +175,14 @@ public struct AggregateSearch: Sendable {
         }
     }
 
+    /// What one call ends with: the site's outcome and where its 載入更多 starts.
+    private struct Answer: Sendable {
+        let outcome: Outcome
+        let cursor: DualScriptSearch.Cursor
+    }
+
     private enum Race: Sendable {
-        case finished(Outcome)
+        case finished(Answer)
         case timedOut
         case cancelled
     }
@@ -155,12 +190,15 @@ public struct AggregateSearch: Sendable {
     /// Waits for `work`, for `deadline` when there is one, or for this task to be cancelled, whichever
     /// comes first. It never waits for `work` to stop, because a spider does not stop on request —
     /// which is also why this is not a task group: a group always waits for all of its child tasks.
-    private static func race(_ work: Task<Outcome, Never>, deadline: Duration?) async -> Race {
+    private static func race(_ work: Task<Answer, Never>, deadline: Duration?) async -> Race {
         let first = FirstRace()
         let timer = deadline.map { deadline in
             Task {
                 do { try await Task.sleep(for: deadline) } catch { return }
                 first.settle(.timedOut)
+                // IOS-POC-33: at once, so no later keyword form starts after the deadline. Settled
+                // first, so the timeout still wins over the cancelled work's own answer.
+                work.cancel()
             }
         }
         Task { first.settle(.finished(await work.value)) }
@@ -170,6 +208,7 @@ public struct AggregateSearch: Sendable {
             }
         } onCancel: {
             first.settle(.cancelled)
+            work.cancel()
         }
         timer?.cancel()
         return winner
@@ -206,6 +245,18 @@ public struct AggregateSearch: Sendable {
                 return waiting
             }
             waiting?.resume(returning: race)
+        }
+    }
+
+    /// IOS-POC-33: what one call's keyword forms have found so far, and where 載入更多 would start.
+    private final class Partial: @unchecked Sendable {
+        private let lock = NSLock()
+        private var found: (vods: [Vod], cursor: DualScriptSearch.Cursor)?
+
+        var value: (vods: [Vod], cursor: DualScriptSearch.Cursor)? { lock.withLock { found } }
+
+        func set(_ vods: [Vod], _ cursor: DualScriptSearch.Cursor) {
+            lock.withLock { found = (vods: vods, cursor: cursor) }
         }
     }
 

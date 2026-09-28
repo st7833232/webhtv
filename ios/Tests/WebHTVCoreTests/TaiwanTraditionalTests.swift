@@ -148,8 +148,9 @@ private func converter() throws -> TaiwanTraditional { try bundled.get() }
     // Known risk 1 (IOS-POC-32 document, section 6): these 664 Traditional-only characters can appear
     // on screen, and search's Traditional → Simplified table (Android's) leaves them as they are, so a
     // title copied from the screen into search can find nothing where the source indexes the Simplified
-    // form. Search is deliberately unchanged. Widening its table is a separate change, and this list is
-    // regenerated with it (the document says how).
+    // form. Since IOS-POC-33 the copied text is also sent as it is, which a site indexing Traditional
+    // finds, but the Simplified form still carries these characters. Widening the table is a separate
+    // change, and this list is regenerated with it (the document says how).
     let unmapped = "㑯㑳㑶㓨㗲㘚㜄㜏㜢㠏㠣㥮㩜㩳㩵㺏䁪䁻䃮䊷䋙䋚䋹䋻䍦䎱䓣䙡䜀䝼䡵䥇䥑䥕䥱䦛䦟䧢䮄䯀䰾䱷䱽䲁䲘䴉乾佈佔併侷係俔俥俬倈倖倲偑傌傢僕僞僤僱儁儎儘儸兇冑剋剎剷劏劚勣卹叄吶唸啓喎喫嗰嘆嘓噁噚噹嚐嚥嚧嚮囌埨塸塿墠壎壗壠奼姦娙媰嫺嬀嬃孃孋孻寀屓峯崑崙崬嵽嵾巖巘幓幷幹廕廞弒弔彄彆彔彙彲彿徵悞悽慄慺慼慾懞懤戱扞拚挩捨捱捲掆採揯搧搵摺撝擓擣擽敓斆昇晛暐曆曏曥朥朮柺桱桿梜梲棡椲榘榦榲槓槤槮槶槼樑樢樧樫樳樿橯檯櫍櫱欓殨殭殰氾汎汙沖洩浿涗湋溼滙滷漍潕潙潚澐澫澾濄濆濚濛濧瀂瀇瀰灒灕灙灡煱熅熰燀燖燬燶燻爲牀牴獱璊璕璗璯璸瓅瓛痠痾瘲瘻癒癥癧皁盃盪睍睏瞜瞶矇硃碽磠磾礐祕禡稏稜穀穇穫窵竈筴箇範篔篠篢篸籅籔籛籤糉糰糹紃紞紬紲絃絅絪絺綄綎綐綑綖綝綡綧綪綵緻縯縳縴繫繮繶繸繻繿纁纆纔纕罃罈羣羶翫脣脩膞膢臟舖菴菸萴葯蒍蒐蒕蓆蔄蔔蔘蔯蔿蕓薀薴薵薹藭蘟虆虉蝀蝨螮蟳蠁衆衊衕衚裊裏裡製複襀襉襬覈訏託訢註詀詝詪詷誌誾諓諟諲諴謏譁譓譞譟譭讅讌谿貍貙賰贊蹟躎軏軝輄輋輓輗輮輶迴週鄩鄳酇醟醣醲釐釒釦釴釾釿鈇鈮鉊鉋鉝鉢鉥鉧鉮鉷銈銶鋐鋗鋩鋮鋹錀錏錛錞錤錶鍀鍃鍊鍩鍭鍼鎇鎌鎓鎝鎩鎵鎶鏏鏝鏺鏻鐄鐇鐍鐏鐥鐨鐩鐯鐽鑌鑑鑕鑪鑱钂閑閤闆闇闉闑闢隑隤隮隯隻霑霢靝鞝鞦韆頍頔頠頫頵顗颱颳飈飠飢餈餗餚餬餵餸饘馼駃駉駓駪駼騄騊騑騞騠騧騱騵驎骯髮鬆鬍鬚鬥鬨鬱鬹魟鮀鮆鮈鮎鮟鮠鮡鮣鮸鯻鰆鰊鰌鰤鰧鰲鰶鰺鱀鱇鱚鱲鳾鴷鵁鵏鵟鵰鵾鶄鶖鶠鶪鶱鷀鷉鷟鷭鷽鸂鸊鸑麪麬麳麴麵鼕齘齣齮齯齼龎龑鿁鿓𠁞𠗣𡃕𡅏𡑍𡑭𡓾𡔖𡞵𡠹𡢃𡮉𡮣𡳳𡾱𢣚𢶫𢹿𣈶𣙎𣞻𣠩𣠲𣯶𣾷𤁣𤅶𤓩𤪺𤫩𤳸𥊝𥌃𥕥𥖅𥗽𥢢𥸠𥼽𦘧𦣎𦪙𧜗𧜵𧝞𧟀𧩙𧵳𧶧𨊰𨊸𨋢𨤻𨦫𨧀𨧜𨨏𨭆𨭎𨯅𩞯𩠴𩣑𩶘𰻞"
     #expect(unmapped.unicodeScalars.count == 664)
     #expect(TraditionalSimplified.toSimplified(unmapped) == unmapped)

@@ -592,6 +592,8 @@ private struct CMSView: View {
     @State private var query = ""
     @State private var page = 1
     @State private var canLoadMore = true
+    /// IOS-POC-33: where a search's 載入更多 is, per keyword form. Nil for a category or the home list.
+    @State private var searchCursor: DualScriptSearch.Cursor?
     @State private var loadingMore = false
     @State private var loading = false
     @State private var error: String?
@@ -833,6 +835,26 @@ private struct CMSView: View {
         guard canLoadMore, !loadingMore, !loading else { return }
         loadingMore = true
         defer { loadingMore = false }
+        // IOS-POC-33: search results page each keyword form of the keyword they were found with, not
+        // the text now in the field.
+        if searching, let cursor = searchCursor {
+            do {
+                let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
+                let shown = items
+                let next = await DualScriptSearch.nextPage(after: shown, cursor: cursor) { keyword, page in
+                    try await client.search(keyword, page: page).list
+                }
+                // Another keyword, or a listing, came on screen meanwhile: this page belongs to the old one.
+                guard searchCursor == cursor else { return }
+                // Onto what is on screen now, which a refresh of the same keyword may have replaced.
+                items = items.merging(newTitlesFrom: Array(next.vods.dropFirst(shown.count)))
+                searchCursor = next.cursor
+                canLoadMore = !next.cursor.isFinished
+            } catch {
+                canLoadMore = false
+            }
+            return
+        }
         do {
             let next = page + 1
             let response = try await listing(page: next)
@@ -861,17 +883,27 @@ private struct CMSView: View {
         error = nil
         page = 1
         canLoadMore = true
+        searchCursor = nil
         defer { loading = false }
         do {
             let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
-            let response = if let search, !search.isEmpty {
-                try await client.search(TraditionalSimplified.toSimplified(search))
+            let response: CMSResponse
+            var titles: [Vod]?
+            if let search, !search.isEmpty {
+                // IOS-POC-33: the Simplified form (IOS-POC-20), then the keyword as typed when it
+                // differs, merged. The first answer's response supplies everything but the titles.
+                let answer = try await DualScriptSearch.firstPage(
+                    forms: DualScriptSearch.forms(of: search), titles: { $0.list },
+                    search: { keyword in try await client.search(keyword) })
+                response = answer.page
+                titles = answer.vods
+                searchCursor = answer.cursor
             } else if let category {
-                try await client.category(id: category, extend: chosenFilters)
+                response = try await client.category(id: category, extend: chosenFilters)
             } else {
-                try await client.home()
+                response = try await client.home()
             }
-            items = response.list
+            items = titles ?? response.list
             // A category listing usually omits `class`, so keep the set the home call established.
             if !response.classes.isEmpty { groups = response.categoryGroups }
             // Same for the filter rows: only the home call carries them.
@@ -973,7 +1005,8 @@ private struct AggregateSearchView: View {
         let index: Int
         let site: Site
         var vods: [Vod]
-        var page = 1
+        /// IOS-POC-33: the next page of each keyword form still adding titles.
+        var cursor: DualScriptSearch.Cursor
         var canLoadMore = true
         var loadingMore = false
     }
@@ -1178,7 +1211,7 @@ private struct AggregateSearchView: View {
         answered += 1
         switch report.outcome {
         case .found(let vods) where !vods.isEmpty:
-            groups.append(SiteHits(index: report.index, site: report.site, vods: vods))
+            groups.append(SiteHits(index: report.index, site: report.site, vods: vods, cursor: report.cursor))
         case .found:
             break
         case .failed:
@@ -1190,25 +1223,21 @@ private struct AggregateSearchView: View {
         }
     }
 
-    /// The next page of one site, for its own chip. Pagination stops when a page adds nothing or
-    /// fails, as it does on the home screen.
+    /// The next page of one site, for its own chip: the next page of each keyword form while that
+    /// form still adds titles (IOS-POC-33). Pagination stops when no form adds anything, as it does
+    /// on the home screen.
     private func loadMore(_ index: Int) async {
         guard let position = groups.firstIndex(where: { $0.index == index }),
               groups[position].canLoadMore, !groups[position].loadingMore else { return }
         groups[position].loadingMore = true
         let current = generation
-        let site = groups[position].site
-        let next = groups[position].page + 1
-        let page = try? await engine.page(next, of: site, keyword: keyword)
+        let group = groups[position]
+        let next = await engine.more(after: group.vods, cursor: group.cursor, of: group.site)
         guard current == generation, let at = groups.firstIndex(where: { $0.index == index }) else { return }
         groups[at].loadingMore = false
-        let merged = groups[at].vods.merging(newTitlesFrom: page ?? [])
-        guard merged.count > groups[at].vods.count else {
-            groups[at].canLoadMore = false
-            return
-        }
-        groups[at].vods = merged
-        groups[at].page = next
+        groups[at].vods = next.vods
+        groups[at].cursor = next.cursor
+        groups[at].canLoadMore = !next.cursor.isFinished
     }
 }
 

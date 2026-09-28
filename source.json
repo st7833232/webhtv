@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.29",
+          "date": "2026-09-28",
+          "localizedDescription": "WebHTV 0.1.29 (30)（未經真機驗收）\n\n改善\n- 來源送來的簡體中文，畫面上改顯示成台灣繁體（統一用「台」）；日文不轉，演員、導演保留于、朴、范、姜、余、沈等姓氏。\n- 搜尋輸入繁體時，會同時用簡體與輸入的原文各搜一次，同一站的結果合併後顯示；載入更多時兩種寫法各自翻頁。首頁站內搜尋與 WebHome 搜尋也一樣。\n\n已知限制\n- 用繁體搜尋時，spider 類站台的搜尋時間約為兩倍。\n\n輸入簡體、英文或數字時，搜尋與之前相同；播放不變。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.29-b30/WebHTV-0.1.29-30.ipa",
+          "size": 25685782,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.28",
           "date": "2026-09-27",
           "localizedDescription": "WebHTV 0.1.28 (29)（未經真機驗收）\n\n改善\n- 詳情頁的海報移到標題上方，整張圖完整顯示，不再蓋到標題或超出畫面。\n- 詳情頁顯示年份、地區、類型、導演、演員與簡介（來源有提供才顯示）；簡介預設 4 行，可按「更多」展開。\n\n搜尋與播放不變。",

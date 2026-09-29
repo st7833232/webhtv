@@ -6,12 +6,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current handoff — 2026-09-29（讀這一節，再讀文末 Resume Prompt）
 
-**Git**：分支 `ios-poc`，已全部 push。接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認，以實際 Git 狀態為準，不要相信本文的 SHA。遠端分支只保留 `main` 與 `ios-poc`（使用者 2026-09-28 決定，其餘分支由使用者在 Mac 上刪除）；工作一律在 `ios-poc`，不 merge 到 `main`。2026-09-29 交接時 `ios-poc` 在 `0a4c06a8`（本節所在的交接 commit 之前），遠端仍有 5 條舊分支：`ci/ios-pip-foreground-restore`、`claude/avplayer-cache-buffer-ddpwrd`、`claude/ios-poc-25-ad-skip-assessment-whmqwu`、`claude/ios-poc-25-hls-midstream-ad-skip-hmw1hc`、`claude/mpv-native-playback-sync-wph48k`。它們都已完整包含在 `ios-poc` 裡（沒有獨有 commit），刪除不會遺失工作；雲端 session 刪除遠端 ref 會被 proxy 擋（403），要在 Mac 上執行：
-
-```
-git push origin --delete ci/ios-pip-foreground-restore claude/avplayer-cache-buffer-ddpwrd claude/ios-poc-25-ad-skip-assessment-whmqwu claude/ios-poc-25-hls-midstream-ad-skip-hmw1hc claude/mpv-native-playback-sync-wph48k
-git fetch --prune
-```
+**Git**：分支 `ios-poc`，已全部 push。接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認，以實際 Git 狀態為準，不要相信本文的 SHA。遠端分支只保留 `main` 與 `ios-poc`（使用者 2026-09-28 決定，其餘分支由使用者在 Mac 上刪除）；工作一律在 `ios-poc`，不 merge 到 `main`。那 5 條舊分支（`ci/ios-pip-foreground-restore`、`claude/avplayer-cache-buffer-ddpwrd`、`claude/ios-poc-25-ad-skip-assessment-whmqwu`、`claude/ios-poc-25-hls-midstream-ad-skip-hmw1hc`、`claude/mpv-native-playback-sync-wph48k`，都已完整包含在 `ios-poc`）已於 2026-09-29 在 Mac 上依使用者指示刪除，遠端現在只有 `main` 與 `ios-poc`。
 
 雲端 session 若由 harness 指定其他工作分支，照樣只 push 到 `ios-poc`（使用者 2026-09-28 的決定），不建立新的遠端分支。
 
@@ -50,9 +45,9 @@ git fetch --prune
 2. 不要直接裝到使用者的 iPhone；使用者用 SideStore 實機測試。真機沒測到的一律寫「未驗證」。
 3. 沒有指示前，不開始 MPV parity P2 以後的任何階段，也不開始 IOS-POC-12／13。
 4. commit 一律用 task guard（`start --scope` 每個路徑各帶一次，`finish` 加 `--no-tag`）。
-5. 雲端 session 沒有 Swift：單元測試照常撰寫但不執行（使用者選擇「只靠編譯與真機」），第一次編譯是發布時的 Release build。
+5. 雲端 session 沒有 Swift：單元測試照常撰寫但不執行（使用者選擇「只靠編譯與真機」），第一次編譯是發布時的 Release build。**在 Mac 上**（2026-09-29 使用者選「執行並修測試」）：`ios/` 的 `swift test` 要執行，測試本身的錯誤直接修，正式程式的 bug 先回報；2026-09-29 第一次執行 519 個全部通過。
 
-**下一步（唯一）**：等使用者回報：`0.1.29 (30)` 的真機結果（收到後逐列填進下列文件，`0.1.29 (30)` 含前面各版的全部內容），或 IOS-POC-34 需要的資料（允許 `www.kkys20.com`，或 Safari 網址列的完整網址；見任務狀態）：
+**下一步（唯一）**：等使用者回報：`0.1.29 (30)` 的真機結果（收到後逐列填進下列文件，`0.1.29 (30)` 含前面各版的全部內容），或對 IOS-POC-25 第二十三節之八候選的決定：
 
 0. IOS-POC-33（`0.1.29 (30)`）：`docs/IOS-POC-33-dual-script-search.md` 第七節的真機項目。
 0. IOS-POC-32 C（`0.1.29 (30)`）：`docs/IOS-POC-32-detail-metadata-zhtw.md` 第六節第 4 點的真機項目與第 5 點第 5 項。
@@ -66,7 +61,7 @@ git fetch --prune
 
 較早各版仍待回報的項目：
 
-0. IOS-POC-26（`0.1.23 (24)` 起）：MPV／原生互切位置與 MPV 在有廣告的影片上 seek：`docs/IOS-POC-26-engine-switch-position.md` 5.5 與第七節。IOS-POC-25／25-2 的補測等有 Mac 時由 agent 執行（IOS-POC-25 文件第二十節之三）。
+0. IOS-POC-26（`0.1.23 (24)` 起）：MPV／原生互切位置與 MPV 在有廣告的影片上 seek：`docs/IOS-POC-26-engine-switch-position.md` 5.5 與第七節。IOS-POC-25／25-2 的 Mac 補測已完成（2026-09-29，IOS-POC-25 文件第二十三節），真機項目仍待回報。
 0. IOS-POC-24 的音訊驗收：`docs/IOS-POC-24-audio-session-ownership.md` 第七節。
 
 1. MPV 旋轉（播放中、暫停中）與既有功能：`docs/IOS-POC-17I-mpv-resize-libmpv.md` 第六節第 4～6 條。
@@ -77,7 +72,7 @@ git fetch --prune
 
 **任務狀態**
 
-- IOS-POC-34「可可影視的分類篩選結果與網站不同」（2026-09-28 使用者回報，附網站與 App 截圖；使用者說「搜尋」，但截圖是分類篩選）：評估中，沒有修改任何程式。已確認 App 傳給 Python spider 的篩選值與網站相同（畫面的「台灣」只是顯示轉換），落差出在來源腳本 GitLab `st7833232/recha` `py/kkys.py`：它組 `/show/2--台湾--2026-2-1.html`，排序寫死為 最新 `2`、最热 `3`，並取整頁所有 `module-item` 區塊。可能原因（未驗證）：抓到非主清單區塊或網站以 JavaScript 載入清單（App 卡片沒有任何備註、網站卡片都有）、排序代碼對錯、App 的類型列選擇未知。本環境連不上 `www.kkys20.com`（403），要等使用者允許該網域或提供 Safari 網址。見 `docs/IOS-POC-34-kkys-filter-mismatch.md`。
+- IOS-POC-34「可可影視的分類篩選結果與網站不同」：**已結案**（2026-09-29 使用者回報「可可的問題已經修正了」，由使用者修改 GitLab `recha` 的 `py/kkys.py`，最新 commit `96ce2f0c104a97b1fe5852ed24f3c407f1e9caa5`）；本 repo 沒有修改任何程式，原因未確認，App 上沒有重測。見 `docs/IOS-POC-34-kkys-filter-mismatch.md` 第四節。
 - IOS-POC-33「搜尋時簡體、繁體各搜一次，合併結果後顯示」（2026-09-28 使用者要求，四項決定都採建議）：輸入繁體時先送簡體寫法（與現在相同），再送輸入的原文；同一站兩種寫法在同一個名額內依序查詢，合併後只回報一次（第一種寫法的清單原樣在前，第二種只加入新片）；30 秒期限到時若已有一種寫法回來就顯示它；載入更多每種寫法各自翻頁；搜尋分頁、WebHome `app.search` 與首頁站內搜尋都套用。輸入簡體、英文、數字時行為不變。沒有 Android 先例（Android 只送一種寫法），做法對照 MacCMS 2026 的繁简同搜。已隨 `0.1.29 (30)` 發布（Release build 第一次即編譯成功），單元測試未執行、真機未驗證。見 `docs/IOS-POC-33-dual-script-search.md`。
 - IOS-POC-32「詳情頁：海報蓋到標題、顯示年份簡介演員、簡體顯示為台灣繁體、日文翻譯」（2026-09-27 使用者要求，附截圖）：A 海報版面已實作（`VodPoster` 的 `clipShape` 在呼叫端 `.frame` 之前，橫向海報超出約 93 pt；使用者改定為海報在上、標題在下、完整顯示，固定 240 pt 高的框內 `scaledToFit`），未編譯、真機未驗證；使用者另選：測試只靠編譯與真機、C 用 OpenCC 衍生、統一用「台」、C 不加設定開關。B（年份、地區、類型、導演、演員、簡介；評分不顯示）已實作並查核（確認 11 項次要問題已修正），單元測試未執行。A、B 已隨 `0.1.28 (29)` 發布（Release build 第一次即編譯成功），真機未驗證。C（簡體只在顯示時轉成台灣繁體）已實作並 commit（2026-09-28 使用者核准；簡介不換台灣用語）：OpenCC `528ae262` 的 `s2tw` 以 Swift 重寫，6 份字典未修改地內建（約 1.1 MB）；只轉含簡體專用字的字串、日文不轉、統一用「台」、演員導演保留 于朴范姜余沈 並把 钟 寫成 鍾；32 處顯示位置，搜尋、身分值、觀看記錄與橋接資料不動。Python 對照實作與 OpenCC CLI 比對 134,127 行 0 差異；已隨 `0.1.29 (30)` 發布（Release build 第一次即編譯成功），單元測試未執行、真機未驗證。D（iOS 18 Apple Translation 把日文翻成中文）待核准；使用者 2026-09-28 回答 iPhone 是 iOS 26.x、預設「關」，iOS 17 的做法與 `.lowLatency` 未決定。見 `docs/IOS-POC-32-detail-metadata-zhtw.md`。
 - IOS-POC-31「設定頁太長」（2026-09-27 使用者要求）：預設播放器、預設播放速度改為一列的下拉選單（`Picker` `.menu`），區塊與說明文字不變（使用者選擇）；內容來源（67 個）改為一列「目前來源 ›」，點進去是開在目前來源的清單（不用選單：選單無法捲到目前項目，首頁來源切換已實測）。已隨 `0.1.27 (28)` 發布（Release build 第一次即編譯成功），真機未驗證。見 `docs/IOS-POC-31-settings-menus.md`。
@@ -85,7 +80,7 @@ git fetch --prune
 - IOS-POC-29「設定頁的預設播放速度」（2026-09-26 使用者要求）：使用者核准 O1 與發布；已隨 `0.1.26 (27)` 發布（Release build 第一次即編譯成功），單元測試未執行、真機未驗證。O1：新片以設定頁的速度開始，同一部片內沿用播放中調整的速度（IOS-POC-14B 不變），播放中調整不改設定。見 `docs/IOS-POC-29-default-playback-speed.md`。
 - IOS-POC-28「點左邊影片卡的右半部，會開到右邊的影片」（2026-09-26 真機回報，附截圖）：`VodCard` 的海報以 `scaledToFill` 填滿，寬圖超出卡片；`.clipped()` 只裁掉繪製、不裁觸控範圍，所以右邊卡片的圖蓋住左邊卡片的右半部並接走點擊。修正：卡片加 `.contentShape(.rect(cornerRadius: 10))`，首頁格狀與搜尋結果共用。已隨 `0.1.25 (26)` 發布（Release build 編譯成功），真機未驗證。見 `docs/IOS-POC-28-card-hit-area.md`。
 - IOS-POC-27「原生播放器：部分線路黑畫面、2 倍速容易中斷、卡住時按鍵沒反應」（2026-09-26，`0.1.24 (25)` 真機回報）：使用者核准 27A、27B（上限 120 秒）與發布 `0.1.25 (26)`。27A（`96b714df`）：載入轉圈、按鍵依意圖、開播檢查只算想播的時間、原生開播逾時 5 秒（使用者指定；AirPlay／子母畫面時 20 秒；MPV 維持 20 秒）、原生開不了時顯示原因。27B（`80f949ff`）：預讀依倍速放大，上限 120 秒。兩輪對抗式查核修正已提交（`25b91739`、`a21bad25`）。已隨 `0.1.25 (26)` 發布（Release build 第一次即編譯成功），**單元測試未執行、真機未驗證**。 黑畫面不是 0.1.24 的回歸。原生切到 MPV 會黑一陣子（使用者追加回報）列為後續研究。見 `docs/IOS-POC-27-avplayer-2x-buffer-stall-controls.md`。
-- IOS-POC-25「HLS 串流中段廣告自動跳過（Android parity）」（2026-09-25，另一個 session 並行做 IOS-POC-26）：已隨 `0.1.22 (23)` 發布（Release build 編譯通過，單元測試未執行）。第一次真機回報：原生仍露出不到約 1 秒的廣告開頭，正片未察覺缺少；MPV 未察覺廣告；原因未定。使用者決定有 Mac 時由 agent 補測（單元測試、模擬器量測、接 Mac 的真機 log），見 IOS-POC-25 文件第二十節之三。Android 的 `HlsAdsParser`／`HlsAdTimeline`／`resolveAdTimeline` 逐條移植成 Swift，AVPlayer 與 MPV 共用同一份計畫，以既有位置讀值與 `seek` 跳過；iOS 另外讀 playlist，所以加了讀兩次一致、duration 比對、比例上限、落點驗證等只會少跳的保護。MPV 在有 `#EXT-X-DISCONTINUITY` 的 playlist 上不跳（iOS 的 FFmpeg n8.1.2 沒有 Android FongMi 版的時間戳對齊，與 IOS-POC-26 RC3 同一原因），native-output-boundary 本階段不做。設定頁新增「智慧去廣」（預設開）。見 `docs/IOS-POC-25-hls-midstream-ad-skip.md`（第二十節為真機待驗項目）。**IOS-POC-25-2**（2026-09-26，使用者看完評估選 D，要求在 `0.1.23 (24)` 真機確認前先做出來測試）：MPV 在有 discontinuity 的播放清單上也跳，位置讀到區間起點 0.25 秒後才觸發，避開 IOS-POC-26 的 H1 與 mpv demuxer cache 造成的位置超前；App target 以 `-Wl,-u,_ff_hls_timestamp_map_segment` 綁定 WebHTV `Libavformat`（連回上游會連結失敗，要先 revert 本階段）。已隨 `0.1.24 (25)` 發布（Release build 第一次即編譯、連結成功），真機未驗證。見 IOS-POC-25 文件第二十二節。
+- IOS-POC-25「HLS 串流中段廣告自動跳過（Android parity）」**2026-09-29 Mac 補測（IOS-POC-25-3，沒有改程式）**：`swift test` 519 個全部通過；模擬器以本機 HLS（`scripts/ios_adskip_sim/`）量到原生露出 0.07～0.10 秒（目標已緩衝），目標沒有緩衝時停在廣告畫面直到下載完成（H-A，原生「不到 1 秒」最可能的原因）；拆成兩段的廣告（H-D）露出 0.48 秒（原生）／0.85 秒（MPV）；MPV 0.38～0.46 秒是 25-2 的設計值；使用者樣本（FF线路第 15 集）是單一區間。**新發現 F1**：MPV 在沒有 discontinuity 標記、廣告自帶 PTS 的清單上跳錯位置，正片變少。下一個 build 的候選（串接落點、跳過期間遮畫面靜音、F1 防護）待使用者決定，見 IOS-POC-25 文件第二十三節。以下為先前紀錄（2026-09-25，另一個 session 並行做 IOS-POC-26）：已隨 `0.1.22 (23)` 發布（Release build 編譯通過，單元測試未執行）。第一次真機回報：原生仍露出不到約 1 秒的廣告開頭，正片未察覺缺少；MPV 未察覺廣告；原因未定。使用者決定有 Mac 時由 agent 補測（單元測試、模擬器量測、接 Mac 的真機 log），見 IOS-POC-25 文件第二十節之三。Android 的 `HlsAdsParser`／`HlsAdTimeline`／`resolveAdTimeline` 逐條移植成 Swift，AVPlayer 與 MPV 共用同一份計畫，以既有位置讀值與 `seek` 跳過；iOS 另外讀 playlist，所以加了讀兩次一致、duration 比對、比例上限、落點驗證等只會少跳的保護。MPV 在有 `#EXT-X-DISCONTINUITY` 的 playlist 上不跳（iOS 的 FFmpeg n8.1.2 沒有 Android FongMi 版的時間戳對齊，與 IOS-POC-26 RC3 同一原因），native-output-boundary 本階段不做。設定頁新增「智慧去廣」（預設開）。見 `docs/IOS-POC-25-hls-midstream-ad-skip.md`（第二十節為真機待驗項目）。**IOS-POC-25-2**（2026-09-26，使用者看完評估選 D，要求在 `0.1.23 (24)` 真機確認前先做出來測試）：MPV 在有 discontinuity 的播放清單上也跳，位置讀到區間起點 0.25 秒後才觸發，避開 IOS-POC-26 的 H1 與 mpv demuxer cache 造成的位置超前；App target 以 `-Wl,-u,_ff_hls_timestamp_map_segment` 綁定 WebHTV `Libavformat`（連回上游會連結失敗，要先 revert 本階段）。已隨 `0.1.24 (25)` 發布（Release build 第一次即編譯、連結成功），真機未驗證。見 IOS-POC-25 文件第二十二節。
 - IOS-POC-26「MPV／原生切換位置不對；MPV 在有廣告的影片上 seek 回到片頭、之後要重啟 App」（2026-09-25 真機回報，另一個 session 並行做 IOS-POC-25）：26-1（交接時 AVPlayer 精確落點）已 commit（`a6652cc3`），已隨 `0.1.22 (23)` 發布（Release build 編譯通過），真機未驗證；26-2 研究完成：iOS 的 FFmpeg n8.1.2 不處理 `EXT-X-DISCONTINUITY`，Android 靠 FongMi FFmpeg `5805f936` 才正確，修法是自建 iOS FFmpeg（26-2b，替換二進位，使用者 2026-09-26 核准）：FFmpeg patch 0001～0006 已在 Linux 驗證，0006 為第三輪最終版（審查剩下的 H1 由使用者 2026-09-26 選擇記錄為已知限制）；iOS 建置管線 `.github/workflows/ios-ffmpeg-build.yml` 建置並發布 prerelease `ffmpeg-n8.1.2-webhtv.1`（run `36226970983`），App 改用它（26-2b-2），已隨 `0.1.23 (24)` 發布，真機未驗證。**MPV 在有 discontinuity 的播放清單上仍不做 source-time 跳廣告**（IOS-POC-25 維持停用），解除條件（真機確認 MPV seek 正常等）見 IOS-POC-26 文件第八節。使用者 2026-09-26 要求先測：IOS-POC-25-2 已解除，隨 `0.1.24 (25)` 發布，見上一條。見 `docs/IOS-POC-26-engine-switch-position.md`。
 - IOS-POC-23「暫停後離開 App 再回來，兩個核心都卡住」：已完成。第一階段在 `0.1.20 (21)` 真機驗收通過，後續階段依目前證據不需要；T13 時發現「暫停一段時間後按播放要等幾秒」，與本修正無關，使用者決定先不處理。見 `docs/IOS-POC-23-pause-background-resume-stall.md` 第十二節。
 - IOS-POC-24「mpv 與 App 搶音訊工作階段」（IOS-POC-23 第十節之三）：研究完成，使用者 2026-09-25 選定 O3（修改 Libmpv，由 App 擁有工作階段），24-1 已發布 Libmpv prerelease `mpvkit-1.0.0-webhtv.2`（run `36118969804`，第一次即成功，比對沒有新增例外）；24-2（App 改用它，mpv 不再碰工作階段，App 每次播放前啟用）與 24-3（審查修正：中斷時暫停、類別被重設時改回）已以 `0.1.21 (22)` 發布（CI 第一次編譯即成功），**真機未驗證**。見 `docs/IOS-POC-24-audio-session-ownership.md` 第十節與 Recovery anchor。
@@ -102,7 +97,7 @@ git fetch --prune
 偏好設定與 `Library/Application Support`（本次已還原，設定來源回到使用者的 `wang-movie.json`）。
 注意 AVPlayer 對**完全不回應**的網址約 10 秒就自己報錯，那會走「network 失敗切一次」而不是 20 秒逾時。
 
-**環境備忘**：模擬器 `7B4E9557-4774-4EB9-B408-BB544DCC8657`（iPhone 17 Pro, iOS 26.3）；`wang-movie.json` 的 SHA-256
+**Mac 環境備忘（2026-09-29）**：這台 Mac 的模擬器是 `E0A41D48-2210-46B8-B18C-9432B77DECC4`（iPhone 17 Pro、iOS 26.3；下一句的 `7B4E…` 不在這台 Mac 上）；Xcode 27.0 `27A266a`；ffmpeg 9.0.2 已用 Homebrew 安裝（沒有 `drawtext`）；當天網路只有約 20～35 KB/s（Homebrew 要設 `HOMEBREW_NO_AUTO_UPDATE=1`）。Xcode 27 建置時會把 `project.pbxproj` 升級成 `objectVersion = 60` 並重排，屬於工具變動，要還原、不要 commit。模擬器上改 App 偏好設定要用 `xcrun simctl spawn <UDID> defaults write <App 容器>/Library/Preferences/com.webhtv.ios.poc`（直接改 plist 會被 cfprefsd 快取蓋掉）。2026-09-24 留下的 task guard `IOS-POC-17J-mpv-resize-transition`（只有已刪除的 `TEMP-17J` 除錯 log）已改名為 `.codex/task-state/IOS-POC-17J-mpv-resize-transition-superseded-*` 封存。原環境備忘：模擬器 `7B4E9557-4774-4EB9-B408-BB544DCC8657`（iPhone 17 Pro, iOS 26.3）；`wang-movie.json` 的 SHA-256
 `b17576e34eb42b4c589a818ef8b5ec2655a2c7a188d626fc427c37d628897168`（2026-09-28 從 `https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json` 重抓的版本已變成 127,425 bytes、`a567f33f6b29d58b05ecfc255b9d9f4e6da385a7e4453e9a42e56abfc5d505e1`），需要時從使用者 GitLab 重抓；模擬器控制工具一次來回
 5～10 秒，比 5 秒自動隱藏長，互動測試時可暫時把 `PlayerChrome.autoHideSeconds` 改大、測完還原並重建（不要 commit）。
 

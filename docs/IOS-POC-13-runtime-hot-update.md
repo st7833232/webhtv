@@ -189,3 +189,26 @@ IOS-POC-12 的 R1～R25（TUF、Uptane、Expo、CodePush、Shorebird、minisign�
 驗證：`swift test` 585 個全部通過；模擬器 Debug build 成功。
 
 下一步：13D（global 簽章通道）。
+
+### 11.4 13D：global 簽章通道（2026-09-29）
+
+| 檔案 | 變更 |
+|---|---|
+| `ios/Sources/WebHTVCore/RuntimePackManifest.swift` | `RuntimeTrustRoot.bundledKeys`：編進 App 的公鑰清單（base64 的 32 bytes Ed25519 公鑰＋角色）。**目前是空的**，所以任何 global pack 都被拒絕，要等使用者產生金鑰後把公鑰加進來；`Key.publicKey` 改為 public（公鑰，無安全影響） |
+| `ios/Tools/WebHTVRuntimePack/main.swift` | `keygen --out DIR`：在本機產生 active／backup 兩組金鑰，私鑰寫成 0600 檔案、不印出、不覆寫既有檔，只印出 keyId 與公鑰；`sign --dir DIR`（`--key FILE` 或環境變數 `WEBHTV_RUNTIME_SIGNING_KEY`）：對 `manifest.json` 原始位元組簽 Ed25519，寫出 `manifest.json.sig`；`verify` 預設使用 App 編進去的公鑰；`build --revoke KEYID`：金鑰外洩時的撤銷 manifest |
+| `.github/workflows/ios-runtime-pack.yml`（新） | 只能手動觸發（`workflow_dispatch`）：checkout `ios-poc` → 建工具 → 以 `ios/Sources/WebHTVCore/Resources/Spiders` 產生 global pack 到 `runtime/global/`（序號＝上一版＋1，`expires` 預設 30 天，可選 `min_app_build`、`rollback`）→ 以 secret `WEBHTV_RUNTIME_ACTIVE_KEY` 簽章 → **以這個 ref 的 App 內建公鑰驗證**（公鑰還沒進 App 時這一步必定失敗，什麼都不會發布）→ commit 並 push 到 `ios-poc` |
+| `ios/Tests/WebHTVCoreTests/RuntimePackManifestTests.swift` | `everyCompiledInKeyIsAUsableEd25519PublicKey` |
+
+以拋棄式金鑰驗證（驗完即刪）：`keygen` 產生的兩個檔都是 `-rw-------`，第二次執行拒絕覆寫；未簽章的 global pack `verify` 回 `signatureRequired`；簽了但公鑰不在 App 內回 `unknownKey`；加上 `--public-key` 後 `ok`；`--rollback --revoke` 產生的 manifest 帶 `revokeKeyIds` 與 `rollbackToBundled`，可用 backup 金鑰簽章。`swift test` 586 個全部通過；模擬器 Debug build 成功；workflow YAML 以 Ruby 解析通過（沒有 actionlint，GitHub 上未實際執行）。
+
+**要由使用者親自完成的步驟**（agent 不經手私鑰，也不替使用者設定 secret）：
+
+1. 在自己的 Mac 上產生金鑰（放在 repo 以外的位置）：`swift run --package-path ios webhtv-runtime-pack keygen --out ~/webhtv-runtime-keys`
+2. 把 active 私鑰放進 GitHub secret：`gh secret set WEBHTV_RUNTIME_ACTIVE_KEY --repo st7833232/webhtv < ~/webhtv-runtime-keys/active.key`
+3. `backup.key` 移到離線的地方保管（它是唯一能撤銷 active 金鑰的鑰匙），並從這台 Mac 刪除。
+4. 把 `keygen` 印出的兩行 `active …`、`backup …`（只有 keyId 與公鑰）交給 agent，由 agent 加進 `RuntimeTrustRoot.bundledKeys` 並 commit。
+5. 公鑰只有在含它的 IPA 發布後才會生效（發布要使用者另外授權）；之後在 GitHub Actions 手動執行「iOS Runtime Pack (global)」發布第一個 global pack。之後每次改了內建 spider，就再執行一次；`expires` 30 天，過期的 manifest 不會被新裝置採用（已在用的不受影響）。
+
+金鑰外洩時：本機以 `build --scope global --pack-id webhtv.spiders --sequence <任意> --version … --revoke <外洩的 keyId> [--rollback] --out runtime/global` 產生，再 `sign --key backup.key`，commit 到 `ios-poc`；App 之後拒絕外洩的 key，序號下限只重設這一次。之後要換 active 金鑰，需要新的 IPA。
+
+下一步：更新 `docs/current-task-state.md` 與 roadmap，收尾 IOS-POC-13。

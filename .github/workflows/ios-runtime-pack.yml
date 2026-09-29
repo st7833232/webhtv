@@ -1,0 +1,105 @@
+name: iOS Runtime Pack (global)
+
+# IOS-POC-13D. Publishes WebHTV's signed global runtime pack: the bundled spider scripts on
+# ios-poc, content-addressed under runtime/global/, signed with the active key and verified against
+# the keys compiled into the App before anything is committed. Manual only; never on push.
+#
+# Needs the WEBHTV_RUNTIME_ACTIVE_KEY secret (created by the maintainer with
+# `webhtv-runtime-pack keygen`) and the matching public key in RuntimeTrustRoot.bundledKeys.
+# Until both exist, the verify step fails and nothing is published.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Display version; blank uses the UTC date and time"
+        required: false
+        type: string
+      notes:
+        description: "Release notes shown in the App"
+        required: false
+        type: string
+      expires_days:
+        description: "Days the manifest can still be adopted"
+        required: false
+        default: "30"
+        type: string
+      min_app_build:
+        description: "Lowest CFBundleVersion that may use it; blank for any compatible build"
+        required: false
+        type: string
+      rollback:
+        description: "Publish rollbackToBundled (devices go back to the bundled scripts)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-runtime-pack
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout ios-poc
+        uses: actions/checkout@v4
+        with:
+          ref: ios-poc
+
+      - name: Build the pack tool
+        run: swift build --package-path ios -c release --product webhtv-runtime-pack
+
+      - name: Build, sign and verify
+        env:
+          WEBHTV_RUNTIME_SIGNING_KEY: ${{ secrets.WEBHTV_RUNTIME_ACTIVE_KEY }}
+          VERSION: ${{ inputs.version }}
+          NOTES: ${{ inputs.notes }}
+          EXPIRES_DAYS: ${{ inputs.expires_days }}
+          MIN_APP_BUILD: ${{ inputs.min_app_build }}
+          ROLLBACK: ${{ inputs.rollback }}
+        run: |
+          set -euo pipefail
+          if [ -z "$WEBHTV_RUNTIME_SIGNING_KEY" ]; then
+            echo "::error::The WEBHTV_RUNTIME_ACTIVE_KEY secret is not set."
+            exit 1
+          fi
+          tool="$(swift build --package-path ios -c release --show-bin-path)/webhtv-runtime-pack"
+          out=runtime/global
+          mkdir -p "$out"
+          args=(build --scope global --pack-id webhtv.spiders --out "$out"
+                --version "${VERSION:-$(date -u +%Y.%m.%d-%H%M)}" --expires-days "${EXPIRES_DAYS:-30}")
+          if [ -f "$out/manifest.json" ]; then args+=(--after "$out/manifest.json"); else args+=(--sequence 1); fi
+          if [ -n "$NOTES" ]; then args+=(--notes "$NOTES"); fi
+          if [ -n "$MIN_APP_BUILD" ]; then args+=(--min-app-build "$MIN_APP_BUILD"); fi
+          if [ "$ROLLBACK" = "true" ]; then
+            args+=(--rollback)
+          else
+            args+=(--spiders ios/Sources/WebHTVCore/Resources/Spiders --alias JPianAmns=JianPian)
+          fi
+          "$tool" "${args[@]}"
+          "$tool" sign --dir "$out"
+          # Against the keys compiled into this ref's App, and nothing else.
+          "$tool" verify --dir "$out" --scope global
+
+      - name: Commit to ios-poc
+        run: |
+          set -euo pipefail
+          sequence="$(plutil -extract sequence raw runtime/global/manifest.json)"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add runtime/global
+          if ! git diff --cached --quiet; then
+            git commit -m "runtime(global): publish sequence $sequence"
+            git push origin HEAD:ios-poc
+          fi
+          {
+            echo "### Global runtime pack"
+            echo "- sequence $sequence"
+            echo "- manifest: https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/ios-poc/runtime/global/manifest.json"
+          } >> "$GITHUB_STEP_SUMMARY"

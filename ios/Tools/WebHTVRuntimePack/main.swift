@@ -10,6 +10,16 @@ import WebHTVCore
 //       --alias JPianAmns=JianPian --out build/runtime
 //   swift run --package-path ios webhtv-runtime-pack verify --dir build/runtime --scope config
 //
+// Global packs are signed (IOS-POC-13D). The maintainer runs `keygen` once, locally; the tool
+// never uploads anything:
+//
+//   swift run --package-path ios webhtv-runtime-pack keygen --out ~/webhtv-runtime-keys
+//   swift run --package-path ios webhtv-runtime-pack sign --dir build/runtime   # key from
+//       --key FILE or the WEBHTV_RUNTIME_SIGNING_KEY environment variable
+//
+// If the active key leaks: build with `--revoke <its keyId>` (any sequence, even a lower one) and
+// sign with `--key backup.key`; the App then refuses the leaked key and resets its floor once.
+//
 // The output directory is what gets published: `manifest.json` and `blobs/sha256/<hex>`, placed at
 // `./runtime/` beside the configuration (config scope) or at `runtime/global/` (global scope).
 
@@ -117,6 +127,9 @@ func build(_ arguments: Arguments) throws {
     ]
     if arguments.flags.contains("rollback") { manifest["directive"] = RuntimePackManifest.Directive.rollbackToBundled.rawValue }
     if let notes = arguments.optional("notes") { manifest["notes"] = notes }
+    // Key compromise: a manifest signed with the offline backup key that revokes the active one.
+    // The App accepts it only from the backup key, and it lowers the sequence floor once.
+    if !arguments.all("revoke").isEmpty { manifest["revokeKeyIds"] = arguments.all("revoke").sorted() }
     if kind == "global" || arguments.optional("expires-days") != nil {
         let days = Double(arguments.optional("expires-days") ?? "30") ?? 30
         let formatter = ISO8601DateFormatter()
@@ -138,7 +151,8 @@ func verify(_ arguments: Arguments) throws {
     if case .configuration = scope, let pinned = try RuntimePackManifest.decode(manifest).scope.configIdentity {
         scope = .configuration(identity: arguments.optional("config-identity") ?? pinned)
     }
-    var keys = [(publicKey: Curve25519.Signing.PublicKey, role: RuntimeTrustRoot.Role)]()
+    // The App's own compiled-in keys, plus any given here for a key not yet in a build.
+    var keys = RuntimeTrustRoot.bundled.keys.values.map { (publicKey: $0.publicKey, role: $0.role) }
     for key in arguments.all("public-key") {
         guard let raw = Data(base64Encoded: key) else { throw Failure("--public-key is base64") }
         keys.append((try Curve25519.Signing.PublicKey(rawRepresentation: raw), .active))
@@ -157,7 +171,54 @@ func verify(_ arguments: Arguments) throws {
           + "\(candidate.manifest.files.count) file(s), generation \(candidate.generation.id)\(expiry)")
 }
 
-let commands: [String: (Arguments) throws -> Void] = ["build": build, "verify": verify]
+/// Creates the active and backup key pairs. Private keys are written 0600 and never printed; the
+/// public halves are printed for `RuntimeTrustRoot.bundledKeys`. Refuses to overwrite a key.
+func keygen(_ arguments: Arguments) throws {
+    let out = URL(fileURLWithPath: try arguments.one("out"), isDirectory: true)
+    try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true,
+                                            attributes: [.posixPermissions: 0o700])
+    for role in ["active", "backup"] {
+        let file = out.appendingPathComponent("\(role).key")
+        guard !FileManager.default.fileExists(atPath: file.path) else { throw Failure("\(file.path) already exists") }
+        let key = Curve25519.Signing.PrivateKey()
+        guard FileManager.default.createFile(atPath: file.path, contents: Data(key.rawRepresentation.base64EncodedString().utf8),
+                                             attributes: [.posixPermissions: 0o600]) else {
+            throw Failure("cannot write \(file.path)")
+        }
+        print("\(role)  keyId \(RuntimeTrustRoot.keyId(for: key.publicKey))  public \(key.publicKey.rawRepresentation.base64EncodedString())")
+    }
+    print("""
+
+    Private keys: \(out.path)/active.key and backup.key (mode 600). Give the two public lines above to the
+    App (RuntimeTrustRoot.bundledKeys). Put active.key in the Actions secret yourself:
+      gh secret set WEBHTV_RUNTIME_ACTIVE_KEY < \(out.path)/active.key
+    and keep backup.key offline — it is the only key that can revoke the active one.
+    """)
+}
+
+/// Signs `manifest.json` in `--dir` as it is, byte for byte, into `manifest.json.sig`.
+func sign(_ arguments: Arguments) throws {
+    let directory = URL(fileURLWithPath: try arguments.one("dir"), isDirectory: true)
+    let encoded: String
+    if let file = arguments.optional("key") {
+        encoded = try String(contentsOfFile: file, encoding: .utf8)
+    } else if let value = ProcessInfo.processInfo.environment["WEBHTV_RUNTIME_SIGNING_KEY"], !value.isEmpty {
+        encoded = value
+    } else {
+        throw Failure("give --key FILE or set WEBHTV_RUNTIME_SIGNING_KEY")
+    }
+    guard let raw = Data(base64Encoded: encoded.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+        throw Failure("the signing key is not base64")
+    }
+    let key = try Curve25519.Signing.PrivateKey(rawRepresentation: raw)
+    let manifest = try Data(contentsOf: directory.appendingPathComponent("manifest.json"))
+    let signature = RuntimePackSignature(keyId: RuntimeTrustRoot.keyId(for: key.publicKey),
+                                         sig: try key.signature(for: manifest).base64EncodedString())
+    try JSONEncoder().encode(signature).write(to: directory.appendingPathComponent("manifest.json.sig"))
+    print("signed with keyId \(signature.keyId)")
+}
+
+let commands: [String: (Arguments) throws -> Void] = ["build": build, "verify": verify, "keygen": keygen, "sign": sign]
 let argv = CommandLine.arguments
 guard argv.count >= 2, let command = commands[argv[1]] else {
     FileHandle.standardError.write(Data("usage: webhtv-runtime-pack \(commands.keys.sorted().joined(separator: "|")) --option value …\n".utf8))

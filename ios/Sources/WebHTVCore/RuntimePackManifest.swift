@@ -495,7 +495,7 @@ public struct RuntimeTrustRoot: Sendable {
     public struct Key: Sendable {
         public let id: String
         public let role: Role
-        let publicKey: Curve25519.Signing.PublicKey
+        public let publicKey: Curve25519.Signing.PublicKey
     }
 
     public let keys: [String: Key]
@@ -507,10 +507,19 @@ public struct RuntimeTrustRoot: Sendable {
         }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// This build's keys. **Empty on purpose**: no WebHTV signing key has been created yet (where the
-    /// private half lives is the maintainer's decision, D3), so every global pack is refused. Adding
-    /// keys is an IPA change.
-    public static let bundled = RuntimeTrustRoot([])
+    /// This build's keys: base64 of each raw 32-byte Ed25519 public key. The maintainer creates the
+    /// pair with `webhtv-runtime-pack keygen`; the active private key lives only in the
+    /// `WEBHTV_RUNTIME_ACTIVE_KEY` Actions secret and the backup only offline (IOS-POC-13, D3).
+    ///
+    /// **Empty until then**, so every global pack is refused — the fail-closed starting state.
+    /// Adding, rotating or removing a key is an IPA change, and only reaches devices with that IPA.
+    static let bundledKeys: [(base64: String, role: Role)] = []
+
+    public static let bundled = RuntimeTrustRoot(bundledKeys.compactMap { key in
+        Data(base64Encoded: key.base64)
+            .flatMap { try? Curve25519.Signing.PublicKey(rawRepresentation: $0) }
+            .map { (publicKey: $0, role: key.role) }
+    })
 
     /// The first 16 hex characters of SHA-256 over the raw 32-byte public key.
     public static func keyId(for key: Curve25519.Signing.PublicKey) -> String {

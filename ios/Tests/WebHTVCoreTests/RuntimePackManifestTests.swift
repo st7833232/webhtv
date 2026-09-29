@@ -483,3 +483,11 @@ private func globalDocument(_ edit: (inout [String: Any]) -> Void = { _ in }) ->
         #expect((text == "需要較新的 App") == rejection.requiresNewerApp, "\(rejection)")
     }
 }
+
+/// IOS-POC-13D. Every compiled-in key is a well-formed Ed25519 public key — one that did not parse
+/// would silently drop out of the trust root — and there is never more than one of each role.
+@Test func everyCompiledInKeyIsAUsableEd25519PublicKey() {
+    #expect(RuntimeTrustRoot.bundled.keys.count == RuntimeTrustRoot.bundledKeys.count)
+    #expect(RuntimeTrustRoot.bundledKeys.filter { $0.role == .active }.count <= 1)
+    #expect(RuntimeTrustRoot.bundledKeys.filter { $0.role == .backup }.count <= 1)
+}

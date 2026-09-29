@@ -10,6 +10,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 雲端 session 若由 harness 指定其他工作分支，照樣只 push 到 `ios-poc`（使用者 2026-09-28 的決定），不建立新的遠端分支。
 
+**2026-09-29 Mac session（本機 commit，使用者要求先不 push）**：`c4d13ea7`（IOS-POC-25 Mac 補測紀錄、`scripts/ios_adskip_sim`、IOS-POC-34 結案）、`43c197b2`（IOS-POC-25-4 相接廣告一次跳過）、`4fd5ae0a`（IOS-POC-25-5 MPV 時間軸跳動就停止跳過）、`1dfcc0db`（IOS-POC-35 播放器上一集／下一集與詳情頁「立即播放」）。都已通過 `swift test`（537 個）與模擬器驗收，**尚未發布、真機未驗證**；接手時以 `git log origin/ios-poc..HEAD` 確認是否已 push。
+
 **最新已發布版本是 `0.1.29 (30)`**（2026-09-28，使用者授權；tag `ios-v0.1.29-b30` → `6ffd6e15`，run `36373454196`，`source.json` `b5f1c78e`，IPA 25,685,782 bytes，SHA-256 `ed5bd4f66893c5ac79064f7c0580a64612d14bd10624e6738343e7ef380f2343`，下載回驗通過）。至今共發布 30 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
 
 **近期各版內容（新到舊）**
@@ -47,7 +49,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 4. commit 一律用 task guard（`start --scope` 每個路徑各帶一次，`finish` 加 `--no-tag`）。
 5. 雲端 session 沒有 Swift：單元測試照常撰寫但不執行（使用者選擇「只靠編譯與真機」），第一次編譯是發布時的 Release build。**在 Mac 上**（2026-09-29 使用者選「執行並修測試」）：`ios/` 的 `swift test` 要執行，測試本身的錯誤直接修，正式程式的 bug 先回報；2026-09-29 第一次執行 519 個全部通過。
 
-**下一步（唯一）**：等使用者回報：`0.1.29 (30)` 的真機結果（收到後逐列填進下列文件，`0.1.29 (30)` 含前面各版的全部內容），或對 IOS-POC-25 第二十三節之八候選的決定：
+**下一步（唯一）**：等使用者決定是否 push 並發布含 IOS-POC-25-4／25-5／35 的新版本（push、bump、tag、發布都要另外授權），或回報 `0.1.29 (30)` 的真機結果（收到後逐列填進下列文件）：
 
 0. IOS-POC-33（`0.1.29 (30)`）：`docs/IOS-POC-33-dual-script-search.md` 第七節的真機項目。
 0. IOS-POC-32 C（`0.1.29 (30)`）：`docs/IOS-POC-32-detail-metadata-zhtw.md` 第六節第 4 點的真機項目與第 5 點第 5 項。
@@ -72,6 +74,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **任務狀態**
 
+- IOS-POC-35「播放器上一集／下一集、詳情頁立即播放」（2026-09-29 使用者要求；選擇：只寫「立即播放」、端點按鈕變灰、鎖定畫面不做）：已實作（`1dfcc0db`），模擬器 T1～T6 通過，未發布。見 `docs/IOS-POC-35-player-prev-next-play-now.md`。
+- IOS-POC-25-4／25-5（2026-09-29 使用者核准）：相接的廣告區間一次跳過（原生 0.477→0.218 秒、MPV 0.852→0.417 秒）；MPV 在沒有 discontinuity 的清單上看到時間軸跳動就停止跳過（mpv-B 不再吃掉正片），MPV 子母畫面快轉改走 `PlaybackSession.seek`。未發布。見 IOS-POC-25 文件第二十四、二十五節。
 - IOS-POC-34「可可影視的分類篩選結果與網站不同」：**已結案**（2026-09-29 使用者回報「可可的問題已經修正了」，由使用者修改 GitLab `recha` 的 `py/kkys.py`，最新 commit `96ce2f0c104a97b1fe5852ed24f3c407f1e9caa5`）；本 repo 沒有修改任何程式，原因未確認，App 上沒有重測。見 `docs/IOS-POC-34-kkys-filter-mismatch.md` 第四節。
 - IOS-POC-33「搜尋時簡體、繁體各搜一次，合併結果後顯示」（2026-09-28 使用者要求，四項決定都採建議）：輸入繁體時先送簡體寫法（與現在相同），再送輸入的原文；同一站兩種寫法在同一個名額內依序查詢，合併後只回報一次（第一種寫法的清單原樣在前，第二種只加入新片）；30 秒期限到時若已有一種寫法回來就顯示它；載入更多每種寫法各自翻頁；搜尋分頁、WebHome `app.search` 與首頁站內搜尋都套用。輸入簡體、英文、數字時行為不變。沒有 Android 先例（Android 只送一種寫法），做法對照 MacCMS 2026 的繁简同搜。已隨 `0.1.29 (30)` 發布（Release build 第一次即編譯成功），單元測試未執行、真機未驗證。見 `docs/IOS-POC-33-dual-script-search.md`。
 - IOS-POC-32「詳情頁：海報蓋到標題、顯示年份簡介演員、簡體顯示為台灣繁體、日文翻譯」（2026-09-27 使用者要求，附截圖）：A 海報版面已實作（`VodPoster` 的 `clipShape` 在呼叫端 `.frame` 之前，橫向海報超出約 93 pt；使用者改定為海報在上、標題在下、完整顯示，固定 240 pt 高的框內 `scaledToFit`），未編譯、真機未驗證；使用者另選：測試只靠編譯與真機、C 用 OpenCC 衍生、統一用「台」、C 不加設定開關。B（年份、地區、類型、導演、演員、簡介；評分不顯示）已實作並查核（確認 11 項次要問題已修正），單元測試未執行。A、B 已隨 `0.1.28 (29)` 發布（Release build 第一次即編譯成功），真機未驗證。C（簡體只在顯示時轉成台灣繁體）已實作並 commit（2026-09-28 使用者核准；簡介不換台灣用語）：OpenCC `528ae262` 的 `s2tw` 以 Swift 重寫，6 份字典未修改地內建（約 1.1 MB）；只轉含簡體專用字的字串、日文不轉、統一用「台」、演員導演保留 于朴范姜余沈 並把 钟 寫成 鍾；32 處顯示位置，搜尋、身分值、觀看記錄與橋接資料不動。Python 對照實作與 OpenCC CLI 比對 134,127 行 0 差異；已隨 `0.1.29 (30)` 發布（Release build 第一次即編譯成功），單元測試未執行、真機未驗證。D（iOS 18 Apple Translation 把日文翻成中文）待核准；使用者 2026-09-28 回答 iPhone 是 iOS 26.x、預設「關」，iOS 17 的做法與 `.lowLatency` 未決定。見 `docs/IOS-POC-32-detail-metadata-zhtw.md`。

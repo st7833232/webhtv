@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.34",
+          "date": "2026-09-29",
+          "localizedDescription": "WebHTV 0.1.34 (35)（未經真機驗收）\n\n修正\n- Python 站的快取不再互相覆蓋：同時開過多個 Python 站（例如全站搜尋）之後，各站存的資料（如 MiFun、山楂的裝置識別）只會寫進自己那一站。\n\n已知限制\n- 金牌系列-zjuys 的分類篩選問題仍在調查中，此版尚未修正。\n- 其餘同 0.1.33 (34)：部分 Python 站因網站本身連不上、分類回空、或播放需要 Android 的本機代理而無法播放。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.34-b35/WebHTV-0.1.34-35.ipa",
+          "size": 29313638,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.33",
           "date": "2026-09-29",
           "localizedDescription": "WebHTV 0.1.33 (34)（未經真機驗收）\n\n新增\n- 內建 Python 加入 Crypto（pycryptodome）、lxml、bs4、pyquery。原本顯示「這個來源需要某模組」的 Python 站現在可以載入；模擬器上 44 個 Python 站中能播到影片的由 3 站增加到 19 站。\n\n修正\n- 短剧聚合、映像、永樂等 Python 站不再在載入時就失敗。\n\n已知限制\n- 仍有部分 Python 站因網站本身連不上、分類回空、或播放需要 Android 的本機代理而無法播放。\n- App 大小約增加 3.7 MB；SideStore 安裝時要多簽 46 個元件，可能稍慢。",

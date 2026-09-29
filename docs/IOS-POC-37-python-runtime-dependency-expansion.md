@@ -4,8 +4,8 @@
 
 - 目標：依實測依賴矩陣，把 Python spider 缺的第三方套件以可重現、可驗證的方式加進 App 內建的 CPython，受影響的 spider 跑完 smoke test，且不改 Python runtime 架構、不碰 AVPlayer／MPV、不碰 Android `main`。
 - 驗收：每個新套件有來源／版本／平台／SHA-256／授權；build／fetch／lock 流程可重現；import＋關鍵 API 在模擬器通過；requests 系不退步；受影響站跑到 `init/home/category/search/detail/player/media`；`swift test`、模擬器 build、Release 裝置 build 通過。
-- 狀態：**37A～37F 完成（模擬器）**。真機未驗證。沒有 bump 版本、沒有 tag、沒有發布。
-- 唯一下一步：使用者授權發布後，照 IOS-POC-11 流程發 SideStore 版本，請使用者在 iPhone 上開第九節「真機待驗」列出的站。
+- 狀態：**37A～37F 完成（模擬器），已發布為 `0.1.33 (34)`**（2026-09-29，使用者授權；tag `ios-v0.1.33-b34` → `062fcf99`，IPA 29,313,282 bytes，見 IOS-POC-11 第三十四次發布）。真機未驗證。
+- 唯一下一步：請使用者在 iPhone 上用 `0.1.33 (34)` 開第九節「真機待驗」列出的站，回報結果後填進第九節。
 
 ## 1. 起點
 
@@ -209,7 +209,7 @@ scripts/fetch_python_ios.sh [--sdk iphoneos|iphonesimulator]
 - 建置在乾淨環境（`env -i`）裡跑，Xcode build phase 的 `SDKROOT`／deployment target 不會滲進來。最低 iOS 用 lock 的 13.0，與 payload 其他模組一致。
 - **Xcode `Prepare Python`**：`fetch_python_ios.sh --sdk "$PLATFORM_NAME"`，只編當前 sdk。clone 後或 lock 變更後第一次 build 會多約 1.5 分鐘（本機實測模擬器 1:26、裝置 1:23），之後 stamp 一致直接跳過，也不再需要 host Python。
 - **Xcode `Install Python`**：純 Python wheel 與該 sdk 的 native 樹合併 rsync 到 bundle 的 `python-packages/`，再由上游 `install_python "$REL" python-packages` 把每個 `.so` 轉成簽好章的 framework（原本只處理 stdlib）。找不到該 sdk 的 native 樹就直接報錯，不會靜默少套件。
-- **CI（`ios-sidestore-release.yml`）**：新增 `actions/setup-python@v5`（3.13），`fetch_python_ios.sh --sdk iphoneos` 以 `PYTHON_HOST` 指向它。**這一步只寫了、沒有在 CI 上跑過**（跑它等於發布，未獲授權）。
+- **CI（`ios-sidestore-release.yml`）**：新增 `actions/setup-python@v5`（3.13），`fetch_python_ios.sh --sdk iphoneos` 以 `PYTHON_HOST` 指向它。發布 `0.1.33 (34)` 的 run `36548879889` 是第一次在 CI 上跑：1 分 49 秒完成，之後 Xcode `Prepare Python` 看到 stamp 一致直接跳過。
 - `x86_64` 模擬器不支援：上游 `install_stdlib` 複製的是 `lib-$ARCHS`，模擬器建置本來就是單一架構，而這個專案只在 Apple silicon 上建置；Intel 模擬器會在 import 時明確失敗，不會默默少功能。
 
 ### 4.3 runtime 端的改動
@@ -371,6 +371,7 @@ survey 中途有一次 App 被結束：模擬器 log 記錄為 App 切換器的�
 | 本機 IPA（含新依賴） | 30,138,639 bytes |
 | 其中新依賴單獨壓縮 | **3,734,042 bytes（約 +3.6 MB）** |
 | 參考：已發布 `0.1.32 (33)`（CI 建置） | 25,806,175 bytes |
+| 已發布 `0.1.33 (34)`（CI 建置，含本任務） | 29,313,282 bytes（**+3,507,107**） |
 | 安裝後新增 | 約 **+11.4 MB**：46 個 framework 8.0 MB（`lxml.etree` 2.9 MB 最大），Python 檔 3.4 MB（Crypto 1.4、lxml 1.2、bs4 0.4 MB） |
 
 CPU／啟動：native 模組只在 import 時載入，沒有 spider 用到就不載入；`base.spider` 不會主動 import lxml。SideStore 重簽時多 46 個 framework 要簽，安裝會稍慢——**未在真機量**。
@@ -384,7 +385,6 @@ CPU／啟動：native 模組只在 import 時載入，沒有 spider 用到就不
 | 4 支跨來源／明文腳本 | 使用者 2026-09-21 決定維持拒絕，本任務不動 |
 | bili、YouTube 的本機 proxy（`127.0.0.1:9978`） | Android 本機 proxy server，iOS 已排除；不是套件問題 |
 | `Crypto.SelfTest`、`.pyi`、C header | 不在 App 裡執行 |
-| 在 CI 跑一次 native 建置 | 等於發布，未授權 |
 
 ## 9. 真機待驗（全部未驗證）
 

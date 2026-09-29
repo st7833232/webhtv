@@ -894,9 +894,41 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第三十三次發布：`0.1.32 (33)`（2026-09-29，**已發布**）
+## 第三十四次發布：`0.1.33 (34)`（2026-09-29，**已發布**）
 
-**目前最新版是 `0.1.32 (33)`。** 前面三十二版都已被取代。
+**目前最新版是 `0.1.33 (34)`。** 前面三十三版都已被取代。
+
+- 授權：使用者 2026-09-29 指示「發布 0.1.33 (34) 到 SideStore」。版號 `0.1.33`，build `34`。
+- 內容：`0.1.32 (33)` 的全部，加上 IOS-POC-37（`92b31ccf`：內建 Python 加入 pycryptodome 3.23.0、lxml 6.1.3、beautifulsoup4、pyquery 與其相依；三個 loader 相容性修正；`python.host` ABI 1.1）。文件 `docs/IOS-POC-37-python-runtime-dependency-expansion.md`。
+- 發布序列：
+  1. 版號 commit `062fcf99`（Task-Guard `IOS-RELEASE-0.1.33-b34`）。
+  2. push `92b31ccf..062fcf99`。
+  3. `gh workflow run ios-sidestore-release.yml --ref ios-poc -f release_notes=…` → run `36548879889`（success，2026-09-29 09:23:41Z → 09:29:55Z）。**這是 IOS-POC-37 新增的「Set up host Python」與 native 交叉編譯第一次在 CI 上跑**：runner 的 Python 3.13.15（`hostedtoolcache`）驅動 `build_python_ios_native.sh --sdk iphoneos`，1 分 49 秒完成（09:24:21Z → 09:26:10Z，樹 9.8 MB）；之後 Xcode `Prepare Python` 看到 stamp 一致直接跳過。
+  4. workflow 建立 tag `ios-v0.1.33-b34`（target `062fcf99`），並推回 `source.json`（`ecd9b857`，共三十四筆，第一筆 `0.1.33`，size 與 IPA 相同）。
+
+  **沒有手動建 tag。**
+- 產物：`WebHTV-0.1.33-34.ipa` **29,313,282 bytes**（比 `0.1.32 (33)` 多 3,507,107 bytes），SHA-256
+  `fa8637c945ab355e0ce1067457364a8578bbcada068ca5d4c4e97c6d4373e61f`（與 GitHub 記錄的 digest 相同）。
+  **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`com.webhtv.ios.poc` / `0.1.33` / build `34` / minimum iOS `17.0`；`Frameworks/` 142 個（其中 `Crypto.*`、`lxml.*` 46 個，`lxml.etree` 為 platform 2、minos 13.0）；`python-packages/` 有 Crypto、lxml、bs4、soupsieve、typing_extensions、pyquery、cssselect 與原本的 requests 系，0 個 `.so`、46 個 `.fwork`。
+- 發布前驗證：IOS-POC-37 第六節（模擬器依賴自檢 7/7、44 站 survey 到 media 19 站、`swift test` 577/577、本機 Release 裝置 build）。**真機尚未驗收。**
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.33 (34)（未經真機驗收）
+
+新增
+- 內建 Python 加入 Crypto（pycryptodome）、lxml、bs4、pyquery。原本顯示「這個來源需要某模組」的 Python 站現在可以載入；模擬器上 44 個 Python 站中能播到影片的由 3 站增加到 19 站。
+
+修正
+- 短剧聚合、映像、永樂等 Python 站不再在載入時就失敗。
+
+已知限制
+- 仍有部分 Python 站因網站本身連不上、分類回空、或播放需要 Android 的本機代理而無法播放。
+- App 大小約增加 3.7 MB；SideStore 安裝時要多簽 46 個元件，可能稍慢。
+```
+
+## 第三十三次發布：`0.1.32 (33)`（2026-09-29，**已發布**，已被 `0.1.33 (34)` 取代）
 
 - 授權：使用者 2026-09-29 對「要 push 並發布成 `0.1.32 (33)` 讓你在真機測嗎？」回答「好，push 並發布」。版號 `0.1.32`，build `33`。
 - 內容：`0.1.31 (32)` 的全部，加上 IOS-POC-17H-3（`47f942e8`：MPV 子母畫面進入與接回時的兩處黑格、接回淡入、PiP 層改為影片矩形；文件 `1154413e`），以及另一個 session 同日的 IOS-POC-12（`b354c80e`、`5cd44076`）與 IOS-POC-13 實作後撤銷（`f4bddf64`…`9410fb68`，撤銷 `20fd462e`；執行檔已不含 `RuntimePackUpdater`）。

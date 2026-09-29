@@ -58,6 +58,8 @@ wang-movie.json  (already remote, already LKG-cached)
 Everything below the registry is unchanged: `JavaScriptSpiderRuntime`, `CatVodHost`, HTTP/cookies,
 crypto, the HTML/JSON parsers, the player and the `Spider` ABI are all still compiled into the app.
 `host.js` is **not** packable — it is the SDK that `minHostApi` describes, so it ships with the app.
+The same holds for `drpy-bridge.js` and `js-spider.js`; `scripts/spider_pack.py` lists all three in
+`NOT_PACKABLE` since IOS-POC-12 (it listed only `host.js` before, so `build` also packed the bridges).
 
 ## Manifest schema
 
@@ -114,8 +116,12 @@ installed, `SpiderRegistry.active()` is byte-for-byte `SpiderRegistry.bundled()`
 
 ## Host API version gate
 
-`SpiderPackStore.hostApiVersion` is `1` today and is bumped whenever `CatVodHost` gains a primitive a
-script could depend on — RSA, `proxy`, a WebView primitive. A script declaring a higher `minHostApi`
+`SpiderPackStore.hostApiVersion` is `1` today and goes up whenever `CatVodHost` gains a primitive a
+script could depend on — RSA, `proxy`, a WebView primitive. **Since IOS-POC-12 it is derived, not edited**:
+it is `RuntimeABI.Surface.jsHost.version.minor`, so the bump is `js.host`'s minor in
+`ios/Sources/WebHTVCore/RuntimeABI.swift`, plus a new row in the `frozen` fingerprint table of
+`RuntimeABITests.swift` and the same number in `HOST_API` of `scripts/spider_pack.py` — both enforced by
+tests (`docs/IOS-POC-12-runtime-architecture-reconciliation.md` §6). A script declaring a higher `minHostApi`
 is **never fetched and never stored**; the pack still installs, and the app shows
 「略過 AppDrama（需要 host API 2，這個 App 是 1）」. A *pack-level* `minHostApi` that is too high
 refuses the whole pack and keeps the last good one. This is the difference between an app that tells
@@ -143,7 +149,7 @@ scripts/spider_pack.py fingerprint --manifest build/spider-pack/manifest.json --
 | JAR SHA-256 unchanged | nothing | no |
 | JAR changed, behaviour did not | update `jarSha256`, republish the manifest | no |
 | endpoint / token / parser / response shape moved | edit the script, republish the pack | **no** |
-| the fix needs a new `CatVodHost` primitive | add it in Swift, bump `hostApiVersion`, ship the app | **yes** |
+| the fix needs a new `CatVodHost` primitive | add it in Swift, raise `js.host`'s minor in `RuntimeABI` (which is `hostApiVersion`) and `HOST_API`, ship the app | **yes** |
 
 The tool never decompiles, unpacks or executes a JAR; it reads bytes and computes a digest. The
 protected `aowu-0722.jar` / `aowu.jar` / `fan-0720.jar` policy is untouched — nothing here attempts

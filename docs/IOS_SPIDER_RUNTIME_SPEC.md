@@ -99,11 +99,17 @@ There must never be two JS runtimes. Native half in `Spider/Host/*.swift`, JavaS
 **Scripts can now arrive from outside the bundle.** Since IOS-POC-5O a signed-by-hash
 *compatibility pack* — a manifest plus scripts published at any HTTPS URL beside the configuration —
 may replace or add spider scripts at runtime. Resolution order is **verified pack → bundled script →
-not supported**, `host.js` is deliberately not packable because it is the SDK `minHostApi` describes,
-and a pack can never add a native primitive, touch entitlements, ATS or signing, or cross the
-`Spider` ABI. `SpiderPackStore.hostApiVersion` (currently **1**) is the gate: bump it whenever
-`CatVodHost` gains a primitive, and older apps will refuse a script that needs it instead of failing
-mid-call. Full contract: `docs/IOS-POC-5O-remote-compatibility-pack.md`.
+not supported**, `host.js` and the two bridges (`drpy-bridge.js`, `js-spider.js`) are deliberately
+not packable because they are the SDK `minHostApi` describes, and a pack can never add a native
+primitive, touch entitlements, ATS or signing, or cross the `Spider` ABI.
+`SpiderPackStore.hostApiVersion` (currently **1**) is the gate, and older apps refuse a script that
+needs a newer host instead of failing mid-call. **Since IOS-POC-12 it is not bumped by hand**: it is
+`RuntimeABI.Surface.jsHost.version.minor` (`ios/Sources/WebHTVCore/RuntimeABI.swift`). When
+`CatVodHost` gains a primitive, raise `js.host`'s minor there, add the new row to the `frozen`
+fingerprint table in `RuntimeABITests.swift` (the test fails until you do), and keep `HOST_API` in
+`scripts/spider_pack.py` equal (another test checks it). Removing or changing a primitive is a
+`js.host` major, which retires schema-1 packs — see `docs/IOS-POC-12-runtime-architecture-reconciliation.md`
+§6. Full pack contract: `docs/IOS-POC-5O-remote-compatibility-pack.md`.
 
 **Ported classes: 8.** `AppGet`, `AppQi`, `App99`, `App3Q` (苹果CMS App-API family), `Bili`
 (bilibili public API), `JianPian` (registered under the blocked `JPianAmns` name the configuration

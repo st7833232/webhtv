@@ -120,7 +120,7 @@ IOS-POC-12 的 R1～R25（TUF、Uptane、Expo、CodePush、Shorebird、minisign�
 - 基準：`5cd44076`。
 - 檔案與符號：`RuntimePackStore.swift`（`RuntimePackStore`、`ActiveRuntimePacks`）、`RuntimePackUpdater.swift`（`RuntimePackChannel`、`RuntimePackUpdater`）、`RuntimePackManifest.swift`（`revalidate`、`RuntimeTrustRoot.bundledKeys`、`RuntimePackRejection.errorDescription`）、`SpiderRegistry.active(for:)`、`CSPSourceResolver.init`、`WebHTVApp.swift`（`loadRuntimePacks`、`checkRuntimePack`、`checkRuntimePacksNow`、`runtimeSection`、`PlaybackSession.isOpen`）、`ios/Tools/WebHTVRuntimePack/main.swift`、`.github/workflows/ios-runtime-pack.yml`。
 - 驗證：`swift test` 586／586；模擬器 Debug build；模擬器端對端（第 11.3 節）。沒有驗到：播放器開著時延後套用、真機、Release build、GitHub 上實際執行 workflow。
-- 下一步（唯一）：公鑰已編進 App；等使用者設定 `WEBHTV_RUNTIME_ACTIVE_KEY` secret、把 backup 私鑰移到離線，並決定是否發布含 IOS-POC-12／13 與公鑰的下一版 IPA（要另外授權）。
+- 下一步（唯一）：公鑰已編進 App、secret 已設定；等使用者把 backup 私鑰移到離線，並決定是否發布含 IOS-POC-12／13 與公鑰的下一版 IPA（要另外授權）；發布後再執行「iOS Runtime Pack (global)」workflow。
 
 ## 11. 實作紀錄
 
@@ -211,7 +211,7 @@ IOS-POC-12 的 R1～R25（TUF、Uptane、Expo、CodePush、Shorebird、minisign�
 4. 把 `keygen` 印出的兩行 `active …`、`backup …`（只有 keyId 與公鑰）交給 agent，由 agent 加進 `RuntimeTrustRoot.bundledKeys` 並 commit。
 5. 公鑰只有在含它的 IPA 發布後才會生效（發布要使用者另外授權）；之後在 GitHub Actions 手動執行「iOS Runtime Pack (global)」發布第一個 global pack。之後每次改了內建 spider，就再執行一次；`expires` 30 天，過期的 manifest 不會被新裝置採用（已在用的不受影響）。
 
-**金鑰狀態（2026-09-29）**：使用者已在自己的 Mac 上執行 `keygen`（私鑰在 `~/webhtv-runtime-keys/`，agent 沒有讀取）。公鑰已編進 `RuntimeTrustRoot.bundledKeys`：active `db8863f2dcd3f4de`（`HrzYhdAPWN7CvbmC36c1hsllrytZyuB9Dr4N06fsDbA=`）、backup `9ed9a5bd0cecd110`（`dAXPtrjfyCzR857Ve1G47AjNO8nzuq9sTbg7ElaMugQ=`）；`everyCompiledInKeyIsAUsableEd25519PublicKey` 釘住這兩個 keyId，確認由公鑰算出的 id 與 `keygen` 印出的一致。還沒做：步驟 2（設定 secret）、步驟 3（backup 移到離線並從 Mac 刪除）、步驟 5（發布含公鑰的 IPA、第一次執行 workflow）。
+**金鑰狀態（2026-09-29）**：使用者已在自己的 Mac 上執行 `keygen`（私鑰在 `~/webhtv-runtime-keys/`，agent 沒有讀取）。公鑰已編進 `RuntimeTrustRoot.bundledKeys`：active `db8863f2dcd3f4de`（`HrzYhdAPWN7CvbmC36c1hsllrytZyuB9Dr4N06fsDbA=`）、backup `9ed9a5bd0cecd110`（`dAXPtrjfyCzR857Ve1G47AjNO8nzuq9sTbg7ElaMugQ=`）；`everyCompiledInKeyIsAUsableEd25519PublicKey` 釘住這兩個 keyId，確認由公鑰算出的 id 與 `keygen` 印出的一致。步驟 2 已完成：使用者 2026-09-29 以 `gh secret set` 設定 `WEBHTV_RUNTIME_ACTIVE_KEY`（`gh secret list` 顯示建立於 2026-09-29T07:36:03Z；agent 只看名稱，沒有讀取內容）。還沒做：步驟 3（backup 移到離線並從 Mac 刪除）、步驟 5（發布含公鑰的 IPA，之後才第一次執行 workflow——manifest 30 天後過期，太早發布會在 IPA 到達前就過期）。
 
 金鑰外洩時：本機以 `build --scope global --pack-id webhtv.spiders --sequence <任意> --version … --revoke <外洩的 keyId> [--rollback] --out runtime/global` 產生，再 `sign --key backup.key`，commit 到 `ios-poc`；App 之後拒絕外洩的 key，序號下限只重設這一次。之後要換 active 金鑰，需要新的 IPA。
 

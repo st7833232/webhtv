@@ -56,7 +56,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 5. 雲端 session 沒有 Swift：單元測試照常撰寫但不執行（使用者選擇「只靠編譯與真機」），第一次編譯是發布時的 Release build。**在 Mac 上**（2026-09-29 使用者選「執行並修測試」）：`ios/` 的 `swift test` 要執行，測試本身的錯誤直接修，正式程式的 bug 先回報；2026-09-29 第一次執行 519 個全部通過。
 6. runtime pack 的私鑰只由使用者產生與保管，agent 不經手私鑰、不替使用者設定 GitHub secret；agent 只收公鑰。
 
-**下一步（唯一）**：IOS-POC-13 的公鑰已編進 App（active `db8863f2dcd3f4de`、backup `9ed9a5bd0cecd110`）；等使用者設定 `WEBHTV_RUNTIME_ACTIVE_KEY` secret、把 backup 私鑰移到離線，以及是否發布含 IOS-POC-12／13 的下一版；同時等使用者回報 `0.1.31 (32)` 的真機結果，先看 IOS-POC-17H-2（MPV 子母畫面結束回到 App：不再閃舊畫格、不變形；PiP 期間暫停再結束畫面會出現）；收到後逐列填進下列文件，`0.1.31 (32)` 含前面各版的全部內容：
+**下一步（唯一）**：IOS-POC-13 的公鑰已編進 App（active `db8863f2dcd3f4de`、backup `9ed9a5bd0cecd110`）；`WEBHTV_RUNTIME_ACTIVE_KEY` secret 已由使用者設定；等使用者把 backup 私鑰移到離線，以及是否發布含 IOS-POC-12／13 的下一版（發布後才執行 global workflow）；同時等使用者回報 `0.1.31 (32)` 的真機結果，先看 IOS-POC-17H-2（MPV 子母畫面結束回到 App：不再閃舊畫格、不變形；PiP 期間暫停再結束畫面會出現）；收到後逐列填進下列文件，`0.1.31 (32)` 含前面各版的全部內容：
 
 0. IOS-POC-33（`0.1.29 (30)`）：`docs/IOS-POC-33-dual-script-search.md` 第七節的真機項目。
 0. IOS-POC-32 C（`0.1.29 (30)`）：`docs/IOS-POC-32-detail-metadata-zhtw.md` 第六節第 4 點的真機項目與第 5 點第 5 項。
@@ -97,7 +97,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - IOS-POC-24「mpv 與 App 搶音訊工作階段」（IOS-POC-23 第十節之三）：研究完成，使用者 2026-09-25 選定 O3（修改 Libmpv，由 App 擁有工作階段），24-1 已發布 Libmpv prerelease `mpvkit-1.0.0-webhtv.2`（run `36118969804`，第一次即成功，比對沒有新增例外）；24-2（App 改用它，mpv 不再碰工作階段，App 每次播放前啟用）與 24-3（審查修正：中斷時暫停、類別被重設時改回）已以 `0.1.21 (22)` 發布（CI 第一次編譯即成功），**真機未驗證**。見 `docs/IOS-POC-24-audio-session-ownership.md` 第十節與 Recovery anchor。
 - IOS-POC-17I（MPV 旋轉根治）：17I-3 已發布，待真機驗收；見 17I 文件第十三節與 Recovery anchor。子母畫面解除時放大、進度往回已診斷，依使用者決定等有模擬器再修（17H 文件）。
 - IOS-POC-12「Runtime Architecture Reconciliation」：**已完成**（2026-09-29，使用者要求一次完成，取代 2026-09-25 規劃的逐階段授權與「真機驗收之後才開始」）。沒有 intentional 使用者可見行為變更；`scripts/spider_pack.py` 的 `NOT_PACKABLE` 補上兩個 bridge（只影響發布工具）。IOS-POC-13 的 entry conditions 已具備，但**未開始**；開始前要由使用者決定 D13（要不要 global 簽章通道）與 D3（私鑰放哪裡），其餘前置見 IOS-POC-12 文件第 20 節。
-- IOS-POC-13「Runtime Hot Update」：**程式完成（13A～13D），未發布**。使用者已產生金鑰，公鑰已編進 App。還等使用者：(1) 設定 `WEBHTV_RUNTIME_ACTIVE_KEY` secret、把 backup 私鑰移到離線；(2) 授權發布含公鑰與 runtime pack 功能的 IPA。見 `docs/IOS-POC-13-runtime-hot-update.md`。
+- IOS-POC-13「Runtime Hot Update」：**程式完成（13A～13D），未發布**。使用者已產生金鑰，公鑰已編進 App。`WEBHTV_RUNTIME_ACTIVE_KEY` secret 已由使用者設定（2026-09-29）。還等使用者：(1) 把 backup 私鑰移到離線；(2) 授權發布含公鑰與 runtime pack 功能的 IPA，之後才執行 global workflow。見 `docs/IOS-POC-13-runtime-hot-update.md`。
 
 **已知但不修（已記錄）**：`MediaSelection` 只在開 panel／換 engine 時重讀（pre-existing）；滑動進度條可能同時觸發全畫面拖曳的
 相對 seek（pre-existing，未實測）；冷啟動會閃一下「尚未載入設定」（pre-existing）；17F：開播前按暫停，20 秒後仍會切到另一個核心並自動播放（罕見）。

@@ -1,6 +1,7 @@
 # IOS-POC-13 — Runtime Hot Update
 
-- 狀態：**程式完成（13A～13D，2026-09-29），尚未發布**。設定 scope 已在模擬器端對端驗證；global 通道要等使用者產生金鑰（第 11.4 節的步驟）並授權發布含公鑰的 IPA 才會生效。使用者已回答第 7 節並核准連續實施（第 7.1 節）。
+- 狀態：**已撤銷**（2026-09-29）。使用者決定不要熱更新：13A～13D 與其文件 commit（`f4bddf64`、`bd91108a`、`3aa08675`、`24f072a8`、`3e1e2ff3`、`a14644bc`、`9410fb68`）全部由一個撤銷 commit 還原，`ios/`、`scripts/`、`.github/` 與 `5cd44076`（IOS-POC-12 完成時）逐 byte 相同。IOS-POC-12 的契約保留。以下是撤銷前的完整紀錄，見第 11.5 節。
+- 撤銷前的狀態：程式完成（13A～13D），未發布。
 - 授權：使用者 2026-09-29 說「開始 IOS-POC-13」。依 AGENTS.md §7，這是會新增網路下載、改變安全與啟用行為的 material requirement：實作前要先有本文件的研究、現況複核、方案比較、建議、驗收與回滾，並由使用者核准要做的階段。**不授權**：bump 版本、tag、SideStore release、GitHub Release、發布 IPA。
 - 基準：`origin/ios-poc` `5cd44076456d4c0829eb321bbb55513909e8f5f2`（2026-09-29 14:43 fetch，與 HEAD 相同、worktree 乾淨）。
 - 依賴的契約：`docs/IOS-POC-12-runtime-architecture-reconciliation.md` 第 1～21 節（Runtime ABI、manifest schema 1、信任、驗證、scope、狀態轉移）。本任務只實作它，不重新設計；要改那份契約時，先改 IOS-POC-12 文件並寫明原因。
@@ -115,12 +116,10 @@ IOS-POC-12 的 R1～R25（TUF、Uptane、Expo、CodePush、Shorebird、minisign�
 
 ## 10. Recovery anchor
 
-- 目標：依 IOS-POC-12 契約實作 runtime pack 的儲存、下載、驗證、啟用、回滾與 UI，不經 IPA 更新 spider JS。
-- 狀態：程式完成並 push（13A `f4bddf64`、13B `bd91108a`、13C `3aa08675`、13D `24f072a8`），未發布、真機未驗證。
-- 基準：`5cd44076`。
-- 檔案與符號：`RuntimePackStore.swift`（`RuntimePackStore`、`ActiveRuntimePacks`）、`RuntimePackUpdater.swift`（`RuntimePackChannel`、`RuntimePackUpdater`）、`RuntimePackManifest.swift`（`revalidate`、`RuntimeTrustRoot.bundledKeys`、`RuntimePackRejection.errorDescription`）、`SpiderRegistry.active(for:)`、`CSPSourceResolver.init`、`WebHTVApp.swift`（`loadRuntimePacks`、`checkRuntimePack`、`checkRuntimePacksNow`、`runtimeSection`、`PlaybackSession.isOpen`）、`ios/Tools/WebHTVRuntimePack/main.swift`、`.github/workflows/ios-runtime-pack.yml`。
-- 驗證：`swift test` 586／586；模擬器 Debug build；模擬器端對端（第 11.3 節）。沒有驗到：播放器開著時延後套用、真機、Release build、GitHub 上實際執行 workflow。
-- 下一步（唯一）：公鑰已編進 App、secret 已設定；等使用者把 backup 私鑰移到離線，並決定是否發布含 IOS-POC-12／13 與公鑰的下一版 IPA（要另外授權）；發布後再執行「iOS Runtime Pack (global)」workflow。
+- 狀態：**已撤銷**（2026-09-29，使用者決定不要熱更新）。App 的程式回到 IOS-POC-12 完成時的狀態：沒有 runtime pack，舊的 schema 1 相容包（`./spiders/manifest.json`，從未在現場使用）照 0.1.31 (32) 原樣存在。
+- 從未發布：沒有任何手機裝過 IOS-POC-13 的程式。
+- 使用者端留下的東西：GitHub Actions secret `WEBHTV_RUNTIME_ACTIVE_KEY`、本機 `~/webhtv-runtime-keys/`（兩把私鑰）。App 已不再信任那兩把公鑰；要不要刪除由使用者決定。
+- 下一步（唯一）：無。要重新做熱更新時，從本文件第 11 節與撤銷 commit 之前的 `9410fb68` 取回程式，不要重新設計。
 
 ## 11. 實作紀錄
 
@@ -216,3 +215,13 @@ IOS-POC-12 的 R1～R25（TUF、Uptane、Expo、CodePush、Shorebird、minisign�
 金鑰外洩時：本機以 `build --scope global --pack-id webhtv.spiders --sequence <任意> --version … --revoke <外洩的 keyId> [--rollback] --out runtime/global` 產生，再 `sign --key backup.key`，commit 到 `ios-poc`；App 之後拒絕外洩的 key，序號下限只重設這一次。之後要換 active 金鑰，需要新的 IPA。
 
 下一步：更新 `docs/current-task-state.md` 與 roadmap，收尾 IOS-POC-13。
+
+### 11.5 撤銷（2026-09-29）
+
+使用者在設定金鑰之後決定「不要熱更新，把 manifest.json 相關的還原」，並選擇「退回 IOS-POC-13」（保留 IOS-POC-12；舊 schema 1 相容包照 0.1.31 原樣回來）。
+
+做法：在獨立的 git worktree 裡，把 13 動過的 25 個檔案還原成 `5cd44076` 的內容，以一個 commit 提交（不改寫已 push 的歷史）。當時同一個 checkout 裡另一個 session 正在做 IOS-POC-17H-3（task guard 執行中、`MPVEngine.swift` 有未提交的改動），所以沒有在那個 checkout 裡操作。
+
+驗證：`ios/`、`scripts/`、`.github/` 每個檔案的 blob 與 `5cd44076` 相同，沒有多出的檔案；`swift test` 與模擬器 Debug build 的結果見撤銷 commit 的 Verification 欄。
+
+留在使用者端、agent 沒有動的東西：GitHub secret `WEBHTV_RUNTIME_ACTIVE_KEY`（刪除：`gh secret delete WEBHTV_RUNTIME_ACTIVE_KEY --repo st7833232/webhtv`）、本機 `~/webhtv-runtime-keys/`。

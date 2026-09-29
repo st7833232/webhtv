@@ -95,10 +95,7 @@ private struct ConfigView: View {
     @State private var refreshing = false
     /// What the compatibility pack is doing, shown in settings so a refused pack is visible rather
     /// than silent. Empty means "bundled scripts", which is the normal state until a pack is served.
-    /// IOS-POC-13C: what the settings page shows about runtime packs, and the last check's outcome
-    /// per scope.
-    @State private var runtime = RuntimeUpdateStatus()
-    @State private var runtimeNotes = [String: String]()
+    @State private var packStatus = ""
 
     var body: some View {
         Group {
@@ -151,8 +148,7 @@ private struct ConfigView: View {
                             source: source,
                             updatedAt: updatedAt,
                             refreshing: refreshing,
-                            runtime: runtime,
-                            onCheckRuntime: { Task { await checkRuntimePacksNow() } },
+                            packStatus: packStatus,
                             onImport: { importing = true },
                             onUseRemote: { text, name in useRemote(text, named: name) },
                             onRefresh: { Task { await refreshRemote() } },
@@ -174,14 +170,13 @@ private struct ConfigView: View {
         .task {
             restore()
             await WatchHistoryStore.shared.migrateSiteIdentities(in: sites)
-            // The stored runtime packs are loaded before anything is fetched, so an offline launch
-            // runs on the last known good scripts rather than waiting for the network.
-            await loadRuntimePacks()
+            // The cached pack is adopted before anything is fetched, so an offline launch runs on
+            // the last known good scripts rather than waiting for the network.
+            await adoptCachedSpiderPack()
             // Every launch re-fetches a remote configuration, so the app opens on the current one
-            // rather than on whatever happened to be cached. A fetched configuration then checks its
-            // own runtime pack (`load(remote:)`); WebHTV's global one is checked here.
+            // rather than on whatever happened to be cached.
             await refreshRemote(quiet: true)
-            await checkRuntimePack(.global)
+            await refreshSpiderPack()
         }
         .alert("加入設定來源", isPresented: $askingRemote) {
             TextField("名稱", text: $remoteName)
@@ -232,9 +227,6 @@ private struct ConfigView: View {
             let (data, config) = try await ConfigLoader.fetch(from: url)
             try adopt(data, config: config, from: .remote(url))
             if showHome { selectedTab = 0 }
-            if let scope = RuntimeScope(.remote(url)) {
-                Task { await checkRuntimePack(scope, of: .remote(url)) }
-            }
             return true
         } catch {
             // The cached configuration and the live source list are untouched by a failed fetch.
@@ -288,11 +280,6 @@ private struct ConfigView: View {
         UserDefaults.standard.set(memory, forKey: siteBySourceKey)
         // The cached copy goes with it; leaving it behind would be an orphan nobody can reach.
         if let url = try? configURL(for: .remote(entry.url)) { try? FileManager.default.removeItem(at: url) }
-        // And its runtime pack, floor included (IOS-POC-13).
-        if let scope = RuntimeScope(.remote(entry.url)) {
-            ActiveRuntimePacks.shared.set(nil, for: scope)
-            Task { await RuntimePackStore.shared.forget(scope) }
-        }
     }
 
     private func persistSaved() {
@@ -316,93 +303,35 @@ private struct ConfigView: View {
         await load(remote: url, showHome: false, reportFailure: !quiet)
     }
 
-    /// IOS-POC-13. Loads what is already on disk — WebHTV's global pack and this configuration's —
-    /// re-verified by the store, so a generation that no longer matches its manifest is not run.
-    /// Once per launch it also clears the schema-1 compatibility pack's leftovers, a format this
-    /// build no longer reads.
-    private func loadRuntimePacks() async {
-        let store = RuntimePackStore.shared
-        await store.removeStaging()
-        Self.removeLegacySpiderPack()
-        let host = RuntimeHost.installed()
-        ActiveRuntimePacks.shared.set(await store.load(.global, host: host), for: .global)
-        await loadRuntimePack(for: source, host: host)
-    }
-
-    /// The configuration's own pack, from disk, for the source now in use. Switching A → B → A
-    /// loads each one's own generation; B never sees A's.
-    private func loadRuntimePack(for source: ConfigSource, host: RuntimeHost = .installed()) async {
-        if let scope = RuntimeScope(source) {
-            ActiveRuntimePacks.shared.set(await RuntimePackStore.shared.load(scope, host: host), for: scope)
-        }
-        refreshRuntimeStatus()
-        await SpiderSessionStore.shared.reset()
+    /// Reads whatever pack is already on disk. Verification happens inside the store, so a cache
+    /// that no longer matches its manifest is simply not adopted.
+    private func adoptCachedSpiderPack() async {
+        guard let pack = await SpiderPackStore.shared.installedPack() else { return }
+        packStatus = Self.describe(pack)
         rebuildSites()
     }
 
-    /// IOS-POC-13B. Looks for a newer pack for one scope. Nothing is replaced unless every check
-    /// passed; when a player is open the new generation — already active on disk — waits for the
-    /// next launch instead of changing the scripts under what is playing.
-    private func checkRuntimePack(_ scope: RuntimeScope, of source: ConfigSource? = nil) async {
-        let outcome = await RuntimePackUpdater.shared.check(scope, source: source ?? self.source)
-        let note: String
-        switch outcome {
-        case .installed(let pack):
-            if PlaybackSession.shared.isOpen {
-                note = "已下載新版本，下次啟動套用"
-            } else {
-                ActiveRuntimePacks.shared.set(pack, for: scope)
-                await SpiderSessionStore.shared.reset()
-                rebuildSites()
-                note = "已更新"
-            }
-        case .rejected(let rejection):
-            print("[runtime-pack] \(scope.key) refused: \(rejection)")
-            note = rejection.requiresNewerApp
-                ? "有新版本，需要較新的 App"
-                : "沒有採用：\(rejection.localizedDescription)，繼續使用目前的版本"
-        case .failed(let reason):
-            note = "無法檢查（\(reason)），繼續使用目前的版本"
-        case .noPack:
-            note = scope == .global ? "尚未發布" : "這個設定沒有提供"
-        case .upToDate:
-            note = "已是最新"
+    /// Fetches a pack in the background. A failure is deliberately quiet in the UI beyond the
+    /// status line: the app keeps running on the pack or the bundled scripts it already had.
+    private func refreshSpiderPack() async {
+        guard let url = SpiderPackStore.url(for: source) else { return }
+        do {
+            let pack = try await SpiderPackStore.shared.refresh(from: url)
+            packStatus = Self.describe(pack)
+            await SpiderSessionStore.shared.reset()
+            rebuildSites()
+        } catch {
+            let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            let current = await SpiderPackStore.shared.installedPack()
+            packStatus = current.map { "\(Self.describe($0))（更新失敗：\(reason)）" }
+                ?? "內建腳本（更新失敗：\(reason)）"
         }
-        runtimeNotes[scope.key] = note
-        runtime.checkedAt = Date()
-        refreshRuntimeStatus()
     }
 
-    /// The settings page's 檢查更新: WebHTV's pack, then this configuration's.
-    private func checkRuntimePacksNow() async {
-        runtime.checking = true
-        defer { runtime.checking = false }
-        await checkRuntimePack(.global)
-        if let scope = RuntimeScope(source) { await checkRuntimePack(scope, of: source) }
-    }
-
-    private func refreshRuntimeStatus() {
-        func line(_ scope: RuntimeScope?) -> String {
-            guard let scope else { return "匯入的設定沒有更新包" }
-            let pack = ActiveRuntimePacks.shared.pack(for: scope)
-            let running = pack.map { "\($0.version)（序號 \($0.generation.sequence)，\($0.scripts.count) 支腳本）" } ?? "內建腳本"
-            return [running, runtimeNotes[scope.key]].compactMap { $0 }.joined(separator: "；")
-        }
-        let scope = RuntimeScope(source)
-        runtime.global = line(.global)
-        runtime.configuration = line(scope)
-        runtime.notes = [.global, scope].compactMap { $0 }
-            .compactMap { ActiveRuntimePacks.shared.pack(for: $0)?.notes }
-    }
-
-    private static func removeLegacySpiderPack() {
-        guard let support = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
-                                                         appropriateFor: nil, create: false),
-              let entries = try? FileManager.default.contentsOfDirectory(atPath: support.path) else { return }
-        for name in entries where name == "SpiderPack" || name.hasPrefix("SpiderPack-staging-") {
-            try? FileManager.default.removeItem(at: support.appendingPathComponent(name))
-        }
-        UserDefaults.standard.removeObject(forKey: "spiderPackURL")
+    private static func describe(_ pack: SpiderPack) -> String {
+        let skipped = pack.rejected.isEmpty ? "" : "，略過 \(pack.rejected.count)："
+            + pack.rejected.map { "\($0.className)（\($0.reason)）" }.joined(separator: "、")
+        return "相容性套件 \(pack.version)，\(pack.scripts.count) 支腳本\(skipped)"
     }
 
     /// A pack can add or replace a driveable class, so the listed sites are recomputed from the
@@ -448,7 +377,6 @@ private struct ConfigView: View {
         let now = Date()
         UserDefaults.standard.set(source.baseURL?.absoluteString, forKey: configSourceURLKey)
         UserDefaults.standard.set(now.timeIntervalSince1970, forKey: configUpdatedAtKey)
-        let switched = self.source != source
         self.source = source
         updatedAt = now
         sites = loaded
@@ -459,9 +387,6 @@ private struct ConfigView: View {
         Task { await SpiderSessionStore.shared.reset() }
         selectedSiteID = SiteSelection.choose(remembered: siteMemory()[source.identity], current: selectedSiteID,
                                               in: loaded)
-        // A different configuration brings its own runtime pack; the sites are listed again once it
-        // is loaded, so a class only that pack carries appears too.
-        if switched { Task { await loadRuntimePack(for: source) } }
     }
 
     /// IOS-POC-19 — the pickers' binding. Only a site the viewer picks is remembered, for the source
@@ -1316,24 +1241,13 @@ private struct AggregateSearchView: View {
     }
 }
 
-/// IOS-POC-13C. What the settings page shows about runtime packs.
-struct RuntimeUpdateStatus: Equatable {
-    var global = "內建腳本"
-    var configuration = "內建腳本"
-    /// Release notes of the packs in use. Untrusted plain text, shown as is.
-    var notes = [String]()
-    var checkedAt: Date?
-    var checking = false
-}
-
 private struct SettingsView: View {
     let sites: [Site]
     @Binding var selectedSiteID: Site.ID?
     let source: ConfigSource
     let updatedAt: Date?
     let refreshing: Bool
-    let runtime: RuntimeUpdateStatus
-    let onCheckRuntime: () -> Void
+    let packStatus: String
     let onImport: () -> Void
     let onUseRemote: (String, String) -> Void
     let onRefresh: () -> Void
@@ -1441,7 +1355,6 @@ private struct SettingsView: View {
 
             savedSection
             sourceSection
-            runtimeSection
         }
         .alert("加入設定來源", isPresented: $askingRemote) {
             TextField("名稱", text: $remoteName)
@@ -1473,6 +1386,7 @@ private extension SettingsView {
         Section {
             LabeledContent("來源", value: sourceLabel)
             LabeledContent("上次更新", value: updatedLabel)
+            LabeledContent("Spider 腳本", value: packStatus.isEmpty ? "內建" : packStatus)
             Button("加入設定來源") {
                 remoteText = ""
                 remoteName = ""
@@ -1485,32 +1399,8 @@ private extension SettingsView {
         } header: {
             Text("設定來源")
         } footer: {
-            Text("目前支援 \(sites.count) 個來源：type-0／type-1／type-4 CMS，已移植的 csp_* Spider，drpy 與 Python 腳本。腳本只從設定檔自己的來源、且必須是 HTTPS 才會載入。遠端更新失敗時會保留上一份可用設定。")
+            Text("目前支援 \(sites.count) 個來源：type-0／type-1／type-4 CMS，已移植的 csp_* Spider，drpy 與 Python 腳本。腳本只從設定檔自己的來源、且必須是 HTTPS 才會載入。遠端更新失敗時會保留上一份可用設定。Spider 腳本可由設定檔旁的 ./spiders/manifest.json 熱更新，驗過 SHA-256 才會採用。")
         }
-    }
-
-    /// IOS-POC-13C. Which scripts are running, where they came from, and a way to look for newer
-    /// ones. The App's own version is here because it is what decides whether a pack fits.
-    @ViewBuilder var runtimeSection: some View {
-        Section {
-            LabeledContent("App 版本", value: appVersionLabel)
-            LabeledContent("WebHTV 更新包", value: runtime.global)
-            LabeledContent("此設定的更新包", value: runtime.configuration)
-            LabeledContent("上次檢查", value: runtime.checkedAt?.formatted(date: .abbreviated, time: .shortened) ?? "尚未檢查")
-            ForEach(runtime.notes, id: \.self) { note in
-                Text(note).font(.footnote).foregroundStyle(.secondary)
-            }
-            Button(runtime.checking ? "檢查中…" : "檢查更新", action: onCheckRuntime).disabled(runtime.checking)
-        } header: {
-            Text("Spider 腳本更新")
-        } footer: {
-            Text("更新包只能更換 spider 腳本：WebHTV 的更新包必須有 App 內建的簽章，設定的更新包放在設定檔旁的 ./runtime/manifest.json、只從同一個 HTTPS 來源下載。驗過相容版本、大小與 SHA-256 才採用，失敗時繼續使用目前的版本；播放中不會切換。新的原生功能仍要從 SideStore 更新 App（Runtime ABI：catvod.result \(RuntimeABI.Surface.catvodResult.version)、js.host \(RuntimeABI.Surface.jsHost.version)、python.host \(RuntimeABI.Surface.pythonHost.version)）。")
-        }
-    }
-
-    var appVersionLabel: String {
-        let info = Bundle.main.infoDictionary
-        return "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
     }
 
     /// IOS-POC-10D. Names, not addresses — the address is what the viewer had to read before.
@@ -2611,9 +2501,6 @@ struct EpisodeSteps: Equatable {
     private(set) var mediaSelection = PlaybackMediaSelection()
 
     var engine: PlaybackEngine? { router.engine }
-    /// A player is open. A new runtime pack waits for the next launch rather than change the scripts
-    /// under whatever is playing (IOS-POC-13).
-    var isOpen: Bool { router?.sessionActive ?? false }
     /// The engine actually playing — what the control bar shows, never the configured default.
     var engineKind: PlaybackEngineKind { router.selection.currentSessionEngine }
     var globalDefaultEngine: PlaybackEngineKind { router.selection.globalDefaultEngine }

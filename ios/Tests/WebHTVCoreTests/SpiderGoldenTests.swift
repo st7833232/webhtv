@@ -121,39 +121,38 @@ private func playURL(_ value: Any?) -> [String] {
     await session.destroy()
 }
 
-/// The same live flow, driven by a script that arrived as a **runtime pack** rather than from the app
-/// bundle (IOS-POC-13; this was the schema-1 compatibility pack's test). A pack is not a second-class
-/// path, it is the path, and a script delivered that way drives a real site end to end.
+/// The same live flow, driven by a script that arrived as a **compatibility pack** rather than from
+/// the app bundle. This is the claim the whole IOS-POC-5O architecture rests on: a pack is not a
+/// second-class path, it is the path, and a script delivered that way drives a real site end to end.
 ///
-/// The bytes are the bundled script, published through the pack machinery with its real SHA-256, so
-/// the test exercises manifest validation, generation install, re-verification on load and registry
-/// override, and then asks the result to go and fetch from the live provider.
-@Test func aSpiderDeliveredAsARuntimePackDrivesTheLiveSite() async throws {
+/// The bytes are the bundled script, published through the pack machinery with its真 SHA-256, so the
+/// test exercises manifest parsing, hash verification, atomic install and registry override, and
+/// then asks the result to go and fetch from the live provider.
+@Test func aSpiderDeliveredAsACompatibilityPackDrivesTheLiveSite() async throws {
     guard let site = try goldenSite() else { return }
     let className = SpiderRegistry.className(from: site.api)
     let bundled = try #require(SpiderRegistry.bundled().entry(for: site.api)?.script,
                                "this test publishes the bundled script through the pack path")
-    let body = Data(bundled.utf8)
-    let config = URL(string: "https://example.invalid/repo/wang-movie.json")!
-    let manifest = try JSONSerialization.data(withJSONObject: [
-        "format": RuntimePackManifest.format, "schema": RuntimePackManifest.schema, "packId": "golden",
-        "scope": ["kind": "config"], "sequence": 1, "version": "golden",
-        "requires": ["abi": ["js.host": ["major": 1, "minMinor": 1], "catvod.result": ["major": 1, "minMinor": 0]]],
-        "files": [["path": "spiders/\(className).js", "logicalType": "spider.js", "class": className,
-                   "bytes": body.count, "sha256": DrpyEngine.digest(body)]],
-    ])
-    let scope = try #require(RuntimeScope(.remote(config)))
-    let host = RuntimeHost(appVersion: "0.1.31", appBuild: 32)
-    let candidate = try RuntimePackValidator.validate(
-        manifest: manifest, signature: nil, fetchedFrom: URL(string: "runtime/manifest.json", relativeTo: config)!.absoluteURL,
-        scope: scope, configurationURL: config, host: host)
-    let store = RuntimePackStore(root: URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("golden-pack-\(UUID().uuidString)", isDirectory: true))
-    try await store.install(candidate, manifest: manifest, signature: nil,
-                            files: ["spiders/\(className).js": body])
-    let pack = try #require(await store.load(scope, host: host))
-    let registry = SpiderRegistry.bundled(overlaying: [pack])
-    #expect(registry.entry(for: site.api)?.source == .pack(.configuration, version: "golden"))
+
+    let manifestURL = URL(string: "https://example.invalid/spiders/manifest.json")!
+    let scriptURL = "https://example.invalid/spiders/\(className).js"
+    let digest = SpiderPackStore.sha256(Data(bundled.utf8))
+    let manifest = """
+    {"schema": \(SpiderPack.schema), "version": "golden", "scripts": [
+      {"class": "\(className)", "path": "./\(className).js", "sha256": "\(digest)",
+       "originJar": "river-fman.jar", "notes": "published by the golden test"}]}
+    """
+    let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("golden-pack-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("SpiderPack", isDirectory: true)
+    let store = SpiderPackStore(directory: directory) { url in
+        let body = url.absoluteString == manifestURL.absoluteString ? manifest : bundled
+        return (Data(body.utf8), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+    }
+
+    let pack = try await store.refresh(from: manifestURL)
+    let registry = SpiderRegistry.bundled(overlaying: pack)
+    #expect(registry.entry(for: site.api)?.source == .pack(version: "golden"))
 
     let session = try await CSPSourceResolver(registry: registry).session(for: site)
     let home = try await object(session.home())
@@ -183,7 +182,7 @@ private func playURL(_ value: Any?) -> [String] {
     #expect(search["list"] is [[String: Any]])
 
     await session.destroy()
-    await store.forget(scope)
+    await store.reset()
 }
 
 /// The registry must only ever claim classes it can genuinely drive; everything else stays absent so

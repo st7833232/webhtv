@@ -1,6 +1,6 @@
 # IOS-POC-12 / IOS-POC-13 — Runtime Architecture Reconciliation and Hot Update Roadmap
 
-- Status: **IOS-POC-12 done (2026-09-29); IOS-POC-13 code complete (13A-13D, 2026-09-29), not released.** Configuration packs are verified end to end on the simulator; the signed global channel waits for the maintainer's keys and an IPA that carries them (`docs/IOS-POC-13-runtime-hot-update.md` section 11). IOS-POC-12's result, contracts and
+- Status: **IOS-POC-12 done (2026-09-29); IOS-POC-13 implemented and then reverted (2026-09-29, the user decided against hot update; never released, record in `docs/IOS-POC-13-runtime-hot-update.md`).** IOS-POC-12's result, contracts and
   the 2026-09-25 plan (kept as its appendix A) are in `docs/IOS-POC-12-runtime-architecture-reconciliation.md`.
   Where the two differ on IOS-POC-12, that document wins; this one stays the index for IOS-POC-12 and
   IOS-POC-13. IOS-POC-13's entry conditions and the decisions it still needs (D13/D3 global signing key,
@@ -38,8 +38,7 @@ engine — so the order is now:
 5. IOS-POC-12 — Runtime Architecture Reconciliation. **Done 2026-09-29, started before item 4 finished
    at the user's explicit 2026-09-29 instruction.** Playback semantics are Native-internal (a pack cannot
    reach them), so their device acceptance no longer gates the runtime ABI; it is still owed as item 4.
-6. IOS-POC-13 — Runtime Hot Update. Code complete 2026-09-29 (13A-13D); its task document is
-   `docs/IOS-POC-13-runtime-hot-update.md`. Not released; the schema-1 compatibility pack is removed.
+6. IOS-POC-13 — Runtime Hot Update. Implemented (13A–13D) and reverted on 2026-09-29 at the user's decision; not to be redone without the user asking.
 
 Only if MPV reaches the stop condition in IOS-POC-17 §5 on a device and is proven unsuitable:
 `MPV stop → minimal VLCKit replacement spike → decision AVPlayer + VLC` — never three engines.

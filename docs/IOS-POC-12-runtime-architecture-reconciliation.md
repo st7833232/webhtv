@@ -163,8 +163,6 @@ WebHTV 的簽章永遠不宣稱涵蓋使用者的內容；使用者的設定也�
 
 版本是 Swift 編譯期常數（`RuntimeABI.Surface.version`），不放 `Info.plist` 或資源（R24）。`SpiderPackStore.hostApiVersion` 改為 `RuntimeABI.Surface.jsHost.version.minor`，值仍是 1：schema 1 相容包的 `minHostApi` n 就是 `js.host` {1, n}，不需要對照表。
 
-> IOS-POC-13A（2026-09-29）更新：使用者決定移除 schema 1 相容包，`SpiderPack.swift`（含 `hostApiVersion`）與 `scripts/spider_pack.py` 的 build／verify 已刪除；`js.host` 維持 1.1，只是不再有第二個對應的號碼。下面第 12 節第 3 點與第 14 節提到 `hostApiVersion`、`NOT_PACKABLE` 的地方都是 12 當時的狀態。
-
 ### 6.2 相容規則
 
 pack 在 `requires.abi` 列出的每個面 s 都要成立：s 是這個 build 認得、而且可要求的面；`major` 相同；`installed.minor >= minMinor`。沒列的面不檢查，但每個檔案的邏輯型別會要求它執行所依賴的面（`spider.js` → `js.host`＋`catvod.result`），沒有宣告就拒絕（`undeclaredSurface`）。ABI 的上限就是 major：新的 minor 永遠向下相容，所以不需要 `maxMinor`。
@@ -329,7 +327,7 @@ global 另有 `manifest.json.sig`：`{"keyId": "<16 hex>", "alg": "ed25519", "si
 
 1. 版本相容：第 6.2 節。App 版本／build：`minAppVersion`、`minAppBuild`、`maxAppBuild`。
 2. 降版安裝：SideStore 可以保留容器裝回舊 IPA，所以 `RuntimePackValidator.checkCompatibility` 是獨立函式，IOS-POC-13 在每次啟動都要對已存的世代重跑；不相容的世代不選用、不刪除。
-3. schema 1 相容包：12 期間完全不變（D5）。**IOS-POC-13A 已依使用者決定移除它**，以下是移除前的對應關係。概念上等於 configuration scope、`js.host` {1, `minHostApi`}＋`catvod.result` {1, 0}，只在 `js.host.major == 1` 時成立；`js.host` 升到 2.0 時，`hostApiVersion` 停在最後一個 1.x minor，schema 1 整包拒絕（那一次升 major 的任務要另外核准）。
+3. schema 1 相容包：12 期間完全不變（D5）。概念上等於 configuration scope、`js.host` {1, `minHostApi`}＋`catvod.result` {1, 0}，只在 `js.host.major == 1` 時成立；`js.host` 升到 2.0 時，`hostApiVersion` 停在最後一個 1.x minor，schema 1 整包拒絕（那一次升 major 的任務要另外核准）。
 4. 優先順序：configuration → global → 內建（D6）。舊相容包遷到 configuration scope、逐 class 載入失敗時回退內建（D9）是 13 的步驟。
 5. 狀態轉移（`RuntimeScopeState`，純值）：
    - `sequence` 大於 floor → 可接受；等於 floor 且內容相同 → 不動作（`unchanged`）；等於但內容不同 → `sequenceReused`；小於 → `rollback`。

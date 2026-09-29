@@ -383,8 +383,6 @@ public enum RuntimePackRejection: Error, Equatable, Sendable {
     case sizeMismatch(path: String, expected: Int, actual: Int)
     case digestMismatch(String)
     case unexpectedFile(String)
-    /// A `spider.js` that does not compile on the bundled host or assigns no `module.exports`.
-    case scriptDoesNotLoad(String)
     // History of the scope
     case packIdMismatch(String)
     case rollback(sequence: UInt64, floor: UInt64)
@@ -407,36 +405,6 @@ public enum RuntimePackRejection: Error, Equatable, Sendable {
     }
 }
 
-extension RuntimePackRejection: LocalizedError {
-    /// What the settings page shows. Detail stays in `String(describing:)` for the log.
-    public var errorDescription: String? {
-        switch self {
-        case .unsupportedFormat, .unsupportedSchema, .unsupportedDirective, .unknownSurface, .abiTooNew,
-             .missingCapabilities, .appVersionTooOld, .appBuildTooOld, .unknownAssetType, .assetTypeNotSupported:
-            "需要較新的 App"
-        case .abiMajorMismatch(_, let required, let installed):
-            required > installed ? "需要較新的 App" : "更新包是給舊版 App 的"
-        case .appBuildTooNew: "更新包是給舊版 App 的"
-        case .insecureOrigin, .crossOrigin: "更新包不在設定自己的 HTTPS 位置"
-        case .scopeMismatch: "更新包不屬於這個設定"
-        case .signatureRequired, .signatureMalformed, .unknownKey, .revokedKey, .badSignature,
-             .revocationNotPermitted:
-            "更新包的簽章無效"
-        case .expired: "更新包已過期"
-        case .rollback, .sequenceReused: "伺服器上的更新包比已安裝的舊"
-        case .knownBad: "這個版本先前載入失敗，不再使用"
-        case .nativeReleaseRequired: "包含只能隨 App 更新的內容"
-        case .manifestTooLarge, .fileTooLarge, .packTooLarge, .tooManyFiles, .notesTooLong: "更新包超過大小上限"
-        case .fileMissing, .sizeMismatch, .digestMismatch, .unexpectedFile: "更新包的檔案不完整或內容不符"
-        case .scriptDoesNotLoad(let name): "\(name) 無法載入"
-        case .packIdMismatch: "更新包與已安裝的不是同一個"
-        case .malformed, .missingField, .invalidPackId, .invalidVersion, .undeclaredSurface, .surfaceNotRequirable,
-             .emptyPack, .invalidPath, .duplicatePath, .invalidClass, .invalidDigest:
-            "更新包格式錯誤"
-        }
-    }
-}
-
 // MARK: - What the installed App offers
 
 /// The installed App as a pack sees it. `appVersion` and `appBuild` are `CFBundleShortVersionString`
@@ -455,15 +423,6 @@ public struct RuntimeHost: Equatable, Sendable {
         self.appBuild = appBuild
         self.abi = abi
         self.capabilities = capabilities
-    }
-}
-
-public extension RuntimeHost {
-    /// The running App, read from its bundle; a build number that does not parse reads as 0, which
-    /// satisfies no `minAppBuild`.
-    static func installed(bundle: Bundle = .main) -> RuntimeHost {
-        RuntimeHost(appVersion: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",
-                    appBuild: Int(bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "") ?? 0)
     }
 }
 
@@ -495,7 +454,7 @@ public struct RuntimeTrustRoot: Sendable {
     public struct Key: Sendable {
         public let id: String
         public let role: Role
-        public let publicKey: Curve25519.Signing.PublicKey
+        let publicKey: Curve25519.Signing.PublicKey
     }
 
     public let keys: [String: Key]
@@ -507,24 +466,10 @@ public struct RuntimeTrustRoot: Sendable {
         }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// This build's keys: base64 of each raw 32-byte Ed25519 public key. The maintainer creates the
-    /// pair with `webhtv-runtime-pack keygen`; the active private key lives only in the
-    /// `WEBHTV_RUNTIME_ACTIVE_KEY` Actions secret and the backup only offline (IOS-POC-13, D3).
-    ///
-    /// Before 2026-09-29 this was empty, so every global pack was refused. Adding, rotating or
-    /// removing a key is an IPA change, and only reaches devices with that IPA.
-    static let bundledKeys: [(base64: String, role: Role)] = [
-        // keyId db8863f2dcd3f4de, created 2026-09-29; signs releases from CI.
-        ("HrzYhdAPWN7CvbmC36c1hsllrytZyuB9Dr4N06fsDbA=", .active),
-        // keyId 9ed9a5bd0cecd110, created 2026-09-29; kept offline, only for revocation.
-        ("dAXPtrjfyCzR857Ve1G47AjNO8nzuq9sTbg7ElaMugQ=", .backup),
-    ]
-
-    public static let bundled = RuntimeTrustRoot(bundledKeys.compactMap { key in
-        Data(base64Encoded: key.base64)
-            .flatMap { try? Curve25519.Signing.PublicKey(rawRepresentation: $0) }
-            .map { (publicKey: $0, role: key.role) }
-    })
+    /// This build's keys. **Empty on purpose**: no WebHTV signing key has been created yet (where the
+    /// private half lives is the maintainer's decision, D3), so every global pack is refused. Adding
+    /// keys is an IPA change.
+    public static let bundled = RuntimeTrustRoot([])
 
     /// The first 16 hex characters of SHA-256 over the raw 32-byte public key.
     public static func keyId(for key: Curve25519.Signing.PublicKey) -> String {
@@ -581,21 +526,6 @@ public enum RuntimePackValidator {
                                 now: Date = Date()) throws(RuntimePackRejection) -> RuntimePackCandidate {
         guard data.count <= RuntimePackLimits.manifestBytes else { throw .manifestTooLarge(data.count) }
         try checkOrigin(url, scope: scope, configurationURL: configurationURL)
-        let candidate = try revalidate(manifest: data, signature: signature, scope: scope, host: host,
-                                       trust: trust, revokedKeyIds: revokedKeyIds)
-        if scope == .global, candidate.manifest.expires == nil { throw .missingField("expires") }
-        if let expires = candidate.manifest.expiryDate, now >= expires { throw .expired }
-        return candidate
-    }
-
-    /// The checks a **stored** generation must pass again at every launch: authenticity (a key may
-    /// have been revoked since), shape, scope and compatibility with the build now installed. Not
-    /// origin, which only means something while downloading, and not `expires`, which stops a
-    /// manifest from being adopted but never deactivates one that already was (R3).
-    public static func revalidate(manifest data: Data, signature: Data?, scope: RuntimeScope,
-                                  host: RuntimeHost, trust: RuntimeTrustRoot = .bundled,
-                                  revokedKeyIds: Set<String> = []) throws(RuntimePackRejection) -> RuntimePackCandidate {
-        guard data.count <= RuntimePackLimits.manifestBytes else { throw .manifestTooLarge(data.count) }
         let signer = try authenticate(data, signature: signature, scope: scope, trust: trust,
                                       revokedKeyIds: revokedKeyIds)
         let manifest = try RuntimePackManifest.decode(data)
@@ -608,6 +538,8 @@ public enum RuntimePackValidator {
             throw .scopeMismatch(declared: "config:" + pinned, expected: scope.key)
         }
         if !(manifest.revokeKeyIds ?? []).isEmpty, signer != .backup { throw .revocationNotPermitted }
+        if scope == .global, manifest.expires == nil { throw .missingField("expires") }
+        if let expires = manifest.expiryDate, now >= expires { throw .expired }
         try checkCompatibility(of: manifest, in: scope.kind, host: host)
 
         return RuntimePackCandidate(manifest: manifest, scope: scope, manifestSHA256: runtimeSHA256(data),

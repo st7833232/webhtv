@@ -10,6 +10,8 @@
 #
 # IOS-POC-7G.
 import json
+import os
+import re
 import sys
 import traceback
 import types
@@ -39,15 +41,20 @@ def load(handle, site_key, cache_dir, source):
 
         module = types.ModuleType(f'webhtv_spider_{handle}')
         module.__dict__['__name__'] = f'webhtv_spider_{handle}'
+        # Android loads a script with `SourceFileLoader` from the file it wrote it to, so a script
+        # may read `__file__` — 映像星球 puts its own directory on sys.path at import. The path
+        # names where Android would have put it; nothing is written there. IOS-POC-37.
+        safe = re.sub(r'[^A-Za-z0-9_.-]', '_', site_key or 'unknown')
+        module.__dict__['__file__'] = os.path.join(cache_dir or '.', 'scripts', f'{safe}.py')
         # `<spider:key>` rather than a path: it is what shows up in a traceback, and a script's own
         # filename would be a lie — the source arrived over HTTP.
         exec(compile(source, f'<spider:{site_key}>', 'exec'), module.__dict__)
 
+        # Any class named Spider, as on Android (`load_module().Spider()`): 永乐视频 defines a
+        # plain `class Spider:` with every method itself and never imports base.spider. IOS-POC-37.
         spider_class = module.__dict__.get('Spider')
-        if spider_class is None:
+        if not isinstance(spider_class, type):
             return _fail('the script defines no Spider class')
-        if not isinstance(spider_class, type) or not issubclass(spider_class, base.spider.Spider):
-            return _fail('the script\'s Spider does not subclass base.spider.Spider')
 
         _spiders[handle] = spider_class()
         return _ok('')
@@ -70,7 +77,10 @@ def invoke(handle, name, args_json):
         if method is None or not callable(method):
             return _fail(f'the spider does not implement {name}')
         result = method(*json.loads(args_json))
-        if result is None:
+        # `init` and `destroy` are void in the CatVod contract: Android discards what they return,
+        # and so does the Swift side. A script whose `init` ends in `return self` (短剧聚合 does)
+        # must not fail on trying to turn its own instance into JSON. IOS-POC-37.
+        if result is None or name in ('init', 'destroy'):
             return _ok('')
         if isinstance(result, bool):
             # `isVideoFormat` and `manualVideoCheck` are the two bools in the contract, and the
@@ -94,6 +104,15 @@ def unload(handle):
     except Exception:
         pass  # a spider that cannot tidy up must not keep the app from dropping it
     return _ok('')
+
+
+def dependencies():
+    """The bundled packages' known-answer checks (`webhtv_selfcheck`). Debug launch check only."""
+    try:
+        import webhtv_selfcheck
+        return _ok(json.dumps(webhtv_selfcheck.run(), ensure_ascii=False))
+    except Exception:
+        return _fail(traceback.format_exc(limit=6))
 
 
 def diagnostics():

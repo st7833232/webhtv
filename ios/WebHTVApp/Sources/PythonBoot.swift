@@ -232,7 +232,23 @@ enum PythonBoot {
         }
 
         await runtime.destroy()
+        dependencyReport().forEach { print("[python] deps \($0)") }
         return failures.isEmpty ? "13/13 methods OK, errors propagate" : "FAILED \(failures)"
+    }
+
+    /// IOS-POC-37: one line per bundled package, from `webhtv_selfcheck` — each exercising the API
+    /// the configured spiders call against a known answer, not just an import.
+    static func dependencyReport() -> [String] {
+        do {
+            let text = try PythonSpiderRuntime.bridge("dependencies", [])
+            let checks = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [[String: Any]] ?? []
+            return checks.map { check in
+                let ok = check["ok"] as? Bool == true
+                return "\(ok ? "OK" : "FAILED") \(check["name"] ?? "?"): \(check["detail"] ?? "")"
+            }
+        } catch {
+            return ["FAILED to run: \(error)"]
+        }
     }
     #endif
 }

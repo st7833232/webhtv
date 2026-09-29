@@ -238,10 +238,17 @@ class Spider(metaclass=ABCMeta):
     def json2str(self, value):
         return json.dumps(value, ensure_ascii=False)
 
-    # --- the Tier-1 boundary, stated rather than missing ---------------------------------------
-
     def html(self, content):
-        raise SpiderError('html() needs lxml, which is a C extension and outside Tier 1')
+        # The Android original, `etree.HTML`, over the lxml IOS-POC-37 builds for iOS. Imported here
+        # rather than at the top, where Android has it: lxml.etree is the largest native module the
+        # app carries, and most spiders never call this.
+        try:
+            from lxml import etree
+        except ImportError as missing:
+            raise SpiderError('html() needs lxml, which this build does not carry') from missing
+        return etree.HTML(content)
+
+    # --- what iOS does not have, stated rather than missing -----------------------------------
 
     def loadSpider(self, name):
         raise SpiderError('loadSpider() is not implemented on iOS')

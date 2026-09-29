@@ -13,6 +13,10 @@ is reported as refused rather than analysed — the audit and the app must not d
 
 Static analysis only. It reads imports; it does not run anything. A script that imports `requests`
 inside a branch it never reaches still counts as needing it, which is the conservative direction.
+
+IOS-POC-37: what the app bundles is read from third_party/python-ios-lock.json rather than listed
+here, so the audit answers "what is still missing" for the build as it stands, and a call to
+`self.html()` counts as needing lxml, because that is what `base.spider.html` is built on.
 """
 from __future__ import annotations
 
@@ -20,20 +24,30 @@ import argparse
 import ast
 import json
 import pathlib
+import re
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 
-# What the host provides, and what each remaining tier is blocked on. Order matters: a script is
-# reported under the first tier that blocks it, because that is the thing to fix first.
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 HOST_MODULES = {"base", "base.spider"}
-C_EXTENSION_TIERS = [
-    ("Crypto", {"Crypto", "Cryptodome", "pycryptodome"}),
-    ("lxml/pyquery", {"lxml", "pyquery"}),
-]
-PURE_PYTHON_EXTRAS = {"requests", "urllib3", "certifi", "idna", "charset_normalizer", "chardet",
-                      "bs4", "beautifulsoup4", "soupsieve"}
+# The import name of each bundled distribution, where the two differ.
+IMPORT_NAMES = {"beautifulsoup4": "bs4", "charset-normalizer": "charset_normalizer",
+                "typing-extensions": "typing_extensions", "pycryptodome": "Crypto"}
+NATIVE = {"Crypto", "Cryptodome", "lxml", "pyquery"}  # pyquery is pure Python over lxml
+
+
+def _bundled() -> set[str]:
+    """Import names the app carries, from the lock: the pure wheels and the natively built sources."""
+    lock = json.loads((ROOT / "third_party/python-ios-lock.json").read_text(encoding="utf-8"))
+    names = [w["name"] for w in lock.get("python_packages", {}).get("wheels", [])]
+    names += [s["name"] for s in lock.get("python_native_packages", {}).get("sources", [])
+              if s.get("kind") == "sdist"]
+    return {IMPORT_NAMES.get(name, name.replace("-", "_")) for name in names}
+
+
+BUNDLED = _bundled()
 
 def _stdlib_names() -> set[str]:
     """What the **bundled** interpreter can import, not what this Mac can.
@@ -42,7 +56,7 @@ def _stdlib_names() -> set[str]:
     payload `scripts/fetch_python_ios.sh` installs. Falls back to the host's list when the payload is
     absent, which is less accurate and says so.
     """
-    root = pathlib.Path(__file__).resolve().parent.parent / "third_party/python-ios/Python.xcframework"
+    root = ROOT / "third_party/python-ios/Python.xcframework"
     library = next(iter(sorted(root.glob("lib/python3.*"))), None)
     if library is None:
         names = getattr(sys, "stdlib_module_names", None)
@@ -68,7 +82,8 @@ STDLIB = _stdlib_names()
 
 
 def imports_of(source: str) -> set[str]:
-    """Top-level package names this script imports, wherever the import sits."""
+    """Top-level package names this script imports, wherever the import sits, plus `lxml` when it
+    calls `self.html()`, which is lxml underneath."""
     try:
         tree = ast.parse(source)
     except SyntaxError as error:
@@ -79,23 +94,22 @@ def imports_of(source: str) -> set[str]:
             found.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
             found.add(node.module.split(".")[0])
+    if re.search(r"\bself\.html\(", source):
+        found.add("lxml")
     return found
 
 
 def classify(names: set[str]) -> tuple[str, set[str]]:
-    """The tier a script lands in, and the names that put it there."""
+    """The tier a script lands in, and the names that put it there. Anything missing wins, because
+    that is the thing to fix first."""
     outside = {n for n in names if n not in STDLIB and n not in HOST_MODULES}
-    for label, members in C_EXTENSION_TIERS:
-        blocking = outside & members
-        if blocking:
-            return label, blocking
-    extras = outside & PURE_PYTHON_EXTRAS
-    unknown = outside - PURE_PYTHON_EXTRAS
-    if unknown:
-        return "unknown third party", unknown
-    if extras:
-        # `requests` is the one that actually matters; the rest arrive with it.
-        return ("requests" if "requests" in extras else "pure-Python extras"), extras
+    missing = outside - BUNDLED
+    if missing:
+        return "missing", missing
+    if outside & NATIVE:
+        return "bundled native", outside
+    if outside:
+        return "bundled pure-Python", outside
     return "stdlib + base", set()
 
 
@@ -142,6 +156,7 @@ def main() -> int:
 
     tally: dict[str, int] = {}
     scripts: dict[str, tuple[str, set[str]]] = {}
+    imported: dict[str, set[str]] = {}
     rows = []
     for site in sites:
         api = site["api"]
@@ -156,7 +171,9 @@ def main() -> int:
             try:
                 with urllib.request.urlopen(encoded(url), timeout=args.timeout) as answer:
                     source = answer.read().decode("utf-8", errors="replace")
-                tier, why = classify(imports_of(source))
+                names = imports_of(source)
+                imported[api] = {n for n in names if n not in STDLIB and n not in HOST_MODULES}
+                tier, why = classify(names)
             except (urllib.error.URLError, ValueError, OSError) as error:
                 tier, why = "unfetchable", {str(error)[:60]}
             scripts[api] = (tier, why)
@@ -171,10 +188,16 @@ def main() -> int:
     for tier, count in sorted(tally.items(), key=lambda kv: -kv[1]):
         distinct = len({a for a, (t, _) in scripts.items() if t == tier})
         print(f"{tier:<28} {count:>5}  {distinct:>7}")
-    drivable = tally.get("stdlib + base", 0)
-    print(f"\nTier 1 drives {drivable} of {len(sites)} sites "
-          f"({len({a for a, (t, _) in scripts.items() if t == 'stdlib + base'})} distinct scripts) "
-          f"without vendoring anything.")
+    # Per third-party import: how many sites need it, and whether this build carries it. A site
+    # sharing a script with others (金牌 ×5, getapp ×5) counts once per site, as it does in the app.
+    per_site = [(api, imported.get(api, set())) for _, api, tier, _ in rows if tier != "cross-origin/HTTP refused"]
+    print(f"\n{'import':<22} sites  scripts  bundled")
+    for name in sorted({n for _, needs in per_site for n in needs}):
+        sites_needing = sum(1 for _, needs in per_site if name in needs)
+        scripts_needing = len({api for api, needs in per_site if name in needs})
+        print(f"{name:<22} {sites_needing:>5}  {scripts_needing:>7}  {'yes' if name in BUNDLED else 'NO'}")
+    loadable = sum(count for tier, count in tally.items() if tier in ("stdlib + base", "bundled pure-Python", "bundled native"))
+    print(f"\nNothing missing statically for {loadable} of {len(sites)} sites.")
     return 0
 
 

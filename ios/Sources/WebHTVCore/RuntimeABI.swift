@@ -42,7 +42,8 @@ public enum RuntimeABI {
         /// `host.js`, the native `__http`/`__crypto`/`__store`/`__util` primitives under it, the
         /// drpy and CatVod JS bridges, and `DrpyEngine.moduleRuntime`.
         case jsHost = "js.host"
-        /// The bundled CPython, `base.spider.Spider`, `webhtv_runtime` and the vendored wheels.
+        /// The bundled CPython, `base.spider.Spider`, `webhtv_runtime`, the vendored wheels and the
+        /// natively built packages (IOS-POC-37).
         case pythonHost = "python.host"
         /// Recorded for completeness, never requirable: a WebHome page is bundled, not delivered.
         case webhomeBridge = "webhome.bridge"
@@ -54,7 +55,9 @@ public enum RuntimeABI {
             // Minor 1 is `SpiderPackStore.hostApiVersion` 1, so a schema-1 compatibility pack's
             // `minHostApi` n means `js.host` {1, n} with no translation table.
             case .jsHost: Version(1, 1)
-            case .pythonHost: Version(1, 0)
+            // 1.1 (IOS-POC-37) adds pycryptodome, lxml, bs4 and pyquery, a working
+            // `Spider.html()`, and `init`'s return value ignored as on Android — additions only.
+            case .pythonHost: Version(1, 1)
             case .webhomeBridge: Version(1, 0)
             }
         }
@@ -68,8 +71,9 @@ public enum RuntimeABI {
     /// WebView primitive — is refused as needing a newer App instead of failing mid-call.
     ///
     /// Not hand-picked: `RuntimeABITests` derives each group from the real thing — the keys of
-    /// `host.js`'s exported `host`, the `runtime.` calls `SpiderSession` makes, and the wheels in
-    /// `third_party/python-ios-lock.json` — and fails when this list and reality disagree.
+    /// `host.js`'s exported `host`, the `runtime.` calls `SpiderSession` makes, and the wheels and
+    /// natively built packages in `third_party/python-ios-lock.json` — and fails when this list and
+    /// reality disagree.
     public static let capabilities: Set<String> = Set(
         catvodMethods.map { "catvod.result.\($0)" }
         + jsHostExports.map { "js.host.\($0)" }
@@ -92,7 +96,11 @@ public enum RuntimeABI {
         "cut", "cut1", "stripTags", "parseJSON", "result",
     ]
 
-    static let pythonPackages = ["requests", "urllib3", "certifi", "idna", "charset-normalizer"]
+    static let pythonPackages = [
+        "requests", "urllib3", "certifi", "idna", "charset-normalizer",
+        "beautifulsoup4", "soupsieve", "typing-extensions", "pyquery", "cssselect",
+        "pycryptodome", "lxml",
+    ]
 
     /// The bundled scripts that *are* the SDK rather than spiders on it. Native Core: a pack can
     /// never replace them, because replacing one would change what every version number above

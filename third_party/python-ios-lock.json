@@ -88,6 +88,41 @@
         "bytes": 68658,
         "url": "https://files.pythonhosted.org/packages/cc/61/d01fc49b8dea277640b55a9e15960dbca9fdc8c9fde18e572d39c59f4019/charset_normalizer-3.5.1-py3-none-any.whl",
         "sha256": "6df0ec430f9a831772c23ca5a224cba36517a58a84bb32c32bb59a9fa67c47f6"
+      },
+      {
+        "name": "beautifulsoup4",
+        "version": "4.15.0",
+        "bytes": 109924,
+        "url": "https://files.pythonhosted.org/packages/88/c6/92fcd42f1ba33e1184263f25bfabf3d27c383410470f169e4b8163bf9c17/beautifulsoup4-4.15.0-py3-none-any.whl",
+        "sha256": "d6f88de62e1d4e38ecb1077eb9724cd0eff29d2a08ca16a401e9b9e93f117cf9"
+      },
+      {
+        "name": "soupsieve",
+        "version": "2.10",
+        "bytes": 38019,
+        "url": "https://files.pythonhosted.org/packages/66/87/5ed59e1d0290564e2027ed066c52b059892c4637741337fc0967183c8d4d/soupsieve-2.10-py3-none-any.whl",
+        "sha256": "8596eb8967d744174820280fa62b4542a2e955bfaccca73ed8a13c6eb8e9b502"
+      },
+      {
+        "name": "typing-extensions",
+        "version": "4.16.0",
+        "bytes": 45571,
+        "url": "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl",
+        "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8"
+      },
+      {
+        "name": "pyquery",
+        "version": "2.1.0",
+        "bytes": 22907,
+        "url": "https://files.pythonhosted.org/packages/2f/d2/5eab7f15bdb63c5281f625a003e999ef3f843c35972c936b07ea868cb854/pyquery-2.1.0-py3-none-any.whl",
+        "sha256": "74c9e65ea0cfbcf644a8c3fd438a3dedbcbbd497b9cb366a4f360dba72f8aebb"
+      },
+      {
+        "name": "cssselect",
+        "version": "1.5.0",
+        "bytes": 20797,
+        "url": "https://files.pythonhosted.org/packages/60/e9/6734502f67533a752ea8b1c8f7f227c94eecf300252ba8bf23e3e59d8a36/cssselect-1.5.0-py3-none-any.whl",
+        "sha256": "1d1aded98e82bdde447ded990a191fd6916177c4f0c914fb62eccd58e2ffcdcc"
       }
     ],
     "licences": {
@@ -96,7 +131,101 @@
       "urllib3": "MIT",
       "certifi": "MPL-2.0",
       "idna": "BSD-3-Clause",
-      "charset-normalizer": "MIT"
-    }
+      "charset-normalizer": "MIT",
+      "beautifulsoup4": "MIT",
+      "soupsieve": "MIT",
+      "typing-extensions": "PSF-2.0",
+      "pyquery": "BSD-3-Clause",
+      "cssselect": "BSD-3-Clause"
+    },
+    "_comment_ios_poc_37": "IOS-POC-37 appended bs4 (+ soupsieve, typing-extensions: its declared runtime requirements) and pyquery (+ cssselect). All py3-none-any. pyquery also needs lxml, which is native and lives in python_native_packages."
+  },
+  "python_native_packages": {
+    "_comment": "IOS-POC-37. Packages with C code, cross-compiled here from pinned upstream sources by scripts/build_python_ios_native.sh with the official cross-venv tooling Python-Apple-support ships in each slice (platform-config/*/make_cross_venv.py). Nothing here is a downloaded binary: PyPI has no iOS wheel for pycryptodome or lxml, and pycryptodome's maintainer calls iOS unsupported (Legrandin/pycryptodome#907, #584). Output goes to third_party/python-ios/native/<sdk>/, untracked like the rest; the Install Python build phase copies the right sdk's tree into the bundle and turns every .so into a framework.",
+    "host_python": "3.13",
+    "min_ios": "13.0",
+    "targets": [
+      {
+        "sdk": "iphoneos",
+        "slice": "ios-arm64",
+        "platform_config": "arm64-iphoneos",
+        "clang": "arm64-apple-ios-clang"
+      },
+      {
+        "sdk": "iphonesimulator",
+        "slice": "ios-arm64_x86_64-simulator",
+        "platform_config": "arm64-iphonesimulator",
+        "clang": "arm64-apple-ios-simulator-clang"
+      }
+    ],
+    "targets_note": "arm64 only for the Simulator: the Install Python phase copies lib-$ARCHS, so a Simulator build is single-arch anyway, and every Mac this project builds on is Apple silicon. An x86_64 Simulator build would find no native tree and fail at import, not silently.",
+    "build_tools": [
+      {
+        "name": "setuptools",
+        "version": "84.0.0",
+        "bytes": 818216,
+        "url": "https://files.pythonhosted.org/packages/95/9c/c510029fc6ef33a6275cd2c5d3cecd6613dfd6aa401d57c54f1c18852ccf/setuptools-84.0.0-py3-none-any.whl",
+        "sha256": "51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670",
+        "licence": "MIT",
+        "note": "build-time only, never shipped"
+      }
+    ],
+    "sources": [
+      {
+        "name": "pycryptodome",
+        "version": "3.23.0",
+        "kind": "sdist",
+        "bytes": 4921276,
+        "url": "https://files.pythonhosted.org/packages/source/p/pycryptodome/pycryptodome-3.23.0.tar.gz",
+        "sha256": "447700a657182d60338bab09fdb27518f8856aecd80ae4c6bdddb67ff5da44ef",
+        "licence": "BSD-2-Clause AND Unlicense (public domain parts), per its LICENSE.rst",
+        "patches": [
+          "third_party/python-ios-patches/pycryptodome-3.23.0-ios-fwork.patch"
+        ]
+      },
+      {
+        "name": "libxml2",
+        "version": "2.14.6",
+        "kind": "tarball",
+        "bytes": 2327580,
+        "url": "https://download.gnome.org/sources/libxml2/2.14/libxml2-2.14.6.tar.xz",
+        "sha256": "7ce458a0affeb83f0b55f1f4f9e0e55735dbfc1a9de124ee86fb4a66b597203a",
+        "licence": "MIT",
+        "hash_evidence": "Matches GNOME's own libxml2-2.14.6.sha256sum and lxml 6.1.3's buildlibxml.py ARCHIVE_HASHES."
+      },
+      {
+        "name": "libxslt",
+        "version": "1.1.43",
+        "kind": "tarball",
+        "bytes": 1518364,
+        "url": "https://download.gnome.org/sources/libxslt/1.1/libxslt-1.1.43.tar.xz",
+        "sha256": "5a3d6b383ca5afc235b171118e90f5ff6aa27e9fea3303065231a6d403f0183a",
+        "licence": "MIT",
+        "hash_evidence": "Matches GNOME's own libxslt-1.1.43.sha256sum and lxml 6.1.3's buildlibxml.py ARCHIVE_HASHES.",
+        "patches": [
+          "lxml-6.1.3 sdist: libxslt-1.1.43-backport1.patch (lxml's own CVE-2025-7424 / CVE-2025-11731 backport, the one its Linux wheels ship)"
+        ]
+      },
+      {
+        "name": "lxml",
+        "version": "6.1.3",
+        "kind": "sdist",
+        "bytes": 4211198,
+        "url": "https://files.pythonhosted.org/packages/source/l/lxml/lxml-6.1.3.tar.gz",
+        "sha256": "45222d94ddd511536f3b2f7d9deae3b2339b4ce0f075f1ca25703b07cad9dd21",
+        "licence": "BSD-3-Clause",
+        "note": "Same libxml2 2.14.6 / libxslt 1.1.43 its official 6.1.3 wheels are built with (.github/workflows/wheels.yml at tag lxml-6.1.3). zlib and iconv come from the iOS SDK rather than being built, and lxml.objectify is left out (WITHOUT_OBJECTIFY): no configured spider uses it."
+      }
+    ],
+    "trim": [
+      "Crypto/SelfTest",
+      "lxml/includes",
+      "*.pyi",
+      "*.pyx",
+      "*.pxd",
+      "*.h",
+      "*.dist-info"
+    ],
+    "trim_note": "Test vectors, type stubs and C headers for building against lxml: none of it runs in the app."
   }
 }

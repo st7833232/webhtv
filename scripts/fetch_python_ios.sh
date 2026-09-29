@@ -14,26 +14,29 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LOCK="$ROOT/third_party/python-ios-lock.json"
 DEST="$ROOT/third_party/python-ios"
 FORCE=0
+SDK_ARGS=()
 
 usage() {
   cat <<'EOF'
-Usage: scripts/fetch_python_ios.sh [--force]
+Usage: scripts/fetch_python_ios.sh [--force] [--sdk iphoneos|iphonesimulator]...
 
-Downloads, verifies and unpacks the CPython iOS payload named by
-third_party/python-ios-lock.json into third_party/python-ios/.
+Downloads, verifies and unpacks the CPython iOS payload and the pure-Python wheels named by
+third_party/python-ios-lock.json into third_party/python-ios/, then builds the native
+packages (scripts/build_python_ios_native.sh) for the given sdks, or for both.
 
-Does nothing when the payload is already present and its recorded hash matches,
-so it is safe to run from a build phase. --force re-downloads regardless.
+Does nothing when everything is already present and matches the lock, so it is safe to
+run from a build phase. --force re-downloads regardless.
 EOF
 }
 
 die() { printf 'fetch_python_ios: %s\n' "$*" >&2; exit 1; }
 
-for arg in "$@"; do
-  case "$arg" in
-    --force) FORCE=1 ;;
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --force) FORCE=1; shift ;;
+    --sdk) [[ $# -ge 2 ]] || die "--sdk needs a value"; SDK_ARGS+=(--sdk "$2"); shift 2 ;;
     -h|--help) usage; exit 0 ;;
-    *) usage >&2; die "unknown argument: $arg" ;;
+    *) usage >&2; die "unknown argument: $1" ;;
   esac
 done
 
@@ -60,15 +63,12 @@ prepare_module_maps() {
   done
 }
 
-if [[ $FORCE -eq 0 && -f "$STAMP" && "$(cat "$STAMP")" == "$WANT_SHA" ]]; then
-  prepare_module_maps
-  printf 'fetch_python_ios: %s already present (%s)\n' "$RELEASE" "$DEST"
-  exit 0
-fi
-
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
+if [[ $FORCE -eq 0 && -f "$STAMP" && "$(cat "$STAMP")" == "$WANT_SHA" ]]; then
+  printf 'fetch_python_ios: %s already present (%s)\n' "$RELEASE" "$DEST"
+else
 printf 'fetch_python_ios: downloading %s\n' "$RELEASE"
 curl -fL --retry 3 -o "$TMP/payload.tar.gz" "$URL" || die "download failed: $URL"
 
@@ -96,12 +96,21 @@ tar xzf "$TMP/payload.tar.gz" -C "$DEST"
 [[ -d "$DEST/Python.xcframework/ios-arm64/Python.framework" ]] || die "unpacked payload has no device slice"
 [[ -d "$DEST/Python.xcframework/ios-arm64_x86_64-simulator/Python.framework" ]] || die "unpacked payload has no simulator slice"
 [[ -f "$DEST/Python.xcframework/lib/python3.13/os.py" ]] || die "unpacked payload has no standard library"
+printf '%s' "$WANT_SHA" > "$STAMP"
+fi
 prepare_module_maps
 
 # The pure-Python wheels a spider's `import requests` needs. Same discipline as the interpreter:
 # every one pinned by size and hash in the lock, every failure closed. Nothing here compiles — the
-# interpreter already carries _ssl, _socket, _hashlib and select.
+# interpreter already carries _ssl, _socket, _hashlib and select. Their own stamp, so adding a wheel
+# to the lock (IOS-POC-37) reaches a checkout whose interpreter is already current.
 PACKAGES="$DEST/site-packages"
+WHEELS_STAMP="$DEST/.wheels-sha256"
+WANT_WHEELS="$(/usr/bin/python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["python_packages"], sort_keys=True))' "$LOCK" | shasum -a 256 | awk '{print $1}')"
+if [[ $FORCE -eq 0 && -f "$WHEELS_STAMP" && "$(cat "$WHEELS_STAMP")" == "$WANT_WHEELS" ]]; then
+  printf 'fetch_python_ios: pure-Python wheels already present\n'
+else
+rm -rf "$PACKAGES"
 mkdir -p "$PACKAGES"
 /usr/bin/python3 -c 'import json,sys
 for w in json.load(open(sys.argv[1]))["python_packages"]["wheels"]:
@@ -119,6 +128,11 @@ for w in json.load(open(sys.argv[1]))["python_packages"]["wheels"]:
   done
 rm -rf "$PACKAGES"/*.dist-info
 [[ -f "$PACKAGES/requests/__init__.py" ]] || die "requests did not unpack"
+[[ -f "$PACKAGES/bs4/__init__.py" && -f "$PACKAGES/pyquery/__init__.py" ]] || die "bs4/pyquery did not unpack"
+printf '%s' "$WANT_WHEELS" > "$WHEELS_STAMP"
+fi
 
-printf '%s' "$WANT_SHA" > "$STAMP"
+# The packages with C code are built, not fetched: there is no iOS binary of them to trust.
+"$ROOT/scripts/build_python_ios_native.sh" ${SDK_ARGS[@]+"${SDK_ARGS[@]}"}
+
 printf 'fetch_python_ios: %s ready at %s (%s)\n' "$RELEASE" "$DEST" "$(du -sh "$DEST" | awk '{print $1}')"

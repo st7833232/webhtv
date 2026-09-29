@@ -1,0 +1,20 @@
+--- a/lib/Crypto/Util/_raw_api.py
++++ b/lib/Crypto/Util/_raw_api.py
+@@ -307,8 +307,15 @@
+             filename = basename + ext
+             full_name = pycryptodome_filename(dir_comps, filename)
+             if not os.path.isfile(full_name):
+-                attempts.append("Not found '%s'" % filename)
+-                continue
++                # iOS (PEP 730): an app may only carry a binary inside a framework, so the
++                # installer moves each .so to Frameworks/ and leaves a .fwork file naming it,
++                # relative to the app bundle. CPython follows the same file for extension modules.
++                fwork = full_name[:-len(".so")] + ".fwork" if full_name.endswith(".so") else None
++                if not (fwork and os.path.isfile(fwork)):
++                    attempts.append("Not found '%s'" % filename)
++                    continue
++                with open(fwork) as marker:
++                    full_name = os.path.join(os.path.dirname(sys.executable), marker.read().strip())
+             return load_lib(full_name, cdecl)
+         except OSError as exp:
+             attempts.append("Cannot load '%s': %s" % (filename, str(exp)))

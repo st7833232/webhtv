@@ -11,15 +11,37 @@ import WebHTVCore
 ///
 /// It cannot be a `swift test`: that runs on macOS, where this interpreter does not exist.
 enum PythonLiveCheck {
+    /// The contract in the order a person meets it. `initialize` has no call of its own: it runs
+    /// inside the first `home`, and a failure is attributed to it when Python says `init` raised.
+    enum Stage: String, CaseIterable {
+        case load, initialize = "init", home, category, search, detail, player, media
+    }
+
     struct Result {
         var site = ""
         var steps = [String]()
+        var passed = Set<Stage>()
+        /// The first stage that stopped the chain, and why, already sorted into a cause.
+        var failedStage: Stage?
         var failure: String?
+        var cause: String?
 
         var summary: String {
             let trail = steps.joined(separator: " → ")
             if let failure { return "FAILED [\(site)] \(trail) ✗ \(failure)" }
             return "OK [\(site)] \(trail)"
+        }
+
+        mutating func pass(_ stage: Stage, _ step: String? = nil) {
+            passed.insert(stage)
+            steps.append(step ?? stage.rawValue)
+        }
+
+        mutating func fail(_ stage: Stage, _ message: String, cause: String) {
+            guard failure == nil else { return }
+            failedStage = stage
+            failure = message
+            self.cause = cause
         }
     }
 
@@ -57,126 +79,247 @@ enum PythonLiveCheck {
         var attempts = [String]()
         for site in ordered.prefix(4) {
             let result = await drive(site: site, resolver: resolver)
-            if result.failure == nil { return result.summary }
+            if result.passed.contains(.media) { return result.summary }
             attempts.append(result.summary)
         }
         return attempts.joined(separator: "  |  ")
     }
 
-    /// IOS-POC-7L (P5): every Python site the resolver will take, driven through the **whole**
-    /// contract, with the reason recorded when it will not go.
+    /// IOS-POC-7L (P5), per site since IOS-POC-37: every configured Python site driven through the
+    /// **whole** contract, one row each, with the stage that stopped it and the cause sorted into
+    /// dependency / site-network / content / script / policy.
     ///
     /// The bar is the full chain rather than `init → home`, because a shallower one lies. 麒麟影视
     /// imports `requests` inside a method: its module-level exec succeeds and its home returns five
     /// categories, so a home-deep survey counts it as driven — and it breaks the moment that method
-    /// is called. A site only counts when it reached media bytes.
+    /// is called. A site only counts as complete when it reached media bytes.
     ///
-    /// The sites that cannot load cost nothing extra here: they fail while their script is being
-    /// executed, before any of their own network happens.
+    /// The rows print as they finish, so a long sweep shows progress and a crash loses nothing.
     static func survey() async -> String {
         guard let (config, source) = installedConfiguration() else { return "skipped: no configuration" }
         let resolver = CSPSourceResolver(source: source)
         let sites = config.pythonSpiderSites
-        var driven = [String](), refused = [String: Int]()
+        var reached = [Stage: Int](), causes = [String: Int]()
 
-        for site in sites {
-            guard resolver.canResolve(site) else {
-                refused["not offered", default: 0] += 1
-                continue
-            }
-            // Be a guest. This fetches one script per site from the configuration's origin, and a
-            // run of it immediately after the audit script got GitLab to stop answering entirely —
-            // which then reads as "0 of 42 driven" and is a lie about the code.
-            try? await Task.sleep(for: .milliseconds(400))
-            let result = await drive(site: site, resolver: resolver)
-            if let failure = result.failure {
-                refused[reason(for: failure), default: 0] += 1
+        for (index, site) in sites.enumerated() {
+            let result: Result
+            if resolver.canResolve(site) {
+                // Be a guest. This fetches one script per site from the configuration's origin, and a
+                // run of it immediately after the audit script got GitLab to stop answering entirely —
+                // which then reads as "0 of 42 driven" and is a lie about the code.
+                try? await Task.sleep(for: .milliseconds(400))
+                result = await drive(site: site, resolver: resolver)
             } else {
-                driven.append(site.name)
+                var refused = Result(site: site.name)
+                refused.fail(.load, "not offered by the resolver", cause: "policy")
+                result = refused
             }
+            result.passed.forEach { reached[$0, default: 0] += 1 }
+            causes[result.passed.contains(.media) ? "complete" : result.cause ?? "incomplete", default: 0] += 1
+            let stages = Stage.allCases.map { stage in
+                result.passed.contains(stage) ? "\(stage.rawValue)✓"
+                    : result.failedStage == stage ? "\(stage.rawValue)✗" : "\(stage.rawValue)·"
+            }.joined(separator: " ")
+            print("[python] row \(index + 1)/\(sites.count) \(site.key) [\(site.name)] \(stages)"
+                  + " | \(result.steps.joined(separator: " → "))"
+                  + (result.failure.map { " | \(result.cause ?? "?"): \($0.prefix(160))" } ?? ""))
         }
-        let tally = refused.sorted { $0.value > $1.value }
-            .map { "\($0.key)×\($0.value)" }.joined(separator: ", ")
-        return "driven \(driven.count)/\(sites.count): \(driven.joined(separator: ", "))  |  refused: \(tally)"
+        let counts = Stage.allCases.map { "\($0.rawValue) \(reached[$0, default: 0])" }.joined(separator: ", ")
+        let tally = causes.sorted { $0.value > $1.value }.map { "\($0.key)×\($0.value)" }.joined(separator: ", ")
+        return "sites \(sites.count) | reached: \(counts) | outcome: \(tally)"
     }
 
-    /// Collapses a traceback to the thing that stopped it, so the tally counts causes not messages.
-    private static func reason(for text: String) -> String {
-        if let range = text.range(of: "ModuleNotFoundError: No module named ") {
-            return "missing " + text[range.upperBound...].prefix(while: { $0 != "\n" })
-                .trimmingCharacters(in: CharacterSet(charactersIn: "'\\\""))
-        }
-        for marker in ["Refused to load", "did not decode", "SyntaxError", "UnicodeEncodeError"]
-        where text.contains(marker) { return marker }
-        return String(text.prefix(40))
-    }
-
-    /// `init → home → category → detail → search → player → bytes`. Each step records what it saw,
-    /// so a failure says which one broke rather than that something did.
+    /// `load → init → home → category → detail → search → player → bytes`. Every stage records what
+    /// it saw; search is not on the playback path, so its failure is recorded without stopping the
+    /// chain, and later stages try a few candidates rather than judging a site on its first item.
     private static func drive(site: Site, resolver: CSPSourceResolver) async -> Result {
         var result = Result(site: site.name)
+        _ = PythonSpiderRuntime.takeFailure(siteKey: site.key)  // nothing stale from an earlier run
+
+        let session: SpiderSession
         do {
-            let session = try await resolver.session(for: site)
-            defer { Task { await session.destroy() } }
-            result.steps.append("init")
-
-            let home = try decode(try await session.home())
-            let classes = home["class"] as? [[String: Any]] ?? []
-            result.steps.append("home(\(classes.count) classes)")
-            guard let first = classes.first, let tid = string(first["type_id"]) else {
-                result.failure = "home returned no categories"
-                return result
-            }
-
-            let listing = try decode(try await session.category(tid: tid, page: "1"))
-            let items = listing["list"] as? [[String: Any]] ?? []
-            result.steps.append("category(\(items.count) items)")
-            guard let vodID = items.compactMap({ string($0["vod_id"]) }).first else {
-                result.failure = "category \(tid) returned no items"
-                return result
-            }
-
-            let detail = try decode(try await session.detail(ids: [vodID]))
-            guard let vod = (detail["list"] as? [[String: Any]])?.first else {
-                result.failure = "detail \(vodID) returned no vod"
-                return result
-            }
-            result.steps.append("detail")
-
-            // Search is part of the contract even though playback does not need it, so it is driven
-            // and reported rather than skipped.
-            let name = string(vod["vod_name"]) ?? ""
-            let term = String(name.prefix(2))
-            let found = try decode(try await session.search(key: term.isEmpty ? "影" : term))
-            result.steps.append("search(\((found["list"] as? [[String: Any]] ?? []).count) hits)")
-
-            let froms = (string(vod["vod_play_from"]) ?? "").components(separatedBy: "$$$")
-            let urls = (string(vod["vod_play_url"]) ?? "").components(separatedBy: "$$$")
-            guard let flag = froms.first, let episodes = urls.first,
-                  let episode = episodes.components(separatedBy: "#").first else {
-                result.failure = "detail carried no playable line"
-                return result
-            }
-            let target = String(episode.drop(while: { $0 != "$" }).dropFirst())
-
-            let play = try decode(try await session.player(flag: flag, id: target))
-            result.steps.append("player")
-            guard let raw = playURL(play["url"]), let media = URL(string: raw) else {
-                result.failure = "player returned no URL"
-                return result
-            }
-            let headers = play["header"] as? [String: String] ?? [:]
-
-            // The step that makes this P4 rather than a JSON exercise: real bytes off the wire.
-            let verdict = await MediaProbe.classify(media, headers: headers)
-            result.steps.append("probe(\(verdict))")
-            if verdict != .media {
-                result.failure = "the resolved URL did not serve media: \(media.absoluteString.prefix(80))"
-            }
+            session = try await deadline { try await resolver.session(for: site) }
+            result.pass(.load)
         } catch {
-            result.failure = "\(error)"
+            result.fail(.load, "\(error)", cause: cause(of: error, site: site, loading: true))
+            return result
         }
+        defer { Task { await session.destroy() } }
+
+        var candidates = [[String: Any]]()
+        do {
+            let home = try decode(try await deadline { try await session.home() })
+            result.pass(.initialize)
+            let classes = home["class"] as? [[String: Any]] ?? []
+            candidates = home["list"] as? [[String: Any]] ?? []
+            result.pass(.home, "home(\(classes.count) classes, \(candidates.count) items)")
+
+            var listed = false
+            for tid in classes.prefix(3).compactMap({ string($0["type_id"]) }) {
+                do {
+                    let listing = try decode(try await deadline { try await session.category(tid: tid, page: "1") })
+                    let items = listing["list"] as? [[String: Any]] ?? []
+                    guard !items.isEmpty else { continue }
+                    result.pass(.category, "category(\(items.count) items)")
+                    candidates = items + candidates
+                    listed = true
+                    break
+                } catch {
+                    result.fail(.category, "\(error)", cause: cause(of: error, site: site))
+                    break
+                }
+            }
+            if !listed { result.fail(.category, "no category returned items", cause: "content") }
+        } catch {
+            // `init` runs inside the first `home`; Python names the method that raised. A failure
+            // Python did not record happened after both returned, so `init` passed.
+            let python = PythonSpiderRuntime.takeFailure(siteKey: site.key)
+            let stage: Stage = python?.method == "init" ? .initialize : .home
+            if stage == .home { result.passed.insert(.initialize) }
+            result.fail(stage, "\(error)", cause: cause(of: error, site: site, python: python?.detail))
+            return result
+        }
+
+        var vod: [String: Any]?
+        for vodID in candidates.compactMap({ string($0["vod_id"]) }).prefix(2) {
+            do {
+                let detail = try decode(try await deadline { try await session.detail(ids: [vodID]) })
+                if let found = (detail["list"] as? [[String: Any]])?.first,
+                   !(string(found["vod_play_url"]) ?? "").isEmpty {
+                    vod = found
+                    break
+                }
+            } catch {
+                result.fail(.detail, "\(error)", cause: cause(of: error, site: site))
+                break
+            }
+        }
+        guard let vod else {
+            result.fail(.detail, candidates.isEmpty ? "nothing listed to open" : "detail carried no playable line",
+                        cause: "content")
+            return result
+        }
+        result.pass(.detail)
+
+        let name = string(vod["vod_name"]) ?? ""
+        let term = String(name.prefix(2))
+        do {
+            let found = try decode(try await deadline {
+                try await session.search(key: term.isEmpty ? "影" : term)
+            })
+            let hits = (found["list"] as? [[String: Any]] ?? []).count
+            if hits > 0 { result.pass(.search, "search(\(hits) hits)") } else { result.steps.append("search(0 hits)") }
+        } catch {
+            result.steps.append("search✗(\(cause(of: error, site: site)))")
+        }
+
+        let froms = (string(vod["vod_play_from"]) ?? "").components(separatedBy: "$$$")
+        let lines = (string(vod["vod_play_url"]) ?? "").components(separatedBy: "$$$")
+        var lastVerdict = "no line tried", verdictCause = "content"
+        for (flag, episodes) in zip(froms, lines).prefix(3) {
+            guard let episode = episodes.components(separatedBy: "#").first else { continue }
+            let target = episode.contains("$") ? String(episode.drop(while: { $0 != "$" }).dropFirst()) : episode
+            do {
+                let play = try decode(try await deadline { try await session.player(flag: flag, id: target) })
+                guard let raw = playURL(play["url"]), let media = URL(string: raw), media.scheme != nil else {
+                    lastVerdict = "player returned no URL"
+                    continue
+                }
+                if !result.passed.contains(.player) { result.pass(.player) }
+                let headers = play["header"] as? [String: String] ?? [:]
+                if (play["parse"] as? Int) == 1 || (play["jx"] as? Int) == 1 {
+                    // parse:1 is the spider saying "this is a page": the app sniffs it with
+                    // MediaSniffer (SourceClient.target), so this does too, then probes what it found.
+                    guard let sniffed = await MediaSniffer.shared.sniff(
+                        page: media, referer: headers["Referer"] ?? headers["referer"]) else {
+                        lastVerdict = "parse=1 page yielded no stream to the sniffer: \(media.absoluteString.prefix(80))"
+                        verdictCause = "content(parse=1)"
+                        continue
+                    }
+                    if await MediaProbe.classify(sniffed, headers: headers) == .media {
+                        result.pass(.media, "sniff → probe(media)")
+                        return result
+                    }
+                    lastVerdict = "the sniffed URL did not serve media: \(sniffed.absoluteString.prefix(80))"
+                    verdictCause = "content(parse=1)"
+                    continue
+                }
+                // The step that makes this more than a JSON exercise: real bytes off the wire.
+                let verdict = await MediaProbe.classify(media, headers: headers)
+                if verdict == .media {
+                    result.pass(.media, "probe(media)")
+                    return result
+                }
+                lastVerdict = "the resolved URL served \(verdict): \(media.absoluteString.prefix(80))"
+            } catch {
+                result.fail(.player, "\(error)", cause: cause(of: error, site: site))
+                return result
+            }
+        }
+        result.fail(result.passed.contains(.player) ? .media : .player, lastVerdict, cause: verdictCause)
         return result
+    }
+
+    // MARK: - cause
+
+    /// Sorts a failure into the thing that would fix it. A missing module is the runtime's to fix;
+    /// a timeout, a 403 or a site that answers HTML where the script expects JSON is not, and must
+    /// never be counted against a dependency.
+    private static func cause(of error: Error, site: Site, loading: Bool = false,
+                              python: String? = nil) -> String {
+        let text = python ?? PythonSpiderRuntime.takeFailure(siteKey: site.key)?.detail ?? "\(error)"
+        if let range = text.range(of: "No module named ") {
+            return "dependency:" + text[range.upperBound...].prefix(while: { $0 != "\n" && $0 != "." })
+                .trimmingCharacters(in: CharacterSet(charactersIn: "'\\\""))
+        }
+        if text.contains("Cannot load native module") || text.contains("ImportError") { return "dependency:native" }
+        if error is TimedOut { return "site/network(timeout)" }
+        if loading, text.contains("rejected(reference"), text.contains("refuses a") { return "policy" }
+        let network = ["Timeout", "timed out", "ConnectionError", "ConnectError", "SSLError", "NameResolution",
+                       "Max retries exceeded", "URLError", "RemoteDisconnected", "ConnectionReset",
+                       "HTTPError", "status code", "NSURLErrorDomain", "badServerResponse"]
+        if network.contains(where: text.contains) { return "site/network" }
+        if loading, text.contains("rejected(reference") {
+            // The same-origin + HTTPS rule refusing a script is policy, by design; the script's own
+            // download failing is the site's.
+            return text.contains("refuses a") ? "policy" : "site/network(script fetch)"
+        }
+        if text.contains("JSONDecodeError") || text.contains("did not decode") || text.contains("notText") {
+            return "site/content(unexpected answer)"
+        }
+        let last = text.split(separator: "\n").last.map(String.init) ?? text
+        return "script:" + last.prefix(60)
+    }
+
+    // MARK: - deadline
+
+    private struct TimedOut: Error, CustomStringConvertible {
+        var description: String { "stage timed out" }
+    }
+
+    /// Bounds one stage. A spider that sets no timeout on its own request would otherwise hang the
+    /// whole sweep; the abandoned call keeps running on that site's queue, which is only that
+    /// site's problem.
+    private static func deadline<T: Sendable>(_ seconds: Int = 45,
+                                              _ work: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            let once = Once(continuation)
+            Task { do { once.finish(.success(try await work())) } catch { once.finish(.failure(error)) } }
+            Task { try? await Task.sleep(for: .seconds(seconds)); once.finish(.failure(TimedOut())) }
+        }
+    }
+
+    /// Resumes a continuation exactly once, whichever of the work and the timer gets there first.
+    private final class Once<T: Sendable>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<T, Error>?
+        init(_ continuation: CheckedContinuation<T, Error>) { self.continuation = continuation }
+        func finish(_ outcome: Swift.Result<T, Error>) {
+            lock.withLock { () -> CheckedContinuation<T, Error>? in
+                defer { continuation = nil }
+                return continuation
+            }?.resume(with: outcome)
+        }
     }
 
     // MARK: - small readers

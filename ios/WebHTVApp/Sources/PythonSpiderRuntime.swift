@@ -42,7 +42,11 @@ final class PythonSpiderRuntime: SpiderRuntime, @unchecked Sendable {
         self.siteKey = siteKey
         self.queue = DispatchQueue(label: "webhtv.python.\(siteKey)")
         try PythonBoot.ensureStarted()
-        _ = try Self.bridge("load", [handle, siteKey, cacheDirectory.path, script])
+        do {
+            _ = try Self.bridge("load", [handle, siteKey, cacheDirectory.path, script])
+        } catch let failure as PythonFailure {
+            throw Self.surfaced(failure, siteKey: siteKey, method: "load")
+        }
     }
 
     // MARK: - SpiderRuntime
@@ -104,15 +108,43 @@ final class PythonSpiderRuntime: SpiderRuntime, @unchecked Sendable {
     private func call(_ name: String, _ arguments: [Any]) async throws -> String {
         let encoded = try Self.jsonArray(arguments)
         return try await withCheckedThrowingContinuation { continuation in
-            queue.async { [handle] in
+            queue.async { [handle, siteKey] in
                 do {
                     continuation.resume(returning: try PythonSpiderRuntime.bridge("invoke", [handle, name, encoded]))
+                } catch let failure as PythonFailure {
+                    continuation.resume(throwing: PythonSpiderRuntime.surfaced(failure, siteKey: siteKey, method: name))
                 } catch {
                     continuation.resume(throwing: error)
                 }
             }
         }
     }
+
+    /// A spider's own failure, carrying Python's whole traceback. It becomes the one-line
+    /// `SpiderError` a person sees only at the edge of this class, in `surfaced`.
+    struct PythonFailure: Error { let detail: String }
+
+    /// The whole traceback goes to the log, where it is worth having, and one line goes to the
+    /// person, who is looking at a screen and not debugging an interpreter.
+    private static func surfaced(_ failure: PythonFailure, siteKey: String, method: String) -> SpiderError {
+        print("[spider] python failure\n\(failure.detail)")
+        #if DEBUG
+        failuresLock.withLock { failures[siteKey] = (method, failure.detail) }
+        #endif
+        return .scriptFailed(summarised(failure.detail))
+    }
+
+    #if DEBUG
+    /// The last failure per site: which method, and Python's full traceback. IOS-POC-37's per-site
+    /// matrix needs it to tell a missing module from a site that timed out or answered 403 — the
+    /// one line a person sees cannot carry that.
+    nonisolated(unsafe) private static var failures = [String: (method: String, detail: String)]()
+    nonisolated(unsafe) private static let failuresLock = NSLock()
+
+    static func takeFailure(siteKey: String) -> (method: String, detail: String)? {
+        failuresLock.withLock { failures.removeValue(forKey: siteKey) }
+    }
+    #endif
 
     private static func jsonArray(_ values: [Any]) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: values, options: [.fragmentsAllowed])
@@ -124,7 +156,7 @@ final class PythonSpiderRuntime: SpiderRuntime, @unchecked Sendable {
     /// Every argument and the result are text, so this never converts a Python container in Swift.
     /// The envelope Python returns carries the failure, which is why a raised exception in a spider
     /// arrives here as a named error rather than as a crash or a silent empty page.
-    private static func bridge(_ function: String, _ arguments: [String]) throws -> String {
+    static func bridge(_ function: String, _ arguments: [String]) throws -> String {
         let gil = PyGILState_Ensure()
         defer { PyGILState_Release(gil) }
 
@@ -162,11 +194,7 @@ final class PythonSpiderRuntime: SpiderRuntime, @unchecked Sendable {
             throw SpiderError.scriptFailed("the runtime answered with something that is not an envelope")
         }
         if object["ok"] as? Bool == true { return object["value"] as? String ?? "" }
-        let detail = object["error"] as? String ?? "unknown Python failure"
-        // The whole traceback goes to the log, where it is worth having, and one line goes to the
-        // person, who is looking at a screen and not debugging an interpreter.
-        print("[spider] python failure\n\(detail)")
-        throw SpiderError.scriptFailed(summarised(detail))
+        throw PythonFailure(detail: object["error"] as? String ?? "unknown Python failure")
     }
 
     /// One readable line out of a Python traceback.

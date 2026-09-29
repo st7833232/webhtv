@@ -75,8 +75,18 @@ jobs:
             echo "asset=$asset"
           } >> "$GITHUB_OUTPUT"
 
+      # IOS-POC-37: pycryptodome and lxml are cross-compiled from pinned sources, driven by a host
+      # CPython of the bundled interpreter's minor version (third_party/python-ios-lock.json).
+      - name: Set up host Python for the native Python packages
+        id: host-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
       - name: Prepare CPython payload
-        run: scripts/fetch_python_ios.sh
+        env:
+          PYTHON_HOST: ${{ steps.host-python.outputs.python-path }}
+        run: scripts/fetch_python_ios.sh --sdk iphoneos
 
       - name: Build unsigned device app
         run: |

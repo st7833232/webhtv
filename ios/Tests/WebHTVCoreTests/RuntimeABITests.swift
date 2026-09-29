@@ -36,7 +36,9 @@ private func matches(_ pattern: String, in text: String) throws -> [String] {
 private let frozen: [RuntimeABI.Surface: [RuntimeABI.Version: String]] = [
     .catvodResult: [.init(1, 0): "d62107dd0a481f15ec026a0bc6d7c5f766db1d6a3ea4c2de26ff1ff5b3021c5b"],
     .jsHost: [.init(1, 1): "3724fb8a7f10f4c4467aadc3280d616c30a1801e319ef12d45ed4deba40d798b"],
-    .pythonHost: [.init(1, 0): "151b866af42baf0cde224ff3cdcf6ca501a4c6ae6dc7274f9d0c1870958769f7"],
+    .pythonHost: [.init(1, 0): "151b866af42baf0cde224ff3cdcf6ca501a4c6ae6dc7274f9d0c1870958769f7",
+                  // IOS-POC-37: pycryptodome, lxml, bs4, pyquery; `html()`; void `init`.
+                  .init(1, 1): "b93c7a05a0afe66cd35c0b3992650c582109b9b475da4e36f233a34f02b3843a"],
     .webhomeBridge: [.init(1, 0): "80325b0e8d19a32d66ab0d6d3a6e306079dd821eaf4e1a4cba0f51f60a6e2582"],
 ]
 
@@ -105,6 +107,9 @@ private func canonical(_ surface: RuntimeABI.Surface) throws -> String {
         lines.append("cpython \(upstream["release"] ?? "")")
         let wheels = try #require((lock["python_packages"] as? [String: Any])?["wheels"] as? [[String: Any]])
         lines += wheels.map { "wheel \($0["name"] ?? "")==\($0["version"] ?? "")" }.sorted()
+        // IOS-POC-37: built from source, libxml2 and libxslt included — they are what `lxml` is.
+        let native = (lock["python_native_packages"] as? [String: Any])?["sources"] as? [[String: Any]] ?? []
+        lines += native.map { "native \($0["name"] ?? "")==\($0["version"] ?? "")" }.sorted()
     case .webhomeBridge:
         lines.append("sdk " + sha256(WebHomeBridge.sdkScript))
         lines += Set(try matches(#"case "([a-z]+\.[A-Za-z.]+)":"#, in: read("Sources/WebHTVCore/WebHomeBridge.swift")))
@@ -148,11 +153,15 @@ func everySurfaceMatchesTheFingerprintItsVersionWasFrozenWith(_ surface: Runtime
     }
 }
 
-@Test func thePythonCapabilitiesAreExactlyTheVendoredWheels() throws {
+@Test func thePythonCapabilitiesAreExactlyTheVendoredPackages() throws {
     let lock = try #require(try JSONSerialization.jsonObject(
         with: Data(read("third_party/python-ios-lock.json", in: repo).utf8)) as? [String: Any])
     let wheels = try #require((lock["python_packages"] as? [String: Any])?["wheels"] as? [[String: Any]])
-    #expect(wheels.compactMap { $0["name"] as? String }.sorted() == RuntimeABI.pythonPackages.sorted())
+    // The natively built Python packages (IOS-POC-37), not the C libraries under lxml: a script
+    // imports `lxml`, never `libxml2`.
+    let native = try #require((lock["python_native_packages"] as? [String: Any])?["sources"] as? [[String: Any]])
+        .filter { $0["kind"] as? String == "sdist" }
+    #expect((wheels + native).compactMap { $0["name"] as? String }.sorted() == RuntimeABI.pythonPackages.sorted())
 }
 
 @Test func everyCapabilityBelongsToASurfaceAPackCanRequire() {

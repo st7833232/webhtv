@@ -723,7 +723,10 @@ private struct CMSView: View {
         // An unset row means the empty value, which is what "全部" carries.
         let isActive = (chosenFilters[row] ?? "") == option.value
         return Button {
-            if option.value.isEmpty { chosenFilters.removeValue(forKey: row) }
+            // Tapping the chosen value again clears the row, as Android does (`Value.setSelected`).
+            // A source whose rows carry no empty "全部" option — the 金牌 family — otherwise leaves
+            // no way back to no constraint once one is picked. IOS-POC-38.
+            if option.value.isEmpty || isActive { chosenFilters.removeValue(forKey: row) }
             else { chosenFilters[row] = option.value }
             Task { await load(category: selectedCategory) }
         } label: {

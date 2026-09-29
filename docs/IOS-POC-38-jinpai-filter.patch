@@ -1,0 +1,25 @@
+--- a/py/又是一個金牌.py
++++ b/py/又是一個金牌.py
+@@ -62,8 +62,9 @@
+             if tid == '1':
+                 del current_sort_values[0]
+             filters[tid] = [
+-                {"key": "type", "name": "类型",
+-                 "value": [{"n": i["itemText"], "v": i["itemValue"]} for i in d["typeList"]]},
++                # 電影不給「類型」：網站自己不顯示這一列，後端對電影也不理會 type。
++                *([] if tid == '1' else [{"key": "type", "name": "类型",
++                 "value": [{"n": i["itemText"], "v": i["itemValue"]} for i in d["typeList"]]}]),
+ 
+                 *([] if not d["plotList"] else [{"key": "v_class", "name": "剧情",
+                                                  "value": [{"n": i["itemText"], "v": i["itemText"]}
+@@ -80,6 +81,10 @@
+ 
+                 {"key": "sort", "name": "排序", "value": current_sort_values}
+             ]
++        # 每列最前面放「全部」（空值），與網站相同；沒有值的列不給。
++        for tid in filters:
++            filters[tid] = [dict(row, value=[{"n": "全部", "v": ""}] + row["value"])
++                            for row in filters[tid] if row["value"]]
+         result['class'] = classes
+         result['filters'] = filters
+         return result

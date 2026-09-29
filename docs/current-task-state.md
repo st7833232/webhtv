@@ -55,7 +55,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 4. commit 一律用 task guard（`start --scope` 每個路徑各帶一次，`finish` 加 `--no-tag`）。
 5. 雲端 session 沒有 Swift：單元測試照常撰寫但不執行（使用者選擇「只靠編譯與真機」），第一次編譯是發布時的 Release build。**在 Mac 上**（2026-09-29 使用者選「執行並修測試」）：`ios/` 的 `swift test` 要執行，測試本身的錯誤直接修，正式程式的 bug 先回報；2026-09-29 第一次執行 519 個全部通過。
 
-**下一步（唯一）**：等使用者回報 `0.1.31 (32)` 的真機結果，先看 IOS-POC-17H-2（MPV 子母畫面結束回到 App：不再閃舊畫格、不變形；PiP 期間暫停再結束畫面會出現）；收到後逐列填進下列文件，`0.1.31 (32)` 含前面各版的全部內容：
+**下一步（唯一）**：等使用者回報 `0.1.31 (32)` 的真機結果，先看 IOS-POC-17H-2（MPV 子母畫面結束回到 App：IOS-POC-17H-3（使用者以 `0.1.31 (32)` 回報「回到 App 還是放大再縮小、閃一下」）已在模擬器修掉兩處黑格並把 PiP 層改為影片矩形（本機 commit，未 push、未發布；17H 文件「真機回報的模擬器重現與修法」第七節），放回動畫本身在 iPadOS 模擬器上仍蓋滿整個視窗、App 無法指定目標：等使用者決定是否發布 `0.1.32 (33)`；若真機仍放大，請使用者提供 iPhone 螢幕錄影（AirDrop 到 Mac）。另等 `0.1.31 (32)` 其餘項目的真機結果（收到後逐列填進下列文件，`0.1.31 (32)` 含前面各版的全部內容：
 
 0. IOS-POC-33（`0.1.29 (30)`）：`docs/IOS-POC-33-dual-script-search.md` 第七節的真機項目。
 0. IOS-POC-32 C（`0.1.29 (30)`）：`docs/IOS-POC-32-detail-metadata-zhtw.md` 第六節第 4 點的真機項目與第 5 點第 5 項。

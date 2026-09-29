@@ -205,6 +205,31 @@ revert 本階段的 commit。
 3. 未驗證：PiP 期間暫停再結束（模擬器的控制工具一次來回比控制列 5 秒自動隱藏長，無法先叫出控制列再按暫停；等不到訊號時由 1 秒上限顯示）；背景中從 PiP 視窗關閉後再回到 App；真機（旋轉、藍牙耳機的 exact seek 往回量）。
 4. 單元測試：本階段只改 App target，WebHTVCore 沒有變更，沒有重跑 `swift test`；Debug 模擬器 build 成功。
 
+### 7. IOS-POC-17H-3：`0.1.31 (32)` 真機仍「放大再縮小、閃一下」（2026-09-29）
+
+使用者以 `0.1.31 (32)` 真機測試後回報：「回到 APP 還是會放大再縮小，然後有閃一下」。
+
+**診斷**（iPad mini 模擬器，暫時把 `MPVVideoView` 背景改紫色、sample-buffer 層背景改綠色、在 `layoutSubviews` 記錄矩形，加上旗標檔 hook；都未 commit）：
+
+| # | 觀察 | 結論 |
+|---|---|---|
+| 1 | 放回動畫：黑色的 PiP 視窗從左上角**一路放大到蓋滿整個 App 視窗**（紫色背景全部消失），動畫結束後才換成中間 16:9 的畫面 | 真機上這個視窗就是影片：放大填滿 → 縮回有黑邊的大小。這是 AVKit 的動畫，不是 App 畫的 |
+| 2 | 把 sample-buffer 層縮成影片的等比例矩形（log 確認 `sbv={{0, 228}, {375, 211}}`，視窗期間黑邊是紫色不是綠色）後，放回動畫**仍然**蓋滿整個 App 視窗 | 至少在 iPadOS 26 的視窗模式下，AVKit 放回動畫的目標不是這一層的矩形（可能是 scene 的視窗）。iPhone 上是否以這一層為目標，模擬器驗不了（iPhone 模擬器不支援 PiP） |
+| 3 | 進入動畫：PiP 視窗從左邊滑入，不是從影片區縮出去 | 進入時不需要對齊 |
+| 4 | 17H-2 進入 PiP 時：Metal 一藏，sample-buffer 層先露出黑色佔位畫格一格，軟體輸出的第一格才到 | 17H-2 引入的黑格 |
+| 5 | 17H-2 接回時：`videoSizeChanged` 在新輸出重設尺寸時往層裡塞黑色佔位畫格（原本被 Metal 蓋住看不到）；第一版改成等 Metal 回來再補，卻在淡入**開始**時補，Metal 還透明，黑格照樣露出一格 | 「閃一下」至少有這一個來源 |
+
+**修法**（`ios/WebHTVApp/Sources/MPVEngine.swift`，commit 見 Recovery anchor）：
+
+1. `MPVVideoView.videoSize`：sample-buffer 層改為影片的等比例矩形（`AVMakeRect`），由 `.videoReconfigured` 的 `dwidth`/`dheight` 決定（零值＝影片軌被釋放，沿用上一個形狀）。若 iPhone 的 AVKit 以這一層為目標，放回就會正好落在影片上；模擬器上無法證明。限制：`dwidth`/`dheight` 不含 `video-rotate` 的旋轉，有旋轉標記的影片矩形會轉 90°（來源中罕見，未處理）。
+2. 進入 PiP：`MPVSoftwareRenderer.onNextFrame`，軟體輸出把第一格送進層之後才 `coverMetalForPictureInPicture()`；`ended` 時取消。
+3. 佔位畫格：`MPVPictureInPicture.refreshPlaceholder()` 只在「PiP 不在進行中」且「不在等 Metal 回來」時補；接回時在 0.15 秒淡入**結束**後才補（`fadeMetalIn(completion:)`）。
+4. Metal 回來時淡入 0.15 秒（`UIView.animate`），遮掉軟體輸出最後一格與 GPU 第一格之間的差異。
+
+**模擬器驗證**（`pip9`，紫色背景診斷版）：進入時 Metal 藏起來的那一格直接就是軟體輸出的畫面，沒有黑格；接回時序為 系統動畫（黑色視窗蓋滿 App 視窗）→ 子母畫面最後一格（比例正確）→ 淡入 3 格（兩張畫面的條碼混合）→ Metal；沒有黑格、沒有變形、沒有往回的跳動。項目 1 的系統動畫維持原樣。
+
+**真機未驗證**；若 iPhone 上仍放大，下一步只能靠使用者的 iPhone 螢幕錄影（AirDrop 到 Mac 後逐格分析）判斷 AVKit 在 iPhone 上的目標——App 端沒有 API 可以指定放回的矩形。同日另一個 session 在同一個 checkout 做了 IOS-POC-12／13 並撤銷 13（`20fd462e`），本階段的 commit 已重定基底到它之後。
+
 ## Recovery anchor
 
 - 目標：MPV PiP（P6），行為對齊 AVPlayer 自動 PiP（第一節）。

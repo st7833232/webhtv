@@ -135,6 +135,8 @@ Simulator Debug build → **BUILD SUCCEEDED**。全套 `swift test` 留到 17B �
 
 ### 契約（`ios/Sources/WebHTVCore/PlaybackEngine.swift`，純 core，macOS 可測）
 
+> IOS-POC-12（2026-09-29）註記：下表是 17B 當時的規則，已被 17F、IOS-POC-26、IOS-POC-27A 與程式取代（例如 network 與 unclassified 失敗也會切換一次、開播逾時原生 5 秒／MPV 20 秒、MPV 已有音軌與字幕選擇）。目前的播放契約以 `docs/IOS-POC-12-runtime-architecture-reconciliation.md` 第 6.5 節為準。
+
 | 型別 | 內容 |
 |---|---|
 | `PlaybackEngineKind` | `.native`（原生播放器／「原生」）、`.mpv`（MPV）；`capabilities`：native 有 AirPlay 與字幕／音軌選單，MPV 第一階段兩者皆無（PiP 只可能在 AVKit surface 上發生） |

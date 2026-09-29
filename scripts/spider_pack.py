@@ -17,9 +17,10 @@ import argparse, hashlib, json, os, pathlib, shutil, sys, urllib.request
 
 SCHEMA = 1
 HOST_API = 1
-# host.js is the runtime's own SDK, not compatibility logic: it is what `minHostApi` describes, so it
-# ships with the app and is deliberately not packable.
-NOT_PACKABLE = {"host.js"}
+# host.js and the two bridges are the runtime's own SDK, not compatibility logic: they are what
+# `minHostApi` describes, so they ship with the app and are deliberately not packable. Same set as
+# `RuntimeABI.nativeScripts` in the app, which a test keeps equal (IOS-POC-12).
+NOT_PACKABLE = {"host.js", "drpy-bridge.js", "js-spider.js"}
 
 # Provenance for the ports this repository carries: which JAR each one was read from, that JAR's
 # SHA-256 at the time it was read, and any configured class name the script also serves. Used as the

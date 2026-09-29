@@ -1,8 +1,10 @@
 # IOS-POC-12 / IOS-POC-13 — Runtime Architecture Reconciliation and Hot Update Roadmap
 
-- Status: **planned, not started**. IOS-POC-12 has a detailed plan since 2026-09-25 (planning only, no
-  implementation): `docs/IOS-POC-12-runtime-architecture-reconciliation.md`. Where the two differ on
-  IOS-POC-12, that document wins; this one stays the index for IOS-POC-12 and IOS-POC-13.
+- Status: **IOS-POC-12 done (2026-09-29); IOS-POC-13 not started.** IOS-POC-12's result, contracts and
+  the 2026-09-25 plan (kept as its appendix A) are in `docs/IOS-POC-12-runtime-architecture-reconciliation.md`.
+  Where the two differ on IOS-POC-12, that document wins; this one stays the index for IOS-POC-12 and
+  IOS-POC-13. IOS-POC-13's entry conditions and the decisions it still needs (D13/D3 global signing key,
+  compatibility-pack migration, JS watchdog, URL-scheme allowlist) are in its §20.
 - Recorded: 2026-09-22 after IOS-POC-5S-1 (`7b7ad584`).
 - This document authorizes **no runtime-update implementation by itself**. It fixes sequencing,
   boundaries, acceptance gates and rollback semantics for the future work.
@@ -33,8 +35,10 @@ engine — so the order is now:
    `0.1.8 (9)` (user decision); its device gate is still owed.
 4. **Core real-device acceptance** (`docs/IOS-POC-8L-core-real-device-acceptance.md`), now including
    MPV's device first frame, switching and fallback.
-5. IOS-POC-12 — Runtime Architecture Reconciliation.
-6. IOS-POC-13 — Runtime Hot Update.
+5. IOS-POC-12 — Runtime Architecture Reconciliation. **Done 2026-09-29, started before item 4 finished
+   at the user's explicit 2026-09-29 instruction.** Playback semantics are Native-internal (a pack cannot
+   reach them), so their device acceptance no longer gates the runtime ABI; it is still owed as item 4.
+6. IOS-POC-13 — Runtime Hot Update. Not started; needs the user's go-ahead.
 
 Only if MPV reaches the stop condition in IOS-POC-17 §5 on a device and is proven unsuitable:
 `MPV stop → minimal VLCKit replacement spike → decision AVPlayer + VLC` — never three engines.
@@ -75,6 +79,12 @@ At minimum audit and freeze the externally meaningful semantics of:
 The goal is not to make these APIs permanent forever. It is to give IOS-POC-13 a versioned runtime
 ABI it can compare against instead of guessing whether downloaded content is compatible.
 
+**Result (2026-09-29).** Only what a pack can reach is in the runtime ABI — `catvod.result` 1.0,
+`js.host` 1.1 (minor = `SpiderPackStore.hostApiVersion`), `python.host` 1.0, plus `webhome.bridge` 1.0
+recorded but not requirable — as constants in `RuntimeABI.swift`, bound to their content by fingerprint
+tests. Everything else above (playback, engine selection, WatchHistory, persistence, the WebHome bridge
+semantics) is frozen as a Native-internal contract with tests and versions with the IPA.
+
 ### Refactor inventory
 
 Measure before moving anything:
@@ -112,6 +122,10 @@ runtime language or weakening validation**.
 - images, text and other non-native resources;
 - schema/data-driven UI properties only where the installed native renderer already supports the
   property (labels, order, visibility, predefined style/layout parameters).
+
+*Corrected by IOS-POC-12 (2026-09-29):* no image, text or UI property has a native reader today, so none
+is dynamic yet; the v1 manifest accepts only `spider.js`. drpy rules, Python scripts, rule files, `ads`
+and `rules` stay on their existing configuration-owned paths (IOS-POC-12 §4).
 
 A runtime pack may configure existing UI capability. It may **not** smuggle in a new native screen,
 new Swift navigation behaviour or a new entitlement.
@@ -214,6 +228,7 @@ Info.plist capabilities or native ABI still require a new IPA through SideStore.
 ## Recovery anchor
 
 When this roadmap resumes, do **not** start by writing a downloader. Re-read the current Git state,
-5S results, real-device acceptance, IOS-POC-17 (the MPV decision is made: MPV is kept) and this
-document. IOS-POC-12 is first; only
-after its contract-freeze acceptance is complete may IOS-POC-13 begin.
+real-device acceptance, this document and `docs/IOS-POC-12-runtime-architecture-reconciliation.md`
+§20–21. IOS-POC-12 is complete (2026-09-29) and its entry conditions for IOS-POC-13 hold; IOS-POC-13
+begins only when the user says so, and its first decisions are D13/D3 (whether to run a global,
+signed channel and where the key lives).

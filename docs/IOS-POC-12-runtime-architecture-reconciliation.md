@@ -1,4 +1,510 @@
-# IOS-POC-12 — Runtime Architecture Reconciliation（規劃）
+# IOS-POC-12 — Runtime Architecture Reconciliation
+
+- 狀態：**已完成**（2026-09-29）。盤點、Runtime ABI、native capability、manifest 契約、信任模型、驗證與隔離規則都已落在 WebHTVCore 的純邏輯與單元測試；**沒有** updater、downloader、啟用或 UI（那是 IOS-POC-13，未開始）。
+- 授權：使用者 2026-09-29 明確要求「正式開始並完成 IOS-POC-12」，並說明以這次指令為最新優先順序（取代舊 handoff「核心真機驗收之後才開始」與「每個階段都要說開始實施 12X」）。**不授權**：IOS-POC-13、bump 版本、tag、SideStore release、GitHub Release、發布 IPA。
+- Lane：standard（task guard `IOS-POC-12`）。Ponytail：本 session 啟用 ponytail full 模式，以它的規則自審最終 diff；沒有另外執行 `ponytail-review` skill。
+- 基準：開始時 `git fetch` 得到 `origin/ios-poc` = `a826d6e29ce3766435ae8b2d181d76430f58b50c`（與 HEAD 相同、0 ahead／0 behind、worktree 乾淨）。14:04 另一個 session 在同一個 checkout 推了 `90807975`、`d15eb97819199c0ef9fa5f5c524e38c547664420`（只有 `0.1.31 (32)` 的發布紀錄與 `source.json`，沒有程式），task guard 以 `d15eb978` 為基準。
+- 本文件是 IOS-POC-12 唯一的任務文件。第 1～21 節是實施結果並取代舊規劃；**附錄 A** 是 2026-09-25 的規劃原文（含以 `a6652cc3` 為基準的 K1～K39、A1～A77、M1～M15、G1～G24 與研究 R1～R25），保留為歷史紀錄。兩者不一致時以第 1～21 節為準。
+- 程式：`ios/Sources/WebHTVCore/RuntimeABI.swift`、`ios/Sources/WebHTVCore/RuntimePackManifest.swift`（新）；`Spider/SpiderPack.swift`、`scripts/spider_pack.py`（各改一處）；測試 `RuntimeABITests.swift`、`RuntimePackManifestTests.swift`、`ContractFreezeTests.swift`（新）。commit 見 `git log -- docs/IOS-POC-12-runtime-architecture-reconciliation.md`。
+
+## 1. Before-state architecture（開始前的架構）
+
+```
+設定 URL ─ ConfigLoader.fetch ─ WebHTVConfig（sites / ads / rules）─ 逐來源快取（SavedSource.cacheFileName）
+   │
+   ├─ type 0／1／4 ─────────────── CMSClient ──────────────┐
+   └─ type 3 ─ CSPSourceResolver                           │
+        ├─ csp_* ─ SpiderRegistry（內建 8 支 JS ＋ InstalledSpiderPack 覆蓋）
+        ├─ .js ── DrpyEngine（IPA 內 pin 的 drpy_libs ＋ 同源 rule）或 CatVod JS spider
+        └─ .py ── PythonSpiderSource（同源 .py）─ PythonSpiderRuntime（內建 CPython）
+                   ↓ 全部經 JavaScriptSpiderRuntime／PythonSpiderRuntime ─ CatVodHost ─ CatVod JSON
+                                                           ↓
+               SourceClient.target → PlaybackTarget（url＋headers＋qualities）
+                                                           ↓
+PlaybackSession ─ PlayerRouter（預設引擎／session override／每次嘗試一次 fallback）─ AVPlayerEngine／MPVEngine
+     ├─ HLSAdPlanner／HLSAdSkipper（兩個核心共用一份廣告時間軸）
+     ├─ WatchHistoryStore（history.json，逐來源）
+     └─ WebHomeBridge（內建 showcase 頁）
+```
+
+已存在的遠端內容路徑：設定 JSON（含 `ads`、`rules`）、schema 1 相容包（`./spiders/manifest.json`，HTTPS＋每檔 SHA-256）、drpy rule 與 CatVod JS（同源 HTTPS、256 KiB）、drpy_libs（同源、IPA 內 pin）、Python `.py`（同源 HTTPS、256 KiB）、spider 自己以 `host.req` 抓的 ext 規則檔。
+
+**開始前最大的 architecture coupling**：能不能執行遠端內容，只由一個手動維護的數字 `SpiderPackStore.hostApiVersion = 1` 判斷。
+
+1. 它只描述 JS host，而且已經漂移過一次：`7c76d5c2` 改了 `host.js` 的選擇器，號碼沒動（附錄 A 第二節）。CatVod 輸出 schema、Python host、WebHome bridge 都沒有任何版本。
+2. 相容包存在一個全域目錄與 process 全域的 `InstalledSpiderPack`，卻是依作用中的設定抓的：切到 B 仍用 A 的 pack（G1）。
+3. global 內容只有完整性、沒有真實性：manifest 裡的 SHA-256 只證明檔案符合那份 manifest。
+4. 「哪些腳本屬於 SDK、不能被 pack 取代」在 Swift 註解與 `scripts/spider_pack.py` 各寫一份，而且不一致：`NOT_PACKABLE` 只列 `host.js`，`build` 會把 `drpy-bridge.js`、`js-spider.js` 當成 spider 打包（G12）。
+
+## 2. Inventory（以 `d15eb978` 重新盤點）
+
+### 2.1 做法與比對範圍
+
+依附錄 A 第四節之零：`git diff --stat a6652cc3..d15eb978`，範圍是 `ios`、兩個 lock、`third_party/mpv-ios`、`.github/workflows/ios-*.yml`、`scripts/spider_pack.py`、`scripts/update_sidestore_source.py`、`scripts/fetch_python_ios.sh`、`source.json`、showcase 頁，以及新出現的 iOS 腳本。81 個 commit、54 個檔案變更；每個變更檔都對到下表或附錄 A 的列。以符號重新定位，不沿用舊行號。
+
+### 2.2 標籤（每一項只有一個）
+
+| 標籤 | 意思 | 更新方式 |
+|---|---|---|
+| **Native Core** | Swift／原生框架／簽章與建置設定、定義 ABI 的腳本、安全性依賴內建的內容、UI 文字與內建資料 | 只隨 IPA（SideStore） |
+| **Dynamic Runtime — configuration-owned** | 使用者設定擁有、已有自己的更新路徑；WebHTV 的簽章不涵蓋 | 設定本身，或同源每次抓取；v1 只有相容包格式會進 runtime manifest |
+| **Dynamic Runtime — WebHTV-owned global** | WebHTV 維護、在已出貨 JavaScriptCore 上執行的直譯碼，內建一份當 fallback | IOS-POC-13 的 global pack（需要簽章） |
+| **Dynamic Runtime — runtime state** | spider 自己在執行期寫的狀態 | 由 spider 寫；pack 不交付、不覆寫 |
+
+附錄 A 的「Native Core（內建內容）」併入 Native Core（評估過、不動態化）；「Dynamic Layer（global pack 候選）」＝ WebHTV-owned global；「Dynamic Layer（config 擁有）」＝ configuration-owned。沒有「之後再說」或「可能可執行」的列。
+
+### 2.3 盤點總表
+
+| 類別 | 項目（位置） | 標籤 |
+|---|---|---|
+| 站台路由與 provider 對照 | `Site.isNativeCMS`／`isCSPSpider`／`isDrpySpider`／`isPythonSpider`／`drpyRuleReference`（`WebHTVConfig.swift`）；`SpiderRegistry.ported`（9 個 class → 8 支 script）、`aliases`（`JPianAmns → JianPian`）；`CMSClient` 請求分支、`isDirectMedia`；`MacCMSXMLDecoder` | Native Core |
+| Swift 內的 provider 專屬分支、host 清單 | **沒有**。Swift 裡沒有任何來源 key 或站台網址；唯一的網址是 Debug 探針的 Apple 範例串流（`MPVProbeView.swift`）與 UI 提示字「https://…/wang-movie.json」（A76） | Native Core |
+| 內建 spider（`AppGet`、`AppQi`、`App99`、`App3Q`、`Bili`、`JianPian`、`XBPQ`、`XYQHiker`.js；`App3Q.js` 內的 `bbys.app`、`Bili.js` 的 `api.bilibili.com` 等 provider 資料） | `Resources/Spiders/` | Dynamic Runtime — WebHTV-owned global（內建保留為 fallback） |
+| 定義 ABI 的腳本（`host.js`、`drpy-bridge.js`、`js-spider.js`、`DrpyEngine.moduleRuntime`、`base/spider.py`、`base/__init__.py`、`webhtv_runtime.py`） | `Resources/Spiders/`、`ios/WebHTVApp/Python/` | Native Core |
+| drpy 引擎函式庫 pin 表（10 檔 bytes＋SHA-256） | `DrpyEngine.dependencies` | Native Core（位元組在設定主機，接受與否由 IPA 內 pin 決定） |
+| drpy rule、CatVod JS spider（如 `麻豆.min.js`） | `DrpyEngine.script(at:source:)` | Dynamic Runtime — configuration-owned |
+| Python `.py` spider | `PythonSpiderSource.script(for:source:)` | Dynamic Runtime — configuration-owned |
+| XBPQ／XYQ 規則檔、Bili 的 cookie 檔（ext 指向） | `CSPSourceResolver.resolvedExtend(for:)` | Dynamic Runtime — configuration-owned |
+| 設定 JSON、`ads`、`rules`（含 `rules[].script`） | `ConfigLoader`、`WebHTVConfig`、`AdBlockList`、`SnifferRules` | Dynamic Runtime — configuration-owned |
+| schema 1 相容包 | `SpiderPackStore`、`WebHTVApp.swift` `ConfigView.refreshSpiderPack` | Dynamic Runtime — configuration-owned（格式併入 v1 manifest 模型） |
+| `MediaSniffer.defaultKeywords`／`defaultExclusions`、`MediaProbe` 常數、sniffer JS hook | `MediaSniffer.swift` | Native Core（config `rules` 已能逐 host 覆寫；hook 注入第三方頁面，不得遠端改） |
+| HLS 中段廣告偵測（IOS-POC-25：`HLSAdsParser`、`HLSAdTimeline`、`HLSAdSkip` 的常數與門檻） | 三個新檔 | Native Core（Android `HlsAdsParser` 的逐行移植，是演算法不是資料；門檻改變會直接影響是否跳掉正片） |
+| 繁轉簡對照（2,528 組）、雙寫法搜尋（IOS-POC-33 `DualScriptSearch`） | `TraditionalSimplified.swift`、`DualScriptSearch.swift` | Native Core |
+| OpenCC `s2tw` 字典 6 份（約 1.1 MB，OpenCC `528ae262`）與 `TaiwanTraditional`（IOS-POC-32 C） | `Resources/OpenCC/`、`TaiwanTraditional.swift` | Native Core |
+| 詳情頁文字清理（IOS-POC-32 B `VodText`）、畫質排名、篩選列名稱、音軌標籤 | 各自的 Swift 檔 | Native Core |
+| 播放契約（`PlaybackEngine`、`PlayerRouter`、`PlaybackActivity`（27A）、`PlaybackNetworkPolicy`、`PlaybackSpeedPreference`（29）、`NextPlaybackTarget`、`PausedBackgroundReload`、PiP、音訊工作階段、MPV 選項） | WebHTVCore 與 App | Native Core |
+| WatchHistory（`history.json`，IOS-POC-30 新增 `hiddenFrom`）、站台記憶、偏好設定 | `WatchHistory.swift`、`WebHTVApp.swift` | Native Core |
+| WebHome bridge（`sdkScript`、方法表、Android 形狀 payload）、showcase 頁 | `WebHomeBridge.swift`、`webhome-devkit/templates/homepages/app-capabilities-showcase.html` | Native Core（頁面有 bridge 權限，只能內建） |
+| Libmpv、FFmpeg（含 IOS-POC-26-2b 的 WebHTV `Libavformat` `ffmpeg-n8.1.2-webhtv.1`、patch 0001～0006、`.github/workflows/ios-ffmpeg-build.yml`）、其他 MPVKit xcframework | `ios/Vendor/MPVKit/Package.swift`、`third_party/mpv-ios*` | Native Core |
+| CPython 3.13.15（b15）、stdlib、lib-dynload、5 個 wheel（requests、urllib3、certifi、idna、charset-normalizer） | `third_party/python-ios-lock.json` | Native Core |
+| `Info.plist`、版本／build、bundle id、entitlements、App icon、`wallpaper_1.png`、`ic_logo.png`、`source.json`、scheme、`ios/Package.swift` | 專案與 repo 根目錄 | Native Core |
+| spider 狀態：`spider_<siteKey>_*`（`host.local`）、`Caches/python-spider/<siteKey>.json`、每個 session 的 CookieJar | `StorageHost.swift`、`base/spider.py` | Dynamic Runtime — runtime state |
+| 開發工具：`scripts/spider_pack.py`、`scripts/ios_adskip_sim/`、`scripts/update_sidestore_source.py`、`scripts/fetch_python_ios.sh`、各 `ios-*.yml` workflow | repo | Native Core（不出貨；是 Native Core 的發布與測試工具） |
+
+持久名稱總表（附錄 A 的 A10）新增兩個 UserDefaults key：`webhtv.playback.hlsAdSkip`（IOS-POC-25「智慧去廣」）、`webhtv.playback.defaultSpeed`（IOS-POC-29）。`history.json` 新增選填欄位 `hiddenFrom`（IOS-POC-30）。runtime pack 不得寫其中任何一個。
+
+### 2.4 已經能遠端取得的內容，與安全性依賴內建的內容
+
+| 已有安全遠端路徑 | 安全性依賴內建 |
+|---|---|
+| 設定 JSON（逐來源 LKG）、`ads`、`rules`、ext 規則檔、drpy rule、CatVod JS、Python `.py`、schema 1 相容包 | `host.js` 與兩個 bridge、`moduleRuntime`、drpy_libs 的 pin 表、`base/spider.py`、`webhtv_runtime.py`、certifi（Python 的 TLS 信任根）、sniffer hook、WebHome showcase 頁、HLS 廣告偵測、Runtime ABI 常數與（IOS-POC-13 之後的）公鑰集合 |
+
+### 2.5 重複或平行的更新機制
+
+附錄 A 第四節之三的 M1～M15 仍然成立，處置不變：只有 M6（相容包）併入 v1 manifest 模型；M8（drpy rule、CatVod JS）與 M9（Python）維持每個 session 同源即時抓取（D16）；其餘各自保留信任邊界。本任務消除的一個重複是「不可打包的 SDK 腳本」清單：Swift 以 `RuntimeABI.nativeScripts` 為準，`scripts/spider_pack.py` 的 `NOT_PACKABLE` 改成同一組三個檔案，並由測試保持相等。
+
+### 2.6 看起來可以動態化、最後判定留在 IPA 的內容
+
+| 內容 | 為什麼留在 IPA |
+|---|---|
+| `host.js`、`drpy-bridge.js`、`js-spider.js`、`moduleRuntime` | 它們就是 pack 依賴的 SDK；遠端替換會讓每個 ABI 版本號失去意義 |
+| `base/spider.py`、`webhtv_runtime.py` | Python 版的 SDK，且必須與 `PythonSpiderRuntime.swift` 的 envelope 同步 |
+| drpy_libs 的 pin 表 | 是 drpy 的信任根；只有 IPA 內建的簽章信任根存在後才可能重新評估 |
+| OpenCC 字典、繁轉簡表 | 純資料，但它決定所有設定的搜尋語意與顯示文字；遠端改變等於靜默改變每個來源的行為，沒有變更需求（各只變過一次） |
+| HLS 廣告偵測常數 | 門檻決定會不會跳掉正片；IOS-POC-25 的 fail-closed 保護靠它們與 Swift 程式一起驗證 |
+| `MediaSniffer` 的預設關鍵字與 hook | hook 注入每個被嗅探的第三方頁面；關鍵字已能用 config `rules` 逐 host 覆寫 |
+| WebHome showcase 頁 | 有完整 bridge 權限，bridge 沒有 frame／origin 閘（G18） |
+| 畫質排名、篩選列名稱、音軌標籤、UI 文字、App 內圖片 | 沒有任何讀取資料驅動標籤的 renderer；做動態需要新建原生能力，沒有收益 |
+| 播放時間常數、緩衝策略、MPV 選項 | 生命週期與效能契約，隨 AVFoundation／Libmpv 版本變 |
+| 5 個 Python wheel | certifi 是 TLS 信任根；所有 spider 共用同一個 import 命名空間 |
+
+## 3. Native Core 定義
+
+Native Core 是**只能隨 IPA／SideStore 更新**的一切：
+
+1. Swift／SwiftUI 可執行碼，包括 `SourceClient`、`CMSClient`、`CSPSourceResolver`、`SpiderRegistry`、`JavaScriptSpiderRuntime`、`CatVodHost` 的原生 primitive（`__http`、`__crypto`、`__store`、`__util`）、`DrpyEngine`、`PythonSpiderRuntime`、`PlaybackSession`、`PlaybackEngine`、`PlayerRouter`、`AVPlayerEngine`、`MPVEngine`、HLS 廣告跳過、`WatchHistory`、`WebHomeBridge`、所有 UI 與導覽。
+2. 原生框架與二進位：Libmpv、FFmpeg（含 WebHTV Libavformat）、其他 MPVKit xcframework、CPython XCFramework、stdlib、lib-dynload、wheel。
+3. 定義 Runtime ABI 的腳本與常數：第 2.6 節列的 SDK 腳本、`RuntimeABI`、`RuntimePackLimits`、`RuntimeTrustRoot.bundled`（公鑰集合）。
+4. entitlement、`Info.plist` 能力、簽章、bundle id、版本與 build、App icon 與內建資源、WebHome 頁。
+5. 任何需要新 native screen、navigation、gesture 或 native capability 的功能。
+
+## 4. Dynamic Runtime 定義
+
+Dynamic Runtime 是**在已出貨的直譯器與 primitive 上執行、或只被既有原生程式讀取**的內容。它不能新增原生能力，只能使用 `RuntimeABI` 宣告過的。
+
+| 邏輯型別（`RuntimeAssetType`） | 內容 | 擁有者 | v1 能否經 runtime pack 啟用 |
+|---|---|---|---|
+| `spider.js` | CatVod／csp JS spider | global（WebHTV 內建 8 支）或 configuration（相容包） | **可以**（兩種 scope） |
+| `spider.py` | Python spider | configuration | 不行；維持同源每次抓取 |
+| `drpy.rule` | drpy rule、CatVod JS 腳本 | configuration | 不行；維持同源每次抓取 |
+| `rule.json` | XBPQ／XYQ 規則 | configuration | 不行；維持 ext 路徑 |
+| `sniffer.rules` | 設定的 `rules` | configuration | 不行；在設定 JSON 內 |
+| `ads.hosts` | 設定的 `ads` | configuration | 不行；在設定 JSON 內 |
+| `source.mapping` | 來源／host 對照資料 | — | 不行；目前沒有原生讀取者 |
+| `data.json`、`text`、`image` | 純資料資源 | — | 不行；目前沒有原生讀取者 |
+
+「不行」的型別是已知的 Dynamic Runtime 內容，manifest 帶了它會被拒絕為「需要較新的 App」（`assetTypeNotSupported`），不是未知型別。`native.*` 命名空間保留給 Native Core，出現就是「需要 IPA」。
+
+## 5. Global vs configuration-owned runtime
+
+| | global | configuration |
+|---|---|---|
+| scope key | `global` | `config:` ＋ `ConfigSource.identity`（原樣，不正規化） |
+| 擁有者 | WebHTV 維護者 | 使用者的設定作者 |
+| 信任 | 內建於 IPA 的 Ed25519 公鑰簽章（第 9 節） | 設定自己的 HTTPS origin（與 drpy、Python 相同的同源規則） |
+| manifest 位置 | WebHTV 的發布位置（HTTPS；位置本身不被信任，簽章才被信任） | 相對設定解析（K9 的規則），必須與設定同源；不讀 `spiderPackURL` |
+| `expires` | 必填 | 選填 |
+| `revokeKeyIds` | 只有 backup key 簽的 manifest 可以帶 | 永遠拒絕 |
+| 儲存 | `Application Support/RuntimePacks/<SHA-256(scope key)>/`（13 實作） | 同左，每個設定一個目錄 |
+| 匯入的設定 | — | 沒有 origin，因此沒有 configuration scope（`RuntimeScope(.importedFile) == nil`） |
+
+WebHTV 的簽章永遠不宣稱涵蓋使用者的內容；使用者的設定也永遠不會成為 WebHTV 的信任根。優先順序（D6，採用）：configuration pack → global pack → 內建 script，與 `rules` 的「設定優先」一致。
+
+## 6. Runtime ABI
+
+### 6.1 面與版本
+
+| 面（`RuntimeABI.Surface`） | 內容 | 版本 | pack 能否要求 |
+|---|---|---|---|
+| `catvod.result` | `SpiderRuntime` 13 個方法中有 production 呼叫的 8 個（`initialize`、`homeContent`、`homeVideoContent`、`categoryContent`、`detailContent`、`searchContent`、`playerContent`、`destroy`，全部經 `SpiderSession`）；App 解碼的 CatVod JSON key（`CMSResponse`、`CMSFilter`、`CMSCategory`、`Vod`、`PlayURL` 三種形狀、`SpiderPlayResponse` 的 `parse`／`url`／`header`）；ext → `init(extend)` 的字串規則 | 1.0 | 可以 |
+| `js.host` | `host.js`（sha256 `6bd11d38…d827789`，0.1 (1) 起未變）及其匯出的 33 個函式；原生 `__http.request`、`__crypto.{b64decode,b64encode,digest,hmac,symmetric,symmetricIV}`、`__store.{get,set,del}`、`__util.{now,urlencode,urldecode}`；`drpy-bridge.js`、`js-spider.js`、`moduleRuntime` | 1.1 | 可以 |
+| `python.host` | CPython 3.13-b15、`base.spider.Spider`、`webhtv_runtime` 的 envelope、5 個 wheel 的版本 | 1.0 | 可以 |
+| `webhome.bridge` | `sdkScript`、21 個方法、Android 形狀 payload | 1.0 | **不行**（WebHome 頁只能內建） |
+
+版本是 Swift 編譯期常數（`RuntimeABI.Surface.version`），不放 `Info.plist` 或資源（R24）。`SpiderPackStore.hostApiVersion` 改為 `RuntimeABI.Surface.jsHost.version.minor`，值仍是 1：schema 1 相容包的 `minHostApi` n 就是 `js.host` {1, n}，不需要對照表。
+
+### 6.2 相容規則
+
+pack 在 `requires.abi` 列出的每個面 s 都要成立：s 是這個 build 認得、而且可要求的面；`major` 相同；`installed.minor >= minMinor`。沒列的面不檢查，但每個檔案的邏輯型別會要求它執行所依賴的面（`spider.js` → `js.host`＋`catvod.result`），沒有宣告就拒絕（`undeclaredSurface`）。ABI 的上限就是 major：新的 minor 永遠向下相容，所以不需要 `maxMinor`。
+
+### 6.3 升版規則
+
+| 變更 | 升版 |
+|---|---|
+| 新增 host primitive、`host.js` 函式、注入的全域、`base.spider` 方法、App 會讀的新輸出欄位、讓 `proxy`／`action`／`liveContent`／`isVideoFormat`／`manualVideoCheck` 有 production 呼叫、新增可啟用的邏輯型別 | 該面 MINOR |
+| 移除或改名；改變語意或預設值（User-Agent、逾時、promise settle 次數、cookie 範圍）；CPython 換 minor（3.13 → 3.14）；wheel 不相容變更 | 該面 MAJOR |
+| fingerprint 改變（含 JS／Python 只改註解） | 一律升版（保守，避免人工判斷「語意沒變」） |
+| 只改 Swift 實作、fingerprint 不變 | 不升 |
+
+### 6.4 用測試綁住版本（fingerprint）
+
+`RuntimeABITests.everySurfaceMatchesTheFingerprintItsVersionWasFrozenWith` 對每個面算出一段文字再取 SHA-256，必須等於「版本 → fingerprint」表中目前版本那一列：
+
+1. `catvod.result`：`SpiderRuntime` 的 13 個 requirement、`SpiderSession` 實際呼叫的 `runtime.` 方法、`CMSClient.swift`／`PlayURL.swift`／`SourceClient.swift` 內每個 `CodingKeys`（也就是 App 讀回的 JSON key）、`PlayResponse` 宣告。
+2. `js.host`：三支 SDK 腳本與 `moduleRuntime` 的 SHA-256；在真的 `JSContext` 裡執行 `CatVodHost.install` 與 `host.js` 後，列出新增的全域與其屬性、`host` 的匯出 key。
+3. `python.host`：三個 `.py` 的 SHA-256、lock 的 CPython release 與每個 wheel 的名稱＝版本。
+4. `webhome.bridge`：`sdkScript` 的 SHA-256 與 `handle` 的方法清單。
+
+已隨 IPA 發布的版本列只能新增、不能改寫。反證：在 `host.js` 結尾加一個換行，`js.host` 的測試失敗；還原後通過（第 17 節）。限制：方法呼叫的掃描是文字比對，繞過 `runtime.` 寫法的間接呼叫會漏掉；`Episode.parse` 的 `$$$`／`#`／`$` 分隔規則沒有進 fingerprint（自 CMS 起未變）。
+
+### 6.5 Native 內部契約（不進 Runtime ABI，只以文件與既有測試凍結）
+
+pack 碰不到下列契約，所以它們隨 IPA 版本走：之後的修正不需要升 Runtime ABI，也不會讓任何 pack 失效。附錄 A 原本要等 IOS-POC-25／26 結束才凍結（12E）；兩者的程式都已隨 `0.1.22 (23)`～`0.1.31 (32)` 發布並通過 Mac 上的 `swift test` 與模擬器驗收，本任務依使用者指示以目前程式凍結，**真機驗收仍待回報**（第 18 節）。
+
+| 契約 | 目前語意（以程式為準） | 位置 | 釘住它的測試 |
+|---|---|---|---|
+| `ConfigSource` 與設定身分 | identity 是 `absoluteString` 原樣或 `imported`；逐來源快取檔名是 base64url；`SiteSelection.choose` 逐來源記憶 | `ConfigSource.swift`、`SavedSource.swift`、`SiteSelection.swift` | `ContractFreezeTests`（新增 golden）、`ConfigSourceTests`、`SavedSourceTests`、`SiteSelectionTests` |
+| 站台身分 | `key`＋NUL＋排序後的 ext JSON | `Site.id` | `ContractFreezeTests`、`SiteSelectionTests` |
+| 來源切換 A → B → A | 每次 adopt 重建站台、廣告與規則、重設 spider session；各來源的快取、站台記憶、觀看紀錄互不影響 | `WebHTVApp.swift` `ConfigView.adopt(_:config:from:)` | `SnifferRulesTests` `switchingConfigurationAThenBThenARestoresEachOnesOwnRules`、`AdBlockListTests`、`WatchHistoryTests`；runtime scope 見第 11 節 |
+| `SourceClient`／`PlaybackTarget` | `PlayURL` 是唯一解碼器；`target(from:headers:parse:)` 是唯一產生 `PlaybackTarget` 的地方，只有預設項目經 probe／sniff；`header` 原樣帶給兩個核心；畫質是 `PlaybackQualityChoice` | `SourceClient.swift`、`PlayURL.swift` | `SourceClientTests`、`PlayURLTests` |
+| `PlaybackSession` | 讀 `currentTime`／`duration`；`play`／`pause`／`seek`／`setRate` 都經 `PlayerRouter`；新片以設定頁速度開始、同片沿用（IOS-POC-29、14B） | `WebHTVApp.swift` `PlaybackSession` | App target 沒有單元測試；core 部分由 `PlaybackEngineTests`、`PlaybackSpeedPreferenceTests` |
+| 引擎選擇 | 全域預設（`webhtv.playback.defaultEngine`，沒有存就是原生）；session override 只到關閉播放器；下一集沿用本 session 的引擎；目前引擎由 `PlayerRouter` 決定 | `PlaybackEngineSelection` | `PlaybackEngineTests` 的選擇類 |
+| fallback 分類 | `engineCapability`、`network`、`unclassified` 可以切；`offline`、`source` 不切；HTTP 狀態先看；開播逾時原生 5 秒、MPV 20 秒，視為 `engineCapability` | `PlaybackFailure.classify`、`PlayerRouter.startupTimeout(for:)` | `formatCodecAndDecoderFailuresAreEngineCapabilityFailures`、`networkAndUnknownFailuresNowTryTheOtherEngine`、`offlineAndSourceFailuresNeverSwitchEngines`、`PlaybackActivityTests` |
+| 每次嘗試最多一次 fallback | `fallbackSpent`；不會切回來；下一集有自己的一次；reload 不花也不補 | `PlaybackEngineSelection.fallback(after:)` | `theFallbackEngineFailingDoesNotBounceBack`、`theNextEpisodeGetsItsOwnFallback`、`aReloadNeitherSpendsNorRenewsTheFallback`、`aStartThatNeverComesTriesTheOtherEngineOnce` |
+| 切換時保存的狀態 | 同一個 request（target、history、畫質）；引擎回報過的位置以 `exactStart` 精確落點；速度；播放意圖（`rate != 0`，27A）；2.5×／3× 交給 MPV | `PlayerRouter.select`、`handOff`、`reload(at:autoplay:)` | `switchingAVPlayerToMPVKeepsTheTargetPositionRateAndIdentity`、`onlyAPositionAnEngineReportedIsLandedOnExactly`、`aPausedPlayerIsStillPausedOnTheOtherEngine`、`aSpeedAVPlayerCannotPlayMovesToMPVWithEverythingKept` |
+| WatchHistory／續播／片頭片尾／自動下一集 | 主鍵 `Site.id@@@vodId`；續播與片頭取大者；片尾觸發 `finished()`；清除只影響目前來源（IOS-POC-30） | `WatchHistory.swift` | `WatchHistoryTests`、`ContractFreezeTests` |
+| IOS-POC-25 共用 HLS 時間軸 | 每個播放項目一份 `HLSAdPlan`，兩個核心共用；位置都是播放清單時間（26-2b 之後 MPV 在有 discontinuity 的清單上也對齊）；換核心清掉已跳過的區間但保留計畫、重新比對 duration；MPV 在有 discontinuity 的清單上進入區間 0.25 秒後才跳；時間軸跳動就停止跳過（25-5）；片尾優先；任何不確定一律不跳 | `HLSAdSkip.swift`、`HLSAdTimeline.swift` | `HLSAdSkipTests`、`HLSAdTimelineTests`、`HLSAdsParserTests` |
+| WebHome bridge | `fongmiBridge`、21 個方法、Android 形狀 payload；`app.search` 走聚合搜尋（IOS-POC-33 雙寫法）；`app.history` 只回目前來源（IOS-POC-30）；`player.control`／`player.status` 對照 Android `Media.java` | `WebHomeBridge.swift`、`WebHTVApp.swift` | `WebHomeBridgeTests`；fingerprint 見 6.4 |
+| 相容包 | 驗過的 pack → 內建 → 不支援；schema 1、`minHostApi`、每檔 SHA-256、整包拒絕、讀取時重驗 | `SpiderPack.swift`、`SpiderRegistry.active` | `SpiderPackTests`（12 個，未改） |
+
+`docs/IOS-POC-17-dual-internal-player.md` 第十節的契約表是 17B 當時的規則，已加註改以本節為準（G19）。
+
+## 7. Native capability model
+
+`RuntimeABI.capabilities` 是這個 build 提供、pack 可以指名要求的 46 個原生 primitive：
+
+- `catvod.result.<method>`：8 個有 production 呼叫的 spider 方法。
+- `js.host.<export>`：`host.js` 匯出的 33 個函式（`req`、`get`、`post`、`aesDecryptIV`、`pdfh` 等）。
+- `python.host.<package>`：5 個 vendored wheel。
+
+pack 在 `requires.capabilities` 列出不在集合內的名稱（例如 `js.host.rsaDecrypt`、`catvod.result.proxy`）就整包拒絕，原因是「需要較新的 App」，而不是執行到一半才失敗。集合不是手寫猜的：三個測試分別從 `host` 的實際匯出、`SpiderSession` 的實際呼叫、lock 的 wheel 推導，不一致就失敗；另一個測試確認 production 程式（除了 DEBUG 的 `PythonBoot` 自我測試）沒有呼叫那 5 個不支援的方法。附錄 A 的 `critical`（必須理解的 manifest 功能）併入同一個清單，不另設機制。
+
+## 8. Manifest schema
+
+### 8.1 欄位（`RuntimePackManifest`，schema 1）
+
+| 欄位 | 型別 | 必填 | 語意與驗證 |
+|---|---|---|---|
+| `format` | String | 是 | 固定 `webhtv.runtime-pack`；不符 → `unsupportedFormat` |
+| `schema` | Int | 是 | manifest 格式 major，v1＝1；其他 → `unsupportedSchema`（先於其他欄位檢查） |
+| `packId` | String | 是 | `[a-z0-9][a-z0-9.-]{0,63}`；一個 scope 一個 pack |
+| `scope` | `{kind, configIdentity?}` | 是 | `kind` 是 `global` 或 `config`，必須等於 App 推導的 scope；`configIdentity` 選填，出現時必須與 App 的設定身分完全相同 |
+| `sequence` | UInt64 | 是 | ≥ 1；每個 scope 嚴格遞增；已發布的 sequence 內容不可變；這是唯一會被比較的版本 |
+| `version` | String | 是 | 顯示用，1～64 字元，不比較 |
+| `requires.abi` | `{面: {major, minMinor}}` | 是 | 第 6.2 節 |
+| `requires.capabilities` | [String] | 否 | 第 7 節 |
+| `requires.minAppVersion` | String | 否 | 最多三段數字（`0.1.32`），數值比較 `CFBundleShortVersionString` |
+| `requires.minAppBuild`／`maxAppBuild` | Int | 否 | 比較 `CFBundleVersion`；max 不得小於 min |
+| `expires` | String（RFC 3339） | global 必填 | 過期不採用這份 manifest；不停用已啟用的世代 |
+| `directive` | String | 否 | v1 只有 `rollbackToBundled`：`files` 必須為空，scope 回到內建 |
+| `revokeKeyIds` | [String] | 否 | 16 個小寫十六進位字元；只有 global 且 backup key 簽的 manifest 能帶 |
+| `files[].path` | String | 是 | 世代內的相對路徑（第 10 節） |
+| `files[].logicalType` | String | 是 | 第 4 節 |
+| `files[].class`、`aliases` | String、[String] | `spider.js` 必填 class | `[A-Za-z0-9_]{1,64}`，不得是 `host`、`drpy-bridge`、`js-spider` |
+| `files[].bytes` | Int | 是 | 1 ～ 512 KiB |
+| `files[].sha256` | String | 是 | 64 個小寫十六進位字元 |
+| `notes` | String | 否 | 更新說明，不可信的純文字，4 KiB 以內 |
+
+未知的選填欄位忽略（讓 schema 1 能向後相容地加欄位）；語意上必須被理解的新功能一律走 `requires`，所以不會被舊 build 誤用。
+
+### 8.2 範例
+
+```json
+{
+  "format": "webhtv.runtime-pack",
+  "schema": 1,
+  "packId": "webhtv.spiders",
+  "scope": { "kind": "global" },
+  "sequence": 3,
+  "version": "2026.10.01-1",
+  "requires": {
+    "abi": { "js.host": { "major": 1, "minMinor": 1 }, "catvod.result": { "major": 1, "minMinor": 0 } },
+    "capabilities": ["js.host.aesDecryptIV"],
+    "minAppVersion": "0.1.32",
+    "minAppBuild": 33
+  },
+  "expires": "2026-11-01T00:00:00Z",
+  "files": [
+    { "path": "spiders/JianPian.js", "logicalType": "spider.js", "class": "JianPian",
+      "aliases": ["JPianAmns"], "bytes": 11649, "sha256": "<64 hex>" }
+  ],
+  "notes": "修正薦片的站台位址"
+}
+```
+
+global 另有 `manifest.json.sig`：`{"keyId": "<16 hex>", "alg": "ed25519", "sig": "<base64>"}`。檔案本體放在 manifest 旁的 `blobs/sha256/<sha256>`（內容定址），manifest 不得寫任何絕對 URL。
+
+### 8.3 由 App 擁有、刻意不放進 manifest 的項目
+
+| 項目 | 在哪裡 | 為什麼不讓 manifest 決定 |
+|---|---|---|
+| origin／authenticity policy／trust root | `RuntimeScope`（依 scope 決定）、`RuntimeTrustRoot.bundled` | manifest 自己宣告信任方式就是降級攻擊的入口 |
+| 單檔與總量上限 | `RuntimePackLimits` | manifest 只能宣告更小的值 |
+| generation id | `RuntimeGeneration.id` ＝ `gen-<sequence>-<content identity 前 16 字元>` | 由內容推導，不能被指定 |
+| deterministic identity | `RuntimePackManifest.contentIdentity`（正規化後的 JSON，key 排序、檔案依路徑排序）；`manifestSHA256`（原始位元組，簽章涵蓋的對象） | 同內容 → 同 identity，不論格式、key 順序、檔案順序 |
+| activation metadata | `RuntimeScopeState`（`active`、`latest`） | pack 不能決定何時啟用；播放中不啟用、啟用只經 session 重設是 App 的規則 |
+| rollback／LKG metadata | `RuntimeScopeState`（`lastKnownGood`、`bad`、`floor`） | 見第 12 節 |
+| retention | active＋1 個 LKG；staging 另外清理 | App 的磁碟政策 |
+| required native capabilities | manifest 的 `requires.capabilities`，但集合由 App 定義 | — |
+
+## 9. Authenticity / trust model
+
+1. **hash 不是 authenticity**。manifest 內的 SHA-256 只證明下載的檔案符合那份 manifest；若 manifest 本身來自不可信來源，它什麼都不能證明。
+2. global：manifest 的**原始位元組**要有 Ed25519 分離簽章（CryptoKit `Curve25519.Signing`），簽章者必須是編進 IPA 的公鑰（`RuntimeTrustRoot`），而且沒被撤銷。**先驗簽、再解析**。`keyId` ＝ 公鑰原始 32 bytes 的 SHA-256 前 16 個十六進位字元。兩種角色：`active`（簽發布）與 `backup`（離線，只用於撤銷與重設序號下限）。
+3. **目前的信任根是空的**：`RuntimeTrustRoot.bundled` 沒有任何公鑰，因為私鑰要由誰、在哪裡保管（D3）是維護者的決定。結果是所有 global pack 都被拒絕（`unknownKey`）——這是 fail closed 的起始狀態；加入公鑰是一次 IPA 變更。
+4. configuration：信任就是設定自己的 HTTPS origin。manifest 必須與設定同源（`DrpyEngine.checked` 的同一條規則，不另立第三種）；任何簽章都忽略；不能撤銷 key、不能自稱 global。
+5. 信任判斷永遠不依賴 bundle id、team id、SideStore 簽章身分或下載主機。公鑰本身的真實性等同 IPA 發布通道。
+6. 已知限制：Python spider 在同一個 process 以完整 CPython 執行，可以改寫容器內的檔案（G7）。所以 global 的防回滾與撤銷只在沒有惡意程式碼於 App 內執行時成立；config scope 的隔離只防意外外洩，不防惡意 Python spider。
+
+## 10. Size / path / type validation
+
+| 規則 | 值 | 不符的結果 |
+|---|---|---|
+| manifest 大小 | 64 KiB | `manifestTooLarge` |
+| 簽章 sidecar 大小 | 1 KiB | `signatureMalformed` |
+| 單檔 | 1 byte ～ 512 KiB（＝ `DrpyEngine.maximumFileBytes`） | `fileTooLarge`／`malformed` |
+| 總量 | 2 MiB（＝ `DrpyEngine.maximumBundleBytes`） | `packTooLarge` |
+| 檔案數 | 64 | `tooManyFiles` |
+| 路徑 | 128 bytes 以內，只允許 `[A-Za-z0-9._/-]`；不得有空段、`.`、`..`、開頭 `/`、結尾 `/`、scheme | `invalidPath` |
+| 重複 | 不分大小寫比較（iOS 的 APFS 預設不分） | `duplicatePath` |
+| 原生檔案 | 任一段的副檔名是 `a`、`app`、`appex`、`bundle`、`dex`、`dylib`、`entitlements`、`framework`、`jar`、`metallib`、`mobileprovision`、`o`、`plist`、`so`、`swift`、`swiftmodule`、`xcframework`；或邏輯型別在 `native.*` | `nativeReleaseRequired` |
+| 型別 | 必須是 `RuntimeAssetType` 之一；`spider.js` 的路徑必須是 `.js` | `unknownAssetType`／`invalidPath` |
+| digest | 64 個小寫十六進位字元 | `invalidDigest` |
+| notes | 4 KiB | `notesTooLong` |
+
+## 11. Isolation
+
+1. scope 由 App 推導，manifest 只能確認：configuration scope 的 key 是 `config:` 加上 `ConfigSource.identity` 的原樣字串，與觀看紀錄、站台記憶用的是同一個身分。
+2. 來源 A 的內容不會進到 B：
+   - B 的 manifest 必須與 B 同源；從 A 的主機抓的 manifest 對 B 是 `crossOrigin`。
+   - 就算 A、B 在同一個主機，A 釘了 `configIdentity` 的 manifest 對 B 是 `scopeMismatch`。
+   - 為 B 驗證過的 candidate 進不了 A 的狀態（`RuntimeScopeState.admission` 比對 scope key）。
+3. A → B → A：每個 scope 有自己的 `RuntimeScopeState`（以 scope key 為 key、以 `SHA-256(scope key)` 為目錄名），切回 A 時選的就是 A 自己的 active 世代。`switchingConfigurationsAToBToAComesBackToAsOwnGeneration` 以純值驗證。
+4. global 與 configuration 是兩個信任域，不是兩個資料夾：不同的 key、不同的信任根、不同的必填欄位。
+5. 目前程式的既有缺口 G1（schema 1 相容包的全域目錄與 `InstalledSpiderPack`）**沒有修**：修它會改變 production 行為（切換設定時丟掉 pack），是 IOS-POC-13 以 scope 取代舊路徑時的明確步驟（第 20 節）。
+
+## 12. Compatibility rules
+
+1. 版本相容：第 6.2 節。App 版本／build：`minAppVersion`、`minAppBuild`、`maxAppBuild`。
+2. 降版安裝：SideStore 可以保留容器裝回舊 IPA，所以 `RuntimePackValidator.checkCompatibility` 是獨立函式，IOS-POC-13 在每次啟動都要對已存的世代重跑；不相容的世代不選用、不刪除。
+3. schema 1 相容包：12 期間完全不變（D5）。概念上等於 configuration scope、`js.host` {1, `minHostApi`}＋`catvod.result` {1, 0}，只在 `js.host.major == 1` 時成立；`js.host` 升到 2.0 時，`hostApiVersion` 停在最後一個 1.x minor，schema 1 整包拒絕（那一次升 major 的任務要另外核准）。
+4. 優先順序：configuration → global → 內建（D6）。舊相容包遷到 configuration scope、逐 class 載入失敗時回退內建（D9）是 13 的步驟。
+5. 狀態轉移（`RuntimeScopeState`，純值）：
+   - `sequence` 大於 floor → 可接受；等於 floor 且內容相同 → 不動作（`unchanged`）；等於但內容不同 → `sequenceReused`；小於 → `rollback`。
+   - 啟用：前一個 active 變成 LKG；每個 scope 只保留 active＋1 個 LKG；`bad` 只保留 sequence 不小於 LKG 的項目。
+   - 標壞（只因確定性失敗：hash、schema、ABI、JS 編譯或載入 smoke；不因 App 被殺或進背景）：active 退回 LKG，壞世代永不自動重試，floor 不降。
+   - `rollbackToBundled`：active 與 LKG 清空，回到內建；它本身也受 sequence 約束。
+   - 快轉攻擊復原（D17，採用）：backup key 簽、而且新撤銷了至少一個尚未撤銷的 key 時，才可以把 floor 設成這份 manifest 自己的 sequence（即使比較小），同時丟掉 LKG；重播同一份 manifest 不會再重設一次。
+
+## 13. Fail-closed rules
+
+下列任何一項成立，candidate 都不會被當成可用；active、LKG 與內建都不變。
+
+| 情況 | 拒絕原因（`RuntimePackRejection`） | 顯示為「需要較新的 App」 |
+|---|---|---|
+| schema 不支援、格式不同、未知 directive | `unsupportedSchema`、`unsupportedFormat`、`unsupportedDirective` | 是 |
+| ABI 不相容 | `abiTooNew`；`abiMajorMismatch`（要求的 major 較大時是） | 是／視情況 |
+| 未知或不可要求的面 | `unknownSurface`、`surfaceNotRequirable` | 前者是 |
+| 需要較新的 native primitive | `missingCapabilities` | 是 |
+| App 版本或 build 不在範圍 | `appVersionTooOld`、`appBuildTooOld`、`appBuildTooNew` | 前兩者是 |
+| file missing（世代不完整） | `fileMissing`、`unexpectedFile` | 否 |
+| 單檔或總量超限、檔案太多、manifest 太大 | `fileTooLarge`、`packTooLarge`、`tooManyFiles`、`manifestTooLarge` | 否 |
+| digest 不符或形狀不對 | `digestMismatch`、`sizeMismatch`、`invalidDigest` | 否 |
+| authenticity 失敗 | `signatureRequired`、`signatureMalformed`、`unknownKey`、`revokedKey`、`badSignature`、`revocationNotPermitted` | 否 |
+| 邏輯型別不允許 | `unknownAssetType`、`assetTypeNotSupported`、`nativeReleaseRequired` | 前兩者是 |
+| path traversal、非法路徑、重複 | `invalidPath`、`duplicatePath` | 否 |
+| malformed、不完整 | `malformed`、`missingField`、`undeclaredSurface`、`invalidVersion`、`invalidPackId`、`invalidClass`、`emptyPack` | 否 |
+| origin | `insecureOrigin`、`crossOrigin`、`scopeMismatch` | 否 |
+| 新鮮度與歷史 | `expired`、`rollback`、`sequenceReused`、`knownBad`、`packIdMismatch` | 否 |
+
+「需要較新的 App」與「沒有更新」是不同的可見狀態（R24），由 `RuntimePackRejection.requiresNewerApp` 區分；使用者看到的文字在 IOS-POC-13 決定。
+
+**No native-code escape**：Dynamic Runtime 不能下載 Swift 可執行碼、替換原生框架、Libmpv、FFmpeg、CPython XCFramework，不能增加 entitlement、`Info.plist` 能力或 App 原本沒有的 native UI／navigation。具體保證：邏輯型別只有第 4 節的直譯內容與資料；`native.*` 與原生副檔名一律 `nativeReleaseRequired`；`host.js` 與兩個 bridge 不能被取代；可用的 primitive 只有第 7 節的集合。另外 iOS 以硬體強制 W^X，一般 sideload App 沒有 JIT entitlement，本來就無法執行下載的機器碼（附錄 A R16）。
+
+## 14. 實際程式重構
+
+| 檔案 | 變更 |
+|---|---|
+| `ios/Sources/WebHTVCore/RuntimeABI.swift`（新） | 四個面與版本、`isRequirable`、46 個 capability、`nativeScripts` |
+| `ios/Sources/WebHTVCore/RuntimePackManifest.swift`（新） | `RuntimeScope`、`RuntimePackLimits`、`RuntimeAssetType`、`RuntimePackManifest`（解碼與欄位檢查、content identity）、`RuntimePackRejection`、`RuntimeHost`、`RuntimeTrustRoot`（空的內建集合）、`RuntimePackSignature`、`RuntimePackValidator`（`validate`、`checkCompatibility`、`verifyGeneration`）、`RuntimeGeneration`、`RuntimeScopeState`（admission、activating、markingBad） |
+| `ios/Sources/WebHTVCore/Spider/SpiderPack.swift` | `hostApiVersion` 改為 `RuntimeABI.Surface.jsHost.version.minor`，值仍是 1 |
+| `scripts/spider_pack.py` | `NOT_PACKABLE` 補上 `drpy-bridge.js`、`js-spider.js`；`build` 從 10 個 entry 變回應有的 8 個（只影響發布工具，App 不變） |
+| `ios/Tests/WebHTVCoreTests/RuntimeABITests.swift`（新） | fingerprint、capability 推導、schema 1 與 publisher 一致性，6 個測試 |
+| `ios/Tests/WebHTVCoreTests/RuntimePackManifestTests.swift`（新） | manifest、信任、隔離、世代與狀態，30 個測試 |
+| `ios/Tests/WebHTVCoreTests/ContractFreezeTests.swift`（新） | 設定身分、快取檔名、站台身分、觀看紀錄主鍵的 golden，4 個測試 |
+
+新增的 production 型別**沒有任何呼叫者**：App 的行為一行都沒變。沒有新網路呼叫、檔案寫入或 UI。沒有重寫 `SourceClient`、`PlaybackSession` 或 spider 架構。
+
+與 2026-09-25 規劃的差異（都在這次授權內決定）：
+
+1. 規劃要求「production 只放常數、判斷函式留到 13」。使用者 2026-09-29 要求把 manifest model、驗證與相容判斷做成純邏輯並測試，所以放進 WebHTVCore；它們沒有呼叫者，不改變行為。
+2. `critical` 併入 `requires.capabilities`；刪除 `files[].optional`（任何不能用的檔案都拒絕整包，比較簡單也比較安全）。
+3. 新增 `scope.configIdentity`（選填釘選）、`requires.minAppVersion`（使用者要求）；`expires` 只有 global 必填；`sequence` 必須 ≥ 1。
+4. generation id 改用 content identity 前 16 字元（原規劃是 manifest SHA-256 前 8 字元），讓「同內容同 id」與格式無關。
+5. fingerprint 的「宣告切片雜湊」改成「App 讀的 JSON key（`CodingKeys`）＋ `SpiderSession` 呼叫掃描」，對純實作修改不敏感、失敗時一眼看得出新增了哪個 key。
+6. 12B（手動觸發的測試 workflow）不做：在 Mac 上直接執行 `swift test`（使用者 2026-09-29 的「執行並修測試」），D2、D15 因此不再需要。
+7. 12E 的播放契約凍結以使用者指示解除等待，理由與限制見第 6.5 節。
+8. 原 12F 的 `NOT_PACKABLE` 修正只影響發布工具，這次一併完成；其餘相容包強化（G3、G4、G6）仍會改變 App 行為，留給 13。
+
+## 15. Android / iOS / runtime relationship
+
+1. Android `main` 只當行為與架構的參考；本任務沒有讀取或合併任何 Android production code 進 `ios-poc`，也沒有 merge `main`。
+2. 對齊 Android 的部分都在 Native Core：CatVod Spider ABI（`Spider.java` 一對一）、`UrlAdapter` 的三種 url 形狀、`History` 主鍵與續播公式、`HomeWebBridge` 的方法與 payload、`HlsAdsParser`／`resolveAdTimeline` 的移植。
+3. Android 可以直接執行 JAR／DEX 並以 `DexClassLoader` 熱更新；iOS 不能。iOS 的對應做法是「以 JavaScript 重寫 spider、在已出貨的 JavaScriptCore 上執行」，所以 runtime pack 只含直譯碼與資料。
+4. 設定格式（`wang-movie.json`）是兩邊共用的 configuration-owned 內容；iOS 只讀 `sites`、`ads`、`rules`。
+5. Runtime pack 是 iOS 專有的機制，Android 沒有對應物；它不改變 Android 設定的格式，也不要求設定作者做任何事。
+
+## 16. Regression assessment
+
+**final diff 沒有任何刻意的使用者可見行為變更。**
+
+| 項目 | 評估 |
+|---|---|
+| 首頁、分類、搜尋、雙寫法搜尋、詳情、繁轉台灣繁體、AVPlayer、MPV、fallback、換核心、智慧去廣、PiP、旋轉、音訊工作階段、內嵌音軌／字幕、播放速度、觀看紀錄、續播、片頭片尾、自動下一集、切換設定、WebHome bridge | 這些程式都沒有被修改；新增的型別沒有呼叫者 |
+| 相容包 | `hostApiVersion` 的值仍是 1，只是來自常數；`SpiderPackTests` 12 個不改、全部通過 |
+| 設定與 spider 路由 | 沒有修改；`SpiderHostTests`、`PythonRoutingTests`、`DrpyEngineTests`、`SourceClientTests` 全部通過 |
+| 播放契約 | 沒有修改；`PlaybackEngineTests`、`PlaybackActivityTests`、`HLSAdSkipTests` 等全部通過 |
+| 發布工具 | `scripts/spider_pack.py build` 不再把兩個 bridge 當成 spider 打包（修正，不影響 App） |
+| 效能與包大小 | 啟動與播放路徑沒有新增任何工作；IPA 只多兩個小型 Swift 檔的編譯碼 |
+
+## 17. Test matrix
+
+驗證環境：這台 Mac、Xcode 27.0（`27A266a`）、Swift 6.4。
+
+| 驗證 | 結果 |
+|---|---|
+| `swift test`（`ios/`）改動前基準 | 537 個全部通過 |
+| `swift test` 改動後 | **577 個全部通過**（新增 40 個） |
+| `xcodebuild … -scheme WebHTVApp -destination 'platform=iOS Simulator,id=E0A41D48-…' -configuration Debug build` | **BUILD SUCCEEDED**；`project.pbxproj` 沒有被 Xcode 改動 |
+| 反證：`host.js` 結尾多一個換行 | `js.host` fingerprint 測試失敗；還原後雜湊回到 `6bd11d38…` |
+| `python3 scripts/spider_pack.py build --scripts ios/Sources/WebHTVCore/Resources/Spiders …` | 8 個 script（不含兩個 bridge） |
+
+使用者要求的測試 → 測試函式：
+
+| 要求 | 測試 |
+|---|---|
+| ABI exact match | `aPackBuiltAgainstExactlyThisABIIsAccepted` |
+| ABI too new | `aNewerMinorOrAnotherMajorIsRefusedAsNeedingANewerApp` |
+| App version too old | `anAppOlderOrNewerThanThePackAllowsIsRefused` |
+| required capability missing | `aMissingNativeCapabilityRefusesThePackBeforeAnyFileIsFetched` |
+| global runtime identity | `theScopeIsDerivedFromTheConfigurationAndNeverNormalised`、`aGlobalPackIsAuthenticOnlyWithACompiledInKey` |
+| config-owned runtime identity | `theScopeIsDerivedFromTheConfigurationAndNeverNormalised`、`theConfigurationIdentityIsTheAddressAsWritten` |
+| A → B → A isolation | `switchingConfigurationsAToBToAComesBackToAsOwnGeneration` |
+| manifest duplicate path | `twoSpellingsOfOnePathAreOneFile` |
+| path traversal | `aPathIsARelativeNameInsideTheGenerationAndNothingElse` |
+| invalid logical type | `anUnknownLogicalTypeIsRefused`、`aKnownDynamicTypeWithoutAConsumerInThisBuildNeedsANewerApp` |
+| missing digest、bad digest shape | `aDigestIsSixtyFourLowercaseHexCharactersAndIsRequired` |
+| oversized file、oversized total pack | `theSizeCeilingsAreTheApps` |
+| duplicate generation | `theSameGenerationTwiceIsNothingAndAReusedSequenceIsRefused` |
+| malformed version | `aMalformedVersionIsRefused` |
+| incomplete manifest | `anIncompleteOrMalformedManifestIsRefused`、`aFileThatNeedsASurfaceTheManifestDidNotDeclareIsIncomplete`、`aGenerationIsCompleteOnlyWithExactlyTheManifestsFiles` |
+| unsupported schema | `anUnsupportedFormatOrSchemaIsRefusedBeforeAnythingElseIsRead` |
+| pack requiring native executable change | `nativeCodeOrConfigurationCanOnlyArriveInAnIPA`、`aSpiderCannotClaimToBeTheSDKOrAnUnsafeName` |
+| deterministic identity；same content → same identity；different content → different identity | `theSameContentHasTheSameIdentityHoweverItIsWritten` |
+| rollback、LKG、壞世代、撤回、快轉攻擊復原 | `anOlderSequenceIsARollbackAndIsRefused`、`theActiveGenerationBecomesTheLastKnownGoodAndABadOneIsNeverRetried`、`withdrawingAPackGoesBackToTheBundledScripts`、`theBackupKeyResetsTheFloorOncePerRevocationAndNeverOnReplay` |
+| 真實性與新鮮度 | `aGlobalPackIsAuthenticOnlyWithACompiledInKey`、`aGlobalPackMustBeFreshAndSayWhenItStopsBeing`、`aConfigurationPackMustComeFromTheConfigurationsOwnHTTPSOrigin`、`aConfigurationPackCanNeverRevokeKeysOrClaimGlobalScope` |
+| ABI 版本綁定 | `everySurfaceMatchesTheFingerprintItsVersionWasFrozenWith`（4 個面）、`theJavaScriptHostOffersExactlyTheCapabilitiesThisBuildDeclares`、`theCatVodCapabilitiesAreExactlyTheMethodsTheAppCalls`、`thePythonCapabilitiesAreExactlyTheVendoredWheels`、`everyCapabilityBelongsToASurfaceAPackCanRequire` |
+| old compatibility pack behaviour 不變 | `theCompatibilityPackGateIsTheJavaScriptHostMinor`＋既有 `SpiderPackTests`（未改、通過） |
+| current config／spider routing behaviour 不變 | 既有 `ConfigLoaderTests`、`ConfigSourceTests`、`SpiderHostTests`、`PythonRoutingTests`、`DrpyEngineTests`、`SourceClientTests`（未改、通過）＋`ContractFreezeTests` |
+| current playback contract 不變 | 既有 `PlaybackEngineTests`、`PlaybackActivityTests`、`HLSAdSkipTests`、`HLSAdTimelineTests`、`WatchHistoryTests`（未改、通過） |
+
+## 18. 未驗證項目
+
+1. **真機**：本任務沒有在 iPhone 上執行（依規定不直接安裝到使用者的 iPhone，也沒有授權發布）。因為 App 行為沒有改變，真機只會重看既有功能。
+2. **模擬器執行**：只做了 Debug build，沒有啟動 App 手動操作。理由：沒有任何 App 或執行期路徑被修改；唯一碰到的 production 值（`hostApiVersion`）已由單元測試確認仍是 1。
+3. **Release／device build**：沒有執行（發版 workflow 未授權）。新檔只用 Foundation 與 CryptoKit，兩者在 App target 已使用。
+4. 第 6.5 節凍結的播放契約，其 IOS-POC-25～35 的真機驗收仍待使用者回報（`docs/current-task-state.md` 的清單）；它們屬 Native 內部，不影響 Runtime ABI。
+5. Ed25519 簽章只以測試內產生的 key 驗證；尚未有真正的 WebHTV key（D3）。
+6. 狀態轉移（`RuntimeScopeState`）只以純值驗證；寫檔、原子切換、開機重驗是 IOS-POC-13。
+
+## 19. Rollback
+
+- 整個任務：`git revert <本任務 commit>`。新檔會被刪除、`hostApiVersion` 回到字面值 1、`NOT_PACKABLE` 回到只有 `host.js`；App 行為在 revert 前後都相同。
+- 不需要資料遷移：沒有任何持久資料被寫入或改名。
+- 若只想保留文件：revert 後重新加入本文件即可，文件不被任何程式讀取。
+
+## 20. IOS-POC-13 entry conditions
+
+| 條件 | 狀態 |
+|---|---|
+| Native／Dynamic ownership 沒有 ambiguity | 成立（第 2 節，四個固定標籤、每項一個） |
+| Runtime ABI 已版本化 | 成立（第 6 節，常數＋fingerprint 測試） |
+| native capability requirement 已定義 | 成立（第 7 節） |
+| manifest schema 已固定 | 成立（第 8 節，schema 1） |
+| authenticity／trust root 已固定 | 成立：政策、演算法、`keyId`、角色、位置都已固定並有測試；**key 本身尚未產生**，所以目前任何 global pack 都會被拒絕 |
+| global／configuration scope 已固定 | 成立（第 5、11 節） |
+| size／path／digest validation 已固定 | 成立（第 10 節） |
+| rollback／LKG semantics 已固定 | 成立（第 12 節，純值實作與測試） |
+| compatibility pack relationship 已整理 | 成立（第 2.5、12 節） |
+| current functionality 沒有 intentional regression | 成立（第 16、17 節；真機未驗證，但行為沒有改變） |
+
+**結論：IOS-POC-13 的 entry conditions 已具備。** 本次沒有開始 IOS-POC-13。13 開始前或開始時要先由使用者決定或完成的事（屬 13 自己的前置，不是 12 的缺口）：
+
+1. D13：要不要經營 global 發布通道。要的話先決定 D3（active 私鑰放 GitHub Actions secret、backup 離線保存，或其他），產生 key，在一個 IPA 裡把公鑰加入 `RuntimeTrustRoot.bundled`，並決定 `expires` 長度（建議 30 天）。只做 configuration scope 則不需要 key。
+2. D4／G1～G6、G24：相容包強化與遷移（scope 化儲存、`className` 檔名檢查、串流大小上限、讀取時重套閘、同源要求），會改變行為，要隨 13 的第一個版本發布。
+3. D9 逐 class 回退內建、D10 JS watchdog 與 `host.req` body 上限：開放遠端 JS 之前要有。
+4. D7：`PlayerRouter.open` 或 `SourceClient.target` 的 http／https 白名單。
+5. D12：若 13 要依賴 `minAppBuild`，`scripts/update_sidestore_source.py` 先檢查 build 嚴格遞增。
+6. D14：`state.json` 只存檔案或另存 Keychain。
+7. 13 本身的 UI 文字（「需要較新的 App」與「沒有更新」要分開顯示）。
+
+附錄 A 的 D1～D17 現況：D1、D2、D15 已由使用者 2026-09-29 的指示解決；D5、D6、D16、D17 依建議採用並寫入本文件；D8 的 `app.history` 部分已由 IOS-POC-30 對齊 Android（`prev`／`next` 仍不同）；D3、D4、D7、D9～D14 移交 IOS-POC-13。
+
+## 21. Recovery anchor
+
+- 目標：IOS-POC-12 — 把 Native Core 與 Dynamic Runtime 的邊界、Runtime ABI、capability、manifest、信任、驗證、隔離與回滾語意固定成可測試的契約，不改變使用者可見行為。
+- 狀態：**完成**（2026-09-29），已 commit 並 push 到 `origin/ios-poc`（commit 見 `git log -- docs/IOS-POC-12-runtime-architecture-reconciliation.md`）。沒有發布、沒有 tag、沒有 bump 版本。
+- 檔案與符號：`RuntimeABI.swift`（`RuntimeABI.Surface`、`capabilities`、`nativeScripts`）；`RuntimePackManifest.swift`（`RuntimeScope`、`RuntimePackManifest.decode`、`contentIdentity`、`RuntimePackValidator.validate`／`checkCompatibility`／`verifyGeneration`、`RuntimeTrustRoot.bundled`、`RuntimeScopeState`）；`SpiderPack.swift` `SpiderPackStore.hostApiVersion`；`scripts/spider_pack.py` `NOT_PACKABLE`；三個新測試檔。
+- 驗證：`swift test` 577／577；模擬器 Debug build 成功；fingerprint 反證通過。真機、Release build 未執行（第 18 節）。
+- 未解風險：第 9 節第 6 點（Python 可改寫容器）；global key 尚未存在；G1 仍在 schema 1 路徑。
+- 改動 ABI 時：先改實作，跑 `swift test`，依 fingerprint 失敗訊息判斷 MINOR／MAJOR，升 `RuntimeABI.Surface.version` 並在 `RuntimeABITests.frozen` 新增一列（已發布的列不可改）。
+- 下一步（唯一）：等使用者決定是否開始 IOS-POC-13，以及第 20 節的 D13／D3。沒有指示前不開始 13。
+
+---
+
+# 附錄 A — 2026-09-25 規劃原文（歷史紀錄）
+
+以下是 2026-09-25 以 `a6652cc3` 為基準的規劃，保留原文。它的狀態、授權與「下一步」已被上方第 1～21 節取代；盤點列（K、A、M、G）、研究來源（R1～R25）與決策題（D1～D17）仍可引用，現況以第 2、20 節的更正為準。
 
 - 狀態：**規劃完成，未實作**（2026-09-25）。本文件只定義契約、資產分類、版本政策、manifest 草案與分階段計畫；沒有修改任何程式、測試、workflow、lock 或 artifact。
 - Lane：規劃（只讀盤點）。Ponytail：unavailable / skipped。

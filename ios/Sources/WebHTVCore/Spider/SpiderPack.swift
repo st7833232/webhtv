@@ -119,7 +119,8 @@ public actor SpiderPackStore {
     /// higher `minHostApi` is refused by *this* build and will work once the app is updated — which
     /// is the whole point of the gate: the failure is a readable message at load time, not a
     /// spider that runs until it reaches the missing call.
-    public static let hostApiVersion = 1
+    /// Since IOS-POC-12 this is `js.host`'s minor, not a second number kept by hand.
+    public static let hostApiVersion = RuntimeABI.Surface.jsHost.version.minor
 
     /// Where a pack lives when the caller does not name one: beside the configuration, resolved by
     /// the same rule `./json/` rule files already use. Provider-agnostic — it is whatever host the

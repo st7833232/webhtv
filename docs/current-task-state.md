@@ -10,6 +10,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 雲端 session 若由 harness 指定其他工作分支，照樣只 push 到 `ios-poc`（使用者 2026-09-28 的決定），不建立新的遠端分支。
 
+**IOS-POC-12（2026-09-29 下午，已 commit 並 push 到 `origin/ios-poc`，未發布）**：使用者明確要求正式開始並完成 IOS-POC-12（不開始 13）。Native Core／Dynamic Runtime 盤點、Runtime ABI（`catvod.result` 1.0、`js.host` 1.1、`python.host` 1.0、`webhome.bridge` 1.0 只記錄）、46 個 native capability、runtime-pack manifest schema 1、Ed25519 信任模型（內建公鑰集合目前是空的，global pack 一律拒絕）、大小／路徑／型別／digest 驗證、global 與 configuration scope 隔離、rollback／LKG 狀態轉移，全部是 WebHTVCore 的純邏輯（`RuntimeABI.swift`、`RuntimePackManifest.swift`，沒有呼叫者，App 行為沒變）。`swift test` 577 個全部通過（原 537＋新 40），模擬器 Debug build 成功；真機、Release build 未執行。見 `docs/IOS-POC-12-runtime-architecture-reconciliation.md` 第 1～21 節（第 20 節是 IOS-POC-13 的 entry conditions 與待決定事項）。
+
 **2026-09-29 Mac session（已 push，並發布為 `0.1.30 (31)`）**：`c4d13ea7`（IOS-POC-25 Mac 補測紀錄、`scripts/ios_adskip_sim`、IOS-POC-34 結案）、`43c197b2`（IOS-POC-25-4 相接廣告一次跳過）、`4fd5ae0a`（IOS-POC-25-5 MPV 時間軸跳動就停止跳過）、`1dfcc0db`（IOS-POC-35 播放器上一集／下一集與詳情頁「立即播放」）。都已通過 `swift test`（537 個）與模擬器驗收，已隨 `0.1.30 (31)` 發布，**真機未驗證**。
 
 **最新已發布版本是 `0.1.31 (32)`**（2026-09-29，使用者授權；tag `ios-v0.1.31-b32` → `a826d6e2`，run `36528804774`，`source.json` `90807975`，IPA 25,704,617 bytes，SHA-256 `4c66b1b6c44ec17cdbb50f40905ada4296a8b19d1d2acbfe0b235b919a2078a3`，下載回驗通過）。至今共發布 32 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
@@ -47,7 +49,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 1. push 到 `ios-poc` 已授權（使用者 2026-09-25 交接）。bump 版本、tag、發布 SideStore release 前都要先問；發布流程見 IOS-POC-11 第二十一次發布。
 2. 不要直接裝到使用者的 iPhone；使用者用 SideStore 實機測試。真機沒測到的一律寫「未驗證」。
-3. 沒有指示前，不開始 MPV parity P2 以後的任何階段，也不開始 IOS-POC-12／13。
+3. 沒有指示前，不開始 MPV parity P2 以後的任何階段，也不開始 IOS-POC-13。（IOS-POC-12 已於 2026-09-29 依使用者指示完成。）
 4. commit 一律用 task guard（`start --scope` 每個路徑各帶一次，`finish` 加 `--no-tag`）。
 5. 雲端 session 沒有 Swift：單元測試照常撰寫但不執行（使用者選擇「只靠編譯與真機」），第一次編譯是發布時的 Release build。**在 Mac 上**（2026-09-29 使用者選「執行並修測試」）：`ios/` 的 `swift test` 要執行，測試本身的錯誤直接修，正式程式的 bug 先回報；2026-09-29 第一次執行 519 個全部通過。
 
@@ -91,7 +93,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - IOS-POC-23「暫停後離開 App 再回來，兩個核心都卡住」：已完成。第一階段在 `0.1.20 (21)` 真機驗收通過，後續階段依目前證據不需要；T13 時發現「暫停一段時間後按播放要等幾秒」，與本修正無關，使用者決定先不處理。見 `docs/IOS-POC-23-pause-background-resume-stall.md` 第十二節。
 - IOS-POC-24「mpv 與 App 搶音訊工作階段」（IOS-POC-23 第十節之三）：研究完成，使用者 2026-09-25 選定 O3（修改 Libmpv，由 App 擁有工作階段），24-1 已發布 Libmpv prerelease `mpvkit-1.0.0-webhtv.2`（run `36118969804`，第一次即成功，比對沒有新增例外）；24-2（App 改用它，mpv 不再碰工作階段，App 每次播放前啟用）與 24-3（審查修正：中斷時暫停、類別被重設時改回）已以 `0.1.21 (22)` 發布（CI 第一次編譯即成功），**真機未驗證**。見 `docs/IOS-POC-24-audio-session-ownership.md` 第十節與 Recovery anchor。
 - IOS-POC-17I（MPV 旋轉根治）：17I-3 已發布，待真機驗收；見 17I 文件第十三節與 Recovery anchor。子母畫面解除時放大、進度往回已診斷，依使用者決定等有模擬器再修（17H 文件）。
-- IOS-POC-12／13：未開始實施。IOS-POC-12 已於 2026-09-25 依使用者要求完成規劃（`docs/IOS-POC-12-runtime-architecture-reconciliation.md`），每個階段都要使用者另外說「開始實施 12X」；12B 會重新開啟 IOS-POC-20 Q6（不跑單元測試）。
+- IOS-POC-12「Runtime Architecture Reconciliation」：**已完成**（2026-09-29，使用者要求一次完成，取代 2026-09-25 規劃的逐階段授權與「真機驗收之後才開始」）。沒有 intentional 使用者可見行為變更；`scripts/spider_pack.py` 的 `NOT_PACKABLE` 補上兩個 bridge（只影響發布工具）。IOS-POC-13 的 entry conditions 已具備，但**未開始**；開始前要由使用者決定 D13（要不要 global 簽章通道）與 D3（私鑰放哪裡），其餘前置見 IOS-POC-12 文件第 20 節。
+- IOS-POC-13「Runtime Hot Update」：未開始，需要使用者指示。
 
 **已知但不修（已記錄）**：`MediaSelection` 只在開 panel／換 engine 時重讀（pre-existing）；滑動進度條可能同時觸發全畫面拖曳的
 相對 seek（pre-existing，未實測）；冷啟動會閃一下「尚未載入設定」（pre-existing）；17F：開播前按暫停，20 秒後仍會切到另一個核心並自動播放（罕見）。
@@ -1264,8 +1267,8 @@ Paste this into a new session:
 
 > 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -6`、`git status`，以實際 Git 狀態為準、不要相信文件裡的 SHA。依 `AGENTS.md` 先讀 `AGENTS.md`、`docs/current-task-state.md` 最上方「Current handoff — 2026-09-29」一節。
 >
-> 目前狀態：最新已發布版本是 `0.1.29 (30)`（2026-09-28，tag `ios-v0.1.29-b30` → `6ffd6e15`）；`0.1.25 (26)`～`0.1.29 (30)` 帶入 IOS-POC-27～33（32 為階段 A、B、C），都還沒有真機驗收。IOS-POC-32 D 等我核准（還缺：是否開始、iOS 17 的做法、是否固定 `.lowLatency`）；IOS-POC-27C 等我回報原生開不了時畫面顯示的原因；IOS-POC-34（可可影視分類結果與網站不同）等我允許 `www.kkys20.com` 或提供 Safari 網址。遠端的 5 條舊分支由我在 Mac 上刪除（指令在 Current handoff 的 Git 段）。其餘各版的內容與真機結果見 Current handoff 的表格，各任務狀態見「任務狀態」。
+> 目前狀態：最新已發布版本是 `0.1.31 (32)`（2026-09-29，tag `ios-v0.1.31-b32` → `a826d6e2`）；`0.1.25 (26)`～`0.1.31 (32)` 帶入 IOS-POC-27～35、25-4／25-5 與 17H-2，都還沒有真機驗收。IOS-POC-12 已完成（2026-09-29，未發布，App 行為沒變），IOS-POC-13 未開始。IOS-POC-32 D 等我核准（還缺：是否開始、iOS 17 的做法、是否固定 `.lowLatency`）；IOS-POC-27C 等我回報原生開不了時畫面顯示的原因；IOS-POC-34 已結案（我改了 GitLab `recha` 的 `py/kkys.py`）。遠端只剩 `main` 與 `ios-poc`。其餘各版的內容與真機結果見 Current handoff 的表格，各任務狀態見「任務狀態」。
 >
-> 下一步：等我在 `0.1.29 (30)` 上真機回報（Current handoff「下一步」列的項目），你把結果填進對應文件。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不開始 IOS-POC-12／13。
+> 下一步：等我在 `0.1.31 (32)` 上真機回報（Current handoff「下一步」列的項目），你把結果填進對應文件。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不開始 IOS-POC-13。
 >
 > 規則：Ponytail 為可選 review；可用時可執行，若目前環境沒有就直接略過，不得因此阻擋功能修改、驗證、commit、build 或後續工作，也不得假稱已執行。功能修改仍須 `bash .codex/scripts/task_guard.sh start`，結束用 `finish --no-tag`。push 到 `ios-poc` 已授權；bump 版本、tag、package、publish 或發 SideStore release 前要先問我。不要直接安裝到我的 iPhone（我用 SideStore）。真機沒測到的一律寫「未驗證」。雲端工作階段沒有 Swift／Xcode，編譯靠發版 workflow，單元測試照常撰寫但不執行（我選的「只靠編譯與真機」）。只 push 到 `ios-poc`，不建立新的遠端分支，也不 merge 到 `main`。

@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.35",
+          "date": "2026-09-29",
+          "localizedDescription": "WebHTV 0.1.35 (36)（未經模擬器與真機驗收）\n\n修正\n- Python 站直接用標準函式庫（urllib）連 HTTPS 時，改用 App 內附的根憑證驗證，與 Android 相同。先前這類腳本在 iPhone 上會因憑證驗證失敗而拿不到內容（例如有分類、影片列表是空的）。\n\n已知限制\n- 此版發布前只有 CI 的 Release 建置，沒有跑模擬器自檢與站點 survey。\n- 其餘同 0.1.34 (35)。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.35-b36/WebHTV-0.1.35-36.ipa",
+          "size": 29314249,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.34",
           "date": "2026-09-29",
           "localizedDescription": "WebHTV 0.1.34 (35)（未經真機驗收）\n\n修正\n- Python 站的快取不再互相覆蓋：同時開過多個 Python 站（例如全站搜尋）之後，各站存的資料（如 MiFun、山楂的裝置識別）只會寫進自己那一站。\n\n已知限制\n- 金牌系列-zjuys 的分類篩選問題仍在調查中，此版尚未修正。\n- 其餘同 0.1.33 (34)：部分 Python 站因網站本身連不上、分類回空、或播放需要 Android 的本機代理而無法播放。",

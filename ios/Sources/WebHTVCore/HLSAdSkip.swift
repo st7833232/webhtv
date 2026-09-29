@@ -327,6 +327,10 @@ public struct HLSAdSkipper: Sendable {
     public static let mpvDiscontinuityEntryDelay = 0.25
     /// A playhead seen this far behind its last reading was moved by a seek.
     public static let jumpBack = 0.5
+    /// Ranges this close are one ad split across blocks, skipped in one seek (IOS-POC-25-4).
+    /// Inward rounding leaves exactly this gap at a shared microsecond boundary; Android keeps the
+    /// two ranges and hides the second cut behind its output boundary, which iOS does not have.
+    public static let adjacentRangeGapMs: Int64 = 1
 
     public private(set) var generation = 0
     public private(set) var plan: HLSAdPlan?
@@ -418,7 +422,8 @@ public struct HLSAdSkipper: Sendable {
         guard let range = timeline.range(at: positionMs),
               positionMs >= range.startMs + entryDelayMs(engine),
               skips.nextTargetMs(timeline, positionMs) != nil else { return nil }
-        let target = landingPoint(range, engine: engine, endingThreshold: endingThreshold)
+        let target = landingPoint(range, through: chain(from: range, in: timeline), engine: engine,
+                                  endingThreshold: endingThreshold)
         guard target > position else { return nil }
         landing = (target, engine, now)
         return target
@@ -436,7 +441,8 @@ public struct HLSAdSkipper: Sendable {
            endingThreshold.map({ seconds < $0 }) ?? true,
            let range = timeline.range(at: Self.milliseconds(seconds)) {
             skips.markRequested(range)
-            target = max(landingPoint(range, engine: engine, endingThreshold: endingThreshold), seconds)
+            target = max(landingPoint(range, through: chain(from: range, in: timeline), engine: engine,
+                                      endingThreshold: endingThreshold), seconds)
         }
         pendingSeek = (target, now)
         return target
@@ -460,10 +466,21 @@ public struct HLSAdSkipper: Sendable {
         return Int64((Self.mpvDiscontinuityEntryDelay * 1000).rounded())
     }
 
-    private func landingPoint(_ range: HLSAdTimeline.Range, engine: PlaybackEngineKind,
-                              endingThreshold: Double?) -> Double {
+    /// The last range of the run that starts at `range`, each within `adjacentRangeGapMs` of the one
+    /// before it; those after `range` count as skipped too.
+    private mutating func chain(from range: HLSAdTimeline.Range, in timeline: HLSAdTimeline) -> HLSAdTimeline.Range {
+        var last = range
+        while let next = timeline.nextRange(last.endMs), next.startMs - last.endMs <= Self.adjacentRangeGapMs {
+            skips.markRequested(next)
+            last = next
+        }
+        return last
+    }
+
+    private func landingPoint(_ range: HLSAdTimeline.Range, through last: HLSAdTimeline.Range,
+                              engine: PlaybackEngineKind, endingThreshold: Double?) -> Double {
         let start = Double(range.startMs) / 1000
-        var target = Double(range.endMs) / 1000
+        var target = Double(last.endMs) / 1000
         if engine == .mpv { target = max(start, target - Self.mpvLandingMargin) }
         if let endingThreshold { target = min(target, endingThreshold) }
         return target

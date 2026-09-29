@@ -420,6 +420,55 @@ private struct Drive {
     #expect(drive.seek(200) == 200)
 }
 
+/// IOS-POC-25-4: one ad across two blocks, as six-decimal `EXTINF`s leave it after inward rounding:
+/// [120 s, 127.499 s) and [127.5 s, 135 s).
+private func splitAdPlan(gapMs: Int64 = 1, discontinuity: Bool = true) -> HLSAdPlan {
+    let first = HLSAdTimeline.Range(startMs: 120_000, endMs: 127_499)
+    let second = HLSAdTimeline.Range(startMs: 127_499 + gapMs, endMs: 135_000)
+    return HLSAdPlan(timeline: HLSAdTimeline(ranges: [first, second], durationUs: 255_000_000,
+                                             reason: "exo-hls-detector"),
+                     hasDiscontinuity: discontinuity)
+}
+
+@Test func anAdSplitAcrossTwoBlocksIsSkippedInOneSeek() {
+    var drive = Drive(splitAdPlan())
+    _ = drive.read(119.9)
+    #expect(drive.read(120.0) == 135)
+    #expect(drive.read(135.0) == nil)
+    #expect(drive.read(135.1) == nil)
+    #expect(drive.skipper.suspensionReason == nil)
+}
+
+@Test func mpvSkipsASplitAdInOneSeekAfterItsDelay() {
+    var drive = Drive(splitAdPlan())
+    drive.engine = .mpv
+    _ = drive.read(119.9)
+    #expect(drive.read(120.0) == nil)
+    #expect(drive.read(120.25) == 134.9)
+    #expect(drive.read(134.9, after: .milliseconds(300)) == nil)
+    #expect(drive.read(135.0) == nil)
+    #expect(drive.skipper.suspensionReason == nil)
+}
+
+@Test func aViewersSeekIntoEitherPartOfASplitAdLandsAtItsEnd() {
+    var drive = Drive(splitAdPlan())
+    #expect(drive.seek(121) == 135)
+    #expect(drive.seek(128) == 135)
+}
+
+@Test func rangesFurtherApartThanRoundingLeavesAreSkippedSeparately() {
+    var drive = Drive(splitAdPlan(gapMs: 2))
+    _ = drive.read(119.9)
+    #expect(drive.read(120.0) == 127.499)
+}
+
+@Test func theViewersEndingStillOwnsASplitAdThatStraddlesIt() {
+    var drive = Drive(splitAdPlan())
+    drive.ending = 130
+    _ = drive.read(119.9)
+    #expect(drive.read(120.0) == 130)
+}
+
 @Test func aReadingFromBeforeAViewersSeekCannotPullPlaybackIntoASkip() {
     var drive = Drive(adPlan())
     _ = drive.read(124.9, playing: false)

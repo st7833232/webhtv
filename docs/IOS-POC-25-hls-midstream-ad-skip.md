@@ -688,6 +688,113 @@ MPV 露出 0.38～0.46 秒（有 discontinuity）、0.15～0.18 秒（沒有）�
 - 真機上的 D1～D13、M1～M7；廣告聲音；真實網路下 H-A 的量級；H-V 在真實串流上的落點（N1）。
 - 模擬器上沒有執行的項目見本節之四最後一段。
 
+## 二十四、IOS-POC-25-4：相接的廣告區間一次跳過（設計，2026-09-29）
+
+使用者 2026-09-29 從第二十三節之八選了「串接落點」與「F1 防護」，看過本節與第二十五節的設計後回答「兩項都核准」。本節之七為實作紀錄。
+
+### 1. 問題
+
+第二十三節之四 native-E／mpv-E：一個廣告跨兩個 `#EXT-X-DISCONTINUITY` 區塊、`EXTINF` 為 6 位小數時，計畫是相差 1 ms 的兩個區間（`31250-37499,37500-41666`），要 seek 兩次，露出原生 0.477 秒、MPV 0.852 秒（單一區間時是 0.09 秒、0.4 秒）。
+
+### 2. 研究
+
+| 來源 | 版本 | 內容 | 對本決定的影響 |
+|---|---|---|---|
+| Android `HlsAdTimeline.addRange` | `origin/main` `5856232743d2b8ddd5b3730e676b197ff2c0a264`，`app/src/main/java/androidx/media3/mpvplayer/HlsAdTimeline.java:80-92` | 起點進位、終點捨去到毫秒，只在 `endMs == startMs` 時合併；共用的微秒邊界不在整毫秒上時必然留下 1 ms 間隙 | 區間本身與 Android 相同，不應改（Android golden 與 log 要一致） |
+| Android `MpvHlsAdBoundaryState`、`MpvPlayer.maybeSkipHlsAd` | 同上 | 仍然分兩次 seek，但 native-output-boundary 在畫面輸出前擋掉邊界後的影格，所以看不到；ExoPlayer 直接播刪過段的清單，不 seek | Android 不需要串接；iOS 沒有 boundary（第十一節之二），才需要自己處理 |
+| RFC 8216 §4.3.2.1 | — | `EXTINF` 是十進位浮點數，小數位數不限 | 6 位小數是合法且常見的寫法 |
+| 成熟專案與論文 | — | 不適用：這是 Android 取整規則在 iOS 沒有 boundary 時的特有結果 | — |
+
+### 3. 方案比較
+
+| 方案 | 內容 | 缺點 | 結論 |
+|---|---|---|---|
+| 不改 | 兩次 seek | 露出 0.48／0.85 秒 | 否 |
+| 照 Android | 同「不改」（Android 靠 boundary 遮住） | iOS 沒有 boundary | 否 |
+| 改時間軸合併規則 | `addRange` 相差 ≤ 1 ms 也合併 | 區間與 Android 不同，golden 測試與 log 不再對得起來 | 否 |
+| **在落點串接**（建議） | 區間不變；`HLSAdSkipper.landingPoint` 從命中的區間往後接：下一個區間的起點與目前終點相差 ≤ 1 ms 時，改以它的終點為落點，並把接上的區間標為已處理 | 只改一個函式 | **實施** |
+
+≤ 1 ms 是安全的：共用微秒邊界經向內取整後的間隙正好是 1 ms；兩個廣告之間若真的有保留的正片段，它的長度要小於 2 ms 才會被接上，實際串流不會有這種段。
+
+### 4. 行為
+
+1. 自動跳過與觀眾 seek 進廣告（`manualTarget`）都走同一個落點，兩個核心都適用。
+2. MPV 的 0.1 秒落點邊界、片尾門檻都套在串接後的終點。
+3. 不改：區間、偵測、計畫的讀取、MPV 的 0.25 秒進入延遲、落點檢查。
+
+### 5. 驗收標準
+
+1. 新的單元測試：原生自動跳過在相接區間上只 seek 一次、落在最後一段終點；MPV 落在終點前 0.1 秒；觀眾 seek 進第一段落在最後一段終點；相差 2 ms 的區間不串接；片尾門檻仍然優先。
+2. `swift test` 全部通過（目前 519 個）。
+3. 模擬器（`scripts/ios_adskip_sim`）：native-E、mpv-E 每個拆段廣告只 seek 一次，露出原生 ≤ 0.2 秒、MPV ≤ 0.5 秒；native-A、mpv-A 與第二十三節相同；正片沒有少。
+
+### 6. 回滾
+
+revert 本階段的 commit；不 revert 時可在設定頁關閉「智慧去廣」。
+
+### 7. 實作與驗證（2026-09-29）
+
+1. `ios/Sources/WebHTVCore/HLSAdSkip.swift`：新增 `adjacentRangeGapMs = 1` 與 `chain(from:in:)`；`automaticTarget` 與 `manualTarget` 的落點改由 `landingPoint(_:through:engine:endingThreshold:)` 計算，接上的區間標為已處理。區間、偵測、延遲與落點檢查都沒有改。
+2. `ios/Tests/WebHTVCoreTests/HLSAdSkipTests.swift`：新增 5 個測試（原生一次跳過、MPV 延遲後一次跳過、觀眾 seek 進任一段、相差 2 ms 不串接、片尾門檻優先）。`swift test`：**524 個全部通過**。
+3. 模擬器（Debug build，`scripts/ios_adskip_sim`）：
+
+   | 執行 | 之前（第二十三節） | 之後 | 驗收 |
+   |---|---|---|---|
+   | 原生 E | 兩次 seek，0.477 秒 | 一次 seek（`from=31250ms to=41666ms`），**0.218 秒** | 串接成功；**未達** ≤ 0.2 秒的目標，差的 0.018 秒是 F3（落點 41.666 早於正片 41.6667，多顯示一格廣告；同一部片的單一區間廣告也是 0.183 秒） |
+   | MPV E | 兩次 seek，0.852 秒 | 一次 seek（`from=31521ms to=41565ms`），**0.417 秒** | 通過 |
+   | 原生 A | 0.087／0.088 秒 | 0.087／0.065 秒 | 通過（不變） |
+   | MPV A | 0.377／0.455 秒 | 0.368／0.408 秒 | 通過（不變） |
+
+   四次執行的正片都沒有少。
+4. 真機：未驗證。
+
+## 二十五、IOS-POC-25-5：MPV 時間軸對不上時停止跳過（設計，2026-09-29）
+
+### 1. 問題
+
+第二十三節之七 F1（mpv-B）：播放清單沒有 `#EXT-X-DISCONTINUITY`、廣告自帶 PTS 時，MPV 照播廣告、在後面的正片裡觸發跳過，每個廣告吃掉約一個廣告長度的正片。
+
+### 2. 研究
+
+| 來源 | 內容 | 影響 |
+|---|---|---|
+| WebHTV FFmpeg patch 0005（`third_party/mpv-ios/patches/ffmpeg/0005-avformat-hls-normalize-timestamps-across-discontinui.patch`，`reset_playlist_timestamps` 與封包校正都以 `if (!pls->has_discontinuity)` 提前返回） | 時間戳校正只在清單**有** discontinuity 標記時啟用；沒有標記時 `time-pos` 就是原始 PTS | 根因：MPV 的時間軸在這種清單上不是播放清單時間 |
+| FongMi FFmpeg `5805f936`（patch 0005 的來源，第二十二節、IOS-POC-26 第六節） | 相同條件 | Android 的 MPV 理論上有相同問題（推論，未在 Android 實測）；本階段比 Android 多一層保護 |
+| 模擬器 probe（2026-09-29，原生播 B） | 畫面在播放清單 64.04 秒時，原生顯示 01:24，總長 02:50（清單總長 150 秒） | 原生的時間軸也不對，但既有的「總長必須等於 EXTINF 總和」檢查已擋下計畫；**原生不需要改** |
+| mpv-B 錄影 | 廣告開頭 `time-pos` 會往回跳約一個正片區塊長度（廣告自己的 PTS 從 1.42 秒重新開始），**早於**錯誤的跳過 | 執行期可以在跳錯之前偵測到 |
+| mpv v0.41.0 `demux/demux_lavf.c`、`player/playloop.c`（IOS-POC-26 第六節之一的 A 級紀錄） | `time-pos` 是封包 PTS 減起始時間 | 時間戳不連續會直接反映成 `time-pos` 的跳動，支持「沒有 seek 卻跳動＝時間軸不是播放清單時間」的判斷 |
+
+### 3. 方案比較
+
+| 方案 | 內容 | 缺點 | 結論 |
+|---|---|---|---|
+| 不改 | — | 正片會變少 | 否 |
+| MPV 在沒有標記的清單上一律不跳 | 恢復 IOS-POC-25 之前的 gate | 連續 PTS、沒有標記的正常清單（mpv-D，0.15 秒）也不跳了 | 否 |
+| 讀 segment 的 PTS 判斷 | 另外下載 TS 開頭並解析 | 多一倍網路請求、要寫 TS 解析 | 否 |
+| 修 FFmpeg，沒有標記也校正 | 延伸 patch 0005 | 要重建二進位、影響所有 MPV 播放，範圍大 | 暫緩（可另立任務） |
+| **執行期偵測時間軸跳動**（建議） | MPV、計畫沒有 discontinuity 時：播放頭出現一次不是自動跳過、也不是觀眾 seek 造成的跳動（既有 `observe()` 的判斷：往回超過 0.5 秒，或往前超過 `經過時間×速度×2＋0.25 秒`），就停止這一項在 MPV 上的跳過（`suspend(.mpv, "timeline-jump")`，寫 `[adskip] … stopped on MPV: timeline-jump`） | 見本節之五 | **實施** |
+
+### 4. 行為
+
+1. 只在「MPV＋計畫沒有 discontinuity」時生效；原生、MPV 在有標記的清單上維持現在的做法（跳動只清除已跳記錄，讓往回拖進廣告時再跳一次）。
+2. 停止後這一項在 MPV 上不再自動跳，觀眾 seek 進廣告也不改落點，與 `0.1.21 (22)` 之前相同；換集或重新開啟時重來。
+3. 已停止的原因沿用第二十二節的 log 格式。
+
+### 5. 殘餘風險
+
+1. 廣告自帶的 PTS 剛好接近正片時間軸（往回不到 0.5 秒、往前在範圍內）時偵測不到；但這時兩條時間軸本來就一致，跳過也是對的。
+2. 誤判會讓這一項少跳（不會跳錯）：沒有經過 `PlaybackSession.seek(toSeconds:)` 的跳動，例如 MPV 子母畫面的快轉按鈕或系統控制，在沒有標記的清單上會讓這一項停止跳過。實作時列出這些路徑，能改走 `seek(toSeconds:)` 的就改；範圍外的記為已知限制。
+
+### 6. 驗收標準
+
+1. 新的單元測試：MPV＋沒有 discontinuity 的計畫，沒有 seek 卻往回或往前跳 → 停止並記下原因，之後進廣告不跳；觀眾 seek、自動跳過的落地不會觸發停止；MPV＋有 discontinuity、原生：行為與現在相同（既有測試）。
+2. `swift test` 全部通過。
+3. 模擬器：mpv-B 不跳、正片沒有少，log 有 `timeline-jump`；mpv-D、mpv-A 與第二十三節相同。
+
+### 7. 回滾
+
+revert 本階段的 commit；不 revert 時可關閉「智慧去廣」。
+
 ## Recovery anchor
 
 - 目標：Android main 的 HLS VOD 中段廣告偵測與自動跳過移植到 iOS，AVPlayer 與 MPV 共用同一份 detector／timeline；任何不確定都不跳。驗收標準見第十七節。

@@ -16,12 +16,13 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **2026-09-29 Mac session（已 push，並發布為 `0.1.30 (31)`）**：`c4d13ea7`（IOS-POC-25 Mac 補測紀錄、`scripts/ios_adskip_sim`、IOS-POC-34 結案）、`43c197b2`（IOS-POC-25-4 相接廣告一次跳過）、`4fd5ae0a`（IOS-POC-25-5 MPV 時間軸跳動就停止跳過）、`1dfcc0db`（IOS-POC-35 播放器上一集／下一集與詳情頁「立即播放」）。都已通過 `swift test`（537 個）與模擬器驗收，已隨 `0.1.30 (31)` 發布，**真機未驗證**。
 
-**最新已發布版本是 `0.1.31 (32)`**（2026-09-29，使用者授權；tag `ios-v0.1.31-b32` → `a826d6e2`，run `36528804774`，`source.json` `90807975`，IPA 25,704,617 bytes，SHA-256 `4c66b1b6c44ec17cdbb50f40905ada4296a8b19d1d2acbfe0b235b919a2078a3`，下載回驗通過）。至今共發布 32 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
+**最新已發布版本是 `0.1.32 (33)`**（2026-09-29，使用者授權；tag `ios-v0.1.32-b33` → `76d79787`，run `36541592908`，`source.json` `17c9529f`，IPA 25,806,175 bytes，SHA-256 `42fd4794273b042c9e45cd41552842b69a2da75e98ee8d40d59a941c4dc297cc`，下載回驗通過）。至今共發布 33 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
 
 **近期各版內容（新到舊）**
 
 | 版本 | tag 指向 | 比上一版多了什麼 | 真機結果 |
 |---|---|---|---|
+| `0.1.32 (33)` | `76d79787` | IOS-POC-17H-3：MPV 子母畫面進入／接回不再閃黑格、接回淡入、PiP 層改為影片矩形（`47f942e8`）；含 IOS-POC-12（`b354c80e`）與 IOS-POC-13 的撤銷（`20fd462e`） | 未驗證 |
 | `0.1.31 (32)` | `a826d6e2` | IOS-POC-17H-2：MPV 子母畫面結束回到 App 不再閃出舊畫格或變形（`631a7684`） | 未驗證 |
 | `0.1.30 (31)` | `6b5c6739` | IOS-POC-25-4：相接的廣告區間一次跳過（`43c197b2`）；IOS-POC-25-5：MPV 時間軸跳動就停止跳過（`4fd5ae0a`）；IOS-POC-35：播放器上一集／下一集、詳情頁立即播放（`1dfcc0db`） | 未驗證 |
 | `0.1.29 (30)` | `6ffd6e15` | IOS-POC-32 C：來源的簡體中文只在畫面上顯示為台灣繁體（`1e9d24e3`）；IOS-POC-33：輸入繁體時簡體與原文各搜一次，同一站合併後顯示（`2e6c7309`） | 未驗證 |
@@ -55,7 +56,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 4. commit 一律用 task guard（`start --scope` 每個路徑各帶一次，`finish` 加 `--no-tag`）。
 5. 雲端 session 沒有 Swift：單元測試照常撰寫但不執行（使用者選擇「只靠編譯與真機」），第一次編譯是發布時的 Release build。**在 Mac 上**（2026-09-29 使用者選「執行並修測試」）：`ios/` 的 `swift test` 要執行，測試本身的錯誤直接修，正式程式的 bug 先回報；2026-09-29 第一次執行 519 個全部通過。
 
-**下一步（唯一）**：等使用者回報 `0.1.31 (32)` 的真機結果，先看 IOS-POC-17H-2（MPV 子母畫面結束回到 App：IOS-POC-17H-3（使用者以 `0.1.31 (32)` 回報「回到 App 還是放大再縮小、閃一下」）已在模擬器修掉兩處黑格並把 PiP 層改為影片矩形（本機 commit，未 push、未發布；17H 文件「真機回報的模擬器重現與修法」第七節），放回動畫本身在 iPadOS 模擬器上仍蓋滿整個視窗、App 無法指定目標：等使用者決定是否發布 `0.1.32 (33)`；若真機仍放大，請使用者提供 iPhone 螢幕錄影（AirDrop 到 Mac）。另等 `0.1.31 (32)` 其餘項目的真機結果（收到後逐列填進下列文件，`0.1.31 (32)` 含前面各版的全部內容：
+**下一步（唯一）**：等使用者回報 `0.1.32 (33)` 的真機結果，先看 IOS-POC-17H-3（MPV 子母畫面回到 App：還會不會放大再縮小、閃一下）。若仍放大，請使用者錄 iPhone 螢幕錄影 AirDrop 到 Mac，逐格分析 AVKit 放回動畫在 iPhone 上的目標（App 端沒有 API 可指定，見 17H 文件第七節）。其餘項目收到後逐列填進下列文件，`0.1.32 (33)` 含前面各版的全部內容：
 
 0. IOS-POC-33（`0.1.29 (30)`）：`docs/IOS-POC-33-dual-script-search.md` 第七節的真機項目。
 0. IOS-POC-32 C（`0.1.29 (30)`）：`docs/IOS-POC-32-detail-metadata-zhtw.md` 第六節第 4 點的真機項目與第 5 點第 5 項。

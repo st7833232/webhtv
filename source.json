@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.32",
+          "date": "2026-09-29",
+          "localizedDescription": "WebHTV 0.1.32 (33)（未經真機驗收）\n\n修正\n- MPV 子母畫面：進入時不再閃一格黑畫面；回到 App 時不再閃黑格，畫面改以 0.15 秒淡入接回。子母畫面的來源改為影片實際的顯示範圍，讓系統放回動畫有機會正好落在影片上。\n\n已知限制\n- 系統把子母畫面放回 App 的動畫本身（先放大再縮回有黑邊的大小）由 iOS 控制，App 無法指定目標；若此版在 iPhone 上仍會放大，請錄一段螢幕錄影提供分析。\n- MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.32-b33/WebHTV-0.1.32-33.ipa",
+          "size": 25806175,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.31",
           "date": "2026-09-29",
           "localizedDescription": "WebHTV 0.1.31 (32)（未經真機驗收）\n\n修正\n- MPV 子母畫面結束、回到 App 時，畫面會先閃出進入子母畫面前的舊畫格（看起來像進度往回），而且可能被放大或拉伸變形。現在子母畫面期間 App 內改顯示子母畫面的提示（與原生播放器相同），回到 App 後等 MPV 畫出新畫面才顯示，中間停在子母畫面最後的畫面。\n\n已知限制\n- MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。",

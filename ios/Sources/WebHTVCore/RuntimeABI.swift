@@ -51,8 +51,8 @@ public enum RuntimeABI {
             switch self {
             // 1.0 is the state frozen at 0.1.31 (32); older IPAs carry no runtime ABI at all.
             case .catvodResult: Version(1, 0)
-            // Minor 1 is `SpiderPackStore.hostApiVersion` 1, so a schema-1 compatibility pack's
-            // `minHostApi` n means `js.host` {1, n} with no translation table.
+            // Minor 1 continues the retired schema-1 compatibility pack's host API 1 (IOS-POC-13
+            // removed that format), so the number a script was written against never went back.
             case .jsHost: Version(1, 1)
             case .pythonHost: Version(1, 0)
             case .webhomeBridge: Version(1, 0)
@@ -96,7 +96,7 @@ public enum RuntimeABI {
 
     /// The bundled scripts that *are* the SDK rather than spiders on it. Native Core: a pack can
     /// never replace them, because replacing one would change what every version number above
-    /// means. `SpiderRegistry.bundledOnly` loads them as the prelude and the two bridges, and
-    /// `scripts/spider_pack.py` refuses to pack them (`NOT_PACKABLE`, kept equal by a test).
+    /// means. `SpiderRegistry.bundledOnly` loads them as the prelude and the two bridges, and a
+    /// runtime pack may not name a class after any of them.
     public static let nativeScripts: Set<String> = ["host.js", "drpy-bridge.js", "js-spider.js"]
 }

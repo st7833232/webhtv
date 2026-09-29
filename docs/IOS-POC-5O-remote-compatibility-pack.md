@@ -1,5 +1,13 @@
 # IOS-POC-5O — remote compatibility pack
 
+> **Removed in IOS-POC-13A (2026-09-29), at the user's decision.** The schema-1 compatibility pack was
+> never used in the field and is replaced by runtime packs (`docs/IOS-POC-13-runtime-hot-update.md`,
+> contract in `docs/IOS-POC-12-runtime-architecture-reconciliation.md`): one generation per
+> configuration (no more A's pack under B), signed global packs, a last known good and rollback.
+> `SpiderPack.swift`, `SpiderPackTests.swift` and `spider_pack.py build/verify` are gone; the build
+> clears the old `Application Support/SpiderPack` directory once. The rest of this file is the record
+> of what the format was.
+
 Turns "a site changed its protocol, so rebuild and reinstall the app" into "publish a file". No new
 spider class, no Python, no CarPlay, no release work.
 

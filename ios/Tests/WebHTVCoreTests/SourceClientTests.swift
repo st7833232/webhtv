@@ -279,10 +279,9 @@ private final class OneShotHTTPServer: @unchecked Sendable {
 @Test func listsThePortedSpiderSitesAlongsideTheNativeCMSSites() throws {
     guard let path = ProcessInfo.processInfo.environment["WANG_MOVIE_JSON"] else { return }
     let config = try JSONDecoder().decode(WebHTVConfig.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
-    // One registry snapshot for every count below. `SpiderRegistry.active()` reads the
-    // process-wide `InstalledSpiderPack.shared`, which `SpiderPackStore.refresh` writes — so a pack
-    // test running in parallel used to be able to change the registry *between* two of the calls
-    // here and break their relationship. Taking the snapshot once makes these counts describe one
+    // One registry snapshot for every count below. `SpiderRegistry.active(for:)` reads the
+    // process-wide `ActiveRuntimePacks.shared` — so a pack test running in parallel could change the
+    // registry *between* two of the calls here and break their relationship. Taking the snapshot once makes these counts describe one
     // registry instead of whichever one each call happened to observe (IOS-POC-10Y).
     let registry = SpiderRegistry.bundled()
     let resolver = CSPSourceResolver(registry: registry)

@@ -96,20 +96,19 @@ There must never be two JS runtimes. Native half in `Spider/Host/*.swift`, JavaS
 | WebView / sniffing | `MediaSniffer` — injected JS hook on XHR / `fetch` / media `src`, plus `MediaProbe` | done (IOS-POC-5G). **Native, not a `host.*` primitive**: `WKWebView` has no `shouldInterceptRequest`, so the sniff happens in Swift above the spider, on any `parse:1` result |
 | `proxy` | ABI present, no host plumbing | **not implemented** |
 
-**Scripts can now arrive from outside the bundle.** Since IOS-POC-5O a signed-by-hash
-*compatibility pack* — a manifest plus scripts published at any HTTPS URL beside the configuration —
-may replace or add spider scripts at runtime. Resolution order is **verified pack → bundled script →
-not supported**, `host.js` and the two bridges (`drpy-bridge.js`, `js-spider.js`) are deliberately
-not packable because they are the SDK `minHostApi` describes, and a pack can never add a native
-primitive, touch entitlements, ATS or signing, or cross the `Spider` ABI.
-`SpiderPackStore.hostApiVersion` (currently **1**) is the gate, and older apps refuse a script that
-needs a newer host instead of failing mid-call. **Since IOS-POC-12 it is not bumped by hand**: it is
-`RuntimeABI.Surface.jsHost.version.minor` (`ios/Sources/WebHTVCore/RuntimeABI.swift`). When
-`CatVodHost` gains a primitive, raise `js.host`'s minor there, add the new row to the `frozen`
-fingerprint table in `RuntimeABITests.swift` (the test fails until you do), and keep `HOST_API` in
-`scripts/spider_pack.py` equal (another test checks it). Removing or changing a primitive is a
-`js.host` major, which retires schema-1 packs — see `docs/IOS-POC-12-runtime-architecture-reconciliation.md`
-§6. Full pack contract: `docs/IOS-POC-5O-remote-compatibility-pack.md`.
+**Scripts can now arrive from outside the bundle.** Since IOS-POC-13 a *runtime pack* — a manifest
+plus content-addressed scripts, either beside the configuration (`./runtime/manifest.json`, same
+HTTPS origin) or WebHTV's own signed global pack — may replace or add spider scripts at runtime.
+Resolution order is **the configuration's pack → WebHTV's global pack → bundled script → not
+supported**; a pack script that will not load falls back to the bundled one. `host.js` and the two
+bridges (`drpy-bridge.js`, `js-spider.js`) are the SDK and can never be replaced, and a pack can never
+add a native primitive, touch entitlements, ATS or signing, or cross the `Spider` ABI. What a pack may
+depend on is `RuntimeABI` (`ios/Sources/WebHTVCore/RuntimeABI.swift`): when `CatVodHost` gains a
+primitive, raise `js.host`'s minor there and add the new row to the `frozen` fingerprint table in
+`RuntimeABITests.swift` (the test fails until you do); removing or changing one is a `js.host` major.
+Contract: `docs/IOS-POC-12-runtime-architecture-reconciliation.md`; implementation:
+`docs/IOS-POC-13-runtime-hot-update.md`. (The schema-1 compatibility pack of IOS-POC-5O, and its
+`SpiderPackStore.hostApiVersion`, were removed in IOS-POC-13A.)
 
 **Ported classes: 8.** `AppGet`, `AppQi`, `App99`, `App3Q` (苹果CMS App-API family), `Bili`
 (bilibili public API), `JianPian` (registered under the blocked `JPianAmns` name the configuration
@@ -203,8 +202,8 @@ rewriter could not handle. A drpy site gains **no** native capability: same `JSC
    parsing. Everything else comes from `host`.
 3. Register it in `SpiderRegistry.ported` with its audit category and origin JAR.
 4. Add a golden test.
-5. To ship it without an app release, publish it in a compatibility pack instead of (or as well as)
-   bundling it — `scripts/spider_pack.py build`.
+5. To ship it without an app release, publish it in a runtime pack instead of (or as well as)
+   bundling it — `swift run --package-path ios webhtv-runtime-pack build` (IOS-POC-13).
 
 If a port needs a primitive the host lacks, add it to `CatVodHost` — never inside the spider. A
 spider that re-implements HTTP, crypto or parsing is a bug.
@@ -234,7 +233,7 @@ could have seen it.
 |---|---|---|---|---|
 | 1 | Bundled `csp_*` scripts | The app binary (116 KB of JS, 8 classes) | **Code, shipped** | ~62 of the user's sites |
 | 2 | **Rule engines** `XBPQ` / `XYQHiker` | Engine in the binary; the **rule file is data** | **Data** | Whatever rules the user brings |
-| 3 | Compatibility pack | The configuration's origin, at runtime | Code, later | Can replace any class |
+| 3 | Runtime pack (IOS-POC-13; was the compatibility pack) | The configuration's origin, or WebHTV's signed global pack, at runtime | Code, later | Can replace any class |
 | 4 | drpy | The configuration's origin, at runtime (1.2 MB) | Code, later | 5 sites |
 | 5 | Python | The configuration's origin, at runtime, on a bundled CPython | Code, later | 42 sites |
 
@@ -262,7 +261,7 @@ Each remote mechanism is one line:
 
 | Mechanism | Off switch |
 |---|---|
-| Compatibility pack | `SpiderPackStore.url(for:)` returns `nil` |
+| Runtime pack | `SpiderRegistry.active(for:)` returns `bundled()` |
 | drpy | the `isDrpySpider` branch in `CSPSourceResolver.canResolve` returns `false` |
 | Python | simply never install `PythonSpiderSupport.makeRuntime` — core links no interpreter at all |
 

@@ -383,6 +383,8 @@ public enum RuntimePackRejection: Error, Equatable, Sendable {
     case sizeMismatch(path: String, expected: Int, actual: Int)
     case digestMismatch(String)
     case unexpectedFile(String)
+    /// A `spider.js` that does not compile on the bundled host or assigns no `module.exports`.
+    case scriptDoesNotLoad(String)
     // History of the scope
     case packIdMismatch(String)
     case rollback(sequence: UInt64, floor: UInt64)
@@ -423,6 +425,15 @@ public struct RuntimeHost: Equatable, Sendable {
         self.appBuild = appBuild
         self.abi = abi
         self.capabilities = capabilities
+    }
+}
+
+public extension RuntimeHost {
+    /// The running App, read from its bundle; a build number that does not parse reads as 0, which
+    /// satisfies no `minAppBuild`.
+    static func installed(bundle: Bundle = .main) -> RuntimeHost {
+        RuntimeHost(appVersion: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",
+                    appBuild: Int(bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "") ?? 0)
     }
 }
 
@@ -526,6 +537,21 @@ public enum RuntimePackValidator {
                                 now: Date = Date()) throws(RuntimePackRejection) -> RuntimePackCandidate {
         guard data.count <= RuntimePackLimits.manifestBytes else { throw .manifestTooLarge(data.count) }
         try checkOrigin(url, scope: scope, configurationURL: configurationURL)
+        let candidate = try revalidate(manifest: data, signature: signature, scope: scope, host: host,
+                                       trust: trust, revokedKeyIds: revokedKeyIds)
+        if scope == .global, candidate.manifest.expires == nil { throw .missingField("expires") }
+        if let expires = candidate.manifest.expiryDate, now >= expires { throw .expired }
+        return candidate
+    }
+
+    /// The checks a **stored** generation must pass again at every launch: authenticity (a key may
+    /// have been revoked since), shape, scope and compatibility with the build now installed. Not
+    /// origin, which only means something while downloading, and not `expires`, which stops a
+    /// manifest from being adopted but never deactivates one that already was (R3).
+    public static func revalidate(manifest data: Data, signature: Data?, scope: RuntimeScope,
+                                  host: RuntimeHost, trust: RuntimeTrustRoot = .bundled,
+                                  revokedKeyIds: Set<String> = []) throws(RuntimePackRejection) -> RuntimePackCandidate {
+        guard data.count <= RuntimePackLimits.manifestBytes else { throw .manifestTooLarge(data.count) }
         let signer = try authenticate(data, signature: signature, scope: scope, trust: trust,
                                       revokedKeyIds: revokedKeyIds)
         let manifest = try RuntimePackManifest.decode(data)
@@ -538,8 +564,6 @@ public enum RuntimePackValidator {
             throw .scopeMismatch(declared: "config:" + pinned, expected: scope.key)
         }
         if !(manifest.revokeKeyIds ?? []).isEmpty, signer != .backup { throw .revocationNotPermitted }
-        if scope == .global, manifest.expires == nil { throw .missingField("expires") }
-        if let expires = manifest.expiryDate, now >= expires { throw .expired }
         try checkCompatibility(of: manifest, in: scope.kind, host: host)
 
         return RuntimePackCandidate(manifest: manifest, scope: scope, manifestSHA256: runtimeSHA256(data),

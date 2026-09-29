@@ -5,8 +5,8 @@ import Testing
 @testable import WebHTVCore
 
 // IOS-POC-12. `RuntimeABI`'s version numbers are only worth something if they cannot drift from
-// what they describe. `SpiderPackStore.hostApiVersion` did once: `7c76d5c2` changed `host.js`'s
-// selectors and the number stayed 1. These tests fingerprint everything each surface is made of,
+// what they describe. The compatibility pack's hand-kept host API number did once: `7c76d5c2`
+// changed `host.js`'s selectors and the number stayed 1. These tests fingerprint everything each surface is made of,
 // so changing any of it without bumping the version fails here.
 
 private let ios = URL(fileURLWithPath: #filePath)
@@ -165,20 +165,15 @@ func everySurfaceMatchesTheFingerprintItsVersionWasFrozenWith(_ surface: Runtime
             == RuntimeABI.catvodMethods.count + RuntimeABI.jsHostExports.count + RuntimeABI.pythonPackages.count)
 }
 
-/// A schema-1 compatibility pack keeps working unchanged: its `minHostApi` n is `js.host` {1, n},
-/// and the publisher script agrees with the App on every number and on what is not packable.
-@Test func theCompatibilityPackGateIsTheJavaScriptHostMinor() throws {
-    #expect(RuntimeABI.Surface.jsHost.version.major == 1)
-    #expect(SpiderPackStore.hostApiVersion == RuntimeABI.Surface.jsHost.version.minor)
-    #expect(SpiderPackStore.hostApiVersion == 1)
-
-    let tool = try read("scripts/spider_pack.py", in: repo)
-    #expect(try matches(#"^SCHEMA = (\d+)$"#, in: tool) == [String(SpiderPack.schema)])
-    #expect(try matches(#"^HOST_API = (\d+)$"#, in: tool) == [String(SpiderPackStore.hostApiVersion)])
-    let notPackable = try #require(try matches(#"^NOT_PACKABLE = \{([^}]*)\}$"#, in: tool).first)
-    let names = notPackable.split(separator: ",").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \"'")) }
-    #expect(Set(names) == RuntimeABI.nativeScripts)
+/// The SDK scripts a pack can never replace are the files the registry loads as its prelude and
+/// bridges.
+@Test func theNativeScriptsAreTheBundledSDK() throws {
+    #expect(RuntimeABI.Surface.jsHost.version == RuntimeABI.Version(1, 1))
     for name in RuntimeABI.nativeScripts {
         #expect(FileManager.default.fileExists(atPath: ios.appendingPathComponent("Sources/WebHTVCore/Resources/Spiders/" + name).path))
     }
+    let registry = SpiderRegistry.bundled()
+    #expect(registry.prelude == (try read("Sources/WebHTVCore/Resources/Spiders/host.js")))
+    #expect(registry.drpyBridge == (try read("Sources/WebHTVCore/Resources/Spiders/drpy-bridge.js")))
+    #expect(registry.jsSpiderBridge == (try read("Sources/WebHTVCore/Resources/Spiders/js-spider.js")))
 }

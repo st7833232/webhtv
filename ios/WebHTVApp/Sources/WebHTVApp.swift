@@ -170,13 +170,12 @@ private struct ConfigView: View {
         .task {
             restore()
             await WatchHistoryStore.shared.migrateSiteIdentities(in: sites)
-            // The cached pack is adopted before anything is fetched, so an offline launch runs on
-            // the last known good scripts rather than waiting for the network.
-            await adoptCachedSpiderPack()
+            // The stored runtime packs are loaded before anything is fetched, so an offline launch
+            // runs on the last known good scripts rather than waiting for the network.
+            await loadRuntimePacks()
             // Every launch re-fetches a remote configuration, so the app opens on the current one
             // rather than on whatever happened to be cached.
             await refreshRemote(quiet: true)
-            await refreshSpiderPack()
         }
         .alert("加入設定來源", isPresented: $askingRemote) {
             TextField("名稱", text: $remoteName)
@@ -280,6 +279,11 @@ private struct ConfigView: View {
         UserDefaults.standard.set(memory, forKey: siteBySourceKey)
         // The cached copy goes with it; leaving it behind would be an orphan nobody can reach.
         if let url = try? configURL(for: .remote(entry.url)) { try? FileManager.default.removeItem(at: url) }
+        // And its runtime pack, floor included (IOS-POC-13).
+        if let scope = RuntimeScope(.remote(entry.url)) {
+            ActiveRuntimePacks.shared.set(nil, for: scope)
+            Task { await RuntimePackStore.shared.forget(scope) }
+        }
     }
 
     private func persistSaved() {
@@ -303,35 +307,46 @@ private struct ConfigView: View {
         await load(remote: url, showHome: false, reportFailure: !quiet)
     }
 
-    /// Reads whatever pack is already on disk. Verification happens inside the store, so a cache
-    /// that no longer matches its manifest is simply not adopted.
-    private func adoptCachedSpiderPack() async {
-        guard let pack = await SpiderPackStore.shared.installedPack() else { return }
-        packStatus = Self.describe(pack)
+    /// IOS-POC-13. Loads what is already on disk — WebHTV's global pack and this configuration's —
+    /// re-verified by the store, so a generation that no longer matches its manifest is not run.
+    /// Once per launch it also clears the schema-1 compatibility pack's leftovers, a format this
+    /// build no longer reads.
+    private func loadRuntimePacks() async {
+        let store = RuntimePackStore.shared
+        await store.removeStaging()
+        Self.removeLegacySpiderPack()
+        let host = RuntimeHost.installed()
+        ActiveRuntimePacks.shared.set(await store.load(.global, host: host), for: .global)
+        await loadRuntimePack(for: source, host: host)
+    }
+
+    /// The configuration's own pack, from disk, for the source now in use. Switching A → B → A
+    /// loads each one's own generation; B never sees A's.
+    private func loadRuntimePack(for source: ConfigSource, host: RuntimeHost = .installed()) async {
+        if let scope = RuntimeScope(source) {
+            ActiveRuntimePacks.shared.set(await RuntimePackStore.shared.load(scope, host: host), for: scope)
+        }
+        packStatus = Self.describePacks(for: source)
+        await SpiderSessionStore.shared.reset()
         rebuildSites()
     }
 
-    /// Fetches a pack in the background. A failure is deliberately quiet in the UI beyond the
-    /// status line: the app keeps running on the pack or the bundled scripts it already had.
-    private func refreshSpiderPack() async {
-        guard let url = SpiderPackStore.url(for: source) else { return }
-        do {
-            let pack = try await SpiderPackStore.shared.refresh(from: url)
-            packStatus = Self.describe(pack)
-            await SpiderSessionStore.shared.reset()
-            rebuildSites()
-        } catch {
-            let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            let current = await SpiderPackStore.shared.installedPack()
-            packStatus = current.map { "\(Self.describe($0))（更新失敗：\(reason)）" }
-                ?? "內建腳本（更新失敗：\(reason)）"
-        }
+    private static func describePacks(for source: ConfigSource) -> String {
+        let packs = [ActiveRuntimePacks.shared.pack(for: .global), RuntimeScope(source).flatMap {
+            ActiveRuntimePacks.shared.pack(for: $0)
+        }].compactMap { $0 }
+        return packs.map { "\($0.scope == .global ? "WebHTV" : "設定") \($0.version)（\($0.scripts.count) 支）" }
+            .joined(separator: "、")
     }
 
-    private static func describe(_ pack: SpiderPack) -> String {
-        let skipped = pack.rejected.isEmpty ? "" : "，略過 \(pack.rejected.count)："
-            + pack.rejected.map { "\($0.className)（\($0.reason)）" }.joined(separator: "、")
-        return "相容性套件 \(pack.version)，\(pack.scripts.count) 支腳本\(skipped)"
+    private static func removeLegacySpiderPack() {
+        guard let support = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                                         appropriateFor: nil, create: false),
+              let entries = try? FileManager.default.contentsOfDirectory(atPath: support.path) else { return }
+        for name in entries where name == "SpiderPack" || name.hasPrefix("SpiderPack-staging-") {
+            try? FileManager.default.removeItem(at: support.appendingPathComponent(name))
+        }
+        UserDefaults.standard.removeObject(forKey: "spiderPackURL")
     }
 
     /// A pack can add or replace a driveable class, so the listed sites are recomputed from the
@@ -377,6 +392,7 @@ private struct ConfigView: View {
         let now = Date()
         UserDefaults.standard.set(source.baseURL?.absoluteString, forKey: configSourceURLKey)
         UserDefaults.standard.set(now.timeIntervalSince1970, forKey: configUpdatedAtKey)
+        let switched = self.source != source
         self.source = source
         updatedAt = now
         sites = loaded
@@ -387,6 +403,9 @@ private struct ConfigView: View {
         Task { await SpiderSessionStore.shared.reset() }
         selectedSiteID = SiteSelection.choose(remembered: siteMemory()[source.identity], current: selectedSiteID,
                                               in: loaded)
+        // A different configuration brings its own runtime pack; the sites are listed again once it
+        // is loaded, so a class only that pack carries appears too.
+        if switched { Task { await loadRuntimePack(for: source) } }
     }
 
     /// IOS-POC-19 — the pickers' binding. Only a site the viewer picks is remembered, for the source
@@ -1399,7 +1418,7 @@ private extension SettingsView {
         } header: {
             Text("設定來源")
         } footer: {
-            Text("目前支援 \(sites.count) 個來源：type-0／type-1／type-4 CMS，已移植的 csp_* Spider，drpy 與 Python 腳本。腳本只從設定檔自己的來源、且必須是 HTTPS 才會載入。遠端更新失敗時會保留上一份可用設定。Spider 腳本可由設定檔旁的 ./spiders/manifest.json 熱更新，驗過 SHA-256 才會採用。")
+            Text("目前支援 \(sites.count) 個來源：type-0／type-1／type-4 CMS，已移植的 csp_* Spider，drpy 與 Python 腳本。腳本只從設定檔自己的來源、且必須是 HTTPS 才會載入。遠端更新失敗時會保留上一份可用設定。")
         }
     }
 

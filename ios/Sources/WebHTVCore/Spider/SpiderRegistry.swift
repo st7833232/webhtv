@@ -12,21 +12,25 @@ public struct SpiderRegistry: Sendable {
         public let origin: String
         /// Which copy of the script this is. The app shows it; the tests assert on it.
         public let source: Source
+        /// The bundled script for the same class, when a runtime pack replaced it: what runs if the
+        /// pack's copy does not load (IOS-POC-13, D9), so a bad pack never removes a working spider.
+        public let fallback: String?
 
         public init(script: String, portability: SpiderPortability, origin: String,
-                    source: Source = .bundled) {
+                    source: Source = .bundled, fallback: String? = nil) {
             self.script = script
             self.portability = portability
             self.origin = origin
             self.source = source
+            self.fallback = fallback
         }
     }
 
-    /// Where a script came from. Resolution order is exactly this order:
-    /// a verified remote pack first, the bundled copy second, and absent means "not ported".
+    /// Where a script came from. Resolution order is exactly this order: the configuration's runtime
+    /// pack, then WebHTV's global one, then the bundled copy; absent means "not ported".
     public enum Source: Sendable, Equatable {
         case bundled
-        case pack(version: String)
+        case pack(RuntimeScope.Kind, version: String)
     }
 
     let entries: [String: Entry]
@@ -71,41 +75,49 @@ public struct SpiderRegistry: Sendable {
     /// logic of its own. Only ever for a pair proven to be the same site.
     static let aliases = ["JPianAmns": "JianPian"]
 
-    /// The registry the app actually runs on: the bundled scripts, with a verified compatibility
-    /// pack overlaid on top. `CSPSourceResolver` uses this, so every call site picks up a pack
-    /// without knowing one exists.
-    public static func active(bundle: Bundle? = nil) -> SpiderRegistry {
-        bundled(bundle: bundle, overlaying: InstalledSpiderPack.shared.current)
+    /// The registry the app actually runs on for one configuration: the bundled scripts, then
+    /// WebHTV's global runtime pack, then that configuration's own pack, the last one winning.
+    /// `CSPSourceResolver` builds this for the source it is given, so every call site picks up the
+    /// right packs without knowing one exists — and configuration B never sees A's.
+    public static func active(for source: ConfigSource = .importedFile, bundle: Bundle? = nil) -> SpiderRegistry {
+        let packs = ActiveRuntimePacks.shared
+        let layers = [packs.pack(for: .global), RuntimeScope(source).flatMap { packs.pack(for: $0) }]
+        return bundled(bundle: bundle, overlaying: layers.compactMap { $0 })
     }
 
     public static func bundled(bundle: Bundle? = nil) -> SpiderRegistry {
-        bundled(bundle: bundle, overlaying: nil)
+        bundledOnly(bundle: bundle)
     }
 
     /// A pack entry replaces the bundled script for the same class, and may add a class the bundle
     /// never carried. Nothing else about the app changes: the script still runs against the same
     /// `CatVodHost` and the same `Spider` ABI, which is the boundary a pack cannot cross.
-    public static func bundled(bundle: Bundle? = nil, overlaying pack: SpiderPack?) -> SpiderRegistry {
-        var registry = bundledOnly(bundle: bundle)
-        guard let pack else { return registry }
+    public static func bundled(bundle: Bundle? = nil, overlaying packs: [RuntimeSpiderPack]) -> SpiderRegistry {
+        let registry = bundledOnly(bundle: bundle)
+        guard !packs.isEmpty else { return registry }
         var entries = registry.entries
-        for (name, script) in pack.scripts {
-            let existing = entries[name]
-            entries[name] = Entry(script: script,
+        for pack in packs {
+            var brought = [String: Entry]()
+            for (name, script) in pack.scripts {
+                let existing = entries[name]
+                let entry = Entry(script: script,
                                   portability: existing?.portability ?? .httpJSON,
-                                  origin: existing?.origin ?? "compatibility pack \(pack.version)",
-                                  source: .pack(version: pack.version))
+                                  origin: existing?.origin ?? "runtime pack \(pack.version)",
+                                  source: .pack(pack.scope.kind, version: pack.version),
+                                  fallback: registry.entries[name]?.script)
+                entries[name] = entry
+                brought[name] = entry
+            }
+            // A pack alias only resolves to a script the pack itself brought, so a stale alias cannot
+            // silently repoint a bundled class or another pack's.
+            for (alias, target) in pack.aliases {
+                guard let entry = brought[target] else { continue }
+                entries[alias] = entry
+            }
         }
-        // A pack alias only resolves to a script the pack itself brought, so a stale alias cannot
-        // silently repoint a bundled class.
-        for (alias, target) in pack.aliases {
-            guard let entry = entries[target], case .pack = entry.source else { continue }
-            entries[alias] = entry
-        }
-        registry = SpiderRegistry(entries: entries, prelude: registry.prelude,
-                                  drpyBridge: registry.drpyBridge,
-                                  jsSpiderBridge: registry.jsSpiderBridge)
-        return registry
+        return SpiderRegistry(entries: entries, prelude: registry.prelude,
+                              drpyBridge: registry.drpyBridge,
+                              jsSpiderBridge: registry.jsSpiderBridge)
     }
 
     private static func bundledOnly(bundle: Bundle? = nil) -> SpiderRegistry {
@@ -139,9 +151,20 @@ public struct SpiderRegistry: Sendable {
                             defaults: UserDefaults = .standard,
                             session: URLSession = .webHTV) throws -> SpiderRuntime {
         guard let entry = entry(for: api) else { throw SpiderError.notRegistered(api) }
-        return try JavaScriptSpiderRuntime(
-            name: Self.className(from: api), script: entry.script, prelude: prelude,
-            storage: SpiderStorage(siteKey: siteKey, defaults: defaults), session: session
-        )
+        func runtime(_ script: String) throws -> SpiderRuntime {
+            try JavaScriptSpiderRuntime(
+                name: Self.className(from: api), script: script, prelude: prelude,
+                storage: SpiderStorage(siteKey: siteKey, defaults: defaults), session: session
+            )
+        }
+        do {
+            return try runtime(entry.script)
+        } catch {
+            // A pack's copy that passed the install smoke test but still will not load here falls
+            // back to the bundled one rather than taking the class away.
+            guard let fallback = entry.fallback else { throw error }
+            print("[runtime-pack] \(api) did not load from \(entry.source); using the bundled script: \(error)")
+            return try runtime(fallback)
+        }
     }
 }

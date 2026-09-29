@@ -15,11 +15,13 @@ public struct CSPSourceResolver: Sendable {
     /// Where the configuration came from, so a spider's `ext` can point at a sibling rule file.
     private let source: ConfigSource
 
-    public init(registry: SpiderRegistry = .active(),
+    /// Without an explicit `registry`, the one for `source`: its runtime pack over the global one
+    /// over the bundled scripts (`SpiderRegistry.active(for:)`).
+    public init(registry: SpiderRegistry? = nil,
                 source: ConfigSource = .importedFile,
                 defaults: UserDefaults = .standard,
                 session: URLSession = .webHTV) {
-        self.registry = registry
+        self.registry = registry ?? .active(for: source)
         self.source = source
         self.defaults = defaults
         self.session = session

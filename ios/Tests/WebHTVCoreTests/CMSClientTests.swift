@@ -239,4 +239,66 @@ private func site(key: String, type: Int, api: String, ext: String = "null") thr
     @Test func anEmptyLineHasNothingToAdvanceTo() {
         #expect(flag([]).episode(after: Episode(name: "x", url: "https://a/1.m3u8")) == nil)
     }
+
+    // IOS-POC-35: the player's 上一集.
+
+    @Test func thePreviousEpisodeOnTheSameLine() {
+        let line = flag([("第01集", "https://a/1.m3u8"), ("第02集", "https://a/2.m3u8"),
+                         ("第03集", "https://a/3.m3u8")])
+        #expect(line.episode(before: line.episodes[2])?.name == "第02集")
+        #expect(line.episode(before: line.episodes[0]) == nil)
+        #expect(line.episode(before: Episode(name: "第02集", url: "https://elsewhere/2.m3u8")) == nil)
+    }
+
+    @Test func aRepeatedAddressGoesBackFromItsFirstOccurrence() {
+        let line = flag([("第01集", "https://a/1.m3u8"), ("第02集", "https://a/2.m3u8"),
+                         ("第02集", "https://a/2.m3u8")])
+        #expect(line.episode(before: line.episodes[2])?.name == "第01集")
+    }
+}
+
+/// IOS-POC-35: what 立即播放 on the detail screen plays.
+@Suite struct PlayNowTests {
+    private let lines = [
+        Flag(name: "FF线路", episodes: [Episode(name: "第01集", url: "https://ff/1.m3u8"),
+                                      Episode(name: "第02集", url: "https://ff/2.m3u8")]),
+        Flag(name: "蓝光1", episodes: [Episode(name: "第01集", url: "https://bd/1.m3u8"),
+                                     Episode(name: "第02集", url: "https://bd/2.m3u8")]),
+    ]
+
+    private func pick(_ flags: [Flag], _ line: String?, _ url: String?, _ name: String?) -> String? {
+        Flag.playNow(in: flags, watchedFlag: line, watchedURL: url, watchedName: name)
+            .map { "\($0.flag.name) \($0.episode.name)" }
+    }
+
+    @Test func nothingWatchedPlaysTheFirstLinesFirstEpisode() {
+        #expect(pick(lines, nil, nil, nil) == "FF线路 第01集")
+    }
+
+    @Test func theWatchedLineAndEpisodeComeBack() {
+        #expect(pick(lines, "蓝光1", "https://bd/2.m3u8", "第02集") == "蓝光1 第02集")
+    }
+
+    @Test func anEpisodeWhoseAddressChangedIsFoundByName() {
+        #expect(pick(lines, "蓝光1", "https://bd/old-2.m3u8", "第02集") == "蓝光1 第02集")
+    }
+
+    @Test func anEpisodeTheLineNoLongerHasFallsBackToItsFirst() {
+        #expect(pick(lines, "蓝光1", "https://bd/9.m3u8", "第09集") == "蓝光1 第01集")
+    }
+
+    @Test func aLineThatIsGoneMeansTheSameEpisodeOnTheFirstLine() {
+        #expect(pick(lines, "HN线路", "https://hn/2.m3u8", "第02集") == "FF线路 第02集")
+        #expect(pick(lines, "HN线路", "https://hn/9.m3u8", "第09集") == "FF线路 第01集")
+    }
+
+    @Test func onlyAnEpisodeTheGridWouldEnableIsPlayed() {
+        let flags = [Flag(name: "壞線", episodes: [Episode(name: "第01集", url: "custom://1")]),
+                     Flag(name: "好線", episodes: [Episode(name: "第01集", url: "custom://1"),
+                                                  Episode(name: "第02集", url: "https://ok/2.m3u8")])]
+        #expect(pick(flags, nil, nil, nil) == "好線 第02集")
+        #expect(pick(flags, "壞線", "custom://1", "第01集") == "好線 第02集")
+        #expect(pick([Flag(name: "壞線", episodes: [Episode(name: "第01集", url: "custom://1")])],
+                     nil, nil, nil) == nil)
+    }
 }

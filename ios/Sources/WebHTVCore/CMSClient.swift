@@ -275,6 +275,36 @@ public struct Flag: Equatable, Sendable {
         let next = episodes.index(after: index)
         return episodes.indices.contains(next) ? episodes[next] : nil
     }
+
+    /// The episode before this one on the same line, or nil when it is the first (IOS-POC-35).
+    /// Matched on the address, as `episode(after:)` is.
+    public func episode(before current: Episode) -> Episode? {
+        guard let index = episodes.firstIndex(where: { $0.url == current.url }), index > episodes.startIndex
+        else { return nil }
+        return episodes[episodes.index(before: index)]
+    }
+
+    /// What the detail screen's 立即播放 plays (IOS-POC-35): the watched line's watched episode —
+    /// by address, else by name, as Android finds a history's episode (`flag.find(vodRemarks)`) —
+    /// else that line's first; with no such line, the episode of that name on the first line, else
+    /// its first. Only an episode the grid would enable counts (an http(s) address). Nil when
+    /// nothing can play.
+    public static func playNow(in flags: [Flag], watchedFlag: String?, watchedURL: String?,
+                               watchedName: String?) -> (flag: Flag, episode: Episode)? {
+        func playable(_ flag: Flag) -> [Episode] { flag.episodes.filter { $0.mediaURL != nil } }
+        func named(_ episodes: [Episode]) -> Episode? {
+            guard let watchedName, !watchedName.isEmpty else { return nil }
+            return episodes.first { $0.name.caseInsensitiveCompare(watchedName) == .orderedSame }
+        }
+        if let watchedFlag, let line = flags.first(where: { $0.name == watchedFlag }),
+           case let episodes = playable(line), let first = episodes.first {
+            let byURL = watchedURL.flatMap { url in episodes.first { $0.url == url } }
+            return (line, byURL ?? named(episodes) ?? first)
+        }
+        guard let line = flags.first(where: { !playable($0).isEmpty }) else { return nil }
+        let episodes = playable(line)
+        return (line, (watchedFlag == nil ? nil : named(episodes)) ?? episodes[0])
+    }
 }
 
 public struct Episode: Equatable, Sendable {

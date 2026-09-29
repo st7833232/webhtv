@@ -1574,6 +1574,20 @@ private struct VodView: View {
                         // Clamped: a stale index survives a reload that returned fewer episodes.
                         let chunk = min(episodeChunk[flag.name] ?? defaultChunk(for: flag), blocks.count - 1)
                         VStack(alignment: .leading, spacing: 12) {
+                            // IOS-POC-35: the watched line's episode from where it stopped, or the
+                            // first line's first episode when nothing was watched.
+                            Button {
+                                Task { await playNow(detail.flags) }
+                            } label: {
+                                Label("立即播放", systemImage: "play.fill")
+                                    .font(.headline)
+                                    // The accent is white, so a prominent button fills white: dark text.
+                                    .foregroundStyle(appSurface)
+                                    .frame(maxWidth: .infinity, minHeight: 44)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(resolving || Flag.playNow(in: detail.flags, watchedFlag: nil,
+                                                                watchedURL: nil, watchedName: nil) == nil)
                             // The lines, in one row at the top. With only one there is nothing to
                             // choose, so it stays the plain heading it has always been — the same
                             // rule the block chips below already follow.
@@ -1656,6 +1670,8 @@ private struct VodView: View {
             // answering for a player it does not own.
             PlaybackSession.shared.onPlaylistFinished = nil
             PlaybackSession.shared.advance = nil
+            PlaybackSession.shared.episodeStepper = nil
+            PlaybackSession.shared.episodeSteps = EpisodeSteps()
             // IOS-POC-15C follows `advance` exactly: same owner, same lifetime. Anything resolved
             // ahead belongs to a playback that is over, so it goes with it.
             PlaybackSession.shared.prefetchNext = nil
@@ -1887,6 +1903,9 @@ private struct VodView: View {
             // the resolving, so it is the only place that can answer (IOS-POC-14).
             playingEpisode = episode
             PlaybackSession.shared.advance = { await playNext(flag: flag) }
+            // IOS-POC-35: the bar's 上一集／下一集, answered here for the same reason.
+            PlaybackSession.shared.episodeStepper = { forward in await step(forward: forward, flag: flag) }
+            publishEpisodeSteps(flag: flag)
             // IOS-POC-15C. The session decides *when* — it holds the position, the runtime and the
             // network state; this screen decides *what*, because it holds the episode list.
             PlaybackSession.shared.prefetchNext = { await prefetchNextEpisode(flag: flag) }
@@ -1941,12 +1960,42 @@ private struct VodView: View {
         return await start(next, flag: flag, usingPrefetch: true)
     }
 
+    /// IOS-POC-35: the control bar's 上一集／下一集 — the start an auto-advance makes, so the new
+    /// episode begins at its start (after the title's opening). Forward may use a pre-resolved
+    /// address; back never has one.
+    private func step(forward: Bool, flag: String) async -> Bool {
+        guard let current = playingEpisode,
+              let line = detail?.flags.first(where: { $0.name == flag }),
+              let target = forward ? line.episode(after: current) : line.episode(before: current)
+        else { return false }
+        return await start(target, flag: flag, usingPrefetch: forward, liveReason: "live, previous episode")
+    }
+
+    /// Tells the bar whether the line has an episode on either side of the one playing.
+    private func publishEpisodeSteps(flag: String) {
+        let line = detail?.flags.first { $0.name == flag }
+        PlaybackSession.shared.episodeSteps = EpisodeSteps(
+            previous: playingEpisode.flatMap { line?.episode(before: $0) } != nil,
+            next: playingEpisode.flatMap { line?.episode(after: $0) } != nil)
+    }
+
+    /// IOS-POC-35: 立即播放 — the watched line's episode, resumed where it stopped (the session's
+    /// usual resume, by episode name), else the first line's first episode (`Flag.playNow`).
+    private func playNow(_ flags: [Flag]) async {
+        guard let pick = Flag.playNow(in: flags, watchedFlag: watched?.vodFlag,
+                                      watchedURL: watched?.episodeUrl, watchedName: watched?.vodRemarks)
+        else { return }
+        selectedFlag = pick.flag.name
+        await play(pick.episode, flag: pick.flag.name)
+    }
+
     /// Starts `next`, from the pre-resolved target when one is held for exactly it (IOS-POC-15C).
     ///
     /// **A prefetch can only ever save time, never cost the episode** (IOS-POC-15D). A miss of any
     /// kind resolves normally, and a pre-resolved target that then fails to load — an address that
     /// expired between the prefetch and the handoff — is resolved again, live, once.
-    private func start(_ next: Episode, flag: String, usingPrefetch: Bool) async -> Bool {
+    private func start(_ next: Episode, flag: String, usingPrefetch: Bool,
+                       liveReason: String = "live, retrying an unplayable prefetch") async -> Bool {
         let began = Date()
         do {
             // `take` hands the address back only when every part of the identity still matches and
@@ -1967,10 +2016,11 @@ private struct VodView: View {
             session.noteResolution(seconds: Date().timeIntervalSince(began),
                                    how: prefetched != nil ? "prefetched"
                                        : miss.map { "live, prefetch miss: \($0.rawValue)" }
-                                       ?? "live, retrying an unplayable prefetch",
+                                       ?? liveReason,
                                    episode: next.name)
             let record = record(for: next, flag: flag)
             playingEpisode = next
+            publishEpisodeSteps(flag: flag)
             // The quality the viewer last chose in the bar, which `finished()` has just persisted.
             let remembered = await WatchHistoryStore.shared.record(forKey: historyKey)?.quality ?? ""
             // `resuming: false` — this is a new episode, not a reopened title, and the two share one
@@ -2159,6 +2209,12 @@ extension Playback {
     }
 }
 
+/// IOS-POC-35: whether the line playing has an episode on either side of the current one.
+struct EpisodeSteps: Equatable {
+    var previous = false
+    var next = false
+}
+
 /// The persistent half of playback. Android reaches its player through a process-wide
 /// `PlaybackService` (`HomeWebBridge.control`, `Server.get().getService()`); this is the same idea at
 /// the smallest size that can answer `player.status` and obey `player.control` after the player
@@ -2195,6 +2251,30 @@ extension Playback {
 
     /// How the presenting view closes the player once nothing is left to play.
     var onPlaylistFinished: (() -> Void)?
+
+    /// IOS-POC-35: the control bar's 上一集／下一集. The detail screen owns it for the reason it owns
+    /// `advance` — it holds the episode list and the resolving — and answers `true` once it started
+    /// the episode. Nil for a playback with no list (the WebHome bridge's, a bare URL): no buttons.
+    var episodeStepper: ((_ forward: Bool) async -> Bool)?
+    /// Whether the line has an episode before and after the one playing, as the detail screen last
+    /// said. Read by the player's quarter-second tick; a plain class publishes nothing.
+    var episodeSteps = EpisodeSteps()
+    /// A step in flight: both buttons wait for it, so two taps cannot start two episodes.
+    private(set) var steppingEpisode = false
+
+    /// The control bar's 上一集／下一集. What was watched is written first, as Android's
+    /// `updatePlaybackHistoryPosition()` is, then the detail screen starts the neighbour from its
+    /// beginning. A neighbour that cannot be resolved leaves this episode playing and says so.
+    func stepEpisode(forward: Bool) {
+        guard let episodeStepper, !steppingEpisode else { return }
+        steppingEpisode = true
+        Task { @MainActor in
+            await persist()
+            let started = await episodeStepper(forward)
+            steppingEpisode = false
+            if !started { onNotice?(forward ? "下一集無法播放" : "上一集無法播放") }
+        }
+    }
 
     /// What this playback writes into the watch history, with the position kept up to date. Nil for
     /// a path that names no title: `player.playUrl` and an inline vod both hand over bare media.
@@ -3809,6 +3889,8 @@ private struct PlayerControlBar: View {
     /// publishes nothing, so a label reading it directly would only refresh when something else
     /// happened to redraw the body.
     let rate: Float
+    /// IOS-POC-35: 上一集／下一集 — nil draws neither, a false side is greyed out.
+    let episodeSteps: EpisodeSteps?
     /// The title's opening/ending, mirrored by `PlayerView`.
     let watching: WatchHistory?
     let media: PlaybackMediaSelection
@@ -3983,7 +4065,11 @@ private struct PlayerControlBar: View {
 
     private var transport: some View {
         // 36 pt between 48 pt targets keeps the glyph centres where 44 pt between bare glyphs had them.
-        HStack(spacing: 36) {
+        // IOS-POC-35: five targets need 20 pt (48 × 4 + 52 + 4 × 20 = 324 pt of a 370 pt portrait row).
+        HStack(spacing: episodeSteps == nil ? 36 : 20) {
+            if let episodeSteps {
+                episodeButton(forward: false, enabled: episodeSteps.previous)
+            }
             Button(action: { interacted(); session.seek(toSeconds: shown - 10) }) {
                 Image(systemName: "gobackward.10").font(.system(size: 28)).playerHitTarget()
             }
@@ -4001,8 +4087,24 @@ private struct PlayerControlBar: View {
                 Image(systemName: "goforward.10").font(.system(size: 28)).playerHitTarget()
             }
             .accessibilityLabel("前進 10 秒")
+            if let episodeSteps {
+                episodeButton(forward: true, enabled: episodeSteps.next)
+            }
         }
         .padding(.bottom, 14)
+    }
+
+    /// Greyed rather than hidden at the first or last episode (the user's choice, 2026-09-29), so
+    /// the row does not shift; VoiceOver reads it as unavailable.
+    private func episodeButton(forward: Bool, enabled: Bool) -> some View {
+        Button(action: { interacted(); session.stepEpisode(forward: forward) }) {
+            Image(systemName: forward ? "forward.end.fill" : "backward.end.fill")
+                .font(.system(size: 24))
+                .playerHitTarget()
+        }
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.35)
+        .accessibilityLabel(forward ? "下一集" : "上一集")
     }
 
     // MARK: Scrubber, and the opening/ending beside it
@@ -4562,6 +4664,8 @@ private struct PlayerView: View {
     /// The chosen speed. Observed alongside position, because `PlaybackSession` is a plain class
     /// and the speed can also change without the menu — `load` re-applies it on the next episode.
     @State private var rate: Float = 1
+    /// IOS-POC-35: the bar's 上一集／下一集, nil when this playback has no episode list.
+    @State private var episodeSteps: EpisodeSteps?
     @State private var media = PlaybackMediaSelection()
     @State private var timeObserver: Any?
     /// IOS-POC-17: which engine is drawing, and what failed if nothing can.
@@ -4661,7 +4765,8 @@ private struct PlayerView: View {
         .overlay {
             PlayerControlBar(
                 session: session, position: position, duration: duration, buffered: buffered,
-                intendsToPlay: intendsToPlay, rate: rate, watching: watching, media: media,
+                intendsToPlay: intendsToPlay, rate: rate, episodeSteps: episodeSteps,
+                watching: watching, media: media,
                 engine: engineKind,
                 isAvailable: { session.isEngineAvailable($0) },
                 selectEngine: { session.selectEngine($0) },
@@ -4779,6 +4884,9 @@ private struct PlayerView: View {
                 // The session's remembered speed, not the engine's rate: a paused player reports zero
                 // and the menu must still show what the viewer picked.
                 rate = session.rate
+                // A step in flight greys both buttons until the next episode is on its way.
+                episodeSteps = session.episodeStepper == nil ? nil
+                    : session.steppingEpisode ? EpisodeSteps() : session.episodeSteps
                 // What is already on the device, from the range **containing the playhead** — the
                 // same reading IOS-POC-15's policy takes, so the bar and the policy never disagree.
                 buffered = session.bufferedUntil

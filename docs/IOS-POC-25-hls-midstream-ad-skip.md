@@ -795,6 +795,21 @@ revert 本階段的 commit；不 revert 時可在設定頁關閉「智慧去廣�
 
 revert 本階段的 commit；不 revert 時可關閉「智慧去廣」。
 
+### 8. 實作與驗證（2026-09-29，使用者核准「兩項都核准」）
+
+1. `ios/Sources/WebHTVCore/HLSAdSkip.swift`：`observe()` 多帶核心；新增 `steady`（看過播放頭正常前進後才為真；新項目、換核心、觀眾 seek、自動跳過發出時歸零）。沒有經過 App 的跳動發生在 `steady`、MPV、計畫沒有 discontinuity 時 → `suspend(.mpv, "timeline-jump")`；其他情況照舊只清除已跳記錄。
+2. 本節之五第 2 點要找的繞道：只有 MPV 子母畫面的快轉按鈕（`MPVEngine.swift` `skipByInterval`）直接呼叫 `engine.seek`，已改走 `PlaybackSession.shared.seek(toSeconds:)`（與控制列 ±10 秒相同，也因此套用「seek 進廣告落在廣告終點」）。App 沒有註冊 `MPRemoteCommandCenter`；原生子母畫面的快轉由 AVKit 直接 seek AVPlayer，原生不受本防護影響。
+3. `HLSAdSkipTests.swift`：新增 5 個測試（往回跳停止、往前跳停止、續播的 0 與起始跳動不算、觀眾 seek 不算、只在 MPV＋沒有 discontinuity 生效）。`swift test`：**529 個全部通過**。
+4. 模擬器：
+
+   | 執行 | 之前 | 之後 | 驗收 |
+   |---|---|---|---|
+   | MPV B | 觸發在正片裡，正片少了 7.84＋9.88 秒 | 廣告一開始就 `stopped on MPV: timeline-jump`，**不再跳**；廣告照播 | 通過。每次換區塊約 2.2 秒的丟格是 MPV／FFmpeg 在這種串流上原本的行為，改之前也有 |
+   | MPV D | 0.153／0.182 秒 | 0.163／0.153 秒，沒有誤停 | 通過 |
+   | MPV A | 0.377／0.455 秒 | 0.377／0.410 秒 | 通過 |
+
+5. 未驗證：MPV 子母畫面快轉改道後的實際操作（只有編譯）；真機。
+
 ## Recovery anchor
 
 - 目標：Android main 的 HLS VOD 中段廣告偵測與自動跳過移植到 iOS，AVPlayer 與 MPV 共用同一份 detector／timeline；任何不確定都不跳。驗收標準見第十七節。
@@ -803,4 +818,5 @@ revert 本階段的 commit；不 revert 時可關閉「智慧去廣」。
 - 關鍵決策：MPV discontinuity gate（第十一節，IOS-POC-25-2 改為 0.25 秒觸發延遲與 `-u` 連結期檢查，第二十二節）、iOS 額外保護（第七、十五節）、片尾優先（第十四節）、不做 native boundary（第十一節之二）。
 - Mac 補測（2026-09-29，第二十三節）：`swift test` 519 個全部通過；模擬器以本機 HLS 量到原生露出 0.07～0.10 秒（目標已緩衝）、目標沒有緩衝時停在廣告畫面直到下載完成（H-A，原生「不到 1 秒」最可能的原因）；H-D 讓露出變成 0.48 秒（原生）／0.85 秒（MPV）；MPV 0.38～0.46 秒是設計值。新發現 F1：MPV 在沒有 discontinuity、廣告自帶 PTS 的清單上跳錯位置、正片變少（未修改程式）。使用者樣本是單一區間，不是 H-D。
 - 未解：第二十一節、第二十二節之九、第二十三節之七、之九。
-- 下一步（唯一）：等使用者決定第二十三節之八的候選（串接落點、跳過期間遮畫面靜音、F1 防護、裝置紀錄）；沒有核准前本任務不動程式。
+- IOS-POC-25-4（相接區間一次跳過，`43c197b2`）與 IOS-POC-25-5（MPV 時間軸跳動就停止跳過，本 commit）已實作並在模擬器驗證（第二十四、二十五節），單元測試 529 個通過；尚未發布、真機未驗證。
+- 下一步（唯一）：等使用者決定是否發布含 25-4／25-5 的新版本（發布要另外授權），或第二十三節之八剩下的候選（跳過期間遮畫面靜音、裝置紀錄）。

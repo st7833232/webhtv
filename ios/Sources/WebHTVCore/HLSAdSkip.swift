@@ -343,6 +343,9 @@ public struct HLSAdSkipper: Sendable {
     private var last: (position: Double, at: ContinuousClock.Instant)?
     private var pendingSeek: (seconds: Double, at: ContinuousClock.Instant)?
     private var landing: (target: Double, engine: PlaybackEngineKind, at: ContinuousClock.Instant)?
+    /// Whether the playhead has been seen playing on since the item loaded or last jumped, so a
+    /// load's placeholder 0 and the jump to its start position are not taken for a timeline jump.
+    private var steady = false
 
     public init() {}
 
@@ -359,6 +362,7 @@ public struct HLSAdSkipper: Sendable {
         last = nil
         pendingSeek = nil
         landing = nil
+        steady = false
         return generation
     }
 
@@ -391,6 +395,7 @@ public struct HLSAdSkipper: Sendable {
         last = nil
         pendingSeek = nil
         landing = nil
+        steady = false
     }
 
     /// The ranges that may act now, or nil.
@@ -406,7 +411,7 @@ public struct HLSAdSkipper: Sendable {
     public mutating func automaticTarget(position: Double, duration: Double, rate: Float, playing: Bool,
                                          engine: PlaybackEngineKind, enabled: Bool,
                                          endingThreshold: Double?, now: ContinuousClock.Instant) -> Double? {
-        let advancing = observe(position: position, rate: rate, now: now)
+        let advancing = observe(position: position, rate: rate, engine: engine, now: now)
         checkLanding(position: position, advancing: advancing, engine: engine, now: now)
         if let pending = pendingSeek {
             guard abs(position - pending.seconds) <= Self.manualSettleDistance
@@ -426,6 +431,7 @@ public struct HLSAdSkipper: Sendable {
                                   endingThreshold: endingThreshold)
         guard target > position else { return nil }
         landing = (target, engine, now)
+        steady = false
         return target
     }
 
@@ -436,6 +442,7 @@ public struct HLSAdSkipper: Sendable {
         skips.clear()
         last = nil
         landing = nil
+        steady = false
         var target = seconds
         if let timeline = activeTimeline(engine: engine, duration: duration, enabled: enabled),
            endingThreshold.map({ seconds < $0 }) ?? true,
@@ -510,16 +517,31 @@ public struct HLSAdSkipper: Sendable {
 
     /// Whether the playhead moved forward about as far as `rate` says it should have since the
     /// last reading. Always records this reading. A jump neither this nor the viewer's seek made
-    /// (PiP's skip buttons, the system's controls) forgets which ranges were skipped, as Android's
-    /// seek does, so an ad jumped back into is skipped again.
-    private mutating func observe(position: Double, rate: Float, now: ContinuousClock.Instant) -> Bool {
+    /// (AVKit's PiP skip buttons, the system's controls) forgets which ranges were skipped, as
+    /// Android's seek does, so an ad jumped back into is skipped again.
+    ///
+    /// IOS-POC-25-5: on MPV, over a plan without `#EXT-X-DISCONTINUITY`, such a jump during steady
+    /// playback means `time-pos` is not the playlist's time — WebHTV's Libavformat only maps
+    /// timestamps across tagged cuts, so an untagged ad with its own timestamps restarts it — and
+    /// every skip from here on would land in programme. MPV stops skipping this item instead.
+    private mutating func observe(position: Double, rate: Float, engine: PlaybackEngineKind,
+                                  now: ContinuousClock.Instant) -> Bool {
         defer { self.last = (position, now) }
         guard position.isFinite, let last, now > last.at else { return false }
         let elapsed = Self.seconds(now - last.at)
         let advanced = position - last.position
         let reach = elapsed * Double(max(rate, 0)) * 2 + 0.25
-        if (advanced < -Self.jumpBack || advanced > reach), landing == nil, pendingSeek == nil { skips.clear() }
-        return advanced > 0 && advanced <= reach
+        let advancing = advanced > 0 && advanced <= reach
+        if advanced < -Self.jumpBack || advanced > reach {
+            if landing == nil, pendingSeek == nil {
+                if steady, engine == .mpv, plan?.hasDiscontinuity == false { suspend(.mpv, "timeline-jump") }
+                skips.clear()
+            }
+            steady = false
+        } else if advancing {
+            steady = true
+        }
+        return advancing
     }
 
     /// Down, so a range is entered only once the playhead is really inside it.

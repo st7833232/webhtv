@@ -505,6 +505,76 @@ private func splitAdPlan(gapMs: Int64 = 1, discontinuity: Bool = true) -> HLSAdP
     #expect(drive.skipper.suspensionReason == nil)
 }
 
+// IOS-POC-25-5: without #EXT-X-DISCONTINUITY, WebHTV's Libavformat does not map timestamps, so an
+// ad carrying its own restarts MPV's `time-pos`; every later skip would land in programme.
+
+@Test func mpvStopsSkippingWhenItsTimelineJumpsBackOnAPlaylistWithoutDiscontinuities() {
+    var drive = Drive(adPlan(discontinuity: false))
+    drive.engine = .mpv
+    _ = drive.read(100.0)
+    _ = drive.read(100.1)
+    #expect(drive.read(70.0) == nil)        // the ad's own timestamps
+    #expect(drive.skipper.suspensionReason == "timeline-jump")
+    _ = drive.read(119.9, after: .seconds(50))
+    #expect(drive.read(120.0) == nil)
+    #expect(drive.read(120.1) == nil)
+    #expect(drive.seek(125) == 125)
+    #expect(drive.skipper.activeTimeline(engine: .mpv, duration: 255, enabled: true) == nil)
+}
+
+@Test func mpvStopsSkippingWhenItsTimelineJumpsForwardOnAPlaylistWithoutDiscontinuities() {
+    var drive = Drive(adPlan(discontinuity: false))
+    drive.engine = .mpv
+    _ = drive.read(100.0)
+    _ = drive.read(100.1)
+    #expect(drive.read(110.0) == nil)
+    #expect(drive.skipper.suspensionReason == "timeline-jump")
+}
+
+@Test func mpvStartingAtAResumePositionIsNotATimelineJump() {
+    // A load reads 0 until its first position arrives, then jumps to where it starts.
+    var drive = Drive(adPlan(discontinuity: false))
+    drive.engine = .mpv
+    drive.skipper.engineReloaded()
+    _ = drive.read(0)
+    _ = drive.read(0)
+    _ = drive.read(119.8)
+    _ = drive.read(119.9)
+    #expect(drive.read(120.0) == 134.9)
+    #expect(drive.skipper.suspensionReason == nil)
+}
+
+@Test func aViewersSeekOnMpvIsNotATimelineJump() {
+    var drive = Drive(adPlan(discontinuity: false))
+    drive.engine = .mpv
+    _ = drive.read(100.0)
+    _ = drive.read(100.1)
+    #expect(drive.seek(50) == 50)
+    _ = drive.read(50.0)
+    _ = drive.read(50.1)
+    #expect(drive.skipper.suspensionReason == nil)
+    _ = drive.read(119.9, after: .seconds(70))
+    #expect(drive.read(120.0) == 134.9)
+}
+
+@Test func aTimelineJumpOnlyStopsMpvOnAPlaylistWithoutDiscontinuities() {
+    // Tagged cuts are mapped onto the playlist (IOS-POC-26-2b), and AVPlayer keeps the playlist
+    // timeline itself: there a jump is a seek someone else made, as before.
+    var tagged = Drive(adPlan())
+    tagged.engine = .mpv
+    _ = tagged.read(100.0)
+    _ = tagged.read(100.1)
+    _ = tagged.read(70.0)
+    #expect(tagged.skipper.suspensionReason == nil)
+    var native = Drive(adPlan(discontinuity: false))
+    _ = native.read(100.0)
+    _ = native.read(100.1)
+    _ = native.read(70.0)
+    #expect(native.skipper.suspensionReason == nil)
+    _ = native.read(119.9, after: .seconds(50))
+    #expect(native.read(120.0) == 135)
+}
+
 @Test func seekingBackBeforeASkippedAdSkipsItAgain() {
     var drive = Drive(adPlan())
     _ = drive.read(119.9)

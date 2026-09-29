@@ -991,7 +991,9 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
 
     func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController,
                                     skipByInterval skipInterval: CMTime, completion completionHandler: @escaping () -> Void) {
-        if let engine { engine.seek(toSeconds: engine.currentTime + skipInterval.seconds) }
+        // Through the session, like the control bar's ±10 s: its ad rules see the seek, which a jump
+        // straight on the engine would look like a broken timeline to (IOS-POC-25-5).
+        if let engine { PlaybackSession.shared.seek(toSeconds: engine.currentTime + skipInterval.seconds) }
         completionHandler()
     }
 }

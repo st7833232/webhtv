@@ -143,3 +143,20 @@ IOS-POC-12 的 R1～R25（TUF、Uptane、Expo、CodePush、Shorebird、minisign�
 回滾：`git revert` 本 commit（會把 schema 1 相容包加回來）。
 
 下一步：13B（updater、發布工具）。
+
+### 11.2 13B：updater、App 接線、發布工具（2026-09-29）
+
+| 檔案 | 變更 |
+|---|---|
+| `ios/Sources/WebHTVCore/RuntimePackUpdater.swift`（新） | `RuntimePackChannel`：設定 scope 的 manifest 在設定旁的 `./runtime/manifest.json`，global 在 `https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/runtime/global/manifest.json`（位置不被信任，簽章才被信任），blob 一律是 manifest 旁的 `blobs/sha256/<hex>`。`RuntimePackUpdater.check`：manifest（64 KiB 上限）→ global 另抓 `.sig` → `validate` → admission（相同就是 `upToDate`）→ 每個 blob 以宣告的 bytes 為上限下載 → `store.install`（再驗一次並做 smoke）。結果分成 `noPack`（404 或匯入的設定）、`upToDate`、`installed`、`rejected`、`failed`（網路）。專用 session：ephemeral、不用 URLCache、不帶 cookie、30 秒逾時；串流上限沿用 `DrpyEngine.download` |
+| `ios/WebHTVApp/Sources/WebHTVApp.swift` | 啟動：載入已存 pack → `refreshRemote` → 檢查 global；每次成功從網路載入設定（啟動、切換、手動重新整理）就檢查該設定的 pack。`installed` 時：沒有開著的播放器就立即放進 `ActiveRuntimePacks`、重設 spider session、重建站台；播放器開著就不動記憶體（磁碟上已經是 active），下次啟動才用，狀態顯示「新版本下次啟動套用」。`PlaybackSession.isOpen`（`router.sessionActive`）。設定頁說明補上 `./runtime/manifest.json` |
+| `ios/Package.swift`、`ios/Tools/WebHTVRuntimePack/main.swift`（新） | 維護者工具 `webhtv-runtime-pack`（`swift run --package-path ios webhtv-runtime-pack`）：`build`（從 spider 目錄產生 `manifest.json` 與 `blobs/sha256/`，自動排除 SDK 腳本，`--alias`、`--sequence` 或 `--after`（前一版＋1）、`--rollback`、`--min-app-build`、`--expires-days`，寫出前先以 App 的 `RuntimePackManifest.decode` 檢查）與 `verify`（以 App 的 `revalidate`＋`verifyGeneration` 驗證整個目錄）。不會連結進 App |
+| `ios/Tests/WebHTVCoreTests/RuntimePackUpdaterTests.swift`（新） | 7 個：位置、安裝一次後 up to date、下一版與 LKG、沒有 pack、每種失敗都不動現有世代、網路失敗、只讀自己設定旁的 manifest、global 沒簽章或 key 不在 App 內就拒絕 |
+
+使用者可見變化：設定作者在設定旁發布 runtime pack 時，spider 會在下次成功載入設定後更新；設定頁說明多一句。沒有發布 pack 時與以前相同。
+
+驗證：`swift test` 584 個全部通過；模擬器 Debug build 成功；`webhtv-runtime-pack build`（內建 8 支 spider）後 `verify` 回報 `ok … generation gen-1-6421cc898986ac74`。端對端模擬器驗收排在 13C 之後一起做。真機未驗證。
+
+回滾：`git revert` 本 commit（App 回到只讀已存 pack、不再下載）。
+
+下一步：13C（設定頁 UI）。

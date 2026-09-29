@@ -174,8 +174,10 @@ private struct ConfigView: View {
             // runs on the last known good scripts rather than waiting for the network.
             await loadRuntimePacks()
             // Every launch re-fetches a remote configuration, so the app opens on the current one
-            // rather than on whatever happened to be cached.
+            // rather than on whatever happened to be cached. A fetched configuration then checks its
+            // own runtime pack (`load(remote:)`); WebHTV's global one is checked here.
             await refreshRemote(quiet: true)
+            await checkRuntimePack(.global)
         }
         .alert("加入設定來源", isPresented: $askingRemote) {
             TextField("名稱", text: $remoteName)
@@ -226,6 +228,9 @@ private struct ConfigView: View {
             let (data, config) = try await ConfigLoader.fetch(from: url)
             try adopt(data, config: config, from: .remote(url))
             if showHome { selectedTab = 0 }
+            if let scope = RuntimeScope(.remote(url)) {
+                Task { await checkRuntimePack(scope, of: .remote(url)) }
+            }
             return true
         } catch {
             // The cached configuration and the live source list are untouched by a failed fetch.
@@ -329,6 +334,32 @@ private struct ConfigView: View {
         packStatus = Self.describePacks(for: source)
         await SpiderSessionStore.shared.reset()
         rebuildSites()
+    }
+
+    /// IOS-POC-13B. Looks for a newer pack for one scope. Nothing is replaced unless every check
+    /// passed; when a player is open the new generation — already active on disk — waits for the
+    /// next launch instead of changing the scripts under what is playing.
+    private func checkRuntimePack(_ scope: RuntimeScope, of source: ConfigSource? = nil) async {
+        let outcome = await RuntimePackUpdater.shared.check(scope, source: source ?? self.source)
+        var note: String?
+        switch outcome {
+        case .installed(let pack):
+            if PlaybackSession.shared.isOpen {
+                note = "新版本下次啟動套用"
+            } else {
+                ActiveRuntimePacks.shared.set(pack, for: scope)
+                await SpiderSessionStore.shared.reset()
+                rebuildSites()
+            }
+        case .rejected(let rejection):
+            note = rejection.requiresNewerApp ? "有新版本，需要較新的 App" : "更新被拒絕：\(rejection)"
+        case .failed(let reason):
+            note = "無法檢查更新：\(reason)"
+        case .noPack, .upToDate:
+            break
+        }
+        let summary = Self.describePacks(for: self.source)
+        packStatus = [summary.isEmpty ? "內建" : summary, note].compactMap { $0 }.joined(separator: "；")
     }
 
     private static func describePacks(for source: ConfigSource) -> String {
@@ -1418,7 +1449,7 @@ private extension SettingsView {
         } header: {
             Text("設定來源")
         } footer: {
-            Text("目前支援 \(sites.count) 個來源：type-0／type-1／type-4 CMS，已移植的 csp_* Spider，drpy 與 Python 腳本。腳本只從設定檔自己的來源、且必須是 HTTPS 才會載入。遠端更新失敗時會保留上一份可用設定。")
+            Text("目前支援 \(sites.count) 個來源：type-0／type-1／type-4 CMS，已移植的 csp_* Spider，drpy 與 Python 腳本。腳本只從設定檔自己的來源、且必須是 HTTPS 才會載入。遠端更新失敗時會保留上一份可用設定。Spider 腳本可由設定檔旁的 ./runtime/manifest.json 更新，驗過相容版本、大小與 SHA-256 才採用；播放中不會切換。")
         }
     }
 
@@ -2520,6 +2551,9 @@ struct EpisodeSteps: Equatable {
     private(set) var mediaSelection = PlaybackMediaSelection()
 
     var engine: PlaybackEngine? { router.engine }
+    /// A player is open. A new runtime pack waits for the next launch rather than change the scripts
+    /// under whatever is playing (IOS-POC-13).
+    var isOpen: Bool { router?.sessionActive ?? false }
     /// The engine actually playing — what the control bar shows, never the configured default.
     var engineKind: PlaybackEngineKind { router.selection.currentSessionEngine }
     var globalDefaultEngine: PlaybackEngineKind { router.selection.globalDefaultEngine }

@@ -1,6 +1,6 @@
 # IOS-POC-13 — Runtime Hot Update
 
-- 狀態：**實作中**（2026-09-29）。使用者已回答第 7 節並核准連續實施（第 7.1 節）。
+- 狀態：**程式完成（13A～13D，2026-09-29），尚未發布**。設定 scope 已在模擬器端對端驗證；global 通道要等使用者產生金鑰（第 11.4 節的步驟）並授權發布含公鑰的 IPA 才會生效。使用者已回答第 7 節並核准連續實施（第 7.1 節）。
 - 授權：使用者 2026-09-29 說「開始 IOS-POC-13」。依 AGENTS.md §7，這是會新增網路下載、改變安全與啟用行為的 material requirement：實作前要先有本文件的研究、現況複核、方案比較、建議、驗收與回滾，並由使用者核准要做的階段。**不授權**：bump 版本、tag、SideStore release、GitHub Release、發布 IPA。
 - 基準：`origin/ios-poc` `5cd44076456d4c0829eb321bbb55513909e8f5f2`（2026-09-29 14:43 fetch，與 HEAD 相同、worktree 乾淨）。
 - 依賴的契約：`docs/IOS-POC-12-runtime-architecture-reconciliation.md` 第 1～21 節（Runtime ABI、manifest schema 1、信任、驗證、scope、狀態轉移）。本任務只實作它，不重新設計；要改那份契約時，先改 IOS-POC-12 文件並寫明原因。
@@ -116,9 +116,11 @@ IOS-POC-12 的 R1～R25（TUF、Uptane、Expo、CodePush、Shorebird、minisign�
 ## 10. Recovery anchor
 
 - 目標：依 IOS-POC-12 契約實作 runtime pack 的儲存、下載、驗證、啟用、回滾與 UI，不經 IPA 更新 spider JS。
-- 狀態：實作中，見第 11 節的實作紀錄。
+- 狀態：程式完成並 push（13A `f4bddf64`、13B `bd91108a`、13C `3aa08675`、13D `24f072a8`），未發布、真機未驗證。
 - 基準：`5cd44076`。
-- 下一步（唯一）：見第 11 節最後一個階段的「下一步」。
+- 檔案與符號：`RuntimePackStore.swift`（`RuntimePackStore`、`ActiveRuntimePacks`）、`RuntimePackUpdater.swift`（`RuntimePackChannel`、`RuntimePackUpdater`）、`RuntimePackManifest.swift`（`revalidate`、`RuntimeTrustRoot.bundledKeys`、`RuntimePackRejection.errorDescription`）、`SpiderRegistry.active(for:)`、`CSPSourceResolver.init`、`WebHTVApp.swift`（`loadRuntimePacks`、`checkRuntimePack`、`checkRuntimePacksNow`、`runtimeSection`、`PlaybackSession.isOpen`）、`ios/Tools/WebHTVRuntimePack/main.swift`、`.github/workflows/ios-runtime-pack.yml`。
+- 驗證：`swift test` 586／586；模擬器 Debug build；模擬器端對端（第 11.3 節）。沒有驗到：播放器開著時延後套用、真機、Release build、GitHub 上實際執行 workflow。
+- 下一步（唯一）：等使用者依第 11.4 節產生金鑰並交回兩行公鑰；收到後加進 `RuntimeTrustRoot.bundledKeys` 並 commit。發布含公鑰的 IPA 要另外授權。
 
 ## 11. 實作紀錄
 

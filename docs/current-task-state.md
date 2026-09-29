@@ -4,9 +4,16 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-09-27（讀這一節，再讀文末 Resume Prompt）
+## Current handoff — 2026-09-29（讀這一節，再讀文末 Resume Prompt）
 
-**Git**：分支 `ios-poc`，已全部 push。接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認，以實際 Git 狀態為準，不要相信本文的 SHA。遠端分支只保留 `main` 與 `ios-poc`（使用者 2026-09-28 決定，其餘分支由使用者在 Mac 上刪除）；工作一律在 `ios-poc`，不 merge 到 `main`。
+**Git**：分支 `ios-poc`，已全部 push。接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認，以實際 Git 狀態為準，不要相信本文的 SHA。遠端分支只保留 `main` 與 `ios-poc`（使用者 2026-09-28 決定，其餘分支由使用者在 Mac 上刪除）；工作一律在 `ios-poc`，不 merge 到 `main`。2026-09-29 交接時 `ios-poc` 在 `0a4c06a8`（本節所在的交接 commit 之前），遠端仍有 5 條舊分支：`ci/ios-pip-foreground-restore`、`claude/avplayer-cache-buffer-ddpwrd`、`claude/ios-poc-25-ad-skip-assessment-whmqwu`、`claude/ios-poc-25-hls-midstream-ad-skip-hmw1hc`、`claude/mpv-native-playback-sync-wph48k`。它們都已完整包含在 `ios-poc` 裡（沒有獨有 commit），刪除不會遺失工作；雲端 session 刪除遠端 ref 會被 proxy 擋（403），要在 Mac 上執行：
+
+```
+git push origin --delete ci/ios-pip-foreground-restore claude/avplayer-cache-buffer-ddpwrd claude/ios-poc-25-ad-skip-assessment-whmqwu claude/ios-poc-25-hls-midstream-ad-skip-hmw1hc claude/mpv-native-playback-sync-wph48k
+git fetch --prune
+```
+
+雲端 session 若由 harness 指定其他工作分支，照樣只 push 到 `ios-poc`（使用者 2026-09-28 的決定），不建立新的遠端分支。
 
 **最新已發布版本是 `0.1.29 (30)`**（2026-09-28，使用者授權；tag `ios-v0.1.29-b30` → `6ffd6e15`，run `36373454196`，`source.json` `b5f1c78e`，IPA 25,685,782 bytes，SHA-256 `ed5bd4f66893c5ac79064f7c0580a64612d14bd10624e6738343e7ef380f2343`，下載回驗通過）。至今共發布 30 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
 
@@ -43,8 +50,9 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 2. 不要直接裝到使用者的 iPhone；使用者用 SideStore 實機測試。真機沒測到的一律寫「未驗證」。
 3. 沒有指示前，不開始 MPV parity P2 以後的任何階段，也不開始 IOS-POC-12／13。
 4. commit 一律用 task guard（`start --scope` 每個路徑各帶一次，`finish` 加 `--no-tag`）。
+5. 雲端 session 沒有 Swift：單元測試照常撰寫但不執行（使用者選擇「只靠編譯與真機」），第一次編譯是發布時的 Release build。
 
-**下一步（唯一）**：等使用者在 `0.1.29 (30)` 上真機回報，收到後逐列填進對應文件（`0.1.29 (30)` 含前面各版的全部內容）：
+**下一步（唯一）**：等使用者回報：`0.1.29 (30)` 的真機結果（收到後逐列填進下列文件，`0.1.29 (30)` 含前面各版的全部內容），或 IOS-POC-34 需要的資料（允許 `www.kkys20.com`，或 Safari 網址列的完整網址；見任務狀態）：
 
 0. IOS-POC-33（`0.1.29 (30)`）：`docs/IOS-POC-33-dual-script-search.md` 第七節的真機項目。
 0. IOS-POC-32 C（`0.1.29 (30)`）：`docs/IOS-POC-32-detail-metadata-zhtw.md` 第六節第 4 點的真機項目與第 5 點第 5 項。
@@ -69,6 +77,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **任務狀態**
 
+- IOS-POC-34「可可影視的分類篩選結果與網站不同」（2026-09-28 使用者回報，附網站與 App 截圖；使用者說「搜尋」，但截圖是分類篩選）：評估中，沒有修改任何程式。已確認 App 傳給 Python spider 的篩選值與網站相同（畫面的「台灣」只是顯示轉換），落差出在來源腳本 GitLab `st7833232/recha` `py/kkys.py`：它組 `/show/2--台湾--2026-2-1.html`，排序寫死為 最新 `2`、最热 `3`，並取整頁所有 `module-item` 區塊。可能原因（未驗證）：抓到非主清單區塊或網站以 JavaScript 載入清單（App 卡片沒有任何備註、網站卡片都有）、排序代碼對錯、App 的類型列選擇未知。本環境連不上 `www.kkys20.com`（403），要等使用者允許該網域或提供 Safari 網址。見 `docs/IOS-POC-34-kkys-filter-mismatch.md`。
 - IOS-POC-33「搜尋時簡體、繁體各搜一次，合併結果後顯示」（2026-09-28 使用者要求，四項決定都採建議）：輸入繁體時先送簡體寫法（與現在相同），再送輸入的原文；同一站兩種寫法在同一個名額內依序查詢，合併後只回報一次（第一種寫法的清單原樣在前，第二種只加入新片）；30 秒期限到時若已有一種寫法回來就顯示它；載入更多每種寫法各自翻頁；搜尋分頁、WebHome `app.search` 與首頁站內搜尋都套用。輸入簡體、英文、數字時行為不變。沒有 Android 先例（Android 只送一種寫法），做法對照 MacCMS 2026 的繁简同搜。已隨 `0.1.29 (30)` 發布（Release build 第一次即編譯成功），單元測試未執行、真機未驗證。見 `docs/IOS-POC-33-dual-script-search.md`。
 - IOS-POC-32「詳情頁：海報蓋到標題、顯示年份簡介演員、簡體顯示為台灣繁體、日文翻譯」（2026-09-27 使用者要求，附截圖）：A 海報版面已實作（`VodPoster` 的 `clipShape` 在呼叫端 `.frame` 之前，橫向海報超出約 93 pt；使用者改定為海報在上、標題在下、完整顯示，固定 240 pt 高的框內 `scaledToFit`），未編譯、真機未驗證；使用者另選：測試只靠編譯與真機、C 用 OpenCC 衍生、統一用「台」、C 不加設定開關。B（年份、地區、類型、導演、演員、簡介；評分不顯示）已實作並查核（確認 11 項次要問題已修正），單元測試未執行。A、B 已隨 `0.1.28 (29)` 發布（Release build 第一次即編譯成功），真機未驗證。C（簡體只在顯示時轉成台灣繁體）已實作並 commit（2026-09-28 使用者核准；簡介不換台灣用語）：OpenCC `528ae262` 的 `s2tw` 以 Swift 重寫，6 份字典未修改地內建（約 1.1 MB）；只轉含簡體專用字的字串、日文不轉、統一用「台」、演員導演保留 于朴范姜余沈 並把 钟 寫成 鍾；32 處顯示位置，搜尋、身分值、觀看記錄與橋接資料不動。Python 對照實作與 OpenCC CLI 比對 134,127 行 0 差異；已隨 `0.1.29 (30)` 發布（Release build 第一次即編譯成功），單元測試未執行、真機未驗證。D（iOS 18 Apple Translation 把日文翻成中文）待核准；使用者 2026-09-28 回答 iPhone 是 iOS 26.x、預設「關」，iOS 17 的做法與 `.lowLatency` 未決定。見 `docs/IOS-POC-32-detail-metadata-zhtw.md`。
 - IOS-POC-31「設定頁太長」（2026-09-27 使用者要求）：預設播放器、預設播放速度改為一列的下拉選單（`Picker` `.menu`），區塊與說明文字不變（使用者選擇）；內容來源（67 個）改為一列「目前來源 ›」，點進去是開在目前來源的清單（不用選單：選單無法捲到目前項目，首頁來源切換已實測）。已隨 `0.1.27 (28)` 發布（Release build 第一次即編譯成功），真機未驗證。見 `docs/IOS-POC-31-settings-menus.md`。
@@ -94,7 +103,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 注意 AVPlayer 對**完全不回應**的網址約 10 秒就自己報錯，那會走「network 失敗切一次」而不是 20 秒逾時。
 
 **環境備忘**：模擬器 `7B4E9557-4774-4EB9-B408-BB544DCC8657`（iPhone 17 Pro, iOS 26.3）；`wang-movie.json` 的 SHA-256
-`b17576e34eb42b4c589a818ef8b5ec2655a2c7a188d626fc427c37d628897168`，需要時從使用者 GitLab 重抓；模擬器控制工具一次來回
+`b17576e34eb42b4c589a818ef8b5ec2655a2c7a188d626fc427c37d628897168`（2026-09-28 從 `https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json` 重抓的版本已變成 127,425 bytes、`a567f33f6b29d58b05ecfc255b9d9f4e6da385a7e4453e9a42e56abfc5d505e1`），需要時從使用者 GitLab 重抓；模擬器控制工具一次來回
 5～10 秒，比 5 秒自動隱藏長，互動測試時可暫時把 `PlayerChrome.autoHideSeconds` 改大、測完還原並重建（不要 commit）。
 
 **雲端工作階段的限制（2026-09-25）**：沒有 Swift／Xcode（download.swift.org 被 proxy 擋，apt 也沒有套件；2026-09-28 再確認 GitHub releases 也回 403），編譯驗證靠發版 workflow，單元測試無法執行。語法檢查可用 PyPI 的 `tree-sitter` 加 `tree-sitter-swift`（`WebHTVApp.swift` 有 3 個既有誤報，都在 `as? … ??` 的寫法）。17H 的模擬器限制與手動開關 PiP 的做法見 `docs/IOS-POC-17H-mpv-picture-in-picture.md` 第六節之二；iPad 模擬器 App 容器的 `webhtv.playback.defaultEngine=mpv` 是測試用設定，可留。
@@ -399,6 +408,7 @@ Each stage owns a durable document where one exists; the rest are recorded here 
 | 29 | **Shipped in `0.1.26 (27)`; unit tests not run; not device-verified.** A default playback speed on the settings page for a new title; the same title still carries the speed set in the player (14B). `06c77537`, `95e507fa` | `docs/IOS-POC-29-default-playback-speed.md` |
 | 30 | **Shipped in `0.1.26 (27)`; unit tests not run; not device-verified.** The history list's clear and swipe delete touch only the current configuration; a record from before sources were separable is hidden, not deleted; `app.history` is per configuration. `a52ab2dd`, `1e8677b7`, `6f14069d` | `docs/IOS-POC-30-history-clear-per-source.md` |
 | 32 | **A and B shipped in `0.1.28 (29)`; unit tests not run; not device-verified. C shipped in `0.1.29 (30)` (first CI compile succeeded; unit tests not run; not device-verified): display-only Simplified → Taiwan Traditional from OpenCC `528ae262` `s2tw` (Python mirror matched OpenCC on 134,127 lines), 台 throughout, only Simplified-only input, Japanese untouched, surname rule for cast lists, 32 display sites. D awaiting approval.** A: the detail poster above the title, whole, in a 240 pt box (user's design). B: year / area / type line and director, cast, synopsis rows (display only; lenient decode; no score, user decision). C (display-only Simplified to Taiwan Traditional, OpenCC-derived, 台) and D (iOS 18 Translation, Japanese) researched. `73c96c56`, `5d393196`, `e6771a5f`, `07a18fd1`, `96e9997b` | `docs/IOS-POC-32-detail-metadata-zhtw.md` |
+| 34 | **Assessment (2026-09-28), no code changed.** 可可影視 category filters return a different list than the website; App passes the filter values unchanged, the cause is in the source's own `kkys.py` (list selection or sort codes, unverified because `www.kkys20.com` is blocked here) | `docs/IOS-POC-34-kkys-filter-mismatch.md` |
 | 33 | **Shipped in `0.1.29 (30)` (2026-09-28, first CI compile succeeded; unit tests not run); not device-verified.** A keyword typed in Traditional is also searched as typed after the Simplified form; per site both forms run in turn inside one slot and one report, merged (first answer as sent, later forms add new ids); a form that answered before the 30 s deadline is shown; 載入更多 pages each form; the 搜尋 tab, WebHome `app.search` and the home in-site search all use it. No Android precedent; modelled on MacCMS 2026 繁简同搜 | `docs/IOS-POC-33-dual-script-search.md` |
 | 31 | **Shipped in `0.1.27 (28)`; not device-verified.** The settings page's default engine and speed are pop-up menus; the 67 content sources sit behind one row that opens scrolled to the one in use. `97417be4`, `616b3fc9` | `docs/IOS-POC-31-settings-menus.md` |
 | 8L | **Core real-device acceptance preparation** — the acceptance matrix, the `wang-movie.json` rules/ads inventory, and the `0.1.8 (9)` release-candidate plan with a Release pre-flight build. Docs only; nothing was device-verified by it | `docs/IOS-POC-8L-core-real-device-acceptance.md` |
@@ -1251,10 +1261,10 @@ release version**.
 
 Paste this into a new session:
 
-> 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -6`、`git status`，以實際 Git 狀態為準、不要相信文件裡的 SHA。依 `AGENTS.md` 先讀 `AGENTS.md`、`docs/current-task-state.md` 最上方「Current handoff — 2026-09-27」一節。
+> 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -6`、`git status`，以實際 Git 狀態為準、不要相信文件裡的 SHA。依 `AGENTS.md` 先讀 `AGENTS.md`、`docs/current-task-state.md` 最上方「Current handoff — 2026-09-29」一節。
 >
-> 目前狀態：最新已發布版本是 `0.1.29 (30)`（2026-09-28，tag `ios-v0.1.29-b30` → `6ffd6e15`）；`0.1.25 (26)`～`0.1.29 (30)` 帶入 IOS-POC-27～33（32 為階段 A、B、C），都還沒有真機驗收。IOS-POC-32 D 等我核准。其餘各版的內容與真機結果見 Current handoff 的表格，各任務狀態見「任務狀態」。
+> 目前狀態：最新已發布版本是 `0.1.29 (30)`（2026-09-28，tag `ios-v0.1.29-b30` → `6ffd6e15`）；`0.1.25 (26)`～`0.1.29 (30)` 帶入 IOS-POC-27～33（32 為階段 A、B、C），都還沒有真機驗收。IOS-POC-32 D 等我核准（還缺：是否開始、iOS 17 的做法、是否固定 `.lowLatency`）；IOS-POC-27C 等我回報原生開不了時畫面顯示的原因；IOS-POC-34（可可影視分類結果與網站不同）等我允許 `www.kkys20.com` 或提供 Safari 網址。遠端的 5 條舊分支由我在 Mac 上刪除（指令在 Current handoff 的 Git 段）。其餘各版的內容與真機結果見 Current handoff 的表格，各任務狀態見「任務狀態」。
 >
-> 下一步：等我在 `0.1.28 (29)` 上真機回報（Current handoff「下一步」列的項目），你把結果填進對應文件。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不開始 IOS-POC-12／13。
+> 下一步：等我在 `0.1.29 (30)` 上真機回報（Current handoff「下一步」列的項目），你把結果填進對應文件。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不開始 IOS-POC-12／13。
 >
-> 規則：Ponytail 為可選 review；可用時可執行，若目前環境沒有就直接略過，不得因此阻擋功能修改、驗證、commit、build 或後續工作，也不得假稱已執行。功能修改仍須 `bash .codex/scripts/task_guard.sh start`，結束用 `finish --no-tag`。push 到 `ios-poc` 已授權；bump 版本、tag、package、publish 或發 SideStore release 前要先問我。不要直接安裝到我的 iPhone（我用 SideStore）。真機沒測到的一律寫「未驗證」。雲端工作階段沒有 Swift／Xcode，編譯靠發版 workflow，單元測試無法執行。
+> 規則：Ponytail 為可選 review；可用時可執行，若目前環境沒有就直接略過，不得因此阻擋功能修改、驗證、commit、build 或後續工作，也不得假稱已執行。功能修改仍須 `bash .codex/scripts/task_guard.sh start`，結束用 `finish --no-tag`。push 到 `ios-poc` 已授權；bump 版本、tag、package、publish 或發 SideStore release 前要先問我。不要直接安裝到我的 iPhone（我用 SideStore）。真機沒測到的一律寫「未驗證」。雲端工作階段沒有 Swift／Xcode，編譯靠發版 workflow，單元測試照常撰寫但不執行（我選的「只靠編譯與真機」）。只 push 到 `ios-poc`，不建立新的遠端分支，也不 merge 到 `main`。

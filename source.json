@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.33",
+          "date": "2026-09-29",
+          "localizedDescription": "WebHTV 0.1.33 (34)（未經真機驗收）\n\n新增\n- 內建 Python 加入 Crypto（pycryptodome）、lxml、bs4、pyquery。原本顯示「這個來源需要某模組」的 Python 站現在可以載入；模擬器上 44 個 Python 站中能播到影片的由 3 站增加到 19 站。\n\n修正\n- 短剧聚合、映像、永樂等 Python 站不再在載入時就失敗。\n\n已知限制\n- 仍有部分 Python 站因網站本身連不上、分類回空、或播放需要 Android 的本機代理而無法播放。\n- App 大小約增加 3.7 MB；SideStore 安裝時要多簽 46 個元件，可能稍慢。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.33-b34/WebHTV-0.1.33-34.ipa",
+          "size": 29313282,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.32",
           "date": "2026-09-29",
           "localizedDescription": "WebHTV 0.1.32 (33)（未經真機驗收）\n\n修正\n- MPV 子母畫面：進入時不再閃一格黑畫面；回到 App 時不再閃黑格，畫面改以 0.15 秒淡入接回。子母畫面的來源改為影片實際的顯示範圍，讓系統放回動畫有機會正好落在影片上。\n\n已知限制\n- 系統把子母畫面放回 App 的動畫本身（先放大再縮回有黑邊的大小）由 iOS 控制，App 無法指定目標；若此版在 iPhone 上仍會放大，請錄一段螢幕錄影提供分析。\n- MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒。",

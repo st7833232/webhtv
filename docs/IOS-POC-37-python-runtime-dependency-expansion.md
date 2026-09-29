@@ -6,7 +6,8 @@
 - 驗收：每個新套件有來源／版本／平台／SHA-256／授權；build／fetch／lock 流程可重現；import＋關鍵 API 在模擬器通過；requests 系不退步；受影響站跑到 `init/home/category/search/detail/player/media`；`swift test`、模擬器 build、Release 裝置 build 通過。
 - 狀態：**37A～37F 完成（模擬器），已發布為 `0.1.33 (34)`**（2026-09-29，使用者授權；tag `ios-v0.1.33-b34` → `062fcf99`，IPA 29,313,282 bytes，見 IOS-POC-11 第三十四次發布）。真機未驗證。
 - IOS-POC-37.1（第十二節，2026-09-29）：cache context 改由各 spider 持有、native stamp 納入 CPython payload identity；已發布為 `0.1.34 (35)`（2026-09-29，tag `ios-v0.1.34-b35` → `76f218f6`，見 IOS-POC-11 第三十五次發布）。
-- 唯一下一步：請使用者在 iPhone 上用 `0.1.33 (34)` 開第九節「真機待驗」列出的站，回報結果後填進第九節；37.1 的真機項目（第 12.4 節）用 `0.1.34 (35)` 驗。
+- IOS-POC-37.2（第十三節，2026-09-29）：stdlib `ssl` 預設信任 App 內附的 certifi（比照 Android Chaquopy），修正直接用 `urllib` 的腳本在真機 HTTPS 全失敗；只在 Linux host 驗證機制，**未 build、未發布**。
+- 唯一下一步：在 macOS 上 build 含 IOS-POC-37.2 的版本，依第 13.6 節驗證（第九節、第 12.4 節的真機項目可同一輪一起驗）。
 
 ## 1. 起點
 
@@ -464,3 +465,52 @@ AssertionError: 'from-b' != 'from-a'      # A 在 B 載入之後讀到的是 B �
 1. 第九節既有項目（`0.1.33 (34)` 上 import pycryptodome／lxml、新增到 media 的站實際播放、SideStore 重簽 46 個 framework 的安裝時間）。
 2. 本節修正已隨 `0.1.34 (35)` 發布：在 iPhone 上先開 MiFun、再開山楂、再回 MiFun，確認兩站的裝置識別各自保留（重開 App 後仍相同）。
 3. App 內 A→B→A 自檢只在 DEBUG 跑；Release 真機沒有等價自動檢查。
+
+## 13. IOS-POC-37.2 — stdlib `ssl` 預設信任 certifi（2026-09-29）
+
+### 13.1 問題與證據
+
+1. 使用者自寫的 MissAV `.py`（Android 正常）在 iOS 上有分類，但分類內沒有影片。
+2. 分類是 `homeContent` 的靜態清單；列表走 `urllib.request.urlopen`，任何例外都被裸 `except` 吞掉並回傳 `'False'`，所以列表為空且沒有錯誤訊息。
+3. Python-Apple-support `3.13-b15`（lock 的 sha256 `80175765…c5d1`，本次重新下載比對一致）`ios-arm64/lib-arm64/python3.13/lib-dynload/_ssl.cpython-313-iphoneos.so` 內含 `OPENSSLDIR: "/etc/ssl"`，預設 cafile 為 `/etc/ssl/cert.pem`。`PythonBoot.swift` 沒有設定任何 CA 路徑。
+4. `requests` 系腳本不受影響：`requests` 把 certifi 路徑交給 `load_verify_locations`，不走預設路徑。
+5. 推論（未實測）：真機 App 讀不到 `/etc/ssl/cert.pem`；模擬器可能讀到 macOS 主機的同名檔案，所以模擬器 survey 沒有暴露這個問題。
+
+### 13.2 設計比較
+
+| 方案 | 結論 |
+|---|---|
+| 不改 | 直接用 `urllib`／`http.client` 的腳本在真機 HTTPS 全部失敗，與 Android 不一致。否決。 |
+| 改寫使用者腳本改用 `self.fetch` | 腳本在 Android 正常，應原樣可跑；使用者否決。 |
+| Swift 端 `setenv("SSL_CERT_FILE")` | OpenSSL 在 secure 模式會忽略環境變數（Chaquopy 原始碼註解記載 Android 上的同一問題），iOS 上是否生效無法在此驗證；且為行程層級，mpv 自帶的 OpenSSL 也會讀到。不採用。 |
+| **採用**：Python 層替換 `ssl.SSLContext.set_default_verify_paths` | 與 Chaquopy 相同做法（`chaquo/chaquopy` master `product/runtime/src/main/python/java/android/__init__.py`，2026-09-29 讀取），iOS 端改用已隨 `requests` 出貨的 certifi。只影響 Python，且只影響未指定 cafile／capath／cadata 的預設路徑。 |
+
+### 13.3 變更
+
+1. `ios/WebHTVApp/Python/webhtv_runtime.py`：模組載入時把 `ssl.SSLContext.set_default_verify_paths` 換成 `load_verify_locations(certifi.where())`。`certifi` 在呼叫時才 import，缺少時只影響該次 HTTPS，不影響 Python 啟動。
+2. `ios/WebHTVApp/Python/webhtv_selfcheck.py`：新增 `ssl` 檢查，要求 `ssl.create_default_context()` 的 CA 統計與單獨載入 certifi 完全相同；依賴自檢由 7 項變為 8 項。
+3. 沒有 Swift、lock、binary、打包流程變更。
+
+### 13.4 驗證（Linux host，CPython 3.11.15／OpenSSL 3.0.13；此環境沒有 Xcode）
+
+以測試 CA 簽發 `localhost` 憑證起本機 HTTPS 伺服器；`SSL_CERT_FILE`／`SSL_CERT_DIR` 指向不存在路徑模擬「沒有系統 CA」；以假 `certifi` 指向測試 CA。
+
+| 情境 | 未修正（對照） | 修正後 |
+|---|---|---|
+| `urllib.request.urlopen` 預設 | `CERTIFICATE_VERIFY_FAILED` | **200** |
+| 明確 `cafile=` 另一個 CA | 失敗 | 失敗（明確設定未被覆蓋） |
+| `_stdlib_https_trust` 自檢 | — | 通過 |
+
+`py_compile` 兩個檔案通過。
+
+**未執行**：`swift test`、模擬器 build、Release 裝置 build、44 站 survey、真機。
+
+### 13.5 回滾
+
+revert 本 commit 即可（兩個 Python 檔與本節）。沒有 lock、binary 或 Swift 變更需要一起還原。
+
+### 13.6 待驗（全部未驗證）
+
+1. macOS 模擬器 Debug build：依賴自檢 8/8，其中 `ssl` 一行為 OK。
+2. 44 站 survey：與第 12.3 節逐站比對，沒有任何站、任何階段從 ✓ 變成 ✗。
+3. 真機：MissAV 腳本原樣載入，分類內出現影片列表。若仍為空，原因不在憑證，需在可連 `missav.ai` 的環境另查站點端（Cloudflare、HTML 結構）。

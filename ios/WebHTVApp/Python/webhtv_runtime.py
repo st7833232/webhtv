@@ -12,11 +12,26 @@
 import json
 import os
 import re
+import ssl
 import sys
 import traceback
 import types
 
 import base.spider
+
+
+# Stdlib `ssl` looks for CAs where OpenSSL was compiled to look, /etc/ssl, which is not where an iOS
+# app's trust store is. So a script that calls `urllib.request` itself (MissAV) failed every HTTPS
+# certificate check, while `requests` passed because it brings certifi. Android's Chaquopy has the
+# same gap and closes it by replacing this one method with its own bundle; this is that, with the
+# certifi bundle `requests` already uses. An explicit cafile/capath/cadata never reaches it.
+# IOS-POC-37.2.
+def _load_bundled_cas(self):
+    import certifi
+    self.load_verify_locations(certifi.where())
+
+
+ssl.SSLContext.set_default_verify_paths = _load_bundled_cas
 
 _spiders = {}
 

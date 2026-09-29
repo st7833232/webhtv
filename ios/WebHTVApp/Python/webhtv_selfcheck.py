@@ -22,6 +22,20 @@ def _requests_stack():
     return f'requests {requests.__version__}, urllib3 {urllib3.__version__}'
 
 
+def _stdlib_https_trust():
+    import ssl
+
+    import certifi
+    # What `urllib.request` verifies with. It has to trust exactly the certifi bundle that
+    # webhtv_runtime installs; anything else is OpenSSL's /etc/ssl, which an iOS app cannot use.
+    # IOS-POC-37.2.
+    reference = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    reference.load_verify_locations(certifi.where())
+    stats = ssl.create_default_context().cert_store_stats()
+    assert stats['x509_ca'] > 0 and stats == reference.cert_store_stats(), stats
+    return f"stdlib ssl trusts certifi ({stats['x509_ca']} CAs)"
+
+
 def _crypto_symmetric():
     import hashlib
 
@@ -107,6 +121,7 @@ def _base_html():
 
 CHECKS = [
     ('requests', _requests_stack),
+    ('ssl', _stdlib_https_trust),
     ('Crypto', _crypto_symmetric),
     ('Crypto.RSA', _crypto_rsa),
     ('bs4', _bs4),

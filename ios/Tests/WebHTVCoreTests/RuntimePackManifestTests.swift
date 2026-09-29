@@ -490,4 +490,8 @@ private func globalDocument(_ edit: (inout [String: Any]) -> Void = { _ in }) ->
     #expect(RuntimeTrustRoot.bundled.keys.count == RuntimeTrustRoot.bundledKeys.count)
     #expect(RuntimeTrustRoot.bundledKeys.filter { $0.role == .active }.count <= 1)
     #expect(RuntimeTrustRoot.bundledKeys.filter { $0.role == .backup }.count <= 1)
+    // The pair `webhtv-runtime-pack keygen` printed on 2026-09-29: these ids are what a signature
+    // names, so a key pasted with one character wrong fails here rather than on every device.
+    #expect(RuntimeTrustRoot.bundled.keys["db8863f2dcd3f4de"]?.role == .active)
+    #expect(RuntimeTrustRoot.bundled.keys["9ed9a5bd0cecd110"]?.role == .backup)
 }

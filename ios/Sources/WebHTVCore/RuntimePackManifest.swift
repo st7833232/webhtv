@@ -511,9 +511,14 @@ public struct RuntimeTrustRoot: Sendable {
     /// pair with `webhtv-runtime-pack keygen`; the active private key lives only in the
     /// `WEBHTV_RUNTIME_ACTIVE_KEY` Actions secret and the backup only offline (IOS-POC-13, D3).
     ///
-    /// **Empty until then**, so every global pack is refused — the fail-closed starting state.
-    /// Adding, rotating or removing a key is an IPA change, and only reaches devices with that IPA.
-    static let bundledKeys: [(base64: String, role: Role)] = []
+    /// Before 2026-09-29 this was empty, so every global pack was refused. Adding, rotating or
+    /// removing a key is an IPA change, and only reaches devices with that IPA.
+    static let bundledKeys: [(base64: String, role: Role)] = [
+        // keyId db8863f2dcd3f4de, created 2026-09-29; signs releases from CI.
+        ("HrzYhdAPWN7CvbmC36c1hsllrytZyuB9Dr4N06fsDbA=", .active),
+        // keyId 9ed9a5bd0cecd110, created 2026-09-29; kept offline, only for revocation.
+        ("dAXPtrjfyCzR857Ve1G47AjNO8nzuq9sTbg7ElaMugQ=", .backup),
+    ]
 
     public static let bundled = RuntimeTrustRoot(bundledKeys.compactMap { key in
         Data(base64Encoded: key.base64)

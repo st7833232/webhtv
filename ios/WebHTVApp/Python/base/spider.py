@@ -178,15 +178,22 @@ class Spider(metaclass=ABCMeta):
 
     # A JSON file per site, under a directory the runtime hands over.
     #
+    # The site key and the directory are this instance's own, set by `webhtv_runtime.load` right
+    # after construction. They used to be two module globals every load overwrote, so once site B
+    # loaded, site A's next setCache wrote into B's file (IOS-POC-37.1). Before they are set — a
+    # script touching the cache inside its own `__init__`, which none of the configured ones does —
+    # the cache reads empty and writes nothing rather than guess at somebody else's context.
+    #
     # ponytail: not the `SpiderStorage` the JavaScript spiders use. Reaching that would mean
     # bridging Swift callables into Python for two string operations, and no site is both a
     # JavaScript and a Python spider, so there is no shared state to keep. Upgrade path is the
     # bridge, if these two ever need to agree with anything.
     def _cache_file(self):
         import os
-        os.makedirs(_cache_dir, exist_ok=True)
-        safe = re.sub(r'[^A-Za-z0-9_.-]', '_', _site_key or 'unknown')
-        return os.path.join(_cache_dir, f'{safe}.json')
+        directory = getattr(self, '_webhtv_cache_dir', '')
+        os.makedirs(directory, exist_ok=True)
+        safe = re.sub(r'[^A-Za-z0-9_.-]', '_', getattr(self, '_webhtv_site_key', '') or 'unknown')
+        return os.path.join(directory, f'{safe}.json')
 
     def _cache_all(self):
         try:
@@ -196,12 +203,12 @@ class Spider(metaclass=ABCMeta):
             return {}
 
     def getCache(self, key):
-        if not _cache_dir:
+        if not getattr(self, '_webhtv_cache_dir', ''):
             return ''
         return self._cache_all().get(key, '')
 
     def setCache(self, key, value):
-        if not _cache_dir:
+        if not getattr(self, '_webhtv_cache_dir', ''):
             return
         store = self._cache_all()
         store[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
@@ -255,8 +262,3 @@ class Spider(metaclass=ABCMeta):
 
     def loadModule(self, name):
         raise SpiderError('loadModule() is not implemented on iOS')
-
-
-# Installed by `webhtv_runtime.load`, per site.
-_cache_dir = ''
-_site_key = ''

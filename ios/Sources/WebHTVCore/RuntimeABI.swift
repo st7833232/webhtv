@@ -57,7 +57,9 @@ public enum RuntimeABI {
             case .jsHost: Version(1, 1)
             // 1.1 (IOS-POC-37) adds pycryptodome, lxml, bs4 and pyquery, a working
             // `Spider.html()`, and `init`'s return value ignored as on Android — additions only.
-            case .pythonHost: Version(1, 1)
+            // 1.2 (IOS-POC-37.1): `getCache`/`setCache` use the calling spider's own site key and
+            // directory, not whichever spider loaded last. Same calls, same answers per site.
+            case .pythonHost: Version(1, 2)
             case .webhomeBridge: Version(1, 0)
             }
         }

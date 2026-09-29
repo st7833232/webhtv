@@ -5,7 +5,8 @@
 - 目標：依實測依賴矩陣，把 Python spider 缺的第三方套件以可重現、可驗證的方式加進 App 內建的 CPython，受影響的 spider 跑完 smoke test，且不改 Python runtime 架構、不碰 AVPlayer／MPV、不碰 Android `main`。
 - 驗收：每個新套件有來源／版本／平台／SHA-256／授權；build／fetch／lock 流程可重現；import＋關鍵 API 在模擬器通過；requests 系不退步；受影響站跑到 `init/home/category/search/detail/player/media`；`swift test`、模擬器 build、Release 裝置 build 通過。
 - 狀態：**37A～37F 完成（模擬器），已發布為 `0.1.33 (34)`**（2026-09-29，使用者授權；tag `ios-v0.1.33-b34` → `062fcf99`，IPA 29,313,282 bytes，見 IOS-POC-11 第三十四次發布）。真機未驗證。
-- 唯一下一步：請使用者在 iPhone 上用 `0.1.33 (34)` 開第九節「真機待驗」列出的站，回報結果後填進第九節。
+- IOS-POC-37.1（第十二節，2026-09-29）：cache context 改由各 spider 持有、native stamp 納入 CPython payload identity；已 push，**尚未發布**（`0.1.33 (34)` 不含）。
+- 唯一下一步：請使用者在 iPhone 上用 `0.1.33 (34)` 開第九節「真機待驗」列出的站，回報結果後填進第九節；37.1 的真機項目等下一版發布（第 12.4 節）。
 
 ## 1. 起點
 
@@ -402,3 +403,64 @@ CPU／啟動：native 模組只在 import 時載入，沒有 spider 用到就不
 - 意圖中的使用者可見變化：原本顯示「這個來源需要 X 模組」的站現在可以載入；三個 loader 相容性修正讓短剧聚合、映像、永樂不再在載入時失敗。沒有 UI、播放器或設定的變化。
 - Ponytail review：skipped（選配）。
 - 時間：開工時預估 6.5 小時（預計 23:00 完成）；實際 16:23 → 約 17:25，約 1 小時。差距來自兩個 native 套件各只要約 1.5 分鐘就編完、payload 內附的 cross-venv 一次就能用。
+
+## 12. IOS-POC-37.1 — Python per-spider cache isolation 與 native stamp 納入 CPython payload（2026-09-29）
+
+使用者查核 IOS-POC-37 後指出兩個缺口。只處理這兩件，不動 Crypto／lxml／bs4／pyquery，不動播放器；沒有 bump 版本、沒有 tag、沒有發布。起點 HEAD＝`origin/ios-poc`＝`69fab22a`，0/0，worktree 乾淨。`0.1.33 (34)` 的 run `36548879889` 事前已讀實際結果：全部步驟 success（見 IOS-POC-11 第三十四次發布），這次沒有再發布。
+
+### 12.1 cache 隔離
+
+**重現**：新增 `ios/Tests/Python/test_cache_isolation.py`（stdlib unittest，驅動真的 `webhtv_runtime.load/invoke`；兩站 site key 不同、cache 目錄也不同，順序 A 寫 → B 載入並寫同一個 key → A 讀、再寫）。修正前執行：
+
+```
+AssertionError: 'from-b' != 'from-a'      # A 在 B 載入之後讀到的是 B 的值
+```
+
+**根因**：`base/spider.py` 的 `_site_key`、`_cache_dir` 是模組全域，`webhtv_runtime.load()` 每載入一站就覆寫；`_cache_file()` 在**呼叫時**才讀全域。所以只要 B 在 A 之後載入（全站搜尋 IOS-POC-20 會同時建好幾個 Python spider），A 之後的 `getCache`／`setCache` 就讀寫 B 的檔。現有設定檔中真的受影響的是 MiFun（`did`）與山楂（`ldid`）：裝置識別值可能寫進別站的檔、下次讀不到而重新產生；兩站若用同一個 key 會互相覆蓋。
+
+**修法**：`load()` 建好實例後把 `_webhtv_site_key`、`_webhtv_cache_dir` 設在**該實例**上，`base.spider` 從 `self` 讀；兩個模組全域刪除，沒有任何替代的單一全域。每次 `load` 都 `exec` 出新的模組與類別，所以同一支腳本的多個站（金牌 ×5、getapp ×4）也各自獨立。腳本若在自己的 `__init__` 裡就碰 cache（設定檔裡沒有），那時 context 還沒設定，讀到空、寫入不做，而不是猜別人的 context。
+
+**與 Android 的關係**：API 形狀不變（`getCache(key)`／`setCache(key, value)`）。Android 的 cache 是走本機 proxy 的 `/cache`、以 key 為**全域**，而且讀取時會把 dict/list JSON 還原並處理 `expiresAt`；iOS 自 7G 起是每站一個 JSON 檔、存取字串——這是既有的刻意偏離，本次沒有改。唯一會存 dict 的 YouTube 只在 `localProxy` 路徑讀回，iOS 本來就走不到；MiFun、山楂存的是字串，行為相同。
+
+**測試**：
+- host：`python3.13 -m unittest discover -s ios/Tests/Python` → 修正前 FAILED（上面那行），修正後 OK。檢查 A、B 讀到各自的值，A 目錄只有 `site-a.json`、B 目錄只有 `site-b.json`，兩檔內容分別是 `{"did": "from-a-again"}`、`{"did": "from-b"}`。
+- App 內（iOS 內建 CPython，經 Swift 的兩個 `PythonSpiderRuntime`）：`PythonBoot.cacheIsolationCheck()` 做同樣的 A→B→A 並檢查兩個目錄的檔名與內容 → `[python] cache A→B→A OK: keys, directories and contents stay per site`。
+
+### 12.2 native stamp 納入 CPython payload identity
+
+**缺口**：`STAMP_WANT` 只涵蓋 `python_native_packages`、建置腳本與 patch。CPython payload 換版時，`third_party/python-ios/native/<sdk>` 仍會被判定為 current，而 extension 是對舊 payload 的 header／sysconfigdata 編的。
+
+**修法**（`scripts/build_python_ios_native.sh`）：
+- stamp 最前面加入 lock 釘選的 payload identity：`payload <upstream.release> <contents.python> <upstream.sha256>`（目前是 `3.13-b15 3.13.15 80175765…c5d1`）。不用時間戳。
+- 已安裝的 payload 必須就是 lock 釘的那一個：比對 `fetch_python_ios.sh` 驗過下載後才寫的 `.payload-sha256`；不符就 fail closed，要求先跑 `fetch_python_ios.sh`。
+
+**驗證**（本機，Xcode 27.0）：
+
+| 情況 | 結果 |
+|---|---|
+| 改腳本後第一次跑（兩個 sdk） | 兩個都重建：stamp `51734c1c…` → `b1a3da74…`，2 分 21 秒 |
+| 什麼都不變再跑 | 兩個都 `already current` |
+| 只把 lock 的 payload SHA 改成別的值（已安裝的仍是舊的） | fail closed：`installed CPython payload (80175765…) is not the one the lock pins (0000…0001)` |
+| 模擬 payload 更新（lock 與已安裝 payload 同時換成新 SHA） | iphonesimulator 重建，stamp 變成 `22f2ef19…` |
+| 還原真正的 payload identity | 重建，stamp 回到 `b1a3da74…`（stamp 是決定性的）；再跑一次兩個都 `already current` |
+
+測試用的 lock 修改已 `git checkout` 還原並確認 `git diff` 為空。
+
+### 12.3 回歸檢查
+
+| 項目 | IOS-POC-37 | IOS-POC-37.1 |
+|---|---|---|
+| `swift test --package-path ios` | 577/577 | **577/577**（`python.host` 1.1 已隨 `0.1.33 (34)` 出貨，依 append-only 規則升為 **1.2** 並新增一列指紋 `b34f1a61…efba`；1.0、1.1 兩列不動） |
+| 依賴自檢 | 7/7 | **7/7**；13/13 methods 不變 |
+| App 內 cache A→B→A | — | **OK** |
+| 模擬器 Debug build | 通過 | **通過** |
+| Release 裝置 build（unsigned，同 CI 參數） | 通過 | **通過**；142 個 framework、46 個 `.fwork`，bundle 內是修正後的 `base/spider.py` |
+| 44 站 survey | load 40、init 37、home 34、category 25、search 20、detail 25、player 25、**media 19** | load 40、init 37、home 35、category 26、search 21、detail 26、player 26、**media 20** |
+
+逐站比對兩輪：**沒有任何一站、任何一個階段從 ✓ 變成 ✗**。多出的一站是「金牌系列-界界」——上一輪是網站 `ReadTimeout`，這一輪網站有回應並到 media，屬網站端波動，不是本次修正的效果。requests 系、Crypto、lxml、bs4、pyquery 的站維持原結果。WatchHistory 不經過 Python cache（Swift 端），本次沒有碰。
+
+### 12.4 真機待驗（全部未驗證）
+
+1. 第九節既有項目（`0.1.33 (34)` 上 import pycryptodome／lxml、新增到 media 的站實際播放、SideStore 重簽 46 個 framework 的安裝時間）。
+2. 本節修正尚未出現在任何已發布 IPA（`0.1.33 (34)` 仍是修正前）：下一版發布後，在 iPhone 上先開 MiFun、再開山楂、再回 MiFun，確認兩站的裝置識別各自保留（重開 App 後仍相同）。
+3. App 內 A→B→A 自檢只在 DEBUG 跑；Release 真機沒有等價自動檢查。

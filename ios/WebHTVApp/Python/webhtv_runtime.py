@@ -36,9 +36,6 @@ def load(handle, site_key, cache_dir, source):
     leaves nothing registered, and the caller gets the reason.
     """
     try:
-        base.spider._site_key = site_key
-        base.spider._cache_dir = cache_dir
-
         module = types.ModuleType(f'webhtv_spider_{handle}')
         module.__dict__['__name__'] = f'webhtv_spider_{handle}'
         # Android loads a script with `SourceFileLoader` from the file it wrote it to, so a script
@@ -56,7 +53,12 @@ def load(handle, site_key, cache_dir, source):
         if not isinstance(spider_class, type):
             return _fail('the script defines no Spider class')
 
-        _spiders[handle] = spider_class()
+        spider = spider_class()
+        # The cache context belongs to this instance, never to the module: two sites loaded side by
+        # side must not see each other's key or directory (IOS-POC-37.1).
+        spider._webhtv_site_key = site_key
+        spider._webhtv_cache_dir = cache_dir
+        _spiders[handle] = spider
         return _ok('')
     except Exception:
         _spiders.pop(handle, None)

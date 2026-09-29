@@ -38,7 +38,9 @@ private let frozen: [RuntimeABI.Surface: [RuntimeABI.Version: String]] = [
     .jsHost: [.init(1, 1): "3724fb8a7f10f4c4467aadc3280d616c30a1801e319ef12d45ed4deba40d798b"],
     .pythonHost: [.init(1, 0): "151b866af42baf0cde224ff3cdcf6ca501a4c6ae6dc7274f9d0c1870958769f7",
                   // IOS-POC-37: pycryptodome, lxml, bs4, pyquery; `html()`; void `init`.
-                  .init(1, 1): "b93c7a05a0afe66cd35c0b3992650c582109b9b475da4e36f233a34f02b3843a"],
+                  .init(1, 1): "b93c7a05a0afe66cd35c0b3992650c582109b9b475da4e36f233a34f02b3843a",
+                  // IOS-POC-37.1: the cache context moves from two module globals onto each spider.
+                  .init(1, 2): "b34f1a61b2875684ad175ebdcfa170a021c440b8d6fe203f5923ca110cfbefba"],
     .webhomeBridge: [.init(1, 0): "80325b0e8d19a32d66ab0d6d3a6e306079dd821eaf4e1a4cba0f51f60a6e2582"],
 ]
 

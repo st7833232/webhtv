@@ -233,7 +233,54 @@ enum PythonBoot {
 
         await runtime.destroy()
         dependencyReport().forEach { print("[python] deps \($0)") }
+        print("[python] cache \(await cacheIsolationCheck())")
         return failures.isEmpty ? "13/13 methods OK, errors propagate" : "FAILED \(failures)"
+    }
+
+    /// IOS-POC-37.1: A → B → A through two real runtimes on the bundled interpreter. Site A writes,
+    /// site B loads and writes the same key, then A reads and writes again — each with its own key and
+    /// its own directory. Until 37.1 the second load re-pointed A's cache at B's file.
+    static func cacheIsolationCheck() async -> String {
+        let script = """
+        from base.spider import Spider
+
+        class Spider(Spider):
+            def action(self, action):
+                op, _, value = action.partition('=')
+                if op == 'set':
+                    self.setCache('did', value)
+                    return 'ok'
+                return self.getCache('did')
+        """
+        let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("python-selfcheck-cache")
+        try? FileManager.default.removeItem(at: root)
+        let dirA = root.appendingPathComponent("a"), dirB = root.appendingPathComponent("b")
+        do {
+            let a = try PythonSpiderRuntime(script: script, siteKey: "selfcheck-cache-a", cacheDirectory: dirA)
+            _ = try await a.action("set=from-a")
+            let b = try PythonSpiderRuntime(script: script, siteKey: "selfcheck-cache-b", cacheDirectory: dirB)
+            _ = try await b.action("set=from-b")
+            let firstRead = try await a.action("get")
+            _ = try await a.action("set=from-a-again")
+            let reads = (firstRead, try await b.action("get"), try await a.action("get"))
+            await a.destroy()
+            await b.destroy()
+            let files = [dirA, dirB].map {
+                (try? FileManager.default.contentsOfDirectory(atPath: $0.path).sorted()) ?? []
+            }
+            let fileA = (try? String(contentsOf: dirA.appendingPathComponent("selfcheck-cache-a.json"), encoding: .utf8)) ?? ""
+            let fileB = (try? String(contentsOf: dirB.appendingPathComponent("selfcheck-cache-b.json"), encoding: .utf8)) ?? ""
+            guard reads == ("from-a", "from-b", "from-a-again"),
+                  files == [["selfcheck-cache-a.json"], ["selfcheck-cache-b.json"]],
+                  fileA.contains("from-a-again"), !fileA.contains("from-b"),
+                  fileB.contains("from-b"), !fileB.contains("from-a") else {
+                return "FAILED A→B→A reads \(reads) files \(files) a=\(fileA) b=\(fileB)"
+            }
+            return "A→B→A OK: keys, directories and contents stay per site"
+        } catch {
+            return "FAILED A→B→A: \(error)"
+        }
     }
 
     /// IOS-POC-37: one line per bundled package, from `webhtv_selfcheck` — each exercising the API

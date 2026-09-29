@@ -12,8 +12,8 @@
 #
 # Output: third_party/python-ios/native/<sdk>/, untracked, one site-packages-shaped tree per sdk. The
 # Install Python build phase copies the tree for the sdk being built and converts each .so into a
-# framework with upstream's own install_python. Idempotent: a stamp over the lock section, this
-# script and the patches skips a tree that is already current.
+# framework with upstream's own install_python. Idempotent: a stamp over the pinned CPython payload
+# identity, the lock section, this script and the patches skips a tree that is already current.
 #
 # IOS-POC-37.
 set -euo pipefail
@@ -73,9 +73,22 @@ host_python() {
   [[ "$got" == "$WANT_PY" ]] || die "host python is $got; extension modules must be built by $WANT_PY"
 }
 
-# What the trees are built from. Any change to it rebuilds them.
-STAMP_WANT="$( { lock 'print(json.dumps(d, sort_keys=True))'; cat "$0" "$ROOT"/third_party/python-ios-patches/*; } \
-  | shasum -a 256 | awk '{print $1}')"
+# The CPython payload the extensions are compiled against — its headers, its sysconfigdata, the
+# cross-venv tooling — as the lock pins it: release, Python version and SHA-256, never a timestamp.
+# The installed payload must be that one (fetch_python_ios.sh writes .payload-sha256 only after it
+# verified the download), or a tree built here would be stamped against headers it never saw.
+# IOS-POC-37.1.
+PAYLOAD_IDENTITY="$(/usr/bin/python3 -c 'import json,sys; d=json.load(open(sys.argv[1]))
+print("payload", d["upstream"]["release"], d["contents"]["python"], d["upstream"]["sha256"])' "$LOCK")"
+PAYLOAD_SHA="${PAYLOAD_IDENTITY##* }"
+INSTALLED_SHA="$(cat "$ROOT/third_party/python-ios/.payload-sha256" 2>/dev/null || true)"
+[[ "$INSTALLED_SHA" == "$PAYLOAD_SHA" ]] \
+  || die "installed CPython payload (${INSTALLED_SHA:-none}) is not the one the lock pins ($PAYLOAD_SHA); run scripts/fetch_python_ios.sh"
+
+# What the trees are built from — the payload identity, the lock section, this script and the
+# patches. Any change to any of them rebuilds them.
+STAMP_WANT="$( { printf '%s\n' "$PAYLOAD_IDENTITY"; lock 'print(json.dumps(d, sort_keys=True))'
+  cat "$0" "$ROOT"/third_party/python-ios-patches/*; } | shasum -a 256 | awk '{print $1}')"
 
 # Download once into the work cache, then verify size and hash on every use. Fail closed.
 verified() {  # name url bytes sha256 -> path

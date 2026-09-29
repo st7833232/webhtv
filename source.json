@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.31",
+          "date": "2026-09-29",
+          "localizedDescription": "WebHTV 0.1.31 (32)（未經真機驗收）\n\n修正\n- MPV 子母畫面結束、回到 App 時，畫面會先閃出進入子母畫面前的舊畫格（看起來像進度往回），而且可能被放大或拉伸變形。現在子母畫面期間 App 內改顯示子母畫面的提示（與原生播放器相同），回到 App 後等 MPV 畫出新畫面才顯示，中間停在子母畫面最後的畫面。\n\n已知限制\n- MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.31-b32/WebHTV-0.1.31-32.ipa",
+          "size": 25704617,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.30",
           "date": "2026-09-29",
           "localizedDescription": "WebHTV 0.1.30 (31)（未經真機驗收）\n\n新增\n- 播放器控制列加上「上一集」「下一集」：換到同一條線路的相鄰一集，第一集、最後一集時按鈕變灰。換集前會先存好目前進度，新的一集從頭播（有設片頭就跳過）。\n- 詳情頁線路上方加上「立即播放」：沒看過就播第一條線路第一集；看過就回到上次的線路與集數，從上次的進度接著播。\n\n改善\n- 智慧去廣：一個廣告被切成兩段時改為一次跳過，露出的廣告時間約減少一半。\n\n修正\n- 智慧去廣：MPV 在沒有 DISCONTINUITY 標記、廣告自帶時間戳的影片上可能跳掉一段正片；現在偵測到時間軸跳動，該集就停止自動跳過（廣告會照播）。\n- MPV 子母畫面的快轉按鈕也套用智慧去廣的落點（快轉進廣告時落在廣告結束處）。",

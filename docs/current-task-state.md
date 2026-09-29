@@ -10,7 +10,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 雲端 session 若由 harness 指定其他工作分支，照樣只 push 到 `ios-poc`（使用者 2026-09-28 的決定），不建立新的遠端分支。
 
-**IOS-POC-37.1（2026-09-29 晚上，已 commit 並 push，未發布、未 bump、未 tag）**：修兩個查核缺口。(1) Python spider 的 cache context 原本是 `base.spider` 的模組全域（`_site_key`、`_cache_dir`），每次 `load` 覆寫，A 在 B 載入後的 `getCache`／`setCache` 會讀寫 B 的檔；已用 `ios/Tests/Python/test_cache_isolation.py` 重現，改為每個 spider instance 自己持有，host 測試與 App 內 `PythonBoot.cacheIsolationCheck()` 的 A→B→A 都通過。(2) `build_python_ios_native.sh` 的 stamp 納入 lock 釘選的 CPython payload identity（release、Python 版本、SHA-256），已安裝 payload 與 lock 不符即 fail closed；rebuild／skip／fail-closed 四種情況本機驗過。`python.host` ABI 1.1 → 1.2。`swift test` 577/577、依賴自檢 7/7、模擬器 Debug 與 Release 裝置 build 通過、44 站 survey 到 media 20 站（上一輪 19，無任何階段退步）。**`0.1.33 (34)` 不含本修正，真機未驗證**。見 IOS-POC-37 文件第十二節。
+**IOS-POC-37.1（2026-09-29 晚上，已 push，並發布為 `0.1.34 (35)`）**：修兩個查核缺口。(1) Python spider 的 cache context 原本是 `base.spider` 的模組全域（`_site_key`、`_cache_dir`），每次 `load` 覆寫，A 在 B 載入後的 `getCache`／`setCache` 會讀寫 B 的檔；已用 `ios/Tests/Python/test_cache_isolation.py` 重現，改為每個 spider instance 自己持有，host 測試與 App 內 `PythonBoot.cacheIsolationCheck()` 的 A→B→A 都通過。(2) `build_python_ios_native.sh` 的 stamp 納入 lock 釘選的 CPython payload identity（release、Python 版本、SHA-256），已安裝 payload 與 lock 不符即 fail closed；rebuild／skip／fail-closed 四種情況本機驗過。`python.host` ABI 1.1 → 1.2。`swift test` 577/577、依賴自檢 7/7、模擬器 Debug 與 Release 裝置 build 通過、44 站 survey 到 media 20 站（上一輪 19，無任何階段退步）。**真機未驗證**。見 IOS-POC-37 文件第十二節。
 
 **IOS-POC-37（2026-09-29 晚上，已 push，並發布為 `0.1.33 (34)`）**：Python runtime 加入 pycryptodome 3.23.0、lxml 6.1.3（libxml2 2.14.6／libxslt 1.1.43 靜態）、beautifulsoup4 4.15.0、pyquery 2.1.0 與其純 Python 相依。native 兩個從 pinned sdist 用 payload 內附的官方 cross-venv 交叉編譯（`scripts/build_python_ios_native.sh`，由 `fetch_python_ios.sh` 與 Xcode `Prepare Python` 呼叫；需要 host `python3.13`，Mac 上是 Homebrew `python@3.13`），`.so` 由上游 `install_python` 轉成 framework。另修三個 loader 相容性 bug（`init` 回傳值、`__file__`、不繼承 `base.spider.Spider` 的類別）。`python.host` ABI 1.0 → 1.1。模擬器 44 站 survey 到 media 從基線 3 站增加到 IOS-POC-37 文件第 6.3 節的數字；`swift test`、模擬器 Debug、Release 裝置 build 通過；**真機未驗證**；CI 的 native 建置已在發布 run `36548879889` 中第一次跑成功。文件：`docs/IOS-POC-37-python-runtime-dependency-expansion.md`。IOS-POC-36（播放器整體驗收）是下一個候選。
 
@@ -20,12 +20,13 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **2026-09-29 Mac session（已 push，並發布為 `0.1.30 (31)`）**：`c4d13ea7`（IOS-POC-25 Mac 補測紀錄、`scripts/ios_adskip_sim`、IOS-POC-34 結案）、`43c197b2`（IOS-POC-25-4 相接廣告一次跳過）、`4fd5ae0a`（IOS-POC-25-5 MPV 時間軸跳動就停止跳過）、`1dfcc0db`（IOS-POC-35 播放器上一集／下一集與詳情頁「立即播放」）。都已通過 `swift test`（537 個）與模擬器驗收，已隨 `0.1.30 (31)` 發布，**真機未驗證**。
 
-**最新已發布版本是 `0.1.33 (34)`**（2026-09-29，使用者授權；tag `ios-v0.1.33-b34` → `062fcf99`，run `36548879889`，`source.json` `ecd9b857`，IPA 29,313,282 bytes，SHA-256 `fa8637c945ab355e0ce1067457364a8578bbcada068ca5d4c4e97c6d4373e61f`，下載回驗通過）。至今共發布 34 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
+**最新已發布版本是 `0.1.34 (35)`**（2026-09-29，使用者授權；tag `ios-v0.1.34-b35` → `76f218f6`，run `36552435557`，`source.json` `7a3c6b7c`，IPA 29,313,638 bytes，SHA-256 `e054b254bd867edee7e02ba340b5be91ba9717e6bf30c82aceb61544931c0efb`，下載回驗通過）。至今共發布 35 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
 
 **近期各版內容（新到舊）**
 
 | 版本 | tag 指向 | 比上一版多了什麼 | 真機結果 |
 |---|---|---|---|
+| `0.1.34 (35)` | `76f218f6` | IOS-POC-37.1：Python spider 的 cache 不再互相覆蓋；native stamp 納入 CPython payload identity（`68ad62a5`） | 未驗證 |
 | `0.1.33 (34)` | `062fcf99` | IOS-POC-37：內建 Python 加入 pycryptodome、lxml、bs4、pyquery，三個 loader 相容性修正（`92b31ccf`）；模擬器 44 站中到 media 3 → 19 | 未驗證 |
 | `0.1.32 (33)` | `76d79787` | IOS-POC-17H-3：MPV 子母畫面進入／接回不再閃黑格、接回淡入、PiP 層改為影片矩形（`47f942e8`）；含 IOS-POC-12（`b354c80e`）與 IOS-POC-13 的撤銷（`20fd462e`） | 未驗證 |
 | `0.1.31 (32)` | `a826d6e2` | IOS-POC-17H-2：MPV 子母畫面結束回到 App 不再閃出舊畫格或變形（`631a7684`） | 未驗證 |
@@ -61,7 +62,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 4. commit 一律用 task guard（`start --scope` 每個路徑各帶一次，`finish` 加 `--no-tag`）。
 5. 雲端 session 沒有 Swift：單元測試照常撰寫但不執行（使用者選擇「只靠編譯與真機」），第一次編譯是發布時的 Release build。**在 Mac 上**（2026-09-29 使用者選「執行並修測試」）：`ios/` 的 `swift test` 要執行，測試本身的錯誤直接修，正式程式的 bug 先回報；2026-09-29 第一次執行 519 個全部通過。
 
-**下一步（唯一）**：等使用者回報 `0.1.33 (34)` 的真機結果（含 `0.1.32 (33)` 的全部內容；IOS-POC-37 的 Python 站見其文件第九節），先看 IOS-POC-17H-3（MPV 子母畫面回到 App：還會不會放大再縮小、閃一下）。若仍放大，請使用者錄 iPhone 螢幕錄影 AirDrop 到 Mac，逐格分析 AVKit 放回動畫在 iPhone 上的目標（App 端沒有 API 可指定，見 17H 文件第七節）。其餘項目收到後逐列填進下列文件，`0.1.33 (34)` 含前面各版的全部內容：
+**下一步（唯一）**：等使用者回報 `0.1.34 (35)` 的真機結果（含 `0.1.32 (33)`、`0.1.33 (34)` 的全部內容；IOS-POC-37 的 Python 站見其文件第九節），先看 IOS-POC-17H-3（MPV 子母畫面回到 App：還會不會放大再縮小、閃一下）。若仍放大，請使用者錄 iPhone 螢幕錄影 AirDrop 到 Mac，逐格分析 AVKit 放回動畫在 iPhone 上的目標（App 端沒有 API 可指定，見 17H 文件第七節）。其餘項目收到後逐列填進下列文件，`0.1.33 (34)` 含前面各版的全部內容：
 
 0. IOS-POC-33（`0.1.29 (30)`）：`docs/IOS-POC-33-dual-script-search.md` 第七節的真機項目。
 0. IOS-POC-32 C（`0.1.29 (30)`）：`docs/IOS-POC-32-detail-metadata-zhtw.md` 第六節第 4 點的真機項目與第 5 點第 5 項。
@@ -1275,8 +1276,8 @@ Paste this into a new session:
 
 > 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -6`、`git status`，以實際 Git 狀態為準、不要相信文件裡的 SHA。依 `AGENTS.md` 先讀 `AGENTS.md`、`docs/current-task-state.md` 最上方「Current handoff — 2026-09-29」一節。
 >
-> 目前狀態：最新已發布版本是 `0.1.33 (34)`（2026-09-29，tag `ios-v0.1.33-b34` → `062fcf99`），帶入 IOS-POC-37（Python 依賴擴充，見 `docs/IOS-POC-37-python-runtime-dependency-expansion.md`）；之後的 IOS-POC-37.1（Python cache 隔離、native stamp 納入 payload identity，同文件第十二節）已 push 但尚未發布；`0.1.25 (26)`～`0.1.33 (34)` 帶入 IOS-POC-27～35、37、25-4／25-5 與 17H-2／17H-3，都還沒有真機驗收。IOS-POC-12 已完成（2026-09-29，未發布，App 行為沒變），IOS-POC-13 未開始。IOS-POC-32 D 等我核准（還缺：是否開始、iOS 17 的做法、是否固定 `.lowLatency`）；IOS-POC-27C 等我回報原生開不了時畫面顯示的原因；IOS-POC-34 已結案（我改了 GitLab `recha` 的 `py/kkys.py`）。遠端只剩 `main` 與 `ios-poc`。其餘各版的內容與真機結果見 Current handoff 的表格，各任務狀態見「任務狀態」。
+> 目前狀態：最新已發布版本是 `0.1.34 (35)`（2026-09-29，tag `ios-v0.1.34-b35` → `76f218f6`），帶入 IOS-POC-37.1；`0.1.33 (34)` 帶入 IOS-POC-37（Python 依賴擴充，見 `docs/IOS-POC-37-python-runtime-dependency-expansion.md`）；`0.1.25 (26)`～`0.1.34 (35)` 帶入 IOS-POC-27～35、37、25-4／25-5 與 17H-2／17H-3，都還沒有真機驗收。IOS-POC-12 已完成（2026-09-29，未發布，App 行為沒變），IOS-POC-13 未開始。IOS-POC-32 D 等我核准（還缺：是否開始、iOS 17 的做法、是否固定 `.lowLatency`）；IOS-POC-27C 等我回報原生開不了時畫面顯示的原因；IOS-POC-34 已結案（我改了 GitLab `recha` 的 `py/kkys.py`）。遠端只剩 `main` 與 `ios-poc`。其餘各版的內容與真機結果見 Current handoff 的表格，各任務狀態見「任務狀態」。
 >
-> 下一步：等我在 `0.1.33 (34)` 上真機回報（Current handoff「下一步」列的項目），你把結果填進對應文件。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13（已實作後依我的決定撤銷）。
+> 下一步：等我在 `0.1.34 (35)` 上真機回報（Current handoff「下一步」列的項目），你把結果填進對應文件。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13（已實作後依我的決定撤銷）。
 >
 > 規則：Ponytail 為可選 review；可用時可執行，若目前環境沒有就直接略過，不得因此阻擋功能修改、驗證、commit、build 或後續工作，也不得假稱已執行。功能修改仍須 `bash .codex/scripts/task_guard.sh start`，結束用 `finish --no-tag`。push 到 `ios-poc` 已授權；bump 版本、tag、package、publish 或發 SideStore release 前要先問我。不要直接安裝到我的 iPhone（我用 SideStore）。真機沒測到的一律寫「未驗證」。雲端工作階段沒有 Swift／Xcode，編譯靠發版 workflow，單元測試照常撰寫但不執行（我選的「只靠編譯與真機」）。只 push 到 `ios-poc`，不建立新的遠端分支，也不 merge 到 `main`。

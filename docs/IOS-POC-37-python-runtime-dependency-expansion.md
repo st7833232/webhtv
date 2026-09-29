@@ -5,8 +5,8 @@
 - 目標：依實測依賴矩陣，把 Python spider 缺的第三方套件以可重現、可驗證的方式加進 App 內建的 CPython，受影響的 spider 跑完 smoke test，且不改 Python runtime 架構、不碰 AVPlayer／MPV、不碰 Android `main`。
 - 驗收：每個新套件有來源／版本／平台／SHA-256／授權；build／fetch／lock 流程可重現；import＋關鍵 API 在模擬器通過；requests 系不退步；受影響站跑到 `init/home/category/search/detail/player/media`；`swift test`、模擬器 build、Release 裝置 build 通過。
 - 狀態：**37A～37F 完成（模擬器），已發布為 `0.1.33 (34)`**（2026-09-29，使用者授權；tag `ios-v0.1.33-b34` → `062fcf99`，IPA 29,313,282 bytes，見 IOS-POC-11 第三十四次發布）。真機未驗證。
-- IOS-POC-37.1（第十二節，2026-09-29）：cache context 改由各 spider 持有、native stamp 納入 CPython payload identity；已 push，**尚未發布**（`0.1.33 (34)` 不含）。
-- 唯一下一步：請使用者在 iPhone 上用 `0.1.33 (34)` 開第九節「真機待驗」列出的站，回報結果後填進第九節；37.1 的真機項目等下一版發布（第 12.4 節）。
+- IOS-POC-37.1（第十二節，2026-09-29）：cache context 改由各 spider 持有、native stamp 納入 CPython payload identity；已發布為 `0.1.34 (35)`（2026-09-29，tag `ios-v0.1.34-b35` → `76f218f6`，見 IOS-POC-11 第三十五次發布）。
+- 唯一下一步：請使用者在 iPhone 上用 `0.1.33 (34)` 開第九節「真機待驗」列出的站，回報結果後填進第九節；37.1 的真機項目（第 12.4 節）用 `0.1.34 (35)` 驗。
 
 ## 1. 起點
 
@@ -462,5 +462,5 @@ AssertionError: 'from-b' != 'from-a'      # A 在 B 載入之後讀到的是 B �
 ### 12.4 真機待驗（全部未驗證）
 
 1. 第九節既有項目（`0.1.33 (34)` 上 import pycryptodome／lxml、新增到 media 的站實際播放、SideStore 重簽 46 個 framework 的安裝時間）。
-2. 本節修正尚未出現在任何已發布 IPA（`0.1.33 (34)` 仍是修正前）：下一版發布後，在 iPhone 上先開 MiFun、再開山楂、再回 MiFun，確認兩站的裝置識別各自保留（重開 App 後仍相同）。
+2. 本節修正已隨 `0.1.34 (35)` 發布：在 iPhone 上先開 MiFun、再開山楂、再回 MiFun，確認兩站的裝置識別各自保留（重開 App 後仍相同）。
 3. App 內 A→B→A 自檢只在 DEBUG 跑；Release 真機沒有等價自動檢查。

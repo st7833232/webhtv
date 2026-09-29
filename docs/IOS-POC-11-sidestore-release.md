@@ -894,9 +894,38 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第三十四次發布：`0.1.33 (34)`（2026-09-29，**已發布**）
+## 第三十五次發布：`0.1.34 (35)`（2026-09-29，**已發布**）
 
-**目前最新版是 `0.1.33 (34)`。** 前面三十三版都已被取代。
+**目前最新版是 `0.1.34 (35)`。** 前面三十四版都已被取代。
+
+- 授權：使用者 2026-09-29 指示「先幫我發佈」（在回報金牌 zjuys 篩選問題之後、調查完成之前）。版號沿用序號 `0.1.34`，build `35`。
+- 內容：`0.1.33 (34)` 的全部，加上 IOS-POC-37.1（`68ad62a5`：Python spider 的 cache context 改由各 spider 持有；native build stamp 納入 CPython payload identity；`python.host` ABI 1.2）。文件 IOS-POC-37 第十二節。
+- 發布序列：
+  1. 版號 commit `76f218f6`（Task-Guard `IOS-RELEASE-0.1.34-b35`）。
+  2. push `68ad62a5..76f218f6`。
+  3. `gh workflow run ios-sidestore-release.yml --ref ios-poc -f release_notes=…` → run `36552435557`（success，2026-09-29 09:56:50Z → 10:01:18Z，所有步驟 success）。
+  4. workflow 建立 tag `ios-v0.1.34-b35`（target `76f218f6`），並推回 `source.json`（`7a3c6b7c`，共三十五筆，第一筆 `0.1.34`，size 與 IPA 相同）。
+
+  **沒有手動建 tag。**
+- 產物：`WebHTV-0.1.34-35.ipa` **29,313,638 bytes**，SHA-256
+  `e054b254bd867edee7e02ba340b5be91ba9717e6bf30c82aceb61544931c0efb`（與 GitHub 記錄的 digest 相同）。
+  **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`com.webhtv.ios.poc` / `0.1.34` / build `35` / minimum iOS `17.0`；`Frameworks/` 142 個；`python-packages/` 0 個 `.so`、46 個 `.fwork`；`webhtv-python/base/spider.py` 用 `_webhtv_cache_dir`、已無模組全域 `_cache_dir`。
+- 發布前驗證：IOS-POC-37 第 12.3 節（`swift test` 577/577、依賴自檢 7/7、App 內 cache A→B→A、模擬器 Debug 與 Release 裝置 build、44 站 survey 到 media 20 站）。**真機尚未驗收。**
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.34 (35)（未經真機驗收）
+
+修正
+- Python 站的快取不再互相覆蓋：同時開過多個 Python 站（例如全站搜尋）之後，各站存的資料（如 MiFun、山楂的裝置識別）只會寫進自己那一站。
+
+已知限制
+- 金牌系列-zjuys 的分類篩選問題仍在調查中，此版尚未修正。
+- 其餘同 0.1.33 (34)：部分 Python 站因網站本身連不上、分類回空、或播放需要 Android 的本機代理而無法播放。
+```
+
+## 第三十四次發布：`0.1.33 (34)`（2026-09-29，**已發布**，已被 `0.1.34 (35)` 取代）
 
 - 授權：使用者 2026-09-29 指示「發布 0.1.33 (34) 到 SideStore」。版號 `0.1.33`，build `34`。
 - 內容：`0.1.32 (33)` 的全部，加上 IOS-POC-37（`92b31ccf`：內建 Python 加入 pycryptodome 3.23.0、lxml 6.1.3、beautifulsoup4、pyquery 與其相依；三個 loader 相容性修正；`python.host` ABI 1.1）。文件 `docs/IOS-POC-37-python-runtime-dependency-expansion.md`。

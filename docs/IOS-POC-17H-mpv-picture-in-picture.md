@@ -154,6 +154,57 @@ MPV 版要同樣：MPV 播放中滑回主畫面 → 自動出現 PiP 視窗、�
 - 可行修法（未實作）：子母畫面期間與回到 App 時，以黑色覆蓋層蓋住殘留的 Metal 畫格；重建前先套用最新尺寸，讓輸出只以正確尺寸建一次；若錄影顯示放大發生在 AVKit 放回動畫期間，再把 sample-buffer view 改為影片的等比例矩形。
 - **使用者決定（2026-09-25）：「先不改，等有模擬器你再修改」**。本問題保持開啟，等可在模擬器驗證的環境再實作；屆時先加 log 並錄影分辨放大的來源。
 
+## 真機回報的模擬器重現與修法（IOS-POC-17H-2，2026-09-29）
+
+使用者 2026-09-29 要求在 `0.1.30 (31)` 發布後處理「MPV 在子母畫面結束回到 App 會有異常狀態」，症狀確認為「畫面突然放大／變形再恢復」與「進度往回一點」；並提醒「原生進入 PiP，App 的畫面是黑的但有文字，要不要參照原生播放器」。
+
+### 1. 重現（iPad mini (A17 Pro) 模擬器 iOS 26.3、`0.1.30 (31)` 的程式加暫時的旗標檔 hook；iPhone 模擬器的 `isPictureInPictureSupported()` 是 false，iPadOS 26 的視窗模式按 Home 不會進背景，所以以 `tmp/pip-start`、`tmp/pip-stop` 手動開關，hook 未 commit；本機條碼測試片 A、MPV）
+
+| 輪 | 過程 | 錄影逐格結果（`scripts/ios_adskip_sim/analyze.py`） |
+|---|---|---|
+| a | 播到 9.7 秒開始 PiP，約 23 秒後結束，視窗大小不變 | 子母畫面期間 App 一直顯示 9.68 秒的畫格（進入 PiP 那一刻 Metal 的最後一格）；結束時放回動畫與約 0.43 秒全黑；接著 **9.68 秒的舊畫格再出現約 0.26 秒**；之後跳到 43.32 秒（正確位置：9.7＋23＋跳過的 10 秒廣告）繼續播 |
+| b | 再開 PiP，期間把 App 視窗拖成橫向 | 子母畫面期間的舊畫格被壓扁以塞進新的視窗；結束後全黑約 0.3 秒，**被壓扁的舊畫格再出現約兩格**，之後才是比例正確、時間正確的畫面 |
+
+結論：兩個症狀都是第一節「確定的機制一」——Metal view 疊在 sample-buffer view 上，保留進入 PiP 時的最後一格，以 `kCAGravityResize` 拉到目前的 bounds，直到重建的 Metal 輸出畫出第一格。「進度往回」是這張舊畫格（本例早了 33 秒），實際播放位置正確。機制二（舊 `drawableSize`）在 17I-3 之後已不存在（尺寸改變直接設 `drawableSize`，不再重建）。
+
+### 2. 參照原生
+
+AVPlayer 的 PiP 期間，App 裡是 AVKit 的黑底加文字；MPV 的 sample-buffer 來源也會有同樣的 AVKit 畫面（第六節之二 D5：「This video is playing in picture in picture.」），只是被上面的 Metal view 蓋住。另外 `MPVSoftwareRenderer.detach()` 不會清掉 sample-buffer layer，所以 PiP 結束後它仍保留 PiP 最新的一格（`resizeAspect`，比例正確）。
+
+### 3. 方案
+
+| 方案 | 內容 | 結論 |
+|---|---|---|
+| 不改 | — | 否 |
+| 黑色覆蓋層 | 另加一層黑色 view 蓋住 Metal | 否：與原生不同（沒有文字），多一個 view |
+| **對齊原生：PiP 期間與回來後、第一格新畫面前隱藏 Metal view**（實施） | `pictureInPictureControllerWillStartPictureInPicture` 時隱藏 Metal view，露出 AVKit 的 PiP 畫面；結束後維持隱藏，等 mpv 的 `MPV_EVENT_PLAYBACK_RESTART`（重建輸出後的精確 seek 完成）才顯示；等不到時，App 回到前景後 1 秒顯示（使用者 2026-09-29 問「為什麼要等 2 秒，原生沒這麼久」，說明 2 秒只是等不到訊號時的上限、平常約 0.4～0.7 秒後，選擇 1 秒） | 實施 |
+| 消除重建時的 exact seek | 改 Libmpv 或換輸出方式 | 否：替換二進位、範圍大；只影響數十毫秒 |
+
+### 4. 驗收標準
+
+1. 模擬器重跑 a、b：PiP 期間 App 裡不再出現舊畫格（應為 AVKit 的黑底文字或黑畫面）；結束後不再出現舊畫格或變形畫格，第一個看得到的畫面是比例正確、時間在 PiP 結束位置附近的畫格。
+2. PiP 期間暫停再結束：畫面最後會出現（最遲 2 秒），不會一直黑著。
+3. 沒有進 PiP 的一般播放、旋轉、換畫質：Metal view 從不被隱藏（行為不變）。
+4. 真機：要使用者驗收。
+
+### 5. 回滾
+
+revert 本階段的 commit。
+
+### 6. 實作與驗證（2026-09-29，使用者核准「1 秒，開始實作」）
+
+1. `ios/WebHTVApp/Sources/MPVEngine.swift`：`MPVVideoView.showsMetal`；`MPVPlayerCore.Event.playbackRestarted`（`MPV_EVENT_PLAYBACK_RESTART`）；`MPVEngine.coverMetalForPictureInPicture()`、`revealMetalAfterPictureInPicture()`（先等 App 回到前景，再最多 1 秒）與 `revealMetal()`；`MPVPictureInPicture` 在 will-start 時遮住、在 `ended` 時等候顯示。沒有進 PiP 的路徑都不會呼叫，Metal view 維持顯示。
+2. 模擬器（同第一節的環境與 hook；hook 未 commit）：
+
+   | 輪 | 修正前 | 修正後 |
+   |---|---|---|
+   | PiP 期間 | 顯示進入 PiP 那一刻的舊畫格（視窗改變時被壓扁） | AVKit 的 PiP 圖示與「This video is playing in picture in picture.」，底下是 sample-buffer 的畫面（比例正確）。與原生的全黑底不同：sample-buffer layer 是 PiP 的來源，不能隱藏 |
+   | a 結束 | 約 0.43 秒全黑後，舊畫格（早 33 秒）0.26 秒，再跳到現在 | 約 0.43 秒全黑（系統的放回動畫）後，PiP 最新的一格停約 0.2 秒，接著從同一處連續播放；**沒有往回的跳動**（逐格解碼） |
+   | b 結束（期間改成橫向視窗） | 全黑後被壓扁的舊畫格約兩格 | 放回動畫後第一個畫面就是比例正確的新畫面 |
+
+3. 未驗證：PiP 期間暫停再結束（模擬器的控制工具一次來回比控制列 5 秒自動隱藏長，無法先叫出控制列再按暫停；等不到訊號時由 1 秒上限顯示）；背景中從 PiP 視窗關閉後再回到 App；真機（旋轉、藍牙耳機的 exact seek 往回量）。
+4. 單元測試：本階段只改 App target，WebHTVCore 沒有變更，沒有重跑 `swift test`；Debug 模擬器 build 成功。
+
 ## Recovery anchor
 
 - 目標：MPV PiP（P6），行為對齊 AVPlayer 自動 PiP（第一節）。

@@ -39,6 +39,12 @@ final class MPVEngine: PlaybackEngine {
 
     /// Long enough for a slow first segment; the watchdog only starts once the file has loaded.
     private static let firstFrameTimeout: Duration = .seconds(10)
+    /// IOS-POC-17H-2: the Metal picture waits for mpv's first frame after Picture in Picture…
+    private var awaitingMetalFrame = false
+    private var metalReveal: Task<Void, Never>?
+    /// …or this long once the app is active, if that frame is never announced (the user's choice,
+    /// 2026-09-29; the simulator's rebuild took 0.4-0.7 s).
+    private static let metalRevealTimeout: Duration = .seconds(1)
 
     init() {
         core = MPVPlayerCore(layer: view.metalLayer)
@@ -148,6 +154,39 @@ final class MPVEngine: PlaybackEngine {
         setDisplaySleepPrevented(running && UIApplication.shared.applicationState != .background)
     }
 
+    /// IOS-POC-17H-2: Picture in Picture is taking the video. The Metal layer keeps its last frame
+    /// and stretches it over any new bounds, so it is hidden, and AVKit's placeholder shows — the
+    /// black screen with a line of text AVPlayer's own PiP leaves in the app.
+    func coverMetalForPictureInPicture() {
+        metalReveal?.cancel()
+        metalReveal = nil
+        awaitingMetalFrame = false
+        view.showsMetal = false
+    }
+
+    /// Picture in Picture ended and the Metal output is being rebuilt: until mpv restarts playback
+    /// on it, PiP's latest frame (under the Metal layer, at the right aspect) shows instead of the
+    /// frame from before PiP. In the background the rebuild waits for the foreground, so the
+    /// timeout does too.
+    func revealMetalAfterPictureInPicture() {
+        awaitingMetalFrame = true
+        metalReveal?.cancel()
+        metalReveal = Task { @MainActor [weak self] in
+            while UIApplication.shared.applicationState != .active {
+                guard (try? await Task.sleep(for: .milliseconds(100))) != nil else { return }
+            }
+            guard (try? await Task.sleep(for: Self.metalRevealTimeout)) != nil else { return }
+            self?.revealMetal()
+        }
+    }
+
+    private func revealMetal() {
+        metalReveal?.cancel()
+        metalReveal = nil
+        awaitingMetalFrame = false
+        view.showsMetal = true
+    }
+
     /// `UIApplication.isIdleTimerDisabled` is app-wide, so every MPV lifecycle exit must release it.
     private func setDisplaySleepPrevented(_ prevented: Bool) {
         guard UIApplication.shared.isIdleTimerDisabled != prevented else { return }
@@ -169,6 +208,8 @@ final class MPVEngine: PlaybackEngine {
         case .videoReconfigured(let width, let height):
             firstFrameWatchdog?.cancel()
             if width > 0, height > 0 { pictureInPicture?.videoSizeChanged(width: width, height: height) }
+        case .playbackRestarted:
+            if awaitingMetalFrame { revealMetal() }
         case .mediaSelectionChanged(let selection):
             onMediaSelectionChange?(selection)
             reportAudioDiagnostics(selection)
@@ -207,6 +248,11 @@ final class MPVVideoView: UIView {
     var metalLayer: CAMetalLayer { metalView.layer as! CAMetalLayer }
     var sampleBufferLayer: AVSampleBufferDisplayLayer { sampleBufferView.layer as! AVSampleBufferDisplayLayer }
     private var laidOutSize = CGSize.zero
+    /// IOS-POC-17H-2: whether mpv's Metal picture is on top. Off while Picture in Picture has the
+    /// video and until the rebuilt output draws (`MPVEngine.coverMetalForPictureInPicture`).
+    var showsMetal = true {
+        didSet { metalView.isHidden = !showsMetal }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -282,6 +328,9 @@ final class MPVPlayerCore: @unchecked Sendable {
         /// The display size, zero when there is no video output (the track was released).
         case videoReconfigured(width: Int, height: Int)
         case mediaSelectionChanged(PlaybackMediaSelection)
+        /// Playback restarted after a seek, including the one an output rebuild makes: the first
+        /// frame on the new output (IOS-POC-17H-2).
+        case playbackRestarted
         case ended
         case failed(Int32)
     }
@@ -482,6 +531,8 @@ final class MPVPlayerCore: @unchecked Sendable {
                 let video = mpv_get_property_string(mpv, "current-tracks/video/id")
                 defer { mpv_free(video) }
                 onEvent?(.fileLoaded(hasVideo: video != nil))
+            case MPV_EVENT_PLAYBACK_RESTART:
+                onEvent?(.playbackRestarted)
             case MPV_EVENT_VIDEO_RECONFIG:
                 var width: Int64 = 0, height: Int64 = 0
                 mpv_get_property(mpv, "dwidth", MPV_FORMAT_INT64, &width)
@@ -927,6 +978,7 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
         // that failed to open leaves the background as it was before 17H: sound on, no picture.
         if inBackground, pausingInBackground { engine?.pause() }
         core.stopSoftwareOutput(keepVideo: !inBackground)
+        engine?.revealMetalAfterPictureInPicture()
     }
 
     // MARK: AVPictureInPictureControllerDelegate
@@ -935,6 +987,7 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
         PlaybackSession.log.notice("[pip] mpv will start — video moves to the software output")
         foregroundRestore.pictureInPictureWillStart()
         setActive(true)
+        engine?.coverMetalForPictureInPicture()
         core.startSoftwareOutput(renderer)
         // The window does not read the time range on its own when it opens (VLC,
         // `VLCPictureInPictureController.m`).

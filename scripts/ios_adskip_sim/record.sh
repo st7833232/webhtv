@@ -8,7 +8,7 @@ mkdir -p "$DIR"
 case "$2" in
 start)
   xcrun simctl spawn $U log stream --style ndjson --level info \
-    --predicate 'eventMessage CONTAINS "[adskip]" OR eventMessage CONTAINS "[playback]"' \
+    --predicate 'eventMessage CONTAINS "[adskip]" OR eventMessage CONTAINS "[playback]" OR eventMessage CONTAINS "[pip]"' \
     > "$DIR/$1.log" 2>/dev/null &
   echo $! > "$DIR/$1.logpid"
   xcrun simctl io $U recordVideo --codec=h264 --force "$DIR/$1.mp4" > "$DIR/$1.rec" 2>&1 &

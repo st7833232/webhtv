@@ -407,6 +407,36 @@ public enum RuntimePackRejection: Error, Equatable, Sendable {
     }
 }
 
+extension RuntimePackRejection: LocalizedError {
+    /// What the settings page shows. Detail stays in `String(describing:)` for the log.
+    public var errorDescription: String? {
+        switch self {
+        case .unsupportedFormat, .unsupportedSchema, .unsupportedDirective, .unknownSurface, .abiTooNew,
+             .missingCapabilities, .appVersionTooOld, .appBuildTooOld, .unknownAssetType, .assetTypeNotSupported:
+            "需要較新的 App"
+        case .abiMajorMismatch(_, let required, let installed):
+            required > installed ? "需要較新的 App" : "更新包是給舊版 App 的"
+        case .appBuildTooNew: "更新包是給舊版 App 的"
+        case .insecureOrigin, .crossOrigin: "更新包不在設定自己的 HTTPS 位置"
+        case .scopeMismatch: "更新包不屬於這個設定"
+        case .signatureRequired, .signatureMalformed, .unknownKey, .revokedKey, .badSignature,
+             .revocationNotPermitted:
+            "更新包的簽章無效"
+        case .expired: "更新包已過期"
+        case .rollback, .sequenceReused: "伺服器上的更新包比已安裝的舊"
+        case .knownBad: "這個版本先前載入失敗，不再使用"
+        case .nativeReleaseRequired: "包含只能隨 App 更新的內容"
+        case .manifestTooLarge, .fileTooLarge, .packTooLarge, .tooManyFiles, .notesTooLong: "更新包超過大小上限"
+        case .fileMissing, .sizeMismatch, .digestMismatch, .unexpectedFile: "更新包的檔案不完整或內容不符"
+        case .scriptDoesNotLoad(let name): "\(name) 無法載入"
+        case .packIdMismatch: "更新包與已安裝的不是同一個"
+        case .malformed, .missingField, .invalidPackId, .invalidVersion, .undeclaredSurface, .surfaceNotRequirable,
+             .emptyPack, .invalidPath, .duplicatePath, .invalidClass, .invalidDigest:
+            "更新包格式錯誤"
+        }
+    }
+}
+
 // MARK: - What the installed App offers
 
 /// The installed App as a pack sees it. `appVersion` and `appBuild` are `CFBundleShortVersionString`

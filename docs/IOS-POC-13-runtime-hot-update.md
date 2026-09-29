@@ -160,3 +160,32 @@ IOS-POC-12 的 R1～R25（TUF、Uptane、Expo、CodePush、Shorebird、minisign�
 回滾：`git revert` 本 commit（App 回到只讀已存 pack、不再下載）。
 
 下一步：13C（設定頁 UI）。
+
+### 11.3 13C：設定頁「Spider 腳本更新」與端對端驗收（2026-09-29）
+
+| 檔案 | 變更 |
+|---|---|
+| `ios/WebHTVApp/Sources/WebHTVApp.swift` | 設定頁新增「Spider 腳本更新」區塊：App 版本（`CFBundleShortVersionString (CFBundleVersion)`）、WebHTV 更新包、此設定的更新包（版本、序號、腳本數＋上次檢查的結果）、上次檢查時間、使用中 pack 的更新說明、「檢查更新」按鈕（檢查 global 與目前設定，進行中停用）；說明文字列出 Runtime ABI。結果文字：已更新／已是最新／尚未發布／這個設定沒有提供／已下載新版本，下次啟動套用／有新版本，需要較新的 App／沒有採用：原因，繼續使用目前的版本／無法檢查（原因），繼續使用目前的版本。移除原本的「Spider 腳本」一列 |
+| `ios/Sources/WebHTVCore/RuntimePackManifest.swift` | `RuntimePackRejection` 加上中文 `errorDescription`；「需要較新的 App」只在 `requiresNewerApp` 為真時出現 |
+| `ios/Tests/WebHTVCoreTests/RuntimePackManifestTests.swift` | `needingANewerAppReadsDifferentlyFromEveryOtherRefusal` |
+
+模擬器端對端驗收（iPhone 17 Pro 模擬器 iOS 26.3，Debug build，2026-09-29 15:15～15:19）：本機 HTTPS 伺服器（臨時自簽 CA 加入模擬器信任）提供一份兩個站的設定（一個 CMS、一個只有更新包才有的 `csp_RuntimeProbe`）與 `webhtv-runtime-pack build` 產生的 `./runtime/`。
+
+| # | 情境 | 結果 |
+|---|---|---|
+| 1 | 啟動 | 伺服器依序收到 `wang-movie.json`、`runtime/manifest.json`、`blobs/sha256/313cbca9…`；容器內出現 `RuntimePacks/<scope 雜湊>/state.json` 與 `generations/gen-1-8ab9c5d6…/` |
+| 2 | 站台清單 | 出現「E2E 更新包」（class 只存在於 pack）；點進去，分類「來自更新包」、影片「runtime pack OK」，由 pack 的腳本產生 |
+| 3 | 設定頁 | App 版本 0.1.31 (32)；WebHTV 更新包「內建腳本；尚未發布」（global manifest 還不存在）；此設定的更新包「e2e-1（序號 1，1 支腳本）；已更新」；更新說明「E2E 測試更新包」 |
+| 4 | 發布序號 2，blob 被改一個 byte，按「檢查更新」 | 「e2e-1（序號 1，1 支腳本）；沒有採用：更新包的檔案不完整或內容不符，繼續使用目前的版本」，仍是第一版 |
+| 5 | blob 修好後再按一次 | 「e2e-2（序號 2，1 支腳本）；已更新」；`generations/` 保留 gen-1（LKG）與 gen-2；切換站台再切回，分類變成「來自更新包 v2」 |
+| 6 | 停掉伺服器後重開 App | 從磁碟載入 gen-2，停在同一個站台，顯示「來自更新包 v2」 |
+
+測試後已還原模擬器上 App 的 `Application Support` 與偏好設定；臨時 CA 的私鑰已刪除，CA 憑證留在這台模擬器的信任清單到 2 天後到期。Debug build 的 `PythonLiveCheck` 會以舊 `wang-movie.json` 對目前設定網址抓 `.py`，伺服器紀錄中的 `/py/*.py` 404 都來自它，與本任務無關。
+
+已知行為：啟用新世代只重設 spider session；畫面上已載入的列表不會自動重抓，下一次載入（切換站台、分類、搜尋、進詳情）才用新腳本。
+
+沒有驗到：播放器開著時的「下次啟動套用」（純 App 邏輯 `PlaybackSession.isOpen`，模擬器上沒有操作）；真機；Release build。
+
+驗證：`swift test` 585 個全部通過；模擬器 Debug build 成功。
+
+下一步：13D（global 簽章通道）。

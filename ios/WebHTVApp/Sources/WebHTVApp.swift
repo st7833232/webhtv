@@ -95,7 +95,10 @@ private struct ConfigView: View {
     @State private var refreshing = false
     /// What the compatibility pack is doing, shown in settings so a refused pack is visible rather
     /// than silent. Empty means "bundled scripts", which is the normal state until a pack is served.
-    @State private var packStatus = ""
+    /// IOS-POC-13C: what the settings page shows about runtime packs, and the last check's outcome
+    /// per scope.
+    @State private var runtime = RuntimeUpdateStatus()
+    @State private var runtimeNotes = [String: String]()
 
     var body: some View {
         Group {
@@ -148,7 +151,8 @@ private struct ConfigView: View {
                             source: source,
                             updatedAt: updatedAt,
                             refreshing: refreshing,
-                            packStatus: packStatus,
+                            runtime: runtime,
+                            onCheckRuntime: { Task { await checkRuntimePacksNow() } },
                             onImport: { importing = true },
                             onUseRemote: { text, name in useRemote(text, named: name) },
                             onRefresh: { Task { await refreshRemote() } },
@@ -331,7 +335,7 @@ private struct ConfigView: View {
         if let scope = RuntimeScope(source) {
             ActiveRuntimePacks.shared.set(await RuntimePackStore.shared.load(scope, host: host), for: scope)
         }
-        packStatus = Self.describePacks(for: source)
+        refreshRuntimeStatus()
         await SpiderSessionStore.shared.reset()
         rebuildSites()
     }
@@ -341,33 +345,54 @@ private struct ConfigView: View {
     /// next launch instead of changing the scripts under what is playing.
     private func checkRuntimePack(_ scope: RuntimeScope, of source: ConfigSource? = nil) async {
         let outcome = await RuntimePackUpdater.shared.check(scope, source: source ?? self.source)
-        var note: String?
+        let note: String
         switch outcome {
         case .installed(let pack):
             if PlaybackSession.shared.isOpen {
-                note = "新版本下次啟動套用"
+                note = "已下載新版本，下次啟動套用"
             } else {
                 ActiveRuntimePacks.shared.set(pack, for: scope)
                 await SpiderSessionStore.shared.reset()
                 rebuildSites()
+                note = "已更新"
             }
         case .rejected(let rejection):
-            note = rejection.requiresNewerApp ? "有新版本，需要較新的 App" : "更新被拒絕：\(rejection)"
+            print("[runtime-pack] \(scope.key) refused: \(rejection)")
+            note = rejection.requiresNewerApp
+                ? "有新版本，需要較新的 App"
+                : "沒有採用：\(rejection.localizedDescription)，繼續使用目前的版本"
         case .failed(let reason):
-            note = "無法檢查更新：\(reason)"
-        case .noPack, .upToDate:
-            break
+            note = "無法檢查（\(reason)），繼續使用目前的版本"
+        case .noPack:
+            note = scope == .global ? "尚未發布" : "這個設定沒有提供"
+        case .upToDate:
+            note = "已是最新"
         }
-        let summary = Self.describePacks(for: self.source)
-        packStatus = [summary.isEmpty ? "內建" : summary, note].compactMap { $0 }.joined(separator: "；")
+        runtimeNotes[scope.key] = note
+        runtime.checkedAt = Date()
+        refreshRuntimeStatus()
     }
 
-    private static func describePacks(for source: ConfigSource) -> String {
-        let packs = [ActiveRuntimePacks.shared.pack(for: .global), RuntimeScope(source).flatMap {
-            ActiveRuntimePacks.shared.pack(for: $0)
-        }].compactMap { $0 }
-        return packs.map { "\($0.scope == .global ? "WebHTV" : "設定") \($0.version)（\($0.scripts.count) 支）" }
-            .joined(separator: "、")
+    /// The settings page's 檢查更新: WebHTV's pack, then this configuration's.
+    private func checkRuntimePacksNow() async {
+        runtime.checking = true
+        defer { runtime.checking = false }
+        await checkRuntimePack(.global)
+        if let scope = RuntimeScope(source) { await checkRuntimePack(scope, of: source) }
+    }
+
+    private func refreshRuntimeStatus() {
+        func line(_ scope: RuntimeScope?) -> String {
+            guard let scope else { return "匯入的設定沒有更新包" }
+            let pack = ActiveRuntimePacks.shared.pack(for: scope)
+            let running = pack.map { "\($0.version)（序號 \($0.generation.sequence)，\($0.scripts.count) 支腳本）" } ?? "內建腳本"
+            return [running, runtimeNotes[scope.key]].compactMap { $0 }.joined(separator: "；")
+        }
+        let scope = RuntimeScope(source)
+        runtime.global = line(.global)
+        runtime.configuration = line(scope)
+        runtime.notes = [.global, scope].compactMap { $0 }
+            .compactMap { ActiveRuntimePacks.shared.pack(for: $0)?.notes }
     }
 
     private static func removeLegacySpiderPack() {
@@ -1291,13 +1316,24 @@ private struct AggregateSearchView: View {
     }
 }
 
+/// IOS-POC-13C. What the settings page shows about runtime packs.
+struct RuntimeUpdateStatus: Equatable {
+    var global = "內建腳本"
+    var configuration = "內建腳本"
+    /// Release notes of the packs in use. Untrusted plain text, shown as is.
+    var notes = [String]()
+    var checkedAt: Date?
+    var checking = false
+}
+
 private struct SettingsView: View {
     let sites: [Site]
     @Binding var selectedSiteID: Site.ID?
     let source: ConfigSource
     let updatedAt: Date?
     let refreshing: Bool
-    let packStatus: String
+    let runtime: RuntimeUpdateStatus
+    let onCheckRuntime: () -> Void
     let onImport: () -> Void
     let onUseRemote: (String, String) -> Void
     let onRefresh: () -> Void
@@ -1405,6 +1441,7 @@ private struct SettingsView: View {
 
             savedSection
             sourceSection
+            runtimeSection
         }
         .alert("加入設定來源", isPresented: $askingRemote) {
             TextField("名稱", text: $remoteName)
@@ -1436,7 +1473,6 @@ private extension SettingsView {
         Section {
             LabeledContent("來源", value: sourceLabel)
             LabeledContent("上次更新", value: updatedLabel)
-            LabeledContent("Spider 腳本", value: packStatus.isEmpty ? "內建" : packStatus)
             Button("加入設定來源") {
                 remoteText = ""
                 remoteName = ""
@@ -1449,8 +1485,32 @@ private extension SettingsView {
         } header: {
             Text("設定來源")
         } footer: {
-            Text("目前支援 \(sites.count) 個來源：type-0／type-1／type-4 CMS，已移植的 csp_* Spider，drpy 與 Python 腳本。腳本只從設定檔自己的來源、且必須是 HTTPS 才會載入。遠端更新失敗時會保留上一份可用設定。Spider 腳本可由設定檔旁的 ./runtime/manifest.json 更新，驗過相容版本、大小與 SHA-256 才採用；播放中不會切換。")
+            Text("目前支援 \(sites.count) 個來源：type-0／type-1／type-4 CMS，已移植的 csp_* Spider，drpy 與 Python 腳本。腳本只從設定檔自己的來源、且必須是 HTTPS 才會載入。遠端更新失敗時會保留上一份可用設定。")
         }
+    }
+
+    /// IOS-POC-13C. Which scripts are running, where they came from, and a way to look for newer
+    /// ones. The App's own version is here because it is what decides whether a pack fits.
+    @ViewBuilder var runtimeSection: some View {
+        Section {
+            LabeledContent("App 版本", value: appVersionLabel)
+            LabeledContent("WebHTV 更新包", value: runtime.global)
+            LabeledContent("此設定的更新包", value: runtime.configuration)
+            LabeledContent("上次檢查", value: runtime.checkedAt?.formatted(date: .abbreviated, time: .shortened) ?? "尚未檢查")
+            ForEach(runtime.notes, id: \.self) { note in
+                Text(note).font(.footnote).foregroundStyle(.secondary)
+            }
+            Button(runtime.checking ? "檢查中…" : "檢查更新", action: onCheckRuntime).disabled(runtime.checking)
+        } header: {
+            Text("Spider 腳本更新")
+        } footer: {
+            Text("更新包只能更換 spider 腳本：WebHTV 的更新包必須有 App 內建的簽章，設定的更新包放在設定檔旁的 ./runtime/manifest.json、只從同一個 HTTPS 來源下載。驗過相容版本、大小與 SHA-256 才採用，失敗時繼續使用目前的版本；播放中不會切換。新的原生功能仍要從 SideStore 更新 App（Runtime ABI：catvod.result \(RuntimeABI.Surface.catvodResult.version)、js.host \(RuntimeABI.Surface.jsHost.version)、python.host \(RuntimeABI.Surface.pythonHost.version)）。")
+        }
+    }
+
+    var appVersionLabel: String {
+        let info = Bundle.main.infoDictionary
+        return "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
     }
 
     /// IOS-POC-10D. Names, not addresses — the address is what the viewer had to read before.

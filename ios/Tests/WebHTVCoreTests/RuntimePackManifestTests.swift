@@ -465,3 +465,21 @@ private func globalDocument(_ edit: (inout [String: Any]) -> Void = { _ in }) ->
     #expect(rejection { try candidate(globalDocument { $0["sequence"] = 8 }, by: active, revoked: state.revokedKeyIds) }
             == .revokedKey(active.id))
 }
+
+/// IOS-POC-13C. The settings page's wording: "needs a newer App" is said exactly when
+/// `requiresNewerApp` is true, and never for anything else (R24).
+@Test func needingANewerAppReadsDifferentlyFromEveryOtherRefusal() {
+    let samples: [RuntimePackRejection] = [
+        .unsupportedSchema(2), .abiTooNew(surface: "js.host", requiredMinor: 2, installed: 1),
+        .abiMajorMismatch(surface: "js.host", required: 2, installed: 1), .missingCapabilities(["x"]),
+        .appBuildTooOld(required: 40, installed: 32), .assetTypeNotSupported(path: "a", type: "spider.py"),
+        .abiMajorMismatch(surface: "js.host", required: 1, installed: 2), .appBuildTooNew(maximum: 1, installed: 2),
+        .badSignature, .expired, .digestMismatch("a"), .rollback(sequence: 1, floor: 2), .invalidPath("../a"),
+        .nativeReleaseRequired("x.dylib"), .scriptDoesNotLoad("AppGet"), .crossOrigin("https://x.invalid"),
+    ]
+    for rejection in samples {
+        let text = rejection.localizedDescription
+        #expect(!text.isEmpty)
+        #expect((text == "需要較新的 App") == rejection.requiresNewerApp, "\(rejection)")
+    }
+}

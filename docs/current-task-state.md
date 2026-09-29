@@ -10,14 +10,15 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 雲端 session 若由 harness 指定其他工作分支，照樣只 push 到 `ios-poc`（使用者 2026-09-28 的決定），不建立新的遠端分支。
 
-**2026-09-29 Mac session（本機 commit，使用者要求先不 push）**：`c4d13ea7`（IOS-POC-25 Mac 補測紀錄、`scripts/ios_adskip_sim`、IOS-POC-34 結案）、`43c197b2`（IOS-POC-25-4 相接廣告一次跳過）、`4fd5ae0a`（IOS-POC-25-5 MPV 時間軸跳動就停止跳過）、`1dfcc0db`（IOS-POC-35 播放器上一集／下一集與詳情頁「立即播放」）。都已通過 `swift test`（537 個）與模擬器驗收，**尚未發布、真機未驗證**；接手時以 `git log origin/ios-poc..HEAD` 確認是否已 push。
+**2026-09-29 Mac session（已 push，並發布為 `0.1.30 (31)`）**：`c4d13ea7`（IOS-POC-25 Mac 補測紀錄、`scripts/ios_adskip_sim`、IOS-POC-34 結案）、`43c197b2`（IOS-POC-25-4 相接廣告一次跳過）、`4fd5ae0a`（IOS-POC-25-5 MPV 時間軸跳動就停止跳過）、`1dfcc0db`（IOS-POC-35 播放器上一集／下一集與詳情頁「立即播放」）。都已通過 `swift test`（537 個）與模擬器驗收，已隨 `0.1.30 (31)` 發布，**真機未驗證**。
 
-**最新已發布版本是 `0.1.29 (30)`**（2026-09-28，使用者授權；tag `ios-v0.1.29-b30` → `6ffd6e15`，run `36373454196`，`source.json` `b5f1c78e`，IPA 25,685,782 bytes，SHA-256 `ed5bd4f66893c5ac79064f7c0580a64612d14bd10624e6738343e7ef380f2343`，下載回驗通過）。至今共發布 30 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
+**最新已發布版本是 `0.1.30 (31)`**（2026-09-29，使用者授權；tag `ios-v0.1.30-b31` → `6b5c6739`，run `36518735965`，`source.json` `94cc7aa2`，IPA 25,703,216 bytes，SHA-256 `463e1cf18f3068d44c135e895cf8fd00bbca2c71618b66d7770f938cb23eb801`，下載回驗通過）。至今共發布 31 版；每一版的授權、run、tag、`source.json`、IPA 大小與 SHA-256 都記錄在 `docs/IOS-POC-11-sidestore-release.md` 的各次發布，本節不再重複。
 
 **近期各版內容（新到舊）**
 
 | 版本 | tag 指向 | 比上一版多了什麼 | 真機結果 |
 |---|---|---|---|
+| `0.1.30 (31)` | `6b5c6739` | IOS-POC-25-4：相接的廣告區間一次跳過（`43c197b2`）；IOS-POC-25-5：MPV 時間軸跳動就停止跳過（`4fd5ae0a`）；IOS-POC-35：播放器上一集／下一集、詳情頁立即播放（`1dfcc0db`） | 未驗證 |
 | `0.1.29 (30)` | `6ffd6e15` | IOS-POC-32 C：來源的簡體中文只在畫面上顯示為台灣繁體（`1e9d24e3`）；IOS-POC-33：輸入繁體時簡體與原文各搜一次，同一站合併後顯示（`2e6c7309`） | 未驗證 |
 | `0.1.28 (29)` | `f5fe582c` | IOS-POC-32 A：詳情頁海報在標題上方、完整顯示（`73c96c56`、`5d393196`、`e6771a5f`）；IOS-POC-32 B：詳情頁顯示年份、地區、類型、導演、演員、簡介（`07a18fd1`、`96e9997b`） | 未驗證 |
 | `0.1.27 (28)` | `67d7fe78` | IOS-POC-31：設定頁的預設播放器、預設播放速度改為下拉選單，內容來源收成一列（`97417be4`、`616b3fc9`） | 未驗證 |
@@ -49,7 +50,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 4. commit 一律用 task guard（`start --scope` 每個路徑各帶一次，`finish` 加 `--no-tag`）。
 5. 雲端 session 沒有 Swift：單元測試照常撰寫但不執行（使用者選擇「只靠編譯與真機」），第一次編譯是發布時的 Release build。**在 Mac 上**（2026-09-29 使用者選「執行並修測試」）：`ios/` 的 `swift test` 要執行，測試本身的錯誤直接修，正式程式的 bug 先回報；2026-09-29 第一次執行 519 個全部通過。
 
-**下一步（唯一）**：等使用者決定是否 push 並發布含 IOS-POC-25-4／25-5／35 的新版本（push、bump、tag、發布都要另外授權），或回報 `0.1.29 (30)` 的真機結果（收到後逐列填進下列文件）：
+**下一步（唯一）**：IOS-POC-17H「解除子母畫面時放大、進度往回」（使用者 2026-09-29 要求在 `0.1.30 (31)` 發布後處理，症狀確認為「畫面突然放大／變形再恢復」與「進度往回一點」）：先在模擬器重現並分辨放大來源，修法交使用者核准。另等使用者回報 `0.1.30 (31)` 的真機結果（收到後逐列填進下列文件，`0.1.30 (31)` 含前面各版的全部內容）：
 
 0. IOS-POC-33（`0.1.29 (30)`）：`docs/IOS-POC-33-dual-script-search.md` 第七節的真機項目。
 0. IOS-POC-32 C（`0.1.29 (30)`）：`docs/IOS-POC-32-detail-metadata-zhtw.md` 第六節第 4 點的真機項目與第 5 點第 5 項。

@@ -40,7 +40,7 @@ final class MPVEngine: PlaybackEngine {
     /// Long enough for a slow first segment; the watchdog only starts once the file has loaded.
     private static let firstFrameTimeout: Duration = .seconds(10)
     /// IOS-POC-17H-2: the Metal picture waits for mpv's first frame after Picture in Picture…
-    private var awaitingMetalFrame = false
+    private(set) var awaitingMetalFrame = false
     private var metalReveal: Task<Void, Never>?
     /// …or this long once the app is active, if that frame is never announced (the user's choice,
     /// 2026-09-29; the simulator's rebuild took 0.4-0.7 s).
@@ -180,11 +180,16 @@ final class MPVEngine: PlaybackEngine {
         }
     }
 
+    /// Faded in over a few frames: the picture underneath is the software output's last frame,
+    /// rendered for the PiP window, and a cut to the GPU's would read as a flash.
     private func revealMetal() {
         metalReveal?.cancel()
         metalReveal = nil
         awaitingMetalFrame = false
         view.showsMetal = true
+        // Only once Metal is opaque may the layer take the black frame it holds ready for the next
+        // window (IOS-POC-17H-3: enqueued any earlier, it showed through as a black flash).
+        view.fadeMetalIn { [weak self] in self?.pictureInPicture?.refreshPlaceholder() }
     }
 
     /// `UIApplication.isIdleTimerDisabled` is app-wide, so every MPV lifecycle exit must release it.
@@ -207,7 +212,11 @@ final class MPVEngine: PlaybackEngine {
             }
         case .videoReconfigured(let width, let height):
             firstFrameWatchdog?.cancel()
-            if width > 0, height > 0 { pictureInPicture?.videoSizeChanged(width: width, height: height) }
+            // Zero is the track being released, not a new shape: the last shape stays.
+            if width > 0, height > 0 {
+                pictureInPicture?.videoSizeChanged(width: width, height: height)
+                view.videoSize = CGSize(width: width, height: height)
+            }
         case .playbackRestarted:
             if awaitingMetalFrame { revealMetal() }
         case .mediaSelectionChanged(let selection):
@@ -253,6 +262,19 @@ final class MPVVideoView: UIView {
     var showsMetal = true {
         didSet { metalView.isHidden = !showsMetal }
     }
+    /// IOS-POC-17H-3: the video's display size (mpv's `dwidth`/`dheight`), which gives the
+    /// sample-buffer layer the rectangle the picture actually occupies. AVKit animates the PiP
+    /// window to and from that layer's whole frame: over the full bounds a 16:9 picture was blown
+    /// up to fill a portrait screen and then snapped back into its bars. Nil until mpv says.
+    var videoSize: CGSize? {
+        didSet { if videoSize != oldValue { setNeedsLayout() } }
+    }
+
+    /// IOS-POC-17H-3: from transparent to opaque over 0.15 s, on top of the sample-buffer picture.
+    func fadeMetalIn(completion: @escaping () -> Void) {
+        metalView.alpha = 0
+        UIView.animate(withDuration: 0.15, animations: { self.metalView.alpha = 1 }, completion: { _ in completion() })
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -271,7 +293,7 @@ final class MPVVideoView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         metalView.frame = bounds
-        sampleBufferView.frame = bounds
+        sampleBufferView.frame = videoSize.map { AVMakeRect(aspectRatio: $0, insideRect: bounds) } ?? bounds
         let size = bounds.size
         guard size.width > 1, size.height > 1, size != laidOutSize else { return }
         laidOutSize = size
@@ -682,6 +704,7 @@ final class MPVSoftwareRenderer: @unchecked Sendable {
     private let lock = NSLock()
     private var videoSize = (width: 0, height: 0)   // under `lock`
     private var windowWidth = 0                      // under `lock`
+    private var frameShown: (@Sendable () -> Void)?  // under `lock`
     private var context: OpaquePointer?              // `queue` only, as are the three below
     private var pool: CVPixelBufferPool?
     private var poolSize = (width: 0, height: 0)
@@ -690,6 +713,9 @@ final class MPVSoftwareRenderer: @unchecked Sendable {
     init(output: AVSampleBufferVideoRenderer) { self.output = output }
 
     func setVideoSize(width: Int, height: Int) { lock.lock(); videoSize = (width, height); lock.unlock() }
+    /// Called once, from the render queue, when the next frame has gone to the layer (IOS-POC-17H-3:
+    /// the Metal picture stays up until the software output has something to show in its place).
+    func onNextFrame(_ handler: (@Sendable () -> Void)?) { lock.lock(); frameShown = handler; lock.unlock() }
     /// The window's width in pixels. Our frames set the window's shape, and rounding them to even
     /// pixels nudges it by a point, which comes back as a new size: a loop that resized every frame
     /// and rebuilt the buffer pool (17H). Only a real resize — a pinch, more than a tenth — passes.
@@ -843,6 +869,11 @@ final class MPVSoftwareRenderer: @unchecked Sendable {
         // does one whose decoder the system took back, behind the lock screen (Apple forums 745840).
         if output.status == .failed || output.requiresFlushToResumeDecoding { output.flush() }
         output.enqueue(sample)
+        lock.lock()
+        let shown = frameShown
+        frameShown = nil
+        lock.unlock()
+        shown?()
     }
 }
 
@@ -938,7 +969,15 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
     /// closed put a black frame of that shape on the layer rather than a stale picture.
     func videoSizeChanged(width: Int, height: Int) {
         renderer.setVideoSize(width: width, height: height)
-        if !isActive { renderer.showPlaceholder() }
+        refreshPlaceholder()
+    }
+
+    /// The black frame the window opens on, kept in the layer while it is covered by Metal — not
+    /// while the window has the video, and not while the layer is what the viewer sees after it
+    /// (`MPVEngine.awaitingMetalFrame`, IOS-POC-17H-3).
+    func refreshPlaceholder() {
+        guard !isActive, engine?.awaitingMetalFrame != true else { return }
+        renderer.showPlaceholder()
     }
 
     private func setActive(_ active: Bool) {
@@ -977,6 +1016,7 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
         // Closing the window from outside the app stops playback, as it does for AVPlayer. A window
         // that failed to open leaves the background as it was before 17H: sound on, no picture.
         if inBackground, pausingInBackground { engine?.pause() }
+        renderer.onNextFrame(nil)
         core.stopSoftwareOutput(keepVideo: !inBackground)
         engine?.revealMetalAfterPictureInPicture()
     }
@@ -987,7 +1027,14 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
         PlaybackSession.log.notice("[pip] mpv will start — video moves to the software output")
         foregroundRestore.pictureInPictureWillStart()
         setActive(true)
-        engine?.coverMetalForPictureInPicture()
+        // Metal keeps its picture up until the layer under it has the first software frame: hidden
+        // any sooner, the layer's black placeholder showed for a frame (IOS-POC-17H-3).
+        renderer.onNextFrame { [weak self] in
+            Task { @MainActor in
+                guard let self, self.isActive else { return }
+                self.engine?.coverMetalForPictureInPicture()
+            }
+        }
         core.startSoftwareOutput(renderer)
         // The window does not read the time range on its own when it opens (VLC,
         // `VLCPictureInPictureController.m`).

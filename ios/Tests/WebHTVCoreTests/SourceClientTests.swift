@@ -410,16 +410,44 @@ private final class OneShotHTTPServer: @unchecked Sendable {
         case noEpisode = "NO-EPISODE", empty = "EMPTY", failed = "ERROR"
     }
     var tally = [Stop: Int]()
+    let drivable = config.drivableSites(resolvedBy: resolver)
 
-    for site in config.drivableSites(resolvedBy: resolver) {
+    // Listed by the configuration and not offered by this build: an unported `csp_*` class, a type
+    // with no client — and here every Python site, since `swift test` has no interpreter (the
+    // simulator's `PythonLiveCheck.survey()` drives those).
+    let offered = Set(drivable.map(\.id))
+    let hidden = config.sites.filter { !offered.contains($0.id) }
+    for site in hidden {
+        let kind = site.isPythonSpider ? "python" : site.isCSPSpider ? SpiderRegistry.className(from: site.api) : "type-\(site.type)"
+        print("[sweep] not-offered \(kind.padded(12)) \(site.key) [\(site.name)]")
+    }
+
+    // Sites run side by side, `SWEEP_PARALLEL` at a time (8 by default): each is a chain of network
+    // waits, and one at a time left the run idle for most of an hour. A site gets `SWEEP_SITE_SECONDS`
+    // (90) and is then recorded as timed out, so one host that never answers cannot hold the run; its
+    // work is left to finish on its own, since a spider's JavaScript does not stop when cancelled.
+    let width = max(Int(env["SWEEP_PARALLEL"] ?? "") ?? 8, 1)
+    let limit = Double(env["SWEEP_SITE_SECONDS"] ?? "") ?? 90
+    setvbuf(stdout, nil, _IOLBF, 0)   // a line per site as it finishes, also into a file
+
+    @Sendable func drive(_ site: Site) async -> (Stop, String) {
         let kind = site.isCSPSpider ? SpiderRegistry.className(from: site.api) : "type-\(site.type)"
-        var line = "[sweep] \(kind.padded(12)) \(site.key.padded(22))"
+        // The name as well: a configuration can list one key twice (wang-sex.json does, eleven times).
+        var line = "[sweep] \(kind.padded(12)) \(site.key.padded(22)) [\(site.name)]"
         var stop = Stop.failed
         do {
             let client = try await SourceClient.make(site: site, resolver: resolver)
             let home = try await client.home()
             line += " classes=\(home.classes.count) home=\(home.list.count)"
-            if let vod = home.list.first {
+            // A home with categories and no titles is common (8Movie); the app opens a category
+            // then, and so does the sweep, rather than calling the site empty.
+            var first = home.list.first
+            if first == nil, let category = home.classes.first {
+                let page = try await client.category(id: category.id)
+                line += " cat=\(page.list.count)"
+                first = page.list.first
+            }
+            if let vod = first {
                 let detail = try await client.detail(id: vod.id)
                 let flags = detail?.flags ?? []
                 line += " flags=\(flags.count) eps=\(flags.first?.episodes.count ?? 0)"
@@ -447,12 +475,40 @@ private final class OneShotHTTPServer: @unchecked Sendable {
         } catch {
             line += "  \(error)"
         }
-        tally[stop, default: 0] += 1
-        print("\(line)  -> \(stop.rawValue)")
+        return (stop, line)
+    }
+
+    actor Once {
+        private var claimed = false
+        func claim() -> Bool { defer { claimed = true }; return !claimed }
+    }
+    @Sendable func bounded(_ site: Site) async -> (Stop, String) {
+        await withCheckedContinuation { finished in
+            let once = Once()
+            Task { let result = await drive(site); if await once.claim() { finished.resume(returning: result) } }
+            Task {
+                try? await Task.sleep(for: .seconds(limit))
+                let kind = site.isCSPSpider ? SpiderRegistry.className(from: site.api) : "type-\(site.type)"
+                if await once.claim() {
+                    finished.resume(returning: (.failed, "[sweep] \(kind.padded(12)) \(site.key.padded(22)) [\(site.name)]  timed out after \(Int(limit)) s"))
+                }
+            }
+        }
+    }
+
+    await withTaskGroup(of: (Stop, String).self) { group in
+        var pending = drivable.makeIterator()
+        for _ in 0..<width { if let site = pending.next() { group.addTask { await bounded(site) } } }
+        while let (stop, line) = await group.next() {
+            tally[stop, default: 0] += 1
+            print("\(line)  -> \(stop.rawValue)")
+            if let site = pending.next() { group.addTask { await bounded(site) } }
+        }
     }
 
     let total = tally.values.reduce(0, +)
-    print("[sweep] ---- \(total) sources: " + Stop.allCases.map { "\($0.rawValue)=\(tally[$0] ?? 0)" }.joined(separator: " "))
+    print("[sweep] ---- \(total) sources: " + Stop.allCases.map { "\($0.rawValue)=\(tally[$0] ?? 0)" }.joined(separator: " ")
+          + " | not offered \(hidden.count) of \(config.sites.count)")
 }
 
 private extension String {

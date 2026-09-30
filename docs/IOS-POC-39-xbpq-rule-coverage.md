@@ -9,6 +9,7 @@
 - 2026-09-30 使用者核准 S4 並已完成（第 6.3 節）：`wang-sex.json` 可播放 29→41（12 個 XBPQ 站），兩份設定檔沒有退步。
 - 2026-09-30 另外 16 站用的 `XBPQ.jar`／`spider.jar` 已比對（第 6.4 節）：功能較少的同源版本，不需改程式。
 - 2026-09-30 使用者核准 S5 第 1、2 項並已完成（第 6.5 節）；第 3 項（`搜索模式`，要先讀 `Z()`）與第 4 項（沒有搜尋網址時以首頁／分類頁篩片名，建議不做）未核准。
+- 2026-09-30 S4 後仍 EMPTY 的 90 個 XBPQ 項目已逐站歸因（第 6.6 節）：沒有一站是 `XBPQ.js` 的問題。改規則能救的站（魔法少女3、三区、KISSAV 系列、13AV.COM）使用者決定**放棄**，不改設定檔，也不在 `XBPQ.js` 寫站台專屬邏輯。
 - 唯一下一步：紅果短剧的網站（`www.mochadj.com`，目前整站回空白）恢復後，以 `CSP_GOLDEN_SITE` 單站測試確認它仍可播放。
 
 ## 1. 診斷（2026-09-30，證據在 `docs/SITE-AVAILABILITY-2026-09-30.md`）
@@ -303,3 +304,23 @@ sweep（16:17～16:20，熱點 `172.20.10.1`，最終版程式；`swift test` 60
   - 每站都搜「国产」：舊版 6 站、新版 7 站（多 SEAJAV）。有搜尋網址卻搜不到的站，大多連分類／片單都取不到（第 6.2 節：JS 跳轉頁、網域失效），搜尋也不會比列表好。
   - 結論：S5 沒有讓任何站變差，改善很小（1 站），瓶頸在網站本身，不在搜尋規則。
 - **真機、模擬器未驗證**；未發布（`0.1.39 (40)` 不含 S5）。
+
+### 6.6 S4 後仍 EMPTY 的 XBPQ 站歸因（2026-09-30 16:44～17:00，熱點 `172.20.10.1`，只讀）
+
+範圍：S4 sweep（16:18）判定 EMPTY 的 90 個 XBPQ 項目（`wang-sex.json` 85、`wang-movie.json` 5；同名項目合併後 89 站＋紅果短剧）。結論：**沒有一站是 `XBPQ.js` 的問題。**
+
+| 原因 | 站數 | 能否救 |
+|---|---:|---|
+| 網域已不存在（28 個網域：27 個 1.1.1.1 回 NXDOMAIN、1 個 SERVFAIL；含 `spider.jar` 的 6 個香蕉站） | 36 | 否 |
+| JS 驗證／跳轉頁：27 站同一個收集瀏覽器指紋的「Redirecting...」模板（換 PC／Android UA 相同）、3 站跳百度搜 `www.72.chat`、天天與天天動漫「Security Check」、传媒二区 Cloudflare「Just a moment...」、百灵鸟在线 | 34 | 否（原版不執行 JS） |
+| 連不上：逾時（歐吉、永樂、AVMobTV）、TLS 錯誤（AV帝国、肉視頻）、自簽憑證（TaiAv2）、拒絕連線（癢癢） | 7 | 否 |
+| 網站改版、規則過期：魔法少女3、三区、KISSAV、KISSAV(标签)、KISSAV(女优)、13AV.COM | 6 | 改規則可救，**使用者決定放棄** |
+| 網域停放、出售或換成導流頁：色岛、AV.GL、微密猫 | 3 | 否 |
+| 片單改成 JS 載入：四区（`<div class="vwpp"></div>` 空）、疯猫av（`<div id="app">` 單頁應用） | 2 | 否 |
+| Cloudflare 520：妻妹 | 1 | 等網站恢復 |
+| 已恢復：紅果短剧（模擬器取到 30 部） | 1 | 見 Recovery anchor 的下一步 |
+
+- 方法：以 macOS `jsc` 原樣執行 repo 的 `host.js`＋`XBPQ.js`，`__http` 改成錄製／重播、由 Python 實際連網（腳本在 session scratchpad，不 commit）。與 App sweep 89／90 一致（差的是紅果短剧恢復）。Python 的連線特徵會被 4 站擋（Airav、看AV、sexBJcam、色最色：Python 403 或無片，App 可用），所以範圍只取 App 也判定 EMPTY 的站；非 DNS 的網路錯誤另以 curl 複查。
+- 規則可救的實測（App 路徑 sweep）：三区改 `链接: kd=&&"` → PLAYABLE；KISSAV／KISSAV(标签) 改成 `kissavs.com` 的新網址、`数组: bind_video_img">&&class="sub-title`、`图片: z-image-loader-url="&&"` 後片單回來（24 部），但播放網址被 CDN 回 `AccessDenied`（加 Referer 相同）→ DEAD-MEDIA，未再查。
+- 決策（使用者 2026-09-30）：放棄上述規則過期的站。理由：只有魔法少女3 能用通用邏輯修，而且要加兩條偏離原版的推測規則；三区的 `链接` 是明確寫錯的規則，KISSAV 是網域、網址、HTML 全改，只能寫死網域；寫死會讓 `XBPQ.js` 帶站台清單、網站再改就要發版，而且同一份 `wang-sex.json` Android 也在用，只改 iOS 會讓兩邊行為分岔。
+- 未驗證：沒有在 Android 上跑（「JS 頁 Android 也過不了」是由原版不執行 JS 推讀）；沒有在模擬器、真機播放。

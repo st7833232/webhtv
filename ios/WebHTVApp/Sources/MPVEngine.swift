@@ -405,6 +405,11 @@ final class MPVPlayerCore: @unchecked Sendable {
         // built-in profile (faster `sws`/`zimg` scalers, which the Metal output does not scale
         // with); as an option name it does not exist and is refused (MPV_ERROR_OPTION_NOT_FOUND).
         mpv_set_option_string(handle, "profile", "sw-fast")
+        // IOS-POC-17H-4: the one screenshot the app takes (the still a PiP window opens on) comes
+        // from the decoded frame on the CPU. gpu-next's own reads the picture back through
+        // MoltenVK, and on the simulator that read-back trapped in the Metal driver
+        // (`pl_tex_download` → `MTLSimDevice newBuffer…`).
+        mpv_set_option_string(handle, "screenshot-sw", "yes")
         // IOS-POC-24: the app owns the one audio session both engines share. Left to itself, every
         // audio output mpv creates makes that session mixable and every one it drops deactivates it,
         // AVPlayer's playback included after a switch. WebHTV's Libmpv patch 0004 adds these options.
@@ -477,6 +482,39 @@ final class MPVPlayerCore: @unchecked Sendable {
 
     func seek(to seconds: Double) {
         queue.async { [self] in if let mpv { command(mpv, ["seek", String(seconds), "absolute+exact"]) } }
+    }
+
+    /// IOS-POC-17H-4 — the frame on screen now, subtitles included (`screenshot-raw`'s default flags,
+    /// `player/screenshot.c`), onto `renderer`'s layer. A window opening next shows it until the
+    /// software output's first frame, instead of the black placeholder. Only while Metal has the video.
+    func showCurrentFrame(on renderer: MPVSoftwareRenderer) {
+        queue.async { [self] in
+            guard let mpv, software == nil else { return }
+            var result = mpv_node()
+            let status = "screenshot-raw".withCString { name in
+                var args: [UnsafePointer<CChar>?] = [name, nil]
+                return mpv_command_ret(mpv, &args, &result)
+            }
+            guard status >= 0 else { return }
+            defer { mpv_free_node_contents(&result) }
+            guard result.format == MPV_FORMAT_NODE_MAP, let map = result.u.list?.pointee,
+                  let keys = map.keys, let values = map.values else { return }
+            var width = 0, height = 0, stride = 0
+            var bytes: UnsafeRawPointer?
+            for index in 0..<Int(map.num) {
+                guard let key = keys[index] else { continue }
+                let value = values[index]
+                switch String(cString: key) {
+                case "w": width = Int(value.u.int64)
+                case "h": height = Int(value.u.int64)
+                case "stride": stride = Int(value.u.int64)
+                case "data": bytes = value.u.ba.flatMap { UnsafeRawPointer($0.pointee.data) }
+                default: break
+                }
+            }
+            guard let bytes, stride >= width * 4 else { return }
+            renderer.showStill(width: width, height: height, stride: stride, bytes: bytes)
+        }
     }
 
     /// IOS-POC-17H — Picture in Picture is starting: move the video from Metal to `renderer`.
@@ -705,7 +743,8 @@ final class MPVSoftwareRenderer: @unchecked Sendable {
     private var videoSize = (width: 0, height: 0)   // under `lock`
     private var windowWidth = 0                      // under `lock`
     private var frameShown: (@Sendable () -> Void)?  // under `lock`
-    private var context: OpaquePointer?              // `queue` only, as are the three below
+    private var context: OpaquePointer?              // `queue` only, as are the four below
+    private var showsPicture = false                 // a decoded frame has gone out since `attach`
     private var pool: CVPixelBufferPool?
     private var poolSize = (width: 0, height: 0)
     private var format: CMVideoFormatDescription?
@@ -713,7 +752,7 @@ final class MPVSoftwareRenderer: @unchecked Sendable {
     init(output: AVSampleBufferVideoRenderer) { self.output = output }
 
     func setVideoSize(width: Int, height: Int) { lock.lock(); videoSize = (width, height); lock.unlock() }
-    /// Called once, from the render queue, when the next frame has gone to the layer (IOS-POC-17H-3:
+    /// Called once, from the render queue, when the next decoded frame has gone to the layer (IOS-POC-17H-3:
     /// the Metal picture stays up until the software output has something to show in its place).
     func onNextFrame(_ handler: (@Sendable () -> Void)?) { lock.lock(); frameShown = handler; lock.unlock() }
     /// The window's width in pixels. Our frames set the window's shape, and rounding them to even
@@ -735,6 +774,7 @@ final class MPVSoftwareRenderer: @unchecked Sendable {
                 var created: OpaquePointer?
                 guard mpv_render_context_create(&created, mpv, &params) >= 0, let created else { return false }
                 context = created
+                showsPicture = false
                 mpv_render_context_set_update_callback(created, softwareFrameDue, Unmanaged.passUnretained(self).toOpaque())
                 return true
             }
@@ -772,11 +812,42 @@ final class MPVSoftwareRenderer: @unchecked Sendable {
         }
     }
 
+    /// IOS-POC-17H-4 — the frame on screen (`bytes`: bgr0, `stride` bytes a row, valid only during
+    /// the call) in place of the black placeholder, for a window about to open. Scaled to the size
+    /// the window's frames have: the layer keeps it for as long as nothing replaces it, and a 4K
+    /// source's full frame is some 33 MB. On the core's queue, like `attach`.
+    func showStill(width: Int, height: Int, stride: Int, bytes: UnsafeRawPointer) {
+        guard width > 1, height > 1 else { return }
+        let (targetWidth, targetHeight) = targetSize(maximum: Self.maximumWidth)
+        queue.sync {
+            var created: CVPixelBuffer?
+            CVPixelBufferCreate(nil, targetWidth, targetHeight, kCVPixelFormatType_32BGRA,
+                                [kCVPixelBufferIOSurfacePropertiesKey: [String: Any]()] as CFDictionary, &created)
+            guard let buffer = created else { return }
+            CVPixelBufferLockBaseAddress(buffer, [])
+            var source = vImage_Buffer(data: UnsafeMutableRawPointer(mutating: bytes), height: vImagePixelCount(height),
+                                       width: vImagePixelCount(width), rowBytes: stride)
+            var target = vImage_Buffer(data: CVPixelBufferGetBaseAddress(buffer), height: vImagePixelCount(targetHeight),
+                                       width: vImagePixelCount(targetWidth), rowBytes: CVPixelBufferGetBytesPerRow(buffer))
+            let scaled = vImageScale_ARGB8888(&source, &target, nil, vImage_Flags(kvImageNoFlags))
+            // The undefined fourth byte of "bgr0" set opaque, as `render()` does.
+            vImageOverwriteChannelsWithScalar_ARGB8888(255, &target, &target, 0x1, vImage_Flags(kvImageNoFlags))
+            CVPixelBufferUnlockBaseAddress(buffer, [])
+            if scaled == kvImageNoError { show(buffer) }
+        }
+    }
+
     fileprivate func frameDue() { queue.async { [self] in render() } }
 
     private func render() {
         guard let context,
               mpv_render_context_update(context) & UInt64(MPV_RENDER_UPDATE_FRAME.rawValue) != 0 else { return }
+        var info = mpv_render_frame_info()
+        _ = withUnsafeMutablePointer(to: &info) {
+            mpv_render_context_get_info(context, mpv_render_param(type: MPV_RENDER_PARAM_NEXT_FRAME_INFO,
+                                                                  data: UnsafeMutableRawPointer($0)))
+        }
+        let redraw = info.flags & UInt64(MPV_RENDER_FRAME_INFO_REDRAW.rawValue) != 0
         let (width, height) = targetSize(maximum: Self.maximumWidth)
         guard let buffer = pixelBuffer(width: width, height: height) else { return }
         CVPixelBufferLockBaseAddress(buffer, [])
@@ -797,8 +868,11 @@ final class MPVSoftwareRenderer: @unchecked Sendable {
                 }
             }
         }
-        // Nothing drawn, nothing to show: the buffer holds whatever the pool left in it.
-        guard rendered >= 0 else { CVPixelBufferUnlockBaseAddress(buffer, []); return }
+        // Nothing drawn, nothing to show: the buffer holds whatever the pool left in it. Nor a redraw
+        // before the new output's first decoded frame (IOS-POC-17H-4): there is no picture to redraw,
+        // the software renderer clears it to black (`libmpv_sw.c`), and on the device that black
+        // hid the Metal picture and opened the window before the real frame came.
+        guard rendered >= 0, showsPicture || !redraw else { CVPixelBufferUnlockBaseAddress(buffer, []); return }
         // "bgr0" leaves the fourth byte undefined (`render.h`); the layer gets an opaque frame.
         var image = vImage_Buffer(data: base, height: vImagePixelCount(height), width: vImagePixelCount(width),
                                   rowBytes: stride)
@@ -807,6 +881,12 @@ final class MPVSoftwareRenderer: @unchecked Sendable {
         }
         CVPixelBufferUnlockBaseAddress(buffer, [])
         show(buffer)
+        showsPicture = true
+        lock.lock()
+        let shown = frameShown
+        frameShown = nil
+        lock.unlock()
+        shown?()
     }
 
     /// The video's shape at no more than `maximum` (and the window's) width, in even pixels, so
@@ -869,11 +949,6 @@ final class MPVSoftwareRenderer: @unchecked Sendable {
         // does one whose decoder the system took back, behind the lock screen (Apple forums 745840).
         if output.status == .failed || output.requiresFlushToResumeDecoding { output.flush() }
         output.enqueue(sample)
-        lock.lock()
-        let shown = frameShown
-        frameShown = nil
-        lock.unlock()
-        shown?()
     }
 }
 
@@ -909,6 +984,11 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
     private var tick: Task<Void, Never>?
     private var reported = (loaded: false, paused: true, duration: 0.0)
     private var possible: NSKeyValueObservation?
+    private var foregroundStop: Task<Void, Never>?
+    /// How long the app waits, once active, to hear that the system is ending the window itself.
+    /// ponytail: a fixed guess at iOS's ordering (the device recording could not show it); the
+    /// `[pip]` log lines give the real gap, which is what to set this from.
+    private static let foregroundStopDelay: Duration = .milliseconds(300)
 
     init(engine: MPVEngine, core: MPVPlayerCore, layer: AVSampleBufferDisplayLayer) {
         self.engine = engine
@@ -935,6 +1015,9 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
         observers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in MainActor.assumeIsolated { self?.appDidBecomeActive() } })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.appWillResignActive() } })
         // ponytail: a half-second poll of the engine's state; PiP only needs to hear of a change.
         tick = Task { @MainActor [weak self] in
             while !Task.isCancelled {
@@ -950,6 +1033,7 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
     /// The engine is going away.
     func invalidate() {
         tick?.cancel()
+        foregroundStop?.cancel()
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
         possible = nil
@@ -1003,10 +1087,22 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
         controller?.invalidatePlaybackState()
     }
 
-    /// Coming back to the app ends PiP, as AVPlayer's surface does.
+    /// Coming back to the app ends PiP, as AVPlayer's surface does — unless the system is already
+    /// ending it (the window's own button), which it may say only after the app is active.
     private func appDidBecomeActive() {
-        guard foregroundRestore.consumeForegroundRequest(isPictureInPictureActive: isActive) else { return }
-        controller?.stopPictureInPicture()
+        foregroundStop?.cancel()
+        foregroundStop = Task { @MainActor [weak self] in
+            guard (try? await Task.sleep(for: Self.foregroundStopDelay)) != nil, let self,
+                  self.foregroundRestore.consumeForegroundRequest(isPictureInPictureActive: self.isActive) else { return }
+            PlaybackSession.log.notice("[pip] mpv back in the app with the window open — stopping it")
+            self.controller?.stopPictureInPicture()
+        }
+    }
+
+    /// IOS-POC-17H-4: the window may open as the app leaves, and it opens on whatever the layer holds.
+    private func appWillResignActive() {
+        guard !isActive, controller?.canStartPictureInPictureAutomaticallyFromInline == true else { return }
+        core.showCurrentFrame(on: renderer)
     }
 
     private func ended(pausingInBackground: Bool) {
@@ -1047,6 +1143,11 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
         ended(pausingInBackground: false)
     }
 
+    func pictureInPictureControllerWillStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        PlaybackSession.log.notice("[pip] mpv will stop")
+        foregroundRestore.pictureInPictureWillStop()
+    }
+
     func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         PlaybackSession.log.notice("[pip] mpv did stop — video back on Metal")
         foregroundRestore.pictureInPictureDidStop()
@@ -1058,6 +1159,8 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
         restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
     ) {
         // The player screen stays presented underneath, as with AVPlayer.
+        PlaybackSession.log.notice("[pip] mpv restoring the app (app state \(UIApplication.shared.applicationState.rawValue))")
+        foregroundRestore.pictureInPictureWillStop()
         completionHandler(true)
     }
 

@@ -19,6 +19,13 @@ public struct PictureInPictureForegroundRestoreState: Sendable {
         return true
     }
 
+    /// The system is already ending the session (the window's "back to the app" button), so the
+    /// foreground must not ask again: a second stop mid-restore is the one-frame flash of the app
+    /// before AVKit's animation that a device recording showed (IOS-POC-17H-4).
+    public mutating func pictureInPictureWillStop() {
+        requested = true
+    }
+
     public mutating func pictureInPictureDidStop() {
         requested = false
     }

@@ -230,6 +230,40 @@ revert 本階段的 commit。
 
 **真機未驗證**；若 iPhone 上仍放大，下一步只能靠使用者的 iPhone 螢幕錄影（AirDrop 到 Mac 後逐格分析）判斷 AVKit 在 iPhone 上的目標——App 端沒有 API 可以指定放回的矩形。同日另一個 session 在同一個 checkout 做了 IOS-POC-12／13 並撤銷 13（`20fd462e`），本階段的 commit 已重定基底到它之後。
 
+### 8. IOS-POC-17H-4：真機錄影逐格分析、進入 PiP 的黑畫面與放回時的閃一格（2026-09-30）
+
+使用者 2026-09-30 以 `0.1.35 (36)`（含 17H-3）真機錄影回報「pip有問題」（`ScreenRecording_09-29-2026 19-40-54_1.mp4`，1206×2622、13.95 秒，MPV、2× 倍速；檔案未進 git）。核准「A 和 B 一起改，改完發新版」。
+
+**逐格結果**（`ffmpeg` 抽格、逐格亮度與影格差異）：
+
+| # | 時間 | 現象 | 判斷 |
+|---|---|---|---|
+| — | 全程 | 播放時間連續（04:47→04:58 在 2× 下約 5.5 秒），PiP 視窗每秒約 33 張不同畫面，音訊持續到按暫停 | 播放、時間、PiP 更新都正常 |
+| A | 8.050 秒（第二次放回） | 放回動畫**之前**整個 App 畫面先出現 1 格（約 17 ms），下一格回到主畫面，PiP 視窗才開始放大；第一次放回（2.7 秒）沒有 | 使用者所說「閃一下」。App 回到前景時 `appDidBecomeActive()` 會再呼叫一次 `stopPictureInPicture()`，而系統這時已經在結束 PiP（按了視窗的「回到 App」）；兩次只閃一次，符合時序競爭 |
+| B | 6.23–6.40 秒（進入） | App 縮小動畫後段影片區先變黑，PiP 視窗前約 0.15 秒全黑 | 見下方 mpv 原始碼 |
+| C | 兩次放回 | 黑框從 PiP 位置放大到**整個螢幕**，影片在框內落到中間 | iOS 的動畫目標是整個 App 視窗，不是 17H-3 縮成影片比例的 sample-buffer 層；17H-3 修法 1 在 iPhone 上沒有作用。App 沒有 API 指定放回矩形，不改 |
+
+**B 的原因**（mpv `v0.41.0` `41f6a645068483470267271e1d09966ca3b9f413`）：換成 `vo=libmpv` 後，新輸出在第一張解碼影格之前只有「重繪」，`vo.c` `do_redraw` 以沒有影像的 dummy frame（`redraw=true`）送出；`libmpv_sw.c` 對 `frame->current == NULL` 做 `mp_image_clear` 並回傳成功。`render()` 把這張黑圖當第一格送進層並觸發 `onNextFrame`，Metal 被藏起、PiP 視窗打開時層裡只有黑圖。模擬器（`hwdec=no`）第一張就是真影格，所以 17H-3 在模擬器上看不到。
+
+**修法**（`ios/WebHTVApp/Sources/MPVEngine.swift`、`ios/Sources/WebHTVCore/PictureInPictureForegroundRestoreState.swift`）：
+
+1. `MPVSoftwareRenderer.render()`：以 `MPV_RENDER_PARAM_NEXT_FRAME_INFO` 讀旗標；新 render context 送出第一張非重繪影格之前，重繪結果不送進層（仍呼叫 `mpv_render_context_render` 消化該格，否則 VO 會等 200 ms 逾時）。`onNextFrame` 改由 `render()` 在送出真影格後觸發，佔位黑格與截圖都不再觸發。
+2. `UIApplication.willResignActiveNotification`：可自動 PiP（`canStartPictureInPictureAutomaticallyFromInline`）且 PiP 未進行時，`MPVPlayerCore.showCurrentFrame` 以 `screenshot-raw`（預設含字幕）取目前畫面，縮到 PiP 影格尺寸（`targetSize`，上限 1280 px）放進 sample-buffer 層，取代黑色佔位格，讓 PiP 一出現就有畫面。截圖一律走 CPU（`screenshot-sw=yes`）：模擬器上 gpu-next 的 GPU 截圖在 MoltenVK 讀回時中斷（`pl_tex_download` → `MTLSimDevice newBufferWithLength` → `_xpc_api_misuse`，SIGTRAP，crash report `WebHTVApp-2026-09-30-102315.ips`）。
+3. 放回：`pictureInPictureControllerWillStopPictureInPicture` 與 `restoreUserInterface…` 呼叫新的 `PictureInPictureForegroundRestoreState.pictureInPictureWillStop()`（系統已在結束，前景不再要求）；`appDidBecomeActive()` 延後 300 ms 才判斷要不要自己停（系統可能在 App 變成 active 之後才說它在結束）。從 App 圖示回來時 PiP 因此晚約 0.3 秒結束。`ponytail:` 300 ms 是對 iOS 時序的固定估計，實際間隔看 `[pip]` log。
+4. 新增 log：`[pip] mpv will stop`、`[pip] mpv restoring the app (app state N)`、`[pip] mpv back in the app with the window open — stopping it`。
+
+**驗證**：
+
+- `swift test`：578 項全過（含新增 `aSystemInitiatedStopLeavesNoForegroundRequest`）。
+- Release 實機 build（`generic/platform=iOS`、`CODE_SIGNING_ALLOWED=NO EXPANDED_CODE_SIGN_IDENTITY=-`）成功，`MPVEngine.swift` 0 warning。
+- iPad mini (A17 Pro) 模擬器 iOS 26.3、本機條碼測試片 A、MPV，暫時的旗標檔 hook（`TEMP-17H4`，已移除，`grep -c TEMP` = 0）：
+  - 截圖：`screenshot-raw` 回 0、640×360；藏起 Metal 後畫面是該張條碼（顏色、比例正確，不是黑的）；縮放版再驗一次同樣正確。GPU 截圖版在同一步 crash（見上），改 CPU 後不再發生。
+  - 開 PiP：第一張軟體影格即真影格（`redraw=0`，flags `PRESENT`）——模擬器沒有黑色重繪，過濾條件未被觸發，只證明它不擋正常影格。
+  - 前景延遲 stop：`back in the app … stopping it` → `will stop` → `restoring the app (app state 0)` → `did stop`；App 自己停時的順序是 will stop → restore → did stop。PiP 結束後條碼持續變化（回到 Metal 播放）。
+- **真機未驗證**：A 是否不再閃（原本兩次閃一次，需多試）、B 的 PiP 視窗是否一出現就有畫面、真機上 `willResignActive` 截圖的耗時與 `hwdec` 影格下載、字幕是否出現在截圖上、按「回到 App」時 will stop 與 didBecomeActive 的實際先後。AVPlayer 的前景 stop（`WebHTVApp.swift` `PlayerSurface.Coordinator`）未改，是否也閃待使用者以系統播放器比對。
+
+**回滾**：revert 本階段 commit。
+
 ## Recovery anchor
 
 - 目標：MPV PiP（P6），行為對齊 AVPlayer 自動 PiP（第一節）。
@@ -239,3 +273,4 @@ revert 本階段的 commit。
 - 解析度修正（第六節之六）`5613517a` 已以 `0.1.12 (13)` 發布。
 - 下一步（唯一）：使用者在 SideStore 更新到 `0.1.12 (13)` 後，在真機確認 PiP 清晰度，並依第四節驗收標準驗 MPV PiP 其餘項目（先看 `[pip] mpv possible=` 與 `will start` log，再看 PiP 視窗是否有畫面）。
   （2026-09-25 更正：使用者已更新到 `0.1.20 (21)`（目前最新），PiP 清晰度與第四節其餘項目仍未回報；另有開啟中的問題「解除子母畫面時放大、進度往回」，使用者決定等有模擬器再修改，見該節。）
+- 2026-09-30 IOS-POC-17H-4（第七節之後的「8.」）：進入 PiP 的黑畫面與放回時的閃一格已修正，模擬器能驗的部分已驗；真機未驗證。下一步（唯一）：使用者在新版真機上以 MPV 反覆「進 PiP → 按回到 App」並錄影，確認 A、B；若仍閃，接 Mac 的 Console 讀 `[pip]` log 的先後順序。

@@ -32,3 +32,17 @@ import Testing
         #expect(!requestAfterStop)
     }
 }
+
+@Test func aSystemInitiatedStopLeavesNoForegroundRequest() {
+    var state = PictureInPictureForegroundRestoreState()
+    state.pictureInPictureWillStart()
+    state.pictureInPictureWillStop()
+
+    let requested = state.consumeForegroundRequest(isPictureInPictureActive: true)
+    #expect(!requested)
+
+    state.pictureInPictureDidStop()
+    state.pictureInPictureWillStart()
+    let nextSession = state.consumeForegroundRequest(isPictureInPictureActive: true)
+    #expect(nextSession)
+}

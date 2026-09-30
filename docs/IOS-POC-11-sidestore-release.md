@@ -894,9 +894,40 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第三十七次發布：`0.1.36 (37)`（2026-09-30，**已發布**）
+## 第三十八次發布：`0.1.37 (38)`（2026-09-30，**已發布**）
 
-**目前最新版是 `0.1.36 (37)`。** 前面三十六版都已被取代。
+**目前最新版是 `0.1.37 (38)`。** 前面三十七版都已被取代。
+
+- 授權：使用者 2026-09-30 指示「發新版」（IOS-POC-37.3 push 之後）。版號沿用序號 `0.1.37`，build `38`。
+- 內容：`0.1.36 (37)` 的全部，加上 IOS-POC-37.3（`3486006a`：Python spider 在 `__init__` 前就有自己的 cache context；native stamp 納入 Xcode／SDK／clang identity；`python.host` 1.4）與 `0.1.36 (37)` 的發布紀錄（`0e1509cc`）。文件 IOS-POC-37 第十四節。
+- 發布序列：
+  1. 版號 commit `d2879a08`（Task-Guard `IOS-RELEASE-0.1.37-b38`）。
+  2. push `3486006a..d2879a08`。
+  3. `gh workflow run ios-sidestore-release.yml --ref ios-poc -f version=0.1.37 -f build_number=38 -f release_notes=…` → run `36666442367`（conclusion success，2026-09-30 03:53:43Z → 04:00:25Z；未逐一檢查各步驟）。
+  4. workflow 建立 tag `ios-v0.1.37-b38`（target `d2879a08`），並推回 `source.json`（`82ebcba0`，共三十八筆，第一筆 `0.1.37`，size 與 IPA 相同）。
+
+  **沒有手動建 tag。**
+- 產物：`WebHTV-0.1.37-38.ipa` **29,318,714 bytes**，GitHub 記錄的 digest SHA-256
+  `cb7e9d68518b8fd9a484ff95a5a26aa5549ef8ed68cdf6bf184183a7c0d11652`。**IPA 未下載回來驗內容**（本次未取得下載授權）。
+- 發布前驗證：IOS-POC-37 第 14.4 節——host Python 5/5、`swift test` 578/578、模擬器依賴自檢 8/8、App 內 A→B→A（含 constructor）、模擬器 Debug build、44 站 survey media 19。**真機尚未驗收。** 這是 CI 第一次跑納入 toolchain identity 的 native stamp（見 IOS-POC-37 第 14.6 節第 3 項）；run 成功，但沒有另外讀 Prepare Python 那一步是否印出 `already current`。
+- 使用者中斷：workflow 觸發後，使用者貼上下一個任務（IOS-POC-37.3.1）。發布已在執行且事前明確授權，所以沒有取消，等它完成後再開始下一個任務。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.37 (38)（Python 執行環境的兩個小修正；只有模擬器驗證，真機未驗收）
+
+修正
+- Python 腳本若在建構時（__init__）就讀寫快取，現在會讀寫到自己站的資料。先前那時拿不到快取、讀到空的也寫不進去。目前設定檔沒有這樣寫的腳本，所以使用上不會看到差異。
+- 開發端：Python 原生套件（pycryptodome、lxml）的建置記錄納入 Xcode、SDK 與編譯器版本，換版後會自動重新編譯。
+
+已知限制
+- 此版只有模擬器（依賴自檢 8/8、44 站 survey）與 CI 的 Release 建置驗證。
+- 其餘同 0.1.36 (37)，包含 MPV 子母畫面修正仍待真機回報。
+```
+
+## 第三十七次發布：`0.1.36 (37)`（2026-09-30，**已發布**，已被 `0.1.37 (38)` 取代）
+
 
 - 授權：使用者 2026-09-30 指示「A 和 B 一起改，改完發新版」（IOS-POC-17H-4）。版號沿用序號 `0.1.36`，build `37`。
 - 內容：`0.1.35 (36)` 的全部，加上 IOS-POC-17H-4（`35eeebad`：MPV 進入子母畫面時先放上目前畫面、不再把第一張黑色重繪送進視窗；回到 App 時不再重複要求結束子母畫面）。文件 IOS-POC-17H 第八節。

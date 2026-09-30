@@ -912,7 +912,7 @@ WebHTV 0.1.31 (32)（未經真機驗收）
   **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`com.webhtv.ios.poc` / `0.1.35` / build `36` / minimum iOS `17.0`；`Frameworks/` 142 個；`python-packages/` 0 個 `.so`、46 個 `.fwork`，含 `certifi/cacert.pem`；`webhtv-python/webhtv_runtime.py` 含 `ssl.SSLContext.set_default_verify_paths = _load_bundled_cas`，`webhtv_selfcheck.py` 含 `ssl` 檢查。
 - 發布前驗證：IOS-POC-37 第 13.4 節（Linux host 的 TLS 對照、`py_compile`）與 CI 的 Release 裝置 build。**沒有跑 `swift test`、模擬器自檢、44 站 survey；真機尚未驗收。**
 - 紀錄：本節於 2026-09-30 補寫。發布當時要讀上一版紀錄時被自動權限判斷擋下，使用者 2026-09-30 授權後才寫。
-- 發布後：使用者回報 SideStore 沒有看到新版（「沒有進版號」）。查證結果：IPA 內部版號 `0.1.35`／build `36`；`raw.githubusercontent.com/.../ios-poc/source.json` 第一筆 `0.1.35`；SideStore `develop` `0dd743f75afc358b0ba4a002feb5f19474492371` 的 `InstalledApp.hasUpdate` 取 `versions` 第一筆做 semver 比較，`0.1.35 > 0.1.34` 成立。判定來源端正確，可能原因是使用者在 `source.json` 推上（14:19:28Z）之前查看、SideStore 未重新整理，或 App 不是從此來源安裝。使用者重新整理後的結果尚未回報。
+- 發布後：使用者回報 SideStore 沒有看到新版（「沒有進版號」）。查證結果：IPA 內部版號 `0.1.35`／build `36`；`raw.githubusercontent.com/.../ios-poc/source.json` 第一筆 `0.1.35`；SideStore `develop` `0dd743f75afc358b0ba4a002feb5f19474492371` 的 `InstalledApp.hasUpdate` 取 `versions` 第一筆做 semver 比較，`0.1.35 > 0.1.34` 成立。判定來源端正確，可能原因是使用者在 `source.json` 推上（14:19:28Z）之前查看、SideStore 未重新整理，或 App 不是從此來源安裝。使用者 2026-09-30 回報 SideStore 已出現 `0.1.35` 更新。
 
 ### Release notes（實際送出的內容）
 

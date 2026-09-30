@@ -10,7 +10,9 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 雲端 session 若由 harness 指定其他工作分支，照樣只 push 到 `ios-poc`（使用者 2026-09-28 的決定），不建立新的遠端分支。
 
-**站台可用性測試（2026-09-30）**：使用者要求測 `wang-movie.json` 與 `wang-sex.json` 哪些站可用、哪些不可用，逐站列出。結果在 `docs/SITE-AVAILABILITY-2026-09-30.md`（依結果分組的站名與逐站表）：`wang-movie.json` 169 站可用 44、不可用 67、App 不提供 58；`wang-sex.json` 266 站可用 54、不可用 203、App 不提供 9。「可用」＝讀到影片位元組。`wang-sex.json` 的 104 個 XBPQ 站全部取不到片，抽查的網站本身有正常回片單，推斷是 iOS 移植的 XBPQ 解析不了這些規則（未逐站確認）。sweep 測試改為 8 站同時跑、首頁沒片改試分類、印出站名（`a1863e47`）。
+**IOS-POC-39 XBPQ 規則涵蓋（2026-09-30，進行中：只做完診斷，沒有改程式）**：使用者要求「修 XBPQ 讓 wang-sex 那 104 站能用」。原因是三層：41 站的 `ext` 是帶 `//` 註解的 `./json/*.json` 規則檔，分類全部讀不到；19 站用 `分类ID`／`首页` 等未實作的鍵給分類；45 站有分類但列表規則 `数组`／`标题`／`图片`／`链接`／`副标题` 沒實作。抽查的網站都有正常回片單。規則鍵盤點與規格來源（`recha` 的 `jar/xyqxbpq.jar`，字串 hex＋XOR `wxEesU` 混淆，本機有 jadx 1.5.6）在 `docs/IOS-POC-39-xbpq-rule-coverage.md`。下一步是反編譯原版、寫下缺漏鍵的語意與分階段方案，經使用者核准後才實作（AGENTS.md §7）。
+
+**站台可用性測試（2026-09-30）**：使用者要求測 `wang-movie.json` 與 `wang-sex.json` 哪些站可用、哪些不可用，逐站列出。結果在 `docs/SITE-AVAILABILITY-2026-09-30.md`（依結果分組的站名與逐站表）：`wang-movie.json` 169 站可用 44、不可用 67、App 不提供 58；`wang-sex.json` 266 站可用 54、不可用 203、App 不提供 9。「可用」＝讀到影片位元組。`wang-sex.json` 的 104 個 XBPQ 站全部取不到片，抽查的網站本身有正常回片單，推斷是 iOS 移植的 XBPQ 解析不了這些規則（未逐站確認；後續見 IOS-POC-39）。「App 不提供」的可行性：`wang-movie.json` 58 站中 23 站可以做但還沒做、34 站被原生加密保護擋住不做、1 站 JAR 未取得；`wang-sex.json` 9 站尚未分析（同文件「App 不提供可不可以做」一節）。sweep 測試改為 8 站同時跑、首頁沒片改試分類、印出站名（`a1863e47`）。
 
 **IOS-POC-37.3.1（2026-09-30，已 push，並發布為 `0.1.38 (39)`）**：37.3 為了在 `__init__` 前放進 cache context，手動做 `__new__` → 設 context → `__init__()`，與標準 `Spider()` 不完全相同。以測試重現三件事：自訂 metaclass `__call__` 被繞過、`__init__` 回傳非 `None` 仍載入成功、同一個實例交給兩個站時第一站的 site key 被改成第二站的（跨站污染）。修正（`webhtv_runtime._construct`）：metaclass 沒有自己的 `__call__`（`type`／`ABCMeta`，設定檔全部腳本）時照 `type.__call__` 逐步做並補上非 `None` 的 `TypeError`；有自己的 `__call__` 時照 Python 呼叫 `spider_class()`、建構後才設 context（該 constructor 的 cache 明確不支援、讀空不寫）；已被別站持有的實例 fail closed。host 10/10、`swift test` 578/578、依賴自檢 8/8、13/13、App 內 A→B→A OK、模擬器 Debug build 通過；`python.host` 1.4 → **1.5**（1.4 已隨 `0.1.37 (38)` 出貨）。44 站 survey 到 media 20 站，與 37.3 逐站逐階段比對沒有退步（不同的 3 站都是網站逾時或網站回應變動）；AST 掃描 33 支同源腳本，沒有任何一支用 `metaclass=`、自訂 `__new__`、metaclass `__call__` 或讓 `__init__` 回傳值，所以沒有使用者可見的變化。第一次嘗試時公司網路（gateway `10.1.207.254`）以應用程式控管政策封鎖 gitlab.com，改用個人熱點後補跑；見 IOS-POC-37 文件第 15.4 節。**真機未驗證**。
 
@@ -80,7 +82,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 4. commit 一律用 task guard（`start --scope` 每個路徑各帶一次，`finish` 加 `--no-tag`）。
 5. 雲端 session 沒有 Swift：單元測試照常撰寫但不執行（使用者選擇「只靠編譯與真機」），第一次編譯是發布時的 Release build。**在 Mac 上**（2026-09-29 使用者選「執行並修測試」）：`ios/` 的 `swift test` 要執行，測試本身的錯誤直接修，正式程式的 bug 先回報；2026-09-29 第一次執行 519 個全部通過。
 
-**下一步（唯一）**：等使用者回報 `0.1.38 (39)` 的真機結果（含 `0.1.32 (33)`～`0.1.37 (38)` 的全部內容；IOS-POC-37 的 Python 站見其文件第九節、第 12.4 節、第 13.6 節與第十四節），先看 IOS-POC-17H-4（MPV 進 PiP 是否一出現就有畫面、按「回到 App」是否還閃一格；原本兩次閃一次，要多試幾次，見 17H 文件第八節）。其餘項目收到後逐列填進下列文件，`0.1.38 (39)` 含前面各版的全部內容：
+**下一步（唯一）**：繼續 IOS-POC-39——依 `docs/IOS-POC-39-xbpq-rule-coverage.md` 的 Recovery anchor，反編譯 `xyqxbpq.jar` 的 XBPQ、寫第四節語意與方案，交使用者核准。同時仍在等使用者回報 `0.1.38 (39)` 的真機結果（含 `0.1.32 (33)`～`0.1.37 (38)` 的全部內容；IOS-POC-37 的 Python 站見其文件第九節、第 12.4 節、第 13.6 節與第十四節），先看 IOS-POC-17H-4（MPV 進 PiP 是否一出現就有畫面、按「回到 App」是否還閃一格；原本兩次閃一次，要多試幾次，見 17H 文件第八節）。其餘項目收到後逐列填進下列文件，`0.1.38 (39)` 含前面各版的全部內容：
 
 0. IOS-POC-33（`0.1.29 (30)`）：`docs/IOS-POC-33-dual-script-search.md` 第七節的真機項目。
 0. IOS-POC-32 C（`0.1.29 (30)`）：`docs/IOS-POC-32-detail-metadata-zhtw.md` 第六節第 4 點的真機項目與第 5 點第 5 項。
@@ -1296,6 +1298,6 @@ Paste this into a new session:
 >
 > 目前狀態：最新已發布版本是 `0.1.38 (39)`（2026-09-30，tag `ios-v0.1.38-b39` → `59d51115`），帶入 IOS-POC-37.3.1（標準 `Spider()` 建構語意、`python.host` 1.5）；`0.1.37 (38)` 帶入 IOS-POC-37.3（constructor 內 cache、native stamp 納入 toolchain identity、`python.host` 1.4）；兩份設定檔的逐站可用性在 `docs/SITE-AVAILABILITY-2026-09-30.md`；`0.1.36 (37)` 帶入 IOS-POC-17H-4（MPV 子母畫面進入／放回修正）；`0.1.35 (36)` 帶入 IOS-POC-37.2（stdlib `ssl` 信任 certifi）；`0.1.34 (35)` 帶入 IOS-POC-37.1；`0.1.33 (34)` 帶入 IOS-POC-37（Python 依賴擴充，見 `docs/IOS-POC-37-python-runtime-dependency-expansion.md`）；`0.1.25 (26)`～`0.1.35 (36)` 帶入 IOS-POC-27～35、37、25-4／25-5 與 17H-2／17H-3，都還沒有真機驗收。IOS-POC-12 已完成（2026-09-29，未發布，App 行為沒變），IOS-POC-13 未開始。IOS-POC-32 D 等我核准（還缺：是否開始、iOS 17 的做法、是否固定 `.lowLatency`）；IOS-POC-27C 等我回報原生開不了時畫面顯示的原因；IOS-POC-34 已結案（我改了 GitLab `recha` 的 `py/kkys.py`）。遠端只剩 `main` 與 `ios-poc`。其餘各版的內容與真機結果見 Current handoff 的表格，各任務狀態見「任務狀態」。
 >
-> 下一步：等我在 `0.1.38 (39)` 上真機回報（Current handoff「下一步」列的項目），你把結果填進對應文件。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13（已實作後依我的決定撤銷）。
+> 下一步：先接續 IOS-POC-39（讀 `docs/IOS-POC-39-xbpq-rule-coverage.md` 的 Recovery anchor，做原版 XBPQ 的語意研究並提方案給我核准，核准前不改程式）；另外等我在 `0.1.38 (39)` 上真機回報（Current handoff「下一步」列的項目），你把結果填進對應文件。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13（已實作後依我的決定撤銷）。
 >
 > 規則：Ponytail 為可選 review；可用時可執行，若目前環境沒有就直接略過，不得因此阻擋功能修改、驗證、commit、build 或後續工作，也不得假稱已執行。功能修改仍須 `bash .codex/scripts/task_guard.sh start`，結束用 `finish --no-tag`。push 到 `ios-poc` 已授權；bump 版本、tag、package、publish 或發 SideStore release 前要先問我。不要直接安裝到我的 iPhone（我用 SideStore）。真機沒測到的一律寫「未驗證」。雲端工作階段沒有 Swift／Xcode，編譯靠發版 workflow，單元測試照常撰寫但不執行（我選的「只靠編譯與真機」）。只 push 到 `ios-poc`，不建立新的遠端分支，也不 merge 到 `main`。

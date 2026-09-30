@@ -31,6 +31,17 @@
 - 「解析得到播放網址，但抓到的不是影片」有兩種（依 sweep 記下的網址）：`/play/<id>`、`/share/<id>` 這種**網頁播放器**網址，不是影片檔（`wang-movie.json` 14 站中約 6 站、`wang-sex.json` 9 站中 2 站）；其餘是 `.m3u8` 或影片檔網址但讀到的不是影片（CDN 拒絕、網址過期或錯誤頁；例如 `wang-sex.json` 的 type-0 站給的是 2022 年的影片路徑）。
 
 
+## 「App 不提供」可不可以做（2026-09-30 追加）
+
+使用者問「App 不提供是可以做但還沒做嗎」。依 `docs/CSP_PORTABILITY_MATRIX.md`（2026-09-16 以 jadx 反編譯 `recha` 的 JAR 所做的分類）：
+
+| 設定檔 | 可以做、還沒做 | 做不到（原生加密保護） | 未知 |
+|---|---|---|---|
+| `wang-movie.json`（58） | **23 站**：AppDrama×4、Douban×2、AppSy、AppYQK、AppYsV2、Feiyu、GuaziTY、HaokanDJ、HemaDJ、Hxq、Jpys、Jys、MiaoWu、MoDu、PianKu8、QimaoDJ、Uvod、WeiguanDJ、Wwys（矩陣分類 A／B／C：HTTP＋JSON、Jsoup／Gson、加密 token，都是工作量問題） | **34 站**：aowu 的 `*Amns` 29 站（AppV7Amns×9、AppV6Amns×2、BidysAmns×2、HgggAmns×2 等）與 fan 的 `*Guard` 5 站——JAR 裡只有空殼類別，實際程式在加密的 `.so`，要破解保護才能移植，不做 | 1 站：`AppV6`，JAR 在美團 S3 從未下載到 |
+| `wang-sex.json`（9） | — | — | **9 站未分析**：`csp_GM`×2、`csp_Jable`×2、`csp_MiMei`、`csp_Zuise`（矩陣只涵蓋 `wang-movie.json`），以及女優／番號／薇薇珊（type 4，但 `api` 是 `./json/00title0515x.json` 並帶 `jar: ./jar/xc0126.jar`，不是一般 type-4 API）——要先反編譯各自的 JAR 才能判斷 |
+
+矩陣是 2026-09-16 的分類，之後沒有重跑（`scripts/audit_spider_jars.py` 需要 `recha-main.zip`）。
+
 ## `wang-movie.json`：依結果分組
 
 - **可用（44）**

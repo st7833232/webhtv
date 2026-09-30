@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.37",
+          "date": "2026-09-30",
+          "localizedDescription": "WebHTV 0.1.37 (38)（Python 執行環境的兩個小修正；只有模擬器驗證，真機未驗收）\n\n修正\n- Python 腳本若在建構時（__init__）就讀寫快取，現在會讀寫到自己站的資料。先前那時拿不到快取、讀到空的也寫不進去。目前設定檔沒有這樣寫的腳本，所以使用上不會看到差異。\n- 開發端：Python 原生套件（pycryptodome、lxml）的建置記錄納入 Xcode、SDK 與編譯器版本，換版後會自動重新編譯。\n\n已知限制\n- 此版只有模擬器（依賴自檢 8/8、44 站 survey）與 CI 的 Release 建置驗證。\n- 其餘同 0.1.36 (37)，包含 MPV 子母畫面修正仍待真機回報。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.37-b38/WebHTV-0.1.37-38.ipa",
+          "size": 29318714,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.36",
           "date": "2026-09-30",
           "localizedDescription": "WebHTV 0.1.36 (37)（MPV 子母畫面修正；只有模擬器驗證，真機未驗收）\n\n修正\n- MPV 進入子母畫面時，視窗一出現就顯示目前的畫面，不再先黑一下。\n- 從子母畫面按「回到 App」時，App 不再重複要求結束子母畫面（可能是放回前畫面閃一下的原因）。從主畫面點 App 圖示回來時，子母畫面約晚 0.3 秒結束。\n\n已知限制\n- 放回動畫會先放大成整個螢幕，這是 iOS 系統的動畫，App 無法指定。\n- 此版只有模擬器與 CI 的 Release 建置驗證；閃一下原本是兩次才出現一次，請多試幾次。\n- 系統播放器（AVPlayer）的子母畫面未修改。",

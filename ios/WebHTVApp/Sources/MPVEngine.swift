@@ -36,6 +36,13 @@ final class MPVEngine: PlaybackEngine {
     /// The app-wide idle timer follows this only while the app is in the foreground.
     private var playbackIntendsToRun = false
     private var lastAudioDiagnostic = ""
+    /// IOS-POC-36: a seek asked for and not yet landed (mpv restarts playback once it has). Until
+    /// then it is the position, as AVPlayer's `currentTime()` is: a second ±10 s pressed before
+    /// mpv's `time-pos` caught up counted from where the first one started, not where it went.
+    /// Bounded, because a seek mpv refuses (a live stream) restarts nothing; by then mpv's own
+    /// `time-pos` reads the target of any seek it did take.
+    private var seekAsked: (seconds: Double, at: ContinuousClock.Instant)?
+    private static let seekAskedLimit: Duration = .seconds(2)
 
     /// Long enough for a slow first segment; the watchdog only starts once the file has loaded.
     private static let firstFrameTimeout: Duration = .seconds(10)
@@ -84,6 +91,7 @@ final class MPVEngine: PlaybackEngine {
     func load(_ request: PlaybackLoadRequest) {
         firstFrameWatchdog?.cancel()
         lastAudioDiagnostic = ""
+        seekAsked = nil
         onMediaSelectionChange?(PlaybackMediaSelection())
         pictureInPicture?.setHasVideo(false)   // until the file says otherwise
         // AVKit prevents display sleep for AVPlayer playback. MPV owns a custom Metal surface, so
@@ -108,10 +116,21 @@ final class MPVEngine: PlaybackEngine {
         core.setPaused(true)
         setPlaybackIntent(false)
     }
-    func seek(toSeconds seconds: Double) { core.seek(to: max(seconds, 0)) }
+    func seek(toSeconds seconds: Double) {
+        seekAsked = (max(seconds, 0), .now)
+        core.seek(to: max(seconds, 0))
+    }
     func setRate(_ rate: Float) { core.setSpeed(rate) }
 
-    var currentTime: Double { core.snapshot.position }
+    /// IOS-POC-36: nothing while a file loads — a playhead still queued from the file before it is
+    /// not this one's (IOS-POC-26 RC4 read it as 0:00 or worse) — and, once a file failed, where it
+    /// had got to, so the fallback resumes there (RC2) rather than where the item was opened.
+    var currentTime: Double {
+        let now = core.snapshot
+        if now.loading { return 0 }
+        if let seekAsked, ContinuousClock.now - seekAsked.at < Self.seekAskedLimit { return seekAsked.seconds }
+        return now.loaded ? now.position : now.reached
+    }
     var duration: Double { core.snapshot.duration }
     var rate: Float { core.snapshot.paused ? 0 : Float(core.snapshot.speed) }
     var isLoaded: Bool { core.snapshot.loaded }
@@ -219,10 +238,22 @@ final class MPVEngine: PlaybackEngine {
             }
         case .playbackRestarted:
             if awaitingMetalFrame { revealMetal() }
+            if let asked = seekAsked {
+                seekAsked = nil
+                let landed = String(format: "%.1f", core.snapshot.position)
+                PlaybackSession.log.notice("[playback] seek landed \(landed, privacy: .public)s asked \(String(format: "%.1f", asked.seconds), privacy: .public)s on MPV")
+            }
         case .mediaSelectionChanged(let selection):
             onMediaSelectionChange?(selection)
             reportAudioDiagnostics(selection)
         case .ended:
+            // IOS-POC-36: the file before this load reaching its end after `loadfile … replace` was
+            // sent. Taken as the new file's, it advanced once more and skipped the new episode.
+            guard !core.snapshot.loading else {
+                PlaybackSession.log.notice("[playback] mpv end of the previous file ignored: the next one is loading")
+                return
+            }
+            seekAsked = nil
             setPlaybackIntent(false)
             pictureInPicture?.setHasVideo(false)   // mpv is idle now; the next load says again
             onEnded?()
@@ -368,6 +399,8 @@ final class MPVPlayerCore: @unchecked Sendable {
         var volume: Double = 100
         var cacheEnd: Double?
         var mediaSelection = PlaybackMediaSelection()
+        /// The last playhead the loaded file reported (IOS-POC-36); reset by every load.
+        var reached: Double = 0
     }
 
     var onEvent: (@Sendable (Event) -> Void)?
@@ -697,7 +730,11 @@ final class MPVPlayerCore: @unchecked Sendable {
             ? property.data.map { $0.assumingMemoryBound(to: Int32.self).pointee != 0 } : nil
         update { now in
             switch name {
-            case "time-pos": now.position = double.map { $0.isFinite ? max($0, 0) : 0 } ?? 0
+            case "time-pos":
+                now.position = double.map { $0.isFinite ? max($0, 0) : 0 } ?? 0
+                // IOS-POC-36: what the loaded file reached, kept after it fails — mpv reports the
+                // playhead gone once the file stops, sometimes before the failure itself.
+                if now.loaded, now.position > 0 { now.reached = now.position }
             case "duration": now.duration = double.map { $0.isFinite ? max($0, 0) : 0 } ?? 0
             case "pause": now.paused = flag ?? now.paused
             case "paused-for-cache": now.buffering = flag ?? false
@@ -1167,7 +1204,9 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
     // MARK: AVPictureInPictureSampleBufferPlaybackDelegate
 
     func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, setPlaying playing: Bool) {
-        if playing { engine?.play() } else { engine?.pause() }
+        // Through the session, like the control bar's toggle (IOS-POC-36): a pause here is the
+        // viewer's, and a fallback after it must stay paused.
+        PlaybackSession.shared.control(playing ? "play" : "pause")
     }
 
     func pictureInPictureControllerTimeRangeForPlayback(_ pictureInPictureController: AVPictureInPictureController) -> CMTimeRange {

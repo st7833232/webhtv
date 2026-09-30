@@ -367,3 +367,4 @@ App 沒有本地代理或 HTTP server；AVPlayer（`AVURLAsset`＋headers）與 
 - 相關檔案：`ios/Sources/WebHTVCore/PlaybackEngine.swift`（`PlayerRouter`）、`ios/WebHTVApp/Sources/WebHTVApp.swift`（`PlaybackSession`、`AVPlayerEngine`）、`ios/WebHTVApp/Sources/MPVEngine.swift`、`ios/Sources/WebHTVCore/PictureInPictureForegroundRestoreState.swift`、`ios/Tests/WebHTVCoreTests/PlaybackEngineTests.swift`。
 - 未解：在背景關掉子母畫面小視窗後才被暫停執行不會重新載入（T6 未涵蓋），以及 MPV 子母畫面內按播放不重新啟用音訊（兩者見第十一節之四）；暫停一段時間後按播放要等幾秒（第十二節之三，與本修正無關）。
 - 下一步（唯一）：無。第一階段已完成，後續階段依目前證據不需要；第十二節之三的等待現象，使用者 2026-09-25 決定先不處理。
+- IOS-POC-36 更新（2026-09-30）：第十節之二記錄的兩個風險已處理（`docs/IOS-POC-36-playback-acceptance-stability.md` 第八節）：MPV 上一檔的 EOF 在下一檔載入中送到時不再觸發自動下一集（D3）；reload 後按播放、或開播中按暫停之後的失敗 fallback，依使用者最後的播放／暫停（D4，router `setIntendsToPlay`）。第十一節之四的缺口 1（背景關掉小視窗後才被暫停執行）仍開啟，記為 36 的 PL-14。單元測試已在 Mac 執行（586／586）。

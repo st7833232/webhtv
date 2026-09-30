@@ -179,3 +179,29 @@ import Testing
         == String(repeating: "x", count: 10) + "…")
     #expect(PlaybackLogRedaction.comment(nil) == "none")
 }
+
+// MARK: - IOS-POC-36: one hand-over per item
+
+@Test func theViewersEndingAndTheRealEndAdvanceOnce() {
+    // The ending seen by the sampler, then the real end while the next episode still resolved: the
+    // second advance skipped the next episode.
+    var gate = PlaybackEndGate()
+    gate.itemLoaded()
+    let ending = gate.end()
+    let realEnd = gate.end()
+    let another = gate.end()
+    #expect(ending, "the viewer's ending hands over")
+    #expect(!realEnd, "the real end of the same item does not hand over again")
+    #expect(!another)
+}
+
+@Test func theNextItemMayEndAgainAndSoMayAReplay() {
+    var gate = PlaybackEndGate()
+    gate.itemLoaded()
+    let first = gate.end()
+    gate.itemLoaded()                       // the next episode, or the same one replayed
+    let next = gate.end()
+    let again = gate.end()
+    #expect(first && next)
+    #expect(!again)
+}

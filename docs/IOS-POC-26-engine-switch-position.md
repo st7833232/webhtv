@@ -272,3 +272,4 @@ FongMi 的 FFmpeg 是 8.2 開發版（`177f090e0503b7e013922ca903bde14b1c375f18`
 - 目前檔案：`PlaybackEngine.swift`（`PlaybackLoadRequest.exactStart`、`PlayerRouter.handOff`／`reload`／`setRate`）、`WebHTVApp.swift`（`loadNative`、`router.onEngineChange`）、`PlaybackEngineTests.swift`。
 - 未解風險：就緒前零容差 seek 在真機上的行為；真實串流的 PTS 配置未量測；H1 與 U1（5.3a）；mpv 的 demuxer cache 與 `ts_resets_possible` 行為未在真機驗證。
 - 下一步（唯一）：等使用者在 `0.1.23 (24)` 回報 5.5 與第七節的真機結果；未回報前不再改動 IOS-POC-26 的程式與二進位。
+- IOS-POC-36 更新（2026-09-30）：RC2（MPV 播放中失敗時交接回到開播點）與 RC4（切換瞬間讀到 0:00、±10 秒以 0 起算）已修（`docs/IOS-POC-36-playback-acceptance-stability.md` 第八節 D5、D7）：router 交接不再要求 engine 仍是 loaded，MPV 失敗後回報最後的位置、載入中回報 0；session 在新核心回報前用 request 的起點。D5 有單元測試，D7 只有 build 證據；真機未驗證（36 第十節第 1、2 項）。

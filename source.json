@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.39",
+          "date": "2026-09-30",
+          "localizedDescription": "WebHTV 0.1.39 (40)（XBPQ 規則站可以播了、播放切換修正；只有自動測試、模擬器與 CI 建置驗證，真機未驗收）\n\n新功能\n- XBPQ 規則站：讀得到 ./json/*.json 規則檔，分類、片單、詳情與播放改照原版的規則語意（含直接播放、跳轉播放連結）。個人熱點實測 wang-sex.json 可播放的站由 29 增加到 41。\n\n修正\n- 設了片尾、下一集又解析得慢時，不再跳過一集；上一集／下一集按到一半遇到結尾也只換一集。\n- 核心播不了而自動換到另一個核心時，照你最後一次按的播放／暫停（以前暫停中失敗也會自己開始播）。\n- MPV 播到一半失敗換到原生時，接在失敗的位置，不再回到開頭。\n- 快速連按前進／倒退 10 秒會累加。\n- 切換核心的瞬間不再從 0:00 起算。\n\n已知限制\n- 此版沒有真機驗收。\n- XBPQ 的搜尋還沒改；部分 XBPQ 站因為網站回 JavaScript 跳轉頁或網域失效，仍然不可用。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.39-b40/WebHTV-0.1.39-40.ipa",
+          "size": 29340174,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.38",
           "date": "2026-09-30",
           "localizedDescription": "WebHTV 0.1.38 (39)（Python 腳本的建構方式修正；只有模擬器驗證，真機未驗收）\n\n修正\n- Python 腳本的 Spider 改回與 Android 相同的標準建構方式：自訂的 metaclass 會照常執行；__init__ 回傳值時會像 Android 一樣載入失敗；同一個 Spider 實例不能同時給兩個站使用，避免兩站的快取互相覆蓋。目前設定檔沒有這些寫法的腳本，所以使用上不會看到差異。\n\n已知限制\n- 此版只有模擬器（依賴自檢 8/8、44 站 survey）與 CI 的 Release 建置驗證。\n- 其餘同 0.1.37 (38)，包含 MPV 子母畫面修正仍待真機回報。",

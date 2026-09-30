@@ -664,21 +664,32 @@ host Python 3.13 另外確認：`ABCMeta` 與 `type` 的 `type(cls).__call__ is 
 | 依賴自檢（模擬器 iPhone 17 Pro、DEBUG） | 8/8、13/13 | **8/8、13/13** |
 | App 內 cache A→B→A（內建 CPython） | OK, constructors included | **OK, constructors included**（走新的 `type.__call__` 路徑） |
 | 模擬器 Debug build | 通過 | **通過**；Prepare Python `iphonesimulator already current`；bundle 內是新的 `webhtv_runtime.py` |
-| 44 站 survey | media 19 | **未驗證**：見下 |
+| 44 站 survey | media 19 | **media 20**（改用個人熱點後補跑，見下）；沒有任何站、任何階段因本次修改退步 |
 
-**survey 為什麼沒跑成**：12:05 啟動的一輪，前 8 站全部在 load 失敗（`site/network: rejected … NSURLErrorDomain Code=-1001 "The request timed out."`，抓 `https://gitlab.com/st7833232/recha/-/raw/main/py/*.py`），於是停止（輸出存在 untracked 的 `build/sim-3731-gitlab-down.out`）。同一時間從 Mac 直接測：GitHub、Google 正常；`gitlab.com` 的 TCP 443／80 都連得上，但 HTTP 在 11 ms 內回 `403`，頁面標題 **`Application Control Violation`**（本機網路 en0、gateway `10.1.207.254` 的應用程式控管政策），HTTPS 在送出 Client Hello 後就沒有回應直到逾時。12:07～12:47 每分鐘重試一次，40 次都一樣。設定檔的 Python 腳本全部放在 GitLab，所以**這台 Mac 在目前的網路下無法執行 survey，也無法做設定檔腳本的建構型態掃描**；沒有嘗試繞過網路政策。上午的 37.3 survey 是在另一個網路上跑的（IOS-POC-38 第七節記錄過同一個公司網路的 TLS 攔截與改用個人熱點）。
+**survey（13:35 補跑）**：使用者切換到個人熱點（gateway `172.20.10.1`）後，GitLab 腳本 0.8 秒回 200，重跑同一個模擬器上的 37.3.1 build（`--console-pty`）：
+
+```
+sites 44 | reached: load 40, init 37, home 34, category 24, search 20, detail 25, player 25, media 20
+outcome: complete×20, content×12, site/network×5, policy×4, content(parse=1)×2, site/content(unexpected answer)×1
+```
+
+與第 14.4 節 37.3 的第二輪逐站、逐階段比對：41 站每個階段完全相同；不同的 3 站都是網站端：YouTube 這次播放網址不是 `127.0.0.1:9978/proxy` 而是可直接播放的網址，到 media；金牌系列-界界 category 那一步 `ReadTimeout`（www.sizhengxt.com），但 detail／player／media 都到（所以 category 24、media 20）；金牌系列-cqzuoer home `ReadTimeout`（cqzuoer.com，37.3 第一輪也出現過）。哇哇 APP 兩輪都停在 CatVod `init()` 的 `userinfo`，原因從 `KeyError: 'content'`（API 少欄位）變成 `ReadTimeout`（gitee.com）——都是網站端，與 constructor 無關。
+
+**設定檔腳本的建構型態**（survey 後以 AST 掃描 33 支同源腳本，重用 `scripts/audit_python_spiders.py` 的抓取規則）：沒有任何一支用 `metaclass=`、自訂 `__new__`、metaclass 的 `__call__`，或讓 `__init__` 回傳值——全部走 `type.__call__` 路徑。
+
+**第一次嘗試為什麼沒跑成**（保留紀錄）：12:05 啟動的一輪，前 8 站全部在 load 失敗（`site/network: rejected … NSURLErrorDomain Code=-1001 "The request timed out."`，抓 `https://gitlab.com/st7833232/recha/-/raw/main/py/*.py`），於是停止（輸出存在 untracked 的 `build/sim-3731-gitlab-down.out`）。同一時間從 Mac 直接測：GitHub、Google 正常；`gitlab.com` 的 TCP 443／80 都連得上，但 HTTP 在 11 ms 內回 `403`，頁面標題 **`Application Control Violation`**（本機網路 en0、gateway `10.1.207.254` 的應用程式控管政策），HTTPS 在送出 Client Hello 後就沒有回應直到逾時。12:07～12:47 每分鐘重試一次，40 次都一樣。設定檔的 Python 腳本全部放在 GitLab，所以**這台 Mac 在目前的網路下無法執行 survey，也無法做設定檔腳本的建構型態掃描**；沒有嘗試繞過網路政策。上午的 37.3 survey 是在另一個網路上跑的（IOS-POC-38 第七節記錄過同一個公司網路的 TLS 攔截與改用個人熱點）。
 
 **沒有 survey 時的風險判斷**（推論，不是驗證）：設定檔的腳本在 37.3 survey 中都走 metaclass 沒有自己 `__call__` 的路徑（否則 37.3 的手動建構會繞過它，而 37.3 沒有任何階段退步）；新路徑對這種類別與 37.3 只差兩點——以 `type(obj).__init__` 查找（一般類別相同），以及 `__init__` 回傳非 `None` 時 fail closed。後者與 Android Chaquopy 的 `Spider()` 相同，在 Android 上正常的腳本不會這樣寫。一個實例給兩個站只會發生在刻意共用實例的腳本。
 
 ### 15.5 使用者可見的變化
 
-預期**沒有**（15.4 的推論；腳本掃描因 GitLab 被封鎖未做）。只有兩種在 Android 上也不成立的寫法會改變：`__init__` 回傳值的腳本改為載入失敗並顯示 `TypeError`（與 Android 相同），把同一個實例交給兩個站的腳本改為第二站載入失敗（原本會讓第一站讀寫第二站的 cache）。
+**沒有**：33 支同源腳本沒有任何一支用到會改變行為的建構寫法（15.4 的掃描），survey 也沒有任何退步。只有兩種在 Android 上也不成立的寫法會改變：`__init__` 回傳值的腳本改為載入失敗並顯示 `TypeError`（與 Android 相同），把同一個實例交給兩個站的腳本改為第二站載入失敗（原本會讓第一站讀寫第二站的 cache）。
 
 ### 15.6 未解限制與待驗
 
 1. **不支援**：metaclass 自己定義 `__call__` 的 Spider，其 constructor（`__init__`，或 metaclass `__call__` 內）用 `getCache`／`setCache` 時讀到空、寫入不做；方法內的 cache 正常、各站隔離。要支援就得在 metaclass 決定的建構流程中間插入 context，也就是不再照 Python 的方式呼叫它——選擇保留標準語意。
 2. 建構相關的其他標準行為都走 Python 自己的路徑、沒有另外處理：抽象類別在 `__new__` 被拒、`__init__` 需要參數時 `TypeError`、`__slots__` 沒有 `__dict__` 時設 context 失敗——三者都讓 load fail closed。
-3. 待驗：網路恢復可連 GitLab 後，重跑 44 站 survey（與第 14.4 節逐站比對）與設定檔腳本的建構型態掃描（有無 `metaclass=`、`__new__`、`__init__` 回傳值）。
+3. ~~待驗：網路恢復可連 GitLab 後，重跑 44 站 survey 與設定檔腳本的建構型態掃描~~ **已補**（13:35，個人熱點；15.4）。
 4. 真機：要等下一次發布；沒有新的可觀察行為，只需確認 MiFun、山楂的裝置識別仍各自保留（第 12.4 節第 2 項）。
 
 ### 15.7 回滾

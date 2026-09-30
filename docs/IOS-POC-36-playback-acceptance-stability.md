@@ -1,6 +1,6 @@
 # IOS-POC-36 — Playback Acceptance & Stability Consolidation
 
-**狀態（2026-09-30）**：開發完成，只剩真機驗收（PL-14 刻意不修，見第九節）。D1～D7（第八節）已隨 `0.1.39 (40)` 發布，`0.1.40 (41)` 亦包含；36.1（loop 路徑也只處理一次結束＝D8、矩陣證據稽核，第十四節）已 commit、尚未發布。矩陣 107 項：`REAL_DEVICE_PASS` 1、`SIMULATOR_PASS` 47（36C 實測 44 項，其餘 3 項沿用 17F／25）、`AUTOMATED_PASS` 27、`RELEASE_BUILD_ONLY` 17、`UNVERIFIED` 12、`KNOWN_LIMITATION` 2、`DEFECT` 1。**D1～D8 都沒有真機驗證。**
+**狀態（2026-09-30）**：開發完成，只剩真機驗收（PL-14 刻意不修，見第九節）。D1～D7（第八節）已隨 `0.1.39 (40)` 發布，`0.1.40 (41)` 亦包含；36.1（loop 路徑也只處理一次結束＝D8、矩陣證據稽核，第十四節）已隨 `0.1.41 (42)` 發布。矩陣 107 項：`REAL_DEVICE_PASS` 1、`SIMULATOR_PASS` 47（36C 實測 44 項，其餘 3 項沿用 17F／25）、`AUTOMATED_PASS` 27、`RELEASE_BUILD_ONLY` 17、`UNVERIFIED` 12、`KNOWN_LIMITATION` 2、`DEFECT` 1。**D1～D8 都沒有真機驗證。**
 
 ## Recovery anchor
 
@@ -8,9 +8,9 @@
 - 範圍：`ios/Sources/WebHTVCore`、`ios/WebHTVApp/Sources`、`ios/Tests/WebHTVCoreTests`、`docs`。task guard `IOS-POC-36`（`standard`）。
 - 工作位置：36A～36D 在獨立 worktree `/Users/chengchenchih/GIT/webhtv-ios36`（本機分支 `ios-poc-36`，已 push 到 `origin/ios-poc`），因為當時主 checkout 有另一個 session 的 task guard；36.1 在主 checkout `/Users/chengchenchih/GIT/webhtv`（task guard `IOS-POC-36.1`，`quick-fix`）。模擬器用 `05934376-5757-40E5-9FAF-202594565656`（iPhone 17 Pro Max、iOS 26.3），不碰另一個 session 的 `E0A41D48`。
 - 已完成：第四節矩陣（107 項，36.1 重新稽核證據強度）、第八節 D1～D8 修正與測試、第六節模擬器證據。
-- 未驗證：全部真機項目（第十節）；D7（切換瞬間 0:00）只有 build 證據；D8 只有單元測試與 build，且還不在任何發布版本裡。
+- 未驗證：全部真機項目（第十節）；D7（切換瞬間 0:00）只有 build 證據；D8 只有單元測試與 build（已隨 `0.1.41 (42)` 發布）。
 - 回滾：`git revert <本任務 commit>`（36 是 `2840c2e4`，36.1 是它自己的 commit）；只有 Swift 原始碼、測試與文件，沒有二進位、lock 或設定變更。
-- 下一步（唯一）：使用者在 `0.1.40 (41)`（D1～D7）或之後含 36.1 的版本（D8）上跑第十節的清單，結果逐項填回第四節。
+- 下一步（唯一）：使用者在 `0.1.41 (42)`（含 D1～D8）上跑第十節的清單，結果逐項填回第四節。
 
 ## 一、起始狀態
 
@@ -381,5 +381,5 @@
 - `swift test --package-path ios`：**613／613**（5.2 秒）。
 - 模擬器 Debug build（`platform=iOS Simulator,id=05934376…`）：BUILD SUCCEEDED（最終版本 27 秒）；本次改動的程式沒有新 warning（build log 裡的 warning 都在 `WebHTVApp.swift` 第 5411～5413、5547 行，既有）。
 - Release 裝置 build（`generic/platform=iOS`、`CODE_SIGNING_ALLOWED=NO EXPANDED_CODE_SIGN_IDENTITY=-`）：BUILD SUCCEEDED（最終版本 31 秒）。
-- 模擬器操作驗證：沒有做（loop 沒有 App 內的入口）。真機：未驗證；D8 不在任何已發布版本裡。
+- 模擬器操作驗證：沒有做（loop 沒有 App 內的入口）。真機：未驗證。D8 已隨 `0.1.41 (42)` 發布（run `36698521242`，tag `ios-v0.1.41-b42` → `46c0d36d`）。
 - Ponytail：未執行（選配）。

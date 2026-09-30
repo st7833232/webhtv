@@ -179,12 +179,6 @@ var spider = (function () {
     return out;
   }
 
-  function fill(template, values) {
-    return String(template || '').replace(/\{([a-zA-Z]+)\}/g, function (_, name) {
-      return values[name] === undefined ? '' : values[name];
-    });
-  }
-
   function fetch(url) {
     return host.get(url, { headers: headers, timeout: 20000 }).body || '';
   }
@@ -474,14 +468,22 @@ var spider = (function () {
   var AUTO_ARRAYS = ['<li*>&&</li>[不包含:首页#剧集#连续剧#电视剧#综艺#动漫#我想看#追剧#留言#APP#观看纪录#求片#福利#推荐]',
                      '<a&&</a>', '<div&&</div>'];
 
-  /** One `数组` block per title, read with the original's list keys and their defaults (`A()`). */
-  function itemsFrom(html, arrayRule) {
-    var titleRule = pick(['标题', '列表标题', 'biaotiqian', 'catjsonname', 'cat_title'], 'title="&&"');
-    var picRule = pick(['图片', '列表图片', 'tupianqian', 'catjsonpic', 'cat_pic'], 'original="&&"');
-    var linkRule = pick(['链接', '列表链接', 'lianjieqian', 'catjsonid', 'cat_url'], LINK_RULE);
-    var remarkRule = pick(['副标题', '列表副标题', 'fubiaotiqian', 'catjsonstitle', 'cat_subtitle'], 'class="pic-text*>&&<');
-    var prefix = pick(['链接前缀', '列表链接前缀', 'ljqianzhui', 'cat_prefix']);
-    var suffix = pick(['链接后缀', '列表链接后缀', 'ljhouzhui', 'cat_suffix']);
+  // The keys and defaults each field is read with: the listing's (`A()`) and the search page's (`Z()`).
+  var LIST_FIELDS = {
+    title: [['标题', '列表标题', 'biaotiqian', 'catjsonname', 'cat_title'], 'title="&&"'],
+    pic: [['图片', '列表图片', 'tupianqian', 'catjsonpic', 'cat_pic'], 'original="&&"'],
+    link: [['链接', '列表链接', 'lianjieqian', 'catjsonid', 'cat_url'], LINK_RULE],
+    remark: [['副标题', '列表副标题', 'fubiaotiqian', 'catjsonstitle', 'cat_subtitle'], 'class="pic-text*>&&<'],
+    prefix: [['链接前缀', '列表链接前缀', 'ljqianzhui', 'cat_prefix'], ''],
+    suffix: [['链接后缀', '列表链接后缀', 'ljhouzhui', 'cat_suffix'], '']
+  };
+
+  /** One `数组` block per title, each field read with `fields` (the list keys unless told otherwise). */
+  function itemsFrom(html, arrayRule, fields) {
+    fields = fields || LIST_FIELDS;
+    function rule(name) { return pick(fields[name][0], fields[name][1]); }
+    var titleRule = rule('title'), picRule = rule('pic'), linkRule = rule('link');
+    var remarkRule = rule('remark'), prefix = rule('prefix'), suffix = rule('suffix');
     return cut(html, arrayRule).map(function (block) {
       var title = clean(cut1(block, titleRule) || cut1(block, 'alt="&&"'));
       var link = (cut1(block, linkRule) || cut1(block, LINK_RULE.replace(/"/g, "'"))).trim();
@@ -593,11 +595,39 @@ var spider = (function () {
       });
     },
 
+    /**
+     * The original's `Z()`. The search address is the first of its aliases that carries `{wd}` —
+     * `搜索链接` is also the name of the result link rule (妻妹 sets it to one), so a value is only
+     * an address if it has somewhere to put the keyword. With `搜索数组` the results are read with the
+     * search keys; without it the page goes through the listing, as the original hands it to `A()`.
+     * ponytail: not ported — `搜索模式`, `搜索前`+`搜索后缀` concatenation, POST bodies, and the
+     * original's fallback of filtering home and category pages by title when a site has no address.
+     */
     searchContent: function (key, quick, page) {
-      var template = pick(['搜索url', '搜索链接']);
+      var aliases = ['搜索url', '搜索链接', '搜索前', 'sousuoqian', 'search_url', 'searchUrl'];
+      var template = aliases.map(function (k) { return text(k); })
+        .filter(function (v) { return v.indexOf('{wd}') !== -1; })[0];
       if (!template) return { list: [] };
-      var url = fill(template.split(';')[0], { wd: host.enc(key), SearchPg: String(page || '1'), searchPg: String(page || '1') });
-      return host.result.list(listFrom(fetch(url)));
+      var pg = String(page || '1');
+      var url = template.split(';')[0].split('{wd}').join(host.enc(key));
+      ['{pg}', '{catePg}', '{SearchPg}', '{searchPg}'].forEach(function (p) { url = url.split(p).join(pg); });
+      if (url.charAt(0) === '/' && url.charAt(1) !== '/') url = site() + url;
+      var html = fetch(url);
+      var arrayRule = pick(['搜索数组', '搜索截取数组', 'ssjiequshuzuqian', 'sea_arr_pre']);
+      if (!arrayRule) return host.result.list(listFrom(html));
+      var flat = compact(html);
+      var narrowRule = pick(['搜索二次截取', 'ssjiequqian', 'sea_twice_pre']);
+      var narrowed = narrowRule ? cut1(flat, narrowRule) : '';
+      // `搜索链接` only counts as the link rule when it is not the address itself.
+      var linkKeys = (text('搜索链接') === template ? [] : ['搜索链接']).concat(['sslianjieqian', 'sea_url']);
+      return host.result.list(itemsFrom(narrowed || flat, arrayRule, {
+        title: [['搜索标题', 'ssbiaotiqian', 'sea_title'], 'title="&&"'],
+        pic: [['搜索图片', 'sstupianqian', 'sea_pic'], 'original="&&"'],
+        link: [linkKeys, 'href="&&"'],
+        remark: [['搜索副标题', 'ssfubiaotiqian', 'sea_subtitle'], ''],
+        prefix: [['搜索链接前缀', 'ssljqianzhui'], ''],
+        suffix: [['搜索链接后缀', 'sslianjiehou'], '']
+      }));
     },
 
     playerContent: function (flag, id) {

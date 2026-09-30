@@ -450,3 +450,57 @@ private func play(_ spider: JavaScriptSpiderRuntime, _ id: String) async throws 
     #expect(item["vod_play_url"] == "")
     await spider.destroy()
 }
+
+// MARK: - S5: search
+
+private func search(_ spider: JavaScriptSpiderRuntime, _ key: String, page: String = "1") async throws -> [[String: String]] {
+    try titles(try await spider.searchContent(key: key, quick: false, page: page))
+}
+
+/// 45 sites put the page in `{pg}` and 6 in `{catePg}`; the port only knew `{SearchPg}`, so the
+/// page segment came out empty. 天美 keeps its address in `搜索链接`, which the original accepts too.
+@Test func fillsTheSearchPagePlaceholders() async throws {
+    let pg = try await xbpq(#"{"分类url":"https://s24.invalid/{cateId}","搜索url":"https://s24.invalid/search/{wd}/page/{pg}.html;;z"}"#)
+    _ = try await search(pg, "片", page: "2")
+    let catePg = try await xbpq(#"{"分类url":"https://s24.invalid/{cateId}","搜索链接":"/vod/search/page/{catePg}/wd/{wd}.html"}"#)
+    _ = try await search(catePg, "片")
+    #expect(RuleSite.requests(on: "s24.invalid") == [
+        "https://s24.invalid/search/%E7%89%87/page/2.html",
+        "https://s24.invalid/vod/search/page/1/wd/%E7%89%87.html"])
+    await pg.destroy()
+    await catePg.destroy()
+}
+
+@Test func readsSearchResultsWithTheSearchKeysOrTheListOnes() async throws {
+    RuleSite.serve(["https://s26.invalid/s/%E7%89%87": """
+    <div class="nav"><a href="/type/1.html" title="电影">电影</a></div>
+    <div class="result"><div class="r"><a href="/detail/7.html" title="片七"><img original="/7.jpg"></a><em>HD</em></div></div>
+    """])
+    // `搜索数组` set: the search keys, their defaults, a prefix, and `搜索链接` as the link rule
+    // because the address came from `搜索url`.
+    let own = try await xbpq(#"""
+    {"分类url":"https://s26.invalid/{cateId}","搜索url":"https://s26.invalid/s/{wd}","搜索二次截取":"class=\"result\">&&</div></div>",
+     "搜索数组":"class=\"r\">&&</em>","搜索链接":"href=\"/detail/&&\"","搜索链接前缀":"/play/","搜索副标题":"<em>&&"}
+    """#)
+    var list = try await search(own, "片")
+    #expect(list.map { $0["vod_name"] } == ["片七"])
+    #expect(list.first?["vod_id"] == "https://s26.invalid/play/7.html")
+    #expect(list.first?["vod_pic"] == "https://s26.invalid/7.jpg")
+    #expect(list.first?["vod_remarks"] == "HD")
+    await own.destroy()
+
+    // No `搜索数组`: the page is read like a listing, with the list's `数组`.
+    let listing = try await xbpq(#"{"分类url":"https://s26.invalid/{cateId}","搜索url":"https://s26.invalid/s/{wd}","数组":"class=\"r\">&&</div>"}"#)
+    list = try await search(listing, "片")
+    #expect(list.map { $0["vod_id"] } == ["https://s26.invalid/detail/7.html"])
+    await listing.destroy()
+}
+
+/// 妻妹 sets `搜索链接` to a slicing rule and has no address: nothing to search, rather than
+/// requesting the rule as if it were a URL.
+@Test func doesNotTakeALinkRuleForTheSearchAddress() async throws {
+    let spider = try await xbpq(#"{"分类url":"https://s27.invalid/{cateId}","搜索链接":"/vodplay/+/voddetail/&&.html+-1-1.html"}"#)
+    #expect(try await search(spider, "片").isEmpty)
+    #expect(RuleSite.requests(on: "s27.invalid").isEmpty)
+    await spider.destroy()
+}

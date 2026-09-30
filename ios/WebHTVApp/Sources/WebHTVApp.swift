@@ -3181,11 +3181,11 @@ struct EpisodeSteps: Equatable {
         case "loop": looping.toggle()
         case "replay":
             Self.activateAudioSession()
-            // Played again from the start, so it may end again (IOS-POC-36).
-            endGate.itemLoaded()
             router.setIntendsToPlay(true)
-            // Android's repeat seeks to 0 as a viewer's seek: a pre-roll is skipped again.
-            engine?.seek(toSeconds: adSeekTarget(0))
+            // Android's repeat seeks to 0 as a viewer's seek: a pre-roll is skipped again. Played
+            // again from the start, it may end again — once it is back there (IOS-POC-36.1): until
+            // then an end still arriving is the playthrough's that just ended.
+            engine?.seek(toSeconds: adSeekTarget(0)) { [weak self] in self?.endGate.itemLoaded() }
             engine?.play()
         default: break
         }
@@ -3221,14 +3221,16 @@ struct EpisodeSteps: Equatable {
     }
 
     private func finished(reason: String) {
-        if looping { control("replay"); return }
         // IOS-POC-36: once per item — the viewer's ending, then the real end while the next episode
         // resolves, used to advance twice and skip an episode. A 上一集／下一集 already in flight is
-        // what moves on, not a second start beside it.
-        guard !steppingEpisode, endGate.end() else {
+        // what moves on, not a second start beside it. IOS-POC-36.1: looping too — it replays once
+        // per playthrough instead of handing over.
+        let outcome: PlaybackEndGate.Outcome = steppingEpisode ? .ignore : endGate.end(looping: looping)
+        guard outcome != .ignore else {
             Self.log.notice("[playback] \(self.itemTitle, privacy: .public) \(reason, privacy: .public) ignored: already moving on")
             return
         }
+        if outcome == .replay { control("replay"); return }
         Self.log.notice("[playback] \(self.itemTitle, privacy: .public) finished (\(reason, privacy: .public)) on \(self.engineKind.shortName, privacy: .public) at \(Int(self.position))s/\(Int(self.duration))s")
         Task { @MainActor in
             // Record the end **before** moving on, and await it. The comment here always claimed
@@ -3680,11 +3682,15 @@ final class AVPlayerEngine: PlaybackEngine {
     func pause() { player.pause() }
 
     /// Exact tolerances, as the control bar's scrubber and ±10 s always had.
-    func seek(toSeconds seconds: Double) {
+    func seek(toSeconds seconds: Double) { seek(toSeconds: seconds) {} }
+
+    func seek(toSeconds seconds: Double, landed done: @escaping @MainActor () -> Void) {
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600),
                     toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
-            // IOS-POC-36: where it landed; `finished=false` is a seek a later one replaced.
+            // IOS-POC-36: where it landed; `finished=false` is a seek a later one or a new item
+            // replaced, which moved the playhead all the same.
             Task { @MainActor in
+                done()
                 guard let self else { return }
                 let landed = String(format: "%.1f", self.currentTime)
                 PlaybackSession.log.notice("[playback] seek landed \(landed, privacy: .public)s asked \(String(format: "%.1f", seconds), privacy: .public)s finished=\(finished) on 原生")

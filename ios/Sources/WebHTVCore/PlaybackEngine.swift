@@ -308,6 +308,9 @@ public protocol PlaybackEngine: AnyObject {
     func play()
     func pause()
     func seek(toSeconds seconds: Double)
+    /// IOS-POC-36.1: the same, then `landed` once the engine is there — or once a later seek or
+    /// another item took its place, which moves the playhead away from where it was just as well.
+    func seek(toSeconds seconds: Double, landed: @escaping @MainActor () -> Void)
     var currentTime: Double { get }
     var duration: Double { get }
     /// What is playing now: zero while paused.
@@ -331,6 +334,14 @@ public protocol PlaybackEngine: AnyObject {
     func selectMedia(_ kind: PlaybackMediaKind, id: String) async
     /// Stops and releases everything. The engine is not used again afterwards.
     func teardown()
+}
+
+public extension PlaybackEngine {
+    /// For an engine that cannot tell: there as soon as it is asked.
+    func seek(toSeconds seconds: Double, landed: @escaping @MainActor () -> Void) {
+        seek(toSeconds: seconds)
+        landed()
+    }
 }
 
 // MARK: - IOS-POC-22: speeds AVPlayer cannot play

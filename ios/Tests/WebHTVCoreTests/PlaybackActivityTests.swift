@@ -187,21 +187,64 @@ import Testing
     // second advance skipped the next episode.
     var gate = PlaybackEndGate()
     gate.itemLoaded()
-    let ending = gate.end()
-    let realEnd = gate.end()
-    let another = gate.end()
-    #expect(ending, "the viewer's ending hands over")
-    #expect(!realEnd, "the real end of the same item does not hand over again")
-    #expect(!another)
+    let ending = gate.end(looping: false)
+    let realEnd = gate.end(looping: false)
+    let another = gate.end(looping: false)
+    #expect(ending == .handOver, "the viewer's ending hands over")
+    #expect(realEnd == .ignore, "the real end of the same item does not hand over again")
+    #expect(another == .ignore)
 }
 
 @Test func theNextItemMayEndAgainAndSoMayAReplay() {
     var gate = PlaybackEndGate()
     gate.itemLoaded()
-    let first = gate.end()
-    gate.itemLoaded()                       // the next episode, or the same one replayed
-    let next = gate.end()
-    let again = gate.end()
-    #expect(first && next)
-    #expect(!again)
+    let first = gate.end(looping: false)
+    gate.itemLoaded()                       // the next episode, or the same one's replay back at its start
+    let next = gate.end(looping: false)
+    let again = gate.end(looping: false)
+    #expect(first == .handOver && next == .handOver)
+    #expect(again == .ignore)
+}
+
+// IOS-POC-36.1: looping replays the item instead of handing it over, and used to skip the gate —
+// each test below failed on that, with the replay re-arming the gate as soon as it was asked. The
+// replay only asks for the start; until the engine is back there, the end that is still arriving
+// belongs to the playthrough that already ended.
+
+@Test func underLoopTheViewersEndingThenTheRealEndReplayOnce() {
+    // The sampler sees the ending and the item is replayed; the engine's real end, already on its
+    // way to the main actor, arrives before the rewind lands.
+    var gate = PlaybackEndGate()
+    gate.itemLoaded()
+    let ending = gate.end(looping: true)
+    let realEnd = gate.end(looping: true)
+    #expect(ending == .replay)
+    #expect(realEnd == .ignore, "a second replay restarts the replay; with loop turned off it would skip an episode")
+}
+
+@Test func underLoopTheRealEndThenTheViewersEndingReplayOnce() {
+    // The real end replays the item; a sampler tick before the rewind lands still reads the old
+    // playhead past the viewer's ending.
+    var gate = PlaybackEndGate()
+    gate.itemLoaded()
+    let realEnd = gate.end(looping: true)
+    let ending = gate.end(looping: true)
+    let another = gate.end(looping: false)
+    #expect(realEnd == .replay)
+    #expect(ending == .ignore)
+    #expect(another == .ignore, "turning loop off does not let the same playthrough hand over")
+}
+
+@Test func aReplayBackAtItsStartMayEndAgain() {
+    var gate = PlaybackEndGate()
+    gate.itemLoaded()
+    let first = gate.end(looping: true)
+    gate.itemLoaded()                       // the replay's rewind landed
+    let second = gate.end(looping: true)
+    let late = gate.end(looping: true)
+    gate.itemLoaded()
+    let loopOff = gate.end(looping: false)
+    #expect(first == .replay && second == .replay, "loop keeps replaying, once per playthrough")
+    #expect(late == .ignore)
+    #expect(loopOff == .handOver, "with loop turned off the replayed item moves on")
 }

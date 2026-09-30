@@ -43,6 +43,7 @@ final class MPVEngine: PlaybackEngine {
     /// `time-pos` reads the target of any seek it did take.
     private var seekAsked: (seconds: Double, at: ContinuousClock.Instant)?
     private static let seekAskedLimit: Duration = .seconds(2)
+    private var seeksLanding = [@MainActor () -> Void]()
 
     /// Long enough for a slow first segment; the watchdog only starts once the file has loaded.
     private static let firstFrameTimeout: Duration = .seconds(10)
@@ -92,6 +93,7 @@ final class MPVEngine: PlaybackEngine {
         firstFrameWatchdog?.cancel()
         lastAudioDiagnostic = ""
         seekAsked = nil
+        seeksLanding = []
         onMediaSelectionChange?(PlaybackMediaSelection())
         pictureInPicture?.setHasVideo(false)   // until the file says otherwise
         // AVKit prevents display sleep for AVPlayer playback. MPV owns a custom Metal surface, so
@@ -119,6 +121,12 @@ final class MPVEngine: PlaybackEngine {
     func seek(toSeconds seconds: Double) {
         seekAsked = (max(seconds, 0), .now)
         core.seek(to: max(seconds, 0))
+    }
+    /// IOS-POC-36.1: `PLAYBACK_RESTART` says the seeks asked so far have landed. A seek on an mpv
+    /// that already reached EOF has nothing to land on and never calls back; the next load drops it.
+    func seek(toSeconds seconds: Double, landed: @escaping @MainActor () -> Void) {
+        seeksLanding.append(landed)
+        seek(toSeconds: seconds)
     }
     func setRate(_ rate: Float) { core.setSpeed(rate) }
 
@@ -238,6 +246,9 @@ final class MPVEngine: PlaybackEngine {
             }
         case .playbackRestarted:
             if awaitingMetalFrame { revealMetal() }
+            let landing = seeksLanding
+            seeksLanding = []
+            landing.forEach { $0() }
             if let asked = seekAsked {
                 seekAsked = nil
                 let landed = String(format: "%.1f", core.snapshot.position)

@@ -74,20 +74,28 @@ public struct PlaybackStartupWatch: Sendable, Equatable {
 /// ending, seen by the five-second sampler, and the engine's real end. When the ending is closer to
 /// the end than the next episode takes to resolve, both arrived and each advanced, so the episode
 /// after the next one started and the next one was never seen.
+///
+/// IOS-POC-36.1: looping is one more way to handle that end, not a way around it. A replay only asks
+/// for the start; the end still on its way belongs to the playthrough that ended, and taken as the
+/// replay's it replayed again — or, with loop turned off by then, skipped an episode. So the
+/// replayed item may end again once the engine is back at its start, not when the replay is asked.
 public struct PlaybackEndGate: Sendable, Equatable {
+    public enum Outcome: Sendable, Equatable { case handOver, replay, ignore }
+
     private var item = 0
     private var handedOver: Int?
 
     public init() {}
 
-    /// A new item was loaded: it may end once.
+    /// A new item was loaded, or a replay's rewind landed on the one playing: it may end once.
     public mutating func itemLoaded() { item &+= 1 }
 
-    /// The item ended. True the first time for this item, false for every end after it.
-    public mutating func end() -> Bool {
-        guard handedOver != item else { return false }
+    /// The item ended. The first end hands over, or replays while looping; every end after it,
+    /// until `itemLoaded`, is ignored.
+    public mutating func end(looping: Bool) -> Outcome {
+        guard handedOver != item else { return .ignore }
         handedOver = item
-        return true
+        return looping ? .replay : .handOver
     }
 }
 

@@ -40,7 +40,9 @@ private let frozen: [RuntimeABI.Surface: [RuntimeABI.Version: String]] = [
                   // IOS-POC-37: pycryptodome, lxml, bs4, pyquery; `html()`; void `init`.
                   .init(1, 1): "b93c7a05a0afe66cd35c0b3992650c582109b9b475da4e36f233a34f02b3843a",
                   // IOS-POC-37.1: the cache context moves from two module globals onto each spider.
-                  .init(1, 2): "b34f1a61b2875684ad175ebdcfa170a021c440b8d6fe203f5923ca110cfbefba"],
+                  .init(1, 2): "b34f1a61b2875684ad175ebdcfa170a021c440b8d6fe203f5923ca110cfbefba",
+                  // IOS-POC-37.2: stdlib ssl trusts the bundled certifi CAs.
+                  .init(1, 3): "767f728e16bab79348e0b6663f6458c81f874fb86c7368fd6536cb026449f990"],
     .webhomeBridge: [.init(1, 0): "80325b0e8d19a32d66ab0d6d3a6e306079dd821eaf4e1a4cba0f51f60a6e2582"],
 ]
 

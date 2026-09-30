@@ -59,7 +59,10 @@ public enum RuntimeABI {
             // `Spider.html()`, and `init`'s return value ignored as on Android — additions only.
             // 1.2 (IOS-POC-37.1): `getCache`/`setCache` use the calling spider's own site key and
             // directory, not whichever spider loaded last. Same calls, same answers per site.
-            case .pythonHost: Version(1, 2)
+            // 1.3 (IOS-POC-37.2): stdlib `ssl` trusts the bundled certifi CAs by default, so a
+            // script calling `urllib` itself verifies HTTPS on a device. First shipped in 0.1.35 (36)
+            // while still labelled 1.2; the bump was only caught by `swift test` afterwards.
+            case .pythonHost: Version(1, 3)
             case .webhomeBridge: Version(1, 0)
             }
         }

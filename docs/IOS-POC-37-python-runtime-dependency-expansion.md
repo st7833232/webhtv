@@ -514,3 +514,9 @@ revert 本 commit 即可（兩個 Python 檔與本節）。沒有 lock、binary 
 1. macOS 模擬器 Debug build：依賴自檢 8/8，其中 `ssl` 一行為 OK。
 2. 44 站 survey：與第 12.3 節逐站比對，沒有任何站、任何階段從 ✓ 變成 ✗。
 3. 真機（用 `0.1.35 (36)`）：MissAV 腳本原樣載入，分類內出現影片列表。**已驗證**：使用者 2026-09-30 回報有影片列表；證實原因是根憑證，站點端沒有問題。第 1、2 項仍未驗證。若仍為空，原因不在憑證，需在可連 `missav.ai` 的環境另查站點端（Cloudflare、HTML 結構）。
+
+### 13.7 `python.host` ABI 補升版（2026-09-30，Mac）
+
+37.2 改了 `webhtv_runtime.py`，而它是 `python.host` 指紋涵蓋的檔案；37.2 當時在沒有 Swift 的環境、沒跑 `swift test`，所以沒有升版，`0.1.35 (36)` 出貨時 ABI 仍標 1.2、內容已不同。Mac 上 `swift test` 因此 1 個失敗（`everySurfaceMatchesTheFingerprintItsVersionWasFrozenWith(pythonHost)`，實際指紋 `767f728e…f990`，1.2 那列是 `b34f1a61…efba`）。
+
+依 `RuntimeABITests` 的 append-only 規則（1.2 已出貨，不改那列）：`RuntimeABI.Surface.pythonHost` 升為 **1.3**，新增 `.init(1, 3): "767f728e16bab79348e0b6663f6458c81f874fb86c7368fd6536cb026449f990"`。之後 `swift test --package-path ios` **577/577 通過**。`0.1.35 (36)` 的 ABI 標示（1.2）與內容不符這件事只記錄在這裡；目前沒有任何東西依 `python.host` 版本做判斷（IOS-POC-13 已撤銷），不影響使用。

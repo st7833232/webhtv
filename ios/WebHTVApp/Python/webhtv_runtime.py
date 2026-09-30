@@ -44,6 +44,35 @@ def _fail(message):
     return json.dumps({'ok': False, 'error': message}, ensure_ascii=False)
 
 
+def _construct(spider_class, site_key, cache_dir):
+    """`spider_class()`, with this site's cache context on the instance it makes.
+
+    The context belongs to the instance, never to the module or the class: two sites loaded side by
+    side must not see each other's key or directory (IOS-POC-37.1). For a class whose metaclass
+    leaves calling to `type` — `ABCMeta`, `type`, every configured script — this is `type.__call__`
+    step for step, with the context put on between `__new__` and `__init__`, so a constructor can use
+    its cache (IOS-POC-37.3). A metaclass with its own `__call__` owns construction, so it is called
+    as Python calls it and the context goes on afterwards: that constructor's cache reads empty and
+    writes nothing, the one thing not supported. An instance another site already holds is refused
+    rather than re-pointed at this site under it (IOS-POC-37.3.1).
+    """
+    def claim(spider):
+        if any(spider is held for held in _spiders.values()):
+            raise TypeError('the Spider class handed out an instance another site already uses')
+        spider._webhtv_site_key = site_key
+        spider._webhtv_cache_dir = cache_dir
+        return spider
+
+    if type(spider_class).__call__ is not type.__call__:
+        return claim(spider_class())
+    spider = claim(spider_class.__new__(spider_class))
+    if isinstance(spider, spider_class):
+        result = type(spider).__init__(spider)
+        if result is not None:
+            raise TypeError(f"__init__() should return None, not '{type(result).__name__}'")
+    return spider
+
+
 def load(handle, site_key, cache_dir, source):
     """Run a spider script in its own module and keep the instance under `handle`.
 
@@ -68,16 +97,7 @@ def load(handle, site_key, cache_dir, source):
         if not isinstance(spider_class, type):
             return _fail('the script defines no Spider class')
 
-        # The cache context belongs to this instance, never to the module or the class: two sites
-        # loaded side by side must not see each other's key or directory (IOS-POC-37.1). It goes on
-        # between the two steps `spider_class()` takes, so a script that uses its cache in its own
-        # `__init__` already has it (IOS-POC-37.3); `__init__` is called as `type.__call__` does.
-        spider = spider_class.__new__(spider_class)
-        spider._webhtv_site_key = site_key
-        spider._webhtv_cache_dir = cache_dir
-        if isinstance(spider, spider_class):
-            spider.__init__()
-        _spiders[handle] = spider
+        _spiders[handle] = _construct(spider_class, site_key, cache_dir)
         return _ok('')
     except Exception:
         _spiders.pop(handle, None)

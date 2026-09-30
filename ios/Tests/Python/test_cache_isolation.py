@@ -152,5 +152,165 @@ class ConstructorCache(unittest.TestCase):
             self.assertEqual(call('P', 'x'), 'True')
 
 
+# IOS-POC-37.3.1: construction as `Spider()` would construct, with the context already on in
+# `__init__` wherever that can be done without going around the script.
+META = '''
+from base.spider import Spider
+
+class Meta(type(Spider)):
+    def __call__(cls, *args, **kwargs):
+        spider = super().__call__(*args, **kwargs)
+        spider.via_meta = True
+        return spider
+
+class Spider(Spider, metaclass=Meta):
+    def __init__(self):
+        self.boot = self.getCache('did')
+
+    def action(self, action):
+        op, _, value = action.partition('=')
+        if op == 'meta':
+            return str(getattr(self, 'via_meta', False))
+        if op == 'boot':
+            return self.boot
+        if op == 'set':
+            self.setCache('did', value)
+            return 'ok'
+        return self.getCache('did')
+'''
+
+NEW = '''
+from base.spider import Spider
+
+class Spider(Spider):
+    def __new__(cls):
+        spider = super().__new__(cls)
+        spider.made_by_new = True
+        return spider
+
+    def __init__(self):
+        self.boot = self.getCache('did')
+
+    def action(self, action):
+        return f'{self.made_by_new} {self.boot}'
+'''
+
+NOT_A_SPIDER = '''
+from base.spider import Spider
+
+class Stand(Spider):
+    def action(self, action):
+        return f'stand {self.getCache("did")}'
+
+class Spider(Spider):
+    def __new__(cls):
+        return Stand()
+
+    def __init__(self):
+        raise AssertionError('Python does not call __init__ when __new__ returns another type')
+'''
+
+RETURNS = '''
+from base.spider import Spider
+
+class Spider(Spider):
+    def __init__(self):
+        return 1
+'''
+
+# One instance for every load, kept where two loads can both reach it.
+SHARED_BY_META = '''
+import sys, types
+from base.spider import Spider
+
+_shared = sys.modules.setdefault('webhtv_test_shared', types.ModuleType('webhtv_test_shared'))
+
+class Meta(type(Spider)):
+    def __call__(cls, *args, **kwargs):
+        if not hasattr(_shared, 'one'):
+            _shared.one = super().__call__(*args, **kwargs)
+        return _shared.one
+
+class Spider(Spider, metaclass=Meta):
+    def action(self, action):
+        return self._webhtv_site_key
+'''
+
+SHARED_BY_NEW = '''
+import sys, types
+from base.spider import Spider
+
+_shared = sys.modules.setdefault('webhtv_test_shared', types.ModuleType('webhtv_test_shared'))
+
+class Spider(Spider):
+    def __new__(cls):
+        if not hasattr(_shared, 'one'):
+            _shared.one = super().__new__(cls)
+        return _shared.one
+
+    def action(self, action):
+        return self._webhtv_site_key
+'''
+
+
+class ConstructionSemantics(unittest.TestCase):
+    def tearDown(self):
+        for handle in list(webhtv_runtime._spiders):
+            webhtv_runtime.unload(handle)
+        sys.modules.pop('webhtv_test_shared', None)
+
+    def failure(self, handle, source):
+        with tempfile.TemporaryDirectory() as root:
+            answer = json.loads(webhtv_runtime.load(handle, f'site-{handle}', root, source))
+        self.assertFalse(answer['ok'])
+        self.assertNotIn(handle, webhtv_runtime._spiders)
+        return answer['error']
+
+    def test_a_custom_metaclass_call_is_honoured(self):
+        # Python calls the metaclass's __call__ for `Spider()`, and so does the runtime. That call
+        # owns construction, so the context goes on after it: its constructor sees no cache
+        # (documented as unsupported), its methods see their own site's.
+        with tempfile.TemporaryDirectory() as root:
+            pathlib.Path(root, 'site-a.json').write_text(json.dumps({'did': 'seed-a'}))
+            load('A', 'site-a', root, META)
+            load('B', 'site-b', root, META)
+            self.assertEqual((call('A', 'meta'), call('B', 'meta')), ('True', 'True'))
+            self.assertEqual((call('A', 'boot'), call('B', 'boot')), ('', ''))
+            call('B', 'set=from-b')
+            self.assertEqual((call('A', 'did'), call('B', 'did')), ('seed-a', 'from-b'))
+
+    def test_init_returning_a_value_fails_closed_as_python_does(self):
+        class Plain:
+            def __init__(self):
+                return 1
+        with self.assertRaises(TypeError) as standard:
+            Plain()
+        self.assertIn(f'TypeError: {standard.exception}', self.failure('R', RETURNS))
+        plain = 'class Spider:\n    def __init__(self):\n        return "x"\n'
+        self.assertIn("TypeError: __init__() should return None, not 'str'", self.failure('P', plain))
+
+    def test_a_custom_new_is_honoured_and_its_instance_has_the_context(self):
+        with tempfile.TemporaryDirectory() as root:
+            pathlib.Path(root, 'site-a.json').write_text(json.dumps({'did': 'seed-a'}))
+            load('A', 'site-a', root, NEW)
+            self.assertEqual(call('A', 'x'), 'True seed-a')
+
+    def test_new_returning_another_type_skips_init_as_python_does(self):
+        with tempfile.TemporaryDirectory() as root:
+            pathlib.Path(root, 'site-a.json').write_text(json.dumps({'did': 'seed-a'}))
+            load('A', 'site-a', root, NOT_A_SPIDER)
+            self.assertEqual(call('A', 'x'), 'stand seed-a')
+
+    def test_one_instance_for_two_sites_fails_closed(self):
+        # Handing the same object to a second site would rewrite the first site's context under it.
+        for source in (SHARED_BY_META, SHARED_BY_NEW):
+            with self.subTest(source=source.split('class Spider')[0][-60:]), tempfile.TemporaryDirectory() as root:
+                load('A', 'site-a', root, source)
+                self.assertIn('another site', self.failure('B', source))
+                self.assertEqual(call('A', 'key'), 'site-a')
+                webhtv_runtime.unload('A')
+                sys.modules.pop('webhtv_test_shared', None)
+
+
 if __name__ == '__main__':
     unittest.main()

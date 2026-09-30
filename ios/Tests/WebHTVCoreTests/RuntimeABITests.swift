@@ -44,7 +44,9 @@ private let frozen: [RuntimeABI.Surface: [RuntimeABI.Version: String]] = [
                   // IOS-POC-37.2: stdlib ssl trusts the bundled certifi CAs.
                   .init(1, 3): "767f728e16bab79348e0b6663f6458c81f874fb86c7368fd6536cb026449f990",
                   // IOS-POC-37.3: the cache context is on a spider before its `__init__` runs.
-                  .init(1, 4): "d6e576295e5dc5cd439817848d1c9321d6d2b584d708da1d30c22c403fb8aa37"],
+                  .init(1, 4): "d6e576295e5dc5cd439817848d1c9321d6d2b584d708da1d30c22c403fb8aa37",
+                  // IOS-POC-37.3.1: `Spider()` semantics kept; one instance for two sites refused.
+                  .init(1, 5): "ebb96a3dc26622ea7114f7d36a7d936fbd4c7b111e8563b3403ef14f60667ceb"],
     .webhomeBridge: [.init(1, 0): "80325b0e8d19a32d66ab0d6d3a6e306079dd821eaf4e1a4cba0f51f60a6e2582"],
 ]
 

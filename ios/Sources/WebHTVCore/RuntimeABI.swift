@@ -64,7 +64,10 @@ public enum RuntimeABI {
             // while still labelled 1.2; the bump was only caught by `swift test` afterwards.
             // 1.4 (IOS-POC-37.3): a spider has its cache context before its `__init__` runs, so a
             // constructor's `getCache`/`setCache` reach its own site instead of reading empty.
-            case .pythonHost: Version(1, 4)
+            // 1.5 (IOS-POC-37.3.1): construction is `Spider()` again — a metaclass's own `__call__`
+            // runs, an `__init__` returning a value fails the load — and one instance for two sites
+            // is refused.
+            case .pythonHost: Version(1, 5)
             case .webhomeBridge: Version(1, 0)
             }
         }

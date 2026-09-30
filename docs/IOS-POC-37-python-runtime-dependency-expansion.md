@@ -7,8 +7,9 @@
 - 狀態：**37A～37F 完成（模擬器），已發布為 `0.1.33 (34)`**（2026-09-29，使用者授權；tag `ios-v0.1.33-b34` → `062fcf99`，IPA 29,313,282 bytes，見 IOS-POC-11 第三十四次發布）。真機未驗證。
 - IOS-POC-37.1（第十二節，2026-09-29）：cache context 改由各 spider 持有、native stamp 納入 CPython payload identity；已發布為 `0.1.34 (35)`（2026-09-29，tag `ios-v0.1.34-b35` → `76f218f6`，見 IOS-POC-11 第三十五次發布）。
 - IOS-POC-37.2（第十三節，2026-09-29）：stdlib `ssl` 預設信任 App 內附的 certifi（比照 Android Chaquopy），修正直接用 `urllib` 的腳本在真機 HTTPS 全失敗；只在 Linux host 驗證機制；已發布為 `0.1.35 (36)`（2026-09-29，tag `ios-v0.1.35-b36` → `f73aabce`，見 IOS-POC-11 第三十六次發布），發布前只有 CI 的 Release 裝置 build，沒有跑模擬器自檢與 survey。**真機已驗證**：使用者 2026-09-30 回報 MissAV 分類出現影片列表（第 13.6 節第 3 項）。
-- IOS-POC-37.3（第十四節，2026-09-30）：spider 在 `__init__` 前就有自己的 cache context；native stamp 每個 sdk 各自納入 Xcode／SDK／clang identity；`python.host` 1.3 → 1.4。已 push、**未發布**。本次的模擬器自檢與 survey 也補上了第 13.6 節第 1、2 項。
-- 唯一下一步：請使用者在 iPhone 上用 `0.1.36 (37)` 驗第九節與第 12.4 節的真機項目，回報結果後填進對應章節；37.3 要等下一次發布後才上真機（第 14.6 節）。
+- IOS-POC-37.3（第十四節，2026-09-30）：spider 在 `__init__` 前就有自己的 cache context；native stamp 每個 sdk 各自納入 Xcode／SDK／clang identity；`python.host` 1.3 → 1.4。已發布為 `0.1.37 (38)`（tag `ios-v0.1.37-b38` → `d2879a08`，見 IOS-POC-11 第三十八次發布）。本次的模擬器自檢與 survey 也補上了第 13.6 節第 1、2 項。
+- IOS-POC-37.3.1（第十五節，2026-09-30）：建構改回標準 `Spider()` 語意（自訂 metaclass `__call__` 照常執行、`__init__` 回傳非 `None` fail closed、一個實例不能給兩個站）；`python.host` 1.4 → 1.5。已 push、**未發布**。
+- 唯一下一步：請使用者在 iPhone 上用 `0.1.37 (38)` 驗第九節與第 12.4 節的真機項目，回報結果後填進對應章節；37.3.1 要等下一次發布後才上真機（第 15.6 節）。
 
 ## 1. 起點
 
@@ -618,5 +619,70 @@ outcome: complete×19, content×13, site/network×4, policy×4, content(parse=1)
 ### 14.7 回滾
 
 revert 本階段的 commit（`webhtv_runtime.py`、`base/spider.py` 註解、`test_cache_isolation.py`、`PythonBoot.swift`、`build_python_ios_native.sh`、`RuntimeABI.swift`／`RuntimeABITests.swift`、兩份文件）。untracked 的 `third_party/python-ios/native/<sdk>/.stamp` 會在下一次建置時因腳本改變而重建，不需手動處理。`python.host` 1.4 若未出貨，回滾時連同那一列一起移除即可（1.4 未出貨前可以改寫）。
+
+- Ponytail：unavailable / skipped。
+
+## 15. IOS-POC-37.3.1 — Python constructor semantics hardening（2026-09-30）
+
+使用者查核 37.3 後要求：保留「constructor 執行前已有 per-instance cache context」，同時盡量保留標準 `Spider()`（`type.__call__`）的建構語意。只改 `webhtv_runtime.py` 的建構方式與測試；37.3 的 context 放置位置、stamp、其他 runtime 行為不變。沒有 bump 版本、沒有 tag、沒有發布。
+
+起點：`0.1.37 (38)`（含 37.3、`python.host` 1.4）的發布 workflow 在本任務貼上時已在執行，事前經使用者授權，沒有取消；等它完成（run `36666442367` success，`source.json` `82ebcba0`）後 `git fetch`、fast-forward，HEAD＝`origin/ios-poc`＝`82ebcba0`，再 commit 發布紀錄 `a858fe77`（IOS-POC-11 第三十八次發布，本任務之外）；worktree 只有未追蹤的螢幕錄影檔。
+
+### 15.1 重現
+
+37.3 的 `load()` 是 `spider_class.__new__(spider_class)` → 設 context → `spider.__init__()`。新增 `ConstructionSemantics`（`ios/Tests/Python/test_cache_isolation.py`），修改前：
+
+| 測試 | 37.3 的結果 | 標準 `Spider()` |
+|---|---|---|
+| 自訂 metaclass `__call__`（`Meta(type(Spider))`，在 `__call__` 裡加屬性） | **被繞過**：`('False', 'False') != ('True', 'True')` | 呼叫 metaclass 的 `__call__` |
+| `__init__` 回傳 `1` | **載入成功**（`True is not false`） | `TypeError: __init__() should return None, not 'int'` |
+| 同一個實例給兩個站（shared registry，經 metaclass 或 `__new__`） | 第二站也載入成功；經 `__new__` 時 **A 的 site key 在 B 載入後變成 `site-b`**（另以腳本實測：`A before B: site-a`、`A after B : site-b`） | Python 本身不管這件事；但這是 37.1 要防的跨站污染 |
+| 自訂 `__new__`（`super().__new__` 後加屬性）、`__new__` 回傳別的型別（不呼叫 `__init__`） | 與標準相同 | — |
+
+host Python 3.13 另外確認：`ABCMeta` 與 `type` 的 `type(cls).__call__ is type.__call__` 為 True，自訂 `__call__` 的 metaclass 為 False；抽象類別在 `__new__` 就被拒絕，兩種建構方式一樣。
+
+### 15.2 採用的建構策略（`webhtv_runtime._construct`）
+
+| 情況 | 做法 | 與標準 `Spider()` 的關係 |
+|---|---|---|
+| metaclass 沒有自己的 `__call__`（`type`、`ABCMeta`；設定檔所有腳本） | 照 `type.__call__` 逐步做：`cls.__new__(cls)` → 設 context → 若回傳的是 `cls` 的實例，才呼叫 `type(obj).__init__(obj)`；回傳非 `None` 時丟與 CPython 相同文字的 `TypeError` | **保留**：自訂 `__new__`、`__new__` 回傳別的型別時不呼叫 `__init__`、`__init__` 以型別查找、非 `None` 回傳 fail closed、例外照樣往外丟（load fail closed、不登記）。constructor 可以用自己站的 cache |
+| metaclass 有自己的 `__call__` | 呼叫 `spider_class()`，建構完才設 context | **保留**：metaclass 的 `__call__` 照 Python 的方式執行。**不支援**：這種類別在 `__init__`（或 `__call__` 內）用 cache 時讀到空、寫入不做——與 37.3 之前相同的保守行為。沒有做「在 metaclass 內部插入 context」之類的繞道：要在 `__init__` 前放進 context，就必須取代 metaclass 決定的建構流程，那正是標準語意要保留的東西 |
+| 建構出來的物件已經被另一個站持有（兩種情況都檢查，在設 context **之前**） | fail closed：`TypeError: the Spider class handed out an instance another site already uses`；原本那一站的 context 不動 | 標準 Python 沒有這條；這是 per-instance isolation 的必要條件：一個物件只能有一組 context |
+
+沒有模組全域、thread-local、類別屬性或「目前站台」全域；CatVod API 不變。
+
+### 15.3 `python.host` ABI
+
+`webhtv_runtime.py` 在指紋內。1.4 已隨 `0.1.37 (38)` 出貨（`3486006a` 是 tag `ios-v0.1.37-b38` 的祖先），依 append-only 規則升為 **1.5**，新增 `.init(1, 5): "ebb96a3dc26622ea7114f7d36a7d936fbd4c7b111e8563b3403ef14f60667ceb"`；1.0～1.4 五列沒有改（diff 只有 1.4 那列結尾的 `]` 移到新列之後）。
+
+### 15.4 驗證
+
+| 項目 | 37.3 | 37.3.1 |
+|---|---|---|
+| host `python3.13 -m unittest discover -s ios/Tests/Python` | 5/5 | **10/10**：一般 `Spider`（A→B→A）、plain class、constructor cache、A→B→C→A（constructor 與一般方法、同腳本多站、同目錄不同 key）、constructor 例外 fail closed，加上本節的自訂 metaclass `__call__`（照常執行、兩站方法 cache 各自、constructor 讀空）、`__init__` 回傳非 `None`（base 子類別與 plain class 都 fail closed，訊息與 CPython 的 `Plain()` 相同）、自訂 `__new__`（照常執行且 constructor 讀得到自己站的 cache）、`__new__` 回傳別的型別（不呼叫 `__init__`，回傳的物件有 context）、同一個實例給兩個站（metaclass 與 `__new__` 兩種都 fail closed，第一站 key 仍是 `site-a`） |
+| `swift test --package-path ios` | 578/578 | **578/578** |
+| 依賴自檢（模擬器 iPhone 17 Pro、DEBUG） | 8/8、13/13 | **8/8、13/13** |
+| App 內 cache A→B→A（內建 CPython） | OK, constructors included | **OK, constructors included**（走新的 `type.__call__` 路徑） |
+| 模擬器 Debug build | 通過 | **通過**；Prepare Python `iphonesimulator already current`；bundle 內是新的 `webhtv_runtime.py` |
+| 44 站 survey | media 19 | **未驗證**：見下 |
+
+**survey 為什麼沒跑成**：12:05 啟動的一輪，前 8 站全部在 load 失敗（`site/network: rejected … NSURLErrorDomain Code=-1001 "The request timed out."`，抓 `https://gitlab.com/st7833232/recha/-/raw/main/py/*.py`），於是停止（輸出存在 untracked 的 `build/sim-3731-gitlab-down.out`）。同一時間從 Mac 直接測：GitHub、Google 正常；`gitlab.com` 的 TCP 443／80 都連得上，但 HTTP 在 11 ms 內回 `403`，頁面標題 **`Application Control Violation`**（本機網路 en0、gateway `10.1.207.254` 的應用程式控管政策），HTTPS 在送出 Client Hello 後就沒有回應直到逾時。12:07～12:47 每分鐘重試一次，40 次都一樣。設定檔的 Python 腳本全部放在 GitLab，所以**這台 Mac 在目前的網路下無法執行 survey，也無法做設定檔腳本的建構型態掃描**；沒有嘗試繞過網路政策。上午的 37.3 survey 是在另一個網路上跑的（IOS-POC-38 第七節記錄過同一個公司網路的 TLS 攔截與改用個人熱點）。
+
+**沒有 survey 時的風險判斷**（推論，不是驗證）：設定檔的腳本在 37.3 survey 中都走 metaclass 沒有自己 `__call__` 的路徑（否則 37.3 的手動建構會繞過它，而 37.3 沒有任何階段退步）；新路徑對這種類別與 37.3 只差兩點——以 `type(obj).__init__` 查找（一般類別相同），以及 `__init__` 回傳非 `None` 時 fail closed。後者與 Android Chaquopy 的 `Spider()` 相同，在 Android 上正常的腳本不會這樣寫。一個實例給兩個站只會發生在刻意共用實例的腳本。
+
+### 15.5 使用者可見的變化
+
+預期**沒有**（15.4 的推論；腳本掃描因 GitLab 被封鎖未做）。只有兩種在 Android 上也不成立的寫法會改變：`__init__` 回傳值的腳本改為載入失敗並顯示 `TypeError`（與 Android 相同），把同一個實例交給兩個站的腳本改為第二站載入失敗（原本會讓第一站讀寫第二站的 cache）。
+
+### 15.6 未解限制與待驗
+
+1. **不支援**：metaclass 自己定義 `__call__` 的 Spider，其 constructor（`__init__`，或 metaclass `__call__` 內）用 `getCache`／`setCache` 時讀到空、寫入不做；方法內的 cache 正常、各站隔離。要支援就得在 metaclass 決定的建構流程中間插入 context，也就是不再照 Python 的方式呼叫它——選擇保留標準語意。
+2. 建構相關的其他標準行為都走 Python 自己的路徑、沒有另外處理：抽象類別在 `__new__` 被拒、`__init__` 需要參數時 `TypeError`、`__slots__` 沒有 `__dict__` 時設 context 失敗——三者都讓 load fail closed。
+3. 待驗：網路恢復可連 GitLab 後，重跑 44 站 survey（與第 14.4 節逐站比對）與設定檔腳本的建構型態掃描（有無 `metaclass=`、`__new__`、`__init__` 回傳值）。
+4. 真機：要等下一次發布；沒有新的可觀察行為，只需確認 MiFun、山楂的裝置識別仍各自保留（第 12.4 節第 2 項）。
+
+### 15.7 回滾
+
+revert 本階段的 commit（`webhtv_runtime.py`、`test_cache_isolation.py`、`RuntimeABI.swift`／`RuntimeABITests.swift`、兩份文件），回到 37.3 的手動建構。`python.host` 1.5 未出貨前可以連同那一列移除。
 
 - Ponytail：unavailable / skipped。

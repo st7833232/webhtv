@@ -894,9 +894,37 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第三十八次發布：`0.1.37 (38)`（2026-09-30，**已發布**）
+## 第三十九次發布：`0.1.38 (39)`（2026-09-30，**已發布**）
 
-**目前最新版是 `0.1.37 (38)`。** 前面三十七版都已被取代。
+**目前最新版是 `0.1.38 (39)`。** 前面三十八版都已被取代。
+
+- 授權：使用者 2026-09-30 指示「發新版」（IOS-POC-37.3.1 push 之後）。版號沿用序號 `0.1.38`，build `39`。
+- 內容：`0.1.37 (38)` 的全部，加上 IOS-POC-37.3.1（`97139580`：Python Spider 以標準 `Spider()` 語意建構、`python.host` 1.5）、其 survey 補充（`bd3a79b8`）與 `0.1.37 (38)` 的發布紀錄（`a858fe77`）。文件 IOS-POC-37 第十五節。
+- 發布序列：
+  1. 版號 commit `59d51115`（Task-Guard `IOS-RELEASE-0.1.38-b39`）。
+  2. push `bd3a79b8..59d51115`。
+  3. `gh workflow run ios-sidestore-release.yml --ref ios-poc -f version=0.1.38 -f build_number=39 -f release_notes=…` → run `36675114903`（conclusion success，2026-09-30 05:48:31Z → 05:54:26Z；未逐一檢查各步驟）。
+  4. workflow 建立 tag `ios-v0.1.38-b39`（target `59d51115`），並推回 `source.json`（`49f30020`，共三十九筆，第一筆 `0.1.38`，size 與 IPA 相同）。本機由另一個 session（IOS-POC-36）在 13:56 fast-forward 到 `49f30020`。
+
+  **沒有手動建 tag。**
+- 產物：`WebHTV-0.1.38-39.ipa` **29,318,975 bytes**，GitHub 記錄的 digest SHA-256
+  `ededfb859bc52cf02be9de7d3c3636b2a039b2a6e52b1b0d96dc2435a79b6436`。**IPA 未下載回來驗內容**（本次未取得下載授權）。
+- 發布前驗證：IOS-POC-37 第 15.4 節——host Python 10/10、`swift test` 578/578、模擬器依賴自檢 8/8、13/13、App 內 A→B→A、模擬器 Debug build、44 站 survey media 20（個人熱點）。**真機尚未驗收。**
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.38 (39)（Python 腳本的建構方式修正；只有模擬器驗證，真機未驗收）
+
+修正
+- Python 腳本的 Spider 改回與 Android 相同的標準建構方式：自訂的 metaclass 會照常執行；__init__ 回傳值時會像 Android 一樣載入失敗；同一個 Spider 實例不能同時給兩個站使用，避免兩站的快取互相覆蓋。目前設定檔沒有這些寫法的腳本，所以使用上不會看到差異。
+
+已知限制
+- 此版只有模擬器（依賴自檢 8/8、44 站 survey）與 CI 的 Release 建置驗證。
+- 其餘同 0.1.37 (38)，包含 MPV 子母畫面修正仍待真機回報。
+```
+
+## 第三十八次發布：`0.1.37 (38)`（2026-09-30，**已發布**，已被 `0.1.38 (39)` 取代）
 
 - 授權：使用者 2026-09-30 指示「發新版」（IOS-POC-37.3 push 之後）。版號沿用序號 `0.1.37`，build `38`。
 - 內容：`0.1.36 (37)` 的全部，加上 IOS-POC-37.3（`3486006a`：Python spider 在 `__init__` 前就有自己的 cache context；native stamp 納入 Xcode／SDK／clang identity；`python.host` 1.4）與 `0.1.36 (37)` 的發布紀錄（`0e1509cc`）。文件 IOS-POC-37 第十四節。

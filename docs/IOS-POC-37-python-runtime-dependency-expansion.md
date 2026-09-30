@@ -8,8 +8,8 @@
 - IOS-POC-37.1（第十二節，2026-09-29）：cache context 改由各 spider 持有、native stamp 納入 CPython payload identity；已發布為 `0.1.34 (35)`（2026-09-29，tag `ios-v0.1.34-b35` → `76f218f6`，見 IOS-POC-11 第三十五次發布）。
 - IOS-POC-37.2（第十三節，2026-09-29）：stdlib `ssl` 預設信任 App 內附的 certifi（比照 Android Chaquopy），修正直接用 `urllib` 的腳本在真機 HTTPS 全失敗；只在 Linux host 驗證機制；已發布為 `0.1.35 (36)`（2026-09-29，tag `ios-v0.1.35-b36` → `f73aabce`，見 IOS-POC-11 第三十六次發布），發布前只有 CI 的 Release 裝置 build，沒有跑模擬器自檢與 survey。**真機已驗證**：使用者 2026-09-30 回報 MissAV 分類出現影片列表（第 13.6 節第 3 項）。
 - IOS-POC-37.3（第十四節，2026-09-30）：spider 在 `__init__` 前就有自己的 cache context；native stamp 每個 sdk 各自納入 Xcode／SDK／clang identity；`python.host` 1.3 → 1.4。已發布為 `0.1.37 (38)`（tag `ios-v0.1.37-b38` → `d2879a08`，見 IOS-POC-11 第三十八次發布）。本次的模擬器自檢與 survey 也補上了第 13.6 節第 1、2 項。
-- IOS-POC-37.3.1（第十五節，2026-09-30）：建構改回標準 `Spider()` 語意（自訂 metaclass `__call__` 照常執行、`__init__` 回傳非 `None` fail closed、一個實例不能給兩個站）；`python.host` 1.4 → 1.5。已 push、**未發布**。
-- 唯一下一步：請使用者在 iPhone 上用 `0.1.37 (38)` 驗第九節與第 12.4 節的真機項目，回報結果後填進對應章節；37.3.1 要等下一次發布後才上真機（第 15.6 節）。
+- IOS-POC-37.3.1（第十五節，2026-09-30）：建構改回標準 `Spider()` 語意（自訂 metaclass `__call__` 照常執行、`__init__` 回傳非 `None` fail closed、一個實例不能給兩個站）；`python.host` 1.4 → 1.5。已發布為 `0.1.38 (39)`（tag `ios-v0.1.38-b39` → `59d51115`，見 IOS-POC-11 第三十九次發布）。
+- 唯一下一步：請使用者在 iPhone 上用 `0.1.38 (39)` 驗第九節與第 12.4 節的真機項目，回報結果後填進對應章節。
 
 ## 1. 起點
 

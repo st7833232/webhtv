@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.41",
+          "date": "2026-09-30",
+          "localizedDescription": "WebHTV 0.1.41 (42)（重複播放的結尾修正；只有自動測試與本機建置驗證，真機未驗收）\n\n修正\n- WebHome 頁面開了「重複播放」時，一集播完只從頭重播一次：片尾設定與真正播完不會再讓它重播兩次，重播途中關掉重複也不會跳到下一集。\n- 重複播放開著時，上一集／下一集切換中剛好播到結尾，只換集，不會同時重播。\n\n已知限制\n- 此版沒有真機驗收；0.1.39 (40) 起的播放修正也都還沒有真機驗收。\n- MPV 播到真正結尾之後，重複播放仍然無效（既有問題，未修）。\n- 其餘同 0.1.40 (41)。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.41-b42/WebHTV-0.1.41-42.ipa",
+          "size": 29344346,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.40",
           "date": "2026-09-30",
           "localizedDescription": "WebHTV 0.1.40 (41)（XBPQ 規則站的搜尋修正；只有自動測試與 CI 建置驗證，真機未驗收）\n\n修正\n- XBPQ 規則站的搜尋：搜尋網址裡的 {pg}、{catePg} 會代入頁碼（以前頁碼那一段是空的）；站台有設「搜索数组」等搜尋規則時照它解析結果，沒設時照列表規則。\n\n已知限制\n- 此版沒有真機驗收。個人熱點實測搜得到的 XBPQ 站只多了 1 站：大多數搜不到的站連片單都取不到（網站回 JavaScript 跳轉頁或網域失效），或根本沒有設搜尋網址。\n- 其餘同 0.1.39 (40)。",

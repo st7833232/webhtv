@@ -10,7 +10,8 @@
 - 2026-09-30 另外 16 站用的 `XBPQ.jar`／`spider.jar` 已比對（第 6.4 節）：功能較少的同源版本，不需改程式。
 - 2026-09-30 使用者核准 S5 第 1、2 項並已完成（第 6.5 節）；第 3 項（`搜索模式`，要先讀 `Z()`）與第 4 項（沒有搜尋網址時以首頁／分類頁篩片名，建議不做）未核准。
 - 2026-09-30 S4 後仍 EMPTY 的 90 個 XBPQ 項目已逐站歸因（第 6.6 節）：沒有一站是 `XBPQ.js` 的問題。改規則能救的站（魔法少女3、三区、KISSAV 系列、13AV.COM）使用者決定**放棄**，不改設定檔，也不在 `XBPQ.js` 寫站台專屬邏輯。
-- 唯一下一步：紅果短剧的網站（`www.mochadj.com`，目前整站回空白）恢復後，以 `CSP_GOLDEN_SITE` 單站測試確認它仍可播放。
+- 2026-09-30 17:03 紅果短剧網站已恢復，`CSP_GOLDEN_SITE` 單站測試通過（第 6.6 節）；部分影片所在的 CDN `uvjtih.cn` 回 502／逾時，是 CDN 問題，不是程式問題。
+- 唯一下一步：S5 第 3 項（`搜索模式`）等使用者決定是否核准。
 
 ## 1. 診斷（2026-09-30，證據在 `docs/SITE-AVAILABILITY-2026-09-30.md`）
 
@@ -324,3 +325,10 @@ sweep（16:17～16:20，熱點 `172.20.10.1`，最終版程式；`swift test` 60
 - 規則可救的實測（App 路徑 sweep）：三区改 `链接: kd=&&"` → PLAYABLE；KISSAV／KISSAV(标签) 改成 `kissavs.com` 的新網址、`数组: bind_video_img">&&class="sub-title`、`图片: z-image-loader-url="&&"` 後片單回來（24 部），但播放網址被 CDN 回 `AccessDenied`（加 Referer 相同）→ DEAD-MEDIA，未再查。
 - 決策（使用者 2026-09-30）：放棄上述規則過期的站。理由：只有魔法少女3 能用通用邏輯修，而且要加兩條偏離原版的推測規則；三区的 `链接` 是明確寫錯的規則，KISSAV 是網域、網址、HTML 全改，只能寫死網域；寫死會讓 `XBPQ.js` 帶站台清單、網站再改就要發版，而且同一份 `wang-sex.json` Android 也在用，只改 iOS 會讓兩邊行為分岔。
 - 未驗證：沒有在 Android 上跑（「JS 頁 Android 也過不了」是由原版不執行 JS 推讀）；沒有在模擬器、真機播放。
+
+紅果短剧單站測試（2026-09-30 17:02，熱點 `172.20.10.1`，使用者要求）：
+
+- `CSP_GOLDEN_SITE`（`wang-movie.json` 的站台設定，`--filter appGetDrivesTheWholeCatVodFlowAgainstTheLiveSite`）通過：8 個分類、第一個分類 30 部、詳情 1 條線路 1 集、`parse=0` 的 m3u8。搜尋 0 筆（此站沒有 `搜索url`）。
+- 同一站的 App 路徑 sweep 是 DEAD-MEDIA：它只測第一部，而第一部在 CDN `vodcnd17.uvjtih.cn` 上，該 CDN 回 `502 Bad Gateway`（Failed to read origin site）或逾時。
+- 以 `jsc` 模擬器取前 5 部的播放網址逐一讀取：`uvjtih.cn` 的 2 部失敗；`vodcnd17.ajupf.com` 的 3 部回 200 `application/vnd.apple.mpegURL`，沿主清單 → 717kb 子清單（5238 段）→ 第一段 `.ts` 回 206 並讀到位元組。這一路是 AES-128 HLS（`EXT-X-KEY`），分段內容是密文，由播放器解密。
+- 結論：網站與 `XBPQ.js` 正常；可不可播看影片落在哪個 CDN。未驗證：模擬器、真機實際播放（AES-128 解密）。

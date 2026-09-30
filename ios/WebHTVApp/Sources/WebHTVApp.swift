@@ -623,6 +623,9 @@ private struct CMSView: View {
                     ForEach(activeFilterRows) { row in
                         filterRow(row)
                     }
+                    // Under the rows, never over them: a filter combination that answers nothing
+                    // (港台綜藝 + 中國大陸) must leave every chip reachable to change it. IOS-POC-38.1.
+                    if items.isEmpty { emptyState.padding(.top, 48) }
                 }
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(items) { vod in
@@ -652,16 +655,9 @@ private struct CMSView: View {
             }
         }
         .appWallpaper()
-        .overlay {
-            if loading && items.isEmpty {
-                ProgressView("載入中")
-            } else if let error, items.isEmpty {
-                ContentUnavailableView("載入失敗", systemImage: "exclamationmark.triangle", description: Text(error))
-            } else if items.isEmpty {
-                // A source can answer normally with nothing; say so instead of showing a blank screen.
-                ContentUnavailableView("沒有內容", systemImage: "tray", description: Text("這個來源或分類沒有回傳任何項目。"))
-            }
-        }
+        // Centred on the screen only while there are no category rows for it to cover — the first
+        // load of a source, or one that publishes none. IOS-POC-38.1.
+        .overlay { if groups.isEmpty, items.isEmpty { emptyState } }
         .navigationBarTitleDisplayMode(.inline)
         // Plain `.searchable`, so the field hides on scroll the way it always did. What keeps it
         // from disappearing across a source switch is the `.id` on `HomeView`'s `NavigationStack`,
@@ -680,6 +676,17 @@ private struct CMSView: View {
         // as a full-width background, so there is no material to opt into. Scrolling content shows
         // through the search field either way. Do not repeat it.
         .appNavigationBar()
+    }
+
+    @ViewBuilder private var emptyState: some View {
+        if loading {
+            ProgressView("載入中")
+        } else if let error {
+            ContentUnavailableView("載入失敗", systemImage: "exclamationmark.triangle", description: Text(error))
+        } else {
+            // A source can answer normally with nothing; say so instead of showing a blank screen.
+            ContentUnavailableView("沒有內容", systemImage: "tray", description: Text("這個來源或分類沒有回傳任何項目。"))
+        }
     }
 
     /// The group whose parent or child is currently listed, so the parent row can highlight it.

@@ -10,6 +10,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 雲端 session 若由 harness 指定其他工作分支，照樣只 push 到 `ios-poc`（使用者 2026-09-28 的決定），不建立新的遠端分支。
 
+**IOS-POC-38.1（2026-09-30，已 commit 並 push，未發布）**：使用者回報「篩選地區 年份 語言不支援」。後端其實都有過濾（host 逐一驗證）；原因是 App 的「載入中／載入失敗／沒有內容」提示是置中 overlay，篩選組合回 0 筆（例：港台綜藝＋中國大陸）時正好蓋在年份／語言／排序列上並攔截點擊。改成有分類列時提示放在篩選列下方；模擬器重現與修正後驗證都做了，`swift test` 577/577，真機未驗證。見 `docs/IOS-POC-38-jinpai-filter.md` 第七節。
+
 **IOS-POC-38（2026-09-30，已 commit 並 push，未發布）**：使用者回報「金牌的zjuys篩選有問題」。兩個原因：(1) 腳本 `又是一個金牌.py` 對電影也組出「類型」列，但網站自己的前端對電影跳過這一列、後端也忽略電影的 `type`，所以選了沒效果（其他分類的類型有效；五個金牌站共用後端，不是 zjuys 獨有）；(2) App 的 `filterChip` 無法取消已選的篩選，而金牌的每一列都沒有「全部」。App 端比照 Android（`Value.setSelected`）改成再點一次就取消；腳本端 patch 寫在 `docs/IOS-POC-38-jinpai-filter.md` 第四節，**等使用者套用到 GitLab `recha`**。模擬器 Debug build、`swift test` 577/577 通過；2026-09-30 改用個人熱點後補驗：patch 在實際網站 host 驗證通過、模擬器 UI「再點一次取消」通過（前一晚公司網路對金牌網域有 TLS 攔截）。
 
 **IOS-POC-37.2（2026-09-29 晚上，已 push，並發布為 `0.1.35 (36)`）**：使用者自寫的 MissAV `.py`（Android 正常）在 iOS 上有分類但沒有影片。原因是內建 CPython 的 OpenSSL 預設到 `/etc/ssl` 找根憑證，直接用 `urllib` 的腳本 HTTPS 驗證失敗，被腳本的 `except` 吞掉；`requests` 自帶 certifi 所以不受影響。比照 Android Chaquopy，在 `webhtv_runtime.py` 把 `ssl.SSLContext.set_default_verify_paths` 換成載入 certifi（`30f26084`），依賴自檢 7 → 8 項。只在 Linux host 做 TLS 對照（未修正 `CERTIFICATE_VERIFY_FAILED`，修正後 200，明確 `cafile` 不受影響）；發布前只有 CI Release build。真機：使用者 2026-09-30 回報 MissAV 分類已有影片列表。**模擬器自檢、survey 未驗證**。見 IOS-POC-37 文件第十三節。2026-09-30 Mac 補：37.2 改了 `webhtv_runtime.py` 卻沒升 `python.host`，`swift test` 因此失敗；已升為 1.3 並新增指紋，577/577（IOS-POC-37 第 13.7 節）。

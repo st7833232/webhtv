@@ -188,6 +188,14 @@ var spider = (function () {
     return host.get(url, { headers: headers, timeout: 20000 }).body || '';
   }
 
+  /**
+   * A page as the original's `k()` hands it to its rules: every whitespace character except the
+   * plain space removed, so a rule written as `/div></div>` matches `</div>\n</div>`. Only the rule
+   * slicing reads this; the 苹果CMS DOM templates keep the page as sent, where a line break may be
+   * the only thing between a tag's name and its first attribute. Detail and play pages: S4.
+   */
+  function compact(html) { return String(html || '').replace(/[\t\n\x0B\f\r]+/g, '').trim(); }
+
   /** The original's `主页url` chain, ending in the host of whichever listing URL is configured. */
   function homeUrl() {
     var home = pick(['主页url', '首页推荐链接', '网站地址', 'url', 'homeUrl']);
@@ -227,7 +235,7 @@ var spider = (function () {
       spec = '';
       // ponytail: a `//` rule is XPath and the automatic guess needs XPath too; neither is ported.
       if (arrayRule.indexOf('&&') !== -1 && arrayRule.indexOf('//') !== 0) {
-        var html = fetch(homeUrl());
+        var html = compact(fetch(homeUrl()));
         var narrowed = text('分类二次截取') ? cut1(html, text('分类二次截取')) : '';
         if (narrowed) html = narrowed;
         spec = cut(html, arrayRule).map(function (block) {
@@ -341,15 +349,16 @@ var spider = (function () {
    * first — that is what the working sites rely on — and the original's automatic mode after them.
    */
   function listFrom(html) {
+    var flat = compact(html);
     var narrowRule = pick(['二次截取', 'jiequqian', 'cat_twice_pre']);
     if (text('列表二次截取').indexOf('&&') !== -1) narrowRule = text('列表二次截取');
-    var narrowed = narrowRule ? cut1(html, narrowRule) : '';
-    if (narrowed) html = narrowed;
+    var narrowed = narrowRule ? cut1(flat, narrowRule) : '';
+    if (narrowed) html = flat = narrowed;
     var arrayRule = pick(['数组', '列表截取数组', 'cateVodNode', 'jiequshuzuqian', 'catjsonlist', 'cat_arr_pre']);
     // ponytail: a `//` array is the original's XPath mode, which no configured site uses.
-    if (arrayRule) return arrayRule.indexOf('//') === 0 ? [] : itemsFrom(html, arrayRule);
+    if (arrayRule) return arrayRule.indexOf('//') === 0 ? [] : itemsFrom(flat, arrayRule);
     var out = defaultList(html);
-    for (var i = 0; !out.length && i < AUTO_ARRAYS.length; i++) out = itemsFrom(html, AUTO_ARRAYS[i]);
+    for (var i = 0; !out.length && i < AUTO_ARRAYS.length; i++) out = itemsFrom(flat, AUTO_ARRAYS[i]);
     return out;
   }
 

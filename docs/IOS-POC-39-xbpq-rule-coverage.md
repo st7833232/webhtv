@@ -6,7 +6,7 @@
 - 狀態：**診斷與原版語意研究完成（2026-09-30 14:40），方案待使用者核准，尚未改程式。** 屬 AGENTS.md §7 的 material requirement（規則引擎的新能力）。原版語意在第四節，方案、驗收、回滾在第五節。
 - 修正第一節的推斷：41 站讀不到規則**不是**註解解析失敗（`host.parseJSON` 已會去掉 `//`），而是 `XBPQ.js` 的 `init` 把 `resolvedExtend` 解析出的 **https 網址字串**直接當 JSON 解析，得到 `{}`；原版遇到 `http` 開頭的 ext 會先下載（`XYQHiker.js` 第 136～142 行也是這樣做）。另外找到兩個沒列在第一節的原因：45 站 `分类url` 結尾帶 `;;z` 旗標，iOS 沒切掉就拿去請求；`XBPQ.js` 把 `分类数组`／`分类标题`／`分类链接`（原版是**從首頁抓分類**用的鍵）當成影片列表規則。
 - 2026-09-30 使用者核准 S1～S3、`vod_id` 維持網址。S1（`ab490dfa`）、S2（`531093a1`）、S3 已 commit，兩份設定檔在熱點下的 sweep 都確認沒有退步（第六節）；push 前先 pull merge `origin/ios-poc`（使用者 2026-09-30 指示）。
-- 唯一下一步：S4（詳情與播放）尚未核准。核准前可做的是在熱點下逐站確認第 6.1 節「有分類但沒片」的 69 站與「沒有分類」的 23 站的原因。
+- 唯一下一步：S4（詳情與播放）等使用者核准。S4 要一併把 4.4 的抓頁去空白套到詳情與播放頁（詳情規則同樣是對去空白後的頁面寫的），並讓紅果短剧在網站恢復後重新確認可播放。
 
 ## 1. 診斷（2026-09-30，證據在 `docs/SITE-AVAILABILITY-2026-09-30.md`）
 
@@ -94,7 +94,7 @@ sweep（`swift test --filter sweepsEveryDrivableSource`，走 App 的 `SourceCli
 ### 4.4 列表（`categoryContent` → `e()` → `A()`；首頁 `homeVideoContent`）
 
 - 網址 `f(tid, pg)`：`分类url`（`;;` 前）→ `特殊分类` 覆蓋 → 含 `[`／`|` 時，第 `起始页` 頁用括號內的 `firstPage=` 網址、其他頁用前段 → 篩選值代入 → `/` 開頭補 `主页url` → `{cateId}`、`{catePg}`（`pg` 為 `1-3` 時組成多頁 `$$$`）→ **沒填到的 `{x}` 刪掉，並刪掉 `/x/` 這一節** → `N()`：`//` 收成 `/`（保留 `://`）、`时间戳`、`md5(…)`、`+url:` 前處理。`起始页` 預設 `1`（本批 1 站是 `2`）。
-- 抓頁 → `二次截取`（別名 `jiequqian`／`cat_twice_pre`，後綴 `jiequhou`／`cat_twice_suf`）或 `列表二次截取` 先縮小範圍。
+- 抓頁（`k()`：**除一般空白外的所有空白字元——換行、Tab、`\r`——全部刪掉**，所以規則作者寫 `/div></div>` 而網站送的是 `</div>\n</div>`；XPath 模式的 `xp` 網址例外）→ `二次截取`（別名 `jiequqian`／`cat_twice_pre`，後綴 `jiequhou`／`cat_twice_suf`）或 `列表二次截取` 先縮小範圍。
 - `数组`（`K` 鏈：`数组`／`列表截取数组`／`cateVodNode`／`jiequshuzuqian`／`catjsonlist`／`cat_arr_pre`，後綴 `jiequshuzuhou`／`cat_arr_suf`）cut 出每一部；以 `//` 開頭則走 XPath 模式（本批 0 站）。
 - 每一塊（皆用 4.2 的 cut）：
   - `标题`（`J` 鏈：`标题`／`列表标题`／`biaotiqian`／`catjsonname`／`cat_title`，預設 `title="&&"`，再退 `alt="&&"`），去掉 entity 與標籤。
@@ -190,6 +190,7 @@ S1～S3 決定「有沒有片單」，S4 決定「能不能播」（sweep 的「
 | S1 | `ab490dfa` | `parseRule`（下載 `http` ext、`{cateId}` 網址、`鍵:值`）；`text` 的 `空`、`pick` 別名鏈；`beforeFlags` 切 `;;`；`homeUrl`；`categoryUrl`（`起始页`、`[firstPage=]`／`|`、刪未填 `{x}` 與 `/x/`、`//` 收斂）；`categories`（`分类`、`分类值`、`分类名称`、`class_name`、`分类数组`＋`分类二次截取`＋`分类标题`＋`分类ID`） | 新測 7 項；`swift test` 585/585 |
 | S2 | `531093a1` | `XBPQ.js` 自帶 cut：`hide`／`reveal` 跳脫、`sliceAll`（`*`、`**`、`&&` 開頭／結尾、修飾取最後一個 `[`）、`replaceIn`（`#` 多組、`>>空`、`>>>`、`*`、壞掉的一組保留原文）、`cut` 的 `+` 串接；`XBPQ.js` 內所有 `host.cut` 改用它 | 新測 2 項（真實規則寫法）；`swift test` 587/587 |
 | S3 | 見 `git log` | `listFrom`／`itemsFrom`：`二次截取`／`列表二次截取`、`数组`、`标题`（退 `alt`）、`图片`（退 `src`）、`链接`（預設含 `[不包含:]`、退單引號）、`副标题`、`链接前缀`／`后缀`、entity 與標籤清除；`分类*` 鍵不再當列表鍵；沒有 `数组` 時 `defaultList` → 原版自動模式三種；`首页`（數字／`0`／`名$數`／非數字即無首頁） | 新測 5 項；`swift test` 592/592 |
+| S3.1 | 見 `git log` | 熱點抽查時發現 4.4 的抓頁去空白：新增 `compact()`，分類頁（`分类数组`）與列表的**規則 cut** 讀去空白後的頁面，蘋果 CMS DOM 模板（`defaultList`）仍讀原始頁面；詳情與播放頁不變（S4）| 新測 2 項（野鸡資源的真實規則；模板讀原始頁面，以把 `defaultList(html)` 改成 `defaultList(flat)` 確認這個測試會失敗）；`swift test` 602/602 |
 
 與原版刻意不同之處（都寫在程式註解）：`首页` 只在站台有設時照原版（沒設的站維持「列第一個分類」，紅果短剧靠這個）；沒有 `数组` 時先跑蘋果 CMS DOM 模板再跑原版自動模式；cut 被過濾掉的一筆直接略過而不是回傳 `不要` 佔位（詳情頁線路對齊時才有差，屬 S4）；`[不包含:]` 的空值忽略；未移植的語法列在 `XBPQ.js` 的 `ponytail:` 註解。
 
@@ -221,5 +222,12 @@ S1～S3 決定「有沒有片單」，S4 決定「能不能播」（sweep 的「
 - 由 PLAYABLE 變成不可用的 5 站：**紅果短剧**（XBPQ）— `www.mochadj.com` DNS 解析到 `203.160.53.138`，但 curl 40 秒內連 TCP 都建立不了，網站本身掛了；它的程式路徑沒變（沒有 `数组` → `defaultList`，分類網址、首頁行為、`site()` 相同，`keepsCategoryKeysOutOfTheList` 測試涵蓋），網站恢復後要再確認一次。豆瓣、非凡、艾旦（type-1）首頁第一部片換了（播放網域、集數都變了），不經過 `XBPQ.js`。巴士动漫（XYQHiker）`XYQHiker.js` 沒改，同一個網站的「動漫巴士」這一輪反而由 NO-PLAY 變 PLAYABLE，是網站時好時壞。**判定 S1～S3 沒有造成退步。**
 - XBPQ 7 站：2 站由 EMPTY 變成 NO-EPISODE（屬 S4），4 站仍 EMPTY，紅果短剧如上。
 - 由不可用變 PLAYABLE 的 4 站（劇圈、虎牙、優酷、動漫巴士）都不是 XBPQ，是網站或 CDN 恢復。
+
+### 6.2 S3.1 之後（15:56～15:59，熱點 `172.20.10.1`，最終版程式）
+
+- `wang-sex.json`：PLAYABLE 27、NO-EPISODE 45、EMPTY 119、DEAD-MEDIA 11、ERROR 15、NO-PLAY 3（220 站）。與 S3 相比沒有任何站掉；XBPQ 再多 5 站由 EMPTY 變 NO-EPISODE（與基準相比共 16 站有了片單）；玉兔资源恢復 PLAYABLE，印證先前是 CDN 不穩。
+- `wang-movie.json`：PLAYABLE 25（基準 24）、NO-EPISODE 4、EMPTY 19、DEAD-MEDIA 14、ERROR 2、NO-PLAY 3。與基準相比掉的 3 站：紅果短剧、豆瓣、艾旦（type-1，換片）。
+- **紅果短剧**：15:4x 起 `www.mochadj.com` 連線恢復，但整站（含首頁、任何 User-Agent）回 HTTP 200、內容 0 bytes。以 `CSP_GOLDEN_SITE` 單站測試，新版與**暫時換回 `bc751293` 的舊版 `XBPQ.js`** 都是「有 8 個分類、第一個分類沒片」，結果相同，確認是網站問題；網站恢復後要再確認一次它可播放。
+- 還沒有片單的 XBPQ 站抽查（原型、熱點）：有分類沒片的 69 站中，24 站回 JS 跳轉頁（原版也不執行 JS）、27 站連不上（DNS／403／520／SSL／逾時；另有 4 站是原型處理中文網址的錯誤，不算）、9 站有內容但規則對不上（13AV.COM 已改版，頁面裡已經沒有規則要找的 `col-6 col-sm-4 col-lg-3`）。
 SWEEP_CONFIG=<wang-movie.json> SWEEP_BASE=https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json swift test --package-path ios --filter sweepsEveryDrivableSource
 ```

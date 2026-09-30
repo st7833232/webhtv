@@ -305,3 +305,46 @@ private func category(_ spider: JavaScriptSpiderRuntime, _ tid: String = "1") as
     #expect(try await home("无圣光$abc") == [])             // not a count: the original shows nothing
     #expect(try await home(nil) == ["分九"])                // unset: the first category, as before
 }
+
+/// The original's fetch removes every whitespace character but the plain space before a rule sees
+/// the page. 野鸡資源's `vod-img&&/div></div>` is written against that: the site sends
+/// `</div>\n</div>`, and without the normalisation not one title matched.
+@Test func readsListPagesWithTheOriginalWhitespaceRemoved() async throws {
+    RuleSite.serve(["https://s17.invalid/yj/1/1.html": """
+    <div class="vod">
+    <div class="vod-img" id="content12">
+    <a href="/yj/detail/id/1473126.html" target="_self">
+    <img class="lazy" data-original="https://img.invalid/1.jpg">
+    </a>
+    </div>
+    <div class="vod-txt" id="sui12">
+    <a href="/yj/detail/id/1473126.html" target="_self">CJOD-525 叔母さん</a>
+    </div>
+    </div>
+    """])
+    let spider = try await xbpq(#"""
+    {"分类url":"https://s17.invalid/yj/{cateId}/{catePg}.html","分类":"一$1",
+     "数组":"vod-img&&/div></div>","标题":"🐔+vod-txt*\">&&</a","链接":"href=\"&&\"","图片":"data-original=\"&&\""}
+    """#)
+    let list = try await category(spider)
+    #expect(list.map { $0["vod_name"] } == ["🐔CJOD-525 叔母さん"])
+    #expect(list.first?["vod_id"] == "https://s17.invalid/yj/detail/id/1473126.html")
+    #expect(list.first?["vod_pic"] == "https://img.invalid/1.jpg")
+    await spider.destroy()
+}
+
+/// The whitespace removal is for the rules only. A 苹果CMS page whose attributes sit on their own
+/// lines would lose the break between `<a` and `href` and no longer parse, so the templates keep
+/// the page as sent.
+@Test func keepsThePageAsSentForTheTemplates() async throws {
+    RuleSite.serve(["https://s18.invalid/i/1-1.html": """
+    <ul class="stui-vodlist"><li><a
+    href="/voddetail/5.html"
+    title="片五"><span>推荐</span></li></ul>
+    """])
+    // Only the template can read this one: the automatic `<li*>` mode excludes 推荐 and there is
+    // no `</a>` for `<a&&</a>`, so a squashed `<ahref=` would leave nothing at all.
+    let spider = try await xbpq(#"{"分类url":"https://s18.invalid/i/{cateId}-{catePg}.html","分类":"重生$1"}"#)
+    #expect(try await category(spider).map { $0["vod_name"] } == ["片五"])
+    await spider.destroy()
+}

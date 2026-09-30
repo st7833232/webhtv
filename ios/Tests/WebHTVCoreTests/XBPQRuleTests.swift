@@ -348,3 +348,105 @@ private func category(_ spider: JavaScriptSpiderRuntime, _ tid: String = "1") as
     #expect(try await category(spider).map { $0["vod_name"] } == ["片五"])
     await spider.destroy()
 }
+
+// MARK: - S4: detail and play
+
+private func detail(_ spider: JavaScriptSpiderRuntime, _ id: String) async throws -> [String: String] {
+    let object = try #require(try JSONSerialization.jsonObject(
+        with: Data(try await spider.detailContent(ids: [id]).utf8)) as? [String: Any])
+    let item = try #require((object["list"] as? [[String: Any]])?.first)
+    return item.compactMapValues { $0 as? String }
+}
+
+private func play(_ spider: JavaScriptSpiderRuntime, _ id: String) async throws -> (url: String, parse: Int) {
+    let object = try #require(try JSONSerialization.jsonObject(
+        with: Data(try await spider.playerContent(flag: "", id: id, vipFlags: []).utf8)) as? [String: Any])
+    return (object["url"] as? String ?? "", (object["parse"] as? NSNumber)?.intValue ?? -1)
+}
+
+/// 35 sites set 直接播放 and 45 carry the `z` flag: the listing's link is the play page, so the
+/// detail is one line the original calls 直播列表, with the title as its only episode.
+@Test func givesADirectPlaySiteOneEpisode() async throws {
+    RuleSite.serve(["https://s19.invalid/v/1/": "<h1>片一</h1><p>no episode list here</p>"])
+    for rules in [#"{"分类url":"https://s19.invalid/t/{cateId}-{catePg}/;;z","分类":"一$1"}"#,
+                  #"{"分类url":"https://s19.invalid/t/{cateId}-{catePg}/","分类":"一$1","直接播放":"1"}"#] {
+        let spider = try await xbpq(rules)
+        let item = try await detail(spider, "https://s19.invalid/v/1/")
+        #expect(item["vod_play_from"] == "直播列表")
+        #expect(item["vod_play_url"] == "片一$https://s19.invalid/v/1/")
+        await spider.destroy()
+    }
+}
+
+/// `播放数组` per line, `播放列表`/`播放标题`/`播放链接` per episode, `线路数组`/`线路标题` for the names,
+/// on the page with its line breaks removed; then 倒序 and 线路合并.
+@Test func readsEpisodesWithTheOriginalDetailRules() async throws {
+    RuleSite.serve(["https://s20.invalid/d/1.html": """
+    <div class="tabs"><a class="tab">线路甲</a>
+    <a class="tab">线路乙</a></div>
+    <ul class="pl"><li><a href="/p/1-1.html">第1集</a></li><li><a href="/p/1-2.html">第2集</a></li>
+    </ul>
+    <ul class="pl"><li><a href="/p/2-1.html">HD</a></li>
+    </ul>
+    """])
+    let base = #""分类url":"https://s20.invalid/{cateId}","分类":"一$1","线路数组":"class=\"tab\"&&</a>","线路标题":">&&","播放数组":"class=\"pl\">&&</ul>","播放列表":"<li>&&</li>","播放标题":">&&</a>","播放链接":"href=\"&&\"""#
+    let plain = try await xbpq("{\(base)}")
+    var item = try await detail(plain, "https://s20.invalid/d/1.html")
+    #expect(item["vod_play_from"] == "线路甲$$$线路乙")
+    #expect(item["vod_play_url"] == "第1集$https://s20.invalid/p/1-1.html#第2集$https://s20.invalid/p/1-2.html$$$HD$https://s20.invalid/p/2-1.html")
+    await plain.destroy()
+
+    let reversedMerged = try await xbpq("{\(base),\"倒序\":\"1\",\"线路合并\":\"1\",\"播放链接后缀\":\"?x=1\"}")
+    item = try await detail(reversedMerged, "https://s20.invalid/d/1.html")
+    #expect(item["vod_play_from"] == "线路甲")
+    #expect(item["vod_play_url"] == "第2集$https://s20.invalid/p/1-2.html?x=1#第1集$https://s20.invalid/p/1-1.html?x=1#HD$https://s20.invalid/p/2-1.html?x=1")
+    await reversedMerged.destroy()
+}
+
+/// `跳转播放链接`, the rule 22 sites use: `var player_*"url":"&&"` against a JSON-escaped address,
+/// the `urlDecode(…)` wrapper, and a second hop through an intermediate page.
+@Test func followsTheJumpRulesToTheStream() async throws {
+    RuleSite.serve([
+        "https://s21.invalid/play/1.html": #"<script>var player_aaaa={"flag":"play","url":"https:\/\/cdn.invalid\/a\/index.m3u8"}</script>"#,
+        "https://s21.invalid/play/2.html": #"<script>var player_aaaa={"url":"https%3A%2F%2Fcdn.invalid%2Fb%2Findex.m3u8"}</script>"#,
+        "https://s21.invalid/play/3.html": #"<iframe src="/jx/3.html"></iframe>"#,
+        "https://s21.invalid/jx/3.html": #"<script>var src = "https://cdn.invalid/c/index.m3u8";</script>"#])
+    let jump = try await xbpq(#"{"分类url":"https://s21.invalid/{cateId}","跳转播放链接":"var player_*\"url\":\"&&\""}"#)
+    #expect(try await play(jump, "https://s21.invalid/play/1.html") == ("https://cdn.invalid/a/index.m3u8", 0))
+    await jump.destroy()
+
+    let decoded = try await xbpq(#"{"分类url":"https://s21.invalid/{cateId}","跳转播放链接":"urlDecode(var player*url\":\"&&\")"}"#)
+    #expect(try await play(decoded, "https://s21.invalid/play/2.html") == ("https://cdn.invalid/b/index.m3u8", 0))
+    await decoded.destroy()
+
+    let hops = try await xbpq(#"{"分类url":"https://s21.invalid/{cateId}","跳转播放链接":"<iframe src=\"&&\"","二次跳转播放链接":"var src = \"&&\""}"#)
+    #expect(try await play(hops, "https://s21.invalid/play/3.html") == ("https://cdn.invalid/c/index.m3u8", 0))
+    await hops.destroy()
+}
+
+/// 免嗅 reads the `player_*` JSON, including encrypt 2 (base64 of the escaped address); `嗅探词` decides
+/// what counts as a stream, so a site that only accepts `.mp4` hands an m3u8 page to the sniffer.
+@Test func readsThePlayerJSONAndHonoursTheSniffWords() async throws {
+    RuleSite.serve([
+        "https://s22.invalid/play/e2.html": #"<script>var player_aaaa={"encrypt":2,"url":"aHR0cHMlM0ElMkYlMkZjZG4uaW52YWxpZCUyRmUyJTJGaW5kZXgubTN1OA=="}</script>"#])
+    let mac = try await xbpq(#"{"分类url":"https://s22.invalid/{cateId}"}"#)
+    #expect(try await play(mac, "https://s22.invalid/play/e2.html") == ("https://cdn.invalid/e2/index.m3u8", 0))
+    await mac.destroy()
+
+    let mp4Only = try await xbpq(#"{"分类url":"https://s22.invalid/{cateId}","嗅探词":".mp4"}"#)
+    #expect(try await play(mp4Only, "https://s22.invalid/play/e2.html") == ("https://s22.invalid/play/e2.html", 1))
+    await mp4Only.destroy()
+}
+
+/// No `播放数组` and no 苹果CMS play list: no episodes, rather than the original's automatic rules
+/// turning the page's other links into episodes — on 歐視 those were its introduction pages.
+@Test func makesNoEpisodesOutOfUnrelatedLinks() async throws {
+    RuleSite.serve(["https://s23.invalid/d/9.html": """
+    <h1>片九</h1><a href="/introduction/index/1/1.html">简介1</a><a href="/introduction/index/1/2.html">第2集介绍</a>
+    """])
+    let spider = try await xbpq(#"{"分类url":"https://s23.invalid/{cateId}","分类":"一$1"}"#)
+    let item = try await detail(spider, "https://s23.invalid/d/9.html")
+    #expect(item["vod_play_from"] == "")
+    #expect(item["vod_play_url"] == "")
+    await spider.destroy()
+}

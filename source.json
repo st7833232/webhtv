@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.40",
+          "date": "2026-09-30",
+          "localizedDescription": "WebHTV 0.1.40 (41)（XBPQ 規則站的搜尋修正；只有自動測試與 CI 建置驗證，真機未驗收）\n\n修正\n- XBPQ 規則站的搜尋：搜尋網址裡的 {pg}、{catePg} 會代入頁碼（以前頁碼那一段是空的）；站台有設「搜索数组」等搜尋規則時照它解析結果，沒設時照列表規則。\n\n已知限制\n- 此版沒有真機驗收。個人熱點實測搜得到的 XBPQ 站只多了 1 站：大多數搜不到的站連片單都取不到（網站回 JavaScript 跳轉頁或網域失效），或根本沒有設搜尋網址。\n- 其餘同 0.1.39 (40)。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.40-b41/WebHTV-0.1.40-41.ipa",
+          "size": 29340833,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.39",
           "date": "2026-09-30",
           "localizedDescription": "WebHTV 0.1.39 (40)（XBPQ 規則站可以播了、播放切換修正；只有自動測試、模擬器與 CI 建置驗證，真機未驗收）\n\n新功能\n- XBPQ 規則站：讀得到 ./json/*.json 規則檔，分類、片單、詳情與播放改照原版的規則語意（含直接播放、跳轉播放連結）。個人熱點實測 wang-sex.json 可播放的站由 29 增加到 41。\n\n修正\n- 設了片尾、下一集又解析得慢時，不再跳過一集；上一集／下一集按到一半遇到結尾也只換一集。\n- 核心播不了而自動換到另一個核心時，照你最後一次按的播放／暫停（以前暫停中失敗也會自己開始播）。\n- MPV 播到一半失敗換到原生時，接在失敗的位置，不再回到開頭。\n- 快速連按前進／倒退 10 秒會累加。\n- 切換核心的瞬間不再從 0:00 起算。\n\n已知限制\n- 此版沒有真機驗收。\n- XBPQ 的搜尋還沒改；部分 XBPQ 站因為網站回 JavaScript 跳轉頁或網域失效，仍然不可用。",

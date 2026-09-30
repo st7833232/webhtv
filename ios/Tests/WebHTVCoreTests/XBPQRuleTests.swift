@@ -150,3 +150,57 @@ private func classes(_ runtime: JavaScriptSpiderRuntime) async throws -> [String
     #expect(try await classes(spider) == ["国产=20", "日本=21"])
     await spider.destroy()
 }
+
+// MARK: - S2: the slicing grammar
+
+/// Each case is a real rule shape from `wang-sex.json`, run through the category slicer so the
+/// whole path — `hide`, `sliceAll`, `replaceIn`, `+` joining — is what gets exercised.
+@Test func slicesWithTheOriginalGrammar() async throws {
+    RuleSite.serve(["https://s10.invalid/": """
+    <li><a class="n" href="/vodtype/20.html?v=20&x=1" title="国产">国产</a></li>
+    <li><a class="n" href="/vodtype/21.html?v=21&x=1" title="日本">日本</a></li>
+    <li><a class="n" href="/vodtype/22.html?v=22&x=1" title="广告">广告</a></li>
+    <li><a class="n" href="/vodtype/23.html?v=23&x=1" title="下一页">下一页</a></li>
+    """])
+    func categories(_ title: String, _ id: String) async throws -> [String] {
+        let rules: [String: String] = [
+            "主页url": "https://s10.invalid/", "分类url": "https://s10.invalid/{cateId}",
+            "分类数组": "<li&&</li>", "分类标题": title, "分类ID": id]
+        let spider = try await xbpq(String(decoding: try JSONSerialization.data(withJSONObject: rules), as: UTF8.self))
+        defer { Task { await spider.destroy() } }
+        return try await classes(spider)
+    }
+
+    // `[不包含:a#b]` is two values, not one containing `#` (纤纤倫理, 小幺女).
+    #expect(try await categories(#"title="&&"[不包含:广告#下一页]"#, "/vodtype/&&.html")
+            == ["国产=20", "日本=21"])
+    // `*` spans an attribute without crossing `>`; the content after it is the value.
+    #expect(try await categories(#"<a class="*" href="*">&&</a>[包含:国#日]"#, "/vodtype/&&.html")
+            == ["国产=20", "日本=21"])
+    // `+` joins, and a part without `&&` is literal text (18j's `🌹+alt="&&"`). Modifiers belong
+    // to their own part.
+    #expect(try await categories(#"【+title="&&"[不包含:广告#下一页]+】"#, "/vodtype/&&.html").prefix(2)
+            == ["【国产】=20", "【日本】=21"])
+    // `[替换:]` pairs split on `#`; `>>空` deletes; `\&` is a literal `&` (魔法少女's `?v=&&\&`).
+    #expect(try await categories(#"title="&&"[不包含:广告#下一页]"#, #"href="&&"[替换:/vodtype/>>空#.html>>]"#).prefix(1)
+            == ["国产=20?v=20&x=1"])
+    #expect(try await categories(#"title="&&"[不包含:广告#下一页]"#, #"?v=&&\&"#)
+            == ["国产=20", "日本=21"])
+}
+
+@Test func replacesTheWayTheOriginalDoes() async throws {
+    RuleSite.serve(["https://s11.invalid/": #"<b><a href="/voddetail/5.html">片</a></div><i></i></b>"#])
+    func id(_ rule: String) async throws -> String? {
+        let rules = ["主页url": "https://s11.invalid/", "分类url": "https://s11.invalid/{cateId}",
+                     "分类数组": "<b>&&</b>", "分类标题": ">&&</a>", "分类ID": rule]
+        let spider = try await xbpq(String(decoding: try JSONSerialization.data(withJSONObject: rules), as: UTF8.self))
+        defer { Task { await spider.destroy() } }
+        return try await classes(spider).first.map { String($0.dropFirst(2)) }
+    }
+    // 水果派: detail pages become play pages.
+    #expect(try await id(#"href="&&"[替换:voddetail>>vodplay#.html>>-1-1.html]"#) == "/vodplay/5-1-1.html")
+    // 天天's `</div>>></a>` is `</div>` → `</a>`, not `</div` → `></a>`.
+    #expect(try await id(#"">&&<i>[替换:</div>>></a>]"#) == "片</a></a>")
+    // A pair without `>>` (金陵撸铁汉's `play#.html>>…`) makes the original keep the text as it was.
+    #expect(try await id(#"href="&&"[替换:play#.html>>/sid/1/nid/1.html]"#) == "/voddetail/5.html")
+}

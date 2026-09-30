@@ -10,7 +10,7 @@
  * recovered all 331 rule keys; the ones the configured sites actually use are implemented here.
  *
  * Two extraction models, as the original has:
- *   - explicit slicing rules, "前綴&&後綴" with [包含:]/[不包含:]/[替换:a>>b] modifiers → host.cut
+ *   - explicit slicing rules, "前綴&&後綴" with [包含:]/[不包含:]/[替换:a>>b] modifiers → cut() below
  *   - no rules at all, in which case the engine falls back to the 苹果CMS/stui template that most
  *     of these sites run. `果果短剧` configures only 4 keys and relies entirely on that fallback.
  */
@@ -65,8 +65,87 @@ var spider = (function () {
     return out;
   }
 
-  // ponytail: delegates to host.cut until the XBPQ-local cut grammar (IOS-POC-39 S2) replaces it.
-  function cut(textValue, ruleValue) { return host.cut(textValue, ruleValue); }
+  // ---- the original's slicing grammar (a0/b0/c0) ------------------------------------------
+  // Lives here rather than in host.cut so that a compatibility pack can carry it; host.js cannot.
+  // ponytail: not ported — numeric `3&&-2` slices, `$$` as a second separator, `整页`, `url:`
+  // segments, [含序号:]/[不含序号:], Base64/urlDecode wrappers. No configured site uses them.
+
+  var ESCAPED = { '[': '', ']': '', '*': '', '&': '', '#': '', '+': '' };
+  /** `\[ \] \* \& \# \+ \( \)` are literal characters, not syntax. */
+  function hide(s) { return s.replace(/\\([\[\]*&#+()])/g, function (_, c) { return ESCAPED[c] || c; }); }
+  function reveal(s) {
+    return s.replace(/[-]/g, function (c) { return '[]*&#+'.charAt(c.charCodeAt(0) - 0xE000); });
+  }
+  function literal(s) { return reveal(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+  function values(list) { return list.split('#').filter(Boolean).map(reveal); }
+
+  /** `[替换:a>>b#c>>d]`: `>>空` (or a bare `>>`) deletes, `a>>>b` means `a>` → `b`, `*` spans text. */
+  function replaceIn(value, spec) {
+    var out = value, pairs = spec.split('#');
+    for (var i = 0; i < pairs.length; i++) {
+      var pair = /[^>]>>$/.test(pairs[i]) ? pairs[i] + '空' : pairs[i];
+      var at = pair.indexOf('>>>') !== -1 ? pair.indexOf('>>>') + 1 : pair.indexOf('>>');
+      // The original throws on a pair without `>>` and keeps the text as it was.
+      if (at === -1) return value;
+      var from = pair.slice(0, at), to = reveal(pair.slice(at + 2));
+      if (from === '空') return to === '空' ? '' : to;
+      if (to === '空') to = '';
+      if (from.indexOf('*') === -1) { out = out.split(reveal(from)).join(to); continue; }
+      var parts = from.split('*');
+      var pattern = !parts[0] ? '[\\S\\s]*?' + literal(parts[1])
+        : !parts[1] ? literal(parts[0]) + '[\\S\\s]*'
+        : literal(parts[0]) + '[\\S\\s]*?' + literal(parts[1]);
+      out = out.replace(new RegExp(pattern, 'g'), function () { return to; });
+    }
+    return out;
+  }
+
+  /** One `前&&後[修饰]` rule over `text`: every match, in order. `rule` has already been through `hide`. */
+  function sliceAll(textValue, rule) {
+    var at = rule.indexOf('&&');
+    if (at === -1) {
+      // No `&&` is a literal, or — with [替换:] — the whole text with the replacements applied.
+      var whole = /\[仅?替换[:：](.*?)\]/.exec(rule);
+      return [whole ? replaceIn(textValue, whole[1]) : reveal(rule)];
+    }
+    var head = rule.slice(0, at), tail = rule.slice(at + 2).split('&&')[0], mods = '';
+    var open = tail.indexOf('[');
+    // The original takes the modifiers from the *last* bracket, and cuts the tail at the first.
+    if (open !== -1) { mods = tail.slice(tail.lastIndexOf('[')); tail = tail.slice(0, open); }
+    var group = 1, headPattern = '^';
+    if (head) {
+      var wide = head.indexOf('**') !== -1, parts = head.split(wide ? '**' : '*');
+      headPattern = parts.map(literal).join(wide ? '([\\S\\s]*?)' : '([^>]*?)');
+      group = parts.length;
+    }
+    var replace = /\[仅?替换[:：](.*?)\]/.exec(mods);
+    var include = /\[包含:(.*?)\]/.exec(mods), exclude = /\[不包含:(.*?)\]/.exec(mods);
+    var re = new RegExp(headPattern + '([\\S\\s]*?)' + (tail ? literal(tail) : '$'), 'g');
+    var out = [], m;
+    while ((m = re.exec(textValue)) !== null) {
+      if (m[0] === '') re.lastIndex++;
+      var piece = replace ? replaceIn(m[group], replace[1]) : m[group];
+      if (include && !values(include[1]).some(function (v) { return piece.indexOf(v) !== -1; })) continue;
+      if (exclude && values(exclude[1]).some(function (v) { return piece.indexOf(v) !== -1; })) continue;
+      out.push(piece);
+    }
+    return out;
+  }
+
+  /** `A+B+C` joins each part's first value; a part without `&&` is literal text, like `🌹+alt="&&"`. */
+  function cut(textValue, ruleValue) {
+    if (!ruleValue) return [];
+    var textIn = String(textValue || ''), rule = hide(String(ruleValue));
+    if (rule.indexOf('+') === -1) return sliceAll(textIn, rule);
+    var joined = '';
+    rule.split('+').forEach(function (part) {
+      if (!part) return;
+      var value = (sliceAll(textIn, part)[0] || '').trim();
+      if (/^http/.test(value)) joined = '';
+      joined += value;
+    });
+    return [joined];
+  }
   function cut1(textValue, ruleValue) { var r = cut(textValue, ruleValue); return r.length ? r[0] : ''; }
 
   /** "User-Agent$MOBILE_UA#Referer$https://x" → a header map. */
@@ -228,18 +307,18 @@ var spider = (function () {
   function listFrom(html) {
     var arrayRule = text('分类数组') || text('列表分类');
     if (!arrayRule) return defaultList(html);
-    var blocks = host.cut(html, arrayRule);
+    var blocks = cut(html, arrayRule);
     var out = [];
     for (var i = 0; i < blocks.length; i++) {
       var block = blocks[i];
-      var link = host.cut1(block, text('分类链接')) || host.pdfh(block, 'a&&href');
-      var title = host.cut1(block, text('分类标题')) || host.pdfh(block, 'a&&title');
+      var link = cut1(block, text('分类链接')) || host.pdfh(block, 'a&&href');
+      var title = cut1(block, text('分类标题')) || host.pdfh(block, 'a&&title');
       if (!link || !title) continue;
       out.push({
         vod_id: host.urljoin(site(), link),
         vod_name: host.stripTags(title),
-        vod_pic: host.urljoin(site(), host.cut1(block, text('分类图片')) || host.pdfh(block, 'img&&data-original') || host.pdfh(block, 'img&&src')),
-        vod_remarks: host.stripTags(host.cut1(block, text('分类备注')) || host.pdfh(block, '.pic-text&&Text'))
+        vod_pic: host.urljoin(site(), cut1(block, text('分类图片')) || host.pdfh(block, 'img&&data-original') || host.pdfh(block, 'img&&src')),
+        vod_remarks: host.stripTags(cut1(block, text('分类备注')) || host.pdfh(block, '.pic-text&&Text'))
       });
     }
     return out;
@@ -277,20 +356,20 @@ var spider = (function () {
     detailContent: function (ids) {
       var url = String(ids[0]);
       var html = fetch(url);
-      var name = host.cut1(html, text('片名')) || host.pdfh(html, 'h1&&Text') || host.pdfh(html, '.title&&Text');
+      var name = cut1(html, text('片名')) || host.pdfh(html, 'h1&&Text') || host.pdfh(html, '.title&&Text');
       var pic = host.pdfh(html, '.stui-content__thumb a&&data-original')
              || host.pdfh(html, '.myui-content__thumb a&&data-original')
              || host.pdfh(html, '.stui-content__thumb img&&data-original')
              || host.pdfh(html, '.lazyload&&data-original');
-      var desc = host.stripTags(host.cut1(html, text('简介')) || host.pdfh(html, '.detail&&Text'));
+      var desc = host.stripTags(cut1(html, text('简介')) || host.pdfh(html, '.detail&&Text'));
 
       // Play lists: one <ul> of episodes per line, with the line names alongside.
       var flagNames = [];
       var flagRule = text('线路数组'), titleRule = text('线路标题');
       if (flagRule) {
-        var blocks = host.cut(html, flagRule);
+        var blocks = cut(html, flagRule);
         for (var i = 0; i < blocks.length; i++) {
-          flagNames.push(host.stripTags(titleRule ? host.cut1(blocks[i], titleRule) : blocks[i]));
+          flagNames.push(host.stripTags(titleRule ? cut1(blocks[i], titleRule) : blocks[i]));
         }
       }
       if (!flagNames.length) {

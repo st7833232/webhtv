@@ -10,7 +10,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 雲端 session 若由 harness 指定其他工作分支，照樣只 push 到 `ios-poc`（使用者 2026-09-28 的決定），不建立新的遠端分支。
 
-**IOS-POC-37.2（2026-09-29 晚上，已 push，並發布為 `0.1.35 (36)`）**：使用者自寫的 MissAV `.py`（Android 正常）在 iOS 上有分類但沒有影片。原因是內建 CPython 的 OpenSSL 預設到 `/etc/ssl` 找根憑證，直接用 `urllib` 的腳本 HTTPS 驗證失敗，被腳本的 `except` 吞掉；`requests` 自帶 certifi 所以不受影響。比照 Android Chaquopy，在 `webhtv_runtime.py` 把 `ssl.SSLContext.set_default_verify_paths` 換成載入 certifi（`30f26084`），依賴自檢 7 → 8 項。只在 Linux host 做 TLS 對照（未修正 `CERTIFICATE_VERIFY_FAILED`，修正後 200，明確 `cafile` 不受影響）；發布前只有 CI Release build。**模擬器自檢、survey、真機都未驗證**。見 IOS-POC-37 文件第十三節。
+**IOS-POC-37.2（2026-09-29 晚上，已 push，並發布為 `0.1.35 (36)`）**：使用者自寫的 MissAV `.py`（Android 正常）在 iOS 上有分類但沒有影片。原因是內建 CPython 的 OpenSSL 預設到 `/etc/ssl` 找根憑證，直接用 `urllib` 的腳本 HTTPS 驗證失敗，被腳本的 `except` 吞掉；`requests` 自帶 certifi 所以不受影響。比照 Android Chaquopy，在 `webhtv_runtime.py` 把 `ssl.SSLContext.set_default_verify_paths` 換成載入 certifi（`30f26084`），依賴自檢 7 → 8 項。只在 Linux host 做 TLS 對照（未修正 `CERTIFICATE_VERIFY_FAILED`，修正後 200，明確 `cafile` 不受影響）；發布前只有 CI Release build。真機：使用者 2026-09-30 回報 MissAV 分類已有影片列表。**模擬器自檢、survey 未驗證**。見 IOS-POC-37 文件第十三節。
 
 **IOS-POC-37.1（2026-09-29 晚上，已 push，並發布為 `0.1.34 (35)`）**：修兩個查核缺口。(1) Python spider 的 cache context 原本是 `base.spider` 的模組全域（`_site_key`、`_cache_dir`），每次 `load` 覆寫，A 在 B 載入後的 `getCache`／`setCache` 會讀寫 B 的檔；已用 `ios/Tests/Python/test_cache_isolation.py` 重現，改為每個 spider instance 自己持有，host 測試與 App 內 `PythonBoot.cacheIsolationCheck()` 的 A→B→A 都通過。(2) `build_python_ios_native.sh` 的 stamp 納入 lock 釘選的 CPython payload identity（release、Python 版本、SHA-256），已安裝 payload 與 lock 不符即 fail closed；rebuild／skip／fail-closed 四種情況本機驗過。`python.host` ABI 1.1 → 1.2。`swift test` 577/577、依賴自檢 7/7、模擬器 Debug 與 Release 裝置 build 通過、44 站 survey 到 media 20 站（上一輪 19，無任何階段退步）。**真機未驗證**。見 IOS-POC-37 文件第十二節。
 
@@ -28,7 +28,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 | 版本 | tag 指向 | 比上一版多了什麼 | 真機結果 |
 |---|---|---|---|
-| `0.1.35 (36)` | `f73aabce` | IOS-POC-37.2：Python 腳本直接用 `urllib` 連 HTTPS 時信任 App 內附的 certifi 根憑證（`30f26084`）；發布前只有 CI Release build | 未驗證 |
+| `0.1.35 (36)` | `f73aabce` | IOS-POC-37.2：Python 腳本直接用 `urllib` 連 HTTPS 時信任 App 內附的 certifi 根憑證（`30f26084`）；發布前只有 CI Release build | MissAV 有影片列表（2026-09-30）；其餘未驗證 |
 | `0.1.34 (35)` | `76f218f6` | IOS-POC-37.1：Python spider 的 cache 不再互相覆蓋；native stamp 納入 CPython payload identity（`68ad62a5`） | 未驗證 |
 | `0.1.33 (34)` | `062fcf99` | IOS-POC-37：內建 Python 加入 pycryptodome、lxml、bs4、pyquery，三個 loader 相容性修正（`92b31ccf`）；模擬器 44 站中到 media 3 → 19 | 未驗證 |
 | `0.1.32 (33)` | `76d79787` | IOS-POC-17H-3：MPV 子母畫面進入／接回不再閃黑格、接回淡入、PiP 層改為影片矩形（`47f942e8`）；含 IOS-POC-12（`b354c80e`）與 IOS-POC-13 的撤銷（`20fd462e`） | 未驗證 |

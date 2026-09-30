@@ -5,7 +5,8 @@
 - 目標：使用者 2026-09-30「修 XBPQ 讓 wang-sex 那 104 站能用」。讓 `ios/Sources/WebHTVCore/Resources/Spiders/XBPQ.js` 支援這些站實際用到的規則，站數以 sweep 的「可用」（讀到影片位元組）為準。
 - 狀態：**診斷與原版語意研究完成（2026-09-30 14:40），方案待使用者核准，尚未改程式。** 屬 AGENTS.md §7 的 material requirement（規則引擎的新能力）。原版語意在第四節，方案、驗收、回滾在第五節。
 - 修正第一節的推斷：41 站讀不到規則**不是**註解解析失敗（`host.parseJSON` 已會去掉 `//`），而是 `XBPQ.js` 的 `init` 把 `resolvedExtend` 解析出的 **https 網址字串**直接當 JSON 解析，得到 `{}`；原版遇到 `http` 開頭的 ext 會先下載（`XYQHiker.js` 第 136～142 行也是這樣做）。另外找到兩個沒列在第一節的原因：45 站 `分类url` 結尾帶 `;;z` 旗標，iOS 沒切掉就拿去請求；`XBPQ.js` 把 `分类数组`／`分类标题`／`分类链接`（原版是**從首頁抓分類**用的鍵）當成影片列表規則。
-- 唯一下一步：等使用者核准第五節的階段（建議先核准 S1～S3），核准後依第五節實作 S1。
+- 2026-09-30 使用者核准 S1～S3、`vod_id` 維持網址。S1（`ab490dfa`）、S2（`531093a1`）、S3 已 commit，兩份設定檔在熱點下的 sweep 都確認沒有退步（第六節）；push 前先 pull merge `origin/ios-poc`（使用者 2026-09-30 指示）。
+- 唯一下一步：S4（詳情與播放）尚未核准。核准前可做的是在熱點下逐站確認第 6.1 節「有分類但沒片」的 69 站與「沒有分類」的 23 站的原因。
 
 ## 1. 診斷（2026-09-30，證據在 `docs/SITE-AVAILABILITY-2026-09-30.md`）
 
@@ -179,3 +180,46 @@ S1～S3 決定「有沒有片單」，S4 決定「能不能播」（sweep 的「
 - 約 15 站的網站回傳 JS 跳轉頁，原版同樣不執行 JS，Android 上是否可用未確認；約 40 站在公司網路 DNS 解析失敗，需熱點重測。
 - `A()`／`Z()`／`detailContent`／`playerContent` 的流程是從原始指令推讀，可能有細節偏差；以真實站的 sweep 與單元測試兜底。
 - `vod_id` 不採原版格式（5.1），直接播放的片名要多抓一次詳情頁。
+
+## 6. 實作紀錄（S1～S3，2026-09-30）
+
+使用者 2026-09-30 核准 S1～S3，並決定 `vod_id` 維持絕對網址（5.1）。所有程式變更只在 `ios/Sources/WebHTVCore/Resources/Spiders/XBPQ.js`，測試在新檔 `ios/Tests/WebHTVCoreTests/XBPQRuleTests.swift`（`URLProtocol` 依網址回固定頁面，每個測試用自己的 `.invalid` 主機，可並行）。`host.js`、Swift、其他 spider 沒有改。
+
+| 階段 | commit | 內容 | 驗證 |
+|---|---|---|---|
+| S1 | `ab490dfa` | `parseRule`（下載 `http` ext、`{cateId}` 網址、`鍵:值`）；`text` 的 `空`、`pick` 別名鏈；`beforeFlags` 切 `;;`；`homeUrl`；`categoryUrl`（`起始页`、`[firstPage=]`／`|`、刪未填 `{x}` 與 `/x/`、`//` 收斂）；`categories`（`分类`、`分类值`、`分类名称`、`class_name`、`分类数组`＋`分类二次截取`＋`分类标题`＋`分类ID`） | 新測 7 項；`swift test` 585/585 |
+| S2 | `531093a1` | `XBPQ.js` 自帶 cut：`hide`／`reveal` 跳脫、`sliceAll`（`*`、`**`、`&&` 開頭／結尾、修飾取最後一個 `[`）、`replaceIn`（`#` 多組、`>>空`、`>>>`、`*`、壞掉的一組保留原文）、`cut` 的 `+` 串接；`XBPQ.js` 內所有 `host.cut` 改用它 | 新測 2 項（真實規則寫法）；`swift test` 587/587 |
+| S3 | 見 `git log` | `listFrom`／`itemsFrom`：`二次截取`／`列表二次截取`、`数组`、`标题`（退 `alt`）、`图片`（退 `src`）、`链接`（預設含 `[不包含:]`、退單引號）、`副标题`、`链接前缀`／`后缀`、entity 與標籤清除；`分类*` 鍵不再當列表鍵；沒有 `数组` 時 `defaultList` → 原版自動模式三種；`首页`（數字／`0`／`名$數`／非數字即無首頁） | 新測 5 項；`swift test` 592/592 |
+
+與原版刻意不同之處（都寫在程式註解）：`首页` 只在站台有設時照原版（沒設的站維持「列第一個分類」，紅果短剧靠這個）；沒有 `数组` 時先跑蘋果 CMS DOM 模板再跑原版自動模式；cut 被過濾掉的一筆直接略過而不是回傳 `不要` 佔位（詳情頁線路對齊時才有差，屬 S4）；`[不包含:]` 的空值忽略；未移植的語法列在 `XBPQ.js` 的 `ponytail:` 註解。
+
+### 6.1 sweep（S1～S3 程式，沿用 13:49 的設定檔副本以便與基準比較）
+
+`wang-sex.json`（14:56～14:58，個人熱點 `172.20.10.1`）：
+
+| 結果 | 基準（`SITE-AVAILABILITY-2026-09-30`） | S1～S3 |
+|---|---:|---:|
+| PLAYABLE | 29 | 26 |
+| NO-EPISODE | 28 | 39 |
+| EMPTY | 132 | 121 |
+| DEAD-MEDIA | 9 | 12 |
+| ERROR／NO-PLAY | 7／3 | 7／3 |
+
+- XBPQ 106 站：有分類（`classes>0`）的站由 46 站增加到 83 站（多出的 37 站大致是 41 個 `./json/*.json` 規則檔站）；11 站由 EMPTY 變成 NO-EPISODE（片單取到了，詳情頁沒有集數，屬 S4 的 `播放数组`／`播放列表`）；69 站有分類但第一個分類沒片、23 站仍沒有分類，原因尚未逐站確認（候選：4.6 的 JS 跳轉頁、網域失效、規則需要自動 XPath 分類）。可用（PLAYABLE）數不變，符合「要到 S4 才會上升」。
+- 由 PLAYABLE 變成 DEAD-MEDIA 的 3 站**都是 type-1 CMS 站，不經過 `XBPQ.js`**：艾蛋資源、lovedan艾旦的首頁第一部片換了（flags 3→8、eps 1→24，播放網域換成 `v5.ppqrrs.com`），玉兔资源同一個 m3u8 網址 curl 一次 200、接著連續三次逾時（CDN 不穩）。判定為網站變化，不是回歸。
+
+`wang-movie.json`：15:01～15:03 那一輪無效（跑到一半閘道變回公司網路 `10.1.207.254`，gitlab 逾時、不相關的站也掉到 `classes=0`），15:38～15:40 在熱點 `172.20.10.1` 重跑：
+
+| 結果 | 基準 | S1～S3 |
+|---|---:|---:|
+| PLAYABLE | 24 | 23 |
+| NO-EPISODE | 2 | 5 |
+| EMPTY | 21 | 18 |
+| DEAD-MEDIA | 14 | 16 |
+| ERROR／NO-PLAY | 3／3 | 2／3 |
+
+- 由 PLAYABLE 變成不可用的 5 站：**紅果短剧**（XBPQ）— `www.mochadj.com` DNS 解析到 `203.160.53.138`，但 curl 40 秒內連 TCP 都建立不了，網站本身掛了；它的程式路徑沒變（沒有 `数组` → `defaultList`，分類網址、首頁行為、`site()` 相同，`keepsCategoryKeysOutOfTheList` 測試涵蓋），網站恢復後要再確認一次。豆瓣、非凡、艾旦（type-1）首頁第一部片換了（播放網域、集數都變了），不經過 `XBPQ.js`。巴士动漫（XYQHiker）`XYQHiker.js` 沒改，同一個網站的「動漫巴士」這一輪反而由 NO-PLAY 變 PLAYABLE，是網站時好時壞。**判定 S1～S3 沒有造成退步。**
+- XBPQ 7 站：2 站由 EMPTY 變成 NO-EPISODE（屬 S4），4 站仍 EMPTY，紅果短剧如上。
+- 由不可用變 PLAYABLE 的 4 站（劇圈、虎牙、優酷、動漫巴士）都不是 XBPQ，是網站或 CDN 恢復。
+SWEEP_CONFIG=<wang-movie.json> SWEEP_BASE=https://gitlab.com/st7833232/recha/-/raw/main/wang-movie.json swift test --package-path ios --filter sweepsEveryDrivableSource
+```

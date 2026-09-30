@@ -204,3 +204,104 @@ private func classes(_ runtime: JavaScriptSpiderRuntime) async throws -> [String
     // A pair without `>>` (金陵撸铁汉's `play#.html>>…`) makes the original keep the text as it was.
     #expect(try await id(#"href="&&"[替换:play#.html>>/sid/1/nid/1.html]"#) == "/voddetail/5.html")
 }
+
+// MARK: - S3: the list
+
+private func titles(_ json: String) throws -> [[String: String]] {
+    let object = try #require(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+    return (object["list"] as? [[String: Any]] ?? []).map { item in
+        item.compactMapValues { $0 as? String }
+    }
+}
+
+private func category(_ spider: JavaScriptSpiderRuntime, _ tid: String = "1") async throws -> [[String: String]] {
+    try titles(try await spider.categoryContent(tid: tid, page: "1", filter: false, extend: [:]))
+}
+
+/// 18j's rule, verbatim apart from the host: `数组`, `标题`, `图片`, a literal-prefixed `副标题`.
+@Test func listsWithTheOriginalListKeys() async throws {
+    RuleSite.serve(["https://s12.invalid/t/1-1/": """
+    <div class="video-list">
+    <div class="item"><a href="/v/48829/" title="片一"><img data-original="/p/1.jpg" alt="10分钟"></a></div>
+    <div class="item"><a href="/v/48830/" title="片二&amp;"><img data-original="https://cdn.invalid/2.jpg" alt="20分钟"></a></div>
+    """])
+    let spider = try await xbpq(#"""
+    {"主页url":"https://s12.invalid/","分类url":"https://s12.invalid/t/{cateId}-{catePg}/;;z","分类":"国产$1",
+     "数组":"class=\"&&</div>","标题":"title=\"&&\"","图片":"data-original=\"&&\"","副标题":"🌹+alt=\"&&\"","链接":"href=\"&&\""}
+    """#)
+    let list = try await category(spider)
+    #expect(list.map { $0["vod_id"] } == ["https://s12.invalid/v/48829/", "https://s12.invalid/v/48830/"])
+    #expect(list.map { $0["vod_name"] } == ["片一", "片二"])
+    #expect(list.map { $0["vod_pic"] } == ["https://s12.invalid/p/1.jpg", "https://cdn.invalid/2.jpg"])
+    #expect(list.map { $0["vod_remarks"] } == ["🌹10分钟", "🌹20分钟"])
+    await spider.destroy()
+}
+
+/// Only `数组` set: every other key falls back to the original's default, and the default link
+/// rule's [不包含:] keeps navigation out. `二次截取` narrows first; prefix and suffix wrap the link.
+@Test func fallsBackToTheOriginalDefaultsForUnsetListKeys() async throws {
+    RuleSite.serve(["https://s13.invalid/list/1/1": """
+    <ul class="nav"><li><a href="/type/2.html" title="电影">电影</a></li></ul>
+    <ul class="vod"><li><a href="/id/7" title="片七"><img original="/7.jpg"><span class="pic-text x">更新至3集</span></a></li>
+    <li><a href="/type/9.html" title="导航">导航</a></li></ul>
+    """])
+    let spider = try await xbpq(#"""
+    {"分类url":"https://s13.invalid/list/{cateId}/{catePg}","分类":"一$1","二次截取":"class=\"vod\">&&</ul>",
+     "数组":"<li&&</li>","链接前缀":"/play","链接后缀":"-1-1"}
+    """#)
+    let list = try await category(spider)
+    #expect(list.count == 1)
+    #expect(list.first?["vod_id"] == "https://s13.invalid/play/id/7-1-1")
+    #expect(list.first?["vod_name"] == "片七")
+    #expect(list.first?["vod_pic"] == "https://s13.invalid/7.jpg")
+    #expect(list.first?["vod_remarks"] == "更至3集")
+    await spider.destroy()
+}
+
+/// `分类数组`/`分类标题`/`分类链接` find the categories on the home page; they are not list rules.
+@Test func keepsCategoryKeysOutOfTheList() async throws {
+    RuleSite.serve([
+        "https://s14.invalid/": #"<li><a href="/vodtype/5.html">国产</a></li>"#,
+        "https://s14.invalid/vodtype/5-1.html": """
+        <div class="stui-vodlist"><li><a href="/voddetail/88.html" title="片八八" data-original="/88.jpg"></a></li></div>
+        """])
+    let spider = try await xbpq(#"""
+    {"主页url":"https://s14.invalid/","分类url":"https://s14.invalid/vodtype/{cateId}-{catePg}.html",
+     "分类数组":"<li&&</li>","分类标题":">&&</a","分类ID":"/vodtype/&&.html"}
+    """#)
+    #expect(try await classes(spider) == ["国产=5"])
+    // No `数组`, so the 苹果CMS template reads the listing — before, `分类数组` was misread as one.
+    #expect(try await category(spider, "5").map { $0["vod_name"] } == ["片八八"])
+    await spider.destroy()
+}
+
+/// No `数组`, and links the 苹果CMS template does not take for detail pages (no trailing number):
+/// the original's automatic `<li*>&&</li>` mode, whose [不包含:首页…] drops the navigation.
+@Test func usesTheOriginalAutomaticModeWhenNoTemplateMatches() async throws {
+    RuleSite.serve(["https://s15.invalid/c/1": """
+    <ol><li class="nav"><a href="/c/two" title="首页">首页</a></li>
+    <li class="card"><a href="/watch/abc" title="自动片">x</a></li></ol>
+    """])
+    let spider = try await xbpq(#"{"分类url":"https://s15.invalid/c/{cateId}","分类":"一$1"}"#)
+    #expect(try await category(spider).map { $0["vod_name"] } == ["自动片"])
+    await spider.destroy()
+}
+
+@Test func readsTheHomeSettingTheWayTheOriginalDoes() async throws {
+    RuleSite.serve([
+        "https://s16.invalid/": #"<i><a href="/v/1" title="首一"></a></i><i><a href="/v/2" title="首二"></a></i><i><a href="/v/3" title="首三"></a></i>"#,
+        "https://s16.invalid/c/7": #"<i><a href="/v/9" title="分九"></a></i>"#])
+    func home(_ setting: String?) async throws -> [String?] {
+        var rules = ["主页url": "https://s16.invalid/", "分类url": "https://s16.invalid/c/{cateId}",
+                     "分类": "甲$7", "数组": "<i>&&</i>"]
+        if let setting { rules["首页"] = setting }
+        let spider = try await xbpq(String(decoding: try JSONSerialization.data(withJSONObject: rules), as: UTF8.self))
+        defer { Task { await spider.destroy() } }
+        return try titles(try await spider.homeVideoContent()).map { $0["vod_name"] }
+    }
+    #expect(try await home("2") == ["首一", "首二"])        // a count of the home page's titles
+    #expect(try await home("0") == [])                      // off
+    #expect(try await home("甲$5") == ["分九"])             // a named category
+    #expect(try await home("无圣光$abc") == [])             // not a count: the original shows nothing
+    #expect(try await home(nil) == ["分九"])                // unset: the first category, as before
+}

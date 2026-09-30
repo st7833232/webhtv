@@ -303,24 +303,53 @@ var spider = (function () {
     return out;
   }
 
-  /** Explicit rules win; the template fallback only runs when a site configures none. */
-  function listFrom(html) {
-    var arrayRule = text('分类数组') || text('列表分类');
-    if (!arrayRule) return defaultList(html);
-    var blocks = cut(html, arrayRule);
-    var out = [];
-    for (var i = 0; i < blocks.length; i++) {
-      var block = blocks[i];
-      var link = cut1(block, text('分类链接')) || host.pdfh(block, 'a&&href');
-      var title = cut1(block, text('分类标题')) || host.pdfh(block, 'a&&title');
-      if (!link || !title) continue;
-      out.push({
+  /** Tags and HTML entities out, the way the original cleans a title or a remark. */
+  function clean(value) {
+    return host.stripTags(String(value || '').replace(/&#?[a-zA-Z0-9]{1,10};/g, '')).replace(/[<>]/g, '');
+  }
+
+  var LINK_RULE = 'href="&&"[不包含:script#/hot/#type#search#.xml#.js#=http]';
+  // The original's automatic mode, tried in this order when a site names no `数组`.
+  var AUTO_ARRAYS = ['<li*>&&</li>[不包含:首页#剧集#连续剧#电视剧#综艺#动漫#我想看#追剧#留言#APP#观看纪录#求片#福利#推荐]',
+                     '<a&&</a>', '<div&&</div>'];
+
+  /** One `数组` block per title, read with the original's list keys and their defaults (`A()`). */
+  function itemsFrom(html, arrayRule) {
+    var titleRule = pick(['标题', '列表标题', 'biaotiqian', 'catjsonname', 'cat_title'], 'title="&&"');
+    var picRule = pick(['图片', '列表图片', 'tupianqian', 'catjsonpic', 'cat_pic'], 'original="&&"');
+    var linkRule = pick(['链接', '列表链接', 'lianjieqian', 'catjsonid', 'cat_url'], LINK_RULE);
+    var remarkRule = pick(['副标题', '列表副标题', 'fubiaotiqian', 'catjsonstitle', 'cat_subtitle'], 'class="pic-text*>&&<');
+    var prefix = pick(['链接前缀', '列表链接前缀', 'ljqianzhui', 'cat_prefix']);
+    var suffix = pick(['链接后缀', '列表链接后缀', 'ljhouzhui', 'cat_suffix']);
+    return cut(html, arrayRule).map(function (block) {
+      var title = clean(cut1(block, titleRule) || cut1(block, 'alt="&&"'));
+      var link = (cut1(block, linkRule) || cut1(block, LINK_RULE.replace(/"/g, "'"))).trim();
+      if (!title || !link) return null;
+      if (prefix) link = cut1(block, prefix) + link;
+      if (suffix) link += cut1(block, suffix);
+      return {
         vod_id: host.urljoin(site(), link),
-        vod_name: host.stripTags(title),
-        vod_pic: host.urljoin(site(), cut1(block, text('分类图片')) || host.pdfh(block, 'img&&data-original') || host.pdfh(block, 'img&&src')),
-        vod_remarks: host.stripTags(cut1(block, text('分类备注')) || host.pdfh(block, '.pic-text&&Text'))
-      });
-    }
+        vod_name: title,
+        vod_pic: host.urljoin(site(), (cut1(block, picRule) || cut1(block, 'src="&&"')).trim()),
+        vod_remarks: clean(cut1(block, remarkRule)).replace(/更新/g, '更')
+      };
+    }).filter(Boolean);
+  }
+
+  /**
+   * A configured `数组` is the site's own rule and wins. Without one, the 苹果CMS templates run
+   * first — that is what the working sites rely on — and the original's automatic mode after them.
+   */
+  function listFrom(html) {
+    var narrowRule = pick(['二次截取', 'jiequqian', 'cat_twice_pre']);
+    if (text('列表二次截取').indexOf('&&') !== -1) narrowRule = text('列表二次截取');
+    var narrowed = narrowRule ? cut1(html, narrowRule) : '';
+    if (narrowed) html = narrowed;
+    var arrayRule = pick(['数组', '列表截取数组', 'cateVodNode', 'jiequshuzuqian', 'catjsonlist', 'cat_arr_pre']);
+    // ponytail: a `//` array is the original's XPath mode, which no configured site uses.
+    if (arrayRule) return arrayRule.indexOf('//') === 0 ? [] : itemsFrom(html, arrayRule);
+    var out = defaultList(html);
+    for (var i = 0; !out.length && i < AUTO_ARRAYS.length; i++) out = itemsFrom(html, AUTO_ARRAYS[i]);
     return out;
   }
 
@@ -338,10 +367,29 @@ var spider = (function () {
       return host.result.home(categories(), []);
     },
 
+    /**
+     * `首页` as the original reads it: a number is how many titles of the home page to show, `0`
+     * turns the home list off, a name (or `名$数`) lists that category instead. A site that does not
+     * set it keeps listing its first category, which is what the working sites were built against.
+     */
     homeVideoContent: function () {
       var list = categories();
-      if (!list.length) return { list: [] };
-      return host.result.list(this.categoryList(list[0].type_id, '1'));
+      var spec = pick(['首页', '热门', 'homeContent', 'shouye']);
+      if (!spec) return list.length ? host.result.list(this.categoryList(list[0].type_id, '1')) : { list: [] };
+      if (spec === '1' || spec === '首页') spec = '40';
+      var name = spec, limit = 40;
+      if (spec.indexOf('$') !== -1) {
+        name = spec.slice(0, spec.indexOf('$'));
+        limit = parseInt(spec.slice(spec.indexOf('$') + 1), 10);
+      } else if (/^\d+$/.test(spec)) {
+        name = '首页';
+        limit = parseInt(spec, 10);
+      }
+      // The original throws on a count that is not a number, and shows no home list.
+      if (!(limit > 0)) return { list: [] };
+      if (name === '首页') return host.result.list(listFrom(fetch(homeUrl())).slice(0, limit));
+      var named = list.filter(function (c) { return c.type_name === name; })[0];
+      return named ? host.result.list(this.categoryList(named.type_id, '1').slice(0, limit)) : { list: [] };
     },
 
     categoryList: function (tid, page) {

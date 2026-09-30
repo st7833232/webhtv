@@ -19,11 +19,55 @@ var spider = (function () {
 
   var rule = {};
   var headers = {};
+  var categoryTemplate = '';
+  var categoryCache = null;
 
+  /** The original's `F()`: an empty value and the word `空` both mean "not configured". */
   function text(key, fallback) {
     var value = rule[key];
-    return value === undefined || value === null || value === '' ? (fallback || '') : String(value);
+    if (value === undefined || value === null) return fallback || '';
+    value = String(value);
+    return value === '' || value === '空' ? (fallback || '') : value;
   }
+
+  /** The original's G/H/I/J/K alias chains: the first configured key wins. */
+  function pick(keys, fallback) {
+    for (var i = 0; i < keys.length; i++) {
+      var value = text(keys[i]);
+      if (value) return value;
+    }
+    return fallback || '';
+  }
+
+  /** `分类url` and `搜索url` may end in `;;<flags>`, a per-site switch string that is not part of the URL. */
+  function beforeFlags(url) {
+    var i = url.indexOf(';;');
+    return i === -1 ? url : url.slice(0, i);
+  }
+
+  /**
+   * The four shapes `ext` takes in the original's `init`. A rule file arrives here as the https URL
+   * `CSPSourceResolver.resolvedExtend` made of `./json/x.json`, and must be downloaded, not parsed.
+   */
+  function parseRule(raw) {
+    raw = String(raw || '').trim();
+    if (/^https?:\/\//i.test(raw)) {
+      if (raw.indexOf('{cateId}') !== -1) return { '分类url': raw };
+      return host.parseJSON((host.get(raw, { timeout: 20000 }).body || '').replace(/^﻿/, '')) || {};
+    }
+    if (!raw || raw.charAt(0) === '{') return host.parseJSON(raw || '{}') || {};
+    // `键:值,键:值`, with `\,` for a comma inside a value.
+    var out = {};
+    raw.replace(/\\,/g, '\u0000').split(',').forEach(function (pair) {
+      var i = pair.indexOf(':');
+      if (i > 0) out[pair.slice(0, i)] = pair.slice(i + 1).replace(/\u0000/g, ',');
+    });
+    return out;
+  }
+
+  // ponytail: delegates to host.cut until the XBPQ-local cut grammar (IOS-POC-39 S2) replaces it.
+  function cut(textValue, ruleValue) { return host.cut(textValue, ruleValue); }
+  function cut1(textValue, ruleValue) { var r = cut(textValue, ruleValue); return r.length ? r[0] : ''; }
 
   /** "User-Agent$MOBILE_UA#Referer$https://x" → a header map. */
   function parseHeaders(spec) {
@@ -65,11 +109,81 @@ var spider = (function () {
     return host.get(url, { headers: headers, timeout: 20000 }).body || '';
   }
 
+  /** The original's `主页url` chain, ending in the host of whichever listing URL is configured. */
+  function homeUrl() {
+    var home = pick(['主页url', '首页推荐链接', '网站地址', 'url', 'homeUrl']);
+    if (home) return home;
+    var m = /(https?:\/\/[^/]+)/i.exec(categoryTemplate || beforeFlags(pick(['搜索url', '搜索链接'])));
+    return m ? m[1] : '';
+  }
+
   var site = function () {
-    var base = text('分类url') || text('分类链接') || text('主页url') || text('网站地址');
-    var m = /^(https?:\/\/[^/]+)/i.exec(base);
+    var m = /^(https?:\/\/[^/]+)/i.exec(homeUrl());
     return m ? m[1] : '';
   };
+
+  /** `名&名` paired with `值&值` (the original's `T()`); no values, or `*`, makes each name its own id. */
+  function pairCategories(names, values) {
+    var n = names.split('&');
+    var v = !values || values === '*' ? n : values.split('&');
+    return n.map(function (name, i) { return name + '$' + (v[i] === undefined ? name : v[i]); }).join('#');
+  }
+
+  /**
+   * The original's `m()`, minus its XPath guess at a navigation bar: explicit `名$id` pairs, names
+   * paired with values, or `分类数组` sliced out of the home page.
+   */
+  function categories() {
+    if (categoryCache) return categoryCache;
+    var spec = text('分类');
+    if (spec) {
+      if (spec.indexOf('&') !== -1) spec = pairCategories(spec, text('分类值'));
+    } else if (text('分类名称')) {
+      spec = pairCategories(text('分类名称'), text('分类名称替换词'));
+    } else if (text('class_name')) {
+      spec = pairCategories(text('class_name'), text('class_value'));
+    }
+    if (spec.indexOf('$') === -1) {
+      var arrayRule = text('分类数组');
+      spec = '';
+      // ponytail: a `//` rule is XPath and the automatic guess needs XPath too; neither is ported.
+      if (arrayRule.indexOf('&&') !== -1 && arrayRule.indexOf('//') !== 0) {
+        var html = fetch(homeUrl());
+        var narrowed = text('分类二次截取') ? cut1(html, text('分类二次截取')) : '';
+        if (narrowed) html = narrowed;
+        spec = cut(html, arrayRule).map(function (block) {
+          var name = host.stripTags(cut1(block + '</a>', text('分类标题', '>&&</a>'))).replace(/[<>]/g, '');
+          var id = cut1(block, pick(['分类ID', '分类链接', 'cateId'], 'href="&&"')).trim();
+          return name && id && name !== '不要' ? name + '$' + id : '';
+        }).filter(Boolean).join('#');
+      }
+    }
+    categoryCache = parseCategories(spec);
+    return categoryCache;
+  }
+
+  /**
+   * The original's `f()` and `N()`: the first page may have its own URL (`地址[firstPage=地址]` or
+   * `地址|地址`), pages count from `起始页`, and a placeholder nothing fills is removed together with
+   * a `/名/` segment of the same name — `.../area/{area}/by/{by}/id/1` becomes `.../id/1`.
+   */
+  function categoryUrl(tid, page) {
+    var first = pick(['起始页', '分类起始页码', 'qishiye', 'firstpage'], '1');
+    var start = parseInt(first, 10);
+    var pg = String((parseInt(page, 10) || 1) - 1 + (isNaN(start) ? 1 : start));
+    var url = categoryTemplate;
+    if (/[\[|]/.test(url)) {
+      url = pg === first
+        ? url.replace(/.*[\[|].*(http[^\]]*)\]?.*/, '$1').replace('firstPage=', '')
+        : url.replace(/\|\|/g, '|').replace(/(.*)[\[|].*/, '$1');
+    }
+    if (url.charAt(0) === '/' && url.charAt(1) !== '/') url = site() + url;
+    url = url.split('{cateId}').join(tid).split('{catePg}').join(pg);
+    (url.match(/\{.*?\}/g) || []).forEach(function (placeholder) {
+      url = url.split(placeholder).join('').split('/' + placeholder.slice(1, -1) + '/').join('');
+    });
+    return url.split('://').map(function (part) { return part.replace(/\/{2,}/g, '/'); }).join('://');
+  }
 
   /**
    * The 苹果CMS/stui listing shape these sites share. Used when a site configures no list rules,
@@ -133,28 +247,27 @@ var spider = (function () {
 
   return {
     init: function (extend) {
-      rule = host.parseJSON(extend || '{}') || {};
-      headers = parseHeaders(text('请求头') || text('请求头参数'));
+      rule = parseRule(extend);
+      categoryCache = null;
+      categoryTemplate = beforeFlags(pick(['分类url', '分类链接', '分类页', 'class_url', 'cateUrl']));
+      headers = parseHeaders(pick(['请求头', '请求头参数']));
       if (!headers['User-Agent']) headers['User-Agent'] = parseHeaders('u$MOBILE_UA').u;
       return '';
     },
 
     homeContent: function () {
-      return host.result.home(parseCategories(text('分类')), []);
+      return host.result.home(categories(), []);
     },
 
     homeVideoContent: function () {
-      var categories = parseCategories(text('分类'));
-      if (!categories.length) return { list: [] };
-      return host.result.list(this.categoryList(categories[0].type_id, '1'));
+      var list = categories();
+      if (!list.length) return { list: [] };
+      return host.result.list(this.categoryList(list[0].type_id, '1'));
     },
 
     categoryList: function (tid, page) {
-      var url = fill(text('分类url') || text('分类链接'), {
-        cateId: tid, catePg: page, area: '', by: '', year: '', 'class': '', lang: '', letter: ''
-      });
-      if (!url) return [];
-      return listFrom(fetch(url));
+      if (!categoryTemplate) return [];
+      return listFrom(fetch(categoryUrl(tid, page)));
     },
 
     categoryContent: function (tid, page) {
@@ -227,7 +340,7 @@ var spider = (function () {
     },
 
     searchContent: function (key, quick, page) {
-      var template = text('搜索url') || text('搜索链接');
+      var template = pick(['搜索url', '搜索链接']);
       if (!template) return { list: [] };
       var url = fill(template.split(';')[0], { wd: host.enc(key), SearchPg: String(page || '1'), searchPg: String(page || '1') });
       return host.result.list(listFrom(fetch(url)));

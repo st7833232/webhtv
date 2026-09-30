@@ -894,9 +894,40 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第三十五次發布：`0.1.34 (35)`（2026-09-29，**已發布**）
+## 第三十六次發布：`0.1.35 (36)`（2026-09-29，**已發布**）
 
-**目前最新版是 `0.1.34 (35)`。** 前面三十四版都已被取代。
+**目前最新版是 `0.1.35 (36)`。** 前面三十五版都已被取代。
+
+- 授權：使用者 2026-09-29 指示「發佈」（IOS-POC-37.2 push 之後，模擬器與真機驗證之前）。版號沿用序號 `0.1.35`，build `36`。
+- 內容：`0.1.34 (35)` 的全部，加上 IOS-POC-37.2（`30f26084`：stdlib `ssl` 預設信任 App 內附的 certifi，比照 Android Chaquopy；依賴自檢新增 `ssl`，7 → 8 項）。文件 IOS-POC-37 第十三節。
+- 發布序列：
+  1. 版號 commit `f73aabce`（Task-Guard `IOS-RELEASE-0.1.35-b36`）。
+  2. push `30f26084..f73aabce`。
+  3. 此環境沒有 `gh`，改用 GitHub MCP `actions_run_trigger`（`workflow_dispatch`，`ios-sidestore-release.yml`，ref `ios-poc`，`release_notes=…`）→ run `36581018292`（conclusion success，2026-09-29 14:13:18Z → 14:19:41Z；未逐一檢查各步驟）。
+  4. workflow 建立 tag `ios-v0.1.35-b36`（target `f73aabce`），並推回 `source.json`（`4500e3f8`，共三十六筆，第一筆 `0.1.35`，size 與 IPA 相同）。
+
+  **沒有手動建 tag。**
+- 產物：`WebHTV-0.1.35-36.ipa` **29,314,249 bytes**，SHA-256
+  `7a0dc4a67b6695dc945fe555542293e9d8ab0730a8c7b19bbc5dd4e7b5629c3d`（與 GitHub 記錄的 digest 相同）。
+  **下載回來驗過**：`Payload/` 只有 `WebHTVApp.app`；`com.webhtv.ios.poc` / `0.1.35` / build `36` / minimum iOS `17.0`；`Frameworks/` 142 個；`python-packages/` 0 個 `.so`、46 個 `.fwork`，含 `certifi/cacert.pem`；`webhtv-python/webhtv_runtime.py` 含 `ssl.SSLContext.set_default_verify_paths = _load_bundled_cas`，`webhtv_selfcheck.py` 含 `ssl` 檢查。
+- 發布前驗證：IOS-POC-37 第 13.4 節（Linux host 的 TLS 對照、`py_compile`）與 CI 的 Release 裝置 build。**沒有跑 `swift test`、模擬器自檢、44 站 survey；真機尚未驗收。**
+- 紀錄：本節於 2026-09-30 補寫。發布當時要讀上一版紀錄時被自動權限判斷擋下，使用者 2026-09-30 授權後才寫。
+- 發布後：使用者回報 SideStore 沒有看到新版（「沒有進版號」）。查證結果：IPA 內部版號 `0.1.35`／build `36`；`raw.githubusercontent.com/.../ios-poc/source.json` 第一筆 `0.1.35`；SideStore `develop` `0dd743f75afc358b0ba4a002feb5f19474492371` 的 `InstalledApp.hasUpdate` 取 `versions` 第一筆做 semver 比較，`0.1.35 > 0.1.34` 成立。判定來源端正確，可能原因是使用者在 `source.json` 推上（14:19:28Z）之前查看、SideStore 未重新整理，或 App 不是從此來源安裝。使用者重新整理後的結果尚未回報。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.35 (36)（未經模擬器與真機驗收）
+
+修正
+- Python 站直接用標準函式庫（urllib）連 HTTPS 時，改用 App 內附的根憑證驗證，與 Android 相同。先前這類腳本在 iPhone 上會因憑證驗證失敗而拿不到內容（例如有分類、影片列表是空的）。
+
+已知限制
+- 此版發布前只有 CI 的 Release 建置，沒有跑模擬器自檢與站點 survey。
+- 其餘同 0.1.34 (35)。
+```
+
+## 第三十五次發布：`0.1.34 (35)`（2026-09-29，**已發布**，已被 `0.1.35 (36)` 取代）
 
 - 授權：使用者 2026-09-29 指示「先幫我發佈」（在回報金牌 zjuys 篩選問題之後、調查完成之前）。版號沿用序號 `0.1.34`，build `35`。
 - 內容：`0.1.33 (34)` 的全部，加上 IOS-POC-37.1（`68ad62a5`：Python spider 的 cache context 改由各 spider 持有；native build stamp 納入 CPython payload identity；`python.host` ABI 1.2）。文件 IOS-POC-37 第十二節。

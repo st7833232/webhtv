@@ -6,8 +6,8 @@
 - 驗收：每個新套件有來源／版本／平台／SHA-256／授權；build／fetch／lock 流程可重現；import＋關鍵 API 在模擬器通過；requests 系不退步；受影響站跑到 `init/home/category/search/detail/player/media`；`swift test`、模擬器 build、Release 裝置 build 通過。
 - 狀態：**37A～37F 完成（模擬器），已發布為 `0.1.33 (34)`**（2026-09-29，使用者授權；tag `ios-v0.1.33-b34` → `062fcf99`，IPA 29,313,282 bytes，見 IOS-POC-11 第三十四次發布）。真機未驗證。
 - IOS-POC-37.1（第十二節，2026-09-29）：cache context 改由各 spider 持有、native stamp 納入 CPython payload identity；已發布為 `0.1.34 (35)`（2026-09-29，tag `ios-v0.1.34-b35` → `76f218f6`，見 IOS-POC-11 第三十五次發布）。
-- IOS-POC-37.2（第十三節，2026-09-29）：stdlib `ssl` 預設信任 App 內附的 certifi（比照 Android Chaquopy），修正直接用 `urllib` 的腳本在真機 HTTPS 全失敗；只在 Linux host 驗證機制，**未 build、未發布**。
-- 唯一下一步：在 macOS 上 build 含 IOS-POC-37.2 的版本，依第 13.6 節驗證（第九節、第 12.4 節的真機項目可同一輪一起驗）。
+- IOS-POC-37.2（第十三節，2026-09-29）：stdlib `ssl` 預設信任 App 內附的 certifi（比照 Android Chaquopy），修正直接用 `urllib` 的腳本在真機 HTTPS 全失敗；只在 Linux host 驗證機制；已發布為 `0.1.35 (36)`（2026-09-29，tag `ios-v0.1.35-b36` → `f73aabce`，見 IOS-POC-11 第三十六次發布），發布前只有 CI 的 Release 裝置 build，沒有跑模擬器自檢與 survey。
+- 唯一下一步：請使用者在 iPhone 上用 `0.1.35 (36)` 依第 13.6 節第 3 項驗證 MissAV，回報結果後填進第 13.6 節（第九節、第 12.4 節的真機項目可同一輪一起驗）。
 
 ## 1. 起點
 
@@ -503,7 +503,7 @@ AssertionError: 'from-b' != 'from-a'      # A 在 B 載入之後讀到的是 B �
 
 `py_compile` 兩個檔案通過。
 
-**未執行**：`swift test`、模擬器 build、Release 裝置 build、44 站 survey、真機。
+**未執行**：`swift test`、模擬器 build、44 站 survey、真機。Release 裝置 build 由發布 CI 完成（run `36581018292`，見 IOS-POC-11 第三十六次發布）。
 
 ### 13.5 回滾
 
@@ -513,4 +513,4 @@ revert 本 commit 即可（兩個 Python 檔與本節）。沒有 lock、binary 
 
 1. macOS 模擬器 Debug build：依賴自檢 8/8，其中 `ssl` 一行為 OK。
 2. 44 站 survey：與第 12.3 節逐站比對，沒有任何站、任何階段從 ✓ 變成 ✗。
-3. 真機：MissAV 腳本原樣載入，分類內出現影片列表。若仍為空，原因不在憑證，需在可連 `missav.ai` 的環境另查站點端（Cloudflare、HTML 結構）。
+3. 真機（用 `0.1.35 (36)`）：MissAV 腳本原樣載入，分類內出現影片列表。若仍為空，原因不在憑證，需在可連 `missav.ai` 的環境另查站點端（Cloudflare、HTML 結構）。

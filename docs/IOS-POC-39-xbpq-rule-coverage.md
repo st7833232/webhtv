@@ -278,5 +278,15 @@ sweep（16:17～16:20，熱點 `172.20.10.1`，最終版程式；`swift test` 60
 - 可播放 2 站：`魔法少女2`、`魔法少女4`（S4 後）。
 - 連不上 10 站：9 站網域失效（1.1.1.1 回 NXDOMAIN）——`su-qq.vip`（`spider.jar` 的 6 站全部）、`saooo.cc`（SAOO）、`thchp.top`（小姨子）、`qsyjd8.yachts`（游击队）；`AV帝国` SSL 錯誤。
 - 網站本身 3 站：`果冻`、`风流` 首頁回 JS 跳轉頁；`色岛` 的網域是出售頁。
-- 原因未確認 1 站：`魔法少女3` 頁面抓得到、規則切不出片；兩版抓頁與 cut 相同，不是 jar 版本的問題。
+- 規則過期 1 站：`魔法少女3`（16:40 查明，見下）。
 - 未驗證：沒有在 Android 上跑；四個大方法只比了字串集合。反編譯工作檔在 session scratchpad，不 commit。
+
+`魔法少女3` 切不出片的原因（2026-09-30 16:40，熱點）：**網站改了連結格式，規則沒跟著改，不是 iOS 的錯。**
+
+- 網站現在每一部的連結是 `<a class="vodbox" href="/html/ckck/<亂碼片名>.html?kd=https://xjzym3u-api.cdn-xj.cc/…/zpuv30m3.m3u8">`。規則沒設 `链接`，所以用預設的 `href="&&"[不包含:script#/hot/#type#search#.xml#.js#=http]`（第 4.4 節），每個連結都帶 `kd=https://`、含 `=http`，全部被排除，一部都不剩。
+- 原版兩個 jar 的列表預設連結規則相同，`[不包含:]` 比對的也是擷取出來的值（`xyqxbpq.jar` 的 cut：`strC0.indexOf(排除詞) >= 0` 就排除），所以依程式推讀，Android 上現在同樣是空的（未在 Android 實測）。
+- 詳情頁（`/html/ckck/…`）與規則的 `播放链接`（`/html/abou.html?url=`）現在都回 404；`kd=` 後面的 m3u8 直接回 200、`application/x-mpegURL`。
+- 修法在使用者的設定檔，不改程式：`recha` 的 `wang-sex.json` 魔法少女3 的 `ext` 加 `"链接": "kd=&&\""`，直接取 m3u8（寫法同魔法少女4 的 `?v=&&\&`，搭配既有的 `直接播放: 1`）。
+- 驗證：以只含兩站的設定檔跑 App 路徑的 sweep（`SWEEP_BASE` 用 `wang-sex.json`）——原規則 `classes=13 home=0 → EMPTY`；加上 `链接` 後 `classes=13 home=18 flags=1 eps=1`、讀到影片位元組 → **PLAYABLE**。
+- 未驗證：Android、模擬器、真機都沒播；m3u8 開頭幾段在 `/mov/AD/` 路徑下，可能是廣告，沒確認廣告略過會不會處理。片名全部是 `多吃枸杞啊`：網站的片名是要靠 JS 解碼的亂碼，規則作者本來就寫死這個名稱（魔法少女2、4 相同）。
+- `wang-sex.json` 在使用者的 GitLab，由使用者修改；本 repo 沒有動它。

@@ -42,7 +42,9 @@ private let frozen: [RuntimeABI.Surface: [RuntimeABI.Version: String]] = [
                   // IOS-POC-37.1: the cache context moves from two module globals onto each spider.
                   .init(1, 2): "b34f1a61b2875684ad175ebdcfa170a021c440b8d6fe203f5923ca110cfbefba",
                   // IOS-POC-37.2: stdlib ssl trusts the bundled certifi CAs.
-                  .init(1, 3): "767f728e16bab79348e0b6663f6458c81f874fb86c7368fd6536cb026449f990"],
+                  .init(1, 3): "767f728e16bab79348e0b6663f6458c81f874fb86c7368fd6536cb026449f990",
+                  // IOS-POC-37.3: the cache context is on a spider before its `__init__` runs.
+                  .init(1, 4): "d6e576295e5dc5cd439817848d1c9321d6d2b584d708da1d30c22c403fb8aa37"],
     .webhomeBridge: [.init(1, 0): "80325b0e8d19a32d66ab0d6d3a6e306079dd821eaf4e1a4cba0f51f60a6e2582"],
 ]
 

@@ -178,11 +178,11 @@ class Spider(metaclass=ABCMeta):
 
     # A JSON file per site, under a directory the runtime hands over.
     #
-    # The site key and the directory are this instance's own, set by `webhtv_runtime.load` right
-    # after construction. They used to be two module globals every load overwrote, so once site B
-    # loaded, site A's next setCache wrote into B's file (IOS-POC-37.1). Before they are set — a
-    # script touching the cache inside its own `__init__`, which none of the configured ones does —
-    # the cache reads empty and writes nothing rather than guess at somebody else's context.
+    # The site key and the directory are this instance's own, set by `webhtv_runtime.load` before
+    # `__init__` runs, so a constructor can use the cache too (IOS-POC-37.3). They used to be two
+    # module globals every load overwrote, so once site B loaded, site A's next setCache wrote into
+    # B's file (IOS-POC-37.1). A Spider constructed anywhere else has none, and its cache reads
+    # empty and writes nothing rather than guess at somebody else's context.
     #
     # ponytail: not the `SpiderStorage` the JavaScript spiders use. Reaching that would mean
     # bridging Swift callables into Python for two string operations, and no site is both a

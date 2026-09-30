@@ -13,7 +13,8 @@
 # Output: third_party/python-ios/native/<sdk>/, untracked, one site-packages-shaped tree per sdk. The
 # Install Python build phase copies the tree for the sdk being built and converts each .so into a
 # framework with upstream's own install_python. Idempotent: a stamp over the pinned CPython payload
-# identity, the lock section, this script and the patches skips a tree that is already current.
+# identity, the Xcode/SDK/clang identity of each sdk, the lock section, this script and the patches
+# skips a tree that is already current.
 #
 # IOS-POC-37.
 set -euo pipefail
@@ -85,10 +86,33 @@ INSTALLED_SHA="$(cat "$ROOT/third_party/python-ios/.payload-sha256" 2>/dev/null 
 [[ "$INSTALLED_SHA" == "$PAYLOAD_SHA" ]] \
   || die "installed CPython payload (${INSTALLED_SHA:-none}) is not the one the lock pins ($PAYLOAD_SHA); run scripts/fetch_python_ios.sh"
 
-# What the trees are built from — the payload identity, the lock section, this script and the
-# patches. Any change to any of them rebuilds them.
-STAMP_WANT="$( { printf '%s\n' "$PAYLOAD_IDENTITY"; lock 'print(json.dumps(d, sort_keys=True))'
-  cat "$0" "$ROOT"/third_party/python-ios-patches/*; } | shasum -a 256 | awk '{print $1}')"
+# The toolchain an sdk's tree is compiled with, resolved as the build resolves it: the payload's
+# `*-clang` wrappers run `xcrun --sdk <sdk> clang`, and the build runs in a clean environment that
+# keeps only DEVELOPER_DIR, so this asks the same xcrun under the same one. Xcode's version and
+# build (its linker, ar and strip come with it), the SDK's version and build, and clang's first
+# `--version` line. Not the rest of that output: `InstalledDir` is an absolute path and `Target`
+# carries the host's Darwin version, which a macOS update changes with no new compiler. No paths,
+# no times, nothing from the host Python. IOS-POC-37.3.
+toolchain_identity() {  # sdk -> identity lines; fails when any part cannot be read
+  local sdk="$1" xcode sdk_version sdk_build clang
+  local -a tools=(env -i HOME="$HOME" PATH="/usr/bin:/bin:/usr/sbin:/sbin" LANG=C LC_ALL=C)
+  [[ -n "${DEVELOPER_DIR:-}" ]] && tools+=(DEVELOPER_DIR="$DEVELOPER_DIR")
+  xcode="$("${tools[@]}" xcodebuild -version | tr -s '\n' ' ')" || return 1
+  sdk_version="$("${tools[@]}" xcrun --sdk "$sdk" --show-sdk-version)" || return 1
+  sdk_build="$("${tools[@]}" xcrun --sdk "$sdk" --show-sdk-build-version)" || return 1
+  clang="$("${tools[@]}" xcrun --sdk "$sdk" clang --version | sed -n 1p)" || return 1
+  [[ -n "$xcode" && -n "$sdk_version" && -n "$sdk_build" && -n "$clang" ]] || return 1
+  printf 'xcode %s\nsdk %s %s %s\nclang %s\n' "${xcode% }" "$sdk" "$sdk_version" "$sdk_build" "$clang"
+}
+
+# What an sdk's tree is built from — the payload identity, that sdk's toolchain identity, the lock
+# section, this script and the patches. Any change to any of them rebuilds that tree.
+stamp_for() {  # sdk -> stamp
+  local identity
+  identity="$(toolchain_identity "$1")" || die "cannot read the Xcode/SDK/clang identity for $1"
+  { printf '%s\n%s\n' "$PAYLOAD_IDENTITY" "$identity"; lock 'print(json.dumps(d, sort_keys=True))'
+    cat "$0" "$ROOT"/third_party/python-ios-patches/*; } | shasum -a 256 | awk '{print $1}'
+}
 
 # Download once into the work cache, then verify size and hash on every use. Fail closed.
 verified() {  # name url bytes sha256 -> path
@@ -125,8 +149,9 @@ build_sdk() {
   read -r slice config clang_name < <(lock \
     'print(*next((t["slice"], t["platform_config"], t["clang"]) for t in d["targets"] if t["sdk"] == sys.argv[2]))' "$sdk") \
     || die "the lock names no target for sdk $sdk"
-  local dest="$OUT/$sdk" work="$WORK/$sdk"
-  if [[ -f "$dest/.stamp" && "$(cat "$dest/.stamp")" == "$STAMP_WANT" ]]; then
+  local dest="$OUT/$sdk" work="$WORK/$sdk" stamp_want
+  stamp_want="$(stamp_for "$sdk")" || exit 1
+  if [[ -f "$dest/.stamp" && "$(cat "$dest/.stamp")" == "$stamp_want" ]]; then
     say "$sdk already current ($dest)"
     return
   fi
@@ -239,7 +264,7 @@ pathlib.Path(out).write_text(json.dumps(info, indent=2) + "\n")
 PY
   rm -rf "$dest"
   mv "$staging" "$dest"
-  printf '%s' "$STAMP_WANT" > "$dest/.stamp"
+  printf '%s' "$stamp_want" > "$dest/.stamp"
   say "$sdk ready at $dest ($(du -sh "$dest" | awk '{print $1}'))"
 }
 

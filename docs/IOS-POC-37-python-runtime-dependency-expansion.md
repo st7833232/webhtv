@@ -7,7 +7,8 @@
 - 狀態：**37A～37F 完成（模擬器），已發布為 `0.1.33 (34)`**（2026-09-29，使用者授權；tag `ios-v0.1.33-b34` → `062fcf99`，IPA 29,313,282 bytes，見 IOS-POC-11 第三十四次發布）。真機未驗證。
 - IOS-POC-37.1（第十二節，2026-09-29）：cache context 改由各 spider 持有、native stamp 納入 CPython payload identity；已發布為 `0.1.34 (35)`（2026-09-29，tag `ios-v0.1.34-b35` → `76f218f6`，見 IOS-POC-11 第三十五次發布）。
 - IOS-POC-37.2（第十三節，2026-09-29）：stdlib `ssl` 預設信任 App 內附的 certifi（比照 Android Chaquopy），修正直接用 `urllib` 的腳本在真機 HTTPS 全失敗；只在 Linux host 驗證機制；已發布為 `0.1.35 (36)`（2026-09-29，tag `ios-v0.1.35-b36` → `f73aabce`，見 IOS-POC-11 第三十六次發布），發布前只有 CI 的 Release 裝置 build，沒有跑模擬器自檢與 survey。**真機已驗證**：使用者 2026-09-30 回報 MissAV 分類出現影片列表（第 13.6 節第 3 項）。
-- 唯一下一步：請使用者在 iPhone 上用 `0.1.35 (36)` 驗第九節與第 12.4 節的真機項目，回報結果後填進對應章節；第 13.6 節第 1、2 項（模擬器自檢、survey）待有 Mac 時補。
+- IOS-POC-37.3（第十四節，2026-09-30）：spider 在 `__init__` 前就有自己的 cache context；native stamp 每個 sdk 各自納入 Xcode／SDK／clang identity；`python.host` 1.3 → 1.4。已 push、**未發布**。本次的模擬器自檢與 survey 也補上了第 13.6 節第 1、2 項。
+- 唯一下一步：請使用者在 iPhone 上用 `0.1.36 (37)` 驗第九節與第 12.4 節的真機項目，回報結果後填進對應章節；37.3 要等下一次發布後才上真機（第 14.6 節）。
 
 ## 1. 起點
 
@@ -520,3 +521,102 @@ revert 本 commit 即可（兩個 Python 檔與本節）。沒有 lock、binary 
 37.2 改了 `webhtv_runtime.py`，而它是 `python.host` 指紋涵蓋的檔案；37.2 當時在沒有 Swift 的環境、沒跑 `swift test`，所以沒有升版，`0.1.35 (36)` 出貨時 ABI 仍標 1.2、內容已不同。Mac 上 `swift test` 因此 1 個失敗（`everySurfaceMatchesTheFingerprintItsVersionWasFrozenWith(pythonHost)`，實際指紋 `767f728e…f990`，1.2 那列是 `b34f1a61…efba`）。
 
 依 `RuntimeABITests` 的 append-only 規則（1.2 已出貨，不改那列）：`RuntimeABI.Surface.pythonHost` 升為 **1.3**，新增 `.init(1, 3): "767f728e16bab79348e0b6663f6458c81f874fb86c7368fd6536cb026449f990"`。之後 `swift test --package-path ios` **577/577 通過**。`0.1.35 (36)` 的 ABI 標示（1.2）與內容不符這件事只記錄在這裡；目前沒有任何東西依 `python.host` 版本做判斷（IOS-POC-13 已撤銷），不影響使用。
+
+## 14. IOS-POC-37.3 — constructor 內的 cache 與 native stamp 納入 toolchain identity（2026-09-30）
+
+使用者查核後指出兩個剩餘缺口，只處理這兩件；37.1 的 per-spider cache isolation、CPython payload stamp、37.2 的 SSL／certifi、`python.host` 1.3、IOS-POC-38／38.1 都保留不動。沒有 bump 版本、沒有 tag、沒有發布。
+
+起點：`git fetch` 後 `origin/ios-poc`＝`7cd57e3f`（`0.1.36 (37)` 發布 workflow 推回的 `source.json`）；本機先 fast-forward 到它，再加上 `0.1.36 (37)` 的發布紀錄 `0e1509cc`（本任務之外、同日稍早的工作）；worktree 只有一個未追蹤的螢幕錄影檔（不屬於本任務）。
+
+### 14.1 constructor 期間拿不到 cache context
+
+**重現**：`ios/Tests/Python/test_cache_isolation.py` 新增 `ConstructorCache`（腳本在 `__init__` 讀 `did`、寫 `inits`）。修正前：
+
+```
+FAIL: test_the_constructor_reads_and_writes_its_own_site      AssertionError: '' != 'seed-a'
+FAIL: test_a_then_b_then_a_across_constructors_and_methods    AssertionError: '' != 'from-a'
+```
+
+**根因**：`webhtv_runtime.load()` 在 `spider_class()` **回傳之後**才把 `_webhtv_site_key`／`_webhtv_cache_dir` 設到實例上，所以 `__init__` 執行時 `getCache` 讀到空、`setCache` 什麼都不寫（37.1 刻意的保守行為，當時設定檔裡沒有腳本在 constructor 碰 cache）。
+
+**修法**（`ios/WebHTVApp/Python/webhtv_runtime.py`）：把 `spider_class()` 拆成它本來就做的兩步——`spider_class.__new__(spider_class)` 配置實例、把兩個屬性設到**這個實例**上、再照 `type.__call__` 的規則（`__new__` 回傳的是該類別的實例才呼叫）呼叫 `__init__()`。context 仍然只在實例上：沒有模組全域、thread-local、類別屬性或「目前站台」全域；CatVod API（`getCache(key)`／`setCache(key, value)`、`getName()`、`init`…）不變。`base/spider.py` 只改註解（context 在 `__init__` 前就有；runtime 以外自行建構的 Spider 仍然讀空、不寫）。
+
+**為什麼不用其他做法**：在類別上設屬性——腳本可能直接回傳共用的類別（例如 `base.spider.Spider` 本身，或從快取模組 import 的類別），會變成跨站共用；每次 load 產生一個子類別——會改變 `type(self).__name__`（`getName()` 的回傳值）與 `type(self)` 的比較。
+
+### 14.2 native stamp 納入 toolchain identity
+
+**缺口**：37.1 的 stamp 有 payload identity、lock、腳本、patch，但沒有編譯器。換 Xcode／SDK 之後，`third_party/python-ios/native/<sdk>` 仍被判定為 current，裡面的 `.so` 是舊 toolchain 編的。
+
+**修法**（`scripts/build_python_ios_native.sh`）：`toolchain_identity <sdk>` 以與建置相同的方式解析 toolchain——payload 的 `*-clang` wrapper 實際執行 `xcrun --sdk <sdk> clang`，建置在只保留 `DEVELOPER_DIR` 的乾淨環境裡跑，所以 identity 也在同樣的 `env -i`（＋`DEVELOPER_DIR`）下問同一個 `xcrun`。stamp 改為**每個 sdk 各自**計算：payload identity ＋ 該 sdk 的 toolchain identity ＋ lock 區段 ＋ 腳本 ＋ patch。任何一項讀不到就 fail closed（`cannot read the Xcode/SDK/clang identity`），不會用空值算出一個看似有效的 stamp。
+
+納入的 identity（本機實際值）：
+
+```
+xcode Xcode 27.0 Build version 27A266a
+sdk iphoneos 27.0 24A430            # iphonesimulator 那棵樹是 sdk iphonesimulator 27.0 24A430
+clang Apple clang version 21.0.0 (clang-2100.3.34.2)
+```
+
+**正規化的選擇**：`xcodebuild -version` 全文納入（兩行都是穩定的版本識別；Xcode 的 build 號也涵蓋 ld、ar、strip 等隨 Xcode 出貨的工具）。`clang --version` **只取第一行**：第二行 `Target: arm64-apple-darwin27.0.0` 帶的是 host macOS 的 Darwin 版本，macOS 更新但編譯器沒變時會造成不必要的重建；第四行 `InstalledDir:` 是 Xcode 的絕對安裝路徑（CI 與本機不同）。SDK 用 `--show-sdk-version` 與 `--show-sdk-build-version`（`SystemVersion.plist` 的 `ProductBuildVersion`），不用 `--show-sdk-path`（絕對路徑）。沒有時間戳，也不含 host Python（它只驅動 setuptools／pip，extension 的編譯參數來自 payload 的 cross sysconfigdata，已由 payload identity 涵蓋）。`make`、`patch`、`tar` 等 host 工具不納入：它們不改變產物的機器碼。
+
+**驗證**（本機 Xcode 27.0；只有一套 Xcode，所以「換 toolchain」用 scratchpad 裡的 shadow Xcode 模擬：整個 `Xcode-27.0.0.app` 以 symlink 複製，只把 `Contents/Developer/usr/bin/xcodebuild` 換成一個攔截單一查詢、其餘原樣轉給真的 xcodebuild 的 script——xcrun 找 SDK 與 clang 都經由 `DEVELOPER_DIR/usr/bin/xcodebuild -sdk … -version …／-find …`，所以每個 shadow 只改動一項 identity，建置仍用真的 SDK 與編譯器，產物照常通過 arm64／platform 檢查。shadow 不進 repo）：
+
+| # | 情況 | iphoneos | iphonesimulator |
+|---:|---|---|---|
+| 0 | 改腳本後第一次跑（本機、未設 `DEVELOPER_DIR`） | 重建 `b1a3da74…` → `f581b0a0…` | 重建 `b1a3da74…` → `65b3816e…`（兩個 sdk 共 132 秒；stamp 從此各 sdk 不同） |
+| 1 | 什麼都不變再跑 | `already current` | `already current`（< 1 秒） |
+| 2 | `DEVELOPER_DIR` 明確設成同一套 Xcode（Xcode build phase 的情況） | `already current` | `already current` |
+| 3 | 同一套 toolchain、不同安裝路徑（shadow，無任何改動） | `already current` | `already current`（stamp 不含路徑） |
+| 4 | 只改 Xcode 版本（`Xcode 27.0.1`／`27A999z`） | — | 重建 → `80351f8b…`（68 秒） |
+| 5 | 只改 iphonesimulator SDK build（`24A430` → `24A431`），兩個 sdk 一起跑 | `already current`（它的 SDK 沒變） | 重建 → `129b233c…`（68 秒） |
+| 6 | 只改 clang（`21.0.0` → `21.0.1 (clang-2100.3.99.9)`） | — | 重建 → `6c9c3a38…`（67 秒） |
+| 7 | 回到真的 toolchain | — | 重建 → **`65b3816e…`**（與第 0 步相同：stamp 是決定性的） |
+| 8 | 再跑一次 | `already current` | `already current` |
+| 9 | `xcodebuild -version` 失敗（shadow） | fail closed：`cannot read the Xcode/SDK/clang identity for iphoneos`，exit 1 | 兩棵樹與 stamp 都沒動 |
+| 10 | `DEVELOPER_DIR` 指向不存在的路徑 | exit 1（在讀 lock 時就失敗：`/usr/bin/python3` 也是 xcrun shim） | 沒動 |
+| 11 | 模擬器 Debug build 的 Xcode `Prepare Python` phase | — | `iphonesimulator already current`（Xcode 設定的 `DEVELOPER_DIR` 與終端機預設的 identity 相同） |
+
+**CI**：`ios-sidestore-release.yml` 在乾淨 runner 上先由 shell 步驟跑 `fetch_python_ios.sh --sdk iphoneos`（沒有 stamp → 建置），再由 `xcodebuild` 的 Prepare Python phase 檢查一次。兩次用的是同一套被選中的 Xcode（shell 用 `xcode-select`，build phase 由 xcodebuild 設 `DEVELOPER_DIR`），第 2、11 列證明這兩種情況的 identity 相同，所以第二次仍是 `already current`，不需要 host Python——行為與 37.1 相同。CI 本身沒有在本任務中跑（沒有發布）。
+
+### 14.3 `python.host` ABI
+
+`webhtv_runtime.py`、`base/spider.py` 都在 `python.host` 指紋內（`RuntimeABITests.canonical(.pythonHost)`）。1.3 已隨 `0.1.36 (37)` 出貨（`3bd356f2` 是 tag `ios-v0.1.36-b37` 的祖先），依 append-only 規則：`RuntimeABI.Surface.pythonHost` 升為 **1.4**，新增 `.init(1, 4): "d6e576295e5dc5cd439817848d1c9321d6d2b584d708da1d30c22c403fb8aa37"`；1.0～1.3 四列一個字都沒改（diff 只有 1.3 那列結尾的 `]` 移到新列之後）。`build_python_ios_native.sh`、`PythonBoot.swift` 不在指紋內。
+
+### 14.4 回歸檢查
+
+| 項目 | IOS-POC-37.1／37.2 | IOS-POC-37.3 |
+|---|---|---|
+| host `python3.13 -m unittest discover -s ios/Tests/Python` | 1/1（A→B→A） | **5/5**：原本的 A→B→A；constructor 讀自己站的值；同一支腳本三個站（B 與 A 同目錄不同 key、C 自己的目錄）A→B→C→A 在 constructor 與一般方法都互不污染、各自的檔案與內容正確、`_webhtv_*` 不在類別／`base.spider.Spider`／`base.spider` 上、`getName()` 仍是 `Spider`；constructor 丟例外仍 fail closed 且不登記；不繼承 `base.spider.Spider` 的類別照常載入 |
+| `swift test --package-path ios` | 577/577 | **578/578**（多出的 1 個是同日 IOS-POC-17H-4 的 `aSystemInitiatedStopLeavesNoForegroundRequest`，不是本任務） |
+| 依賴自檢（模擬器 iPhone 17 Pro、DEBUG 啟動） | 7/7；37.2 的 8/8 未在模擬器跑過 | **8/8**（含 `ssl: stdlib ssl trusts certifi (121 CAs)`——補上第 13.6 節第 1 項）；methods 13/13 |
+| App 內 cache A→B→A（內建 CPython 3.13.15，經 Swift 兩個 `PythonSpiderRuntime`） | OK | **OK, constructors included**：`PythonBoot.cacheIsolationCheck()` 的腳本改在 `__init__` 讀 `did`，A 第一次、B 讀到空，A→B 之後再建一次 A 讀到 `from-a-again` |
+| 模擬器 Debug build | 通過 | **通過**；Prepare Python：`iphonesimulator already current`；新增程式 0 warning（`PythonBoot.swift:24` 的 `nonisolated(unsafe)` warning 是既有的） |
+| native build | rebuild／skip／fail-closed | 第 14.2 節 0～11 列 |
+| 44 站 survey | 37F：media 19；37.1：media 20 | **media 19**，見下 |
+
+**survey**（`PythonLiveCheck.survey()`，iPhone 17 Pro 模擬器、使用者的 44 站設定，2026-09-30）跑了兩次。第一次 App 的 stdout 導到檔案時是區塊緩衝，最後的第 44 列與總結留在緩衝區沒寫出（只拿到 43 列）；第二次改用 `simctl launch --console-pty`，完整：
+
+```
+sites 44 | reached: load 40, init 37, home 34, category 25, search 20, detail 25, player 25, media 19
+outcome: complete×19, content×13, site/network×4, policy×4, content(parse=1)×2, script:KeyError: 'content'×1, site/content(unexpected answer)×1
+```
+
+逐站與第 6.3 節（37F）比對（以播放路徑上最遠的階段）：**第二次沒有任何一站比 37F 早停**。每站的階段與 37F 相同，只有網路波動的站在兩次之間不同：金牌系列-界界第一次到 media（與 37.1 相同）、第二次 `ReadTimeout`（www.sizhengxt.com，與 37F 相同）；金牌系列-cqzuoer 第一次 `ReadTimeout`（cqzuoer.com）、第二次 media；喜福短剧第一次 probe 到 CDN 回應不明、第二次 media。37.1 的 media 20 與這次的 19 差的就是界界，而新程式在第一次已讓它到 media。**沒有任何站、任何階段因本次修改而退步**；requests 系、Crypto、lxml、bs4、pyquery 的站維持原結果。
+
+**設定檔中的 cache 使用**（本次在 survey 結束後以 AST 掃描 33 支同源腳本，重用 `scripts/audit_python_spiders.py` 的抓取規則）：只有 YouTube、山楂、MiFun 呼叫 `getCache`／`setCache`。山楂、MiFun 是 CatVod `init()` → `getdid()`；YouTube 在 `playerContent`／`localProxy` 路徑。三支都**沒有**從 `__init__`（直接或經 `self.x()` 間接）碰到 cache。
+
+### 14.5 使用者可見的變化
+
+**沒有**。現有設定檔沒有腳本在 constructor 用 cache（14.4），所以修正只對將來這樣寫的腳本有效果：constructor 讀得到自己站的 cache、寫得進自己站的檔，而不是讀空、寫不進去。stamp 的變更只影響開發／CI 的 native 建置：Xcode／SDK／clang 換版後會自動重編 Python native 套件（每個 sdk 約 1 分鐘），不會再把舊 toolchain 的 `.so` 打包進去。
+
+### 14.6 真機待驗（全部未驗證）
+
+1. 本節修正要等下一次發布才會上真機；上真機後沒有新的可觀察行為（14.5），只需確認 MiFun、山楂的裝置識別仍各自保留（第 12.4 節第 2 項）。
+2. constructor cache 的 A→B→A 只在 DEBUG 的 `PythonBoot.cacheIsolationCheck()` 跑；Release 真機沒有等價自動檢查。
+3. CI 的 native 建置與 Prepare Python 的 skip：只在本機以相同條件驗證（第 14.2 節第 2、11 列），CI 要到下一次發布的 run 才會實際跑到。
+
+### 14.7 回滾
+
+revert 本階段的 commit（`webhtv_runtime.py`、`base/spider.py` 註解、`test_cache_isolation.py`、`PythonBoot.swift`、`build_python_ios_native.sh`、`RuntimeABI.swift`／`RuntimeABITests.swift`、兩份文件）。untracked 的 `third_party/python-ios/native/<sdk>/.stamp` 會在下一次建置時因腳本改變而重建，不需手動處理。`python.host` 1.4 若未出貨，回滾時連同那一列一起移除即可（1.4 未出貨前可以改寫）。
+
+- Ponytail：unavailable / skipped。

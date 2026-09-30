@@ -68,11 +68,15 @@ def load(handle, site_key, cache_dir, source):
         if not isinstance(spider_class, type):
             return _fail('the script defines no Spider class')
 
-        spider = spider_class()
-        # The cache context belongs to this instance, never to the module: two sites loaded side by
-        # side must not see each other's key or directory (IOS-POC-37.1).
+        # The cache context belongs to this instance, never to the module or the class: two sites
+        # loaded side by side must not see each other's key or directory (IOS-POC-37.1). It goes on
+        # between the two steps `spider_class()` takes, so a script that uses its cache in its own
+        # `__init__` already has it (IOS-POC-37.3); `__init__` is called as `type.__call__` does.
+        spider = spider_class.__new__(spider_class)
         spider._webhtv_site_key = site_key
         spider._webhtv_cache_dir = cache_dir
+        if isinstance(spider, spider_class):
+            spider.__init__()
         _spiders[handle] = spider
         return _ok('')
     except Exception:

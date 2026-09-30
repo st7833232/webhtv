@@ -239,17 +239,24 @@ enum PythonBoot {
 
     /// IOS-POC-37.1: A → B → A through two real runtimes on the bundled interpreter. Site A writes,
     /// site B loads and writes the same key, then A reads and writes again — each with its own key and
-    /// its own directory. Until 37.1 the second load re-pointed A's cache at B's file.
+    /// its own directory. Until 37.1 the second load re-pointed A's cache at B's file. IOS-POC-37.3:
+    /// the script also reads its cache in `__init__`, and A loaded once more must find its own value
+    /// there — until 37.3 a constructor had no cache context at all.
     static func cacheIsolationCheck() async -> String {
         let script = """
         from base.spider import Spider
 
         class Spider(Spider):
+            def __init__(self):
+                self.boot = self.getCache('did')
+
             def action(self, action):
                 op, _, value = action.partition('=')
                 if op == 'set':
                     self.setCache('did', value)
                     return 'ok'
+                if op == 'boot':
+                    return self.boot
                 return self.getCache('did')
         """
         let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -264,20 +271,23 @@ enum PythonBoot {
             let firstRead = try await a.action("get")
             _ = try await a.action("set=from-a-again")
             let reads = (firstRead, try await b.action("get"), try await a.action("get"))
+            let againA = try PythonSpiderRuntime(script: script, siteKey: "selfcheck-cache-a", cacheDirectory: dirA)
+            let boots = (try await a.action("boot"), try await b.action("boot"), try await againA.action("boot"))
             await a.destroy()
             await b.destroy()
+            await againA.destroy()
             let files = [dirA, dirB].map {
                 (try? FileManager.default.contentsOfDirectory(atPath: $0.path).sorted()) ?? []
             }
             let fileA = (try? String(contentsOf: dirA.appendingPathComponent("selfcheck-cache-a.json"), encoding: .utf8)) ?? ""
             let fileB = (try? String(contentsOf: dirB.appendingPathComponent("selfcheck-cache-b.json"), encoding: .utf8)) ?? ""
-            guard reads == ("from-a", "from-b", "from-a-again"),
+            guard reads == ("from-a", "from-b", "from-a-again"), boots == ("", "", "from-a-again"),
                   files == [["selfcheck-cache-a.json"], ["selfcheck-cache-b.json"]],
                   fileA.contains("from-a-again"), !fileA.contains("from-b"),
                   fileB.contains("from-b"), !fileB.contains("from-a") else {
-                return "FAILED A→B→A reads \(reads) files \(files) a=\(fileA) b=\(fileB)"
+                return "FAILED A→B→A reads \(reads) boots \(boots) files \(files) a=\(fileA) b=\(fileB)"
             }
-            return "A→B→A OK: keys, directories and contents stay per site"
+            return "A→B→A OK: keys, directories and contents stay per site, constructors included"
         } catch {
             return "FAILED A→B→A: \(error)"
         }

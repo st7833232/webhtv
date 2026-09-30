@@ -62,7 +62,9 @@ public enum RuntimeABI {
             // 1.3 (IOS-POC-37.2): stdlib `ssl` trusts the bundled certifi CAs by default, so a
             // script calling `urllib` itself verifies HTTPS on a device. First shipped in 0.1.35 (36)
             // while still labelled 1.2; the bump was only caught by `swift test` afterwards.
-            case .pythonHost: Version(1, 3)
+            // 1.4 (IOS-POC-37.3): a spider has its cache context before its `__init__` runs, so a
+            // constructor's `getCache`/`setCache` reach its own site instead of reading empty.
+            case .pythonHost: Version(1, 4)
             case .webhomeBridge: Version(1, 0)
             }
         }

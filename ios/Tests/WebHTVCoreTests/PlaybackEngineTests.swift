@@ -551,8 +551,9 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
 }
 
 @MainActor @Test func playPressedDuringAReloadThenAFallbackComesBackPaused() throws {
-    // The session's play goes straight to the engine, so the router still holds the reload's
-    // autoplay; the accepted cost is that a later switch lands paused rather than playing on its own.
+    // A play that reaches the engine without the session (none does since IOS-POC-36: the bar, the
+    // PiP window and an interruption all go through `control`, which tells the router) leaves the
+    // reload's autoplay standing, so the switch lands paused rather than playing on its own.
     let harness = Harness()
     harness.router.open(request)
     harness.router.reload(at: 60, autoplay: false)
@@ -562,6 +563,85 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     #expect(harness.engine.kind == .mpv)
     #expect(loaded.startSeconds == 60)
     #expect(!loaded.autoplay)
+}
+
+// MARK: - IOS-POC-36: the viewer's play/pause, and where a failed engine had got to
+
+@MainActor @Test func aPausePressedWhileStartingIsKeptByTheFallback() throws {
+    // IOS-POC-17F's known case: paused before the first frame, the item failed, and the other engine
+    // started playing by itself — the attempt's autoplay still said play.
+    let harness = Harness()
+    harness.router.open(request)
+    harness.router.setIntendsToPlay(false)
+    harness.engine.fail(avError(-11800), httpStatus: 403)
+    let loaded = try #require(harness.engine.loads.last)
+    #expect(harness.engine.kind == .mpv)
+    #expect(!loaded.autoplay, "the viewer paused; the fallback must not play")
+    #expect(loaded.rate == 1.5 && loaded.target == target && loaded.history == episode)
+}
+
+@MainActor @Test func playPressedAfterAPausedReloadIsKeptByTheFallback() throws {
+    let harness = Harness()
+    harness.router.open(request)
+    harness.router.reload(at: 60, autoplay: false)
+    harness.router.setIntendsToPlay(true)
+    harness.engine.play()
+    harness.engine.fail(avError(-11828))
+    let loaded = try #require(harness.engine.loads.last)
+    #expect(harness.engine.kind == .mpv)
+    #expect(loaded.startSeconds == 60)
+    #expect(loaded.autoplay, "the viewer pressed play after the reload")
+}
+
+@MainActor @Test func theViewersIntentChangesNothingElseInTheRequest() throws {
+    let harness = Harness()
+    harness.router.open(PlaybackLoadRequest(target: target, startSeconds: 120, rate: 2, history: episode))
+    harness.router.setIntendsToPlay(false)
+    let kept = try #require(harness.router.request)
+    #expect(kept.startSeconds == 120 && kept.rate == 2 && !kept.exactStart && !kept.autoplay)
+    #expect(harness.engine.loads.count == 1, "nothing is loaded again for a pause")
+}
+
+@MainActor @Test func anEngineThatFailedMidPlayHandsOverWhereItFailed() throws {
+    // IOS-POC-26 RC2: MPV marks a file that failed unloaded before it reports the failure, and the
+    // fallback went back to where the item had been opened.
+    let harness = Harness(globalDefault: .mpv)
+    harness.router.open(PlaybackLoadRequest(target: target, startSeconds: 120, rate: 1.5, history: episode))
+    harness.engine.currentTime = 1834.5
+    harness.engine.isLoaded = false
+    harness.engine.fail(NSError(domain: PlaybackFailure.mpvDomain, code: -13))
+    let loaded = try #require(harness.engine.loads.last)
+    #expect(harness.engine.kind == .native)
+    #expect(loaded.startSeconds == 1834.5)
+    #expect(loaded.exactStart)
+}
+
+@MainActor @Test func everySwitchSaysWhyForTheLog() {
+    let harness = Harness()
+    harness.router.open(request)
+    #expect(harness.router.switchReason == "open")
+    harness.router.select(.mpv)
+    #expect(harness.router.switchReason == "viewer")
+    harness.router.open(request)
+    #expect(harness.router.startupTimedOut())
+    #expect(harness.router.switchReason == "startup-timeout")
+    harness.router.open(request)
+    harness.engine.fail(avError(-11828))
+    #expect(harness.router.switchReason == "failure: 這個播放器無法播放此影片（AVFoundation -11828）")
+}
+
+@MainActor @Test func aRetiredEngineCannotEndTheItem() {
+    // A late end from the engine a switch replaced must not start the next episode.
+    let harness = Harness()
+    var ended = 0
+    harness.router.onEnded = { ended += 1 }
+    harness.router.open(request)
+    let native = harness.engine
+    harness.router.select(.mpv)
+    native.onEnded?()
+    #expect(ended == 0)
+    harness.engine.onEnded?()
+    #expect(ended == 1)
 }
 
 // MARK: - MPV headers

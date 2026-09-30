@@ -363,6 +363,9 @@ public final class PlayerRouter {
     public private(set) var failure: PlaybackFailure?
     /// Whether a player session is open. `open` starts one when it is not.
     public private(set) var sessionActive = false
+    /// IOS-POC-36: why the engine now under the request was handed it — `open`, `viewer`,
+    /// `startup-timeout` or the classified failure — for the `[playback]` line the session writes.
+    public private(set) var switchReason = ""
 
     public var onEngineChange: ((PlaybackEngineKind) -> Void)?
     public var onEnded: (() -> Void)?
@@ -388,6 +391,7 @@ public final class PlayerRouter {
         }
         failure = nil
         self.request = request
+        switchReason = "open"
         run(request)
     }
 
@@ -399,6 +403,7 @@ public final class PlayerRouter {
     public func select(_ kind: PlaybackEngineKind, playing: Bool? = nil) -> Bool {
         guard request != nil, selection.choose(kind) else { return false }
         failure = nil
+        switchReason = "viewer"
         handOff(autoplay: playing ?? engine?.isPlaying ?? true)
         return true
     }
@@ -428,6 +433,7 @@ public final class PlayerRouter {
     public func startupTimedOut() -> Bool {
         guard request != nil,
               selection.fallback(after: .engineCapability("沒有開始播放")) != nil else { return false }
+        switchReason = "startup-timeout"
         handOff(autoplay: true)
         return true
     }
@@ -438,6 +444,15 @@ public final class PlayerRouter {
                                                          autoplay: request.autoplay,
                                                          exact: request.exactStart) }
         engine?.setRate(rate)
+    }
+
+    /// IOS-POC-36: the viewer's play or pause, so a fallback after a failure keeps it. The engine
+    /// that failed cannot say: AVPlayer's rate is already zero by the time its item reports the
+    /// failure, and a pause pressed while the item was still starting left `autoplay` saying play.
+    public func setIntendsToPlay(_ playing: Bool) {
+        guard let request, request.autoplay != playing else { return }
+        self.request = request.resumed(at: request.startSeconds, rate: request.rate, autoplay: playing,
+                                       exact: request.exactStart)
     }
 
     public func setGlobalDefault(_ kind: PlaybackEngineKind) { selection.setGlobalDefault(kind) }
@@ -509,16 +524,21 @@ public final class PlayerRouter {
             onUnrecoverable?(classified)
             return
         }
-        // The attempt meant to play, so the fallback plays.
+        // Playing or paused as the viewer last left it (IOS-POC-36, `setIntendsToPlay`).
+        switchReason = "failure: \(classified.message)"
         handOff(autoplay: request?.autoplay ?? true)
     }
 
     /// Carries the request to `selection.currentSessionEngine` at the position it had reached.
     private func handOff(autoplay: Bool) {
         guard let request else { return }
-        // Zero from a loaded engine is "nothing reported yet", as it always was here; the request's
-        // own start stands then, with its own precision (IOS-POC-26).
-        let reached = engine.flatMap { $0.isLoaded && $0.currentTime > 0 ? $0.currentTime : nil }
+        // Zero is "nothing reported yet", as it always was here; the request's own start stands
+        // then, with its own precision (IOS-POC-26). IOS-POC-36 (IOS-POC-26 RC2): the position is
+        // read whether or not the engine still counts as loaded — MPV marks a file that failed
+        // mid-play unloaded before it reports the failure, and the fallback went back to where the
+        // item had been opened instead of where it failed. An engine keeps no position from a file
+        // before the one it is loading (`MPVPlayerCore`), so a stale one cannot be carried either.
+        let reached = engine.flatMap { $0.currentTime > 0 ? $0.currentTime : nil }
         let resumed = request.resumed(at: reached ?? request.startSeconds,
                                       rate: request.rate, autoplay: autoplay,
                                       exact: reached != nil || request.exactStart)

@@ -2299,6 +2299,8 @@ struct EpisodeSteps: Equatable {
     /// Whether the last sample was already past the viewer's ending, so the handoff fires once per
     /// crossing rather than once every five seconds while the advance resolves.
     private var endingReached = false
+    /// IOS-POC-36: the viewer's ending and the real end of one item hand over once between them.
+    private var endGate = PlaybackEndGate()
     private var sampler: Task<Void, Never>?
     /// The playback speed the viewer chose, carried across an episode change **of the same title**
     /// (IOS-POC-14A, narrowed at the user's request in IOS-POC-14B).
@@ -2376,6 +2378,7 @@ struct EpisodeSteps: Equatable {
     private var loadedAt: ContinuousClock.Instant?
     private var startupMilliseconds: Int?
     private var startupWatch: Task<Void, Never>?
+    private var handoffWatch: Task<Void, Never>?
     /// When the engine now under the item was handed it (IOS-POC-17F): the open, or the last engine
     /// change — so an engine the viewer just picked gets its own timeout. Since IOS-POC-27A it counts
     /// only the time the viewer means it to play (`PlaybackStartupWatch`).
@@ -2440,8 +2443,16 @@ struct EpisodeSteps: Equatable {
             forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
         ) { note in
             guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-                  AVAudioSession.InterruptionType(rawValue: raw) == .began else { return }
-            Task { @MainActor in PlaybackSession.shared.engine?.pause() }
+                  let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+            let resume = (note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt)
+                .map { AVAudioSession.InterruptionOptions(rawValue: $0).contains(.shouldResume) } ?? false
+            Task { @MainActor in
+                let session = PlaybackSession.shared
+                // IOS-POC-36: a pause like the viewer's, so a fallback after it stays paused too.
+                // Ending an interruption resumes nothing (IOS-POC-24-3, as AVPlayer does).
+                Self.log.notice("[audio] interruption \(type == .began ? "began" : "ended", privacy: .public) on \(session.engineKind.shortName, privacy: .public) shouldResume=\(resume)")
+                if type == .began { session.control("pause") }
+            }
         }
         // IOS-POC-17. The engines sit under this session, not beside it: everything above — the
         // record, resume, the ending, auto-next, the prefetch — stays here and asks `engine`.
@@ -2451,14 +2462,18 @@ struct EpisodeSteps: Equatable {
                               available: PlaybackEngines.offered) { [unowned self] kind in
             kind == .native ? AVPlayerEngine(session: self) as PlaybackEngine : MPVEngine()
         }
-        router.onEnded = { [weak self] in self?.finished() }
+        router.onEnded = { [weak self] in self?.finished(reason: "end") }
         router.onEngineChange = { [weak self] kind in
             guard let self else { return }
             // IOS-POC-26: where the engine taking over was asked to start, and how precisely.
             if let request = self.router.request {
-                Self.log.notice("[playback] \(self.itemTitle, privacy: .public) on \(kind.shortName, privacy: .public) from \(request.startSeconds)s exact=\(request.exactStart ? "yes" : "no", privacy: .public)")
+                Self.log.notice("[playback] \(self.itemTitle, privacy: .public) on \(kind.shortName, privacy: .public) from \(request.startSeconds)s exact=\(request.exactStart ? "yes" : "no", privacy: .public) autoplay=\(request.autoplay ? "yes" : "no", privacy: .public) reason=\(self.router.switchReason, privacy: .public)")
             }
             self.startupClock.restart(at: self.monotonicSeconds)
+            // Only once the item has started: before that, `watchStartup` reports the start.
+            if self.router.switchReason != "open", self.startupMilliseconds != nil {
+                self.watchHandoff(to: kind)
+            }
             // IOS-POC-25: which ads were skipped belongs to the engine that skipped them.
             self.adSkip.engineReloaded()
             // Track ids belong to one engine adapter; the other engine's would match nothing.
@@ -2559,7 +2574,15 @@ struct EpisodeSteps: Equatable {
     }
 
     /// Seconds, from whichever engine is playing. Zero when nothing is loaded.
-    var position: Double { engine?.currentTime ?? 0 }
+    ///
+    /// IOS-POC-36 (IOS-POC-26 RC4): while the engine just handed the item has reported nothing yet
+    /// — no position and no runtime — where it was asked to start. The bar read 0:00 there, and a
+    /// ±10 s pressed then seeked from 0. A viewer's own seek to 0:00 has a runtime, and reads 0.
+    var position: Double {
+        guard let engine else { return 0 }
+        let reported = engine.currentTime
+        return reported > 0 || engine.duration > 0 ? reported : router.request?.startSeconds ?? 0
+    }
     var duration: Double { engine?.duration ?? 0 }
     var isPlaying: Bool { engine?.isPlaying ?? false }
     var bufferedUntil: Double? { engine?.bufferedUntil }
@@ -2717,7 +2740,17 @@ struct EpisodeSteps: Equatable {
     func seek(toSeconds seconds: Double) {
         guard let engine, engine.isLoaded else { return }
         let limit = engine.duration > 0 ? engine.duration : .greatestFiniteMagnitude
-        engine.seek(toSeconds: adSeekTarget(min(max(seconds, 0), limit)))
+        let target = adSeekTarget(min(max(seconds, 0), limit))
+        // IOS-POC-36: where a seek was asked from and to; the engine logs where it landed.
+        let from = Self.oneDecimal(engine.currentTime)
+        Self.log.notice("[playback] seek requested \(Self.oneDecimal(target), privacy: .public)s from \(from, privacy: .public)s on \(engine.kind.shortName, privacy: .public)")
+        engine.seek(toSeconds: target)
+    }
+
+    /// The control bar's ±10 s, from where the engine is now rather than from the bar's last
+    /// quarter-second reading, so a second tap before that reading moves on counts too (IOS-POC-36).
+    func skip(by seconds: Double) {
+        seek(toSeconds: position + seconds)
     }
 
     /// The same for the end — Android's ED button. Milliseconds counted back from the runtime.
@@ -2809,7 +2842,7 @@ struct EpisodeSteps: Equatable {
                 // is exactly where Android checks it (IOS-POC-5S-2). `finished()` is the existing
                 // end-of-episode path, so the ending gets the auto-advance, the history write and
                 // the player close that a real end already got — there is no second ended pipeline.
-                if PlaybackSession.shared.reachedEnding() { PlaybackSession.shared.finished() }
+                if PlaybackSession.shared.reachedEnding() { PlaybackSession.shared.finished(reason: "ending") }
             }
         }
     }
@@ -3129,8 +3162,11 @@ struct EpisodeSteps: Equatable {
             // IOS-POC-23: playing again leaves nothing to reload.
             pausedBackground.cancel()
             Self.activateAudioSession()
+            router.setIntendsToPlay(true)
             engine?.play()
-        case "pause": engine?.pause()
+        case "pause":
+            router.setIntendsToPlay(false)
+            engine?.pause()
         case "stop":
             // No foreground service to stop, so the equivalent is to drop what is loaded.
             retryWithoutPrefetch = nil
@@ -3145,6 +3181,9 @@ struct EpisodeSteps: Equatable {
         case "loop": looping.toggle()
         case "replay":
             Self.activateAudioSession()
+            // Played again from the start, so it may end again (IOS-POC-36).
+            endGate.itemLoaded()
+            router.setIntendsToPlay(true)
             // Android's repeat seeks to 0 as a viewer's seek: a pre-roll is skipped again.
             engine?.seek(toSeconds: adSeekTarget(0))
             engine?.play()
@@ -3181,8 +3220,16 @@ struct EpisodeSteps: Equatable {
         seconds.isFinite ? (seconds * 1000).rounded() : 0
     }
 
-    private func finished() {
+    private func finished(reason: String) {
         if looping { control("replay"); return }
+        // IOS-POC-36: once per item — the viewer's ending, then the real end while the next episode
+        // resolves, used to advance twice and skip an episode. A 上一集／下一集 already in flight is
+        // what moves on, not a second start beside it.
+        guard !steppingEpisode, endGate.end() else {
+            Self.log.notice("[playback] \(self.itemTitle, privacy: .public) \(reason, privacy: .public) ignored: already moving on")
+            return
+        }
+        Self.log.notice("[playback] \(self.itemTitle, privacy: .public) finished (\(reason, privacy: .public)) on \(self.engineKind.shortName, privacy: .public) at \(Int(self.position))s/\(Int(self.duration))s")
         Task { @MainActor in
             // Record the end **before** moving on, and await it. The comment here always claimed
             // this ordering; the code did not, and an un-awaited write races whatever reads the
@@ -3201,6 +3248,7 @@ struct EpisodeSteps: Equatable {
             if items.indices.contains(index + 1) { start(at: index + 1); return }
             // Otherwise ask whoever opened the player. No answer, or no next episode, ends it.
             if await advance?() == true { return }
+            Self.log.notice("[playback] no next episode after \(self.itemTitle, privacy: .public) — closing")
             onPlaylistFinished?()
         }
     }
@@ -3239,6 +3287,7 @@ struct EpisodeSteps: Equatable {
         watchStartup()
         self.url = url.absoluteString
         started = true
+        endGate.itemLoaded()
         prefetchRequested = false
         prefetchTask = nil
         let start = resumeTo.map { $0 / 1000 } ?? 0
@@ -3398,6 +3447,26 @@ struct EpisodeSteps: Equatable {
         }
     }
 
+    /// IOS-POC-36: when the engine a switch handed the item actually plays — the `[playback]` line a
+    /// handoff was missing once the item had already started on the engine before it, which ends
+    /// `watchStartup`. Only a log line: no timeout, no switch, nothing a viewer sees. Paused, it
+    /// waits for play; it gives up after a minute, and the next switch or item replaces it.
+    private func watchHandoff(to kind: PlaybackEngineKind) {
+        handoffWatch?.cancel()
+        let since = ContinuousClock.now
+        let reason = router.switchReason
+        handoffWatch = Task { @MainActor in
+            while !Task.isCancelled, ContinuousClock.now - since < .seconds(60) {
+                if let engine, engine.kind == kind, engine.isPlaying {
+                    let milliseconds = Int((ContinuousClock.now - since) / .milliseconds(1))
+                    Self.log.notice("[playback] started \(self.itemTitle, privacy: .public) on \(kind.shortName, privacy: .public) in \(milliseconds)ms after the switch (\(reason, privacy: .public))")
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+    }
+
     /// IOS-POC-27A: what the native item holds when its start is given up on — its status, why the
     /// player waits, and the last error-log entry — as one log line and the reason the screen shows.
     /// The line is public, and a media address carries tokens, so addresses and free text go through
@@ -3430,6 +3499,7 @@ struct EpisodeSteps: Equatable {
     /// what held it back — enough to tell a slow provider or resolver, a thin buffer, a weak CDN, too
     /// large a variant and a struggling decoder apart without reading every transition.
     private func reportItem() {
+        handoffWatch?.cancel()
         guard loadedAt != nil else { return }
         startupWatch?.cancel()
         loadedAt = nil
@@ -3553,11 +3623,18 @@ final class AVPlayerEngine: PlaybackEngine {
     init(session: PlaybackSession) {
         self.session = session
         let center = NotificationCenter.default
-        // Moved here from `PlaybackSession.init`, unchanged: any item of the one player ending.
+        // Moved here from `PlaybackSession.init`. IOS-POC-36: only the item loaded **now** — an end
+        // that reaches the main actor after the next episode replaced its item belongs to the item
+        // before it, and taken as this one's it advanced once more and skipped the new episode.
+        // Its identity crosses to the main actor, not the item, which is not `Sendable`.
         observers.append(center.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.onEnded?() }
+        ) { [weak self] note in
+            let ended = (note.object as AnyObject?).map(ObjectIdentifier.init)
+            Task { @MainActor in
+                guard let self, self.isCurrent(ended) else { return }
+                self.onEnded?()
+            }
         })
         // Until IOS-POC-17 a failed item was a silent black screen. Now it is classified: shown,
         // or — when it is the media AVFoundation cannot handle — handed to the other engine.
@@ -3565,7 +3642,13 @@ final class AVPlayerEngine: PlaybackEngine {
             forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: nil, queue: .main
         ) { [weak self] note in
             let error = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
-            Task { @MainActor in self?.report(error) }
+            let failed = (note.object as AnyObject?).map(ObjectIdentifier.init)
+            // IOS-POC-36: a replaced item's failure is not the new item's; handing it to the router
+            // would fall back to the other engine for an item that is playing fine.
+            Task { @MainActor in
+                guard let self, self.isCurrent(failed) else { return }
+                self.report(error)
+            }
         })
         itemStatus = session.player.observe(\.currentItem?.status, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in
@@ -3588,13 +3671,25 @@ final class AVPlayerEngine: PlaybackEngine {
         onMediaSelectionChange?(PlaybackMediaSelection())
         session.loadNative(request)
     }
+
+    /// Whether a notification's item is the one loaded now.
+    private func isCurrent(_ item: ObjectIdentifier?) -> Bool {
+        item != nil && item == player.currentItem.map(ObjectIdentifier.init)
+    }
     func play() { player.play() }
     func pause() { player.pause() }
 
     /// Exact tolerances, as the control bar's scrubber and ±10 s always had.
     func seek(toSeconds seconds: Double) {
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600),
-                    toleranceBefore: .zero, toleranceAfter: .zero)
+                    toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
+            // IOS-POC-36: where it landed; `finished=false` is a seek a later one replaced.
+            Task { @MainActor in
+                guard let self else { return }
+                let landed = String(format: "%.1f", self.currentTime)
+                PlaybackSession.log.notice("[playback] seek landed \(landed, privacy: .public)s asked \(String(format: "%.1f", seconds), privacy: .public)s finished=\(finished) on 原生")
+            }
+        }
     }
 
     var currentTime: Double {
@@ -4080,7 +4175,7 @@ private struct PlayerControlBar: View {
             if let episodeSteps {
                 episodeButton(forward: false, enabled: episodeSteps.previous)
             }
-            Button(action: { interacted(); session.seek(toSeconds: shown - 10) }) {
+            Button(action: { interacted(); session.skip(by: -10) }) {
                 Image(systemName: "gobackward.10").font(.system(size: 28)).playerHitTarget()
             }
             .accessibilityLabel("倒退 10 秒")
@@ -4093,7 +4188,7 @@ private struct PlayerControlBar: View {
             }
             .accessibilityLabel(intendsToPlay ? "暫停" : "播放")
 
-            Button(action: { interacted(); session.seek(toSeconds: shown + 10) }) {
+            Button(action: { interacted(); session.skip(by: 10) }) {
                 Image(systemName: "goforward.10").font(.system(size: 28)).playerHitTarget()
             }
             .accessibilityLabel("前進 10 秒")
@@ -4603,11 +4698,13 @@ private struct PlayerSurface: UIViewControllerRepresentable {
         }
 
         func playerViewControllerWillStartPictureInPicture(_ controller: AVPlayerViewController) {
+            PlaybackSession.log.notice("[pip] native will start")
             foregroundRestore.pictureInPictureWillStart()
             active.wrappedValue = true
         }
 
         func playerViewControllerDidStopPictureInPicture(_ controller: AVPlayerViewController) {
+            PlaybackSession.log.notice("[pip] native did stop")
             foregroundRestore.pictureInPictureDidStop()
             active.wrappedValue = false
         }
@@ -4914,7 +5011,9 @@ private struct PlayerView: View {
             Task { @MainActor in
                 // No guard against an in-flight drag is needed: `PlayerControlBar` holds the
                 // dragged value itself and prefers it over this one until the finger lifts.
-                position = time.seconds.isFinite ? time.seconds : 0
+                // The session's reading rather than `time`: the same clock, plus where a handed-over
+                // item was asked to start until it reports (IOS-POC-36, RC4).
+                position = time.seconds.isFinite && time.seconds > 0 ? time.seconds : session.position
             }
         }
     }

@@ -68,6 +68,29 @@ public struct PlaybackStartupWatch: Sendable, Equatable {
     }
 }
 
+// MARK: - One hand-over per item
+
+/// IOS-POC-36 — an item moves on to what comes next once. Two things end an item: the viewer's
+/// ending, seen by the five-second sampler, and the engine's real end. When the ending is closer to
+/// the end than the next episode takes to resolve, both arrived and each advanced, so the episode
+/// after the next one started and the next one was never seen.
+public struct PlaybackEndGate: Sendable, Equatable {
+    private var item = 0
+    private var handedOver: Int?
+
+    public init() {}
+
+    /// A new item was loaded: it may end once.
+    public mutating func itemLoaded() { item &+= 1 }
+
+    /// The item ended. True the first time for this item, false for every end after it.
+    public mutating func end() -> Bool {
+        guard handedOver != item else { return false }
+        handedOver = item
+        return true
+    }
+}
+
 // MARK: - Why a native start was given up on
 
 /// What the player screen says when AVPlayer's start is handed to MPV (IOS-POC-27A), from the

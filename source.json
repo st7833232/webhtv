@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.38",
+          "date": "2026-09-30",
+          "localizedDescription": "WebHTV 0.1.38 (39)（Python 腳本的建構方式修正；只有模擬器驗證，真機未驗收）\n\n修正\n- Python 腳本的 Spider 改回與 Android 相同的標準建構方式：自訂的 metaclass 會照常執行；__init__ 回傳值時會像 Android 一樣載入失敗；同一個 Spider 實例不能同時給兩個站使用，避免兩站的快取互相覆蓋。目前設定檔沒有這些寫法的腳本，所以使用上不會看到差異。\n\n已知限制\n- 此版只有模擬器（依賴自檢 8/8、44 站 survey）與 CI 的 Release 建置驗證。\n- 其餘同 0.1.37 (38)，包含 MPV 子母畫面修正仍待真機回報。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.38-b39/WebHTV-0.1.38-39.ipa",
+          "size": 29318975,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.37",
           "date": "2026-09-30",
           "localizedDescription": "WebHTV 0.1.37 (38)（Python 執行環境的兩個小修正；只有模擬器驗證，真機未驗收）\n\n修正\n- Python 腳本若在建構時（__init__）就讀寫快取，現在會讀寫到自己站的資料。先前那時拿不到快取、讀到空的也寫不進去。目前設定檔沒有這樣寫的腳本，所以使用上不會看到差異。\n- 開發端：Python 原生套件（pycryptodome、lxml）的建置記錄納入 Xcode、SDK 與編譯器版本，換版後會自動重新編譯。\n\n已知限制\n- 此版只有模擬器（依賴自檢 8/8、44 站 survey）與 CI 的 Release 建置驗證。\n- 其餘同 0.1.36 (37)，包含 MPV 子母畫面修正仍待真機回報。",

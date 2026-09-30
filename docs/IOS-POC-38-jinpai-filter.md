@@ -3,7 +3,7 @@
 ## Recovery anchor
 
 - 使用者回報（2026-09-29，`0.1.33 (34)` 之後）：「金牌的zjuys篩選有問題」。
-- 狀態：**App 端修正完成（未發布）**；腳本端 patch 已提供，等使用者套用到 GitLab `st7833232/recha` 的 `py/又是一個金牌.py`。
+- 狀態：**App 端修正完成並在模擬器驗證（未發布）**；腳本端 patch 已在實際網站驗證，等使用者套用到 GitLab `st7833232/recha` 的 `py/又是一個金牌.py`。
 - 唯一下一步：使用者套用第四節的 patch 後，下一版 IPA 在 iPhone 上照第六節的步驟驗證。
 
 ## 一、重現（host，2026-09-29）
@@ -61,8 +61,8 @@ Android（本 repo `app/src/main/java/com/fongmi/android/tv/bean/Value.java` 的
 | Android 行為（第 2.2 節） | 已讀本 repo 原始碼：再點一次取消 |
 | 模擬器 Debug build（含 App 修正） | **通過** |
 | `swift test --package-path ios` | **577/577 通過** |
-| 第四節 patch 在 host 上的結果 | **未驗證**：套 patch 後重跑時，這台 Mac 的網路出狀況——DNS 一度解析逾時 507 秒，之後連 `zjuys.com` 出現 `self signed certificate in certificate chain`（同一網址稍早是正常的 302），`gitlab.com` 881 秒無回應；原版與 patch 版腳本都在連線階段就失敗，不是 patch 的問題。patch 只改 `homeContent` 組 filters 的方式，不動 `categoryContent` 與簽章 |
-| 模擬器 UI：再點一次取消篩選 | **未驗證**：同上，網站連不上；App 的改動是 `filterChip` 的一行判斷 |
+| 第四節 patch 在 host 上的結果 | **通過**（2026-09-30，改用個人熱點後；前一晚公司網路 `10.1.204.x` 對金牌網域有 TLS 攔截、gitlab.com 無回應，當時驗不了）：`git apply` 可乾淨套在已發布的原檔；實際連 `zjuys.com` 的 `homeContent`——電影不再有「類型」列，其餘各分類保留、每列第一個是「全部」、其後選項與原版逐一相同，短劇空的「地區」「語言」被拿掉，分類清單不變；電影選「全部」的清單與不篩選相同、地區中国香港 28/30 部是中国香港、電視劇國產劇 30/30 為 typeId 14 |
+| 模擬器 UI：再點一次取消篩選 | **通過**（iPhone 17 Pro 模擬器，HEAD `b5ece29d`）：金牌系列-zjuys → 電視劇（無「全部」列）→ 點「地區：中國台灣」→ 選取、清單換成黑白清道夫、赴海 → 再點一次 → 取消選取、清單回到最后一案(2026)、死亡幻象（與選取前相同） |
 
 沒有繞過任何憑證檢查。
 

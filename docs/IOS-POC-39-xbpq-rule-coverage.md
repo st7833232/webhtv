@@ -7,6 +7,7 @@
 - 修正第一節的推斷：41 站讀不到規則**不是**註解解析失敗（`host.parseJSON` 已會去掉 `//`），而是 `XBPQ.js` 的 `init` 把 `resolvedExtend` 解析出的 **https 網址字串**直接當 JSON 解析，得到 `{}`；原版遇到 `http` 開頭的 ext 會先下載（`XYQHiker.js` 第 136～142 行也是這樣做）。另外找到兩個沒列在第一節的原因：45 站 `分类url` 結尾帶 `;;z` 旗標，iOS 沒切掉就拿去請求；`XBPQ.js` 把 `分类数组`／`分类标题`／`分类链接`（原版是**從首頁抓分類**用的鍵）當成影片列表規則。
 - 2026-09-30 使用者核准 S1～S3、`vod_id` 維持網址。S1（`ab490dfa`）、S2（`531093a1`）、S3 已 commit，兩份設定檔在熱點下的 sweep 都確認沒有退步（第六節）；push 前先 pull merge `origin/ios-poc`（使用者 2026-09-30 指示）。
 - 2026-09-30 使用者核准 S4 並已完成（第 6.3 節）：`wang-sex.json` 可播放 29→41（12 個 XBPQ 站），兩份設定檔沒有退步。
+- 2026-09-30 另外 16 站用的 `XBPQ.jar`／`spider.jar` 已比對（第 6.4 節）：功能較少的同源版本，不需改程式。
 - 唯一下一步：紅果短剧的網站（`www.mochadj.com`，目前整站回空白）恢復後，以 `CSP_GOLDEN_SITE` 單站測試確認它仍可播放；S5（搜尋）尚未核准。
 
 ## 1. 診斷（2026-09-30，證據在 `docs/SITE-AVAILABILITY-2026-09-30.md`）
@@ -177,7 +178,7 @@ S1～S3 決定「有沒有片單」，S4 決定「能不能播」（sweep 的「
 
 ### 5.5 風險與未決
 
-- **16 站用的是別的 jar**：`wang-sex.json` 的 XBPQ 站有 90 站指 `xyqxbpq.jar`、10 站指 `./jar/XBPQ.jar`、6 站指 `https://raw.githubusercontent.com/aliluya1977/TVBox/master/spider.jar`，後兩個這次沒抓、沒比對，語意可能不同。
+- **16 站用的是別的 jar**：`wang-sex.json` 的 XBPQ 站有 90 站指 `xyqxbpq.jar`、10 站指 `./jar/XBPQ.jar`、6 站指 `https://raw.githubusercontent.com/aliluya1977/TVBox/master/spider.jar`，後兩個這次沒抓、沒比對，語意可能不同。**已解決（2026-09-30 16:00）**：另兩個 jar 的 XBPQ 是功能較少的同源版本，這 16 站的規則在兩版語意相同，不需改 `XBPQ.js`（第 6.4 節）。
 - 約 15 站的網站回傳 JS 跳轉頁，原版同樣不執行 JS，Android 上是否可用未確認；約 40 站在公司網路 DNS 解析失敗，需熱點重測。
 - `A()`／`Z()`／`detailContent`／`playerContent` 的流程是從原始指令推讀，可能有細節偏差；以真實站的 sweep 與單元測試兜底。
 - `vod_id` 不採原版格式（5.1），直接播放的片名要多抓一次詳情頁。
@@ -256,3 +257,26 @@ sweep（16:17～16:20，熱點 `172.20.10.1`，最終版程式；`swift test` 60
 - `wang-sex.json`：12 個 XBPQ 站由不可用變成可播放：野鸡資源、SEAJAV(聚合)、色花堂、文件夹、一区、魔法少女2、魔法少女4、Airav、天美、亚瑟影库、花影视、sexBJcam。原本可播放的站沒有任何一站變成不可用。另有 3 個 XBPQ 站有集數但播放失敗（NO-PLAY），1 站 DEAD-MEDIA，原因尚未逐站確認。
 - `wang-movie.json`：與基準相比掉的 4 站——紅果短剧（網站整站回空白，見 6.2，舊版程式同樣失敗）、夢想網頁版（type-0，503）、豆瓣與非凡（type-1，換片）；後三站不載入 `XBPQ.js`。判定 S4 沒有造成退步。
 - **真機、模擬器未驗證**；未發布。
+
+### 6.4 另外 16 站的 jar 比對（2026-09-30 15:50～16:10，只讀）
+
+使用者提供 `XBPQ.jar`、`xyqxbpq.jar`、`spider.jar`，問要不要更新相關檔案。結論：**`XBPQ.js`、`SpiderRegistry.swift`、`scripts/spider_pack.py` 都不用改。** iOS 依 `api`（`csp_XBPQ`）載入同一支 `XBPQ.js`，不看站台的 `jar` 欄位；那兩處只記錄移植來源。
+
+| jar | `wang-sex.json` 站數 | 比對 |
+|---|---:|---|
+| `xyqxbpq.jar` | 90（其中 7 站帶 `;md5;fd3cefc7302f3a39a442682f802b11e5`） | 使用者提供的與 `recha` 線上版逐位元組相同（635,660 bytes，SHA-256 `7b732f2289236619b791d9c5a0d862d42c9bf3e5bb6123a6982736329bbe9e16`，md5 與設定檔相符），就是第 4.0 節研究的版本 |
+| `./jar/XBPQ.jar` | 10 | 使用者提供的 659,007 bytes（SHA-256 `598342d4588cc55c49dffc4890f5d0cf228ffcb6645550555f16dbf1c9bfaa4a`，2026-08-16 打包）與 `recha` 線上版 397,355 bytes（`64637af0a0dc780cbe58d72904c16b9ff95d16917fed715c2aa6390512d6c49d`，2024-06-29）檔案不同，但兩份的 `XBPQ`、`XBPQParser` 反編譯結果完全相同；使用者那份只多打包 JS 引擎等其他類別 |
+| aliluya1977 `spider.jar` | 6 | 與線上版相同（2,744,719 bytes，`8782f984d1c2a7ca2994422d42c14cfcbb9d8207e475923c0fa9bea9e51e7536`）；`XBPQ` 的字串沒有混淆，與 `XBPQ.jar` 是同一版引擎，多了 Android 本機 proxy（`getProxyDownloadUrl`） |
+
+- 方法：jadx 1.5.6 反編譯；`XBPQ.jar` 的字串以 hex＋XOR(`gPAQWZ`)（`merge/cYh`）還原。74 個方法依字串指紋與 `xyqxbpq.jar` 配對，大多數相似度 ≥ 0.96；cut 核心（`Z`↔`b0`、`Y`↔`a0`）與抓頁（`k`↔`l`，含去空白）相同。jadx 反編譯失敗的四個大方法以 fallback 指令的字串集合比對：列表 0.90、搜尋 0.99、詳情 0.90、播放 0.95（沒有逐條指令比流程，中可信）。
+- **這兩個 jar 不是 `xyqxbpq.jar` 的更新版，而是功能較少的同源版本。** `xyqxbpq.jar` 多的：`字母`／`语言` 篩選、`搜索模式0`、`xml模式`、JSON 列表與詳情模式、阿里雲盤、`getDescInfo`、相對路徑的 `分类url` 補主機、`{catePg}` 頁碼範圍合併。
+- 它們獨有的四點，16 站的規則都沒用到：`[替换:a*b>>…]` 的萬用字元改成擷取群組（可用 `$1`）；播放頁處理 `magnet`；詳情鍵別名 `proj_actor`／`proj_plot`；詳情自動連結的 `[不包含:]` 多了 `url=http`。`小姨子` 的 `[替换:]` 沒有萬用字元，兩版結果相同；列表的預設連結規則兩版相同，也與 `XBPQ.js` 的 `LINK_RULE` 一致。
+- 16 站用到的 46 個鍵兩版都有（`作者`、`站名`、`主页`、`防丢url` 兩版都不讀）。
+
+16 站的狀態（熱點 `172.20.10.1`；S4 的 sweep 16:18，加上逐站 DNS 與 curl）：
+
+- 可播放 2 站：`魔法少女2`、`魔法少女4`（S4 後）。
+- 連不上 10 站：9 站網域失效（1.1.1.1 回 NXDOMAIN）——`su-qq.vip`（`spider.jar` 的 6 站全部）、`saooo.cc`（SAOO）、`thchp.top`（小姨子）、`qsyjd8.yachts`（游击队）；`AV帝国` SSL 錯誤。
+- 網站本身 3 站：`果冻`、`风流` 首頁回 JS 跳轉頁；`色岛` 的網域是出售頁。
+- 原因未確認 1 站：`魔法少女3` 頁面抓得到、規則切不出片；兩版抓頁與 cut 相同，不是 jar 版本的問題。
+- 未驗證：沒有在 Android 上跑；四個大方法只比了字串集合。反編譯工作檔在 session scratchpad，不 commit。

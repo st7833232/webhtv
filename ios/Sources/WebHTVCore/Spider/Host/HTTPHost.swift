@@ -110,7 +110,4 @@ public final class CookieJar: @unchecked Sendable {
             (store[host] ?? [:]).map { "\($0.key)=\($0.value)" }.sorted().joined(separator: "; ")
         }
     }
-
-    public func all(for host: String) -> [String: String] { lock.withLock { store[host] ?? [:] } }
-    public func clear() { lock.withLock { store.removeAll() } }
 }

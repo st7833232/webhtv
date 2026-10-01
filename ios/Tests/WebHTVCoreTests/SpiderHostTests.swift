@@ -30,7 +30,6 @@ private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScri
     let resolver = CSPSourceResolver()
     #expect(resolver.canResolve(appGet))
     #expect(!resolver.canResolve(unported))
-    #expect(resolver.portability(of: appGet) == .httpCrypto)
     #expect(throws: SpiderError.notRegistered("csp_NotPortedYet")) {
         _ = try resolver.registry.makeRuntime(for: unported.api, siteKey: "x")
     }
@@ -257,8 +256,6 @@ private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScri
 
     // A second session starts empty — no shared login between two sites on one spider class.
     #expect(CookieJar().header(for: a).isEmpty)
-    jar.clear()
-    #expect(jar.header(for: a).isEmpty)
 }
 
 // MARK: - errors and timeouts

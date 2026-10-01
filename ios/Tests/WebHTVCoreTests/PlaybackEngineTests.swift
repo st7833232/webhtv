@@ -58,16 +58,14 @@ private final class FakeEngine: PlaybackEngine {
 @MainActor
 private final class Harness {
     var made = [FakeEngine]()
-    lazy var router = PlayerRouter(globalDefault: globalDefault, available: available) { [unowned self] kind in
+    lazy var router = PlayerRouter(globalDefault: globalDefault) { [unowned self] kind in
         let engine = FakeEngine(kind: kind)
         made.append(engine)
         return engine
     }
     let globalDefault: PlaybackEngineKind
-    let available: Set<PlaybackEngineKind>
-    init(globalDefault: PlaybackEngineKind = .native, available: Set<PlaybackEngineKind> = [.native, .mpv]) {
+    init(globalDefault: PlaybackEngineKind = .native) {
         self.globalDefault = globalDefault
-        self.available = available
     }
     var engine: FakeEngine { router.engine as! FakeEngine }
 }
@@ -108,11 +106,6 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     #expect(option.channelDescription == "Stereo")
 }
 
-@Test func mpvTrackSelectionIsOnlyAdvertisedAfterP10() {
-    #expect(PlaybackEngineKind.native.capabilities.trackSelection)
-    #expect(PlaybackEngineKind.mpv.capabilities.trackSelection)
-}
-
 // MARK: - Defaults and persistence
 
 @Test func theDefaultEngineIsAVPlayerWhenNothingIsStored() throws {
@@ -143,17 +136,6 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     #expect(harness.engine.kind == .mpv)
 }
 
-@MainActor @Test func anUnavailableMPVIsNeverUsedAndNeverSelectable() {
-    let harness = Harness(globalDefault: .mpv, available: [.native])
-    harness.router.open(request)
-    #expect(harness.engine.kind == .native)
-    #expect(harness.router.selection.isAvailable(.mpv) == false)
-    #expect(harness.router.select(.mpv) == false)
-    #expect(harness.made.count == 1)
-    // The stored default is kept; it is only not used until MPV is available.
-    #expect(harness.router.selection.globalDefaultEngine == .mpv)
-}
-
 @MainActor @Test func anAvailableMPVCanBeSelected() {
     let harness = Harness()
     harness.router.open(request)
@@ -167,7 +149,6 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     let harness = Harness(globalDefault: .native)
     harness.router.open(request)
     harness.router.select(.mpv)
-    #expect(harness.router.selection.sessionOverride == .mpv)
     #expect(harness.router.selection.currentSessionEngine == .mpv)
     #expect(harness.router.selection.globalDefaultEngine == .native)
 }
@@ -178,7 +159,6 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     harness.router.select(.mpv)
     let mpv = harness.engine
     harness.router.endSession()
-    #expect(harness.router.selection.sessionOverride == nil)
     #expect(mpv.tornDown, "an engine the next session will not use is released")
     harness.router.open(request)
     #expect(harness.engine.kind == .native)
@@ -459,14 +439,6 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     #expect(harness.engine.kind == .native)
 }
 
-@MainActor @Test func withoutASecondEngineASlowStartIsLeftAlone() {
-    let harness = Harness(available: [.native])
-    harness.router.open(request)
-    #expect(!harness.router.startupTimedOut())
-    #expect(harness.made.count == 1)
-    #expect(harness.router.failure == nil)
-}
-
 @MainActor @Test func theNextEpisodeGetsItsOwnFallback() {
     let harness = Harness()
     harness.router.open(request)
@@ -474,16 +446,6 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     harness.router.open(request)                   // next episode, a new attempt on mpv
     harness.engine.fail(NSError(domain: PlaybackFailure.mpvDomain, code: -17))
     #expect(harness.engine.kind == .native)
-}
-
-@MainActor @Test func withoutASecondEngineACapabilityFailureIsShown() {
-    let harness = Harness(available: [.native])
-    var shown: PlaybackFailure?
-    harness.router.onUnrecoverable = { shown = $0 }
-    harness.router.open(request)
-    harness.engine.fail(avError(-11828))
-    #expect(harness.engine.kind == .native)
-    #expect(shown?.allowsEngineFallback == true)
 }
 
 @MainActor @Test func aRetiredEngineCannotReportIntoTheRouter() {

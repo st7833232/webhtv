@@ -120,17 +120,6 @@ private func record(_ vodId: String, siteKey: String = "s", siteID: String = "s\
     #expect(saved.duration == 2_780_000)
 }
 
-@Test func removingAndClearingTakeEffectOnDisk() async throws {
-    let (store, directory) = try scratchStore("remove")
-    await store.save(record("1"))
-    await store.save(record("2"))
-    await store.remove(key: WatchHistory.key(siteID: "s\u{0}{}", vodId: "1"))
-    #expect(await WatchHistoryStore(directory: directory).records().map(\.vodId) == ["2"])
-
-    await store.clear()
-    #expect(await WatchHistoryStore(directory: directory).records().isEmpty)
-}
-
 @Test func clearingOneSourcesListLeavesEveryOtherSourcesHistory() async throws {
     // IOS-POC-30, the viewer's report: 清除 on one source's history list wiped every source's.
     let (store, directory) = try scratchStore("clear-per-source")

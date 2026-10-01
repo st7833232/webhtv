@@ -2400,8 +2400,7 @@ struct EpisodeSteps: Equatable {
         // Both engines in every build, at the user's decision on 2026-09-23 (IOS-POC-17E). What
         // guards a viewer from a black screen is `MPVEngine`'s first-frame watchdog: a file that
         // loads without a frame is a capability failure, and the router hands it back to AVPlayer.
-        router = PlayerRouter(globalDefault: PlaybackEnginePreference().globalDefaultEngine,
-                              available: Set(PlaybackEngineKind.allCases)) { [unowned self] kind in
+        router = PlayerRouter(globalDefault: PlaybackEnginePreference().globalDefaultEngine) { [unowned self] kind in
             kind == .native ? AVPlayerEngine(session: self) as PlaybackEngine : MPVEngine()
         }
         router.onEnded = { [weak self] in self?.finished(reason: "end") }
@@ -4076,16 +4075,14 @@ private struct PlayerControlBar: View {
 
             // What the running engine cannot do is not drawn, rather than drawn and dead. A choice
             // of one decides nothing, so a track button needs more than one option (IOS-POC-5Q).
-            if engine.capabilities.trackSelection {
-                if let subtitle = media.subtitle, subtitle.options.count > 1 {
-                    panelButton(.subtitle, value: zhTW(Self.selectedName(subtitle))) {
-                        Image(systemName: "captions.bubble").font(.system(size: 17))
-                    }
+            if let subtitle = media.subtitle, subtitle.options.count > 1 {
+                panelButton(.subtitle, value: zhTW(Self.selectedName(subtitle))) {
+                    Image(systemName: "captions.bubble").font(.system(size: 17))
                 }
-                if let audio = media.audio, audio.options.count > 1 {
-                    panelButton(.audio, value: zhTW(Self.selectedName(audio))) {
-                        Image(systemName: "waveform").font(.system(size: 17))
-                    }
+            }
+            if let audio = media.audio, audio.options.count > 1 {
+                panelButton(.audio, value: zhTW(Self.selectedName(audio))) {
+                    Image(systemName: "waveform").font(.system(size: 17))
                 }
             }
             // IOS-POC-17E: only when the source offers more than one entry.
@@ -4107,7 +4104,7 @@ private struct PlayerControlBar: View {
 
             // AirPlay. `AVRoutePickerView` is public and is the whole control, so there is nothing
             // to reimplement — AVKit's bar was only ever hosting the same view.
-            if engine.capabilities.airPlay {
+            if engine.supportsAirPlay {
                 RoutePickerButton()
                     .frame(width: Self.hitTarget, height: Self.hitTarget)
                     .accessibilityLabel("AirPlay")

@@ -34,13 +34,9 @@ public struct AdBlockList: Sendable, Equatable {
     /// Deterministic and content-derived, so two configurations can never collide and switching
     /// away and back reuses the compiled list instead of building a different one.
     public let identifier: String
-    /// The content-blocker JSON, ready for `WKContentRuleListStore.compileContentRuleList`.
+    /// The content-blocker JSON, ready for `WKContentRuleListStore.compileContentRuleList`. An entry
+    /// that is not host-shaped (a whole URL) becomes no rule.
     public let json: String
-    /// The entries that became rules, in configuration order.
-    public let blocked: [String]
-    /// The entries that could not become a host rule and are carried here only so they can be
-    /// reported rather than silently dropped.
-    public let inert: [String]
 
     /// Everything WebKit's content blocker can match **except `document`** — see the note above.
     static let resourceTypes = ["image", "style-sheet", "script", "font", "raw", "svg-document",
@@ -51,12 +47,7 @@ public struct AdBlockList: Sendable, Equatable {
     /// Nil is the whole story: no identifier, no compile, and no rule list added to the web view —
     /// an empty `ads` must be indistinguishable from a build with no blocker in it at all.
     public static func make(ads: [String]) -> AdBlockList? {
-        var blocked = [String]()
-        var inert = [String]()
-        for entry in ads {
-            let value = entry.trimmingCharacters(in: .whitespacesAndNewlines)
-            if isHostShaped(value) { blocked.append(value) } else if !value.isEmpty { inert.append(value) }
-        }
+        let blocked = ads.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter(isHostShaped)
         guard !blocked.isEmpty else { return nil }
 
         let rules = blocked.map { host -> [String: Any] in
@@ -73,8 +64,7 @@ public struct AdBlockList: Sendable, Equatable {
         // The identity is the rules themselves, so it changes exactly when the blocking behaviour
         // changes — which is what keeps configuration A's list off configuration B's web view.
         let digest = DrpyEngine.digest(Data(json.utf8))
-        return AdBlockList(identifier: "webhtv-ads-\(digest.prefix(32))", json: json,
-                           blocked: blocked, inert: inert)
+        return AdBlockList(identifier: "webhtv-ads-\(digest.prefix(32))", json: json)
     }
 
     /// Is this entry something Android's `host.contains(ad)` could ever match?

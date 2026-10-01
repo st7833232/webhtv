@@ -189,16 +189,11 @@ private func playURL(_ value: Any?) -> [String] {
 /// the app reports "not ported" rather than failing at the first call.
 @Test func registryClaimsOnlyWhatIsActuallyPorted() {
     let registry = SpiderRegistry.bundled()
-    #expect(registry.portedClasses ==
+    // IOS-POC-5L: every script the registry names must have actually loaded from the bundle.
+    #expect(registry.entries.keys.sorted() ==
             ["App3Q", "App99", "AppGet", "AppQi", "Bili", "JPianAmns", "JianPian", "XBPQ", "XYQHiker"])
     #expect(!registry.prelude.isEmpty)
-    let entry = registry.entry(for: "csp_AppGet")
-    #expect(entry?.portability == .httpCrypto)
-    #expect(entry?.origin.contains("river-fman.jar") == true)
     #expect(registry.canDrive("csp_XBPQ"))
-    // IOS-POC-5L: every script the registry names must have actually loaded from the bundle.
-    #expect(registry.entry(for: "csp_Bili")?.portability == .httpJSON)
-    #expect(registry.entry(for: "csp_App99")?.origin.contains("xiaosa-0807.jar") == true)
     // IOS-POC-5M: the alias must load JianPian's script, not an empty entry for a name with no file.
     #expect(registry.entry(for: "csp_JPianAmns")?.script == registry.entry(for: "csp_JianPian")?.script)
     #expect(registry.entry(for: "csp_JPianAmns")?.script.contains("crumb/list") == true)

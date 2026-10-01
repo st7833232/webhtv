@@ -67,16 +67,13 @@ public struct SpiderPackManifest: Decodable, Sendable {
         public let sha256: String
         /// Per-script gate, for a script that needs a primitive the rest of the pack does not.
         public let minHostApi: Int?
-        /// Other configured class names this script serves — `JPianAmns` → `JianPian`.
+        /// Other configured class names this script serves — `JPianAmns` → `JianPian`. A manifest's
+        /// audit provenance (`originJar`, `jarSha256`, `notes`) is recorded there and never read.
         public let aliases: [String]?
-        /// Audit provenance. Recorded, never fetched and never executed.
-        public let originJar: String?
-        public let jarSha256: String?
-        public let notes: String?
 
         enum CodingKeys: String, CodingKey {
             case className = "class"
-            case path, sha256, minHostApi, aliases, originJar, jarSha256, notes
+            case path, sha256, minHostApi, aliases
         }
     }
 }

@@ -146,8 +146,4 @@ public struct CSPSourceResolver: Sendable {
         guard changed, let data = try? JSONSerialization.data(withJSONObject: object) else { return raw }
         return String(decoding: data, as: UTF8.self)
     }
-
-    public func portability(of site: Site) -> SpiderPortability? {
-        registry.entry(for: site.api)?.portability
-    }
 }

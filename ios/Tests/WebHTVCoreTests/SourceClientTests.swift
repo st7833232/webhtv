@@ -369,8 +369,7 @@ private final class OneShotHTTPServer: @unchecked Sendable {
       destroy: function () { destroys = destroys + 1; }
     };
     """
-    let registry = SpiderRegistry(entries: ["Probe": .init(script: script, portability: .httpJSON,
-                                                           origin: "test", source: .bundled)],
+    let registry = SpiderRegistry(entries: ["Probe": .init(script: script, source: .bundled)],
                                   prelude: SpiderRegistry.bundled().prelude)
     let site = try JSONDecoder().decode(Site.self, from: Data(
         #"{"key":"probe","name":"probe","type":3,"api":"csp_Probe","ext":null}"#.utf8))

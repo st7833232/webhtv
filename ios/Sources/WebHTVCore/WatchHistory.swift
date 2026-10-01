@@ -356,10 +356,6 @@ public actor WatchHistoryStore {
         store(prune(all, now: now))
     }
 
-    public func remove(key: String) {
-        store(loaded().filter { $0.key != key })
-    }
-
     /// One row swiped away on one configuration's list (IOS-POC-30): a record that configuration
     /// owns is deleted; one from before sources were separable, which every list shows, is only
     /// hidden from this one; and one another configuration owns — the list can be a moment behind
@@ -370,12 +366,6 @@ public actor WatchHistoryStore {
             if record.sourceID == sourceID { return nil }
             return record.sourceID == nil ? Self.hiding(record, from: sourceID) : record
         })
-    }
-
-    /// Every configuration's records. **Not what the history list's 清除 does** (IOS-POC-30): that
-    /// is `clear(for:)`.
-    public func clear() {
-        store([])
     }
 
     /// Clears what one configuration's history list shows, and nothing else (IOS-POC-30), so 清除

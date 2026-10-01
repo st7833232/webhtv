@@ -14,9 +14,8 @@ import WebKit
     let ads = ["s13.cnzz.com", "hm.baidu.com",
                "https://lf1-cdn-tos.bytegoofy.com/obj/tos-cn-i-dy/455ccf9e8ae744378118e4bd289288dd"]
     let list = try! #require(AdBlockList.make(ads: ads))
-    #expect(list.blocked == ["s13.cnzz.com", "hm.baidu.com"])
-    #expect(list.inert.count == 1, "the whole-URL entry is carried, not silently dropped")
-    #expect(!list.json.contains("bytegoofy"), "and never becomes a rule")
+    #expect(ruleCount(list) == 2)
+    #expect(!list.json.contains("bytegoofy"), "the whole-URL entry never becomes a rule")
 }
 
 /// Measured on the user's own files on 2026-09-22: 1 entry in `wang-movie.json`, 62 in
@@ -26,8 +25,12 @@ import WebKit
     let movie = try JSONDecoder().decode(WebHTVConfig.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
     #expect(movie.ads.count == 1, "wang-movie.json carries one ad host")
     let fromMovie = try #require(AdBlockList.make(ads: movie.ads))
-    #expect(fromMovie.blocked.count == 1)
-    #expect(fromMovie.inert.isEmpty)
+    #expect(ruleCount(fromMovie) == 1)
+}
+
+/// How many rules the list's JSON holds; -1 when it is not a JSON array.
+private func ruleCount(_ list: AdBlockList) -> Int {
+    ((try? JSONSerialization.jsonObject(with: Data(list.json.utf8))) as? [Any])?.count ?? -1
 }
 
 @Test func onlyHostShapedEntriesBecomeRules() {

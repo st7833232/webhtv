@@ -46,21 +46,3 @@ public enum SpiderError: Error, Equatable, LocalizedError {
         }
     }
 }
-
-/// The audit categories from `scripts/audit_spider_jars.py`, carried into the code so the app can
-/// tell "not ported yet" apart from "cannot be ported", and never conflates either with
-/// "the JAR was never downloaded".
-public enum SpiderPortability: String, Sendable, CaseIterable {
-    case httpJSON = "http-json"
-    case httpHelper = "http-helper"
-    case httpCrypto = "http-crypto"
-    case androidShim = "android-shim"
-    case webViewSniffing = "webview-sniffing"
-    case reflectionObfuscation = "reflection-obfuscation"
-    case jniNative = "jni-native"
-    /// The visible class is an empty shim; the real code is an encrypted payload a native loader
-    /// decrypts at runtime. A statement about that JAR's packaging, not about the spider's logic.
-    case protectedPayload = "protected-payload"
-    /// The JAR was never downloaded. A missing file, not a technical verdict.
-    case resourceMissing = "resource-missing"
-}

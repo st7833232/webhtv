@@ -22,24 +22,10 @@ public enum PlaybackEngineKind: String, CaseIterable, Sendable, Codable {
     public var shortName: String { self == .native ? "原生" : "MPV" }
     public var other: PlaybackEngineKind { self == .native ? .mpv : .native }
 
-    /// What the control bar may offer while this engine plays. The engines do not need parity on
-    /// day one; the bar hides what the running engine cannot do instead of drawing dead controls.
-    public var capabilities: PlaybackEngineCapabilities {
-        switch self {
-        case .native:
-            return .init(airPlay: true, trackSelection: true)
-        case .mpv:
-            // P10: embedded subtitle/audio selection is implemented through mpv track-list + sid/aid.
-            // AirPlay Audio remains a later stage; MPV PiP is implemented separately.
-            return .init(airPlay: false, trackSelection: true)
-        }
-    }
-}
-
-public struct PlaybackEngineCapabilities: Sendable, Equatable {
-    public let airPlay: Bool
-    /// The subtitle and audio menus.
-    public let trackSelection: Bool
+    /// Whether the control bar offers AirPlay while this engine plays: the bar hides what the
+    /// running engine cannot do instead of drawing a dead control. MPV's AirPlay Audio remains a
+    /// later stage.
+    public var supportsAirPlay: Bool { self == .native }
 }
 
 // MARK: - The global default
@@ -73,31 +59,22 @@ public struct PlaybackEnginePreference: Sendable {
 /// - A manual choice in the control bar overrides it **for this session only** and is cleared when
 ///   the player closes.
 /// - An automatic fallback moves `currentSessionEngine` too, at most **once per attempt**.
-///
-/// An engine that is not available (MPV before it has passed its device gate) can be stored as the
-/// default but is never *used*: the session resolves it to AVPlayer, which is always available.
 public struct PlaybackEngineSelection: Sendable, Equatable {
     public private(set) var globalDefaultEngine: PlaybackEngineKind
-    public private(set) var sessionOverride: PlaybackEngineKind?
     public private(set) var currentSessionEngine: PlaybackEngineKind
-    public let available: Set<PlaybackEngineKind>
     /// Whether this attempt already fell back. The loop guard: AVPlayer → MPV → AVPlayer → … is
     /// impossible because the second failure finds this set.
     public private(set) var fallbackSpent = false
 
-    public init(globalDefault: PlaybackEngineKind, available: Set<PlaybackEngineKind>) {
-        let available = available.union([.native])
-        self.available = available
+    /// Both engines in every build since IOS-POC-17E, so there is no availability to consult.
+    public init(globalDefault: PlaybackEngineKind) {
         globalDefaultEngine = globalDefault
-        currentSessionEngine = available.contains(globalDefault) ? globalDefault : .native
+        currentSessionEngine = globalDefault
     }
-
-    public func isAvailable(_ kind: PlaybackEngineKind) -> Bool { available.contains(kind) }
 
     /// A player opened from closed: the session starts from the global default.
     public mutating func startSession() {
-        sessionOverride = nil
-        currentSessionEngine = isAvailable(globalDefaultEngine) ? globalDefaultEngine : .native
+        currentSessionEngine = globalDefaultEngine
         fallbackSpent = false
     }
 
@@ -108,8 +85,7 @@ public struct PlaybackEngineSelection: Sendable, Equatable {
     /// The control bar's choice. Returns whether anything changed.
     @discardableResult
     public mutating func choose(_ kind: PlaybackEngineKind) -> Bool {
-        guard isAvailable(kind), kind != currentSessionEngine else { return false }
-        sessionOverride = kind
+        guard kind != currentSessionEngine else { return false }
         currentSessionEngine = kind
         fallbackSpent = false
         return true
@@ -119,7 +95,6 @@ public struct PlaybackEngineSelection: Sendable, Equatable {
     public mutating func fallback(after failure: PlaybackFailure) -> PlaybackEngineKind? {
         guard failure.allowsEngineFallback, !fallbackSpent else { return nil }
         let next = currentSessionEngine.other
-        guard isAvailable(next) else { return nil }
         fallbackSpent = true
         currentSessionEngine = next
         return next
@@ -127,7 +102,6 @@ public struct PlaybackEngineSelection: Sendable, Equatable {
 
     /// The player closed. The override goes with it; the next session starts from the default.
     public mutating func endSession() {
-        sessionOverride = nil
         fallbackSpent = false
     }
 
@@ -381,9 +355,9 @@ public final class PlayerRouter {
 
     private let makeEngine: (PlaybackEngineKind) -> PlaybackEngine
 
-    public init(globalDefault: PlaybackEngineKind, available: Set<PlaybackEngineKind>,
+    public init(globalDefault: PlaybackEngineKind,
                 makeEngine: @escaping (PlaybackEngineKind) -> PlaybackEngine) {
-        selection = PlaybackEngineSelection(globalDefault: globalDefault, available: available)
+        selection = PlaybackEngineSelection(globalDefault: globalDefault)
         self.makeEngine = makeEngine
     }
 

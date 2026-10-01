@@ -26,7 +26,7 @@
 | 13 | yagni | 引擎可用性判斷（兩個引擎一直都開放） | 22 | **已做** `8bfe875a` |
 | 14 | delete | 只有測試在用的 public 符號（`skipTargetMs` 等） | 21 | **部分已做** `1ea1c732`：刪 `CookieJar.all`／`clear`；`sessionOverride` 同 commit 刪除（寫入但從不讀）。保留 `skipTargetMs`、`plan(mediaPlaylist:)`、`PlayURL.isEmpty`（Android `Url.isEmpty` 語意）、`bundled(bundle:)`：都是測試切面，刪掉只是把同一行搬進測試 |
 | 15 | shrink | `WebHTVConfig` 的站台篩選 | 20 | **已做**（commit 2，部分）：刪掉和 `nativeCMSSites` 完全相同的 `supportedSites`、`isSupported` 與沒人呼叫的 `cspSpiderSites`；只有測試用的 `drpySpiderSites`、`spiderSites(resolvedBy:)` 保留 |
-| 16 | native | `CryptoHost` 的 CommonCrypto 雜湊與 HMAC → CryptoKit | 16 | **未做**（第二批剩餘） |
+| 16 | native | `CryptoHost` 的 CommonCrypto 雜湊與 HMAC → CryptoKit | 16 | **已做** `3fd68923`；AES／DES 仍走 `CCCrypt`，HMAC 補了已知向量測試 |
 | 17 | delete | `DrpyEngine.rule(at:)`、`notADrpyRule` | 16 | **已做** `8bfe875a` |
 | 18 | yagni | `HLSAdTimeline.resolve` 的 `direct:` 等參數與 `Variant.Kind` | 14 | 待決定：`resolve` 是 Android `MpvHlsProxy.resolveAdTimeline` 的移植，測試對應 `MpvHlsAdblockTest`；刪掉這兩個分支等於刻意跟 Android 分岔 |
 | 19 | yagni | release workflow 的 tag 推送觸發 | 13 | 待決定（使用者在 `5a488f7a` 刻意加回） |
@@ -45,11 +45,11 @@
 | 32 | delete | `AdBlockList.blocked`／`.inert` | 7 | **已做** `1ea1c732`；測試改為數 JSON 規則數 |
 | 33 | yagni | `capabilities.trackSelection`（兩個引擎都是 true） | 5 | **已做** `1ea1c732`；ponytail review 後 `PlaybackEngineCapabilities` 改成 `supportsAirPlay` |
 | 34 | shrink | `WatchHistory.reidentified` 重列 17 個欄位 | 5 | **已做** `f26ccae6`；`key` 改成 `public internal(set) var` |
-| 35 | stdlib | 手寫的 Duration 轉數字 | 5 | **未做**（第二批剩餘） |
+| 35 | stdlib | 手寫的 Duration 轉數字 | 5 | **已做** `3fd68923`；`/ .milliseconds(1)`、`/ .seconds(1)`，`HLSAdSkipper.seconds(_:)` 刪除 |
 | 36 | shrink | CI 的「Prepare CPython payload」步驟 | 4 | **不做**：這一步是必要的。沒有 module map 時，Xcode 在跑 Prepare Python phase 之前就先做模組相依掃描而失敗；2026-10-01 在原本的 HEAD 上重現過 |
-| 37 | yagni | `audit_spider_jars.py` 沒用到的常數與參數 | 4 | **未做**（第二批剩餘） |
+| 37 | yagni | `audit_spider_jars.py` 沒用到的常數與參數 | 4 | **已做**（第二批收尾 commit）：刪 `CATVOD_HELPERS`、`classify` 的 `jar_types`；review 後 `NATIVE_SUFFIXES` 內嵌 |
 | 38 | yagni | `SpiderPackManifest.Script` 沒人讀的欄位 | 4 | **已做** `1ea1c732` |
-| 39 | yagni | `spider_pack.py` 沒人傳的參數 | 3 | **未做**（第二批剩餘） |
+| 39 | yagni | `spider_pack.py` 沒人傳的參數 | 3 | **已做**（第二批收尾 commit）：刪 `--origins`、`--min-host-api`；review 後拿掉每支 script 的 `minHostApi` 鍵（已沒有來源） |
 | 40 | shrink | SHA-256 hex 同一行寫三次 → `DrpyEngine.digest` | 3 | **已做** `f26ccae6`；`SpiderPackStore.sha256` 刪除 |
 | — | yagni | `PlaybackEngineSelection.available`／`isAvailable` 與 router 的 `available:`（第 13 項之後 App 一律傳全部引擎） | 12＋測試 | **已做** `1ea1c732`；三條只測「只有原生」的測試一起刪除 |
 
@@ -65,9 +65,12 @@
 
 - **第二批 commit `1ea1c732`（2026-10-01）**：第 9、14（部分）、31、32、33、38 項與 `PlaybackEngineSelection.available`。`swift test` 616/616（刪掉 5 條只測被刪分支／API 的測試）；模擬器 Debug、generic iOS Release build 通過；真機未驗證。第一次 `finish` 被 guard 的 whitespace 檢查擋下（`SpiderRuntime.swift` 檔尾多一個空行），修正後才提交。
 
+- **第二批 commit B `3fd68923`（2026-10-01）**：第 16、35 項。先在舊的 CommonCrypto 程式上補 HMAC 已知向量（sha256／md5／sha1／空 key，原本的測試算了 HMAC 卻沒比對），確認是綠的才換成 CryptoKit。`swift test` 616/616；`xcodebuild -scheme WebHTVCore -destination generic/platform=iOS` 通過。這次沒有重跑整個 App 的模擬器 Debug／Release build（只動 `WebHTVCore`，package 的 iOS build 已涵蓋）。ponytail-review：沒有可刪的。真機未驗證。
+- **第二批 commit C（2026-10-01，第二批收尾）**：第 37、39 項與本文件。`py_compile` 通過；`spider_pack.py build` 新舊版產出的 pack（manifest 與 8 支 script）逐位元相同；`audit_spider_jars.classify` 與 `jar_inventory`（`.so`、改名的 ELF）用合成輸入實跑。ponytail-review 找到兩項並套用（內嵌 `NATIVE_SUFFIXES`、拿掉 `minHostApi` 鍵）。腳本沒有接上 CI，也沒有用真的 JAR 壓縮檔重跑 audit。
+
 ## 建議的下一批
 
-- 第二批剩下、不需要決定的：第 16（`CryptoHost` 改用 CryptoKit，要確認 JS 端 `__crypto.digest`／HMAC 輸出不變）、35（Duration 轉數字）、37（`audit_spider_jars.py`）、39（`spider_pack.py` 參數）項。
+- 第二批已全部做完（第 16、35、37、39 項見上一節）。剩下的都需要決定、升 ABI 或跑 CI。
 - 一次升 ABI 版本一起做：第 4、26 項（`python.host`）、第 6 項（`catvod.result`）。
 - 等使用者決定：第 1（連帶第 7）、11、18、19、28 項。
 - 要能跑 CI 才做：第 3、22、29、30 項。

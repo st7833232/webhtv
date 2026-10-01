@@ -42,11 +42,6 @@ DEPENDENCY_MARKERS = {
     "androidapi": ["Landroid/content/", "Landroid/os/", "Landroid/app/"],
 }
 
-# Shared CatVod helpers. A class using only these plus HTTP is a pure mapping job.
-CATVOD_HELPERS = ["Lcom/github/catvod/net/OkHttp;", "Lcom/github/catvod/util/", "Lcom/github/catvod/bean/"]
-
-NATIVE_SUFFIXES = (".so",)
-
 
 def uleb128(data: bytes, offset: int) -> tuple[int, int]:
     result = shift = 0
@@ -78,7 +73,7 @@ def jar_inventory(path: str) -> dict:
     with zipfile.ZipFile(path) as archive:
         names = archive.namelist()
         dex = [n for n in names if n.endswith(".dex")]
-        native = [n for n in names if n.endswith(NATIVE_SUFFIXES)]
+        native = [n for n in names if n.endswith(".so")]
         # A .so renamed to hide it still starts with the ELF magic.
         hidden_native = []
         for name in names:
@@ -119,7 +114,7 @@ def find_source(root: str | None, class_name: str) -> str | None:
     return None
 
 
-def classify(source: str | None, jar_types: set[str], native: bool) -> tuple[str, dict, list[str]]:
+def classify(source: str | None, native: bool) -> tuple[str, dict, list[str]]:
     """Return (category, per-class dependency flags, notes)."""
     notes: list[str] = []
     if source is None:
@@ -220,7 +215,7 @@ def main() -> None:
         native = bool(record.get("native") or record.get("hidden_native"))
         for class_name in record["classes"]:
             source = find_source(decompiled, class_name)
-            category, flags, notes = classify(source, jar_types, native)
+            category, flags, notes = classify(source, native)
             report["spiders"].append({
                 "class": class_name,
                 "jar": os.path.basename(jar),

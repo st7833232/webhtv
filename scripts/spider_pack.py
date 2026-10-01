@@ -23,8 +23,8 @@ HOST_API = 1
 NOT_PACKABLE = {"host.js", "drpy-bridge.js", "js-spider.js"}
 
 # Provenance for the ports this repository carries: which JAR each one was read from, that JAR's
-# SHA-256 at the time it was read, and any configured class name the script also serves. Used as the
-# default for `build --origins` and as the baseline for `fingerprint`. Recording a digest is not
+# SHA-256 at the time it was read, and any configured class name the script also serves. Written into
+# the manifest by `build` and the baseline for `fingerprint`. Recording a digest is not
 # unpacking anything: the JAR is a specification to read, never something to ship or execute.
 DEFAULT_ORIGINS = {
     "AppGet":   {"originJar": "river-fman.jar",
@@ -64,7 +64,6 @@ def build(args) -> int:
     scripts_dir = pathlib.Path(args.scripts)
     out = pathlib.Path(args.out)
     (out / "scripts").mkdir(parents=True, exist_ok=True)
-    known = json.loads(pathlib.Path(args.origins).read_text()) if args.origins else DEFAULT_ORIGINS
 
     entries = []
     for path in sorted(scripts_dir.glob("*.js")):
@@ -72,21 +71,21 @@ def build(args) -> int:
             continue
         body = path.read_bytes()
         name = path.stem
-        meta = known.get(name, {})
+        meta = DEFAULT_ORIGINS.get(name, {})
         entry = {
             "class": name,
             "path": f"./scripts/{name}.js",
             "sha256": sha256_bytes(body),
         }
-        for key in ("aliases", "originJar", "jarSha256", "minHostApi", "notes"):
+        for key in ("aliases", "originJar", "jarSha256", "notes"):
             if meta.get(key) is not None:
                 entry[key] = meta[key]
         entries.append(entry)
         shutil.copyfile(path, out / "scripts" / f"{name}.js")
 
-    manifest = {"schema": SCHEMA, "version": args.version, "minHostApi": args.min_host_api, "scripts": entries}
+    manifest = {"schema": SCHEMA, "version": args.version, "minHostApi": HOST_API, "scripts": entries}
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
-    print(f"{len(entries)} scripts -> {out/'manifest.json'} (version {args.version}, minHostApi {args.min_host_api})")
+    print(f"{len(entries)} scripts -> {out/'manifest.json'} (version {args.version}, minHostApi {HOST_API})")
     for entry in entries:
         print(f"  {entry['class']:<12} {entry['sha256'][:16]}… {entry.get('originJar', '-')}")
     return 0
@@ -162,8 +161,6 @@ def main() -> int:
     b.add_argument("--scripts", default="ios/Sources/WebHTVCore/Resources/Spiders")
     b.add_argument("--out", default="build/spider-pack")
     b.add_argument("--version", required=True)
-    b.add_argument("--min-host-api", type=int, default=HOST_API)
-    b.add_argument("--origins", help="JSON of per-class aliases/originJar/jarSha256/notes")
     b.set_defaults(func=build)
 
     v = sub.add_parser("verify")

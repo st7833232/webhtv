@@ -6,7 +6,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current handoff — 2026-10-01（先讀這一節，再讀文末 Resume Prompt；2026-09-30 那一節是前一次交接）
 
-**Git**：`ios-poc`，HEAD 是下表最上面那個 commit（ponytail audit 第二批收尾），與 `origin/ios-poc` 同步，工作區乾淨，沒有進行中的 task guard。接手時仍先 `git fetch`、`git log --oneline -10`、`git status`，以實際狀態為準。push 前一律 `git pull --no-rebase`。
+**Git**：`ios-poc`，HEAD 是 `53de9b61` 之後更新這份交接文件的 commit，與 `origin/ios-poc` 同步，工作區乾淨，沒有進行中的 task guard。接手時仍先 `git fetch`、`git log --oneline -10`、`git status`，以實際狀態為準。push 前一律 `git pull --no-rebase`。
 
 **最新發布仍是 `0.1.41 (42)`**（內容到 IOS-POC-36.1 `ea96268f`）。下列 2026-10-01 的 commit 都**還沒有發布**，真機都未驗證。
 
@@ -14,8 +14,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 | commit | 內容 | 驗證 |
 |---|---|---|
-| 第二批收尾（`3fd68923` 之後那個） | ponytail audit 第 37、39 項：`audit_spider_jars.py` 刪 `CATVOD_HELPERS`、`classify` 的 `jar_types`、內嵌 `NATIVE_SUFFIXES`；`spider_pack.py` 刪 `--origins`、`--min-host-api` 與每支 script 的 `minHostApi` 鍵；更新 audit 紀錄與本文件 | `py_compile`；`spider_pack.py build` 新舊產出逐位元相同；`classify`／`jar_inventory` 合成輸入實跑 |
-| `3fd68923` | ponytail audit 第 16、35 項：`CryptoHost` 雜湊與 HMAC 改用 CryptoKit（AES／DES 仍是 `CCCrypt`）、Duration 轉數字改用 `/ .milliseconds(1)`、`/ .seconds(1)`；HMAC 補已知向量測試（改之前在舊程式上先綠） | `swift test` 616/616；`WebHTVCore` generic iOS build（沒重跑整個 App 的兩個 build） |
+| `53de9b61` | ponytail audit 第 37、39 項：`audit_spider_jars.py` 刪 `CATVOD_HELPERS`、`classify` 的 `jar_types`、內嵌 `NATIVE_SUFFIXES`；`spider_pack.py` 刪 `--origins`、`--min-host-api` 與每支 script 的 `minHostApi` 鍵；更新 audit 紀錄與本文件 | `py_compile`；`spider_pack.py build` 新舊產出逐位元相同；`classify`／`jar_inventory` 合成輸入實跑；App 模擬器 Debug、generic iOS Release build 通過 |
+| `3fd68923` | ponytail audit 第 16、35 項：`CryptoHost` 雜湊與 HMAC 改用 CryptoKit（AES／DES 仍是 `CCCrypt`）、Duration 轉數字改用 `/ .milliseconds(1)`、`/ .seconds(1)`；HMAC 補已知向量測試（改之前在舊程式上先綠） | `swift test` 616/616；`WebHTVCore` generic iOS build；App 的兩個 build 在 `53de9b61` 補跑通過 |
 | `1ea1c732` | ponytail audit 第二批（部分）：刪 `SpiderPortability`／`Entry.portability`／`origin`、`PlaybackEngineSelection.available`／`isAvailable`／`sessionOverride`、`PlaybackEngineCapabilities` → `supportsAirPlay`、`CookieJar.all`／`clear`、`WatchHistoryStore.remove(key:)`／`clear()`、`AdBlockList.blocked`／`inert`、`SpiderPackManifest.Script` 的 provenance 欄位 | `swift test` 616/616；模擬器 Debug、generic iOS Release build |
 | `736023f8` | `MediaSniffer.isCandidate` 拿掉沒人用的參數 | `swift test` 621/621 |
 | `f26ccae6` | ponytail audit 第一批縮減（第 8、10、15、21、23、25、27、34、40 項） | `swift test` 621/621；兩個 build；模擬器實測（設定頁對話框、引擎選單、詳情頁開播、自動下一集、最後一集關閉） |
@@ -40,7 +40,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - 要能跑 CI 才做：第 3、22、29、30 項。第 36 項確定不做（CI 的 Prepare CPython payload 是必要的）。
 - 發布：2026-10-01 的 commit 都還沒發布；要發版需使用者授權（不要自己 bump／tag／release）。
 
-**Build / Test / Verification Status**：`3fd68923` 時 `swift test --package-path ios` 616/616、`WebHTVCore` generic iOS build 通過；之後的收尾 commit 只動 Python 腳本與文件。整個 App 的 build 最後一次是在 `1ea1c732`：模擬器 Debug build（`platform=iOS Simulator,id=05934376-5757-40E5-9FAF-202594565656`）與 generic iOS 不簽章 Release build（`CODE_SIGNING_ALLOWED=NO EXPANDED_CODE_SIGN_IDENTITY=-`）通過。真機：本 session 所有改動都未驗證。模擬器 `05934376`（iPhone 17 Pro Max、iOS 26.3）開機中，App 的設定指向 `http://127.0.0.1:8766/config.json`（36C 的本機測試 server；要用就把 `scripts/ios_adskip_sim/server.py` 複製到 scratchpad、改 `PORT = 8766` 後執行）。
+**Build / Test / Verification Status（`53de9b61`）**：`swift test --package-path ios` 616/616（在 `3fd68923` 跑，之後只動 Python 腳本與文件）；`53de9b61` 上整個 App 的模擬器 Debug build（`platform=iOS Simulator,id=05934376-5757-40E5-9FAF-202594565656`）與 generic iOS 不簽章 Release build（`CODE_SIGNING_ALLOWED=NO EXPANDED_CODE_SIGN_IDENTITY=-`）通過。真機：本 session 所有改動都未驗證。模擬器 `05934376`（iPhone 17 Pro Max、iOS 26.3）開機中，App 的設定指向 `http://127.0.0.1:8766/config.json`（36C 的本機測試 server；要用就把 `scripts/ios_adskip_sim/server.py` 複製到 scratchpad、改 `PORT = 8766` 後執行）。
 
 **Risks**
 - 36.2（PL-14）只有決策單元測試與 build；AVKit 按 ✕ 的事件順序、MPV PiP 後 reload 的畫面，都要真機看 `[pip]`／`[lifecycle]` log。

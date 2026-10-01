@@ -894,9 +894,43 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第四十五次發布：`0.1.44 (45)`（2026-10-01，**已發布**）
+## 第四十六次發布：`0.1.45 (46)`（2026-10-01，**已發布**）
 
-**目前最新版是 `0.1.44 (45)`。** 前面四十四版都已被取代。
+**目前最新版是 `0.1.45 (46)`。** 前面四十五版都已被取代。
+
+- 授權：使用者 2026-10-01 指示「發佈版本」（IOS-POC-32 D push 之後；同一輪先問過是否新增只編譯的 workflow，使用者選擇直接發布）。版號 `0.1.45`，build `46`。
+- 內容：`0.1.44 (45)` 的全部，加上 IOS-POC-32 D（`b6c9185e`：iOS 18 以上在裝置上把日文片名與簡介翻成繁體中文，設定「日文翻譯」預設關）；其餘是 `0.1.44 (45)` 的 `source.json` 與紀錄（`58d8d703`、`9fe0c925`）。
+- 發布序列：
+  1. 版號 commit `715b7731`（Task-Guard `IOS-RELEASE-0.1.45-b46`，兩個 build configuration 的 `MARKETING_VERSION`／`CURRENT_PROJECT_VERSION`，沒有其他行變動）。
+  2. push `b6c9185e..715b7731`（push 前先 pull merge，遠端沒有新 commit）。
+  3. GitHub MCP `actions_run_trigger` `run_workflow` `ios-sidestore-release.yml` ref `ios-poc`，`version=0.1.45`、`build_number=46`、`release_notes=…` → run `36896587110`（conclusion success，2026-10-01 17:03:41Z → 17:10:06Z；未逐一檢查各步驟）。
+  4. workflow 建立 tag `ios-v0.1.45-b46`（target `715b7731`），並推回 `source.json`（`b8c857a3`，共四十六筆，第一筆 `0.1.45`，size 29,326,100 與 IPA 相同）。本機以 pull merge fast-forward 到 `b8c857a3`。
+
+  **沒有手動建 tag。**
+- 產物：GitHub Release `WebHTV 0.1.45 (46)`（不是 draft／prerelease，2026-10-01 17:09:55Z 發布），`WebHTV-0.1.45-46.ipa` **29,326,100 bytes**、狀態 uploaded，GitHub 記錄的 digest SHA-256
+  `6ec4e25ea16e40bc3c6a0d810ddc5af39fcac30ea17c771a4b22f77200684468`。**IPA 已下載**（GET 200，29,326,100 bytes，SHA-256 與 digest 相同），以 Python 解析 `WebHTVApp` 的 Mach-O：`minos 17.0`、`sdk 26.5`；`Translation.framework` 與 `_Translation_SwiftUI.framework` 都是 `LC_LOAD_WEAK_DYLIB`（IOS-POC-32 第七節之 2 第 6 點、之 3 第 6 點通過）。
+- 發布前驗證：**沒有**。本環境是 Linux、沒有 Swift toolchain，IOS-POC-32 D 沒有在本機編譯、`swift test` 沒有執行；Release device build 由本次 workflow 第一次編譯，第一次即成功。**真機尚未驗收**（清單：IOS-POC-32 第七節之 3；IOS-POC-40 第四節；IOS-POC-36 第十六節之 8 與第十七節之 8）。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.45 (46)（新增日文片名與簡介翻譯；發布前沒有編譯與自動測試，真機未驗收）
+
+新功能
+- 日文翻譯（iOS 18 以上）：設定頁「日文翻譯」可選關、詢問、自動，預設為關。開啟後，詳情頁的日文片名與簡介可以翻成繁體中文，翻譯在手機上進行，文字不會送出。
+  - 詢問：標題下方顯示「翻譯成中文」按鈕；第一次使用會出現系統的語言下載提示。
+  - 自動：語言已下載時直接翻譯；未下載時一樣顯示按鈕。
+  - 譯文旁標「機器翻譯」，可切換「顯示原文」。翻譯失敗時保留原文，可重試。
+  - 中文片名配日文簡介時只翻簡介；演員、導演不翻。
+
+已知限制
+- 此版發布前沒有執行自動測試，也沒有模擬器或真機驗收；這一版由發布流程第一次編譯。
+- 假名很少的日文片名（例如「進撃の巨人」）不會被判斷為日文，因此不會出現翻譯按鈕。
+- iOS 17 沒有這個功能，設定頁也不顯示。
+- 其餘同 0.1.44 (45)。
+```
+
+## 第四十五次發布：`0.1.44 (45)`（2026-10-01，**已發布**，已被 `0.1.45 (46)` 取代）
 
 - 授權：使用者 2026-10-01 指示「你先push並發佈版本」（IOS-POC-40 commit 之後）。版號 `0.1.44`，build `45`。
 - 內容：`0.1.43 (44)` 的全部，加上 IOS-POC-40（`da10fe87`：spider 站集數值不是網址時，例如金牌系列的 `id@@nid`，詳情頁的集數與「立即播放」可以點選）；其餘是 `0.1.43 (44)` 的 `source.json` 與紀錄（`fd10a7a0`、`f0c2f3f9`）與 README（`277d4ac7`）。

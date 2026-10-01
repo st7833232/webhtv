@@ -438,7 +438,9 @@ final class MPVPlayerCore: @unchecked Sendable {
         mpv_set_option_string(handle, "gpu-api", "vulkan")
         mpv_set_option_string(handle, "gpu-context", "moltenvk")
         // The simulator has no VideoToolbox, and `auto-safe` does not fall back there (9C); on a
-        // device it picks VideoToolbox. ponytail: the device cell of this is still unmeasured.
+        // device it picks VideoToolbox. ponytail: the device cell of this is still unmeasured;
+        // read `hwdec-current` on a device (MPV parity P1) and pin the decoder if `auto-safe`
+        // ends up in software.
         #if targetEnvironment(simulator)
         mpv_set_option_string(handle, "hwdec", "no")
         #else
@@ -1068,6 +1070,7 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
             forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in MainActor.assumeIsolated { self?.appWillResignActive() } })
         // ponytail: a half-second poll of the engine's state; PiP only needs to hear of a change.
+        // Report it from mpv's property events instead if the window's play state visibly lags.
         tick = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 do {

@@ -381,6 +381,7 @@ var spider = (function () {
       var arrayRule = text('分类数组');
       spec = '';
       // ponytail: a `//` rule is XPath and the automatic guess needs XPath too; neither is ported.
+      // Port XPath for both once a configured site writes its category array that way.
       if (arrayRule.indexOf('&&') !== -1 && arrayRule.indexOf('//') !== 0) {
         var html = compact(fetch(homeUrl()));
         var narrowed = text('分类二次截取') ? cut1(html, text('分类二次截取')) : '';
@@ -602,6 +603,8 @@ var spider = (function () {
      * search keys; without it the page goes through the listing, as the original hands it to `A()`.
      * ponytail: not ported — `搜索模式`, `搜索前`+`搜索后缀` concatenation, POST bodies, and the
      * original's fallback of filtering home and category pages by title when a site has no address.
+     * `搜索模式` waits on the user's decision (IOS-POC-39 S5 item 3); the rest, once a configured
+     * site needs one of them.
      */
     searchContent: function (key, quick, page) {
       var aliases = ['搜索url', '搜索链接', '搜索前', 'sousuoqian', 'search_url', 'searchUrl'];

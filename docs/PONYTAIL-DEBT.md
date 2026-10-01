@@ -4,17 +4,18 @@
 - 範圍：程式與腳本裡的 `ponytail:` 註記（`ios/Sources`、`ios/WebHTVApp/Sources`、`ios/WebHTVApp/Python`、`scripts`）；不含 `docs/`、`.codex/` 的 patch 與紀錄、`ios/Vendor`，也不含 `AGENTS.md` 裡說明慣例的文字。
 - 慣例：`ponytail: <上限>, <升級路徑>`（全域 `CLAUDE.md`：刻意的簡化或暫時方案要寫明限制與升級路徑）。
 - 結果：**27 處，7 處沒寫升級條件（`no-trigger`）**，其中 3 處是刻意的取捨、4 處有被遺忘的風險；另有 1 處升級條件已經達成、註解過時。
-- 這份清單只記錄現況，沒有改任何程式。重新產生：再跑一次 `ponytail:ponytail-debt`，或 `grep -rn 'ponytail:' ios/Sources ios/WebHTVApp/Sources ios/WebHTVApp/Python scripts`。行號以掃描當時為準。
+- 同日更新：那 4 處已補上升級條件（`XBPQ.js` 兩處、`MPVEngine.swift` 兩處），現在 **27 處，3 處 `no-trigger`，3 處都是刻意的取捨**。`spider.py:26` 還沒改，原因見下表。下面的行號已同步到補註解之後。
+- 清單本身不改程式。重新產生：再跑一次 `ponytail:ponytail-debt`，或 `grep -rn 'ponytail:' ios/Sources ios/WebHTVApp/Sources ios/WebHTVApp/Python scripts`。行號以掃描當時為準。
 
 ## 需要處理的
 
 | 項目 | 狀態 | 建議 |
 |---|---|---|
-| `ios/WebHTVApp/Python/base/spider.py:26` | **升級條件已經達成**：IOS-POC-7P 已經打包真正的 `requests`（`scripts/fetch_python_ios.sh:103-130`），`spider.py:73` 會優先 import 它，`_Response` 只剩找不到 `requests` 時的備援 | 改寫註解，說明它現在是備援 |
-| `ios/Sources/WebHTVCore/Resources/Spiders/XBPQ.js:383` | `no-trigger` | 補上「有設定的站用 XPath 寫分類時」 |
-| `ios/Sources/WebHTVCore/Resources/Spiders/XBPQ.js:603` | `no-trigger`；`搜索模式` 由 IOS-POC-39 S5 第 3 項追蹤，等使用者決定 | 補上觸發條件，或指向 IOS-POC-39 |
-| `ios/WebHTVApp/Sources/MPVEngine.swift:441` | `no-trigger`；實際上是等實機量測 | 補上「實機量過 `hwdec` 之後」 |
-| `ios/WebHTVApp/Sources/MPVEngine.swift:1070` | `no-trigger` | 補上「子母畫面狀態晚 0.5 秒有可見問題時，改用引擎事件」 |
+| `ios/WebHTVApp/Python/base/spider.py:26` | **升級條件已經達成**：IOS-POC-7P 已經打包真正的 `requests`（`scripts/fetch_python_ios.sh:103-130`），`spider.py:73` 會優先 import 它，`_Response` 只剩找不到 `requests` 時的備援。**尚未改**：`spider.py` 屬於凍結的 `python.host` runtime ABI，`RuntimeABITests` 對它的每個 byte 做指紋，連 docstring 改動都要把 `python.host` 從 1.5 升到 1.6；為了一段註解升 ABI 版本不划算，試改後已還原 | 下次因為其他原因升 `python.host` 時一起改寫成「只剩備援」 |
+| `ios/Sources/WebHTVCore/Resources/Spiders/XBPQ.js:383` | 已補：有設定的站用 XPath 寫分類陣列時，兩者一起移植 XPath | — |
+| `ios/Sources/WebHTVCore/Resources/Spiders/XBPQ.js:604` | 已補：`搜索模式` 等使用者決定（IOS-POC-39 S5 第 3 項），其餘等有設定的站需要時 | — |
+| `ios/WebHTVApp/Sources/MPVEngine.swift:441` | 已補：實機讀 `hwdec-current`（MPV parity P1），`auto-safe` 落到軟體解碼就固定解碼器 | — |
+| `ios/WebHTVApp/Sources/MPVEngine.swift:1072` | 已補：子母畫面的播放狀態有看得出的延遲時，改用 mpv 的屬性事件回報 | — |
 
 ## 全部註記
 
@@ -33,19 +34,19 @@
 | `Resources/Spiders/XBPQ.js:71` | 部分規則語法沒移植（數字切片 `3&&-2`、`$$`、`整页`、`url:`、含序號、Base64／urlDecode） | 用到這些語法的站解析失敗 | 有設定的站用到時（註解沒明寫，是推斷） |
 | `Resources/Spiders/XBPQ.js:220` | 只解碼 `%xx`，不像 Java 的 URLDecoder 把 `+` 轉成空白 | 用 `+` 代表空白的值會留著 `+` | `no-trigger`（刻意的取捨：轉了會弄壞有簽章的串流網址） |
 | `Resources/Spiders/XBPQ.js:290` | 原版的自動集數規則沒移植 | 沒設 `播放数组` 的站只讀蘋果 CMS 樣板 | 有設定的站需要時（註解沒明寫，是推斷；IOS-POC-39 第 6.3 節） |
-| `Resources/Spiders/XBPQ.js:383` | `//` 開頭的分類規則（XPath）和自動猜測都沒移植 | 用 XPath 寫分類的站拿不到分類 | `no-trigger` |
-| `Resources/Spiders/XBPQ.js:513` | `//` 開頭的陣列規則（XPath）沒移植 | 這類站片單是空的 | 有設定的站用到時（註解沒明寫，是推斷） |
-| `Resources/Spiders/XBPQ.js:603` | 搜尋的部分功能沒移植（`搜索模式`、`搜索前`＋`搜索后缀`、POST、沒有搜尋網址時用片名過濾首頁） | 這類站搜不到 | `no-trigger`（`搜索模式` 由 IOS-POC-39 S5 第 3 項追蹤） |
+| `Resources/Spiders/XBPQ.js:383` | `//` 開頭的分類規則（XPath）和自動猜測都沒移植 | 用 XPath 寫分類的站拿不到分類 | 有設定的站用 XPath 寫分類陣列時，兩者一起移植 XPath |
+| `Resources/Spiders/XBPQ.js:514` | `//` 開頭的陣列規則（XPath）沒移植 | 這類站片單是空的 | 有設定的站用到時（註解沒明寫，是推斷） |
+| `Resources/Spiders/XBPQ.js:604` | 搜尋的部分功能沒移植（`搜索模式`、`搜索前`＋`搜索后缀`、POST、沒有搜尋網址時用片名過濾首頁） | 這類站搜不到 | `搜索模式` 等使用者決定（IOS-POC-39 S5 第 3 項）；其餘等有設定的站需要時 |
 
 ### ios/WebHTVApp/Sources/
 
 | 位置 | 簡化了什麼 | 上限 | 升級條件 |
 |---|---|---|---|
-| `MPVEngine.swift:441` | 實機上 `hwdec=auto-safe` 的效果沒量過 | 不知道實機硬體解碼的實際表現 | `no-trigger`（實際上就是等實機量測） |
-| `MPVEngine.swift:786` | 子母畫面的軟體輸出寬度固定上限 1280 px | 所有裝置用同一個 CPU 上限 | MPV parity P1 量過各裝置之後 |
-| `MPVEngine.swift:1016` | 進出子母畫面都要重建 mpv 的影像輸出 | 進去和回來各會短暫卡一下 | libmpv 在 iOS 有能同時畫 App 內和背景的輸出時 |
-| `MPVEngine.swift:1038` | 回前景後固定等 300 ms 才決定要不要自己結束子母畫面 | 猜錯 iOS 的事件順序會閃一下或晚結束 | 用實機的 `[pip]` log 量出真正的間隔再定這個值 |
-| `MPVEngine.swift:1070` | 每 0.5 秒輪詢一次引擎狀態，同步給子母畫面 | 子母畫面的狀態最多晚 0.5 秒 | `no-trigger` |
+| `MPVEngine.swift:441` | 實機上 `hwdec=auto-safe` 的效果沒量過 | 不知道實機硬體解碼的實際表現 | 實機讀 `hwdec-current`（MPV parity P1），`auto-safe` 落到軟體解碼就固定解碼器 |
+| `MPVEngine.swift:788` | 子母畫面的軟體輸出寬度固定上限 1280 px | 所有裝置用同一個 CPU 上限 | MPV parity P1 量過各裝置之後 |
+| `MPVEngine.swift:1018` | 進出子母畫面都要重建 mpv 的影像輸出 | 進去和回來各會短暫卡一下 | libmpv 在 iOS 有能同時畫 App 內和背景的輸出時 |
+| `MPVEngine.swift:1040` | 回前景後固定等 300 ms 才決定要不要自己結束子母畫面 | 猜錯 iOS 的事件順序會閃一下或晚結束 | 用實機的 `[pip]` log 量出真正的間隔再定這個值 |
+| `MPVEngine.swift:1072` | 每 0.5 秒輪詢一次引擎狀態，同步給子母畫面 | 子母畫面的狀態最多晚 0.5 秒 | 子母畫面的播放狀態有看得出的延遲時，改用 mpv 的屬性事件回報 |
 | `PythonBoot.swift:91` | 用環境變數 `PYTHONHOME` 而不是 `PyConfig` 設定 Python | 沒有隔離設定，也不能控制 argv | 真的需要隔離或 argv 時改用 `PyConfig_InitIsolatedConfig` |
 | `WebHTVApp.swift:2816` | 觀看記錄每 5 秒整個檔案重寫一次 | 記錄到幾百筆以內沒問題 | 檔案大到有影響時，改成合併寫入，或只在暫停／進背景時寫 |
 | `WebHTVApp.swift:3054` | 片尾偵測靠每 5 秒一次的取樣 | 片尾最多會多播 5 秒才跳 | 這點延遲值得處理時，改用每秒的 time observer 或 `forwardPlaybackEndTime` |
@@ -57,5 +58,5 @@
 
 | 位置 | 簡化了什麼 | 上限 | 升級條件 |
 |---|---|---|---|
-| `spider.py:26` | 用 urllib 寫的 `requests` 替身（`_Response`） | 原本是 31 個腳本裡 23 個要真正的 `requests` | 把真正的 `requests` 放上 `sys.path`——**已經達成**（IOS-POC-7P），註解過時 |
+| `spider.py:26` | 用 urllib 寫的 `requests` 替身（`_Response`） | 原本是 31 個腳本裡 23 個要真正的 `requests` | 把真正的 `requests` 放上 `sys.path`——**已經達成**（IOS-POC-7P），註解過時；改它要升 `python.host` ABI，留待下次升版一起改 |
 | `spider.py:187` | Python 腳本的快取不跟 JS 腳本的 `SpiderStorage` 共用 | 兩邊的狀態不同步 | 兩邊需要互相對得上時，做 Swift 到 Python 的橋接 |

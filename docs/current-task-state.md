@@ -6,7 +6,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current handoff — 2026-10-01（先讀這一節，再讀文末 Resume Prompt；2026-09-30 那一節是前一次交接）
 
-**Git**：`ios-poc`，HEAD 是 `53de9b61` 之後更新這份交接文件的 commit，與 `origin/ios-poc` 同步，工作區乾淨，沒有進行中的 task guard。接手時仍先 `git fetch`、`git log --oneline -10`、`git status`，以實際狀態為準。push 前一律 `git pull --no-rebase`。
+**Git**：`ios-poc`，HEAD 是 `854b6aeb` 之後的交接 commit（`docs(ios): hand off after ponytail audit batch 2`），工作區乾淨，沒有進行中的 task guard。`854b6aeb` 以前都已 push；交接 commit 本身是否已 push，看 `git status -sb`。接手時仍先 `git fetch`、`git log --oneline -10`、`git status`，以實際狀態為準。push 前一律 `git pull --no-rebase`。
 
 **最新發布仍是 `0.1.41 (42)`**（內容到 IOS-POC-36.1 `ea96268f`）。下列 2026-10-01 的 commit 都**還沒有發布**，真機都未驗證。
 
@@ -14,6 +14,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 | commit | 內容 | 驗證 |
 |---|---|---|
+| `854b6aeb` | 文件：記下 `53de9b61` 上 App 的模擬器 Debug、generic iOS Release build 通過 | 文件 |
 | `53de9b61` | ponytail audit 第 37、39 項：`audit_spider_jars.py` 刪 `CATVOD_HELPERS`、`classify` 的 `jar_types`、內嵌 `NATIVE_SUFFIXES`；`spider_pack.py` 刪 `--origins`、`--min-host-api` 與每支 script 的 `minHostApi` 鍵；更新 audit 紀錄與本文件 | `py_compile`；`spider_pack.py build` 新舊產出逐位元相同；`classify`／`jar_inventory` 合成輸入實跑；App 模擬器 Debug、generic iOS Release build 通過 |
 | `3fd68923` | ponytail audit 第 16、35 項：`CryptoHost` 雜湊與 HMAC 改用 CryptoKit（AES／DES 仍是 `CCCrypt`）、Duration 轉數字改用 `/ .milliseconds(1)`、`/ .seconds(1)`；HMAC 補已知向量測試（改之前在舊程式上先綠） | `swift test` 616/616；`WebHTVCore` generic iOS build；App 的兩個 build 在 `53de9b61` 補跑通過 |
 | `1ea1c732` | ponytail audit 第二批（部分）：刪 `SpiderPortability`／`Entry.portability`／`origin`、`PlaybackEngineSelection.available`／`isAvailable`／`sessionOverride`、`PlaybackEngineCapabilities` → `supportsAirPlay`、`CookieJar.all`／`clear`、`WatchHistoryStore.remove(key:)`／`clear()`、`AdBlockList.blocked`／`inert`、`SpiderPackManifest.Script` 的 provenance 欄位 | `swift test` 616/616；模擬器 Debug、generic iOS Release build |
@@ -48,6 +49,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - 冷啟動（沒有 module map）的第一次 Xcode build 會失敗一次，是既有行為，第二次就好。
 
 **真機待驗**：`docs/IOS-POC-36-playback-acceptance-stability.md` 第十節第 1～14 項可在 `0.1.41 (42)` 驗；第 15 項（PL-14）要等含 `fc4a3282` 的下一版。
+
+**Next Recommended Step**：沒有不需要使用者決定就能做的工作了。新 session 先等使用者三選一：(a) 決定 ponytail audit 第 1／7、11、18、19、28 項（細節在 `docs/PONYTAIL-AUDIT-2026-10-01.md`）；(b) 授權發下一版（內容從 `fc4a3282` 到目前 HEAD，含 PL-14 與 audit 兩批），讓 PL-14 與 audit 改動能上真機——bump／tag／release 都要先問；(c) 回報 `0.1.41 (42)` 的真機結果。
 
 ## Current handoff — 2026-09-30（前一次交接）
 
@@ -1353,12 +1356,12 @@ release version**.
 
 Paste this into a new session:
 
-> 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -6`、`git status`，以實際 Git 狀態為準、不要相信文件裡的 SHA。依 `AGENTS.md` 先讀 `AGENTS.md`、`docs/current-task-state.md` 最上方「Current handoff — 2026-09-30」一節（先看其中的「交接快照」）。
+> 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -10`、`git status`，以實際 Git 狀態為準、不要相信文件裡的 SHA。依 `AGENTS.md` 先讀 `AGENTS.md`，再讀 `docs/current-task-state.md` 最上方「Current handoff — 2026-10-01」一節（「Current handoff — 2026-09-30」是前一次交接，需要時再看）。
 >
-> **先讀 `docs/current-task-state.md` 最上方「Current handoff — 2026-10-01」**：2026-10-01 的 IOS-POC-36.2（PL-14）與 ponytail audit 第一批、第二批（含第 16、35、37、39 項）都已 push、未發布、真機未驗證；audit 剩下的只有等我決定（第 1／7、11、18、19、28 項）、要升 ABI（第 4、6、26 項）、要跑 CI（第 3、22、29、30 項）的（`docs/PONYTAIL-AUDIT-2026-10-01.md`），沒有我的指示不要做；環境有 Ponytail 就一定要對最終 diff 執行 `ponytail:ponytail-review`（`AGENTS.md` §4）。
+> **「Current handoff — 2026-10-01」重點**：HEAD 在 `854b6aeb` 之後的交接 commit；2026-10-01 的 IOS-POC-36.2（PL-14）與 ponytail audit 第一批、第二批（含第 16、35、37、39 項）都已 push、未發布、真機未驗證；audit 剩下的只有等我決定（第 1／7、11、18、19、28 項）、要升 ABI（第 4、6、26 項）、要跑 CI（第 3、22、29、30 項）的（`docs/PONYTAIL-AUDIT-2026-10-01.md`），沒有我的指示不要做；環境有 Ponytail 就一定要對最終 diff 執行 `ponytail:ponytail-review`（`AGENTS.md` §4）。
 >
 > 目前狀態：最新已發布版本是 `0.1.41 (42)`（2026-09-30，tag `ios-v0.1.41-b42` → `46c0d36d`），帶入 IOS-POC-36.1（loop 一次交接、驗收矩陣稽核）；`0.1.40 (41)`（tag `ios-v0.1.40-b41` → `25714bee`）帶入 IOS-POC-39 S5 第 1、2 項（XBPQ 搜尋）；`0.1.39 (40)`（tag `ios-v0.1.39-b40` → `4b93443a`）帶入 IOS-POC-39 S1～S4（XBPQ 規則引擎）與 IOS-POC-36（播放器 D1～D7）；`0.1.38 (39)` 帶入 IOS-POC-37.3.1（標準 `Spider()` 建構語意、`python.host` 1.5）；`0.1.37 (38)` 帶入 IOS-POC-37.3（constructor 內 cache、native stamp 納入 toolchain identity、`python.host` 1.4）；兩份設定檔的逐站可用性在 `docs/SITE-AVAILABILITY-2026-09-30.md`；IOS-POC-36（播放器驗收矩陣與 D1～D7 修正）已隨 `0.1.39 (40)` 發布，真機清單見 `docs/IOS-POC-36-playback-acceptance-stability.md`；`0.1.36 (37)` 帶入 IOS-POC-17H-4（MPV 子母畫面進入／放回修正）；`0.1.35 (36)` 帶入 IOS-POC-37.2（stdlib `ssl` 信任 certifi）；`0.1.34 (35)` 帶入 IOS-POC-37.1；`0.1.33 (34)` 帶入 IOS-POC-37（Python 依賴擴充，見 `docs/IOS-POC-37-python-runtime-dependency-expansion.md`）；`0.1.25 (26)`～`0.1.35 (36)` 帶入 IOS-POC-27～35、37、25-4／25-5 與 17H-2／17H-3，都還沒有真機驗收。IOS-POC-12 已完成（2026-09-29，未發布，App 行為沒變），IOS-POC-13 未開始。IOS-POC-32 D 等我核准（還缺：是否開始、iOS 17 的做法、是否固定 `.lowLatency`）；IOS-POC-27C 等我回報原生開不了時畫面顯示的原因；IOS-POC-34 已結案（我改了 GitLab `recha` 的 `py/kkys.py`）。遠端只剩 `main` 與 `ios-poc`。其餘各版的內容與真機結果見 Current handoff 的表格，各任務狀態見「任務狀態」。
 >
-> 下一步：等我在 `0.1.41 (42)` 上真機回報——IOS-POC-36 第十節的 15 項（填回該文件第四節；第 15 項要等含 36.2 的下一版，36.2 已 commit 未發布）、幾個 XBPQ 站能否播放與搜尋（填進 IOS-POC-39 第六節），以及 Current handoff「下一步」列的較早項目。IOS-POC-39（`docs/IOS-POC-39-xbpq-rule-coverage.md` 的 Recovery anchor）S1～S4 與 S5 第 1、2 項都已發布，只剩 S5 第 3 項 `搜索模式` 等我決定，第 4 項不做；我沒核准前不改 `XBPQ.js`。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13（已實作後依我的決定撤銷）。
+> 下一步：沒有不需要我決定的工作。等我三選一——決定 ponytail audit 第 1／7、11、18、19、28 項；授權發下一版（`fc4a3282` 到 HEAD，含 PL-14 與 audit 兩批，都還沒發布）；或在 `0.1.41 (42)` 上真機回報——IOS-POC-36 第十節的 15 項（填回該文件第四節；第 15 項要等含 36.2 的下一版，36.2 已 commit 未發布）、幾個 XBPQ 站能否播放與搜尋（填進 IOS-POC-39 第六節），以及 Current handoff「下一步」列的較早項目。IOS-POC-39（`docs/IOS-POC-39-xbpq-rule-coverage.md` 的 Recovery anchor）S1～S4 與 S5 第 1、2 項都已發布，只剩 S5 第 3 項 `搜索模式` 等我決定，第 4 項不做；我沒核准前不改 `XBPQ.js`。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13（已實作後依我的決定撤銷）。
 >
 > 規則：Ponytail 只要環境有就一定要執行——每個程式修改在回報完成前，對最終 diff 跑 `ponytail:ponytail-review`，結果記進任務文件；只有環境沒有時才略過，不得因此阻擋功能修改、驗證、commit、build 或後續工作，也不得假稱已執行，或把可用的記成略過。功能修改仍須 `bash .codex/scripts/task_guard.sh start`，結束用 `finish --no-tag`。push 到 `ios-poc` 已授權，**push 前先 `git pull --no-rebase` merge**（同一個工作目錄可能有另一個 session 也在 commit）；bump 版本、tag、package、publish 或發 SideStore release 前要先問我。不要直接安裝到我的 iPhone（我用 SideStore）。真機沒測到的一律寫「未驗證」。雲端工作階段沒有 Swift／Xcode，編譯靠發版 workflow，單元測試照常撰寫但不執行（我選的「只靠編譯與真機」）。只 push 到 `ios-poc`，不建立新的遠端分支，也不 merge 到 `main`。

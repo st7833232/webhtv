@@ -585,3 +585,24 @@ private func watched(_ vodId: String, on sourceID: String?) -> WatchHistory {
         #expect(merged.vodRemarks == "第5集")
     }
 }
+
+/// IOS-POC-36.3: moving a record to its site's new identity changes the key and nothing else — every
+/// one of the other sixteen fields comes along (ponytail audit item 34 made it a copy instead of a
+/// re-listing of the initializer's arguments).
+@Test func reidentifyingARecordChangesItsKeyAndNothingElse() throws {
+    let original = WatchHistory(key: WatchHistory.key(siteID: "old", vodId: "v1"), siteKey: "s",
+                                siteName: "站", sourceID: "config", vodId: "v1", vodName: "片",
+                                vodPic: "https://p/1.jpg", vodFlag: "線路2", vodRemarks: "EP08",
+                                episodeUrl: "https://e/8", quality: "1080p", position: 172_000,
+                                duration: 2_780_000, createTime: 1_790_000_000, opening: 90_000,
+                                ending: 60_000, hiddenFrom: ["other"])
+    let moved = original.reidentified(to: "new")
+    #expect(moved.key == WatchHistory.key(siteID: "new", vodId: "v1"))
+    func fields(_ record: WatchHistory) throws -> NSDictionary {
+        let all = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as? [String: Any])
+        return all.filter { $0.key != "key" } as NSDictionary
+    }
+    let kept = try fields(original)
+    #expect(kept.count == 16)
+    #expect(try fields(moved) == kept)
+}

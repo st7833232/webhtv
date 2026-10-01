@@ -68,6 +68,21 @@
 - **第二批 commit B `3fd68923`（2026-10-01）**：第 16、35 項。先在舊的 CommonCrypto 程式上補 HMAC 已知向量（sha256／md5／sha1／空 key，原本的測試算了 HMAC 卻沒比對），確認是綠的才換成 CryptoKit。`swift test` 616/616；`xcodebuild -scheme WebHTVCore -destination generic/platform=iOS` 通過。整個 App 的模擬器 Debug、generic iOS Release build 之後在 `53de9b61` 補跑通過，改到的三個檔沒有 warning。ponytail-review：沒有可刪的。真機未驗證。
 - **第二批 commit C `53de9b61`（2026-10-01，第二批收尾）**：第 37、39 項與本文件。`py_compile` 通過；`spider_pack.py build` 新舊版產出的 pack（manifest 與 8 支 script）逐位元相同；`audit_spider_jars.classify` 與 `jar_inventory`（`.so`、改名的 ELF）用合成輸入實跑。ponytail-review 找到兩項並套用（內嵌 `NATIVE_SUFFIXES`、拿掉 `minHostApi` 鍵）。腳本沒有接上 CI，也沒有用真的 JAR 壓縮檔重跑 audit。
 
+## RC 驗收（2026-10-01，IOS-POC-36.3）
+
+兩批改動在未發布範圍的 release-candidate 驗收中逐項回查，細節在 `docs/IOS-POC-36-playback-acceptance-stability.md` 第十六節：
+
+- 第 2、5、12 項：被刪的三者只在 `#if DEBUG` 或 Debug 選單，repo 已無參照，production 路徑不受影響。
+- 第 8 項：WebHome 原地換片在模擬器上實測（暫時的 harness，未 commit）——不會關掉再重開、B 從頭播、播完關閉；同時找到 **D10**（兩個核心都失敗後原地開的下一個 item 仍顯示上一個的失敗訊息），根因在 `PlayerView` 只在換核心時清訊息，下一集／上一集從 IOS-POC-35 起就有，WebHome 路徑由第 8 項帶出；`2244dd3a` 修正並重驗。
+- 第 10 項：新測試涵蓋 MacCMS 全部欄位，refactor 前的 decoder 也通過。
+- 第 13 項與 `available`／`sessionOverride`：兩個引擎都可選、雙向 fallback、session 語意不變（模擬器＋既有 router 測試＋新的 A→B router 測試）。
+- 第 16 項：與 CommonCrypto 逐位元比對 700 組（`b9ff7e7e`）。
+- 第 23 項：改動前所有呼叫者都只用預設清單。
+- 第 25 項：自動下一集 F→G（預解析）、G→H、最後一集關閉在模擬器重驗。
+- 第 34 項：新測試證明 `reidentified` 只換 key，refactor 前後都過。
+- 第 37 項：以真實的 `xyqxbpq.jar` 跑 audit，新舊腳本的 `audit.json` 完全相同。
+- 第 39 項：新舊 `spider_pack.py` 產出的 pack 逐位元相同。
+
 ## 建議的下一批
 
 - 第二批已全部做完（第 16、35、37、39 項見上一節）。剩下的都需要決定、升 ABI 或跑 CI。

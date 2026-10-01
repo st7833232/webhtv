@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.44",
+          "date": "2026-10-01",
+          "localizedDescription": "WebHTV 0.1.44 (45)（金牌系列等來源的集數按不下去的修正；發布前沒有編譯與自動測試，真機未驗收）\n\n修正\n- 金牌系列（jiabaide、zjuys、愛電影、界界、cqzuoer）這類集數不是網址的來源：詳情頁的集數與「立即播放」以前是灰色、按不下去，現在可以點選播放。\n\n已知限制\n- 此修正發布前沒有執行自動測試，也沒有模擬器或真機驗收；這一版由發布流程第一次編譯。\n- 可可影視詳情頁沒有年份、演員：來源腳本沒有提供這些欄位，此版未修正。\n- 其餘同 0.1.43 (44)。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.44-b45/WebHTV-0.1.44-45.ipa",
+          "size": 29300289,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.43",
           "date": "2026-10-01",
           "localizedDescription": "WebHTV 0.1.43 (44)（看完的片子重新打開從頭播、子母畫面播完最後一集後殘留視窗的修正；只有自動測試、模擬器與本機建置驗證，真機未驗收）\n\n修正\n- 一集播到結尾後再打開同一部片（立即播放或點同一集）：會從頭播放（以前有時停在結尾、馬上結束，接著跳到下一集或關閉）；觀看記錄也會正確顯示「已看完」。\n- 在子母畫面中播完最後一集：小視窗會跟著關掉（以前原生播放器會留下停在最後一格的小視窗，再開新片時小視窗和播放器會同時播放；MPV 會留下黑色的「直播」視窗）。\n\n已知限制\n- 此版沒有真機驗收；子母畫面的修正只在 iPad 模擬器驗過，0.1.39 (40) 起的播放修正也都還沒有真機驗收。\n- 其餘同 0.1.42 (43)。",

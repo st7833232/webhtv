@@ -24,18 +24,11 @@ public struct WebHTVConfig: Decodable, Sendable {
         rules = ((try? values.decodeIfPresent([SnifferRule].self, forKey: .rules)) ?? nil) ?? []
     }
 
+    /// The native CMS sites this app drives directly: type-0 MacCMS XML, type-1 MacCMS JSON and
+    /// type-4 CatVod remote APIs.
     public var nativeCMSSites: [Site] {
         sites.filter(\.isNativeCMS)
     }
-
-    /// The native CMS sites this app drives directly: type-0 MacCMS XML, type-1 MacCMS JSON and
-    /// type-4 CatVod remote APIs.
-    public var supportedSites: [Site] {
-        nativeCMSSites.filter { $0.type == 0 || $0.type == 1 || $0.type == 4 }
-    }
-
-    /// Every configured `csp_*` spider site, whether or not one is ported yet.
-    public var cspSpiderSites: [Site] { sites.filter(\.isCSPSpider) }
 
     /// Every configured drpy JavaScript site, whether or not its engine can be loaded today.
     public var drpySpiderSites: [Site] { sites.filter(\.isDrpySpider) }
@@ -52,17 +45,13 @@ public struct WebHTVConfig: Decodable, Sendable {
     /// Everything browsable today — native CMS plus any spider the registry can drive, **in the
     /// order the configuration lists them**.
     ///
-    /// IOS-POC-10S. This used to be `supportedSites + spiderSites(…)`, and each of those was itself
+    /// IOS-POC-10S. This used to be `nativeCMSSites + spiderSites(…)`, and each of those was itself
     /// a concatenation of per-kind filters, so the picker showed four blocks — native CMS, then
     /// `csp_*`, then drpy, then Python — rather than the file's own order. The author's ordering is
     /// information: `wang-sex.json` puts 麻豆(js) seventh and the app buried it among the drpy
     /// sites. One filter over `sites` keeps every site exactly where its author put it.
     public func drivableSites(resolvedBy resolver: CSPSourceResolver) -> [Site] {
-        sites.filter { isSupported($0) || ($0.isSpiderShape && resolver.canResolve($0)) }
-    }
-
-    private func isSupported(_ site: Site) -> Bool {
-        site.isNativeCMS && (site.type == 0 || site.type == 1 || site.type == 4)
+        sites.filter { $0.isNativeCMS || ($0.isSpiderShape && resolver.canResolve($0)) }
     }
 }
 

@@ -16,7 +16,7 @@ public struct WatchHistory: Codable, Sendable, Equatable, Identifiable {
     /// site keys (IOS-POC-5L), so keying on `siteKey` alone would merge two different providers'
     /// records into one. `Site.id` is `key + ext`, which is what actually identifies a source — the
     /// same reason `SpiderSessionStore` caches on it. `androidKey` below is what leaves the app.
-    public let key: String
+    public internal(set) var key: String
     /// Which configuration this was watched on — `ConfigSource.identity` (IOS-POC-10E).
     ///
     /// **Optional because this file already exists on people's phones.** `WatchHistory` uses the
@@ -90,13 +90,9 @@ public struct WatchHistory: Codable, Sendable, Equatable, Identifiable {
     }
 
     func reidentified(to siteID: String) -> WatchHistory {
-        WatchHistory(
-            key: Self.key(siteID: siteID, vodId: vodId),
-            siteKey: siteKey, siteName: siteName, sourceID: sourceID, vodId: vodId,
-            vodName: vodName, vodPic: vodPic, vodFlag: vodFlag, vodRemarks: vodRemarks,
-            episodeUrl: episodeUrl, quality: quality, position: position, duration: duration,
-            createTime: createTime, opening: opening, ending: ending, hiddenFrom: hiddenFrom
-        )
+        var copy = self
+        copy.key = Self.key(siteID: siteID, vodId: vodId)
+        return copy
     }
 
     public init(key: String, siteKey: String, siteName: String = "", sourceID: String? = nil, vodId: String,

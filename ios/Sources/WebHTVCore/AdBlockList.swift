@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 /// The configuration's `ads` list, turned into WebKit content-blocker rules (IOS-POC-5S-1).
@@ -73,7 +72,7 @@ public struct AdBlockList: Sendable, Equatable {
 
         // The identity is the rules themselves, so it changes exactly when the blocking behaviour
         // changes — which is what keeps configuration A's list off configuration B's web view.
-        let digest = SHA256.hash(data: Data(json.utf8)).map { String(format: "%02x", $0) }.joined()
+        let digest = DrpyEngine.digest(Data(json.utf8))
         return AdBlockList(identifier: "webhtv-ads-\(digest.prefix(32))", json: json,
                            blocked: blocked, inert: inert)
     }

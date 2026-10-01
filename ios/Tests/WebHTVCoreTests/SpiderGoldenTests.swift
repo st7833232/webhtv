@@ -136,7 +136,7 @@ private func playURL(_ value: Any?) -> [String] {
 
     let manifestURL = URL(string: "https://example.invalid/spiders/manifest.json")!
     let scriptURL = "https://example.invalid/spiders/\(className).js"
-    let digest = SpiderPackStore.sha256(Data(bundled.utf8))
+    let digest = DrpyEngine.digest(Data(bundled.utf8))
     let manifest = """
     {"schema": \(SpiderPack.schema), "version": "golden", "scripts": [
       {"class": "\(className)", "path": "./\(className).js", "sha256": "\(digest)",

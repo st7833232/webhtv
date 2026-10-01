@@ -287,7 +287,7 @@ private final class OneShotHTTPServer: @unchecked Sendable {
     let registry = SpiderRegistry.bundled()
     let resolver = CSPSourceResolver(registry: registry)
 
-    let native = config.supportedSites
+    let native = config.nativeCMSSites
     let drivable = config.drivableSites(resolvedBy: resolver)
     let spiders = config.spiderSites(resolvedBy: resolver)
 

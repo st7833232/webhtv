@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 /// A remotely published set of spider scripts the app can adopt without being rebuilt.
@@ -235,7 +234,7 @@ public actor SpiderPackStore {
                 rejected.append(.init(className: script.className, reason: "manifest 列出但沒有內容"))
                 continue
             }
-            guard Self.sha256(body).caseInsensitiveCompare(script.sha256) == .orderedSame else {
+            guard DrpyEngine.digest(body).caseInsensitiveCompare(script.sha256) == .orderedSame else {
                 throw SpiderPackError.hashMismatch(className: script.className)
             }
             scripts[script.className] = String(decoding: body, as: UTF8.self)
@@ -276,10 +275,6 @@ public actor SpiderPackStore {
     private var manifestURL: URL { directory.appendingPathComponent("manifest.json") }
     private func scriptURL(for className: String) -> URL {
         directory.appendingPathComponent("scripts", isDirectory: true).appendingPathComponent("\(className).js")
-    }
-
-    static func sha256(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
 

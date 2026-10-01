@@ -22,16 +22,12 @@ final class MacCMSXMLDecoder: NSObject, XMLParserDelegate {
     private var categoryID = ""
 
     private var inVideo = false
-    private var id = ""
-    private var name = ""
-    private var picture = ""
-    private var remarks = ""
-    private var year = ""
-    private var area = ""
-    private var typeName = ""
-    private var director = ""
-    private var actor = ""
-    private var content = ""
+    /// The current `<video>`'s plain fields, by element name. IOS-POC-32 B added year … des: the
+    /// same fields vod_year … vod_content fill on JSON sites (Android maps them the same way,
+    /// `bean/Vod.java:41-63`).
+    private static let plainFields: Set = ["id", "name", "pic", "note", "year", "area", "type",
+                                           "director", "actor", "des"]
+    private var fields = [String: String]()
     private var flags = [String]()
     private var urls = [String]()
     private var flag = ""
@@ -53,16 +49,7 @@ final class MacCMSXMLDecoder: NSObject, XMLParserDelegate {
         switch element {
         case "video":
             inVideo = true
-            id = ""
-            name = ""
-            picture = ""
-            remarks = ""
-            year = ""
-            area = ""
-            typeName = ""
-            director = ""
-            actor = ""
-            content = ""
+            fields = [:]
             flags = []
             urls = []
         case "ty":
@@ -90,41 +77,23 @@ final class MacCMSXMLDecoder: NSObject, XMLParserDelegate {
         switch element {
         case "ty":
             classes.append(CMSCategory(id: categoryID, name: value, parentID: 0))
-        case "id" where inVideo:
-            id = value
-        case "name" where inVideo:
-            name = value
-        case "pic" where inVideo:
-            picture = value
-        case "note" where inVideo:
-            remarks = value
-        // IOS-POC-32 B: the same fields vod_year … vod_content fill on JSON sites, for the detail
-        // screen (Android maps them the same way, `bean/Vod.java:41-63`).
-        case "year" where inVideo:
-            year = value
-        case "area" where inVideo:
-            area = value
-        case "type" where inVideo:
-            typeName = value
-        case "director" where inVideo:
-            director = value
-        case "actor" where inVideo:
-            actor = value
-        case "des" where inVideo:
-            content = value
         case "dd" where inVideo:
             // One <dd> per flag; Vod.flags zips the two "$$$"-joined lists back together.
             flags.append(flag)
             urls.append(value)
         case "video":
+            let field = { self.fields[$0] ?? "" }
             list.append(Vod(
-                id: id, name: name, picture: picture, remarks: remarks,
+                id: field("id"), name: field("name"), picture: field("pic"), remarks: field("note"),
                 playFrom: flags.joined(separator: "$$$"),
                 playURL: urls.joined(separator: "$$$"),
-                year: year, area: area, typeName: typeName,
-                director: director, actor: actor, content: content
+                year: field("year"), area: field("area"), typeName: field("type"),
+                director: field("director"), actor: field("actor"), content: field("des")
             ))
             inVideo = false
+        // Not `case "id", "name", … where inVideo`: a `where` there guards only the last pattern.
+        case let element where inVideo && Self.plainFields.contains(element):
+            fields[element] = value
         default:
             // last, tid, dt, lang, state: nothing downstream reads them, so they are parsed past
             // rather than carried.

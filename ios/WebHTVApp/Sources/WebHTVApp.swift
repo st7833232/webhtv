@@ -146,7 +146,11 @@ private struct ConfigView: View {
                             refreshing: refreshing,
                             packStatus: packStatus,
                             onImport: { importing = true },
-                            onUseRemote: { text, name in useRemote(text, named: name) },
+                            onAskRemote: {
+                                remoteText = ""
+                                remoteName = ""
+                                askingRemote = true
+                            },
                             onRefresh: { Task { await refreshRemote() } },
                             onOpenHome: { selectedTab = 0 },
                             saved: saved,
@@ -1255,7 +1259,8 @@ private struct SettingsView: View {
     let refreshing: Bool
     let packStatus: String
     let onImport: () -> Void
-    let onUseRemote: (String, String) -> Void
+    /// The 加入設定來源 prompt lives on `ConfigView`, which the empty state needs it on as well.
+    let onAskRemote: () -> Void
     let onRefresh: () -> Void
     let onOpenHome: () -> Void
     /// IOS-POC-10D
@@ -1264,9 +1269,6 @@ private struct SettingsView: View {
     let onRename: (SavedSource, String) -> Void
     let onForget: (SavedSource) -> Void
 
-    @State private var askingRemote = false
-    @State private var remoteText = ""
-    @State private var remoteName = ""
     @State private var renaming: SavedSource?
     @State private var renameText = ""
     /// IOS-POC-17: `globalDefaultEngine`. Mirrored here only so the checkmark redraws.
@@ -1352,14 +1354,6 @@ private struct SettingsView: View {
             savedSection
             sourceSection
         }
-        .alert("加入設定來源", isPresented: $askingRemote) {
-            TextField("名稱", text: $remoteName)
-            TextField("https://…/wang-movie.json", text: $remoteText)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            Button("載入") { onUseRemote(remoteText, remoteName) }
-            Button("取消", role: .cancel) {}
-        }
         .alert("重新命名", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("名稱", text: $renameText)
             Button("儲存") {
@@ -1383,11 +1377,7 @@ private extension SettingsView {
             LabeledContent("來源", value: sourceLabel)
             LabeledContent("上次更新", value: updatedLabel)
             LabeledContent("Spider 腳本", value: packStatus.isEmpty ? "內建" : packStatus)
-            Button("加入設定來源") {
-                remoteText = ""
-                remoteName = ""
-                askingRemote = true
-            }
+            Button("加入設定來源", action: onAskRemote)
             if isRemote {
                 Button(refreshing ? "更新中…" : "重新整理", action: onRefresh).disabled(refreshing)
             }
@@ -1508,7 +1498,7 @@ private struct VodView: View {
     let summary: Vod
     let source: ConfigSource
     @State private var detail: Vod?
-    @State private var pendingPlayback: Playback?
+    @State private var playing = false
     @State private var error: String?
     @State private var playbackError: String?
     /// The episode the built-in player is on, so an auto-advance knows where it is in the line
@@ -1661,7 +1651,7 @@ private struct VodView: View {
         }
         // An episode goes straight to the player (2026-09-23, the user's request): the picker page
         // in between held one button, plus a quality menu no source in this configuration fills.
-        .fullScreenCover(item: $pendingPlayback, onDismiss: {
+        .fullScreenCover(isPresented: $playing, onDismiss: {
             // The hook belongs to this playback. Closing the player must not leave this screen
             // answering for a player it does not own.
             PlaybackSession.shared.onPlaylistFinished = nil
@@ -1674,7 +1664,7 @@ private struct VodView: View {
             PlaybackSession.shared.prefetch.invalidate()
             playingEpisode = nil
             Task { watched = await WatchHistoryStore.shared.record(forKey: historyKey) }
-        }) { _ in PlayerView() }
+        }) { PlayerView() }
         .alert("無法播放", isPresented: Binding(get: { playbackError != nil }, set: { if !$0 { playbackError = nil } })) {
             Button("好", role: .cancel) {}
         } message: {
@@ -1885,20 +1875,18 @@ private struct VodView: View {
             PlaybackSession.shared.noteResolution(seconds: Date().timeIntervalSince(began),
                                                   how: "live", episode: episode.name)
             let record = record(for: episode, flag: flag)
-            let playback = Playback(url: target.url, headers: target.headers,
-                                    title: "\(summary.name) \(episode.name)", artwork: summary.picture,
-                                    qualities: target.qualities, position: target.position,
-                                    defaultIndex: target.defaultIndex,
-                                    preferredQuality: watched?.quality ?? "", history: record)
             // Closing the player is this screen's to do, so the session asks rather than reaching
             // for a dismiss it has no handle on (IOS-POC-14).
-            PlaybackSession.shared.onPlaylistFinished = { pendingPlayback = nil }
-            playback.start()
-            pendingPlayback = playback
+            PlaybackSession.shared.onPlaylistFinished = { playing = false }
+            // The quality the viewer last watched at outranks the source's default (D8, R6).
+            PlaybackSession.shared.open(target, preferredQuality: watched?.quality ?? "",
+                                        title: "\(summary.name) \(episode.name)",
+                                        artwork: summary.picture, history: record)
+            playing = true
             // What the player asks when this episode ends. This screen owns the episode list and
             // the resolving, so it is the only place that can answer (IOS-POC-14).
             playingEpisode = episode
-            PlaybackSession.shared.advance = { await playNext(flag: flag) }
+            PlaybackSession.shared.advance = { await step(forward: true, flag: flag) }
             // IOS-POC-35: the bar's 上一集／下一集, answered here for the same reason.
             PlaybackSession.shared.episodeStepper = { forward in await step(forward: forward, flag: flag) }
             publishEpisodeSteps(flag: flag)
@@ -1917,7 +1905,7 @@ private struct VodView: View {
     /// routing, the probe, the sniff, the quality menu and the request headers by using it rather
     /// than by reimplementing any of them.
     ///
-    /// Nothing is played, nothing is downloaded, and a failure is silent: `playNext` resolves
+    /// Nothing is played, nothing is downloaded, and a failure is silent: `step(forward:)` resolves
     /// normally when the episode actually ends.
     private func prefetchNextEpisode(flag: String) async {
         guard let current = playingEpisode,
@@ -1946,19 +1934,11 @@ private struct VodView: View {
         Int(Date().timeIntervalSince(start) * 1000)
     }
 
-    /// Resolves and starts the episode after the one playing, or answers false when the line is
-    /// finished. **False is what closes the player**, so a failure to resolve must answer false too:
-    /// stopping on a dead episode with the player still up would look like a freeze.
-    private func playNext(flag: String) async -> Bool {
-        guard let current = playingEpisode,
-              let line = detail?.flags.first(where: { $0.name == flag }),
-              let next = line.episode(after: current) else { return false }
-        return await start(next, flag: flag, usingPrefetch: true)
-    }
-
-    /// IOS-POC-35: the control bar's 上一集／下一集 — the start an auto-advance makes, so the new
+    /// IOS-POC-35: the control bar's 上一集／下一集, and forward is also the auto-advance — so the new
     /// episode begins at its start (after the title's opening). Forward may use a pre-resolved
-    /// address; back never has one.
+    /// address; back never has one. Answers false when the line has no episode that way, or it
+    /// cannot be resolved: **for the auto-advance, false is what closes the player**, since stopping
+    /// on a dead episode with the player still up would look like a freeze.
     private func step(forward: Bool, flag: String) async -> Bool {
         guard let current = playingEpisode,
               let line = detail?.flags.first(where: { $0.name == flag }),
@@ -2171,37 +2151,6 @@ private struct VodPoster: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: 240)
-    }
-}
-
-private struct Playback: Identifiable {
-    let url: URL
-    /// The headers the source says this stream needs; both internal engines send them.
-    var headers: [String: String] = [:]
-    var title = ""
-    /// Android hands VideoActivity the poster, so player.status can report it.
-    var artwork = ""
-    /// The source's quality menu. One entry for every source in this configuration today.
-    var qualities: [PlaybackQuality] = []
-    var position = 0
-    var defaultIndex = 0
-    /// The quality name this title was last watched at, which outranks the source's default
-    /// (D8, R6). Empty when nothing is remembered.
-    var preferredQuality = ""
-    /// Identity for the watch history. Nil for `player.playUrl`, which names no site or title.
-    var history: WatchHistory?
-    var id: String { url.absoluteString }
-}
-
-extension Playback {
-    /// Starts this playback on the session — what the 播放 page's button did, without the page.
-    /// The quality menu, and its remembered-or-default start, now belong to the control bar
-    /// (IOS-POC-17E, `PlaybackQualityChoice`).
-    @MainActor func start() {
-        PlaybackSession.shared.open(
-            PlaybackTarget(url: url, headers: headers, qualities: qualities, position: position,
-                           defaultIndex: defaultIndex),
-            preferredQuality: preferredQuality, title: title, artwork: artwork, history: history)
     }
 }
 
@@ -4816,17 +4765,7 @@ private struct PlayerView: View {
         .overlay {
             // The real reason, classified — IOS-POC-17. A failed item used to be a silent black
             // screen with the bar still offering play.
-            if let failure {
-                Text(failure)
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 12)
-                    .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 12))
-                    .padding(32)
-                    .allowsHitTesting(false)
-            }
+            if let failure { bubble(failure).padding(32) }
         }
         .overlay {
             // IOS-POC-27A: a start or a stall is on its way. Never takes a touch, so the bar and the
@@ -4841,18 +4780,7 @@ private struct PlayerView: View {
         .overlay(alignment: .top) {
             // IOS-POC-27A: below the bar's top row, so it covers neither the close button nor the
             // spinner of the engine that just took over.
-            if let notice {
-                Text(notice)
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 12)
-                    .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 12))
-                    .padding(.horizontal, 32)
-                    .padding(.top, 72)
-                    .allowsHitTesting(false)
-            }
+            if let notice { bubble(notice).padding(.horizontal, 32).padding(.top, 72) }
         }
         .overlay {
             if let hud {
@@ -5162,6 +5090,18 @@ private struct PlayerView: View {
         milliseconds > 0 ? clock(milliseconds / 1000) : "未設定"
     }
 
+    /// The failure and the notice: one message style, placed differently. Never takes a touch.
+    private func bubble(_ text: String) -> some View {
+        Text(text)
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 12))
+            .allowsHitTesting(false)
+    }
+
     /// Shared with `PlayerControlBar`, which is why it is not private.
     static func clock(_ seconds: Double) -> String {
         guard seconds.isFinite, seconds >= 0 else { return "--:--" }
@@ -5228,7 +5168,7 @@ private struct WebHomeView: View {
     let sites: [Site]
     let source: ConfigSource
     @Environment(\.dismiss) private var dismiss
-    @State private var pendingPlayback: Playback?
+    @State private var playing = false
     @State private var pendingVod: VodRequest?
     @State private var pendingSearch: SearchRequest?
     @State private var playingInline = false
@@ -5244,10 +5184,10 @@ private struct WebHomeView: View {
                     sites: sites,
                     source: source,
                     onPlay: { url, title in
-                        let playback = Playback(url: url, title: title)
-                        PlaybackSession.shared.onPlaylistFinished = { pendingPlayback = nil }
-                        playback.start()
-                        pendingPlayback = playback
+                        PlaybackSession.shared.onPlaylistFinished = { playing = false }
+                        PlaybackSession.shared.open(PlaybackTarget(url: url), preferredQuality: "",
+                                                    title: title, history: nil)
+                        playing = true
                     },
                     onPlayVod: { site, vod in pendingVod = VodRequest(site: site, vod: vod) },
                     onPlayInline: { vod in
@@ -5284,9 +5224,9 @@ private struct WebHomeView: View {
                     .padding(.bottom, 28)
             }
         }
-        .fullScreenCover(item: $pendingPlayback, onDismiss: {
+        .fullScreenCover(isPresented: $playing, onDismiss: {
             PlaybackSession.shared.onPlaylistFinished = nil
-        }) { _ in PlayerView() }
+        }) { PlayerView() }
         .sheet(item: $pendingVod) { request in
             NavigationStack { VodView(site: request.site, summary: request.vod, source: source) }
         }

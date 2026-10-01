@@ -45,7 +45,7 @@ private let base = "https://example.com/group/project/-/raw/main/"
 
 @Test func validationRefusesPayloadsThatMustNotReplaceAGoodCache() throws {
     let usable = Data(#"{"sites":[{"key":"k","name":"n","type":1,"api":"https://example.com/api"}]}"#.utf8)
-    #expect(try ConfigLoader.validate(usable).supportedSites.count == 1)
+    #expect(try ConfigLoader.validate(usable).nativeCMSSites.count == 1)
 
     // Decodes cleanly but drives nothing. type-0 used to belong here and became usable in
     // IOS-POC-4J, so the fixture now uses a type-3 Spider and a type-2, neither of which is a
@@ -58,8 +58,8 @@ private let base = "https://example.com/group/project/-/raw/main/"
 @Test func countsTheSupportedSitesOfTheSuppliedConfig() throws {
     guard let path = ProcessInfo.processInfo.environment["WANG_MOVIE_JSON"] else { return }
     let config = try ConfigLoader.validate(Data(contentsOf: URL(fileURLWithPath: path)))
-    #expect(config.supportedSites.count == 30)
-    #expect(config.supportedSites.filter { $0.type == 4 }.count == 6)
+    #expect(config.nativeCMSSites.count == 30)
+    #expect(config.nativeCMSSites.filter { $0.type == 4 }.count == 6)
 }
 
 /// Live check against a real Raw URL. Gated on an environment variable so the suite stays offline
@@ -70,8 +70,8 @@ private let base = "https://example.com/group/project/-/raw/main/"
     let (data, config) = try await ConfigLoader.fetch(from: url)
     let source = ConfigSource.remote(url)
 
-    #expect(config.supportedSites.count == 30)
-    print("remote config: \(data.count) bytes, \(config.sites.count) sites, \(config.supportedSites.count) supported")
+    #expect(config.nativeCMSSites.count == 30)
+    print("remote config: \(data.count) bytes, \(config.sites.count) sites, \(config.nativeCMSSites.count) supported")
 
     // The spider entry is the archive's own relative reference; resolve it and prove the resource
     // is really there, which is what makes the config directory the right base URL.

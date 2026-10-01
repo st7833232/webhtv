@@ -46,7 +46,7 @@ public enum ConfigLoader {
     /// can never replace a cached copy that still works.
     public static func validate(_ data: Data) throws -> WebHTVConfig {
         let config = try decode(data)
-        guard !config.supportedSites.isEmpty else { throw ConfigLoaderError.noSupportedSites }
+        guard !config.nativeCMSSites.isEmpty else { throw ConfigLoaderError.noSupportedSites }
         return config
     }
 

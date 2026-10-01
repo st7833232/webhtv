@@ -609,6 +609,38 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     #expect(ended == 1)
 }
 
+/// IOS-POC-36.3: a WebHome page's `player.playUrl` while the player already shows another item
+/// loads the new one in place (`f26ccae6`), as the next episode does. Nothing of A — its position,
+/// headers, history, speed, the viewer's pause, its failure, its spent fallback — reaches B. And B,
+/// on the engine the session is on, announces no engine change: the player screen cannot wait for
+/// one to clear A's message (D10).
+@MainActor @Test func anItemOpenedOverAFailedOneStartsCleanOnTheSessionsEngine() throws {
+    let harness = Harness()
+    var engineChanges = 0
+    var shown: PlaybackFailure?
+    harness.router.onEngineChange = { _ in engineChanges += 1 }
+    harness.router.onUnrecoverable = { shown = $0 }
+    harness.router.open(PlaybackLoadRequest(target: target, startSeconds: 60, rate: 1.5,
+                                            title: "片名 EP08", history: episode))
+    harness.router.setIntendsToPlay(false)
+    harness.engine.fail(avError(-11800), httpStatus: 404)
+    harness.engine.fail(NSError(domain: PlaybackFailure.mpvDomain, code: -13), httpStatus: 404)
+    #expect(shown != nil && harness.router.failure != nil)
+    let announced = engineChanges
+
+    let b = PlaybackLoadRequest(target: PlaybackTarget(url: try #require(URL(string: "https://other.example/b.m3u8"))),
+                                title: "B")
+    harness.router.open(b)
+    #expect(harness.router.failure == nil)
+    #expect(harness.router.request == b && harness.engine.loads.last == b)
+    #expect(harness.engine.kind == .mpv && harness.made.count == 2)
+    #expect(engineChanges == announced, "B stays on the session's engine, so nothing announces it")
+    // B is a new attempt with its own fallback.
+    harness.engine.fail(NSError(domain: PlaybackFailure.mpvDomain, code: -13))
+    #expect(harness.engine.kind == .native)
+    #expect(harness.engine.loads.last?.target == b.target)
+}
+
 // MARK: - MPV headers
 
 @Test func everyHeaderReachesMPVAsOneField() {

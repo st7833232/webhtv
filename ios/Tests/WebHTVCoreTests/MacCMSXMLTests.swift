@@ -103,3 +103,41 @@ private let payload = Data(#"""
     // The plain form is the only one carrying <class>, so a home still asks for it unqualified.
     #expect(client.listingQuery(categoryID: nil, page: 1).map(\.name) == ["ac"])
 }
+
+/// IOS-POC-36.3: every field the decoder carries, read back from one payload — the ten plain ones
+/// in CDATA and in plain text, and the `<dd>` lines — and none of them leaking into the next
+/// `<video>`, which `fields` is reset for (ponytail audit item 10 made them one dictionary).
+@Test func carriesEveryFieldOfAVideoAndNoneIntoTheNext() throws {
+    let xml = Data(#"""
+    <rss><list page="1">
+    <video><id>7</id><name><![CDATA[全欄位]]></name><pic>https://p.example/7.jpg</pic>
+    <note><![CDATA[HD]]></note><year>2025</year><area><![CDATA[台灣]]></area><type>劇情</type>
+    <director><![CDATA[導演甲]]></director><actor>演員乙,演員丙</actor><des><![CDATA[<p>簡介</p>]]></des>
+    <dl><dd flag="m3u8"><![CDATA[第1集$https://v.example/1.m3u8]]></dd><dd flag="mp4">正片$https://v.example/2.mp4</dd></dl>
+    </video>
+    <video><id>8</id><name>只有片名</name><dl><dd flag="m3u8">第1集$https://v.example/8.m3u8</dd></dl></video>
+    </list><class><ty id="3">劇集</ty></class></rss>
+    """#.utf8)
+    let response = MacCMSXMLDecoder.decode(xml)
+    let full = try #require(response.list.first)
+    #expect(full.id == "7")
+    #expect(full.name == "全欄位")
+    #expect(full.picture == "https://p.example/7.jpg")
+    #expect(full.remarks == "HD")
+    #expect(full.year == "2025")
+    #expect(full.area == "台灣")
+    #expect(full.typeName == "劇情")
+    #expect(full.director == "導演甲")
+    #expect(full.actor == "演員乙,演員丙")
+    #expect(full.content == "<p>簡介</p>")
+    #expect(full.playFrom == "m3u8$$$mp4")
+    #expect(full.playURL == "第1集$https://v.example/1.m3u8$$$正片$https://v.example/2.mp4")
+
+    let bare = try #require(response.list.last)
+    #expect(bare.id == "8" && bare.name == "只有片名")
+    let rest = [bare.picture, bare.remarks, bare.year, bare.area, bare.typeName, bare.director,
+                bare.actor, bare.content]
+    #expect(rest == Array(repeating: "", count: 8))
+    #expect(bare.playFrom == "m3u8")
+    #expect(response.classes.map(\.name) == ["劇集"])
+}

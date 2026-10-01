@@ -349,15 +349,6 @@ private func playURL(_ value: Any?) -> [String] {
         #expect(!DrpyEngine.isJavaScriptSpider("var rule = { title: 'x', host: 'https://a.example' }"))
         #expect(!DrpyEngine.isJavaScriptSpider(""))
     }
-
-    /// `rule(at:source:)` still refuses one, because the branch that routes a JS spider happens in
-    /// `CSPSourceResolver` — anything reaching the drpy path by another route is a mistake, not a
-    /// silent fall-through to the other runtime.
-    @Test func theFailureSaysWhichContractItIs() {
-        let shown = (DrpyError.notADrpyRule("麻豆.min.js") as Error).localizedDescription
-        #expect(shown.contains("__jsEvalReturn"))
-        #expect(!shown.contains("couldn’t be completed"))
-    }
 }
 
 // MARK: - IOS-POC-10T: the JS spider contract, offline

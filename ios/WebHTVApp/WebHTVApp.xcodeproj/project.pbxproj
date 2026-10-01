@@ -19,8 +19,6 @@
 		7E10000000000000000000C2 /* PythonLiveCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000C1 /* PythonLiveCheck.swift */; };
 		7E10000000000000000000B4 /* PythonSpiderRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000B3 /* PythonSpiderRuntime.swift */; };
 		7E10000000000000000000A7 /* PythonBoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000A6 /* PythonBoot.swift */; };
-		7E10000000000000000000D1 /* MPVBoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000D0 /* MPVBoot.swift */; };
-		7E10000000000000000000D3 /* MPVProbeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000D2 /* MPVProbeView.swift */; };
 		7E10000000000000000000D5 /* MPVEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10000000000000000000D4 /* MPVEngine.swift */; };
 /* End PBXBuildFile section */
 
@@ -35,8 +33,6 @@
 		7E10000000000000000000C1 /* PythonLiveCheck.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PythonLiveCheck.swift; sourceTree = "<group>"; };
 		7E10000000000000000000B3 /* PythonSpiderRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PythonSpiderRuntime.swift; sourceTree = "<group>"; };
 		7E10000000000000000000A6 /* PythonBoot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PythonBoot.swift; sourceTree = "<group>"; };
-		7E10000000000000000000D0 /* MPVBoot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MPVBoot.swift; sourceTree = "<group>"; };
-		7E10000000000000000000D2 /* MPVProbeView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MPVProbeView.swift; sourceTree = "<group>"; };
 		7E10000000000000000000D4 /* MPVEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MPVEngine.swift; sourceTree = "<group>"; };
 		AF891E7F959513A468894926 /* WebHTVApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WebHTVApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -69,7 +65,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\n# The payload is fetched, not committed, so a fresh clone builds without a manual step.\n# IOS-POC-37: only the sdk being built gets its native packages compiled (a first build\n# after a clone or a lock change takes a few minutes; later ones find the stamp current).\n\"$SRCROOT/../../scripts/fetch_python_ios.sh\" --sdk \"$PLATFORM_NAME\"\n# Upstream ships the module map at Python.framework/Headers/module.modulemap, but clang looks for\n# a framework's module map under Modules/. Without this, `import Python` fails to resolve.\n# Runs before Sources because module resolution happens at compile time.\nfor slice in \"$SRCROOT/../../third_party/python-ios/Python.xcframework\"/ios-*; do\n  headers=\"$slice/Python.framework/Headers/module.modulemap\"\n  [ -f \"$headers\" ] || continue\n  mkdir -p \"$slice/Python.framework/Modules\"\n# Upstream's map is a plain module, meant for -fmodule-map-file. A map living inside a\n# framework has to declare `framework module`, or clang looks for the umbrella header in the\n# wrong place and the module fails to build.\n  sed 's/^module Python {/framework module Python {/' \"$headers\" > \"$slice/Python.framework/Modules/module.modulemap\"\ndone\n";
+			shellScript = "set -e\n# The payload is fetched, not committed, so a fresh clone builds without a manual step.\n# IOS-POC-37: only the sdk being built gets its native packages compiled (a first build\n# after a clone or a lock change takes a few minutes; later ones find the stamp current).\n\"$SRCROOT/../../scripts/fetch_python_ios.sh\" --sdk \"$PLATFORM_NAME\"\n# It also writes the framework module maps clang needs (`prepare_module_maps`), every run.\n";
 		};
 		7E10000000000000000000A5 /* Install Python */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -127,8 +123,6 @@
 			children = (
 				7494045C9101CB5C4F234881 /* WebHTVApp.swift */,
 				7E10000000000000000000A6 /* PythonBoot.swift */,
-				7E10000000000000000000D0 /* MPVBoot.swift */,
-				7E10000000000000000000D2 /* MPVProbeView.swift */,
 				7E10000000000000000000D4 /* MPVEngine.swift */,
 				7E10000000000000000000B3 /* PythonSpiderRuntime.swift */,
 				7E10000000000000000000C1 /* PythonLiveCheck.swift */,
@@ -245,8 +239,6 @@
 			files = (
 				C1FAEFECF8AAADA1C45A7C27 /* WebHTVApp.swift in Sources */,
 				7E10000000000000000000A7 /* PythonBoot.swift in Sources */,
-				7E10000000000000000000D1 /* MPVBoot.swift in Sources */,
-				7E10000000000000000000D3 /* MPVProbeView.swift in Sources */,
 				7E10000000000000000000D5 /* MPVEngine.swift in Sources */,
 				7E10000000000000000000B4 /* PythonSpiderRuntime.swift in Sources */,
 				7E10000000000000000000C2 /* PythonLiveCheck.swift in Sources */,

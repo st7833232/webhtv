@@ -60,31 +60,6 @@ enum PythonLiveCheck {
         return (config, .remote(url))
     }
 
-    static func run() async -> String {
-        guard let (config, source) = installedConfiguration() else {
-            return "skipped: no remote configuration is installed yet"
-        }
-        let resolver = CSPSourceResolver(source: source)
-        let candidates = config.pythonSpiderSites.filter(resolver.canResolve)
-        guard !candidates.isEmpty else { return "skipped: the configuration has no drivable Python site" }
-
-        // 皮皮虾 first when it is there: 7.4 KB, no third-party imports, and the script P1 picked as
-        // the lightest same-origin candidate. A `sorted` predicate that ignores its right operand is
-        // not an ordering at all and gave an arbitrary winner, so the preferred one is lifted out.
-        let preferred = candidates.filter { $0.api.contains("皮皮虾") }
-        let ordered = preferred + candidates.filter { !$0.api.contains("皮皮虾") }
-
-        // Report every attempt. One script failing on a dependency is a fact about that script, and
-        // P5 has to count those; it is not a reason to say nothing about the rest.
-        var attempts = [String]()
-        for site in ordered.prefix(4) {
-            let result = await drive(site: site, resolver: resolver)
-            if result.passed.contains(.media) { return result.summary }
-            attempts.append(result.summary)
-        }
-        return attempts.joined(separator: "  |  ")
-    }
-
     /// IOS-POC-7L (P5), per site since IOS-POC-37: every configured Python site driven through the
     /// **whole** contract, one row each, with the stage that stopped it and the cause sorted into
     /// dependency / site-network / content / script / policy.

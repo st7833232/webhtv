@@ -53,15 +53,11 @@ struct WebHTVApp: App {
         // A screen drawn before they arrive shows the source's text and is redrawn once they have.
         Task { await TaiwanDisplay.shared.load() }
         #if DEBUG
-        // IOS-POC-9B: does libmpv link and initialise inside this app? Debug-only, and nothing
-        // downstream depends on it yet — AVPlayer is still the only playback core.
-        print("[mpv] boot \(MPVBoot.start())")
         print("[python] boot \(PythonBoot.start())")
         Task {
             print("[python] selfcheck \(await PythonBoot.selfCheck())")
             // IOS-POC-7J: give the configuration a moment to land, then drive a real source.
             try? await Task.sleep(for: .seconds(6))
-            print("[python] live \(await PythonLiveCheck.run())")
             print("[python] survey \(await PythonLiveCheck.survey())")
         }
         #endif
@@ -1283,24 +1279,19 @@ private struct SettingsView: View {
     var body: some View {
         List {
             // IOS-POC-17. Where a new playback starts; the player's own bar can switch one session
-            // without touching this. An engine that is not offered yet is listed but not choosable.
+            // without touching this.
             //
             // IOS-POC-31: one row with a pop-up menu, not a row per engine — the page was too long.
-            // Menu items are not disabled (`selectionDisabled` is not used), so an engine not offered
-            // yet is still labelled and the setter refuses the choice.
             Section {
                 Picker("播放器", selection: Binding(
                     get: { defaultEngine },
                     set: { kind in
-                        guard PlaybackSession.shared.isEngineAvailable(kind) else { return }
                         PlaybackSession.shared.setGlobalDefaultEngine(kind)
                         defaultEngine = kind
                     }
                 )) {
                     ForEach(PlaybackEngineKind.allCases, id: \.self) { kind in
-                        Text(PlaybackSession.shared.isEngineAvailable(kind)
-                             ? kind.displayName : "\(kind.displayName)（尚未開放）")
-                            .tag(kind)
+                        Text(kind.displayName).tag(kind)
                     }
                 }
                 .pickerStyle(.menu)
@@ -1355,11 +1346,6 @@ private struct SettingsView: View {
             if let site = sites.first(where: { $0.id == selectedSiteID }) ?? sites.first {
                 Section("開發者") {
                     NavigationLink("WebHome 橋接驗證") { WebHomeView(site: site, sites: sites, source: source) }
-                    // IOS-POC-9C: a Debug-only surface for the MPV spike. Not a player — nothing
-                    // downstream routes here, and AVPlayer is still the only playback core.
-                    #if DEBUG
-                    NavigationLink("MPV 算繪驗證") { MPVProbeView() }
-                    #endif
                 }
             }
 
@@ -2462,8 +2448,11 @@ struct EpisodeSteps: Equatable {
         // record, resume, the ending, auto-next, the prefetch — stays here and asks `engine`.
         // The end-of-item observer that used to be registered here lives in `AVPlayerEngine` now,
         // so an ended item reaches `finished()` the same way whichever engine played it.
+        // Both engines in every build, at the user's decision on 2026-09-23 (IOS-POC-17E). What
+        // guards a viewer from a black screen is `MPVEngine`'s first-frame watchdog: a file that
+        // loads without a frame is a capability failure, and the router hands it back to AVPlayer.
         router = PlayerRouter(globalDefault: PlaybackEnginePreference().globalDefaultEngine,
-                              available: PlaybackEngines.offered) { [unowned self] kind in
+                              available: Set(PlaybackEngineKind.allCases)) { [unowned self] kind in
             kind == .native ? AVPlayerEngine(session: self) as PlaybackEngine : MPVEngine()
         }
         router.onEnded = { [weak self] in self?.finished(reason: "end") }
@@ -2537,7 +2526,6 @@ struct EpisodeSteps: Equatable {
     /// The engine actually playing — what the control bar shows, never the configured default.
     var engineKind: PlaybackEngineKind { router.selection.currentSessionEngine }
     var globalDefaultEngine: PlaybackEngineKind { router.selection.globalDefaultEngine }
-    func isEngineAvailable(_ kind: PlaybackEngineKind) -> Bool { router.selection.isAvailable(kind) }
     /// IOS-POC-27A: whether the viewer means it to play — also while it waits for data, which
     /// `isPlaying` does not count. A switch or a quality change mid-stall used to arrive paused.
     private var intendsToPlay: Bool { (engine?.rate ?? 0) != 0 }
@@ -3623,17 +3611,6 @@ struct EpisodeSteps: Equatable {
     }
 }
 
-/// IOS-POC-17 — which engines a viewer may be offered.
-///
-/// **Both, in every build, at the user's decision on 2026-09-23 (IOS-POC-17E).** Until then a
-/// release build offered AVPlayer alone because MPV's first frame had been seen on the simulator
-/// (IOS-POC-9G) and not on a device. What still guards a viewer from a black screen is
-/// `MPVEngine`'s first-frame watchdog: a file that loads without a frame is a capability failure,
-/// and the router hands the same target back to AVPlayer.
-enum PlaybackEngines {
-    static let offered: Set<PlaybackEngineKind> = [.native, .mpv]
-}
-
 /// IOS-POC-17 — AVPlayer as an engine: the one `AVPlayer` `PlaybackSession` has always owned.
 ///
 /// **A thin adapter on purpose.** Item creation, the 2.5×/3× audio fix and IOS-POC-15's buffer
@@ -4037,7 +4014,6 @@ private struct PlayerControlBar: View {
     let media: PlaybackMediaSelection
     /// IOS-POC-17: the engine **actually** playing — not the settings page's default.
     let engine: PlaybackEngineKind
-    let isAvailable: (PlaybackEngineKind) -> Bool
     let selectEngine: (PlaybackEngineKind) -> Void
     /// The open panel, if any. `PlayerView`'s `PlayerChrome` owns it.
     let panel: PlayerPanel?
@@ -4420,13 +4396,8 @@ private struct PlayerControlBar: View {
                     }
                 }
             case .engine:
-                // An engine that is not offered is listed but cannot be picked, so nobody lands on
-                // a black screen.
                 ForEach(PlaybackEngineKind.allCases, id: \.self) { kind in
-                    choiceRow(isAvailable(kind) ? kind.displayName : "\(kind.displayName)（尚未開放）",
-                              selected: kind == engine, enabled: isAvailable(kind)) {
-                        selectEngine(kind)
-                    }
+                    choiceRow(kind.displayName, selected: kind == engine) { selectEngine(kind) }
                 }
             case .subtitle:
                 trackRows(media.subtitle, kind: .subtitle)
@@ -4443,7 +4414,7 @@ private struct PlayerControlBar: View {
     }
 
     /// One full-width single-choice row. Choosing applies and closes the panel.
-    private func choiceRow(_ title: String, selected: Bool, enabled: Bool = true, spoken: String? = nil,
+    private func choiceRow(_ title: String, selected: Bool, spoken: String? = nil,
                            action: @escaping () -> Void) -> some View {
         Button {
             action()
@@ -4462,8 +4433,6 @@ private struct PlayerControlBar: View {
             .frame(maxWidth: .infinity, minHeight: Self.hitTarget)
             .contentShape(Rectangle())
         }
-        .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.45)
         .accessibilityLabel(spoken ?? title)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
@@ -4914,7 +4883,6 @@ private struct PlayerView: View {
                 intendsToPlay: intendsToPlay, rate: rate, episodeSteps: episodeSteps,
                 watching: watching, media: media,
                 engine: engineKind,
-                isAvailable: { session.isEngineAvailable($0) },
                 selectEngine: { session.selectEngine($0) },
                 panel: chrome.panel,
                 toggle: { panel in

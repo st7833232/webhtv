@@ -13,8 +13,6 @@ import WebHTVCore
 /// stay in `PlaybackSession`.
 ///
 /// Picture in Picture (IOS-POC-17H) is the one exception to "Metal only": see `MPVPictureInPicture`.
-///
-/// **Whether it is offered at all is `PlaybackEngines.offered`, not this type.**
 @MainActor
 final class MPVEngine: PlaybackEngine {
     let kind = PlaybackEngineKind.mpv
@@ -1003,8 +1001,8 @@ final class MPVSoftwareRenderer: @unchecked Sendable {
     }
 }
 
-/// File scope, like `requestGLDisplay` in `MPVProbeView`: mpv calls it on its own thread, and a
-/// closure would inherit an actor's isolation and trap there (9G). It only schedules.
+/// File scope: mpv calls it on its own thread, and a closure would inherit an actor's isolation and
+/// trap there (9G). It only schedules.
 private func softwareFrameDue(_ ctx: UnsafeMutableRawPointer?) {
     guard let ctx else { return }
     Unmanaged<MPVSoftwareRenderer>.fromOpaque(ctx).takeUnretainedValue().frameDue()

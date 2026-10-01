@@ -211,6 +211,16 @@ private func watched(_ vodId: String, on sourceID: String?) -> WatchHistory {
     #expect(!record("1", position: 0, duration: 1_000).isNearEnding)
 }
 
+/// IOS-POC-36.4 (D11): AVPlayer can stop past the runtime an HLS playlist declares — 130.338 s of
+/// a 130 s stream, recorded as the episode ended. That is the end, not a place to resume: reopened,
+/// the title started on its last instant and ended at once, closing the player or moving on.
+@Test func aPositionPastTheRuntimeIsTheEndNotAResumePoint() {
+    let pastTheEnd = record("1", position: 130_338, duration: 130_000)
+    #expect(pastTheEnd.isNearEnding)
+    #expect(pastTheEnd.resumePosition == nil)
+    #expect(pastTheEnd.startPosition() == 0)
+}
+
 // MARK: - R6: the remembered quality outranks the default
 
 @Test func aRememberedQualityDecidesWhereTheMenuOpens() async throws {

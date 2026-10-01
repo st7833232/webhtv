@@ -134,13 +134,16 @@ public struct WatchHistory: Codable, Sendable, Equatable, Identifiable {
     /// `History.canSave()`: a title with no measured position is not yet worth a record.
     public var canSave: Bool { position > 0 }
 
-    /// `History.isNearEnding()`, formula for formula: the threshold is one percent of the runtime,
-    /// clamped to between 5 and 30 seconds.
+    /// `History.isNearEnding()`: the threshold is one percent of the runtime, clamped to between 5
+    /// and 30 seconds.
+    ///
+    /// IOS-POC-36.4 (D11): past the runtime counts too. Android tests `remaining >= 0` as well, and
+    /// ExoPlayer never reports a position beyond its duration; AVPlayer does, at the end of an HLS
+    /// stream whose segments run longer than the playlist declares (130.338 s of 130 s).
     public var isNearEnding: Bool {
         guard position > 0, duration > 0 else { return false }
         let threshold = min(30_000, max(5_000, duration / 100))
-        let remaining = duration - position
-        return remaining >= 0 && remaining <= threshold
+        return duration - position <= threshold
     }
 
     /// Where playback should start, or nil to start from the beginning (D4).

@@ -2416,8 +2416,12 @@ struct EpisodeSteps: Equatable {
         }
         rateObserver = player.observe(\.rate, options: [.new]) { player, _ in
             let rate = player.rate
-            guard rate > 0 else { return }
-            Task { @MainActor in PlaybackSession.shared.chosenRate = rate }
+            Task { @MainActor in
+                if rate > 0 { PlaybackSession.shared.chosenRate = rate }
+                // IOS-POC-36.2: AVKit's window and the lock screen play and pause AVPlayer without
+                // the session.
+                PlaybackSession.shared.noteBackgroundEligibilityChanged()
+            }
         }
         // The 5-second sampler cannot be relied on for the last few seconds before the app is
         // suspended, and those are the ones a viewer notices losing.
@@ -2514,7 +2518,11 @@ struct EpisodeSteps: Equatable {
     /// The embedded tracks from before a reload, selected again once the reloaded item lists its own.
     private var tracksToRestore: PlaybackMediaSelection?
     /// Kept by the player screen: AVKit or MPV has the video in a Picture in Picture window.
-    var pictureInPictureActive = false
+    /// IOS-POC-36.2: set by each window's own start and stop too, because a window closed with the
+    /// app in the background is judged right then, and SwiftUI's `onChange` promises no moment.
+    var pictureInPictureActive = false {
+        didSet { if pictureInPictureActive != oldValue { noteBackgroundEligibilityChanged() } }
+    }
 
     /// The player screen's hooks: which engine is drawing, and a failure to show.
     var onEngineChange: ((PlaybackEngineKind) -> Void)?
@@ -3063,10 +3071,17 @@ struct EpisodeSteps: Equatable {
     /// A paused player the viewer is looking at: open, loaded or still loading, paused, not in
     /// Picture in Picture, and not showing a failure — the one state a reload on return puts back
     /// exactly as it was. MPV reports a load in progress as not loaded yet, hence `.preparing`.
+    ///
+    /// IOS-POC-36.2: one rule for both engines (`PausedBackgroundReload.eligible`). Paused is the
+    /// engine at rest or the viewer's pause through the session: mpv answers a pause only on its
+    /// next property event, and a judgement made right after the pause must already count it.
     private var isPausedOnScreen: Bool {
-        guard router.sessionActive, router.failure == nil, started, let engine,
-              engine.isLoaded || engine.state == .preparing else { return false }
-        return engine.rate == 0 && !pictureInPictureActive
+        guard let engine else { return false }
+        return PausedBackgroundReload.eligible(
+            sessionOpen: router.sessionActive && started, failed: router.failure != nil,
+            loaded: engine.isLoaded || engine.state == .preparing,
+            paused: engine.rate == 0 || router.request?.autoplay == false,
+            pictureInPicture: pictureInPictureActive)
     }
 
     /// Where a reload starts. An item still preparing has not reached its own start yet, so it keeps
@@ -3082,7 +3097,23 @@ struct EpisodeSteps: Equatable {
         pausedBackground.enteredBackground(eligible: eligible, position: reloadPosition, at: .now)
         heartbeat?.cancel()
         heartbeat = nil
-        guard eligible else { return }
+        if eligible { beatInBackground() }
+    }
+
+    /// IOS-POC-36.2 (PL-14): something `isPausedOnScreen` reads changed — the Picture in Picture
+    /// window closed, or a pause or play — and the app may still be in the background. Judged only
+    /// as the app left, a player paused in the window and closed there was never armed, and came
+    /// back suspended with a play button that did nothing. Nothing is reloaded here: this only
+    /// starts the same suspension watch `noteEnteredBackground` starts.
+    func noteBackgroundEligibilityChanged() {
+        guard pausedBackground.eligibilityChanged(eligible: isPausedOnScreen, position: reloadPosition,
+                                                  at: .now) else { return }
+        Self.log.notice("[lifecycle] \(self.itemTitle, privacy: .public) paused in the background at \(Int(self.reloadPosition))s on \(self.engineKind.shortName, privacy: .public) (pip=\(self.pictureInPictureActive)): reloads on return if suspended")
+        beatInBackground()
+    }
+
+    private func beatInBackground() {
+        heartbeat?.cancel()
         heartbeat = Task { @MainActor in
             while !Task.isCancelled {
                 try? await Task.sleep(for: PausedBackgroundReload.heartbeat)
@@ -3167,6 +3198,7 @@ struct EpisodeSteps: Equatable {
         case "pause":
             router.setIntendsToPlay(false)
             engine?.pause()
+            noteBackgroundEligibilityChanged()
         case "stop":
             // No foreground service to stop, so the equivalent is to drop what is loaded.
             retryWithoutPrefetch = nil
@@ -4707,12 +4739,15 @@ private struct PlayerSurface: UIViewControllerRepresentable {
             PlaybackSession.log.notice("[pip] native will start")
             foregroundRestore.pictureInPictureWillStart()
             active.wrappedValue = true
+            PlaybackSession.shared.pictureInPictureActive = true
         }
 
         func playerViewControllerDidStopPictureInPicture(_ controller: AVPlayerViewController) {
             PlaybackSession.log.notice("[pip] native did stop")
             foregroundRestore.pictureInPictureDidStop()
             active.wrappedValue = false
+            // IOS-POC-36.2: the session hears it now, not when SwiftUI next updates the screen.
+            PlaybackSession.shared.pictureInPictureActive = false
         }
 
         /// AVKit calls this while an already-stopping PiP asks where to restore its UI. The player

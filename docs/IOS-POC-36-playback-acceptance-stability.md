@@ -1,16 +1,16 @@
 # IOS-POC-36 — Playback Acceptance & Stability Consolidation
 
-**狀態（2026-09-30）**：開發完成，只剩真機驗收（PL-14 刻意不修，見第九節）。D1～D7（第八節）已隨 `0.1.39 (40)` 發布，`0.1.40 (41)` 亦包含；36.1（loop 路徑也只處理一次結束＝D8、矩陣證據稽核，第十四節）已隨 `0.1.41 (42)` 發布。矩陣 107 項：`REAL_DEVICE_PASS` 1、`SIMULATOR_PASS` 47（36C 實測 44 項，其餘 3 項沿用 17F／25）、`AUTOMATED_PASS` 27、`RELEASE_BUILD_ONLY` 17、`UNVERIFIED` 12、`KNOWN_LIMITATION` 2、`DEFECT` 1。**D1～D8 都沒有真機驗證。**
+**狀態（2026-10-01）**：開發完成，0 個已確認缺陷，只剩真機驗收。D1～D7（第八節）已隨 `0.1.39 (40)` 發布，`0.1.40 (41)` 亦包含；36.1（D8 與矩陣證據稽核，第十四節）已隨 `0.1.41 (42)` 發布；36.2（D9：PiP 在背景關閉後的暫停 reload＝PL-14，第十五節）已 commit、尚未發布。矩陣 107 項：`REAL_DEVICE_PASS` 1、`SIMULATOR_PASS` 47（36C 實測 44 項，其餘 3 項沿用 17F／25）、`AUTOMATED_PASS` 28、`RELEASE_BUILD_ONLY` 17、`UNVERIFIED` 12、`KNOWN_LIMITATION` 2、`DEFECT` 0。**D1～D9 都沒有真機驗證。**
 
 ## Recovery anchor
 
 - 目標：AVPlayer＋MPV 既有功能的正式 acceptance baseline，修掉找到的 root cause，不新增第三核心、不擴充功能。
 - 範圍：`ios/Sources/WebHTVCore`、`ios/WebHTVApp/Sources`、`ios/Tests/WebHTVCoreTests`、`docs`。task guard `IOS-POC-36`（`standard`）。
 - 工作位置：36A～36D 在獨立 worktree `/Users/chengchenchih/GIT/webhtv-ios36`（本機分支 `ios-poc-36`，已 push 到 `origin/ios-poc`），因為當時主 checkout 有另一個 session 的 task guard；36.1 在主 checkout `/Users/chengchenchih/GIT/webhtv`（task guard `IOS-POC-36.1`，`quick-fix`）。模擬器用 `05934376-5757-40E5-9FAF-202594565656`（iPhone 17 Pro Max、iOS 26.3），不碰另一個 session 的 `E0A41D48`。
-- 已完成：第四節矩陣（107 項，36.1 重新稽核證據強度）、第八節 D1～D8 修正與測試、第六節模擬器證據。
-- 未驗證：全部真機項目（第十節）；D7（切換瞬間 0:00）只有 build 證據；D8 只有單元測試與 build（已隨 `0.1.41 (42)` 發布）。
-- 回滾：`git revert <本任務 commit>`（36 是 `2840c2e4`，36.1 是它自己的 commit）；只有 Swift 原始碼、測試與文件，沒有二進位、lock 或設定變更。
-- 下一步（唯一）：使用者在 `0.1.41 (42)`（含 D1～D8）上跑第十節的清單，結果逐項填回第四節。
+- 已完成：第四節矩陣（107 項，36.1 重新稽核證據強度）、第八節 D1～D9 修正與測試、第六節模擬器證據。
+- 未驗證：全部真機項目（第十節）；D7（切換瞬間 0:00）只有 build 證據；D8 只有單元測試與 build（已隨 `0.1.41 (42)` 發布）；D9 的決策有單元測試、App 接線只有 build，還不在任何發布版本裡。
+- 回滾：`git revert <本任務 commit>`（36 是 `2840c2e4`，36.1 是 `ea96268f`，36.2 是它自己的 commit）；只有 Swift 原始碼、測試與文件，沒有二進位、lock 或設定變更。
+- 下一步（唯一）：使用者在 `0.1.41 (42)`（含 D1～D8）上跑第十節的清單，結果逐項填回第四節；第 15 項（D9）要等含 36.2 的版本。
 
 ## 一、起始狀態
 
@@ -56,14 +56,14 @@
 |---|---|---|
 | REAL_DEVICE_PASS | 1 | 1 |
 | SIMULATOR_PASS | 24 | 47 |
-| AUTOMATED_PASS | 30 | 27 |
+| AUTOMATED_PASS | 30 | 28 |
 | RELEASE_BUILD_ONLY | 15 | 17 |
 | UNVERIFIED | 29 | 12 |
 | KNOWN_LIMITATION | 2 | 2 |
-| DEFECT | 6 | 1 |
+| DEFECT | 6 | 0 |
 | 合計 | 107 | 107 |
 
-36.1 稽核前兩欄是 15／22／26／7／29／2／6 與 15／42／26／9／12／2／1；原本的 15 項 `REAL_DEVICE_PASS` 有 14 項降級，規則與逐項原因在第十四節之 3。
+36.1 稽核前兩欄是 15／22／26／7／29／2／6 與 15／42／26／9／12／2／1；原本的 15 項 `REAL_DEVICE_PASS` 有 14 項降級，規則與逐項原因在第十四節之 3。36.2 只改 PL-14（`DEFECT` → `AUTOMATED_PASS`，第十五節），36 後一欄因此是 1／47／28／17／12／2／0。
 
 
 
@@ -83,7 +83,7 @@
 | AV-10 | 原生→MPV | 5 秒 startup timeout | AUTOMATED_PASS | **SIMULATOR_PASS** | 36C：每段 8 秒延遲，`not started on 原生 after 5s — trying MPV`，原因 `neverReady`，MPV 8.6 s 後開播，沒有第二次切換 |
 | AV-11 | 原生 | AirPlay／PiP 中不被誤判 timeout（20 秒） | RELEASE_BUILD_ONLY | **RELEASE_BUILD_ONLY** | `watchStartup` 的 `presentedElsewhere`；iPhone 模擬器沒有 PiP、沒有 AirPlay 接收端 |
 | AV-12 | 原生 | background audio（播放中離開 App） | RELEASE_BUILD_ONLY | **RELEASE_BUILD_ONLY** | 36.1 降級：23 T4 真機通過但未分核心（`0.1.20 (21)`）；之後 24-2 改由 App 在每次播放前啟用音訊工作階段，沒有再驗；模擬器沒做播放中進背景 |
-| AV-13 | 原生 | 暫停後背景、回來 resume | RELEASE_BUILD_ONLY | **RELEASE_BUILD_ONLY** | 36.1 降級：真機 23 T1～T3（`0.1.20 (21)`，原生一次，走暫停執行後 reload）在 24-2（回來不啟用工作階段、播放時才啟用）與 36 D4／D7 之前；36C 模擬器只驗到沒被暫停執行的返回（仍暫停、同一格），reload 路徑在目前程式只有 build |
+| AV-13 | 原生 | 暫停後背景、回來 resume | RELEASE_BUILD_ONLY | **RELEASE_BUILD_ONLY** | 36.1 降級：真機 23 T1～T3（`0.1.20 (21)`，原生一次，走暫停執行後 reload）在 24-2（回來不啟用工作階段、播放時才啟用）與 36 D4／D7 之前；36C 模擬器只驗到沒被暫停執行的返回（仍暫停、同一格），reload 路徑在目前程式只有 build；36.2 把判斷改成兩個核心共用的規則、使用者按的暫停也算（第十五節） |
 | AV-14 | 原生 | PiP 進出 | RELEASE_BUILD_ONLY | **RELEASE_BUILD_ONLY** | 36.1 降級：23 T5 真機通過但未分核心（當時 MPV 也有 PiP，不能算原生的）；原生 PiP 程式在 `0.1.20 (21)` 後只加了 36 的 `[pip] native` log；iPhone 模擬器沒有 PiP |
 | AV-15 | 原生 | 音軌／字幕切換 | RELEASE_BUILD_ONLY | **RELEASE_BUILD_ONLY** | 36.1 降級：23 T8 真機通過（重新載入後保留）但未分核心；「重新載入後選回」有 `reselections(after:)` 單元測試，原生的切換本身只有 build |
 | AV-16 | 原生 | 畫質切換 | AUTOMATED_PASS | **AUTOMATED_PASS** | `theQualityChoiceStartsRememberedAndOpensTheResolvedDefault`；設定檔沒有多畫質來源，UI 從未被真實資料觸發 |
@@ -108,7 +108,7 @@
 | MPV-11 | MPV | PiP 內暫停／恢復 | UNVERIFIED | **UNVERIFIED** | 17H AC2；36 改為經 session（意圖會被記住） |
 | MPV-12 | MPV | PiP 回 App（不閃格、不重複 stop） | RELEASE_BUILD_ONLY | **RELEASE_BUILD_ONLY** | 17H-4 A 修正、`aSystemInitiatedStopLeavesNoForegroundRequest`；真機未驗證 |
 | MPV-13 | MPV | 回前景不 stale frame、不變形 | RELEASE_BUILD_ONLY | **RELEASE_BUILD_ONLY** | 17H-2／17H-3／17H-4；真機最後一次回報在修正前 |
-| MPV-14 | MPV | background／foreground | RELEASE_BUILD_ONLY | **RELEASE_BUILD_ONLY** | 36.1 降級：真機 23 T1～T3（`0.1.20 (21)`，MPV 一次）在 24-2（Libmpv 換版、工作階段改由 App 擁有）、17H-2～4（回前景的畫面還原）、36 D3／D5 之前；36C 的暫停中背景沒有記錄核心，也沒有觸發 reload |
+| MPV-14 | MPV | background／foreground | RELEASE_BUILD_ONLY | **RELEASE_BUILD_ONLY** | 36.1 降級：真機 23 T1～T3（`0.1.20 (21)`，MPV 一次）在 24-2（Libmpv 換版、工作階段改由 App 擁有）、17H-2～4（回前景的畫面還原）、36 D3／D5 之前；36C 的暫停中背景沒有記錄核心，也沒有觸發 reload；36.2 把判斷改成兩個核心共用的規則、使用者按的暫停也算（第十五節） |
 | MPV-15 | MPV | idle timer（播放中不鎖屏） | RELEASE_BUILD_ONLY | **RELEASE_BUILD_ONLY** | `setPlaybackIntent`；`0.1.15 (16)` 起出貨，沒有回報 |
 | MPV-16 | MPV | `aid` 音軌切換 | UNVERIFIED | **UNVERIFIED** | P10；23 T8 沒有記錄核心 |
 | MPV-17 | MPV | `sid` 字幕切換 | UNVERIFIED | **UNVERIFIED** | 同上 |
@@ -190,7 +190,7 @@
 | PL-02 | MPV | 回 App 不閃舊格 | RELEASE_BUILD_ONLY | **RELEASE_BUILD_ONLY** | MPV-12 |
 | PL-03 | 雙向 | 回前景不重複 stop | AUTOMATED_PASS | **AUTOMATED_PASS** | `PictureInPictureForegroundRestoreStateTests` 四條；17H-4 模擬器事件順序 |
 | PL-04 | 雙向 | 播放中背景／前景 | RELEASE_BUILD_ONLY | **RELEASE_BUILD_ONLY** | 36.1 降級：23 T4 真機只有一次且未分核心（`0.1.20 (21)`），雙向缺一個核心；之後 24-2 改了音訊工作階段 |
-| PL-05 | 雙向 | 暫停中背景／前景 | RELEASE_BUILD_ONLY | **RELEASE_BUILD_ONLY** | 36.1 降級，同 AV-13、MPV-14：真機 23 T1～T3 兩個核心都在 24-2、36 之前；36C 模擬器 20 秒沒有觸發暫停執行，reload 路徑只有 build |
+| PL-05 | 雙向 | 暫停中背景／前景 | RELEASE_BUILD_ONLY | **RELEASE_BUILD_ONLY** | 36.1 降級，同 AV-13、MPV-14：真機 23 T1～T3 兩個核心都在 24-2、36 之前；36C 模擬器 20 秒沒有觸發暫停執行，reload 路徑只有 build；36.2 把判斷改成兩個核心共用的規則、使用者按的暫停也算（第十五節） |
 | PL-06 | 雙向 | 電話 interruption | UNVERIFIED | **UNVERIFIED** | 24 AC6 |
 | PL-07 | 雙向 | Siri interruption | UNVERIFIED | **UNVERIFIED** | 24 AC6 |
 | PL-08 | 雙向 | 其他 App 音訊 interruption | UNVERIFIED | **UNVERIFIED** | 24 AC1 |
@@ -199,7 +199,7 @@
 | PL-11 | 原生 | AVPlayer PiP 回 App 結束 PiP | AUTOMATED_PASS | **AUTOMATED_PASS** | 36.1 降級：23 T5 真機通過但未分核心；原生 `PlayerSurface.Coordinator` 的回前景規則在 `0.1.20 (21)` 後沒改，由 `PictureInPictureForegroundRestoreStateTests` 覆蓋 |
 | PL-12 | MPV | MPV PiP 內按播放有聲音 | UNVERIFIED | **UNVERIFIED** | 24 AC5 |
 | PL-13 | MPV | PiP 內暫停後的 fallback 保持暫停 | UNVERIFIED | **AUTOMATED_PASS** | D4（PiP 的播放／暫停改走 session） |
-| PL-14 | 雙向 | PiP 在背景關閉後才被暫停執行，回來會 reload | DEFECT | **DEFECT** | 23 §十一之4 缺口 1，仍開啟（見第九節） |
+| PL-14 | 雙向 | PiP 在背景關閉後才被暫停執行，回來會 reload | DEFECT | **AUTOMATED_PASS** | 36.2 D9（第十五節）：舊邏輯以回歸測試重現（3 條紅）後修正，`PausedBackgroundReloadTests` 9 條；App 接線（兩個核心的 PiP 結束、暫停、AVPlayer rate）只有 Debug／Release build；模擬器沒有 PiP 也不會暫停執行 App，**真機未驗證** |
 
 ### 控制列與診斷（3 項）
 
@@ -212,7 +212,7 @@
 矩陣說明：
 
 - 36 前 6 項 `DEFECT` 裡，DE-10（RC2）、DE-19（RC4）、PL-14 在 IOS-POC-26／23 已有記錄但沒修；DE-12、DE-18、SH-12 是本任務讀程式時找到、並對照 IOS-POC-23 §十之2 與 17F 的已知風險確認的。MPV-06 是模擬器上測出來的（36 前記 `UNVERIFIED`）。
-- 36 後唯一的 `DEFECT` 是 PL-14（見第九節）。
+- 36 後唯一的 `DEFECT` 是 PL-14（見第九節）；36.2 修正後 36 後一欄沒有 `DEFECT`。
 - `REAL_DEVICE_PASS` 只剩 MPV-01。36.1 依三條規則重新稽核原本的 15 項（兩欄都套用，36 前一欄對照 36 前的程式）：(1) 一列有多個子項（倍率、兩個核心、有沒有被暫停執行）時，每個子項都要有真機證據，否則整列取證據最弱的子項；(2) 單一核心的列，真機證據要記錄核心（或當時只有那個核心），IOS-POC-23 的 T4～T12、T14、T15 都是「未分核心」；(3) 真機證據之後改過該列驗證的程式路徑時，記目前程式上最強的證據，舊的真機結果留在證據欄。降級項目的目標狀態沿用本表慣例：已出貨但只有編譯的記 `RELEASE_BUILD_ONLY`（同 MPV-15）。第十節把這些項目的真機驗收列在清單裡。
 
 ## 五、Real-device evidence
@@ -256,6 +256,7 @@
 
 - 基準 578 → **586**。新增 8 條：`PlaybackEngineTests` 的 `aPausePressedWhileStartingIsKeptByTheFallback`、`playPressedAfterAPausedReloadIsKeptByTheFallback`、`theViewersIntentChangesNothingElseInTheRequest`、`anEngineThatFailedMidPlayHandsOverWhereItFailed`、`everySwitchSaysWhyForTheLog`、`aRetiredEngineCannotEndTheItem`；`PlaybackActivityTests` 的 `theViewersEndingAndTheRealEndAdvanceOnce`、`theNextItemMayEndAgainAndSoMayAReplay`。既有 `playPressedDuringAReloadThenAFallbackComesBackPaused` 只更新註解（行為契約不變）。
 - 36 前的覆蓋盤點（306 條播放相關）：router／fallback／逾時、HLS 去廣（86 條＋26 golden）、緩衝策略、history 資料層都完整；空白集中在 App target：`finished()`／`playNext` 的交接、audio interruption、零容差 seek、AVKit PiP 接線、控制列互動。
+- 36.2：613 → **622**，`PausedBackgroundReloadTests` 新增 9 條（第十五節之 5）。
 - 36.1：610 → **613**（中間 24 條是 IOS-POC-39 的 `XBPQRuleTests`）。新增 `underLoopTheViewersEndingThenTheRealEndReplayOnce`、`underLoopTheRealEndThenTheViewersEndingReplayOnce`、`aReplayBackAtItsStartMayEndAgain`；D1 的兩條改用 `end(looping: false)`，期望不變。
 - 本任務能抽成純狀態的都抽了（`PlaybackEndGate`、`PlayerRouter.setIntendsToPlay`／`switchReason`、交接位置）；AVPlayer 的通知過濾（D2）、MPV 的上一檔 EOF（D3）與暫存 seek（D6）、session 的位置補值（D7）留在 App target，證據是 build＋第六節。
 
@@ -271,13 +272,14 @@
 | D6 | 快速連按 ±10 秒：MPV 在 `time-pos` 更新前，第二次從舊位置起算（模擬器 2 ms 內三次：95.3→105.3、95.3→105.3、95.3→85.3）；控制列本身用的是每 0.25 秒更新一次的畫面位置 | ±10 以 UI 的讀值為基準；MPV 的位置在 mpv 執行 seek 前不含要求的目標 | ±10 改用 `PlaybackSession.skip(by:)`（engine 當下位置）；MPV 在 `PLAYBACK_RESTART` 前回報要求的目標，最多 2 秒（mpv 拒絕的 seek，例如直播，不會卡住） | 第六節修正前後對照 | 去廣的落點檢查本來就預期 mpv 在 restart 前回報目標值（`HLSAdSkipper` 註解），模擬器 A／B 重測沒有退步 |
 | D7 | 切換核心後、新核心回報前，控制列讀到 0:00，這時按 ±10 會 seek 到開頭附近（IOS-POC-26 RC4） | `position` 只讀 engine | 新核心沒有位置也沒有長度時，`PlaybackSession.position` 用 request 的起點；AVPlayer 的 periodic observer 讀到 0 時也用它。使用者自己拖到 0:00 時已有長度，讀 0 | Debug／Release build | 直播（長度為 0）開頭讀的是 request 起點（0） |
 | D8（36.1） | loop 開著（只有 WebHome 的 `player.control` 會開）：片尾觸發 replay 後，舊一段播放的真正結尾才送到；或真正結尾觸發 replay 後，取樣器在 rewind 落地前讀到舊位置的片尾 | `finished` 在 loop 時 `control("replay")` 直接 return，不經 `PlaybackEndGate`；`replay` 一送出就 `itemLoaded()`，所以遲到的結束被當成新一段的：再 replay 一次，若這時 loop 已關則交接、跳到下一集 | loop 也經過 gate（`end(looping:)` 回 `.handOver`／`.replay`／`.ignore`）；replay 的 seek 落地才重新上膛（`PlaybackEngine.seek(toSeconds:landed:)`：AVPlayer 的 seek completion、MPV 的 `PLAYBACK_RESTART`）；上一集／下一集進行中時 loop 也不另外 replay | 三條 loop 測試（先以舊語意重現為紅，第十四節之 2）；D1 兩條 | replay 的 seek 若一直不落地（MPV 已 EOF、檔案已卸載），這個 item 之後的結束都會被忽略，而那時 replay 本來就無效（第九節）；下一個 `load` 重新上膛 |
+| D9（36.2） | 播放中進 PiP → 在小視窗暫停（或在背景按 ✕ 關掉播放中的小視窗）→ App 仍在背景時小視窗結束 → 之後被系統暫停執行 → 回到 App（PL-14） | 「回來要不要 reload」只在 `didEnterBackground` 那一刻判斷一次；那時 PiP 開著、還在播放，所以沒有記錄、沒有心跳。之後小視窗結束與暫停都沒有人再判斷，回來沒有記錄，留下被暫停執行過、按播放沒反應的 engine。session 的 PiP 狀態又只經 SwiftUI `onChange` 同步，背景中何時更新沒有保證 | 判斷抽成兩個核心共用的 `PausedBackgroundReload.eligible`；新增 `eligibilityChanged`：App 在背景時，PiP 開關、`control("pause")`、AVPlayer `rate` 任一變化就重新判斷，第一次符合就以當下位置記錄並開始同一個心跳，之後照舊由 `becameActive` 依有沒有被暫停執行決定 reload；回到前景後不再記錄。兩個 PiP 的開始／結束直接通知 session；MPV 關窗的暫停改走 `control("pause")`；「已暫停」也算使用者經 session 按的暫停（mpv 要等屬性事件才回報） | `PausedBackgroundReloadTests` 9 條（舊邏輯 3 條紅、6 個期望） | 背景中任何暫停（鎖定畫面、來電）之後被暫停執行，回來也會 reload——與 23 相同的處理；沒有被暫停執行就不 reload |
 
 **補的診斷（Release-safe，只寫 log，不改時序）**：`seek requested … from …`、`seek landed … asked …`（兩個核心）、換核心時的 `autoplay=` 與 `reason=`、換核心後在新核心開始播放的 `started … after the switch (reason)`、`finished (end|ending)`、`… ignored: already moving on`、`no next episode … closing`、`mpv end of the previous file ignored`、`[audio] interruption began|ended … shouldResume=`、`[pip] native will start|did stop`。新增的輪詢只有換核心後一個最多 60 秒、每 0.1 秒讀一次 `isPlaying` 的 log 監看（與既有 `watchStartup` 相同做法），不做任何切換。
 
 ## 九、Known limitations（fail-safe 行為）
 
-- **PL-14（DEFECT，未修）**：播放中進 PiP、在小視窗暫停、在背景把小視窗關掉，之後才被系統暫停執行：進背景時不符合「暫停在畫面上」的條件，所以回來不會 reload（IOS-POC-23 §十一之4）。可能的修法（PiP 結束時重新判斷）要靠 PiP 與背景的時序，iPhone 模擬器沒有 PiP 無法驗證，先不改；fail-safe 是使用者關掉播放器重開。
-- AVKit 原生 PiP 小視窗的播放／暫停直接操作 AVPlayer，不經 `control`，所以 D4 的意圖不含它（小視窗開著時核心失敗換到 MPV 也會結束 PiP，情況罕見）。
+- ~~PL-14~~：36.2 已修（第十五節，D9），真機未驗證。原本的 fail-safe（關掉播放器重開）仍然有效。
+- AVKit 原生 PiP 小視窗的播放／暫停直接操作 AVPlayer，不經 `control`，所以 D4 的意圖不含它（小視窗開著時核心失敗換到 MPV 也會結束 PiP，情況罕見）。36.2 改由 AVPlayer 的 `rate` 變化讓背景判斷聽到它。
 - IOS-POC-25：原生相接廣告露出 0.218 s（目標 0.2 s）；MPV 在有 DISC 的清單上進入廣告 0.25 s 後才跳（25-2 的設計）；H1、U1（上游 FFmpeg）；目標沒緩衝時停在廣告畫面直到下載完成。
 - IOS-POC-17H-4 C：iPhone 放回動畫放大到整個 App 視窗，App 無法指定。
 - IOS-POC-24：App 啟動就啟用不混音工作階段，會中斷其他 App 的音樂（為了 PiP，不改）；中斷結束不自動續播（與 AVPlayer 相同，刻意）；暫停中 reload 的那一集可能只輸出雙聲道。
@@ -305,6 +307,7 @@
 12. **暫停後背景**：兩個核心各暫停後鎖螢幕 1 分鐘再回來：仍暫停、同一格，按播放 5 秒內開始（AV-13、MPV-14）。
 13. **原生 PiP／AirPlay 下一集**：原生 PiP 小視窗中讓它自動播到下一集（開播慢的站）：不會 5 秒就被換到 MPV（AV-11）。
 14. **36.1 降級的原生項目**（確認控制列顯示的是原生）：依序選 0.5×、1.5×、2× 各播 10 秒；播放中回主畫面 30 秒，聲音持續、回來不跳位置；進子母畫面再回 App；有多音軌或字幕的片子切換一次；關掉播放器再從觀看記錄開同一集，從剛才的位置續播。MPV 再做一次「播放中回主畫面」與「續播」（AV-07、AV-12、AV-14、AV-15、PL-04、PL-11、SH-01）。
+15. **PiP 在背景關閉（D9，要含 36.2 的版本）**：兩個核心各一次——播放中回主畫面讓小視窗出現 → 在小視窗按暫停 → 按小視窗的 ✕ 關掉 → 鎖螢幕至少 1 分鐘 → 從 App 圖示回來：畫面停在剛才暫停的地方，按播放 5 秒內開始。再各做一次「小視窗暫停後按『回到 App』」：不應重新載入（不重新緩衝、不跳位置）。可以的話接 Console.app 看 `[lifecycle]` 與 `[pip]` 行（PL-14）。
 
 可以的話，接 Mac 用 Console.app 過濾 `[playback]`，把第 1、2、6 項的 log 一起給我，比畫面描述更能判定。
 
@@ -313,11 +316,13 @@
 - **有（刻意）**：D4 — 核心失敗而自動換到另一個核心時，依使用者最後一次的播放／暫停（以前一律照開啟時的 autoplay，暫停中失敗也會自己播放；暫停 reload 後按了播放再失敗會回到暫停）。
 - 其餘是修正：D1（不再跳過一集）、D5（MPV 中途失敗接在失敗處）、D6（連按 ±10 累加）、D7（切換瞬間不從 0 起算）；D2、D3 平常看不到。
 - 36.1（D8）：loop 開著時，同一段播放只 replay 一次；上一集／下一集進行中遇到結尾交給進行中的換集，不再同時 replay。
+- 36.2（D9）：App 在背景時播放器被暫停（在 PiP 小視窗暫停後關掉、按 ✕ 關掉小視窗、鎖定畫面暫停、來電等中斷），之後 App 被系統暫停執行的話，回來會在暫停的位置以暫停狀態重新載入，與 IOS-POC-23 的「暫停後進背景」相同。沒被暫停執行就不重新載入。
 
 ## 十二、Rollback
 
 - 單一 commit，`git revert` 即可；不涉及 lock、patch、二進位、`project.pbxproj`、設定鍵或資料格式。
 - 分開回退：D4 是 `PlayerRouter.setIntendsToPlay` 與 `PlaybackSession.control` 的兩行；D6 的 MPV 部分是 `MPVEngine.seekAsked`；D1 是 `PlaybackEndGate` 與 `finished(reason:)` 的 guard。
+- 36.2 是另一個 commit，可單獨 revert：`PausedBackgroundReload.eligible`／`eligibilityChanged`、`isPausedOnScreen`、`noteBackgroundEligibilityChanged` 與它的四個呼叫點（PiP 開關、`control("pause")`、AVPlayer `rate`）、MPV `ended()` 的暫停改走 session、測試與文件；revert 後回到 PL-14 的 `DEFECT`。
 - 36.1 是另一個 commit，可單獨 revert：`PlaybackEndGate.end(looping:)`、`PlaybackEngine.seek(toSeconds:landed:)` 與兩個引擎的實作、`finished`／`replay`、測試與文件；revert 後回到 36 的 loop 行為（loop 不經 gate）。
 
 ## 十三、驗證紀錄
@@ -327,7 +332,7 @@
 - Release 裝置 build（`generic/platform=iOS`、`CODE_SIGNING_ALLOWED=NO EXPANDED_CODE_SIGN_IDENTITY=-`）：BUILD SUCCEEDED。第一次沒帶 `EXPANDED_CODE_SIGN_IDENTITY=-` 時，上游 `install_python` 簽 framework 失敗（`no identity found`），屬呼叫方式，與 17H-4 記錄的指令相同後通過。
 - 模擬器驗收：第六節。
 - Ponytail：未執行（選配，本任務略過）。
-- 36.1 的驗證見第十四節之 4。
+- 36.1 的驗證見第十四節之 4；36.2 見第十五節之 6。
 
 ## 十四、IOS-POC-36.1 收尾（2026-09-30）
 
@@ -359,16 +364,16 @@
 | AV-02 | AUTO／SIM | 真機在 24-2、27A、36 D4 之前 |
 | AV-07 | RBO／RBO | 0.5× 沒有任何紀錄；1.5×／2× 的真機未分核心 |
 | AV-12 | RBO／RBO | 真機未分核心；24-2 改了音訊工作階段 |
-| AV-13 | RBO／RBO | 真機在 24-2、36 D4／D7 之前；模擬器沒走 reload |
+| AV-13 | RBO／RBO | 真機在 24-2、36 D4／D7 之前；模擬器沒走 reload；36.2 把判斷改成兩個核心共用的規則、使用者按的暫停也算（第十五節） |
 | AV-14 | RBO／RBO | 真機未分核心（當時 MPV 也有 PiP） |
 | AV-15 | RBO／RBO | 真機未分核心；切換本身只有 build |
 | AV-19 | SIM／SIM | 真機在 35、36 D1／D2 之前；T10 未分核心 |
 | MPV-01 | RD／RD（保留） | `0.1.35 (36)` 錄影仍有畫面，之後沒改首格路徑 |
 | MPV-02 | AUTO／SIM | 真機在 24-2、27A、36 D4 之前 |
-| MPV-14 | RBO／RBO | 真機在 24-2、17H-2～4、36 之前 |
+| MPV-14 | RBO／RBO | 真機在 24-2、17H-2～4、36 之前；36.2 把判斷改成兩個核心共用的規則、使用者按的暫停也算（第十五節） |
 | SH-01 | AUTO／SIM | 真機未分核心，在 26-1、36 D7 之前 |
 | PL-04 | RBO／RBO | 真機只有一次、未分核心；24-2 |
-| PL-05 | RBO／RBO | 真機在 24-2、36 之前；模擬器沒走 reload |
+| PL-05 | RBO／RBO | 真機在 24-2、36 之前；模擬器沒走 reload；36.2 把判斷改成兩個核心共用的規則、使用者按的暫停也算（第十五節） |
 | PL-11 | AUTO／AUTO | 真機未分核心；回前景規則有單元測試 |
 
 - 重新計數（兩欄都從表格逐列統計，總數維持 107，沒有拆列）：36 前 1／24／30／15／29／2／6，36 後 1／47／27／17／12／2／1（依序 RD、SIM、AUTO、RBO、UNVERIFIED、KNOWN_LIMITATION、DEFECT）。
@@ -383,3 +388,77 @@
 - Release 裝置 build（`generic/platform=iOS`、`CODE_SIGNING_ALLOWED=NO EXPANDED_CODE_SIGN_IDENTITY=-`）：BUILD SUCCEEDED（最終版本 31 秒）。
 - 模擬器操作驗證：沒有做（loop 沒有 App 內的入口）。真機：未驗證。D8 已隨 `0.1.41 (42)` 發布（run `36698521242`，tag `ios-v0.1.41-b42` → `46c0d36d`）。
 - Ponytail：未執行（選配）。
+
+## 十五、IOS-POC-36.2：PL-14 PiP 在背景關閉後的暫停 reload（2026-10-01）
+
+### 1. 起始狀態
+
+- 09:19 CST `git fetch`：HEAD＝`origin/ios-poc`＝`65a273eb`（`docs(ios): record 0.1.41 (42)`），工作區乾淨。
+- `0.1.41 (42)` 已完成：run `36698521242` success（2026-09-30 09:49:05Z → 09:54:59Z，head `46c0d36d`）；tag `ios-v0.1.41-b42` → `46c0d36d`（本機與遠端一致）；GitHub Release `WebHTV 0.1.41 (42)` 不是 draft／prerelease，2026-09-30 09:54:48Z 發布，資產 `WebHTV-0.1.41-42.ipa` 29,344,346 bytes、`sha256:247768a7…8735`、狀態 uploaded；`source.json` 42 筆、第一筆 `0.1.41`、size 相同；下載網址 HEAD 回 200、`content-length` 29,344,346（沒有下載內容）。沒有重新發版。
+- 授權：同一個 Claude session 的對話紀錄裡，使用者在 36.1 回報之後下了「發布新版 0.1.41 (42)」，之後才執行版號 commit（Task-Guard `IOS-RELEASE-0.1.41-b42`）與 workflow；記錄在 IOS-POC-11 第四十二次發布。36.1 任務本身的「不要 bump／tag／release」是那個任務的範圍，發布是之後另一則指示。
+- 36.1 的 `ea96268f` 沒有重做。
+
+### 2. 重現（舊邏輯）
+
+先把 `eligibilityChanged` 做成什麼都不做（等於舊 App：進背景之後沒有人再判斷），新測試 3 條、6 個期望失敗：`pausedInTheWindowAndClosedThereIsReloadedAfterASuspension`（回來得到 nil，不是 310）、`aWindowClosedBeforeItsPauseArrivesIsArmedByThePause`、`aPlayerPlayedAgainInTheBackgroundIsJudgedAgainWhenItPauses`；防止誤判的 6 條在舊邏輯本來就通過。**只在決策模型上重現**；模擬器沒有重現（iPhone 模擬器沒有 PiP，模擬器也不會暫停執行 App），真機沒有重現。
+
+### 3. Event sequence
+
+PL-14 的情境（數字是發生順序；「舊」是修正前、「新」是修正後）：
+
+| # | 事件 | 原生（AVKit） | MPV（sample-buffer PiP） | 背景判斷 |
+|---|---|---|---|---|
+| 1 | 播放中回主畫面 | `playerViewControllerWillStartPictureInPicture` → PiP 開 | `pictureInPictureControllerWillStartPictureInPicture` → `setActive(true)` | — |
+| 2 | `didEnterBackground` | `noteEnteredBackground`：播放中＋PiP 開 → 不符合，沒有記錄、沒有心跳 | 同左 | 兩者相同 |
+| 3 | 在小視窗按暫停 | AVKit 直接暫停 AVPlayer → `rate` KVO 為 0 | `setPlaying(false)` → `control("pause")` → 意圖＝暫停 | 舊：沒有判斷。新：重新判斷，PiP 仍開 → 不記錄 |
+| 4 | 在背景按 ✕ 關小視窗 | `playerViewControllerDidStopPictureInPicture` → binding；新：直接設 session 的 PiP 狀態 | `willStop` → `didStop` → `ended()`：先 `setActive(false)`，再暫停（新：經 `control("pause")`） | 舊：SwiftUI `onChange` 之後才更新，沒有判斷。新：暫停＋PiP 關＋session 有效 → **以當下位置記錄，開始心跳**，log `[lifecycle] … paused in the background … reloads on return if suspended` |
+| 5 | iOS 暫停執行 App（暫停中的音訊 App 幾秒後） | 心跳停 | 同左 | — |
+| 6 | 從 App 圖示回來，`didBecomeActive` | `noteBecameActive` | 同左 | 舊：沒有記錄 → 不 reload，按播放沒反應。新：心跳間隔 > 3 秒 → `reloadPaused(at:)`（既有 23 的路徑，以暫停狀態載入） |
+
+其他順序：
+
+- **播放中直接按 ✕**：MPV 是「PiP 關」在前、「暫停」在後（`ended()` 的順序）——第一次判斷時還在播放、不記錄，暫停那次才記錄。AVKit 是否暫停、`rate` 與 `didStop` 誰先，Apple 沒有寫；兩種順序都會在後到的那個事件記錄。AVKit 若不暫停，App 繼續播放、不會被暫停執行，也就不需要 reload。
+- **小視窗的「回到 App」**：`willStop` → `restoreUserInterface…` → `didStop` 與 `didBecomeActive` 先後不定。`didStop` 先到且已暫停：剛記錄就回來，沒有心跳間隔 → 不 reload。`didBecomeActive` 先到：已不在背景 → 不記錄。17H-4 的前景 stop（MPV 300 ms、原生 `consumeForegroundRequest`）沒有改。
+- **PiP 一直開著**（23 T6）：PiP 開著就不符合，與以前相同。
+
+### 4. Root cause 與修法
+
+- **Root cause**：IOS-POC-23 的判斷只在 `didEnterBackground` 做一次（`noteEnteredBackground`）。條件裡的「沒有 PiP」與「已暫停」在背景中還會改變，卻沒有任何事件再判斷；session 的 `pictureInPictureActive` 也只靠 PlayerView 的 SwiftUI `.onChange` 同步。
+- **修法**（沒有第二套背景狀態機，沒有計時猜測，PiP 結束本身不 reload）：
+  1. `PausedBackgroundReload.eligible(sessionOpen:failed:loaded:paused:pictureInPicture:)`：唯一的判斷規則，兩個核心共用；`isPausedOnScreen`（`WebHTVApp.swift` `PlaybackSession`）改用它。
+  2. `PausedBackgroundReload.eligibilityChanged(eligible:position:at:)`：只在 `enteredBackground` 到 `becameActive` 之間有作用；符合且還沒有記錄 → 記錄並回傳 true（呼叫端開始同一個心跳）；不符合 → 清掉記錄；已有記錄 → 保留（心跳照算）。
+  3. `PlaybackSession.noteBackgroundEligibilityChanged()` 的呼叫點：`pictureInPictureActive` 改變（`didSet`）、`control("pause")`、AVPlayer `rate` KVO（AVKit 小視窗與鎖定畫面不經 session）。
+  4. 原生 `PlayerSurface.Coordinator` 的 will start／did stop 與 MPV 的 `onActiveChange` 直接設定 session 的 PiP 狀態；SwiftUI 的 `onChange` 保留，重複設定不會再判斷。
+  5. MPV `ended()` 在背景的暫停從 `engine?.pause()` 改成 `PlaybackSession.shared.control("pause")`：使用者意圖記為暫停（D4 的 fallback 也照它），也會重新判斷。
+  6. 「已暫停」＝引擎 `rate` 為 0 **或** router 記錄的意圖是暫停：mpv 對 `pause` 的回報要等下一個屬性事件，暫停後立刻判斷時 `rate` 還不是 0。
+- **AVPlayer／MPV**：同一個規則、同一個背景記錄與心跳；差別只在事件來源（原生靠 `rate` KVO 與 AVKit delegate，MPV 靠 `control("pause")` 與 `setActive`）。
+
+### 5. 新增測試（`PausedBackgroundReloadTests`，613 → 622）
+
+| 測試 | 涵蓋 |
+|---|---|
+| `onlyAnOpenLoadedPausedPlayerOutsideTheWindowIsEligible` | 共用規則的 32 種組合只有一種符合（兩個核心共用） |
+| `playingInTheWindowIsNotArmedWhenTheAppLeaves` | 播放中進背景＋PiP 開，不記錄 |
+| `pausedInTheWindowAndClosedThereIsReloadedAfterASuspension` | PL-14 主情境：小視窗暫停後在背景關閉 → 記錄 → 被暫停執行 → 回來 reload；重複事件保留原記錄（舊邏輯紅） |
+| `aWindowClosedBeforeItsPauseArrivesIsArmedByThePause` | MPV 的順序（先關窗後暫停）也記錄（舊邏輯紅） |
+| `aWindowStillOpenIsNeverArmed` | PiP 仍開著不記錄（23 T6 不變） |
+| `aWindowClosedWhilePlayingIsNotReloaded` | 播放中關小視窗不記錄 |
+| `theWindowsBackToTheAppButtonIsNotABackgroundClose` | 「回到 App」兩種先後都不 reload |
+| `aFailureOrAClosedPlayerIsNeverArmed` | 已顯示失敗、session 已關閉都不記錄 |
+| `aPlayerPlayedAgainInTheBackgroundIsJudgedAgainWhenItPauses` | 背景中再播放會清掉記錄，再暫停以新位置記錄（舊邏輯紅） |
+
+### 6. 驗證
+
+- `swift test --package-path ios`：**622／622**（5.1 秒）；focused（paused-background 與新測試）40／40。
+- 模擬器 Debug build（`platform=iOS Simulator,id=05934376…`）：BUILD SUCCEEDED（31 秒）；本次改動沒有新 warning（列出的 warning 都是既有的：`MPVProbeView.swift`、`PythonBoot.swift`、`PythonSpiderRuntime.swift`，以及 `WebHTVApp.swift` 原本第 5411～5413、5547 行，因加行位移到 5446～5448、5582）。
+- Release 裝置 build（`generic/platform=iOS`、`CODE_SIGNING_ALLOWED=NO EXPANDED_CODE_SIGN_IDENTITY=-`）：BUILD SUCCEEDED（44 秒）。
+- 模擬器操作：沒有做——iPhone 模擬器沒有 PiP；模擬器不會暫停執行 App，reload 路徑走不到（36C 已記錄）。**真機未驗證**；PL-14 記 `AUTOMATED_PASS`（決策有回歸測試，與 D4、D5 的記法相同），不是真機通過。
+- Ponytail：未執行（選配）。
+
+### 7. 殘餘風險
+
+- AVKit 按 ✕ 時是否暫停、事件先後沒有文件；兩種順序都已處理，但真機事件順序要看 `[pip]`／`[lifecycle]` log 才能確認。
+- 「已暫停」包含使用者意圖：在 session 暫停後，若 AVKit 小視窗或鎖定畫面直接讓 AVPlayer 播放（不經 session），意圖仍是暫停，背景中可能被記錄；播放中的 App 不會被暫停執行、沒有心跳間隔，所以不會 reload。
+- 範圍比 PL-14 稍大：背景中鎖定畫面暫停、來電等中斷暫停之後被暫停執行，回來也會 reload（與 23 相同的處理）；PL-06／07／08 仍 `UNVERIFIED`。
+- MPV 在 PiP 之後 reload：17H-2 的 Metal 等 `PLAYBACK_RESTART` 才顯示，reload 會重新載入並產生它；沒有在真機或模擬器跑過這個組合。
+- 同一個 session 只有一個背景記錄；PiP 開著時 App 被結束（不是暫停執行）不在本修正範圍。

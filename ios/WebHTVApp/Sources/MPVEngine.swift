@@ -85,7 +85,11 @@ final class MPVEngine: PlaybackEngine {
             }
         })
         let pictureInPicture = MPVPictureInPicture(engine: self, core: core, layer: view.sampleBufferLayer)
-        pictureInPicture.onActiveChange = { [weak self] active in self?.onPictureInPictureChange?(active) }
+        pictureInPicture.onActiveChange = { [weak self] active in
+            self?.onPictureInPictureChange?(active)
+            // IOS-POC-36.2: the session hears it now, not when SwiftUI next updates the screen.
+            PlaybackSession.shared.pictureInPictureActive = active
+        }
         self.pictureInPicture = pictureInPicture
     }
 
@@ -1159,7 +1163,9 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
         let inBackground = UIApplication.shared.applicationState == .background
         // Closing the window from outside the app stops playback, as it does for AVPlayer. A window
         // that failed to open leaves the background as it was before 17H: sound on, no picture.
-        if inBackground, pausingInBackground { engine?.pause() }
+        // IOS-POC-36.2: through the session, so the pause is the viewer's and is judged for a
+        // reload on return — it comes after the window reported closed (`setActive` above).
+        if inBackground, pausingInBackground { PlaybackSession.shared.control("pause") }
         renderer.onNextFrame(nil)
         core.stopSoftwareOutput(keepVideo: !inBackground)
         engine?.revealMetalAfterPictureInPicture()

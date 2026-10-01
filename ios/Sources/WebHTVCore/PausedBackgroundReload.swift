@@ -34,15 +34,45 @@ public struct PausedBackgroundReload: Sendable {
     }
 
     private var pending: Pending?
+    /// From `didEnterBackground` to `didBecomeActive`.
+    private var inBackground = false
 
     public init() {}
 
-    /// `didEnterBackground`. `eligible` is the caller's to judge: a player that is open, loaded,
-    /// paused by the viewer, and not in Picture in Picture. Anything else clears an earlier record.
+    /// Whether a player may be loaded again on return: open, loaded or still loading, paused, not in
+    /// Picture in Picture, and not showing a failure — the one state a reload puts back exactly as
+    /// it was. Engine-neutral: AVPlayer and MPV are judged by this one rule.
+    public static func eligible(sessionOpen: Bool, failed: Bool, loaded: Bool, paused: Bool,
+                                pictureInPicture: Bool) -> Bool {
+        sessionOpen && !failed && loaded && paused && !pictureInPicture
+    }
+
+    /// `didEnterBackground`. `eligible` is the caller's to judge (`eligible(…)`). Anything else
+    /// clears an earlier record.
     public mutating func enteredBackground(eligible: Bool, position: Double,
                                            at now: ContinuousClock.Instant) {
+        inBackground = true
         pending = eligible
             ? Pending(position: position.isFinite ? max(position, 0) : 0, lastAlive: now) : nil
+    }
+
+    /// IOS-POC-36.2 (PL-14): still in the background, something `eligible` reads has changed — the
+    /// Picture in Picture window closed, or the player was paused or played without the app on
+    /// screen (the window, the lock screen, an interruption). Judged again, from now: a player paused
+    /// in the window and closed there is suspended like any other paused one, and judged only as the
+    /// app left it was never armed. Engines report the window closing and the pause in either
+    /// order, so each change is judged on its own. True when this armed a record — the caller
+    /// starts beating; a record already running keeps its beats. Back in the app, nothing changes.
+    public mutating func eligibilityChanged(eligible: Bool, position: Double,
+                                            at now: ContinuousClock.Instant) -> Bool {
+        guard inBackground else { return false }
+        guard eligible else {
+            pending = nil
+            return false
+        }
+        guard pending == nil else { return false }
+        pending = Pending(position: position.isFinite ? max(position, 0) : 0, lastAlive: now)
+        return true
     }
 
     /// One background beat. A late beat is evidence too: the beat asleep across a suspension can
@@ -55,6 +85,7 @@ public struct PausedBackgroundReload: Sendable {
     /// only the first return after a trip decides. Control Center and the notification shade make
     /// the app inactive without sending it to the background, so they find nothing here.
     public mutating func becameActive(at now: ContinuousClock.Instant) -> Double? {
+        inBackground = false
         guard var pending else { return nil }
         self.pending = nil
         pending.observe(now)

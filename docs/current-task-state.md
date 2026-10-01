@@ -4,7 +4,50 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-09-30（讀這一節，再讀文末 Resume Prompt）
+## Current handoff — 2026-10-01（先讀這一節，再讀文末 Resume Prompt；2026-09-30 那一節是前一次交接）
+
+**Git**：`ios-poc`，HEAD `1ea1c732`，與 `origin/ios-poc` 同步，工作區乾淨，沒有進行中的 task guard。接手時仍先 `git fetch`、`git log --oneline -10`、`git status`，以實際狀態為準。push 前一律 `git pull --no-rebase`。
+
+**最新發布仍是 `0.1.41 (42)`**（內容到 IOS-POC-36.1 `ea96268f`）。下列 2026-10-01 的 commit 都**還沒有發布**，真機都未驗證。
+
+**本 session 做了什麼（新到舊）**
+
+| commit | 內容 | 驗證 |
+|---|---|---|
+| `1ea1c732` | ponytail audit 第二批（部分）：刪 `SpiderPortability`／`Entry.portability`／`origin`、`PlaybackEngineSelection.available`／`isAvailable`／`sessionOverride`、`PlaybackEngineCapabilities` → `supportsAirPlay`、`CookieJar.all`／`clear`、`WatchHistoryStore.remove(key:)`／`clear()`、`AdBlockList.blocked`／`inert`、`SpiderPackManifest.Script` 的 provenance 欄位 | `swift test` 616/616；模擬器 Debug、generic iOS Release build |
+| `736023f8` | `MediaSniffer.isCandidate` 拿掉沒人用的參數 | `swift test` 621/621 |
+| `f26ccae6` | ponytail audit 第一批縮減（第 8、10、15、21、23、25、27、34、40 項） | `swift test` 621/621；兩個 build；模擬器實測（設定頁對話框、引擎選單、詳情頁開播、自動下一集、最後一集關閉） |
+| `8bfe875a` | ponytail audit 第一批刪死碼（`MPVProbeView`、`MPVBoot`、`PythonLiveCheck.run`、引擎可用性判斷、`DrpyEngine.rule(at:)`、pbxproj 重複的 module map 迴圈） | `swift test` 621/621；兩個 build |
+| `e9160234` | 4 處 `ponytail:` 註解補上升級條件（`XBPQ.js`、`MPVEngine.swift`） | `swift test` 622/622；`swiftc -parse` |
+| `ad8da8fc` | `docs/PONYTAIL-DEBT.md` 技術債清單（27 處） | 文件 |
+| `7b15fb74` | `AGENTS.md` §4：**環境有 Ponytail 就一定要執行**（使用者 2026-10-01 的定義） | 文件 |
+| `f6d1bf30` | IOS-POC-36.2 的 ponytail review 補做並套用（一個 `seek` requirement、刪重複的 PiP `onChange` 同步） | `swift test` 622/622；兩個 build |
+| `fc4a3282` | **IOS-POC-36.2 / D9 = PL-14**：PiP 在背景關閉後的暫停 reload（`PausedBackgroundReload.eligible`／`eligibilityChanged`，兩個核心共用） | 舊邏輯 3 條測試紅、修正後 622/622；兩個 build；模擬器沒有 PiP、不會暫停執行 → 真機未驗證 |
+
+**Files Modified（本 session，全部已 commit）**：`ios/Sources/WebHTVCore/{PausedBackgroundReload,PlaybackEngine,MediaSniffer,MacCMSXML,WebHTVConfig,ConfigLoader,WatchHistory,AdBlockList}.swift`、`ios/Sources/WebHTVCore/Spider/{SpiderRuntime,SpiderRegistry,CSPSourceResolver,SpiderPack,DrpyEngine}.swift`、`ios/Sources/WebHTVCore/Spider/Host/HTTPHost.swift`、`ios/Sources/WebHTVCore/Resources/Spiders/XBPQ.js`（註解）、`ios/WebHTVApp/Sources/{WebHTVApp,MPVEngine,PythonLiveCheck}.swift`、刪除 `ios/WebHTVApp/Sources/{MPVProbeView,MPVBoot}.swift`、`ios/WebHTVApp/WebHTVApp.xcodeproj/project.pbxproj`、對應測試、`AGENTS.md`、`docs/IOS-POC-36-playback-acceptance-stability.md`（第十五節 36.2）、`docs/PONYTAIL-DEBT.md`、`docs/PONYTAIL-AUDIT-2026-10-01.md`。
+
+**Current Diff Summary**：工作區乾淨，沒有未提交的改動。
+
+**Remaining Work**
+- ponytail audit 第二批剩下、不需要決定的：第 16 項（`Spider/Host/CryptoHost.swift` 的 MD5／SHA1／SHA256／HMAC 改用 CryptoKit；JS 端 `__crypto.digest` 與 HMAC 的十六進位輸出必須不變）、第 35 項（`AggregateSearch.swift`、`HLSAdSkip.swift` 手寫的 Duration 轉數字）、第 37 項（`scripts/audit_spider_jars.py` 沒用到的常數與參數）、第 39 項（`scripts/spider_pack.py` 的 `--origins`、`--min-host-api`）。計畫是 commit B（16＋35）與 commit C（37＋39＋更新 audit 紀錄）。
+- 每個程式修改在回報完成前都要跑 `ponytail:ponytail-review`（`AGENTS.md` §4）。
+
+**Open Questions / Blockers（等使用者決定）**
+- ponytail audit 待決定：第 1 項（刪整個 `RuntimePackManifest.swift`，IOS-POC-12）連帶第 7 項；第 11 項（首頁來源選單改用 `SiteChoiceList`，樣式會變）；第 18 項（`HLSAdTimeline.resolve` 是 Android parity，刪分支等於分岔）；第 19 項（release workflow 的 tag 觸發）；第 28 項（觀看記錄時間補零）。
+- 要升 runtime ABI 才能做：第 4、26 項（`python.host` 1.5→1.6）、第 6 項（`catvod.result`）；`spider.py:26` 的過時註解也等下次升 `python.host` 一起改。
+- 要能跑 CI 才做：第 3、22、29、30 項。第 36 項確定不做（CI 的 Prepare CPython payload 是必要的）。
+- 發布：2026-10-01 的 commit 都還沒發布；要發版需使用者授權（不要自己 bump／tag／release）。
+
+**Build / Test / Verification Status（HEAD `1ea1c732`）**：`swift test --package-path ios` 616/616；模擬器 Debug build（`platform=iOS Simulator,id=05934376-5757-40E5-9FAF-202594565656`）與 generic iOS 不簽章 Release build（`CODE_SIGNING_ALLOWED=NO EXPANDED_CODE_SIGN_IDENTITY=-`）通過。真機：本 session 所有改動都未驗證。模擬器 `05934376`（iPhone 17 Pro Max、iOS 26.3）開機中，App 的設定指向 `http://127.0.0.1:8766/config.json`（36C 的本機測試 server；要用就把 `scripts/ios_adskip_sim/server.py` 複製到 scratchpad、改 `PORT = 8766` 後執行）。
+
+**Risks**
+- 36.2（PL-14）只有決策單元測試與 build；AVKit 按 ✕ 的事件順序、MPV PiP 後 reload 的畫面，都要真機看 `[pip]`／`[lifecycle]` log。
+- 第 8 項：播放器開著時 WebHome 頁面又呼叫播放，現在原地換片（以前關掉再重開）。
+- 冷啟動（沒有 module map）的第一次 Xcode build 會失敗一次，是既有行為，第二次就好。
+
+**真機待驗**：`docs/IOS-POC-36-playback-acceptance-stability.md` 第十節第 1～14 項可在 `0.1.41 (42)` 驗；第 15 項（PL-14）要等含 `fc4a3282` 的下一版。
+
+## Current handoff — 2026-09-30（前一次交接）
 
 **Git**：分支 `ios-poc`，已全部 push。接手時先 `git fetch`、`git log --oneline -6`、`git status` 重新確認，以實際 Git 狀態為準，不要相信本文的 SHA。遠端分支只保留 `main` 與 `ios-poc`（使用者 2026-09-28 決定，其餘分支由使用者在 Mac 上刪除）；工作一律在 `ios-poc`，不 merge 到 `main`。那 5 條舊分支（`ci/ios-pip-foreground-restore`、`claude/avplayer-cache-buffer-ddpwrd`、`claude/ios-poc-25-ad-skip-assessment-whmqwu`、`claude/ios-poc-25-hls-midstream-ad-skip-hmw1hc`、`claude/mpv-native-playback-sync-wph48k`，都已完整包含在 `ios-poc`）已於 2026-09-29 在 Mac 上依使用者指示刪除，遠端現在只有 `main` 與 `ios-poc`。
 
@@ -1309,6 +1352,8 @@ release version**.
 Paste this into a new session:
 
 > 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -6`、`git status`，以實際 Git 狀態為準、不要相信文件裡的 SHA。依 `AGENTS.md` 先讀 `AGENTS.md`、`docs/current-task-state.md` 最上方「Current handoff — 2026-09-30」一節（先看其中的「交接快照」）。
+>
+> **先讀 `docs/current-task-state.md` 最上方「Current handoff — 2026-10-01」**：HEAD `1ea1c732`，2026-10-01 的 IOS-POC-36.2（PL-14）與 ponytail audit 第一批、第二批（部分）都已 push、未發布、真機未驗證；下一步是 ponytail audit 第二批剩下的第 16、35、37、39 項（`docs/PONYTAIL-AUDIT-2026-10-01.md`），環境有 Ponytail 就一定要對最終 diff 執行 `ponytail:ponytail-review`（`AGENTS.md` §4）。
 >
 > 目前狀態：最新已發布版本是 `0.1.41 (42)`（2026-09-30，tag `ios-v0.1.41-b42` → `46c0d36d`），帶入 IOS-POC-36.1（loop 一次交接、驗收矩陣稽核）；`0.1.40 (41)`（tag `ios-v0.1.40-b41` → `25714bee`）帶入 IOS-POC-39 S5 第 1、2 項（XBPQ 搜尋）；`0.1.39 (40)`（tag `ios-v0.1.39-b40` → `4b93443a`）帶入 IOS-POC-39 S1～S4（XBPQ 規則引擎）與 IOS-POC-36（播放器 D1～D7）；`0.1.38 (39)` 帶入 IOS-POC-37.3.1（標準 `Spider()` 建構語意、`python.host` 1.5）；`0.1.37 (38)` 帶入 IOS-POC-37.3（constructor 內 cache、native stamp 納入 toolchain identity、`python.host` 1.4）；兩份設定檔的逐站可用性在 `docs/SITE-AVAILABILITY-2026-09-30.md`；IOS-POC-36（播放器驗收矩陣與 D1～D7 修正）已隨 `0.1.39 (40)` 發布，真機清單見 `docs/IOS-POC-36-playback-acceptance-stability.md`；`0.1.36 (37)` 帶入 IOS-POC-17H-4（MPV 子母畫面進入／放回修正）；`0.1.35 (36)` 帶入 IOS-POC-37.2（stdlib `ssl` 信任 certifi）；`0.1.34 (35)` 帶入 IOS-POC-37.1；`0.1.33 (34)` 帶入 IOS-POC-37（Python 依賴擴充，見 `docs/IOS-POC-37-python-runtime-dependency-expansion.md`）；`0.1.25 (26)`～`0.1.35 (36)` 帶入 IOS-POC-27～35、37、25-4／25-5 與 17H-2／17H-3，都還沒有真機驗收。IOS-POC-12 已完成（2026-09-29，未發布，App 行為沒變），IOS-POC-13 未開始。IOS-POC-32 D 等我核准（還缺：是否開始、iOS 17 的做法、是否固定 `.lowLatency`）；IOS-POC-27C 等我回報原生開不了時畫面顯示的原因；IOS-POC-34 已結案（我改了 GitLab `recha` 的 `py/kkys.py`）。遠端只剩 `main` 與 `ios-poc`。其餘各版的內容與真機結果見 Current handoff 的表格，各任務狀態見「任務狀態」。
 >

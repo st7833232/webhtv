@@ -19,16 +19,16 @@
 | 6 | yagni | `SpiderRuntime` 5 個沒人呼叫的方法 | 48 | 待 ABI（`catvod.result`） |
 | 7 | yagni | `RuntimeABI.capabilities` 等只給第 1 項用的表 | 37 | 跟第 1 項一起決定 |
 | 8 | shrink | `Playback` struct 拆成 9 欄又組回去 | 30 | **已做** `f26ccae6`；行為差別見下 |
-| 9 | delete | `SpiderPortability`、`Entry.portability`／`origin`、`portedClasses` | 28 | 未排入 |
+| 9 | delete | `SpiderPortability`、`Entry.portability`／`origin`、`portedClasses` | 28 | **已做** `1ea1c732`；稽核分類與原 JAR 改成 `ported` 旁的註解 |
 | 10 | shrink | `MacCMSXMLDecoder` 10 個欄位變數 → 一個字典 | 25 | **已做** `f26ccae6` |
 | 11 | shrink | 首頁來源選單改用 `SiteChoiceList` | 25 | 待決定：`SiteChoiceList` 帶桌布與半透明列底，首頁選單的樣式會變 |
 | 12 | delete | `PythonLiveCheck.run()` | 25 | **已做** `8bfe875a` |
 | 13 | yagni | 引擎可用性判斷（兩個引擎一直都開放） | 22 | **已做** `8bfe875a` |
-| 14 | delete | 只有測試在用的 public 符號（`skipTargetMs` 等） | 21 | 未排入 |
+| 14 | delete | 只有測試在用的 public 符號（`skipTargetMs` 等） | 21 | **部分已做** `1ea1c732`：刪 `CookieJar.all`／`clear`；`sessionOverride` 同 commit 刪除（寫入但從不讀）。保留 `skipTargetMs`、`plan(mediaPlaylist:)`、`PlayURL.isEmpty`（Android `Url.isEmpty` 語意）、`bundled(bundle:)`：都是測試切面，刪掉只是把同一行搬進測試 |
 | 15 | shrink | `WebHTVConfig` 的站台篩選 | 20 | **已做**（commit 2，部分）：刪掉和 `nativeCMSSites` 完全相同的 `supportedSites`、`isSupported` 與沒人呼叫的 `cspSpiderSites`；只有測試用的 `drpySpiderSites`、`spiderSites(resolvedBy:)` 保留 |
-| 16 | native | `CryptoHost` 的 CommonCrypto 雜湊與 HMAC → CryptoKit | 16 | 未排入 |
+| 16 | native | `CryptoHost` 的 CommonCrypto 雜湊與 HMAC → CryptoKit | 16 | **未做**（第二批剩餘） |
 | 17 | delete | `DrpyEngine.rule(at:)`、`notADrpyRule` | 16 | **已做** `8bfe875a` |
-| 18 | yagni | `HLSAdTimeline.resolve` 的 `direct:` 等參數與 `Variant.Kind` | 14 | 未排入 |
+| 18 | yagni | `HLSAdTimeline.resolve` 的 `direct:` 等參數與 `Variant.Kind` | 14 | 待決定：`resolve` 是 Android `MpvHlsProxy.resolveAdTimeline` 的移植，測試對應 `MpvHlsAdblockTest`；刪掉這兩個分支等於刻意跟 Android 分岔 |
 | 19 | yagni | release workflow 的 tag 推送觸發 | 13 | 待決定（使用者在 `5a488f7a` 刻意加回） |
 | 20 | delete | Prepare Python build phase 重複的 module map 迴圈 | 12 | **已做** `8bfe875a` |
 | 21 | shrink | 設定頁重複的「加入設定來源」對話框 → `ConfigView` 那份 | 11 | **已做** `f26ccae6`；多了網址鍵盤 |
@@ -41,17 +41,17 @@
 | 28 | stdlib | 觀看記錄手寫的時:分:秒 → `Duration.formatted` | 8 | 待決定：分鐘會補零（5:03 → 05:03） |
 | 29 | shrink | workflow 對 patch 原始碼的 grep | 8 | 延後：CI workflow |
 | 30 | shrink | Python 抓取／建置腳本重複的下載與驗證 | 8 | 延後：要重新下載整包 payload 才能驗證 |
-| 31 | delete | `WatchHistoryStore.remove(key:)`、`clear()` 不分來源的版本 | 8 | 未排入 |
-| 32 | delete | `AdBlockList.blocked`／`.inert` | 7 | 未排入 |
-| 33 | yagni | `capabilities.trackSelection`（兩個引擎都是 true） | 5 | 未排入 |
+| 31 | delete | `WatchHistoryStore.remove(key:)`、`clear()` 不分來源的版本 | 8 | **已做** `1ea1c732`（連同只測它們的那條測試） |
+| 32 | delete | `AdBlockList.blocked`／`.inert` | 7 | **已做** `1ea1c732`；測試改為數 JSON 規則數 |
+| 33 | yagni | `capabilities.trackSelection`（兩個引擎都是 true） | 5 | **已做** `1ea1c732`；ponytail review 後 `PlaybackEngineCapabilities` 改成 `supportsAirPlay` |
 | 34 | shrink | `WatchHistory.reidentified` 重列 17 個欄位 | 5 | **已做** `f26ccae6`；`key` 改成 `public internal(set) var` |
-| 35 | stdlib | 手寫的 Duration 轉數字 | 5 | 未排入 |
+| 35 | stdlib | 手寫的 Duration 轉數字 | 5 | **未做**（第二批剩餘） |
 | 36 | shrink | CI 的「Prepare CPython payload」步驟 | 4 | **不做**：這一步是必要的。沒有 module map 時，Xcode 在跑 Prepare Python phase 之前就先做模組相依掃描而失敗；2026-10-01 在原本的 HEAD 上重現過 |
-| 37 | yagni | `audit_spider_jars.py` 沒用到的常數與參數 | 4 | 未排入 |
-| 38 | yagni | `SpiderPackManifest.Script` 沒人讀的欄位 | 4 | 未排入 |
-| 39 | yagni | `spider_pack.py` 沒人傳的參數 | 3 | 未排入 |
+| 37 | yagni | `audit_spider_jars.py` 沒用到的常數與參數 | 4 | **未做**（第二批剩餘） |
+| 38 | yagni | `SpiderPackManifest.Script` 沒人讀的欄位 | 4 | **已做** `1ea1c732` |
+| 39 | yagni | `spider_pack.py` 沒人傳的參數 | 3 | **未做**（第二批剩餘） |
 | 40 | shrink | SHA-256 hex 同一行寫三次 → `DrpyEngine.digest` | 3 | **已做** `f26ccae6`；`SpiderPackStore.sha256` 刪除 |
-| — | yagni | `PlaybackEngineSelection.available`／`isAvailable` 與 router 的 `available:`（第 13 項之後 App 一律傳全部引擎） | 12＋測試 | 未排入（commit 1 的 ponytail review 提出） |
+| — | yagni | `PlaybackEngineSelection.available`／`isAvailable` 與 router 的 `available:`（第 13 項之後 App 一律傳全部引擎） | 12＋測試 | **已做** `1ea1c732`；三條只測「只有原生」的測試一起刪除 |
 
 ## 已做的兩個 commit
 
@@ -63,9 +63,11 @@
 
 - **commit 3（`isCandidate` 參數）**：commit 2 的 ponytail review 發現 `isCandidate` 的 `keywords:`／`exclusions:` 也沒有人傳預設值以外的清單（兩個測試傳的就是預設值），拿掉並改兩個測試。測試檔不在 commit 2 的 guard 範圍內，所以分開提交。
 
+- **第二批 commit `1ea1c732`（2026-10-01）**：第 9、14（部分）、31、32、33、38 項與 `PlaybackEngineSelection.available`。`swift test` 616/616（刪掉 5 條只測被刪分支／API 的測試）；模擬器 Debug、generic iOS Release build 通過；真機未驗證。第一次 `finish` 被 guard 的 whitespace 檢查擋下（`SpiderRuntime.swift` 檔尾多一個空行），修正後才提交。
+
 ## 建議的下一批
 
-- 不需要決定、可以直接做：第 9、14、16、18、31、32、33、35、37、38、39 項，以及 `PlaybackEngineSelection.available`。
+- 第二批剩下、不需要決定的：第 16（`CryptoHost` 改用 CryptoKit，要確認 JS 端 `__crypto.digest`／HMAC 輸出不變）、35（Duration 轉數字）、37（`audit_spider_jars.py`）、39（`spider_pack.py` 參數）項。
 - 一次升 ABI 版本一起做：第 4、26 項（`python.host`）、第 6 項（`catvod.result`）。
-- 等使用者決定：第 1（連帶第 7）、11、19、28 項。
+- 等使用者決定：第 1（連帶第 7）、11、18、19、28 項。
 - 要能跑 CI 才做：第 3、22、29、30 項。

@@ -46,7 +46,7 @@
 | 33 | yagni | `capabilities.trackSelection`（兩個引擎都是 true） | 5 | **已做** `1ea1c732`；ponytail review 後 `PlaybackEngineCapabilities` 改成 `supportsAirPlay` |
 | 34 | shrink | `WatchHistory.reidentified` 重列 17 個欄位 | 5 | **已做** `f26ccae6`；`key` 改成 `public internal(set) var` |
 | 35 | stdlib | 手寫的 Duration 轉數字 | 5 | **已做** `3fd68923`；`/ .milliseconds(1)`、`/ .seconds(1)`，`HLSAdSkipper.seconds(_:)` 刪除 |
-| 36 | shrink | CI 的「Prepare CPython payload」步驟 | 4 | **不做**：這一步是必要的。沒有 module map 時，Xcode 在跑 Prepare Python phase 之前就先做模組相依掃描而失敗；2026-10-01 在原本的 HEAD 上重現過 |
+| 36 | shrink | CI 的「Prepare CPython payload」步驟 | 4 | **不做**：這一步是必要的。沒有 module map 時，Xcode 在跑 Prepare Python phase 之前就先做模組相依掃描而失敗；2026-10-01 在原本的 HEAD 上重現過。**更正（IOS-COLD-BUILD，2026-10-01）**：實際順序是 `ProcessXCFramework` 先複製了還沒有 `Modules` 的 framework、phase 才寫入 module map；真正剛 clone 時連 xcframework 都沒有，規劃階段就失敗。payload 改由 scheme 的 build pre-action 準備後，這一步在 CI 只剩重複，但能在 log 裡看到下載與編譯過程，仍保留 |
 | 37 | yagni | `audit_spider_jars.py` 沒用到的常數與參數 | 4 | **已做** `53de9b61`：刪 `CATVOD_HELPERS`、`classify` 的 `jar_types`；review 後 `NATIVE_SUFFIXES` 內嵌 |
 | 38 | yagni | `SpiderPackManifest.Script` 沒人讀的欄位 | 4 | **已做** `1ea1c732` |
 | 39 | yagni | `spider_pack.py` 沒人傳的參數 | 3 | **已做** `53de9b61`：刪 `--origins`、`--min-host-api`；review 後拿掉每支 script 的 `minHostApi` 鍵（已沒有來源） |

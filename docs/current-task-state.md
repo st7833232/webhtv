@@ -59,7 +59,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - 第 8 項：播放器開著時 WebHome 頁面又呼叫播放，現在原地換片（以前關掉再重開）；36.3 在模擬器實測通過，A 遲到的結束通知、A 調過速度時 B 回到預設速度兩點沒有實測到（IOS-POC-36 第十六節之 2）。
 - D10 的修正只有模擬器證據（PlayerView 的 `@State` 不在 Core）。
 - D12 的修正只有 iPad 模擬器證據：拿掉 guard 之後，「iPhone 上開子母畫面不會拆掉畫面」是前提（已拒絕 AVKit 的自動 dismiss，log 會記它有沒有問）；背景中結束兩種小視窗的做法只在模擬器驗過。
-- 冷啟動（沒有 module map）的第一次 Xcode build 會失敗一次，是既有行為，第二次就好。
+- ~~冷啟動的第一次 Xcode build 會失敗一次~~：IOS-COLD-BUILD（2026-10-01）已修。實測剛 clone、沒有 payload 時是每次都失敗（`There is no XCFramework found`：Xcode 規劃 build 時就要找到 `Python.xcframework`，build phase 來不及）；有 payload、缺 module map 時，`ProcessXCFramework` 先複製了沒有 `Modules` 的 framework，phase 才補上，所以第一次掃描失敗。現在 payload 由 scheme 的 build pre-action 在規劃前準備，舊的「Prepare Python」build phase 已刪除。
 
 **真機待驗**：在 `0.1.43 (44)` 上跑 `docs/IOS-POC-36-playback-acceptance-stability.md` 第十六節之 8 的一次性清單（10 項：PiP 背景關閉、MPV／原生 PiP、暫停與播放中背景、中斷、MPV `hwdec-current`、旋轉／常亮／音軌字幕、AirPlay、去廣與片尾），另加第十七節之 8 的 D12 項目（HOME 進子母畫面不關畫面、最後一集在小視窗播完後小視窗消失、MPV 預設時再進一次、✕）。
 
@@ -962,11 +962,14 @@ have been collapsed into the first bullet.
   42-site survey ran on hardware too: **driven 5/42**, against 6/42 on the simulator, and the
   dependency and policy tallies are **identical** — `Crypto` 17, `lxml` 3, `pyquery` 2, `bs4` 2,
   policy-refused 4. The one-site difference sits in the content layer, which is provider state.
-- **The payload is not in the repository.** `third_party/python-ios/` is ignored; a fresh clone must
-  run `scripts/fetch_python_ios.sh` (the Xcode "Prepare Python" phase calls it, so a build does this
-  by itself — but an offline machine cannot build until it has run once).
-- **`Prepare Python` rewrites a file under `third_party/python-ios/` on every build** (the module map
-  clang needs). Idempotent and untracked, but its proper home is the fetch script.
+- **The payload is not in the repository.** `third_party/python-ios/` is ignored; the `WebHTVApp`
+  scheme's build pre-action runs `scripts/fetch_python_ios.sh` before Xcode plans the build
+  (IOS-COLD-BUILD, 2026-10-01: the former "Prepare Python" build phase ran too late, and a fresh
+  clone failed every time with "There is no XCFramework found"). An offline machine cannot build
+  until it has run once, and a build that does not go through the scheme (`xcodebuild -target`)
+  does not run it.
+- **The module maps clang needs are written by the fetch script** (`prepare_module_maps`), now the
+  only place; the build phase that also rewrote them on every build is gone.
 - **What the Python line buys is measured, and still modest**: after IOS-POC-7P vendored `requests`,
   **14 of 42 sites execute and 6 reach media bytes** (it was 4 and 1 before). Do not quote a larger
   number from the P1 assessment, which estimated before any of it ran.

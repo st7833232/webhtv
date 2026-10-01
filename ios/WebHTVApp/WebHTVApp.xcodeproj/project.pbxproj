@@ -52,21 +52,6 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		7E10000000000000000000A8 /* Prepare Python */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			name = "Prepare Python";
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -e\n# The payload is fetched, not committed, so a fresh clone builds without a manual step.\n# IOS-POC-37: only the sdk being built gets its native packages compiled (a first build\n# after a clone or a lock change takes a few minutes; later ones find the stamp current).\n\"$SRCROOT/../../scripts/fetch_python_ios.sh\" --sdk \"$PLATFORM_NAME\"\n# It also writes the framework module maps clang needs (`prepare_module_maps`), every run.\n";
-		};
 		7E10000000000000000000A5 /* Install Python */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -165,7 +150,6 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 6418E6276579ABAC1635EAE3 /* Build configuration list for PBXNativeTarget "WebHTVApp" */;
 			buildPhases = (
-				7E10000000000000000000A8 /* Prepare Python */,
 				7E85FC5B984C118C75AECCE8 /* Sources */,
 				63E5D2F726C6774B2CEE0477 /* Frameworks */,
 				A07407BF2CE9227A84DD00E2 /* Resources */,

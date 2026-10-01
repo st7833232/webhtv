@@ -131,7 +131,7 @@ ios/
 
 ### 建置
 
-第一次建置前先準備 CPython payload。Xcode 的「Prepare Python」建置階段也會自動執行這個腳本，但剛 clone 時第一次 Xcode build 會因為還沒有 module map 而失敗一次，先手動跑可以避免：
+第一次建置不需要手動步驟：scheme `WebHTVApp` 的 build pre-action 會在 Xcode 規劃建置之前執行 `scripts/fetch_python_ios.sh`，下載 CPython payload、產生 module map，並交叉編譯這次建置的 SDK 需要的原生套件（剛 clone 或 lock 改變後的第一次建置會多花幾分鐘）。pre-action 只在透過 scheme 建置時執行，它的輸出也不會出現在 build log；如果建置時找不到 `Python.xcframework`，手動執行一次看原因：
 
 ```bash
 scripts/fetch_python_ios.sh

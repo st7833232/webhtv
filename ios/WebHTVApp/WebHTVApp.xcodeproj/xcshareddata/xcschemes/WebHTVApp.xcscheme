@@ -5,6 +5,24 @@
    <BuildAction
       parallelizeBuildables = "YES"
       buildImplicitDependencies = "YES">
+      <PreActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Prepare Python"
+               scriptText = "# The CPython payload is fetched, not committed (IOS-POC-7E), and it has to exist before Xcode&#10;# plans the build: planning resolves Python.xcframework, so the build phase that used to fetch it&#10;# ran too late and a fresh clone failed with &quot;There is no XCFramework found&quot;. Only the sdk being&#10;# built gets its native packages compiled (IOS-POC-37); the first build after a clone or a lock&#10;# change takes a few minutes. Pre-action output is not in the build log: if a build cannot find&#10;# Python.xcframework, run this script by hand to see why.&#10;&quot;$SRCROOT/../../scripts/fetch_python_ios.sh&quot; --sdk &quot;$PLATFORM_NAME&quot;&#10;">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "7E79915228B7E581CE73E24D"
+                     BuildableName = "WebHTVApp.app"
+                     BlueprintName = "WebHTVApp"
+                     ReferencedContainer = "container:WebHTVApp.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PreActions>
       <BuildActionEntries>
          <BuildActionEntry
             buildForTesting = "YES"

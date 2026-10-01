@@ -894,9 +894,45 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第四十二次發布：`0.1.41 (42)`（2026-09-30，**已發布**）
+## 第四十三次發布：`0.1.42 (43)`（2026-10-01，**已發布**）
 
-**目前最新版是 `0.1.41 (42)`。** 前面四十一版都已被取代。
+**目前最新版是 `0.1.42 (43)`。** 前面四十二版都已被取代。
+
+- 授權：使用者 2026-10-01 指示「發佈」（IOS-POC-36.3 RC 驗收判定 `PASS_WITH_DEVICE_ACCEPTANCE_PENDING` 並 push 之後）。版號照序號 `0.1.42`，build `43`。
+- 內容：`0.1.41 (42)` 的全部，加上 IOS-POC-36.2（`fc4a3282`、`f6d1bf30`：PiP 在背景關閉後的暫停 reload，PL-14／D9）、ponytail audit 第一批（`8bfe875a`、`f26ccae6`、`736023f8`）與第二批（`1ea1c732`、`3fd68923`、`53de9b61`）、IOS-POC-36.3（`2244dd3a`：D10，失敗之後原地開的新 item 不再蓋著上一個的失敗訊息；`eaa3af75`、`b9ff7e7e`、`4d5370da` 的測試與驗收紀錄）；其餘是文件。
+- 發布序列：
+  1. 版號 commit `04f6567e`（Task-Guard `IOS-RELEASE-0.1.42-b43`，兩個 build configuration 的 `MARKETING_VERSION`／`CURRENT_PROJECT_VERSION`，沒有其他行變動）。
+  2. push `4d5370da..04f6567e`（push 前先 pull merge，遠端沒有新 commit）。
+  3. `gh workflow run ios-sidestore-release.yml --ref ios-poc -f version=0.1.42 -f build_number=43 -f release_notes=…` → run `36821576390`（conclusion success，job `release` success，2026-10-01 05:48:42Z → 05:54:20Z；未逐一檢查各步驟）。
+  4. workflow 建立 tag `ios-v0.1.42-b43`（target `04f6567e`），並推回 `source.json`（`499e791f`，共四十三筆，第一筆 `0.1.42`，size 29,300,453 與 IPA 相同）。本機以 pull merge fast-forward 到 `499e791f`。
+
+  **沒有手動建 tag。**
+- 產物：GitHub Release `WebHTV 0.1.42 (43)`（不是 draft／prerelease，2026-10-01 05:54:12Z 發布），`WebHTV-0.1.42-43.ipa` **29,300,453 bytes**、狀態 uploaded，GitHub 記錄的 digest SHA-256
+  `117db406a2f5b64a7d2e77e52948a6a6359805fa6e40021cbf6a78da4163c858`；`source.json` 的下載網址 HEAD 回 200、`content-length` 29,300,453。**IPA 未下載回來驗內容。**
+- 發布前驗證：`swift test` 620/620；本機模擬器 Debug、generic iOS 不簽章 Release 與 `WebHTVCore` iOS build 在 `2244dd3a` 的程式上通過；模擬器實測與 WebHome A→B（IOS-POC-36 第十六節）。Release device build 另由本次 workflow 編譯，第一次即成功。**真機尚未驗收**（清單：IOS-POC-36 第十六節之 8）。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.42 (43)（子母畫面在背景關閉後的續播、失敗訊息殘留修正；只有自動測試、模擬器與本機建置驗證，真機未驗收）
+
+修正
+- 播放中進子母畫面，在小視窗暫停或按 ✕ 關掉後，App 在背景被系統暫停執行：回到 App 時會在暫停的位置重新載入，按播放就能繼續（以前按播放沒有反應）。
+- 一集在兩個播放器都無法播放之後，換到上一集／下一集、換畫質，或 WebHome 頁面再播放：畫面上的「無法播放」訊息會消失（以前會一直蓋在新的一集上）。
+
+變更
+- 播放器已經開著時，WebHome 頁面再呼叫播放，會在原本的播放器裡直接換片，不再關掉重開。
+- 設定頁「加入設定來源」的網址欄位改用網址鍵盤。
+- 內部清理：刪除 Debug 專用的 MPV 驗證畫面與啟動檢查；雜湊與 HMAC 改用系統的 CryptoKit（結果與以前逐位元相同）。
+
+已知限制
+- 此版沒有真機驗收；0.1.39 (40) 起的播放修正也都還沒有真機驗收。
+- 其餘同 0.1.41 (42)。
+```
+
+## 第四十二次發布：`0.1.41 (42)`（2026-09-30，**已發布**，已被 `0.1.42 (43)` 取代）
+
+**發布當時最新版是 `0.1.41 (42)`**（已被 `0.1.42 (43)` 取代，見第四十三次發布）。前面四十一版都已被取代。
 
 - 授權：使用者 2026-09-30 指示「發布新版 0.1.41 (42)」（IOS-POC-36.1 push 之後）。版號 `0.1.41`，build `42`。
 - 內容：`0.1.40 (41)` 的全部，加上 IOS-POC-36.1（`ea96268f`：loop 下同一段播放只處理一次結束，replay 的 seek 落地才允許再次結束；驗收矩陣證據稽核）；其餘是文件（`e0125176`、`d345552f`、`78324ef3`）。

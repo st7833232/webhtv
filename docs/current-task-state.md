@@ -6,9 +6,9 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current handoff — 2026-10-01（先讀這一節，再讀文末 Resume Prompt；2026-09-30 那一節是前一次交接）
 
-**Git**：`ios-poc`，HEAD 是 IOS-POC-36.3 的收尾 commit（`2244dd3a` 之後的 `docs(ios): IOS-POC-36.3 release-candidate acceptance`），push 到 `origin/ios-poc` 與否看 `git status -sb`；工作區乾淨，沒有進行中的 task guard。接手時仍先 `git fetch`、`git log --oneline -10`、`git status`，以實際狀態為準。push 前一律 `git pull --no-rebase`。
+**Git**：`ios-poc`，HEAD 是 `0.1.42 (43)` 的發布紀錄 commit（`499e791f` 之後），push 與否看 `git status -sb`；工作區乾淨，沒有進行中的 task guard。接手時仍先 `git fetch`、`git log --oneline -10`、`git status`，以實際狀態為準。push 前一律 `git pull --no-rebase`。
 
-**最新發布仍是 `0.1.41 (42)`**（內容到 IOS-POC-36.1 `ea96268f`）。下列 2026-10-01 的 commit 都**還沒有發布**，真機都未驗證。
+**最新發布是 `0.1.42 (43)`**（2026-10-01，使用者指示「發佈」；版號 commit `04f6567e`，tag `ios-v0.1.42-b43` → `04f6567e`，run `36821576390` success，`source.json` `499e791f`，IPA 29,300,453 bytes；`docs/IOS-POC-11-sidestore-release.md` 第四十三次發布）。內容含下表 2026-10-01 的全部 commit（IOS-POC-36.2、ponytail audit 兩批、36.3 的 D10）。**真機都未驗證**。
 
 **本 session 做了什麼（新到舊）**
 
@@ -54,9 +54,9 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - D10 的修正只有模擬器證據（PlayerView 的 `@State` 不在 Core）。
 - 冷啟動（沒有 module map）的第一次 Xcode build 會失敗一次，是既有行為，第二次就好。
 
-**真機待驗**：下一版（含 `fc4a3282` 到 HEAD）發布後，跑 `docs/IOS-POC-36-playback-acceptance-stability.md` 第十六節之 8 的一次性清單（10 項：PiP 背景關閉、MPV／原生 PiP、暫停與播放中背景、中斷、MPV `hwdec-current`、旋轉／常亮／音軌字幕、AirPlay、去廣與片尾）；`0.1.41 (42)` 上仍可先跑第十節第 1～14 項。
+**真機待驗**：在 `0.1.42 (43)` 上跑 `docs/IOS-POC-36-playback-acceptance-stability.md` 第十六節之 8 的一次性清單（10 項：PiP 背景關閉、MPV／原生 PiP、暫停與播放中背景、中斷、MPV `hwdec-current`、旋轉／常亮／音軌字幕、AirPlay、去廣與片尾）。
 
-**Next Recommended Step**：沒有不需要使用者決定就能做的工作了。新 session 先等使用者三選一：(a) 授權發下一版（內容從 `fc4a3282` 到目前 HEAD，含 PL-14、audit 兩批、D10；36.3 判定 `PASS_WITH_DEVICE_ACCEPTANCE_PENDING`）——bump／tag／release 都要先問，發布後請使用者跑第十六節之 8；(b) 決定 ponytail audit 第 1／7、11、18、19、28 項（細節在 `docs/PONYTAIL-AUDIT-2026-10-01.md`）；(c) 回報 `0.1.41 (42)` 的真機結果。
+**Next Recommended Step**：等使用者在 `0.1.42 (43)` 上跑 `docs/IOS-POC-36-playback-acceptance-stability.md` 第十六節之 8 的 10 項真機清單，結果逐項填回該文件第四節；全部正常才把 36.3 的判定升為 `RELEASE_CANDIDATE_PASS`。ponytail audit 第 1／7、11、18、19、28 項仍等使用者決定。
 
 ## Current handoff — 2026-09-30（前一次交接）
 
@@ -1366,8 +1366,8 @@ Paste this into a new session:
 >
 > **「Current handoff — 2026-10-01」重點**：HEAD 在 IOS-POC-36.3 收尾 commit；36.3 的 RC 驗收判定 `PASS_WITH_DEVICE_ACCEPTANCE_PENDING`，修了 D10（`2244dd3a`），真機清單在 IOS-POC-36 第十六節之 8；2026-10-01 的 IOS-POC-36.2（PL-14）與 ponytail audit 第一批、第二批（含第 16、35、37、39 項）都已 push、未發布、真機未驗證；audit 剩下的只有等我決定（第 1／7、11、18、19、28 項）、要升 ABI（第 4、6、26 項）、要跑 CI（第 3、22、29、30 項）的（`docs/PONYTAIL-AUDIT-2026-10-01.md`），沒有我的指示不要做；環境有 Ponytail 就一定要對最終 diff 執行 `ponytail:ponytail-review`（`AGENTS.md` §4）。
 >
-> 目前狀態：最新已發布版本是 `0.1.41 (42)`（2026-09-30，tag `ios-v0.1.41-b42` → `46c0d36d`），帶入 IOS-POC-36.1（loop 一次交接、驗收矩陣稽核）；`0.1.40 (41)`（tag `ios-v0.1.40-b41` → `25714bee`）帶入 IOS-POC-39 S5 第 1、2 項（XBPQ 搜尋）；`0.1.39 (40)`（tag `ios-v0.1.39-b40` → `4b93443a`）帶入 IOS-POC-39 S1～S4（XBPQ 規則引擎）與 IOS-POC-36（播放器 D1～D7）；`0.1.38 (39)` 帶入 IOS-POC-37.3.1（標準 `Spider()` 建構語意、`python.host` 1.5）；`0.1.37 (38)` 帶入 IOS-POC-37.3（constructor 內 cache、native stamp 納入 toolchain identity、`python.host` 1.4）；兩份設定檔的逐站可用性在 `docs/SITE-AVAILABILITY-2026-09-30.md`；IOS-POC-36（播放器驗收矩陣與 D1～D7 修正）已隨 `0.1.39 (40)` 發布，真機清單見 `docs/IOS-POC-36-playback-acceptance-stability.md`；`0.1.36 (37)` 帶入 IOS-POC-17H-4（MPV 子母畫面進入／放回修正）；`0.1.35 (36)` 帶入 IOS-POC-37.2（stdlib `ssl` 信任 certifi）；`0.1.34 (35)` 帶入 IOS-POC-37.1；`0.1.33 (34)` 帶入 IOS-POC-37（Python 依賴擴充，見 `docs/IOS-POC-37-python-runtime-dependency-expansion.md`）；`0.1.25 (26)`～`0.1.35 (36)` 帶入 IOS-POC-27～35、37、25-4／25-5 與 17H-2／17H-3，都還沒有真機驗收。IOS-POC-12 已完成（2026-09-29，未發布，App 行為沒變），IOS-POC-13 未開始。IOS-POC-32 D 等我核准（還缺：是否開始、iOS 17 的做法、是否固定 `.lowLatency`）；IOS-POC-27C 等我回報原生開不了時畫面顯示的原因；IOS-POC-34 已結案（我改了 GitLab `recha` 的 `py/kkys.py`）。遠端只剩 `main` 與 `ios-poc`。其餘各版的內容與真機結果見 Current handoff 的表格，各任務狀態見「任務狀態」。
+> 目前狀態：最新已發布版本是 `0.1.42 (43)`（2026-10-01，tag `ios-v0.1.42-b43` → `04f6567e`，帶入 IOS-POC-36.2、ponytail audit 兩批與 36.3 的 D10，真機未驗證）；前一版 `0.1.41 (42)`（2026-09-30，tag `ios-v0.1.41-b42` → `46c0d36d`），帶入 IOS-POC-36.1（loop 一次交接、驗收矩陣稽核）；`0.1.40 (41)`（tag `ios-v0.1.40-b41` → `25714bee`）帶入 IOS-POC-39 S5 第 1、2 項（XBPQ 搜尋）；`0.1.39 (40)`（tag `ios-v0.1.39-b40` → `4b93443a`）帶入 IOS-POC-39 S1～S4（XBPQ 規則引擎）與 IOS-POC-36（播放器 D1～D7）；`0.1.38 (39)` 帶入 IOS-POC-37.3.1（標準 `Spider()` 建構語意、`python.host` 1.5）；`0.1.37 (38)` 帶入 IOS-POC-37.3（constructor 內 cache、native stamp 納入 toolchain identity、`python.host` 1.4）；兩份設定檔的逐站可用性在 `docs/SITE-AVAILABILITY-2026-09-30.md`；IOS-POC-36（播放器驗收矩陣與 D1～D7 修正）已隨 `0.1.39 (40)` 發布，真機清單見 `docs/IOS-POC-36-playback-acceptance-stability.md`；`0.1.36 (37)` 帶入 IOS-POC-17H-4（MPV 子母畫面進入／放回修正）；`0.1.35 (36)` 帶入 IOS-POC-37.2（stdlib `ssl` 信任 certifi）；`0.1.34 (35)` 帶入 IOS-POC-37.1；`0.1.33 (34)` 帶入 IOS-POC-37（Python 依賴擴充，見 `docs/IOS-POC-37-python-runtime-dependency-expansion.md`）；`0.1.25 (26)`～`0.1.35 (36)` 帶入 IOS-POC-27～35、37、25-4／25-5 與 17H-2／17H-3，都還沒有真機驗收。IOS-POC-12 已完成（2026-09-29，未發布，App 行為沒變），IOS-POC-13 未開始。IOS-POC-32 D 等我核准（還缺：是否開始、iOS 17 的做法、是否固定 `.lowLatency`）；IOS-POC-27C 等我回報原生開不了時畫面顯示的原因；IOS-POC-34 已結案（我改了 GitLab `recha` 的 `py/kkys.py`）。遠端只剩 `main` 與 `ios-poc`。其餘各版的內容與真機結果見 Current handoff 的表格，各任務狀態見「任務狀態」。
 >
-> 下一步：沒有不需要我決定的工作。等我三選一——授權發下一版（`fc4a3282` 到 HEAD，含 PL-14、audit 兩批與 D10，都還沒發布；發布後我跑 IOS-POC-36 第十六節之 8）；決定 ponytail audit 第 1／7、11、18、19、28 項；或在 `0.1.41 (42)` 上真機回報——IOS-POC-36 第十節的 15 項（填回該文件第四節；第 15 項要等含 36.2 的下一版，36.2 已 commit 未發布）、幾個 XBPQ 站能否播放與搜尋（填進 IOS-POC-39 第六節），以及 Current handoff「下一步」列的較早項目。IOS-POC-39（`docs/IOS-POC-39-xbpq-rule-coverage.md` 的 Recovery anchor）S1～S4 與 S5 第 1、2 項都已發布，只剩 S5 第 3 項 `搜索模式` 等我決定，第 4 項不做；我沒核准前不改 `XBPQ.js`。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13（已實作後依我的決定撤銷）。
+> 下一步：等我在 `0.1.42 (43)` 上跑 IOS-POC-36 第十六節之 8 的真機清單並回報；ponytail audit 第 1／7、11、18、19、28 項等我決定；或在舊版上回報——IOS-POC-36 第十節的 15 項（填回該文件第四節；36.2 已隨 `0.1.42 (43)` 發布，第 15 項與第十六節之 8 第 1 項相同）、幾個 XBPQ 站能否播放與搜尋（填進 IOS-POC-39 第六節），以及 Current handoff「下一步」列的較早項目。IOS-POC-39（`docs/IOS-POC-39-xbpq-rule-coverage.md` 的 Recovery anchor）S1～S4 與 S5 第 1、2 項都已發布，只剩 S5 第 3 項 `搜索模式` 等我決定，第 4 項不做；我沒核准前不改 `XBPQ.js`。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13（已實作後依我的決定撤銷）。
 >
 > 規則：Ponytail 只要環境有就一定要執行——每個程式修改在回報完成前，對最終 diff 跑 `ponytail:ponytail-review`，結果記進任務文件；只有環境沒有時才略過，不得因此阻擋功能修改、驗證、commit、build 或後續工作，也不得假稱已執行，或把可用的記成略過。功能修改仍須 `bash .codex/scripts/task_guard.sh start`，結束用 `finish --no-tag`。push 到 `ios-poc` 已授權，**push 前先 `git pull --no-rebase` merge**（同一個工作目錄可能有另一個 session 也在 commit）；bump 版本、tag、package、publish 或發 SideStore release 前要先問我。不要直接安裝到我的 iPhone（我用 SideStore）。真機沒測到的一律寫「未驗證」。雲端工作階段沒有 Swift／Xcode，編譯靠發版 workflow，單元測試照常撰寫但不執行（我選的「只靠編譯與真機」）。只 push 到 `ios-poc`，不建立新的遠端分支，也不 merge 到 `main`。

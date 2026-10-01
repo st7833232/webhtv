@@ -34,7 +34,10 @@ private final class FakeEngine: PlaybackEngine {
     }
     func play() { isPlaying = true }
     func pause() { isPlaying = false }
-    func seek(toSeconds seconds: Double) { currentTime = seconds }
+    func seek(toSeconds seconds: Double, landed: @escaping @MainActor () -> Void) {
+        currentTime = seconds
+        landed()
+    }
     func setRate(_ rate: Float) { chosenRate = rate }
     func mediaSelection() async -> PlaybackMediaSelection { media }
     func selectMedia(_ kind: PlaybackMediaKind, id: String) async {

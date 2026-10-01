@@ -122,15 +122,12 @@ final class MPVEngine: PlaybackEngine {
         core.setPaused(true)
         setPlaybackIntent(false)
     }
-    func seek(toSeconds seconds: Double) {
-        seekAsked = (max(seconds, 0), .now)
-        core.seek(to: max(seconds, 0))
-    }
     /// IOS-POC-36.1: `PLAYBACK_RESTART` says the seeks asked so far have landed. A seek on an mpv
     /// that already reached EOF has nothing to land on and never calls back; the next load drops it.
     func seek(toSeconds seconds: Double, landed: @escaping @MainActor () -> Void) {
         seeksLanding.append(landed)
-        seek(toSeconds: seconds)
+        seekAsked = (max(seconds, 0), .now)
+        core.seek(to: max(seconds, 0))
     }
     func setRate(_ rate: Float) { core.setSpeed(rate) }
 

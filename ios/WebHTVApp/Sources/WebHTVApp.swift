@@ -3714,8 +3714,6 @@ final class AVPlayerEngine: PlaybackEngine {
     func pause() { player.pause() }
 
     /// Exact tolerances, as the control bar's scrubber and ±10 s always had.
-    func seek(toSeconds seconds: Double) { seek(toSeconds: seconds) {} }
-
     func seek(toSeconds seconds: Double, landed done: @escaping @MainActor () -> Void) {
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600),
                     toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
@@ -4952,8 +4950,6 @@ private struct PlayerView: View {
         // IOS-POC-16B. Every change to the bar or its panels restarts the countdown — or stops it,
         // when a panel has just opened. One place, so no path can open or close a panel and forget.
         .onChange(of: chrome) { scheduleHide() }
-        // IOS-POC-23: a player in Picture in Picture is never reloaded on return.
-        .onChange(of: pictureInPicture) { session.pictureInPictureActive = pictureInPicture }
         // The tap that brings a hidden bar back is not something VoiceOver can reach, so turning it
         // on brings the bar back instead.
         .onChange(of: voiceOver) { if voiceOver { chrome.show() } }

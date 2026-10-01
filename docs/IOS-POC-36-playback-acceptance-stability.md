@@ -331,7 +331,7 @@
 - 模擬器 Debug build（`platform=iOS Simulator,id=05934376…`）：BUILD SUCCEEDED，本任務檔案 0 新 warning。
 - Release 裝置 build（`generic/platform=iOS`、`CODE_SIGNING_ALLOWED=NO EXPANDED_CODE_SIGN_IDENTITY=-`）：BUILD SUCCEEDED。第一次沒帶 `EXPANDED_CODE_SIGN_IDENTITY=-` 時，上游 `install_python` 簽 framework 失敗（`no identity found`），屬呼叫方式，與 17H-4 記錄的指令相同後通過。
 - 模擬器驗收：第六節。
-- Ponytail：未執行（選配，本任務略過）。
+- Ponytail：未執行（當時記為選配、略過）。使用者 2026-10-01 說明「選配」的意思是環境有 ponytail 就一定要執行；36 的 `2840c2e4` 沒有補做，36.1、36.2 的補做見第十五節之 8。
 - 36.1 的驗證見第十四節之 4；36.2 見第十五節之 6。
 
 ## 十四、IOS-POC-36.1 收尾（2026-09-30）
@@ -349,7 +349,7 @@
   1. `PlaybackEndGate.end(looping:)` 取代 `end()`：第一個結束依 loop 回 `.replay` 或 `.handOver`，之後回 `.ignore`，直到 `itemLoaded()`。gate 仍是 `PlaybackSession` 的一個欄位，只記目前這個 item／這段播放，不是 global。
   2. `finished(reason:)`：上一集／下一集進行中時 `.ignore`，否則問 gate；`.replay` 才 `control("replay")`。
   3. `control("replay")`：不再送出時就 `itemLoaded()`，改在 seek 落地時。
-  4. `PlaybackEngine.seek(toSeconds:landed:)`：AVPlayer 在 seek completion 回呼（不論 `finished`：被取代的 seek 一樣把播放頭帶離結尾）；MPV 在下一個 `PLAYBACK_RESTART` 回呼，`load` 清掉還沒落地的；protocol extension 的預設是送出就算落地（只有測試的 `FakeEngine` 用到）。
+  4. `PlaybackEngine.seek(toSeconds:landed:)`：AVPlayer 在 seek completion 回呼（不論 `finished`：被取代的 seek 一樣把播放頭帶離結尾）；MPV 在下一個 `PLAYBACK_RESTART` 回呼，`load` 清掉還沒落地的；原本另有「送出就算落地」的 protocol extension 預設，ponytail review 後改成只有這一個 requirement，`seek(toSeconds:)` 是 extension 的轉呼叫（第十五節之 8）。
 - **沒有引入延遲**：replay 照舊立刻 seek＋play；等 seek 落地只決定「什麼時候允許下一次結束」，沒有計時器或 sleep。
 - **為什麼不用取樣器、時間或位置判斷**：取樣器 5 秒一次，短於 5 秒的片子 loop 會停；以「離 replay 多久」判斷，replay 後馬上拖到結尾前會被誤擋；MPV 結尾後位置讀 0，AVPlayer 結尾時位置與長度差多少沒有保證。seek 落地是兩個核心都已經有、而且就是 rewind 本身的訊號。
 - **殘餘風險**：(a) 舊的結尾通知若比 seek completion 還晚送到 main actor，仍會被當成新一段的（要比一次網路 seek 還慢，機率很低）；(b) MPV 真正結尾後 loop 本來就無效（第九節），36.1 後該 item 之後的結束被忽略，使用者看到的一樣是停在結尾；(c) 上一集／下一集進行中遇到結尾時 loop 不再 replay（刻意，第十一節）。
@@ -387,7 +387,7 @@
 - 模擬器 Debug build（`platform=iOS Simulator,id=05934376…`）：BUILD SUCCEEDED（最終版本 27 秒）；本次改動的程式沒有新 warning（build log 裡的 warning 都在 `WebHTVApp.swift` 第 5411～5413、5547 行，既有）。
 - Release 裝置 build（`generic/platform=iOS`、`CODE_SIGNING_ALLOWED=NO EXPANDED_CODE_SIGN_IDENTITY=-`）：BUILD SUCCEEDED（最終版本 31 秒）。
 - 模擬器操作驗證：沒有做（loop 沒有 App 內的入口）。真機：未驗證。D8 已隨 `0.1.41 (42)` 發布（run `36698521242`，tag `ios-v0.1.41-b42` → `46c0d36d`）。
-- Ponytail：未執行（選配）。
+- Ponytail：commit 時未執行；2026-10-01 補做，結果與套用見第十五節之 8。
 
 ## 十五、IOS-POC-36.2：PL-14 PiP 在背景關閉後的暫停 reload（2026-10-01）
 
@@ -428,7 +428,7 @@ PL-14 的情境（數字是發生順序；「舊」是修正前、「新」是�
   1. `PausedBackgroundReload.eligible(sessionOpen:failed:loaded:paused:pictureInPicture:)`：唯一的判斷規則，兩個核心共用；`isPausedOnScreen`（`WebHTVApp.swift` `PlaybackSession`）改用它。
   2. `PausedBackgroundReload.eligibilityChanged(eligible:position:at:)`：只在 `enteredBackground` 到 `becameActive` 之間有作用；符合且還沒有記錄 → 記錄並回傳 true（呼叫端開始同一個心跳）；不符合 → 清掉記錄；已有記錄 → 保留（心跳照算）。
   3. `PlaybackSession.noteBackgroundEligibilityChanged()` 的呼叫點：`pictureInPictureActive` 改變（`didSet`）、`control("pause")`、AVPlayer `rate` KVO（AVKit 小視窗與鎖定畫面不經 session）。
-  4. 原生 `PlayerSurface.Coordinator` 的 will start／did stop 與 MPV 的 `onActiveChange` 直接設定 session 的 PiP 狀態；SwiftUI 的 `onChange` 保留，重複設定不會再判斷。
+  4. 原生 `PlayerSurface.Coordinator` 的 will start／did stop 與 MPV 的 `onActiveChange` 直接設定 session 的 PiP 狀態；SwiftUI 的 `onChange` 同步在 ponytail review 後刪掉（重複），畫面出現時的 `.task` 同步保留（之 8）。
   5. MPV `ended()` 在背景的暫停從 `engine?.pause()` 改成 `PlaybackSession.shared.control("pause")`：使用者意圖記為暫停（D4 的 fallback 也照它），也會重新判斷。
   6. 「已暫停」＝引擎 `rate` 為 0 **或** router 記錄的意圖是暫停：mpv 對 `pause` 的回報要等下一個屬性事件，暫停後立刻判斷時 `rate` 還不是 0。
 - **AVPlayer／MPV**：同一個規則、同一個背景記錄與心跳；差別只在事件來源（原生靠 `rate` KVO 與 AVKit delegate，MPV 靠 `control("pause")` 與 `setActive`）。
@@ -453,7 +453,7 @@ PL-14 的情境（數字是發生順序；「舊」是修正前、「新」是�
 - 模擬器 Debug build（`platform=iOS Simulator,id=05934376…`）：BUILD SUCCEEDED（31 秒）；本次改動沒有新 warning（列出的 warning 都是既有的：`MPVProbeView.swift`、`PythonBoot.swift`、`PythonSpiderRuntime.swift`，以及 `WebHTVApp.swift` 原本第 5411～5413、5547 行，因加行位移到 5446～5448、5582）。
 - Release 裝置 build（`generic/platform=iOS`、`CODE_SIGNING_ALLOWED=NO EXPANDED_CODE_SIGN_IDENTITY=-`）：BUILD SUCCEEDED（44 秒）。
 - 模擬器操作：沒有做——iPhone 模擬器沒有 PiP；模擬器不會暫停執行 App，reload 路徑走不到（36C 已記錄）。**真機未驗證**；PL-14 記 `AUTOMATED_PASS`（決策有回歸測試，與 D4、D5 的記法相同），不是真機通過。
-- Ponytail：未執行（選配）。
+- Ponytail：commit 時未執行；2026-10-01 補做，見之 8。
 
 ### 7. 殘餘風險
 
@@ -462,3 +462,17 @@ PL-14 的情境（數字是發生順序；「舊」是修正前、「新」是�
 - 範圍比 PL-14 稍大：背景中鎖定畫面暫停、來電等中斷暫停之後被暫停執行，回來也會 reload（與 23 相同的處理）；PL-06／07／08 仍 `UNVERIFIED`。
 - MPV 在 PiP 之後 reload：17H-2 的 Metal 等 `PLAYBACK_RESTART` 才顯示，reload 會重新載入並產生它；沒有在真機或模擬器跑過這個組合。
 - 同一個 session 只有一個背景記錄；PiP 開著時 App 被結束（不是暫停執行）不在本修正範圍。
+
+### 8. Ponytail review（2026-10-01 補做）
+
+使用者說明「Ponytail 選配」＝環境有就一定要執行。這個環境有 `ponytail:ponytail-review`，36.1（`ea96268f`）與 36.2（`fc4a3282`）commit 時卻記成「未執行（選配）」，所以補做，並依使用者指示套用。
+
+| # | 位置（review 當時） | 標籤 | 發現 | 處理 |
+|---|---|---|---|---|
+| 1 | `PlaybackEngine.swift` L310-313、L339-345；`WebHTVApp.swift` L3717；`MPVEngine.swift` L125-134；`PlaybackEngineTests.swift` L37 | yagni | `seek(toSeconds:)` 與 `seek(toSeconds:landed:)` 兩個 requirement，外加「送出就算落地」的預設 | 只留 `seek(toSeconds:landed:)`；`seek(toSeconds:)` 是 extension 一行轉呼叫；AVPlayer 的轉呼叫刪掉、MPV 兩個方法合成一個；`FakeEngine` 自己呼叫 `landed()` |
+| 2 | `WebHTVApp.swift` L4955-4956 | delete | 36.2 已讓兩個 PiP 直接設定 session，SwiftUI `.onChange(of: pictureInPicture)` 的同步重複 | 刪除；PlayerView 的 `pictureInPicture` 只由這兩個來源的 binding 寫入，兩者都直接設定 session。`.task` 的開場同步保留 |
+| — | `MPVEngine.swift` L253-255 | （不採用） | 先複製回呼清單、清空、再逐一呼叫，看似可縮短 | 回呼執行時可能再加入新的 seek，邊跑邊清會把它弄丟，保留 |
+
+- 結果：程式淨減 9 行，行為不變（MPV 的一般 seek 也會放一個空回呼，`PLAYBACK_RESTART` 或下一個 `load` 清掉）。
+- 驗證（套用後）：`swift test --package-path ios` 622／622；模擬器 Debug build BUILD SUCCEEDED（27 秒）；generic iOS 不簽章 Release build BUILD SUCCEEDED（42 秒）；沒有新 warning（列出的都是既有的，`WebHTVApp.swift` 的 5442～5444、5578 行只因刪行位移）。
+- 真機：未驗證。矩陣不變（107 項，36 後 1／47／28／17／12／2／0）。

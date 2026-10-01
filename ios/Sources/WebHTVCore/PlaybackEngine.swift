@@ -307,9 +307,8 @@ public protocol PlaybackEngine: AnyObject {
     func load(_ request: PlaybackLoadRequest)
     func play()
     func pause()
-    func seek(toSeconds seconds: Double)
-    /// IOS-POC-36.1: the same, then `landed` once the engine is there — or once a later seek or
-    /// another item took its place, which moves the playhead away from where it was just as well.
+    /// `landed` once the engine is there — or once a later seek or another item took its place,
+    /// which moves the playhead away from where it was just as well (IOS-POC-36.1).
     func seek(toSeconds seconds: Double, landed: @escaping @MainActor () -> Void)
     var currentTime: Double { get }
     var duration: Double { get }
@@ -337,11 +336,7 @@ public protocol PlaybackEngine: AnyObject {
 }
 
 public extension PlaybackEngine {
-    /// For an engine that cannot tell: there as soon as it is asked.
-    func seek(toSeconds seconds: Double, landed: @escaping @MainActor () -> Void) {
-        seek(toSeconds: seconds)
-        landed()
-    }
+    func seek(toSeconds seconds: Double) { seek(toSeconds: seconds) {} }
 }
 
 // MARK: - IOS-POC-22: speeds AVPlayer cannot play

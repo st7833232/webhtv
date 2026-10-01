@@ -1,6 +1,6 @@
 # IOS-POC-36 — Playback Acceptance & Stability Consolidation
 
-**狀態（2026-10-01，36.5 之後）**：`0.1.42 (43)` 已發布。36.5（第十七節之 8）修正 D12（子母畫面中播完最後一集後小視窗殘留），iPad 模擬器兩個核心重驗通過，SH-04 回到 `SIMULATOR_PASS`，36 後一欄 1／53／26／14／11／2／0；未發布，真機未驗證。36.4（第十七節）iPhone 連不上，依使用者指示改在模擬器驗收：找到 D11（已修 `c59577c9`，未發布）與 D12（36.5 已修），判定 `BLOCKED`。此前：開發完成，只剩真機驗收。36.3（第十六節）對未發布範圍做 release-candidate 驗收，找到並修正 D10（失敗之後原地開的下一個 item 仍顯示上一個的失敗訊息），判定 `PASS_WITH_DEVICE_ACCEPTANCE_PENDING`。D1～D7（第八節）已隨 `0.1.39 (40)` 發布，`0.1.40 (41)` 亦包含；36.1（D8 與矩陣證據稽核，第十四節）已隨 `0.1.41 (42)` 發布；36.2（D9：PiP 在背景關閉後的暫停 reload＝PL-14，第十五節）已 commit、尚未發布。矩陣 107 項：`REAL_DEVICE_PASS` 1、`SIMULATOR_PASS` 47（36C 實測 44 項，其餘 3 項沿用 17F／25）、`AUTOMATED_PASS` 28、`RELEASE_BUILD_ONLY` 17、`UNVERIFIED` 12、`KNOWN_LIMITATION` 2、`DEFECT` 0。**D1～D9 都沒有真機驗證。**
+**狀態（2026-10-01，36.5 之後）**：`0.1.43 (44)` 已發布（含 D11、D12；IOS-POC-11 第四十四次發布）。36.5（第十七節之 8）修正 D12（子母畫面中播完最後一集後小視窗殘留），iPad 模擬器兩個核心重驗通過，SH-04 回到 `SIMULATOR_PASS`，36 後一欄 1／53／26／14／11／2／0；已隨 `0.1.43 (44)` 發布，真機未驗證。36.4（第十七節）iPhone 連不上，依使用者指示改在模擬器驗收：找到 D11（已修 `c59577c9`）與 D12（36.5 已修），兩者都隨 `0.1.43 (44)` 發布，判定 `BLOCKED`。此前：開發完成，只剩真機驗收。36.3（第十六節）對未發布範圍做 release-candidate 驗收，找到並修正 D10（失敗之後原地開的下一個 item 仍顯示上一個的失敗訊息），判定 `PASS_WITH_DEVICE_ACCEPTANCE_PENDING`。D1～D7（第八節）已隨 `0.1.39 (40)` 發布，`0.1.40 (41)` 亦包含；36.1（D8 與矩陣證據稽核，第十四節）已隨 `0.1.41 (42)` 發布；36.2（D9：PiP 在背景關閉後的暫停 reload＝PL-14，第十五節）已 commit、尚未發布。矩陣 107 項：`REAL_DEVICE_PASS` 1、`SIMULATOR_PASS` 47（36C 實測 44 項，其餘 3 項沿用 17F／25）、`AUTOMATED_PASS` 28、`RELEASE_BUILD_ONLY` 17、`UNVERIFIED` 12、`KNOWN_LIMITATION` 2、`DEFECT` 0。**D1～D9 都沒有真機驗證。**
 
 ## Recovery anchor
 
@@ -8,9 +8,9 @@
 - 範圍：`ios/Sources/WebHTVCore`、`ios/WebHTVApp/Sources`、`ios/Tests/WebHTVCoreTests`、`docs`。task guard `IOS-POC-36`（`standard`）。
 - 工作位置：36A～36D 在獨立 worktree `/Users/chengchenchih/GIT/webhtv-ios36`（本機分支 `ios-poc-36`，已 push 到 `origin/ios-poc`），因為當時主 checkout 有另一個 session 的 task guard；36.1 在主 checkout `/Users/chengchenchih/GIT/webhtv`（task guard `IOS-POC-36.1`，`quick-fix`）；36.5 也在主 checkout（task guard `IOS-POC-36.5-D12`，`quick-fix`），子母畫面用 iPad Pro 13 模擬器 `AFFA620A`。模擬器用 `05934376-5757-40E5-9FAF-202594565656`（iPhone 17 Pro Max、iOS 26.3），不碰另一個 session 的 `E0A41D48`。
 - 已完成：第四節矩陣（107 項，36.1 重新稽核證據強度）、第八節 D1～D12 修正與測試、第六節、第十六節與第十七節模擬器證據。
-- 未驗證：全部真機項目（第十節）；D7（切換瞬間 0:00）只有 build 證據；D8 只有單元測試與 build（已隨 `0.1.41 (42)` 發布）；D9 的決策有單元測試、App 接線只有 build；D10～D12 只有模擬器證據；D11、D12 還不在任何發布版本裡。
+- 未驗證：全部真機項目（第十節）；D7（切換瞬間 0:00）只有 build 證據；D8 只有單元測試與 build（已隨 `0.1.41 (42)` 發布）；D9 的決策有單元測試、App 接線只有 build；D10～D12 只有模擬器證據；D11、D12 隨 `0.1.43 (44)` 發布。
 - 回滾：`git revert <本任務 commit>`（36 是 `2840c2e4`，36.1 是 `ea96268f`，36.2 是 `fc4a3282`／`f6d1bf30`，36.3 的修正是 `2244dd3a`，36.4 的 D11 是 `c59577c9`，36.5 的 D12 是 `fix(ios): IOS-POC-36.5 …` 那個 commit）；只有 Swift 原始碼、測試與文件，沒有二進位、lock 或設定變更。
-- 下一步（唯一）：使用者決定是否授權含 D11、D12 的 `0.1.43`；裝好後跑第十六節之 8 的一次性真機清單與第十七節之 8 的 D12 項目，結果逐項填回第四節。
+- 下一步（唯一）：使用者在 `0.1.43 (44)`（2026-10-01 發布，含 D1～D12）上跑第十六節之 8 的一次性真機清單與第十七節之 8 的 D12 項目，結果逐項填回第四節。
 
 ## 一、起始狀態
 
@@ -643,12 +643,12 @@ PL-14 的情境（數字是發生順序；「舊」是修正前、「新」是�
 **`BLOCKED`**，具體 blocker：
 
 1. ~~**D12 未修**（SH-04 `DEFECT`）~~：36.5 已修，iPad 模擬器兩個核心重驗通過（之 8）；真機未驗證。
-2. **D11 的修正不在 `0.1.42 (43)` 裡**：要發 `0.1.43` 需要使用者再授權。
+2. ~~**D11 的修正不在 `0.1.42 (43)` 裡**~~：使用者授權後隨 `0.1.43 (44)` 發布（IOS-POC-11 第四十四次發布），D12 也在裡面。
 3. **真機項目一項都沒有驗**：兩支 iPhone 都連不上 Mac（`CoreDeviceError 4016`）；PL-14 端到端、MPV PiP 畫面、`hwdec-current`（還需要先加 log）、播放中鎖定、中斷、旋轉、常亮、AirPlay 都只能在真機確認。
 
 ### 7. 下一步（唯一）
 
-（36.5 之後）使用者決定是否授權含 D11、D12 的 `0.1.43`；之後接上 iPhone，跑第十六節之 8 與之 8 的 D12 真機項目。
+（`0.1.43 (44)` 發布之後）接上 iPhone，在 `0.1.43 (44)` 上跑第十六節之 8 與之 8 的 D12 真機項目。
 
 ### 8. IOS-POC-36.5：修正 D12（2026-10-01）
 
@@ -683,7 +683,7 @@ PL-14 的情境（數字是發生順序；「舊」是修正前、「新」是�
 - **觀察到但沒有改**：在背景關閉畫面時（不論有沒有子母畫面），`control("pause")` 的當下 session 還沒關（`closePlayer` 要等 `persist`），所以會記一行 `[lifecycle] … paused in the background … reloads on return if suspended`。回到 App 時，`reloadPaused` 以 `isPausedOnScreen` 重新判斷，session 已經關了，所以不會 reload。不在子母畫面的背景關閉本來就會這樣（AV-11 那一輪 16:52:47）。
 - **測試與 build**：新增 `closingThePlayerKeepsTheEngineTheNextSessionWillUse`（預設 MPV 時，`endSession` 不會 teardown engine，下一個 session 用的是同一個；描述既有行為，修正前的程式也會過）。D12 的判斷（畫面關閉就關 session；surface 帶著開著的小視窗離開就結束它）都在 App 的 UIKit／AVKit 生命週期裡，沒有可以抽成 Core 的分支。Focused（`PlaybackEngineTests`、`PictureInPictureForegroundRestoreStateTests`、`PausedBackgroundReloadTests`）69／69；`swift test --package-path ios` **622／622**（5.0 秒）；最終程式的模擬器 Debug build（`id=AFFA620A…`）25 秒、generic iOS 不簽章 Release（`CODE_SIGNING_ALLOWED=NO EXPANDED_CODE_SIGN_IDENTITY=-`）27 秒，都是 BUILD SUCCEEDED；warning 只有既有的（`WebHTVApp.swift` 5370～5372、5506，也就是原本的 5352～5354、5488）。
 - **Ponytail**：`ponytail:ponytail-review` 對最終 diff → Lean already. Ship.
-- **真機未驗證**（要等含這個修正的版本；`0.1.43` 需要使用者授權發布）：
+- **真機未驗證**（這個修正已隨 `0.1.43 (44)` 發布，在那一版上驗）：
   1. iPhone 上兩個核心各一次：播放中按 HOME 進子母畫面，小視窗持續播放，回 App 時畫面還在。Console 看 `[pip] native asked to dismiss … declined` 有沒有出現。
   2. 兩個核心：最後一集在小視窗中播完，小視窗跟著消失；再開一部片只在畫面上播一份（原生不會兩邊同時播）。
   3. MPV 設為預設核心時，做完第 2 項後再進一次子母畫面。

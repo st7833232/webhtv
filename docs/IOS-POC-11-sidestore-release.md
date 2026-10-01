@@ -894,9 +894,40 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第四十三次發布：`0.1.42 (43)`（2026-10-01，**已發布**）
+## 第四十四次發布：`0.1.43 (44)`（2026-10-01，**已發布**）
 
-**目前最新版是 `0.1.42 (43)`。** 前面四十二版都已被取代。
+**目前最新版是 `0.1.43 (44)`。** 前面四十三版都已被取代。
+
+- 授權：使用者 2026-10-01 指示「發佈 0.1.43」（IOS-POC-36.5 push 之後）。版號 `0.1.43`，build `44`。
+- 內容：`0.1.42 (43)` 的全部，加上 IOS-POC-36.4 的 D11（`c59577c9`：位置超過片長的觀看記錄算看到結尾，再打開從頭播）與 IOS-POC-36.5 的 D12（`1355aa98`：子母畫面中播完最後一集，小視窗跟著結束、session 照常關閉）；其餘是文件（`046c717b`、`5df6bb9e`、`4f11edfb`）與 `0.1.42 (43)` 的 `source.json`（`499e791f`）。
+- 發布序列：
+  1. 版號 commit `42ccc865`（Task-Guard `IOS-RELEASE-0.1.43-b44`，兩個 build configuration 的 `MARKETING_VERSION`／`CURRENT_PROJECT_VERSION`，沒有其他行變動）。
+  2. push `1355aa98..42ccc865`（push 前先 pull merge，遠端沒有新 commit）。
+  3. `gh workflow run ios-sidestore-release.yml --ref ios-poc -f version=0.1.43 -f build_number=44 -f release_notes=…` → run `36840330287`（conclusion success，job `release` success，2026-10-01 09:04:23Z → 09:09:50Z；未逐一檢查各步驟）。
+  4. workflow 建立 tag `ios-v0.1.43-b44`（target `42ccc865`），並推回 `source.json`（`fd10a7a0`，共四十四筆，第一筆 `0.1.43`，size 29,300,051 與 IPA 相同）。本機以 pull merge fast-forward 到 `fd10a7a0`。
+
+  **沒有手動建 tag。**
+- 產物：GitHub Release `WebHTV 0.1.43 (44)`（不是 draft／prerelease，2026-10-01 09:09:40Z 發布），`WebHTV-0.1.43-44.ipa` **29,300,051 bytes**、狀態 uploaded，GitHub 記錄的 digest SHA-256
+  `cdc40a588aec8f59656fd2ff458338ccfe9de0507135e82e84d4f74bc7096840`；`source.json` 的下載網址 HEAD 回 200、`content-length` 29,300,051。**IPA 未下載回來驗內容。**
+- 發布前驗證：`swift test` 622/622；本機模擬器 Debug、generic iOS 不簽章 Release build 在 `1355aa98` 的程式上通過；D11、D12 的模擬器實測（IOS-POC-36 第十七節之 3、之 8）。Release device build 另由本次 workflow 編譯，第一次即成功。**真機尚未驗收**（清單：IOS-POC-36 第十六節之 8 與第十七節之 8）。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.43 (44)（看完的片子重新打開從頭播、子母畫面播完最後一集後殘留視窗的修正；只有自動測試、模擬器與本機建置驗證，真機未驗收）
+
+修正
+- 一集播到結尾後再打開同一部片（立即播放或點同一集）：會從頭播放（以前有時停在結尾、馬上結束，接著跳到下一集或關閉）；觀看記錄也會正確顯示「已看完」。
+- 在子母畫面中播完最後一集：小視窗會跟著關掉（以前原生播放器會留下停在最後一格的小視窗，再開新片時小視窗和播放器會同時播放；MPV 會留下黑色的「直播」視窗）。
+
+已知限制
+- 此版沒有真機驗收；子母畫面的修正只在 iPad 模擬器驗過，0.1.39 (40) 起的播放修正也都還沒有真機驗收。
+- 其餘同 0.1.42 (43)。
+```
+
+## 第四十三次發布：`0.1.42 (43)`（2026-10-01，**已發布**，已被 `0.1.43 (44)` 取代）
+
+**發布當時最新版是 `0.1.42 (43)`**（已被 `0.1.43 (44)` 取代，見第四十四次發布）。前面四十二版都已被取代。
 
 - 授權：使用者 2026-10-01 指示「發佈」（IOS-POC-36.3 RC 驗收判定 `PASS_WITH_DEVICE_ACCEPTANCE_PENDING` 並 push 之後）。版號照序號 `0.1.42`，build `43`。
 - 內容：`0.1.41 (42)` 的全部，加上 IOS-POC-36.2（`fc4a3282`、`f6d1bf30`：PiP 在背景關閉後的暫停 reload，PL-14／D9）、ponytail audit 第一批（`8bfe875a`、`f26ccae6`、`736023f8`）與第二批（`1ea1c732`、`3fd68923`、`53de9b61`）、IOS-POC-36.3（`2244dd3a`：D10，失敗之後原地開的新 item 不再蓋著上一個的失敗訊息；`eaa3af75`、`b9ff7e7e`、`4d5370da` 的測試與驗收紀錄）；其餘是文件。

@@ -1573,7 +1573,8 @@ private struct VodView: View {
                             }
                             .buttonStyle(.borderedProminent)
                             .disabled(resolving || Flag.playNow(in: detail.flags, watchedFlag: nil,
-                                                                watchedURL: nil, watchedName: nil) == nil)
+                                                                watchedURL: nil, watchedName: nil,
+                                                                spider: site.isSpiderShape) == nil)
                             // The lines, in one row at the top. With only one there is nothing to
                             // choose, so it stays the plain heading it has always been — the same
                             // rule the block chips below already follow.
@@ -1622,7 +1623,7 @@ private struct VodView: View {
                                     .tint(lastWatched ? .accentColor : nil)
                                     .fontWeight(lastWatched ? .bold : nil)
                                     .frame(minHeight: 44)
-                                    .disabled(episode.mediaURL == nil || resolving)
+                                    .disabled(!episode.isPlayable(spider: site.isSpiderShape) || resolving)
                                 }
                             }
                         }
@@ -1959,7 +1960,8 @@ private struct VodView: View {
     /// usual resume, by episode name), else the first line's first episode (`Flag.playNow`).
     private func playNow(_ flags: [Flag]) async {
         guard let pick = Flag.playNow(in: flags, watchedFlag: watched?.vodFlag,
-                                      watchedURL: watched?.episodeUrl, watchedName: watched?.vodRemarks)
+                                      watchedURL: watched?.episodeUrl, watchedName: watched?.vodRemarks,
+                                      spider: site.isSpiderShape)
         else { return }
         selectedFlag = pick.flag.name
         await play(pick.episode, flag: pick.flag.name)

@@ -287,11 +287,11 @@ public struct Flag: Equatable, Sendable {
     /// What the detail screen's 立即播放 plays (IOS-POC-35): the watched line's watched episode —
     /// by address, else by name, as Android finds a history's episode (`flag.find(vodRemarks)`) —
     /// else that line's first; with no such line, the episode of that name on the first line, else
-    /// its first. Only an episode the grid would enable counts (an http(s) address). Nil when
-    /// nothing can play.
+    /// its first. Only an episode the grid would enable counts (`Episode.isPlayable(spider:)`). Nil
+    /// when nothing can play.
     public static func playNow(in flags: [Flag], watchedFlag: String?, watchedURL: String?,
-                               watchedName: String?) -> (flag: Flag, episode: Episode)? {
-        func playable(_ flag: Flag) -> [Episode] { flag.episodes.filter { $0.mediaURL != nil } }
+                               watchedName: String?, spider: Bool = false) -> (flag: Flag, episode: Episode)? {
+        func playable(_ flag: Flag) -> [Episode] { flag.episodes.filter { $0.isPlayable(spider: spider) } }
         func named(_ episodes: [Episode]) -> Episode? {
             guard let watchedName, !watchedName.isEmpty else { return nil }
             return episodes.first { $0.name.caseInsensitiveCompare(watchedName) == .orderedSame }
@@ -315,6 +315,11 @@ public struct Episode: Equatable, Sendable {
         guard let value = URL(string: url), value.scheme == "http" || value.scheme == "https" else { return nil }
         return value
     }
+
+    /// Whether the detail screen offers this episode (IOS-POC-40). A CMS episode must already be an
+    /// http(s) address; a spider's is whatever its `playerContent` turns into one (`id@@nid`,
+    /// `parse_api=…&url=…`), so any target counts — IOS-POC-5D: `mediaURL` must not gate spiders.
+    public func isPlayable(spider: Bool) -> Bool { spider ? !url.isEmpty : mediaURL != nil }
 
     static func parse(_ value: String) -> [Episode] {
         split(value).enumerated().map { index, item in

@@ -56,7 +56,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **真機待驗**：在 `0.1.42 (43)` 上跑 `docs/IOS-POC-36-playback-acceptance-stability.md` 第十六節之 8 的一次性清單（10 項：PiP 背景關閉、MPV／原生 PiP、暫停與播放中背景、中斷、MPV `hwdec-current`、旋轉／常亮／音軌字幕、AirPlay、去廣與片尾）。
 
-**Next Recommended Step**：等使用者在 `0.1.42 (43)` 上跑 `docs/IOS-POC-36-playback-acceptance-stability.md` 第十六節之 8 的 10 項真機清單，結果逐項填回該文件第四節；全部正常才把 36.3 的判定升為 `RELEASE_CANDIDATE_PASS`。ponytail audit 第 1／7、11、18、19、28 項仍等使用者決定。
+**Next Recommended Step**：IOS-POC-36.4 真機驗收進行中（IOS-POC-36 第十七節的 Recovery anchor）：等使用者在 iPhone 上照操作清單做完、傳回螢幕錄影、接 USB；之後收 `log collect`、判讀、更新矩陣。14:49 時兩支 iPhone 都連不上（`CoreDeviceError 4016`）；`0.1.42 (43)` 不記錄 `hwdec-current`，那一項只能 `UNVERIFIED`。ponytail audit 第 1／7、11、18、19、28 項仍等使用者決定。
 
 ## Current handoff — 2026-09-30（前一次交接）
 

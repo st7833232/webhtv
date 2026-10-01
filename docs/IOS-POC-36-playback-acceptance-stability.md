@@ -581,3 +581,15 @@ PL-14 的情境（數字是發生順序；「舊」是修正前、「新」是�
 ### 10. 判定
 
 **`PASS_WITH_DEVICE_ACCEPTANCE_PENDING`**（之後使用者指示發布：`0.1.42 (43)`，tag `ios-v0.1.42-b43` → `04f6567e`，見 IOS-POC-11 第四十三次發布）：能在 Mac／模擬器上自動或實際操作驗的都驗了，找到的唯一缺陷 D10 已重現、修正、重驗；沒有已知 regression。之 8 的項目只能真機驗，結果出來前不算 `RELEASE_CANDIDATE_PASS`。發版需要使用者授權。
+
+## 十七、IOS-POC-36.4：`0.1.42 (43)` 真機驗收（2026-10-01，進行中）
+
+### Recovery anchor
+
+- 目標：在 `0.1.42 (43)`（tag `ios-v0.1.42-b43` → `04f6567e`，parent `4d5370da`）上跑第十六節之 8，把能確認的項目升為 `REAL_DEVICE_PASS`，最後判定 `RELEASE_CANDIDATE_PASS`／`PASS_WITH_REMAINING_DEVICE_LIMITATIONS`／`BLOCKED`。不改 RC、不做 ponytail cleanup、不加功能、不 bump／tag／release。
+- 狀態（14:49 CST）：HEAD＝`origin/ios-poc`＝`046c717b`，工作區乾淨。`xcrun devicectl list devices` 看得到兩支配對過的 iPhone（「JEFF」iPhone 16 Pro `00008140-000044E02463C01C`、iPhone 18 Pro `00008160-00124C8200214036`），兩支都是 `unavailable`，`devicectl device info apps` 回 `CoreDeviceError 4016`，USB 上也沒有 iPhone → 還沒確認裝置上的版本，也還沒有任何真機 log。
+- 已知的工具限制：`0.1.42 (43)` 沒有讀取或記錄 `hwdec-current`（`MPVEngine.swift` 只設 `hwdec=auto-safe`，mpv 自己的 log 沒有轉進 os_log），所以第十六節之 8 第 7 項在這一版只能記 `UNVERIFIED`；要量就得加一行診斷並發新版（需要使用者授權）。
+- 收 log 的方式：所有 `[pip]`／`[lifecycle]`／`[playback]`／`[audio]`／`[adskip]` 行都是 `Logger.notice`，裝置會保存，所以使用者可以不接 Mac 先操作，最後接上一次：
+  `log collect --device-udid <UDID> --last 3h --output <scratchpad>/device.logarchive`，再 `log show <archive> --style compact --predicate 'subsystem == "com.webhtv.ios.poc"'`。畫面類項目（PiP 首格黑不黑、放回閃不閃、變形、旋轉）看使用者的螢幕錄影（以 ffmpeg 抽格）。
+- 判讀依據：PL-14 的 `[lifecycle] … paused in the background … reloads on return if suspended` 與回來時的 `[lifecycle] … suspended while paused: reloading on …`；PiP 的 `[pip] native will start|did stop`、`[pip] mpv …`；AV-11 不應出現 `not started on 原生 after 5s — trying MPV`；中斷的 `[audio] interruption began|ended … shouldResume=`；去廣的 `[adskip] plan …`、`skip from=… to=…`；片尾的 `finished (ending)` 與只有一次 `resolve …`。
+- 下一步（唯一）：使用者照回覆給的操作清單在 iPhone 上做完、把螢幕錄影傳到 Mac、iPhone 接 USB 並解鎖；然後由我收 log、判讀、更新第四節矩陣並在本節記錄結果。

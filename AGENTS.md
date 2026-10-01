@@ -52,12 +52,12 @@ When the task only edits `AGENTS.md`, `.codex/skills/**`, `.codex/scripts/**`, o
 - Do not weaken a failing gate. Classify the failure as regression, environment, or stale expectation. Expand work only if fixing it is within the declared scope.
 - Quality floor: do not trade away existing behavior, correctness, security, compatibility, material performance, or task completion merely to meet the clock. Time pressure removes redundant work; it never authorizes an unverified shortcut.
 
-### Optional Ponytail review
+### Ponytail review (required when available)
 
-- Ponytail is an optional review aid, not a repository gate. If the current agent/runtime exposes Ponytail, it may be used for a pre-implementation or final-diff review when useful.
+- "Optional" means availability-dependent, not discretionary (repository owner, 2026-10-01). If the current agent/runtime exposes Ponytail (for example the `ponytail:ponytail-review` skill), run it on the final diff of every code change before reporting that change as ready, apply its findings that fit the approved scope or record them for the user, and record the result in the task document. A pre-implementation Ponytail pass is still optional.
 - If Ponytail is unavailable, skip it and continue with the task. Its absence must not block functional edits, verification, commits, builds, packaging, or an otherwise authorized release.
-- Never claim Ponytail ran when it did not. When a durable task record would otherwise mention review evidence, record `Ponytail: unavailable / skipped`.
-- This optional status does not relax the task guard, mandatory design-research gate where applicable, risk-based verification, scope/rollback rules, or the user's separate authorization requirements for push/tag/package/publish.
+- Never claim Ponytail ran when it did not, and never record an available Ponytail as skipped. Record `Ponytail: unavailable / skipped` only when the environment lacks it.
+- This rule does not relax the task guard, mandatory design-research gate where applicable, risk-based verification, scope/rollback rules, or the user's separate authorization requirements for push/tag/package/publish.
 
 ## 5. Context recovery
 

@@ -434,7 +434,7 @@
 - 原因一（程式碼確認）：`VodView` 以 `private let translationMode = JapaneseTranslationPreference().mode` 在建立 struct 時讀設定；格狀列表的 `NavigationLink { VodView(...) }` 在畫格子時就建立每一張卡片的 `VodView`，所以先開首頁、再到設定頁打開翻譯、回來點卡片，詳情頁拿到的仍是「關」。修正：改為 `@State`，在詳情頁的 `.task` 開頭讀。
 - 原因二（推測，未驗證）：目標語言寫死 `Locale.Language(identifier: "zh-Hant")`，若與框架的識別碼不相符，`status` 回 `.unsupported`，按鈕不顯示。修正：從 `LanguageAvailability().supportedLanguages` 取 `languageCode == .chinese` 且 `maximalIdentifier` 含 `Hant` 的語言。
 - 不再靜默隱藏：不支援時顯示「這支手機目前不支援把日文翻成繁體中文。」，以便分辨「設定關閉」與「不支援」。
-- 驗證：本環境無法編譯；要等 Release build 與真機。
+- 驗證：隨 `0.1.46 (47)` 發布（IOS-POC-11 第四十七次發布），Release build 第一次即編譯成功；真機未驗證。
 
 ## 八、階段順序與回滾
 
@@ -515,4 +515,4 @@
 - 狀態（2026-09-28）：階段 A、B 已隨 `0.1.28 (29)` 發布（第四節、第五節第 4～5 點；發布紀錄在 IOS-POC-11 第二十九次發布）；單元測試未執行、真機未驗證。C 已隨 `0.1.29 (30)` 發布（第六節第 5 點；發布紀錄在 IOS-POC-11 第三十次發布），Release build 第一次即編譯成功；單元測試未執行、真機未驗證。D 已隨 `0.1.45 (46)` 發布（2026-10-01，第七節之 4；發布紀錄在 IOS-POC-11 第四十六次發布），Release build 第一次即編譯成功、Translation 為弱連結；單元測試未執行、真機未驗證。
 - 相關檔案：`ios/WebHTVApp/Sources/WebHTVApp.swift`（`VodView` 表頭約 `:1503-1520`、`VodPoster` 約 `:1968-1988`）、`ios/Sources/WebHTVCore/CMSClient.swift`（`Vod` `:166-199`）、`ios/Sources/WebHTVCore/MacCMSXML.swift`。
 - C 的檔案：`ios/Sources/WebHTVCore/TaiwanTraditional.swift`、`ios/Sources/WebHTVCore/Resources/OpenCC/`、`WebHTVApp.swift` 的 `TaiwanDisplay`、`zhTW(_:_:)` 與 32 處顯示位置、`ios/Tests/WebHTVCoreTests/TaiwanTraditionalTests.swift`。
-- 下一步（唯一）：IOS-POC-32D-1（第七節之 5）已 commit、未發布；使用者授權發布後，在新版上照第七節之 3 的第 1～5、7 項驗收（第 6 項弱連結已通過）。
+- 下一步（唯一）：使用者在 `0.1.46 (47)` 上照第七節之 3 的第 1～5、7 項驗收並回報（第 6 項弱連結已通過）；若顯示「不支援」，回報後再查目標語言。

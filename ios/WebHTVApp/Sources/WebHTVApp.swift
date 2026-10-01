@@ -4,6 +4,8 @@ import CoreMedia
 import Observation
 import os
 import SwiftUI
+// IOS-POC-32 D. Weakly linked (OTHER_LDFLAGS): the app still starts on iOS 17.0, which lacks it.
+@preconcurrency import Translation
 import UIKit
 import UniformTypeIdentifiers
 import WebHTVCore
@@ -1277,6 +1279,8 @@ private struct SettingsView: View {
     @State private var adSkip = PlaybackSession.shared.adSkipEnabled
     /// IOS-POC-29: the speed a new title starts at. Mirrored here only so the checkmark redraws.
     @State private var defaultSpeed = PlaybackSpeedPreference().defaultSpeed
+    /// IOS-POC-32 D. Mirrored here only so the checkmark redraws.
+    @State private var japaneseTranslation = JapaneseTranslationPreference().mode
 
     var body: some View {
         List {
@@ -1337,6 +1341,28 @@ private struct SettingsView: View {
 
             // IOS-POC-31: one row that opens the list, not 67 rows on the settings page. Not a menu:
             // a menu cannot open scrolled to the source in use (the home screen's picker found that).
+            // IOS-POC-32 D: Apple's on-device Translation, which in-app needs iOS 18.
+            if #available(iOS 18.0, *) {
+                Section {
+                    Picker("日文翻譯", selection: Binding(
+                        get: { japaneseTranslation },
+                        set: { mode in
+                            JapaneseTranslationPreference().setMode(mode)
+                            japaneseTranslation = mode
+                        }
+                    )) {
+                        ForEach(JapaneseTranslation.Mode.allCases, id: \.self) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                } header: {
+                    Text("日文翻譯")
+                } footer: {
+                    Text("詳情頁的日文片名與簡介翻成繁體中文，在手機上翻譯，文字不會送出。「詢問」顯示翻譯按鈕；「自動」在語言已下載時直接翻譯。第一次使用需要下載語言。")
+                }
+            }
+
             Section("內容來源") {
                 NavigationLink {
                     SiteChoiceList(sites: sites, selectedSiteID: $selectedSiteID, onOpenHome: onOpenHome)
@@ -1493,6 +1519,94 @@ private struct SiteChoiceList: View {
     }
 }
 
+/// IOS-POC-32 D: offers, runs and labels the on-device translation of a detail's Japanese title and
+/// synopsis. A `TranslationSession` is only ever used inside `translationTask`'s action: one used
+/// after its view is gone is a crash.
+@available(iOS 18.0, *)
+private struct JapaneseTranslationBar: View {
+    private static let source = Locale.Language(identifier: "ja")
+    private static let target = Locale.Language(identifier: "zh-Hant")
+    /// By source text, for the app's lifetime, so reopening a title does not translate it again.
+    @MainActor private static var cache: [String: String] = [:]
+
+    let texts: JapaneseTranslation.Texts
+    let mode: JapaneseTranslation.Mode
+    @Binding var translation: JapaneseTranslation.Texts?
+    @Binding var showsOriginal: Bool
+    @State private var status: LanguageAvailability.Status?
+    @State private var configuration: TranslationSession.Configuration?
+    @State private var working = false
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if translation != nil {
+                HStack(spacing: 12) {
+                    Text("機器翻譯").font(.caption).foregroundStyle(.secondary)
+                    Button(showsOriginal ? "顯示譯文" : "顯示原文") { showsOriginal.toggle() }
+                        .font(.caption.weight(.semibold))
+                        .frame(minHeight: 44)
+                }
+            } else if let status, status != .unsupported {
+                // Not downloaded yet is offered too: the first translation shows the system's
+                // download prompt.
+                VStack(alignment: .leading, spacing: 4) {
+                    Button(failed ? "重試翻譯" : "翻譯成中文") { start() }
+                        .font(.subheadline.weight(.semibold))
+                        .frame(minHeight: 44)
+                        .disabled(working)
+                    if failed {
+                        Text("翻譯沒有完成，顯示原文。請確認已下載日文與中文（繁體）翻譯語言；刪除過系統「翻譯」App 時，請重新安裝。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .task(id: texts) {
+            guard !texts.isEmpty else { return }
+            status = await LanguageAvailability().status(from: Self.source, to: Self.target)
+            if mode == .auto, status == .installed { start() }
+        }
+        .translationTask(configuration) { session in
+            await translate(with: session)
+        }
+    }
+
+    private func start() {
+        failed = false
+        working = true
+        if configuration == nil {
+            configuration = TranslationSession.Configuration(source: Self.source, target: Self.target)
+        } else {
+            configuration?.invalidate()
+        }
+    }
+
+    /// Any failure — cancelled download, a pair the device cannot do, Translation's error 16 after
+    /// the system app was deleted — keeps the original on screen and the button to try again.
+    private func translate(with session: TranslationSession) async {
+        defer { working = false }
+        do {
+            var result = JapaneseTranslation.Texts()
+            if let title = texts.title { result.title = try await Self.translated(title, session) }
+            if let synopsis = texts.synopsis { result.synopsis = try await Self.translated(synopsis, session) }
+            translation = result
+            showsOriginal = false
+        } catch {
+            failed = true
+        }
+    }
+
+    @MainActor private static func translated(_ text: String, _ session: TranslationSession) async throws -> String {
+        if let hit = cache[text] { return hit }
+        let output = try await session.translate(text).targetText
+        if cache.count >= 200 { cache.removeAll() }
+        cache[text] = output
+        return output
+    }
+}
+
 private struct VodView: View {
     let site: Site
     let summary: Vod
@@ -1517,6 +1631,11 @@ private struct VodView: View {
     /// hundred buttons to reach the bottom one.
     @State private var selectedFlag: String?
     @State private var synopsisExpanded = false
+    /// IOS-POC-32 D: the machine translation of a Japanese title and synopsis, and whether the
+    /// original is on show instead. Display only, like every other header string.
+    @State private var translation: JapaneseTranslation.Texts?
+    @State private var showsOriginal = false
+    private let translationMode = JapaneseTranslationPreference().mode
     /// The synopsis as shown (at most four lines) and in full, so 更多 appears only when the limit
     /// actually hides something, at any text size or screen width.
     @State private var synopsisShownHeight: CGFloat = 0
@@ -1536,7 +1655,16 @@ private struct VodView: View {
                         // from history carries only its id, name and poster.
                         VodPoster(picture: summary.picture.isEmpty ? detail.picture : summary.picture)
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(zhTW: displayName).font(.title2.weight(.bold))
+                            Text(verbatim: translated(\.title) ?? zhTW(displayName)).font(.title2.weight(.bold))
+                            if translationMode != .off {
+                                if #available(iOS 18.0, *) {
+                                    JapaneseTranslationBar(
+                                        texts: JapaneseTranslation.texts(title: displayName,
+                                                                         synopsis: metadata(\.content, in: detail)),
+                                        mode: translationMode, translation: $translation,
+                                        showsOriginal: $showsOriginal)
+                                }
+                            }
                             let remarks = summary.remarks.isEmpty ? detail.remarks : summary.remarks
                             if !remarks.isEmpty {
                                 Text(zhTW: remarks).foregroundStyle(.secondary)
@@ -1639,7 +1767,7 @@ private struct VodView: View {
             }
         }
         .appWallpaper()
-        .navigationTitle(zhTW(displayName))
+        .navigationTitle(translated(\.title) ?? zhTW(displayName))
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBar()
         .task {
@@ -1675,6 +1803,12 @@ private struct VodView: View {
 
     private var historyKey: String { WatchHistory.key(siteID: site.id, vodId: summary.id) }
 
+    /// IOS-POC-32 D: the translated part, unless the original is asked for. Shown verbatim: it is
+    /// already Traditional Chinese, and IOS-POC-32 C converts a source string once, never output.
+    private func translated(_ part: KeyPath<JapaneseTranslation.Texts, String?>) -> String? {
+        showsOriginal ? nil : translation?[keyPath: part]
+    }
+
     /// IOS-POC-32 B: the title as shown in the header and the navigation bar. Display only:
     /// history, the player and every identity value keep the raw `summary.name`. Cleaning can
     /// empty a name made of markup, so it falls back to the detail's name, then to the raw text.
@@ -1709,7 +1843,7 @@ private struct VodView: View {
         // IOS-POC-32 C: names keep the surnames a plain conversion misreads (于 → 於, 范 → 範).
         let director = zhTW(metadata(\.director, in: detail), .names)
         let actor = zhTW(metadata(\.actor, in: detail), .names)
-        let content = zhTW(metadata(\.content, in: detail))
+        let content = translated(\.synopsis) ?? zhTW(metadata(\.content, in: detail))
         if !director.isEmpty || !actor.isEmpty || !content.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 if !director.isEmpty { metadataRow("導演", director) }

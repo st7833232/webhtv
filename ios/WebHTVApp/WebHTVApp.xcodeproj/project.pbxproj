@@ -327,6 +327,10 @@
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-Wl,-u,_ff_hls_timestamp_map_segment",
+					"-weak_framework",
+					Translation,
+					"-weak_framework",
+					_Translation_SwiftUI,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.webhtv.ios.poc;
 				SDKROOT = iphoneos;
@@ -407,6 +411,10 @@
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-Wl,-u,_ff_hls_timestamp_map_segment",
+					"-weak_framework",
+					Translation,
+					"-weak_framework",
+					_Translation_SwiftUI,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.webhtv.ios.poc;
 				SDKROOT = iphoneos;

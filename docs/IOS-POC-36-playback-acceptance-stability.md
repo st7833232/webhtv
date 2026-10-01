@@ -1,16 +1,16 @@
 # IOS-POC-36 — Playback Acceptance & Stability Consolidation
 
-**狀態（2026-10-01，36.4 之後）**：`0.1.42 (43)` 已發布。36.4（第十七節）iPhone 連不上，依使用者指示改在模擬器驗收：找到 D11（已修 `c59577c9`，未發布）與 D12（未修，SH-04 `DEFECT`），判定 `BLOCKED`。此前：開發完成，只剩真機驗收。36.3（第十六節）對未發布範圍做 release-candidate 驗收，找到並修正 D10（失敗之後原地開的下一個 item 仍顯示上一個的失敗訊息），判定 `PASS_WITH_DEVICE_ACCEPTANCE_PENDING`。D1～D7（第八節）已隨 `0.1.39 (40)` 發布，`0.1.40 (41)` 亦包含；36.1（D8 與矩陣證據稽核，第十四節）已隨 `0.1.41 (42)` 發布；36.2（D9：PiP 在背景關閉後的暫停 reload＝PL-14，第十五節）已 commit、尚未發布。矩陣 107 項：`REAL_DEVICE_PASS` 1、`SIMULATOR_PASS` 47（36C 實測 44 項，其餘 3 項沿用 17F／25）、`AUTOMATED_PASS` 28、`RELEASE_BUILD_ONLY` 17、`UNVERIFIED` 12、`KNOWN_LIMITATION` 2、`DEFECT` 0。**D1～D9 都沒有真機驗證。**
+**狀態（2026-10-01，36.5 之後）**：`0.1.42 (43)` 已發布。36.5（第十七節之 8）修正 D12（子母畫面中播完最後一集後小視窗殘留），iPad 模擬器兩個核心重驗通過，SH-04 回到 `SIMULATOR_PASS`，36 後一欄 1／53／26／14／11／2／0；未發布，真機未驗證。36.4（第十七節）iPhone 連不上，依使用者指示改在模擬器驗收：找到 D11（已修 `c59577c9`，未發布）與 D12（36.5 已修），判定 `BLOCKED`。此前：開發完成，只剩真機驗收。36.3（第十六節）對未發布範圍做 release-candidate 驗收，找到並修正 D10（失敗之後原地開的下一個 item 仍顯示上一個的失敗訊息），判定 `PASS_WITH_DEVICE_ACCEPTANCE_PENDING`。D1～D7（第八節）已隨 `0.1.39 (40)` 發布，`0.1.40 (41)` 亦包含；36.1（D8 與矩陣證據稽核，第十四節）已隨 `0.1.41 (42)` 發布；36.2（D9：PiP 在背景關閉後的暫停 reload＝PL-14，第十五節）已 commit、尚未發布。矩陣 107 項：`REAL_DEVICE_PASS` 1、`SIMULATOR_PASS` 47（36C 實測 44 項，其餘 3 項沿用 17F／25）、`AUTOMATED_PASS` 28、`RELEASE_BUILD_ONLY` 17、`UNVERIFIED` 12、`KNOWN_LIMITATION` 2、`DEFECT` 0。**D1～D9 都沒有真機驗證。**
 
 ## Recovery anchor
 
 - 目標：AVPlayer＋MPV 既有功能的正式 acceptance baseline，修掉找到的 root cause，不新增第三核心、不擴充功能。
 - 範圍：`ios/Sources/WebHTVCore`、`ios/WebHTVApp/Sources`、`ios/Tests/WebHTVCoreTests`、`docs`。task guard `IOS-POC-36`（`standard`）。
-- 工作位置：36A～36D 在獨立 worktree `/Users/chengchenchih/GIT/webhtv-ios36`（本機分支 `ios-poc-36`，已 push 到 `origin/ios-poc`），因為當時主 checkout 有另一個 session 的 task guard；36.1 在主 checkout `/Users/chengchenchih/GIT/webhtv`（task guard `IOS-POC-36.1`，`quick-fix`）。模擬器用 `05934376-5757-40E5-9FAF-202594565656`（iPhone 17 Pro Max、iOS 26.3），不碰另一個 session 的 `E0A41D48`。
-- 已完成：第四節矩陣（107 項，36.1 重新稽核證據強度）、第八節 D1～D10 修正與測試、第六節與第十六節模擬器證據。
-- 未驗證：全部真機項目（第十節）；D7（切換瞬間 0:00）只有 build 證據；D8 只有單元測試與 build（已隨 `0.1.41 (42)` 發布）；D9 的決策有單元測試、App 接線只有 build，還不在任何發布版本裡。
-- 回滾：`git revert <本任務 commit>`（36 是 `2840c2e4`，36.1 是 `ea96268f`，36.2 是 `fc4a3282`／`f6d1bf30`，36.3 的修正是 `2244dd3a`）；只有 Swift 原始碼、測試與文件，沒有二進位、lock 或設定變更。
-- 下一步（唯一）：使用者在 `0.1.42 (43)`（2026-10-01 發布，含 D1～D10）上跑第十六節之 8 的一次性真機清單，結果逐項填回第四節。
+- 工作位置：36A～36D 在獨立 worktree `/Users/chengchenchih/GIT/webhtv-ios36`（本機分支 `ios-poc-36`，已 push 到 `origin/ios-poc`），因為當時主 checkout 有另一個 session 的 task guard；36.1 在主 checkout `/Users/chengchenchih/GIT/webhtv`（task guard `IOS-POC-36.1`，`quick-fix`）；36.5 也在主 checkout（task guard `IOS-POC-36.5-D12`，`quick-fix`），子母畫面用 iPad Pro 13 模擬器 `AFFA620A`。模擬器用 `05934376-5757-40E5-9FAF-202594565656`（iPhone 17 Pro Max、iOS 26.3），不碰另一個 session 的 `E0A41D48`。
+- 已完成：第四節矩陣（107 項，36.1 重新稽核證據強度）、第八節 D1～D12 修正與測試、第六節、第十六節與第十七節模擬器證據。
+- 未驗證：全部真機項目（第十節）；D7（切換瞬間 0:00）只有 build 證據；D8 只有單元測試與 build（已隨 `0.1.41 (42)` 發布）；D9 的決策有單元測試、App 接線只有 build；D10～D12 只有模擬器證據；D11、D12 還不在任何發布版本裡。
+- 回滾：`git revert <本任務 commit>`（36 是 `2840c2e4`，36.1 是 `ea96268f`，36.2 是 `fc4a3282`／`f6d1bf30`，36.3 的修正是 `2244dd3a`，36.4 的 D11 是 `c59577c9`，36.5 的 D12 是 `fix(ios): IOS-POC-36.5 …` 那個 commit）；只有 Swift 原始碼、測試與文件，沒有二進位、lock 或設定變更。
+- 下一步（唯一）：使用者決定是否授權含 D11、D12 的 `0.1.43`；裝好後跑第十六節之 8 的一次性真機清單與第十七節之 8 的 D12 項目，結果逐項填回第四節。
 
 ## 一、起始狀態
 
@@ -55,15 +55,15 @@
 | 狀態 | 36 前 | 36 後 |
 |---|---|---|
 | REAL_DEVICE_PASS | 1 | 1 |
-| SIMULATOR_PASS | 24 | 52 |
+| SIMULATOR_PASS | 24 | 53 |
 | AUTOMATED_PASS | 30 | 26 |
 | RELEASE_BUILD_ONLY | 15 | 14 |
 | UNVERIFIED | 29 | 11 |
 | KNOWN_LIMITATION | 2 | 2 |
-| DEFECT | 6 | 1 |
+| DEFECT | 6 | 0 |
 | 合計 | 107 | 107 |
 
-36.1 稽核前兩欄是 15／22／26／7／29／2／6 與 15／42／26／9／12／2／1；原本的 15 項 `REAL_DEVICE_PASS` 有 14 項降級，規則與逐項原因在第十四節之 3。36.2 只改 PL-14（`DEFECT` → `AUTOMATED_PASS`，第十五節），36 後一欄因此是 1／47／28／17／12／2／0。36.3 驗收時 SH-03 找到 D10，先降為 `DEFECT`，修正後在模擬器重驗通過，回到 `SIMULATOR_PASS`（第十六節之 3），所以數字不變。36.4（第十七節）在模擬器上把 AV-13、MPV-14、PL-05、AV-18、SH-06、MPV-16 升為 `SIMULATOR_PASS`，SH-01 的 D11 修正後維持 `SIMULATOR_PASS`，SH-04 因 D12 降為 `DEFECT`：36 後一欄 1／52／26／14／11／2／1。
+36.1 稽核前兩欄是 15／22／26／7／29／2／6 與 15／42／26／9／12／2／1；原本的 15 項 `REAL_DEVICE_PASS` 有 14 項降級，規則與逐項原因在第十四節之 3。36.2 只改 PL-14（`DEFECT` → `AUTOMATED_PASS`，第十五節），36 後一欄因此是 1／47／28／17／12／2／0。36.3 驗收時 SH-03 找到 D10，先降為 `DEFECT`，修正後在模擬器重驗通過，回到 `SIMULATOR_PASS`（第十六節之 3），所以數字不變。36.4（第十七節）在模擬器上把 AV-13、MPV-14、PL-05、AV-18、SH-06、MPV-16 升為 `SIMULATOR_PASS`，SH-01 的 D11 修正後維持 `SIMULATOR_PASS`，SH-04 因 D12 降為 `DEFECT`：36 後一欄 1／52／26／14／11／2／1。36.5 修正 D12，SH-04 在 iPad 模擬器重驗通過，回到 `SIMULATOR_PASS`（第十七節之 8）：36 後一欄 **1／53／26／14／11／2／0**。
 
 
 
@@ -172,7 +172,7 @@
 | SH-01 | 雙向 | 同集 resume | AUTOMATED_PASS | **SIMULATOR_PASS** | 36.1 降級：真機 23 T9（`0.1.20 (21)`，未分核心）在 26-1（原生精確起點）與 36 D7 之前；36 前是 5R 的續播測試；36C：原生從 85.041 s、93.741 s 續播，MPV 依 request 起點開播見 DE-09（同一個 `startSeconds`）；36.4：D11——位置超過片長的記錄（AVPlayer 在 HLS 結尾回報 130.338 s／130 s、24.346 s／24 s）被當成續播點，打開就在結尾、立刻結束；一度記 `DEFECT`，`c59577c9` 修正後模擬器重驗從 0 開始，回到 `SIMULATOR_PASS` |
 | SH-02 | 雙向 | 新集從頭 | SIMULATOR_PASS | **SIMULATOR_PASS** | 21 §驗證；36C：G、H 從 0 播到 24 s |
 | SH-03 | 雙向 | 上一集／下一集按鈕 | SIMULATOR_PASS | **SIMULATOR_PASS** | 35 T1～T6；36C：第一集的「上一集」變灰；36.3：D10（兩個核心都失敗後按下一集，新的一集仍蓋著上一集的失敗訊息）重現後修正，修正後模擬器重驗：`started … G短片一 on MPV`、沒有訊息；F↔G 上一集／下一集、同一部片沿用 1.5× |
-| SH-04 | 雙向 | 最後一集結束關閉播放器 | UNVERIFIED | **DEFECT** | 14 與 8L 記錄互相矛盾，保守記 UNVERIFIED；36C：`no next episode after … H短片二 — closing`（兩個核心）；36.4：D12——最後一集在子母畫面中播完時，播放器關閉但子母畫面殘留（原生停在最後一格、MPV 變成黑色「直播」視窗）；之後再開新片，原生會同時在殘留視窗與播放器畫面播放。iPad 模擬器兩個核心都重現，未修（第十七節之 3） |
+| SH-04 | 雙向 | 最後一集結束關閉播放器 | UNVERIFIED | **SIMULATOR_PASS** | 14 與 8L 記錄互相矛盾，保守記 UNVERIFIED；36C：`no next episode after … H短片二 — closing`（兩個核心）；36.4：D12——最後一集在子母畫面中播完時，播放器關閉但子母畫面殘留（原生停在最後一格、MPV 變成黑色「直播」視窗）；之後再開新片，原生會同時在殘留視窗與播放器畫面播放（第十七節之 3）；36.5 修正後在 iPad 模擬器重驗：子母畫面中播完最後一集，原生 `[pip] native … ending it`、MPV `[pip] mpv … ending it` → `mpv will stop`，小視窗都消失，`summary` 寫出（`closePlayer` 有跑）；不在子母畫面時的關閉不變（第十七節之 8）。真機未驗證 |
 | SH-05 | 雙向 | opening＋resume | AUTOMATED_PASS | **AUTOMATED_PASS** | `theOpeningWinsWhenItIsPastWhereTheViewerStopped` 等 |
 | SH-06 | 雙向 | ending＋auto-next | AUTOMATED_PASS | **SIMULATOR_PASS** | 5S-2＋`PlaybackEndGate`（36.1 起 loop 也經過它）；模擬器沒有設定片尾；36.4 模擬器：見 AV-18，片尾＋自動下一集，沒有第二次交接 |
 | SH-07 | 雙向 | 切引擎後 history | UNVERIFIED | **SIMULATOR_PASS** | DE-17 |
@@ -212,7 +212,7 @@
 矩陣說明：
 
 - 36 前 6 項 `DEFECT` 裡，DE-10（RC2）、DE-19（RC4）、PL-14 在 IOS-POC-26／23 已有記錄但沒修；DE-12、DE-18、SH-12 是本任務讀程式時找到、並對照 IOS-POC-23 §十之2 與 17F 的已知風險確認的。MPV-06 是模擬器上測出來的（36 前記 `UNVERIFIED`）。
-- 36 後唯一的 `DEFECT` 是 PL-14（見第九節）；36.2 修正後 36 後一欄沒有 `DEFECT`。
+- 36 後唯一的 `DEFECT` 是 PL-14（見第九節）；36.2 修正後 36 後一欄沒有 `DEFECT`。36.4 的 D12（SH-04）在 36.5 修正，36 後一欄又回到沒有 `DEFECT`。
 - `REAL_DEVICE_PASS` 只剩 MPV-01。36.1 依三條規則重新稽核原本的 15 項（兩欄都套用，36 前一欄對照 36 前的程式）：(1) 一列有多個子項（倍率、兩個核心、有沒有被暫停執行）時，每個子項都要有真機證據，否則整列取證據最弱的子項；(2) 單一核心的列，真機證據要記錄核心（或當時只有那個核心），IOS-POC-23 的 T4～T12、T14、T15 都是「未分核心」；(3) 真機證據之後改過該列驗證的程式路徑時，記目前程式上最強的證據，舊的真機結果留在證據欄。降級項目的目標狀態沿用本表慣例：已出貨但只有編譯的記 `RELEASE_BUILD_ONLY`（同 MPV-15）。第十節把這些項目的真機驗收列在清單裡。
 
 ## 五、Real-device evidence
@@ -275,7 +275,7 @@
 | D9（36.2） | 播放中進 PiP → 在小視窗暫停（或在背景按 ✕ 關掉播放中的小視窗）→ App 仍在背景時小視窗結束 → 之後被系統暫停執行 → 回到 App（PL-14） | 「回來要不要 reload」只在 `didEnterBackground` 那一刻判斷一次；那時 PiP 開著、還在播放，所以沒有記錄、沒有心跳。之後小視窗結束與暫停都沒有人再判斷，回來沒有記錄，留下被暫停執行過、按播放沒反應的 engine。session 的 PiP 狀態又只經 SwiftUI `onChange` 同步，背景中何時更新沒有保證 | 判斷抽成兩個核心共用的 `PausedBackgroundReload.eligible`；新增 `eligibilityChanged`：App 在背景時，PiP 開關、`control("pause")`、AVPlayer `rate` 任一變化就重新判斷，第一次符合就以當下位置記錄並開始同一個心跳，之後照舊由 `becameActive` 依有沒有被暫停執行決定 reload；回到前景後不再記錄。兩個 PiP 的開始／結束直接通知 session；MPV 關窗的暫停改走 `control("pause")`；「已暫停」也算使用者經 session 按的暫停（mpv 要等屬性事件才回報） | `PausedBackgroundReloadTests` 9 條（舊邏輯 3 條紅、6 個期望） | 背景中任何暫停（鎖定畫面、來電）之後被暫停執行，回來也會 reload——與 23 相同的處理；沒有被暫停執行就不 reload |
 | D10（36.3） | 一個 item 在兩個核心都失敗（顯示「無法播放」）後，按下一集／上一集、換畫質，或 WebHome 頁面再呼叫 `player.playUrl`（`f26ccae6` 起原地換片）：新的 item 在 session 已退到的同一個核心上開播，畫面仍蓋著上一個 item 的失敗訊息 | `PlayerView` 的 `failure` 只在 `.task` 開場與 `onEngineChange` 清掉；`PlayerRouter.open` 在 session 的核心上開新 item 不換核心，所以不發 `onEngineChange` | `PlaybackSession.load(_:)`（每個新 item 都經過、唯一呼叫 `router.open` 的地方）呼叫 `onFailure?(nil)`；`onFailure` 改收 optional，`PlayerView` 設 `failure = $0?.message` | 修正前模擬器重現（VodView 與 WebHome 兩條路徑）；修正後兩條路徑重驗沒有訊息；router 層 `anItemOpenedOverAFailedOneStartsCleanOnTheSessionsEngine` | 無：新 item 本來就沒有失敗；prefetch 的重試失敗仍照舊顯示 |
 | D11（36.4） | 一集播到結尾時 AVPlayer 回報的位置超過 HLS 宣告的片長（130.338 s／130 s），這個位置寫進觀看記錄；之後再打開這部片（立即播放、或點同一集） | `WatchHistory.isNearEnding` 照 Android `History.isNearEnding()` 要求 `remaining >= 0`；ExoPlayer 不會回報超過片長的位置，AVPlayer 會，所以超過片長的記錄不算「看到結尾」，被當成續播點 | 超過片長也算到了結尾（`duration - position <= threshold`）；同一個函式也讓觀看記錄顯示「已看完」 | 先寫測試重現（3 個期望紅）；`swift test` 621/621；模擬器以記錄 130.338／130 s 開啟，從 0 開始 | 無：只有位置超過片長時結果不同 |
-| D12（36.4，未修） | 子母畫面中播到最後一集結束 → `no next episode … closing` | `PlayerView.onDisappear` 在子母畫面開著時直接 return（IOS-POC-10H 為了「開子母畫面會關掉畫面」而加，當時沒有實測），所以畫面被 `onPlaylistFinished` 關掉時沒有結束子母畫面，也沒有 `closePlayer`；原生的 `PlayerSurface.Coordinator` 隨畫面釋放，之後按 ✕ 沒有 `[pip] native did stop`；MPV 的子母畫面屬於沒被 teardown 的 engine | 建議（未實作）：畫面拆除時（`dismantleUIViewController`／`dismantleUIView`）若子母畫面仍開著就結束它；要先確認真機上開子母畫面不會拆除畫面 | iPad 模擬器兩個核心都重現（原生兩次、MPV 一次） | 改子母畫面的生命週期需要真機驗證，這次不改 |
+| D12（36.4，36.5 修正） | 子母畫面中播到最後一集結束 → `no next episode … closing`（解析下一集失敗也走這條） | (1) `PlayerView.onDisappear` 在子母畫面開著時直接 return（IOS-POC-10H 為了「開子母畫面會關掉畫面」而加，當時沒有實測；36.5 在 iPad 模擬器確認開子母畫面不會拆畫面），所以畫面被 `onPlaylistFinished` 關掉時沒有 pause、`persist`、`closePlayer`；(2) 即使 session 關了，`PlayerRouter.endSession` 也會保留下一個 session 要用的 engine（預設核心），它的小視窗跟著留下；原生的小視窗屬於 AVKit 在子母畫面期間留住的 `AVPlayerViewController`，Coordinator（weak delegate）隨畫面釋放，之後按 ✕ 沒有 `[pip] native did stop`，下一部片在同一個 `AVPlayer` 上兩邊同時播；(3) MPV：App 在背景時 `stopPictureInPicture()` 沒有作用 | 拿掉 guard，畫面關閉就照一般流程關 session；兩個 surface 被拆時，若自己的小視窗還開著就結束它：原生 `allowsPictureInPicturePlayback = false` 並直接清 session 的子母畫面旗標，MPV `contentSource = nil`（did-stop 後放回）；原生拒絕 AVKit 在子母畫面開始時自動 dismiss；刪掉因此沒人讀的子母畫面 binding | 修正前 iPad 模擬器重現（原生、MPV）；修正後兩個核心重驗（預設 MPV、預設原生後換到 MPV、原生；連同進入、小視窗中自動下一集、回 App、子母畫面中換核心）；`closingThePlayerKeepsTheEngineTheNextSessionWillUse`（第十七節之 8） | 真機未驗證。「iPhone 上開子母畫面不會拆畫面」成了這個修法的前提（已拒絕自動 dismiss，並記下 AVKit 有沒有問）；背景中結束兩種小視窗的做法只在 iPad 模擬器驗過 |
 
 **補的診斷（Release-safe，只寫 log，不改時序）**：`seek requested … from …`、`seek landed … asked …`（兩個核心）、換核心時的 `autoplay=` 與 `reason=`、換核心後在新核心開始播放的 `started … after the switch (reason)`、`finished (end|ending)`、`… ignored: already moving on`、`no next episode … closing`、`mpv end of the previous file ignored`、`[audio] interruption began|ended … shouldResume=`、`[pip] native will start|did stop`。新增的輪詢只有換核心後一個最多 60 秒、每 0.1 秒讀一次 `isPlaying` 的 log 監看（與既有 `watchStartup` 相同做法），不做任何切換。
 
@@ -627,7 +627,7 @@ PL-14 的情境（數字是發生順序；「舊」是修正前、「新」是�
 ### 3. 找到的缺陷
 
 - **D11（已修 `c59577c9`）**：第八節。自然重現：修正前的 build 寫下的記錄就是 `H短片二 position 24346 / duration 24000`；另一次 F 以 `from 130.338000s` 開啟、2 秒後 `finished (end) … 129s/130s` 跳到下一集。Core 測試先紅後綠；修正後模擬器以記錄 130.338／130 s 開啟從 0 開始。不是這批改動帶進來的（5R `261b5c03` 起就是這個公式）。
-- **D12（未修）**：第八節。iPad 模擬器重現三次（原生 2、MPV 1）：小視窗中最後一集播完、播放器關閉，小視窗殘留；原生在殘留的小視窗中按 ✕ 不會有 `[pip] native did stop`，之後再開新片會同時出現在殘留視窗與播放器畫面。也不是這批改動帶進來的（IOS-POC-10H 起）。建議修法在第八節；因為要改子母畫面的生命週期、而且 IOS-POC-10H 當初加那個 guard 的理由（開子母畫面會不會拆掉畫面）沒有在真機確認過，這次不改，等使用者決定。
+- **D12（未修）**：第八節。iPad 模擬器重現三次（原生 2、MPV 1）：小視窗中最後一集播完、播放器關閉，小視窗殘留；原生在殘留的小視窗中按 ✕ 不會有 `[pip] native did stop`，之後再開新片會同時出現在殘留視窗與播放器畫面。也不是這批改動帶進來的（IOS-POC-10H 起）。建議修法在第八節；因為要改子母畫面的生命週期、而且 IOS-POC-10H 當初加那個 guard 的理由（開子母畫面會不會拆掉畫面）沒有在真機確認過，這次不改，等使用者決定。→ 使用者指示修正，36.5 已修（之 8）。
 
 ### 4. 驗證
 
@@ -636,16 +636,56 @@ PL-14 的情境（數字是發生順序；「舊」是修正前、「新」是�
 
 ### 5. 矩陣
 
-36 後一欄 **1／52／26／14／11／2／1**（107 列，逐列重算）：升為 `SIMULATOR_PASS` 的是 AV-13、MPV-14、PL-05、AV-18、SH-06、MPV-16；SH-04 因 D12 降為 `DEFECT`；SH-01 的 D11 修正後維持 `SIMULATOR_PASS`。**沒有任何一列升為 `REAL_DEVICE_PASS`**（`REAL_DEVICE_PASS` 仍只有 MPV-01）。
+36 後一欄 **1／52／26／14／11／2／1**（107 列，逐列重算）：升為 `SIMULATOR_PASS` 的是 AV-13、MPV-14、PL-05、AV-18、SH-06、MPV-16；SH-04 因 D12 降為 `DEFECT`；SH-01 的 D11 修正後維持 `SIMULATOR_PASS`。**沒有任何一列升為 `REAL_DEVICE_PASS`**（`REAL_DEVICE_PASS` 仍只有 MPV-01）。36.5 之後：SH-04 回到 `SIMULATOR_PASS`，**1／53／26／14／11／2／0**（之 8）。
 
 ### 6. 判定
 
 **`BLOCKED`**，具體 blocker：
 
-1. **D12 未修**（SH-04 `DEFECT`）：要使用者決定是否修；修法動到子母畫面生命週期，需要真機驗證。
+1. ~~**D12 未修**（SH-04 `DEFECT`）~~：36.5 已修，iPad 模擬器兩個核心重驗通過（之 8）；真機未驗證。
 2. **D11 的修正不在 `0.1.42 (43)` 裡**：要發 `0.1.43` 需要使用者再授權。
 3. **真機項目一項都沒有驗**：兩支 iPhone 都連不上 Mac（`CoreDeviceError 4016`）；PL-14 端到端、MPV PiP 畫面、`hwdec-current`（還需要先加 log）、播放中鎖定、中斷、旋轉、常亮、AirPlay 都只能在真機確認。
 
 ### 7. 下一步（唯一）
 
-使用者決定：是否修 D12，以及是否授權含 D11（與 D12，如果修）的 `0.1.43`；之後接上 iPhone，跑第十六節之 8。
+（36.5 之後）使用者決定是否授權含 D11、D12 的 `0.1.43`；之後接上 iPhone，跑第十六節之 8 與之 8 的 D12 真機項目。
+
+### 8. IOS-POC-36.5：修正 D12（2026-10-01）
+
+- **起始**：16:15 CST `git fetch`，HEAD＝`origin/ios-poc`＝`4f11edfb`，工作區乾淨；task guard `IOS-POC-36.5-D12`（`quick-fix`）。環境：iPad Pro 13 模擬器 `AFFA620A`（36.4 設好的「全螢幕 App」與「自動啟動子母畫面」沿用），本機 server 為 36.4 scratchpad 的複本（port 8766，F／G／H 沿用已產生的 fixture；拿掉 I，讓 H 成為 local 線的最後一集），以 `delay` 檔讓每段 `.ts` 晚 6 秒。證據是 `log stream` 與截圖（scratchpad，未 commit）。暫時的 `[d12]` 診斷 log（`PlayerView` 的 onAppear／onDisappear、兩個 surface 的 make／dismantle）只在驗證用的 build 裡，commit 前已移除。
+- **重現（HEAD `4f11edfb` 加上診斷 log）**：
+  - 原生：H 開播 → HOME → `[pip] native will start`，之後**沒有** onDisappear、也沒有 dismantle → H `finished (end)` → `no next episode … closing` → `onDisappear pip=true app=2` → `PlayerSurface dismantle sessionPip=true`；小視窗停在 00:23.960。
+  - MPV（預設 MPV）：同樣，`mpv will start` 之後沒有拆除；closing 後留下黑色視窗。
+  - 結論：**開子母畫面不會拆掉播放畫面**（兩個核心，iPad 模擬器）。畫面只有在真的關閉時才會被拆，而且 App 在背景時也是立刻拆（closing 後 15～40 ms，先 onDisappear 再 dismantle）。另外兩點：以 MPV 開片時會先建一個暫時的 `PlayerSurface` 再拆掉（`engineKind` 預設是 `.native`，`.task` 才改），子母畫面中換核心也會拆 surface，所以「被拆」不等於「畫面關閉」。
+- **Root cause**：第八節 D12 的三點。只拿掉 guard 不夠：預設核心的 engine 本來就會被 `endSession` 留下（新增的 `closingThePlayerKeepsTheEngineTheNextSessionWillUse` 描述的就是這件事），原生的小視窗屬於 AVKit 留住的 controller（WWDC19 session 503：子母畫面期間 AVKit 不讓 `AVPlayerViewController` 被釋放），而 MPV 的 `stopPictureInPicture()` 在背景沒有作用。
+- **修法**（`WebHTVApp.swift`、`MPVEngine.swift`）：
+  1. `PlayerView.onDisappear` 拿掉 `guard !pictureInPicture`：畫面關閉就照一般流程 pause、`persist`、`closePlayer`，清掉 hook。
+  2. `PlayerSurface.dismantleUIViewController` → `Coordinator.endPictureInPicture`：自己的小視窗還開著才動作；`allowsPictureInPicturePlayback = false`（回 App 時結束子母畫面用的就是這招，背景中實測有效），並直接把 `PlaybackSession.pictureInPictureActive` 設為 false（之後的 did-stop 不一定送得到）。
+  3. `MPVVideoSurface.dismantleUIView`（coordinator 就是 engine）→ `MPVEngine.endPictureInPicture` → `MPVPictureInPicture.end()`：`contentSource = nil`，走一般的 will-stop／did-stop；did-stop 時把 content source 放回去，讓同一個 engine 下次還能開子母畫面。
+  4. 原生 Coordinator 實作 `playerViewControllerShouldAutomaticallyDismissAtPictureInPictureStart`，回傳 false 並記 log：拿掉 guard 之後，「開子母畫面不會關畫面」成了前提。實測 AVKit **確實會問**（`[pip] native asked to dismiss the player as PiP starts — declined`），修正前回傳的是預設值 true，iPad 模擬器上也沒有被拆。
+  5. 刪掉因此沒人讀的東西：`PlayerView` 的 `@State pictureInPicture`、兩個 surface 的 binding、`MPVEngine.onPictureInPictureChange`、`.task` 裡重設 session 旗標的那一行；原生 Coordinator 改用自己的 `active`。
+  - 沒有採用的做法：只在 `onPlaylistFinished` 結束子母畫面——拿不到原生 controller，也漏掉其他關閉路徑（解析下一集失敗同樣走 `no next episode … closing`；回 App 後在子母畫面結束前就按關閉）；在 PiP 中關閉時 teardown MPV engine——會丟掉預設核心的 engine，`player.control` 也讀不到位置。
+- **MPV 在背景結束子母畫面的實驗**（暫時的 build）：(a) `stopPictureInPicture()`：0.8 s 後 `isPictureInPictureActive` 仍是 true，也沒有 will-stop（Apple Developer Forums thread 27413 有相同的舊報告）；(b) `contentSource = nil`：立刻 `mpv will stop`，0.85 s 後 `did stop`、`isPictureInPictureActive=false`，小視窗消失；(c) 在 a、b 之後釋放 controller，小視窗也消失，但無法單獨判斷是哪一步造成。採用 (b)。
+- **驗證**（iPad 模擬器，最終的修法；之後只改了原生那行 log 的文字、移除診斷 log。驗證時原生那行寫的是 `native player screen closed …`，因為子母畫面中換核心時畫面其實沒有關，最後改成 `native surface going away with the window open — ending it`）：
+
+| 情境 | 核心 | 結果 |
+|---|---|---|
+| 最後一集在子母畫面中播完（D12） | MPV（預設 MPV） | `mpv player screen closed with the window open — ending it` → `mpv will stop` → 0.84 s 後 `did stop`；小視窗消失；`summary` 寫出 |
+| 同上 | MPV（預設原生，開播逾時換到 MPV） | `ending it` → `mpv will stop` → `summary`（`closePlayer` teardown 了 MPV engine，所以沒有 did-stop）；小視窗消失 |
+| 同上 | 原生 | `native … ending it`；小視窗消失；`summary` 寫出（第一版與最終版各一次） |
+| 播放中按 HOME 進子母畫面 | 兩個核心 | `will start`，沒有 onDisappear、沒有 dismantle；原生另有 `asked to dismiss … declined` |
+| 小視窗中自動下一集 | 兩個核心 | G→H，中途沒有拆除（MPV 一次 live、一次 `prefetched`；原生 live） |
+| 結束後同一個 MPV engine 再進子母畫面 | MPV | 再開 G → HOME → `mpv will start` |
+| 從小視窗回到 App | 兩個核心 | MPV：`back in the app with the window open — stopping it` → `will stop` → `restoring the app` → `did stop`，畫面繼續播（H 播到 16.5 s）；原生：`native did stop`，畫面繼續播 |
+| 不在子母畫面時最後一集結束 | 兩個核心 | onDisappear → dismantle（`sessionPip=false`，不動作）→ `summary`；與修正前相同 |
+| 子母畫面中開播逾時換到 MPV（AV-11） | 原生→MPV | H 卡住 20 s → `on MPV … reason=startup-timeout` → `PlayerSurface` 被拆時小視窗還開著 → `ending it`，0.85 s 後 `native did stop` 也送到；MPV 在背景播完 H 後關閉。與修正前（36.4：換到 MPV 時子母畫面結束）相同 |
+
+- **觀察到但沒有改**：在背景關閉畫面時（不論有沒有子母畫面），`control("pause")` 的當下 session 還沒關（`closePlayer` 要等 `persist`），所以會記一行 `[lifecycle] … paused in the background … reloads on return if suspended`。回到 App 時，`reloadPaused` 以 `isPausedOnScreen` 重新判斷，session 已經關了，所以不會 reload。不在子母畫面的背景關閉本來就會這樣（AV-11 那一輪 16:52:47）。
+- **測試與 build**：新增 `closingThePlayerKeepsTheEngineTheNextSessionWillUse`（預設 MPV 時，`endSession` 不會 teardown engine，下一個 session 用的是同一個；描述既有行為，修正前的程式也會過）。D12 的判斷（畫面關閉就關 session；surface 帶著開著的小視窗離開就結束它）都在 App 的 UIKit／AVKit 生命週期裡，沒有可以抽成 Core 的分支。Focused（`PlaybackEngineTests`、`PictureInPictureForegroundRestoreStateTests`、`PausedBackgroundReloadTests`）69／69；`swift test --package-path ios` **622／622**（5.0 秒）；最終程式的模擬器 Debug build（`id=AFFA620A…`）25 秒、generic iOS 不簽章 Release（`CODE_SIGNING_ALLOWED=NO EXPANDED_CODE_SIGN_IDENTITY=-`）27 秒，都是 BUILD SUCCEEDED；warning 只有既有的（`WebHTVApp.swift` 5370～5372、5506，也就是原本的 5352～5354、5488）。
+- **Ponytail**：`ponytail:ponytail-review` 對最終 diff → Lean already. Ship.
+- **真機未驗證**（要等含這個修正的版本；`0.1.43` 需要使用者授權發布）：
+  1. iPhone 上兩個核心各一次：播放中按 HOME 進子母畫面，小視窗持續播放，回 App 時畫面還在。Console 看 `[pip] native asked to dismiss … declined` 有沒有出現。
+  2. 兩個核心：最後一集在小視窗中播完，小視窗跟著消失；再開一部片只在畫面上播一份（原生不會兩邊同時播）。
+  3. MPV 設為預設核心時，做完第 2 項後再進一次子母畫面。
+  4. 子母畫面中按 ✕（模擬器按不到，與 PL-14 一起看）。
+- **判定**：D12 已修，iPad 模擬器兩個核心重驗通過，現有行為（進入子母畫面、小視窗中自動下一集、回 App、子母畫面中換核心、不在子母畫面時的關閉）沒有退步；SH-04 → `SIMULATOR_PASS`；**真機未驗證**。回滾：`git revert` 這個 commit（只有 Swift 原始碼、一條測試與文件）。

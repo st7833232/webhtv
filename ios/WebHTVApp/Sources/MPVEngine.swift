@@ -20,9 +20,6 @@ final class MPVEngine: PlaybackEngine {
     var onFailure: ((Error, Int?) -> Void)?
     var onEnded: (() -> Void)?
     var onMediaSelectionChange: ((PlaybackMediaSelection) -> Void)?
-    /// True while the video is in a Picture in Picture window. The player screen must not tear
-    /// playback down in that state, exactly as with AVPlayer's PiP.
-    var onPictureInPictureChange: ((Bool) -> Void)?
     private var pictureInPicture: MPVPictureInPicture?
 
     private let core: MPVPlayerCore
@@ -83,8 +80,7 @@ final class MPVEngine: PlaybackEngine {
             }
         })
         let pictureInPicture = MPVPictureInPicture(engine: self, core: core, layer: view.sampleBufferLayer)
-        pictureInPicture.onActiveChange = { [weak self] active in
-            self?.onPictureInPictureChange?(active)
+        pictureInPicture.onActiveChange = { active in
             // IOS-POC-36.2: the session hears it now, not when SwiftUI next updates the screen.
             PlaybackSession.shared.pictureInPictureActive = active
         }
@@ -172,6 +168,10 @@ final class MPVEngine: PlaybackEngine {
         onMediaSelectionChange = nil
         core.shutdown()
     }
+
+    /// IOS-POC-36.5 (D12): the player screen closed with the window open. The engine outlives the
+    /// screen while MPV is the default engine, and so would its window.
+    func endPictureInPicture() { pictureInPicture?.end() }
 
     /// Keep buffering awake too: playback intent remains active while the network temporarily stops
     /// frames. Do not infer this from libmpv's snapshot — its property callbacks are asynchronous.
@@ -367,14 +367,15 @@ private final class MPVMetalLayer: CAMetalLayer {
 
 struct MPVVideoSurface: UIViewRepresentable {
     let engine: MPVEngine
-    /// The player screen's PiP flag, shared with AVPlayer's surface.
-    @Binding var pictureInPicture: Bool
-    func makeUIView(context: Context) -> MPVVideoView {
-        let binding = $pictureInPicture
-        engine.onPictureInPictureChange = { binding.wrappedValue = $0 }
-        return engine.view
-    }
+    func makeUIView(context: Context) -> MPVVideoView { engine.view }
     func updateUIView(_ view: MPVVideoView, context: Context) {}
+    func makeCoordinator() -> MPVEngine { engine }
+    /// IOS-POC-36.5 (D12), as with AVPlayer's surface: going away with the window open means the
+    /// screen closed in Picture in Picture. An engine switch takes this surface down only after the
+    /// engine itself, and its window, are torn down.
+    static func dismantleUIView(_ view: MPVVideoView, coordinator engine: MPVEngine) {
+        engine.endPictureInPicture()
+    }
 }
 
 /// Everything that touches the mpv handle. Deliberately **not** actor-isolated: mpv calls back on
@@ -1027,6 +1028,8 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
     private let core: MPVPlayerCore
     private let renderer: MPVSoftwareRenderer
     private let timebase: CMTimebase?
+    /// The window's content, given back after `end()` takes it away.
+    private let layer: AVSampleBufferDisplayLayer
     private var controller: AVPictureInPictureController?
     private var foregroundRestore = PictureInPictureForegroundRestoreState()
     private var observers = [NSObjectProtocol]()
@@ -1047,6 +1050,7 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
         CMTimebaseCreateWithSourceClock(allocator: kCFAllocatorDefault, sourceClock: CMClockGetHostTimeClock(),
                                         timebaseOut: &timebase)
         self.timebase = timebase
+        self.layer = layer
         super.init()
         // The window reads the position it shows from the layer's timebase.
         layer.controlTimebase = timebase
@@ -1091,6 +1095,16 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
         if isActive { controller?.stopPictureInPicture() }
         controller = nil
         setActive(false)
+    }
+
+    /// The player screen closed with the window open (IOS-POC-36.5). With the app in the background
+    /// `stopPictureInPicture()` does nothing — measured on the iPad simulator, the window still open
+    /// 0.8 s later. Taking the content away ends it there too, through the usual will- and did-stop,
+    /// which then end it as the window's own ✕ does and give the content back.
+    func end() {
+        guard isActive else { return }
+        PlaybackSession.log.notice("[pip] mpv player screen closed with the window open — ending it")
+        controller?.contentSource = nil
     }
 
     /// Only a loaded file with video opens the window by itself: for sound alone, a failed load or a
@@ -1204,6 +1218,10 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
         PlaybackSession.log.notice("[pip] mpv did stop — video back on Metal")
         foregroundRestore.pictureInPictureDidStop()
         ended(pausingInBackground: true)
+        // `end()` took the content away; the engine outlives the screen, and its next window needs it.
+        if pictureInPictureController.contentSource == nil {
+            pictureInPictureController.contentSource = .init(sampleBufferDisplayLayer: layer, playbackDelegate: self)
+        }
     }
 
     func pictureInPictureController(

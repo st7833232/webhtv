@@ -164,6 +164,19 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     #expect(harness.engine.kind == .native)
 }
 
+/// IOS-POC-36.5 (D12): the engine the next session will use stays — so closing the player never
+/// ends that engine's Picture in Picture window by itself; the player screen does.
+@MainActor @Test func closingThePlayerKeepsTheEngineTheNextSessionWillUse() {
+    let harness = Harness(globalDefault: .mpv)
+    harness.router.open(request)
+    let mpv = harness.engine
+    harness.router.endSession()
+    #expect(!mpv.tornDown)
+    harness.router.open(request)
+    #expect(harness.engine === mpv)
+    #expect(harness.made.count == 1)
+}
+
 @MainActor @Test func theNextEpisodeStaysOnTheSessionsEngine() {
     let harness = Harness(globalDefault: .native)
     harness.router.open(request)

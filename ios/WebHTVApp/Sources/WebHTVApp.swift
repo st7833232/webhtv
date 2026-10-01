@@ -2510,7 +2510,7 @@ struct EpisodeSteps: Equatable {
         PlaybackEnginePreference().setGlobalDefaultEngine(kind)
         router.setGlobalDefault(kind)
     }
-    /// The player screen closed (and is not in Picture in Picture): the session override ends.
+    /// The player screen closed: the session override ends.
     func closePlayer() {
         // A retry belongs to a player that is open; a late failure after closing must not reopen it.
         retryWithoutPrefetch = nil
@@ -4565,9 +4565,15 @@ private struct RoutePickerButton: UIViewRepresentable {
 /// visibility this screen needs has no other public source.
 private struct PlayerSurface: UIViewControllerRepresentable {
     let player: AVPlayer
-    /// True while AVKit has the video in a Picture in Picture window. The screen must not tear
-    /// playback down in that state — the whole point of PiP is that it outlives this view.
-    @Binding var pictureInPicture: Bool
+
+    /// IOS-POC-36.5 (D12): this surface goes with its window still open when the screen closes in
+    /// Picture in Picture — the last episode ended there — or when MPV takes over in PiP. AVKit
+    /// keeps an open window, and this controller, alive past the view: left alone it held the last
+    /// frame, and then played whatever the shared player loaded next. Starting PiP itself leaves
+    /// the screen up (measured on the iPad simulator).
+    static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: Coordinator) {
+        coordinator.endPictureInPicture(controller)
+    }
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
@@ -4608,15 +4614,15 @@ private struct PlayerSurface: UIViewControllerRepresentable {
         if controller.showsPlaybackControls { controller.showsPlaybackControls = false }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(active: $pictureInPicture) }
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     @MainActor final class Coordinator: NSObject, @preconcurrency AVPlayerViewControllerDelegate {
-        private let active: Binding<Bool>
+        /// True while AVKit has the video in a Picture in Picture window.
+        private var active = false
         private weak var playerViewController: AVPlayerViewController?
         private var foregroundRestore = PictureInPictureForegroundRestoreState()
 
-        init(active: Binding<Bool>) {
-            self.active = active
+        override init() {
             super.init()
             NotificationCenter.default.addObserver(
                 self,
@@ -4641,7 +4647,7 @@ private struct PlayerSurface: UIViewControllerRepresentable {
         @objc private func appDidBecomeActive() {
             guard let controller = playerViewController,
                   foregroundRestore.consumeForegroundRequest(
-                    isPictureInPictureActive: active.wrappedValue
+                    isPictureInPictureActive: active
                   ) else { return }
 
             // AVPlayerViewController has no public stopPictureInPicture(). Toggling its public
@@ -4656,16 +4662,35 @@ private struct PlayerSurface: UIViewControllerRepresentable {
         func playerViewControllerWillStartPictureInPicture(_ controller: AVPlayerViewController) {
             PlaybackSession.log.notice("[pip] native will start")
             foregroundRestore.pictureInPictureWillStart()
-            active.wrappedValue = true
+            active = true
             PlaybackSession.shared.pictureInPictureActive = true
         }
 
         func playerViewControllerDidStopPictureInPicture(_ controller: AVPlayerViewController) {
             PlaybackSession.log.notice("[pip] native did stop")
             foregroundRestore.pictureInPictureDidStop()
-            active.wrappedValue = false
+            active = false
             // IOS-POC-36.2: the session hears it now, not when SwiftUI next updates the screen.
             PlaybackSession.shared.pictureInPictureActive = false
+        }
+
+        /// The surface is going away with the window open (`dismantleUIViewController`). The same
+        /// switch as coming back to the app, left off: this controller is not used again. Its
+        /// did-stop may come once this delegate is gone, so the session hears it here.
+        func endPictureInPicture(_ controller: AVPlayerViewController) {
+            guard active else { return }
+            PlaybackSession.log.notice("[pip] native surface going away with the window open — ending it")
+            controller.allowsPictureInPicturePlayback = false
+            active = false
+            PlaybackSession.shared.pictureInPictureActive = false
+        }
+
+        /// IOS-POC-36.5: closing the screen now closes the session, so PiP starting must not close
+        /// it. It did not on the iPad simulator; an embedded controller's own dismissal would reach
+        /// the cover's presenter, so AVKit is told no, and the log says whether it ever asks.
+        func playerViewControllerShouldAutomaticallyDismissAtPictureInPictureStart(_ controller: AVPlayerViewController) -> Bool {
+            PlaybackSession.log.notice("[pip] native asked to dismiss the player as PiP starts — declined")
+            return false
         }
 
         /// AVKit calls this while an already-stopping PiP asks where to restore its UI. The player
@@ -4685,12 +4710,6 @@ private struct PlayerView: View {
     /// The item is already loaded by the caller, because playback has to outlive this screen for
     /// `player.status` and `player.control` to mean anything.
     private let session = PlaybackSession.shared
-
-    /// IOS-POC-10H: AVKit has the video in a PiP window.
-    ///
-    /// IOS-POC-10A's close button used to live here. It is gone at the viewer's request, along
-    /// with the control-visibility plumbing that existed only to fade it.
-    @State private var pictureInPicture = false
 
     /// IOS-POC-10J: what the current drag is doing. Decided once, on the first few points of
     /// movement, and held until the finger lifts — an axis that can change mid-drag makes the
@@ -4756,11 +4775,11 @@ private struct PlayerView: View {
             // whatever is behind the presentation.
             Color.black.ignoresSafeArea()
             if engineKind == .mpv, let mpv = session.engine as? MPVEngine {
-                MPVVideoSurface(engine: mpv, pictureInPicture: $pictureInPicture)
+                MPVVideoSurface(engine: mpv)
                     .id(ObjectIdentifier(mpv))
                     .ignoresSafeArea()
             } else {
-                PlayerSurface(player: session.player, pictureInPicture: $pictureInPicture)
+                PlayerSurface(player: session.player)
                     .ignoresSafeArea()
             }
         }
@@ -4854,14 +4873,14 @@ private struct PlayerView: View {
         // Closing the screen pauses rather than tears down, so a page can read the position it
         // reached and resume it with player.control.
         .onDisappear {
-            // The screen is gone either way, so its bar's ticker and observer go with it — PiP
-            // playback needs neither (IOS-POC-27A: the ticker now runs for AVPlayer too, and one
-            // left behind by each dismissal in PiP would poll for the rest of the app's life). One
-            // `AVPlayer` outlives this screen, so an observer left on it would outlive it too.
+            // The screen is gone, so its bar's ticker and observer go with it (IOS-POC-27A: the
+            // ticker runs for AVPlayer too). One `AVPlayer` outlives this screen, so an observer
+            // left on it would outlive it too.
             stopObserving()
-            // Unless PiP has the video: pausing there would stop the little window the viewer
-            // just asked for, which is the one thing PiP must survive.
-            guard !pictureInPicture else { return }
+            // IOS-POC-36.5 (D12): with a Picture in Picture window open too. IOS-POC-10H returned
+            // here in PiP, assuming that starting PiP closes this screen; it does not (measured on
+            // the iPad simulator), so a close in PiP is the last episode ending there, and leaving
+            // the session open left the window behind. Each surface ends its window as it goes.
             session.control("pause")
             // The sampler skips a paused player, so the moment of leaving is the last chance to
             // record where the viewer actually got to. The session ends only after that write:
@@ -4880,7 +4899,6 @@ private struct PlayerView: View {
         .task {
             engineKind = session.engineKind
             failure = session.router.failure?.message
-            session.pictureInPictureActive = pictureInPicture
             session.onMediaSelectionChange = { selection in
                 media = selection
                 reconcileTrackPanel()

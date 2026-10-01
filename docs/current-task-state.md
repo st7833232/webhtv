@@ -6,7 +6,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current handoff — 2026-10-01（先讀這一節，再讀文末 Resume Prompt；2026-09-30 那一節是前一次交接）
 
-**Git**：`ios-poc`，HEAD 是 IOS-POC-36.4 的紀錄 commit（`c59577c9` 之後），push 與否看 `git status -sb`；工作區乾淨，沒有進行中的 task guard。接手時仍先 `git fetch`、`git log --oneline -10`、`git status`，以實際狀態為準。push 前一律 `git pull --no-rebase`。
+**Git**：`ios-poc`，HEAD 是 IOS-POC-36.5 的 D12 commit（`fix(ios): IOS-POC-36.5 …`，`4f11edfb` 之後），push 與否看 `git status -sb`；工作區乾淨，沒有進行中的 task guard。接手時仍先 `git fetch`、`git log --oneline -10`、`git status`，以實際狀態為準。push 前一律 `git pull --no-rebase`。
 
 **最新發布是 `0.1.42 (43)`**（2026-10-01，使用者指示「發佈」；版號 commit `04f6567e`，tag `ios-v0.1.42-b43` → `04f6567e`，run `36821576390` success，`source.json` `499e791f`，IPA 29,300,453 bytes；`docs/IOS-POC-11-sidestore-release.md` 第四十三次發布）。內容含下表 2026-10-01 的全部 commit（IOS-POC-36.2、ponytail audit 兩批、36.3 的 D10）。**真機都未驗證**。
 
@@ -14,7 +14,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 | commit | 內容 | 驗證 |
 |---|---|---|
-| 紀錄（`c59577c9` 之後） | IOS-POC-36.4 模擬器驗收結果（IOS-POC-36 第十七節）、矩陣 1／52／26／14／11／2／1、D12 記錄 | 文件 |
+| `fix(ios): IOS-POC-36.5 …`（`4f11edfb` 之後） | **D12**：子母畫面中播完最後一集，小視窗跟著結束、session 照常關閉（拿掉 `PlayerView.onDisappear` 的 PiP guard；兩個 surface 被拆時若自己的小視窗還開著就結束它：原生 `allowsPictureInPicturePlayback = false`，MPV `contentSource = nil`；原生拒絕 AVKit 在子母畫面開始時自動 dismiss）；矩陣 1／53／26／14／11／2／0；**未發布** | iPad 模擬器修正前重現、修正後兩個核心重驗（IOS-POC-36 第十七節之 8）；`swift test` 622/622；模擬器 Debug、generic iOS Release；ponytail：Lean already |
+| `4f11edfb` | IOS-POC-36.4 模擬器驗收結果（IOS-POC-36 第十七節）、矩陣 1／52／26／14／11／2／1、D12 記錄 | 文件 |
 | `c59577c9` | **D11**：位置超過片長的觀看記錄算「看到結尾」，再開從頭播（以前停在結尾、立刻結束）；**未發布** | 紅轉綠測試；`swift test` 621/621；模擬器 Debug、generic iOS Release；模擬器重驗 |
 | `5df6bb9e` | IOS-POC-36.4 開始：iPhone 連不上的紀錄 | 文件 |
 | 收尾（`2244dd3a` 之後） | IOS-POC-36.3 RC 驗收紀錄（IOS-POC-36 第十六節）、`reidentified` 只換 key 的測試、audit 紀錄的 RC 查核 | `swift test` 620/620；新測試在 refactor 前的 `WatchHistory.swift` 上也過 |
@@ -42,6 +43,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - IOS-POC-36.3 RC 驗收完成（2026-10-01），判定 **`PASS_WITH_DEVICE_ACCEPTANCE_PENDING`**：唯一找到的缺陷 D10 已修正重驗；剩下的只能真機驗（IOS-POC-36 第十六節之 8 的 10 項清單）。
 - ponytail audit 第二批已全部做完（第 16、35、37、39 項，2026-10-01）。audit 裡不需要決定的項目已經沒有了；剩下的見下方「等使用者決定」、升 ABI、跑 CI 三類。
 - 每個程式修改在回報完成前都要跑 `ponytail:ponytail-review`（`AGENTS.md` §4）。
+- IOS-POC-36.5（2026-10-01）：D12 已修，SH-04 回到 `SIMULATOR_PASS`；真機未驗證（IOS-POC-36 第十七節之 8 的 4 項）。
 
 **Open Questions / Blockers（等使用者決定）**
 - ponytail audit 待決定：第 1 項（刪整個 `RuntimePackManifest.swift`，IOS-POC-12）連帶第 7 項；第 11 項（首頁來源選單改用 `SiteChoiceList`，樣式會變）；第 18 項（`HLSAdTimeline.resolve` 是 Android parity，刪分支等於分岔）；第 19 項（release workflow 的 tag 觸發）；第 28 項（觀看記錄時間補零）。
@@ -55,11 +57,12 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - 36.2（PL-14）只有決策單元測試與 build；AVKit 按 ✕ 的事件順序、MPV PiP 後 reload 的畫面，都要真機看 `[pip]`／`[lifecycle]` log。
 - 第 8 項：播放器開著時 WebHome 頁面又呼叫播放，現在原地換片（以前關掉再重開）；36.3 在模擬器實測通過，A 遲到的結束通知、A 調過速度時 B 回到預設速度兩點沒有實測到（IOS-POC-36 第十六節之 2）。
 - D10 的修正只有模擬器證據（PlayerView 的 `@State` 不在 Core）。
+- D12 的修正只有 iPad 模擬器證據：拿掉 guard 之後，「iPhone 上開子母畫面不會拆掉畫面」是前提（已拒絕 AVKit 的自動 dismiss，log 會記它有沒有問）；背景中結束兩種小視窗的做法只在模擬器驗過。
 - 冷啟動（沒有 module map）的第一次 Xcode build 會失敗一次，是既有行為，第二次就好。
 
-**真機待驗**：在 `0.1.42 (43)` 上跑 `docs/IOS-POC-36-playback-acceptance-stability.md` 第十六節之 8 的一次性清單（10 項：PiP 背景關閉、MPV／原生 PiP、暫停與播放中背景、中斷、MPV `hwdec-current`、旋轉／常亮／音軌字幕、AirPlay、去廣與片尾）。
+**真機待驗**：在 `0.1.42 (43)` 上跑 `docs/IOS-POC-36-playback-acceptance-stability.md` 第十六節之 8 的一次性清單（10 項：PiP 背景關閉、MPV／原生 PiP、暫停與播放中背景、中斷、MPV `hwdec-current`、旋轉／常亮／音軌字幕、AirPlay、去廣與片尾）；含 D11、D12 的版本另加第十七節之 8 的 D12 項目（HOME 進子母畫面不關畫面、最後一集在小視窗播完後小視窗消失、MPV 預設時再進一次、✕）。
 
-**Next Recommended Step**：IOS-POC-36.4 判定 `BLOCKED`（IOS-POC-36 第十七節之 6）。等使用者決定：(a) 是否修 D12（最後一集在子母畫面中播完後小視窗殘留，兩個核心；建議修法在 IOS-POC-36 第八節，需要真機驗證）；(b) 是否授權 `0.1.43`（含 `c59577c9` 的 D11，與 D12 如果修）；(c) 接上 iPhone 後跑第十六節之 8（`0.1.42 (43)` 不記錄 `hwdec-current`）。ponytail audit 第 1／7、11、18、19、28 項仍等使用者決定。
+**Next Recommended Step**：D12 已在 IOS-POC-36.5 修正（IOS-POC-36 第十七節之 8）。等使用者決定：(a) 是否授權 `0.1.43`（含 `c59577c9` 的 D11 與 36.5 的 D12）；(b) 接上 iPhone 後跑第十六節之 8 與第十七節之 8 的 D12 項目（`0.1.42 (43)` 不記錄 `hwdec-current`）。ponytail audit 第 1／7、11、18、19、28 項仍等使用者決定。
 
 ## Current handoff — 2026-09-30（前一次交接）
 

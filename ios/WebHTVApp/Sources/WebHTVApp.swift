@@ -2461,9 +2461,10 @@ struct EpisodeSteps: Equatable {
         didSet { if pictureInPictureActive != oldValue { noteBackgroundEligibilityChanged() } }
     }
 
-    /// The player screen's hooks: which engine is drawing, and a failure to show.
+    /// The player screen's hooks: which engine is drawing, and a failure to show — nil once a new
+    /// item has replaced the one that failed (IOS-POC-36.3).
     var onEngineChange: ((PlaybackEngineKind) -> Void)?
-    var onFailure: ((PlaybackFailure) -> Void)?
+    var onFailure: ((PlaybackFailure?) -> Void)?
     /// IOS-POC-27A: a short message the player screen shows for a few seconds — why a start was
     /// handed to the other engine.
     var onNotice: ((String) -> Void)?
@@ -3246,6 +3247,10 @@ struct EpisodeSteps: Equatable {
         // an item that starts playing needs the audio session active.
         pausedBackground.cancel()
         tracksToRestore = nil
+        // IOS-POC-36.3 (D10): nor does its failure. The router clears its own; the screen's message
+        // waited for an engine change, which an item opened on the session's engine — the next
+        // episode, a WebHome page's playUrl — never brings.
+        onFailure?(nil)
         if autoplay { Self.activateAudioSession() }
         reportItem()
         itemTitle = title
@@ -4888,7 +4893,7 @@ private struct PlayerView: View {
                 startObserving()
                 reloadMedia()
             }
-            session.onFailure = { failure = $0.message }
+            session.onFailure = { failure = $0?.message }
             session.onNotice = { showNotice($0) }
             startObserving()
             scheduleHide()

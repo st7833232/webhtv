@@ -894,9 +894,38 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第四十四次發布：`0.1.43 (44)`（2026-10-01，**已發布**）
+## 第四十五次發布：`0.1.44 (45)`（2026-10-01，**已發布**）
 
-**目前最新版是 `0.1.43 (44)`。** 前面四十三版都已被取代。
+**目前最新版是 `0.1.44 (45)`。** 前面四十四版都已被取代。
+
+- 授權：使用者 2026-10-01 指示「你先push並發佈版本」（IOS-POC-40 commit 之後）。版號 `0.1.44`，build `45`。
+- 內容：`0.1.43 (44)` 的全部，加上 IOS-POC-40（`da10fe87`：spider 站集數值不是網址時，例如金牌系列的 `id@@nid`，詳情頁的集數與「立即播放」可以點選）；其餘是 `0.1.43 (44)` 的 `source.json` 與紀錄（`fd10a7a0`、`f0c2f3f9`）與 README（`277d4ac7`）。
+- 發布序列：
+  1. 版號 commit `25f9f780`（Task-Guard `IOS-RELEASE-0.1.44-b45`，兩個 build configuration 的 `MARKETING_VERSION`／`CURRENT_PROJECT_VERSION`，沒有其他行變動）。
+  2. push `da10fe87..25f9f780`（push 前先 pull merge，遠端沒有新 commit）。
+  3. GitHub MCP `actions_run_trigger` `run_workflow` `ios-sidestore-release.yml` ref `ios-poc`，`version=0.1.44`、`build_number=45`、`release_notes=…` → run `36892907513`（conclusion success，2026-10-01 16:33:39Z → 16:39:55Z；未逐一檢查各步驟）。
+  4. workflow 建立 tag `ios-v0.1.44-b45`（target `25f9f780`），並推回 `source.json`（`58d8d703`，共四十五筆，第一筆 `0.1.44`，size 29,300,289 與 IPA 相同）。本機以 pull merge fast-forward 到 `58d8d703`。
+
+  **沒有手動建 tag。**
+- 產物：GitHub Release `WebHTV 0.1.44 (45)`（不是 draft／prerelease，2026-10-01 16:39:46Z 發布），`WebHTV-0.1.44-45.ipa` **29,300,289 bytes**、狀態 uploaded，GitHub 記錄的 digest SHA-256
+  `b2cb6e690dc3c6c83ce321e384073d8522c918e26a07350664d4bde4991531d9`。本環境對 `source.json` 下載網址的 HEAD 回 401（經 egress proxy），**下載網址未驗證**；**IPA 未下載回來驗內容。**
+- 發布前驗證：**沒有**。本環境是 Linux、沒有 Swift toolchain，IOS-POC-40 沒有編譯、`swift test` 沒有執行、沒有模擬器驗證；Release device build 由本次 workflow 第一次編譯，第一次即成功。**真機尚未驗收**（清單：IOS-POC-40 第四節；IOS-POC-36 第十六節之 8 與第十七節之 8 仍待驗）。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.44 (45)（金牌系列等來源的集數按不下去的修正；發布前沒有編譯與自動測試，真機未驗收）
+
+修正
+- 金牌系列（jiabaide、zjuys、愛電影、界界、cqzuoer）這類集數不是網址的來源：詳情頁的集數與「立即播放」以前是灰色、按不下去，現在可以點選播放。
+
+已知限制
+- 此修正發布前沒有執行自動測試，也沒有模擬器或真機驗收；這一版由發布流程第一次編譯。
+- 可可影視詳情頁沒有年份、演員：來源腳本沒有提供這些欄位，此版未修正。
+- 其餘同 0.1.43 (44)。
+```
+
+## 第四十四次發布：`0.1.43 (44)`（2026-10-01，**已發布**，已被 `0.1.44 (45)` 取代）
 
 - 授權：使用者 2026-10-01 指示「發佈 0.1.43」（IOS-POC-36.5 push 之後）。版號 `0.1.43`，build `44`。
 - 內容：`0.1.42 (43)` 的全部，加上 IOS-POC-36.4 的 D11（`c59577c9`：位置超過片長的觀看記錄算看到結尾，再打開從頭播）與 IOS-POC-36.5 的 D12（`1355aa98`：子母畫面中播完最後一集，小視窗跟著結束、session 照常關閉）；其餘是文件（`046c717b`、`5df6bb9e`、`4f11edfb`）與 `0.1.42 (43)` 的 `source.json`（`499e791f`）。

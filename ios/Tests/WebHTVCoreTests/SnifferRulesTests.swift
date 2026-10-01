@@ -328,15 +328,9 @@ private func url(_ value: String) -> URL { URL(string: value)! }
 
 @Test func theBuiltInCandidateTestIsUnchanged() {
     // 5S-3 sits in front of this; it does not modify it. These are the pre-existing semantics.
-    let keywords = MediaSniffer.defaultKeywords
-    let exclusions = MediaSniffer.defaultExclusions
-
-    #expect(MediaSniffer.isCandidate("https://cdn.example/a/index.m3u8",
-                                     keywords: keywords, exclusions: exclusions))
-    #expect(!MediaSniffer.isCandidate("https://cdn.example/a/page.html",
-                                      keywords: keywords, exclusions: exclusions))
-    #expect(!MediaSniffer.isCandidate("ftp://cdn.example/a.mp4",
-                                      keywords: keywords, exclusions: exclusions))
+    #expect(MediaSniffer.isCandidate("https://cdn.example/a/index.m3u8"))
+    #expect(!MediaSniffer.isCandidate("https://cdn.example/a/page.html"))
+    #expect(!MediaSniffer.isCandidate("ftp://cdn.example/a.mp4"))
 }
 
 @Test func wrapperUnwrappingStillWorksAlongsideTheRules() {

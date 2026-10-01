@@ -131,11 +131,9 @@ private func sniff(_ html: String, timeout: Duration = .seconds(6)) async -> URL
 /// The hook and the query check must agree about what a stream looks like, because the same URL can
 /// arrive either way.
 @Test func bothSniffPathsShareOneCandidateTest() {
-    let keywords = MediaSniffer.defaultKeywords
-    let exclusions = MediaSniffer.defaultExclusions
-    #expect(MediaSniffer.isCandidate("https://cdn.invalid/a/index.m3u8", keywords: keywords, exclusions: exclusions))
-    #expect(MediaSniffer.isCandidate("HTTPS://CDN.INVALID/A/INDEX.M3U8", keywords: keywords, exclusions: exclusions))
-    #expect(!MediaSniffer.isCandidate("blob:https://cdn.invalid/x", keywords: keywords, exclusions: exclusions))
-    #expect(!MediaSniffer.isCandidate("https://cdn.invalid/a.png", keywords: keywords, exclusions: exclusions))
-    #expect(!MediaSniffer.isCandidate("/relative/a.mp4", keywords: keywords, exclusions: exclusions))
+    #expect(MediaSniffer.isCandidate("https://cdn.invalid/a/index.m3u8"))
+    #expect(MediaSniffer.isCandidate("HTTPS://CDN.INVALID/A/INDEX.M3U8"))
+    #expect(!MediaSniffer.isCandidate("blob:https://cdn.invalid/x"))
+    #expect(!MediaSniffer.isCandidate("https://cdn.invalid/a.png"))
+    #expect(!MediaSniffer.isCandidate("/relative/a.mp4"))
 }

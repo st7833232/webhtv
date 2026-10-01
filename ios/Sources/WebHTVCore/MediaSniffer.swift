@@ -136,12 +136,11 @@ public final class MediaSniffer {
     /// One predicate, two callers: the JavaScript hook's reports and the query-string check below.
     /// They used to be able to disagree, which is the kind of drift that makes a sniffer behave
     /// differently depending on which way it found the same URL.
-    nonisolated static func isCandidate(_ value: String, keywords: [String] = defaultKeywords,
-                                        exclusions: [String] = defaultExclusions) -> Bool {
+    nonisolated static func isCandidate(_ value: String) -> Bool {
         let lower = value.lowercased()
         guard lower.hasPrefix("http") else { return false }
-        guard keywords.contains(where: { lower.contains($0.lowercased()) }) else { return false }
-        return !exclusions.contains(where: { lower.contains($0.lowercased()) })
+        guard defaultKeywords.contains(where: { lower.contains($0.lowercased()) }) else { return false }
+        return !defaultExclusions.contains(where: { lower.contains($0.lowercased()) })
     }
 
     /// The stream a wrapper page carries in its own query string.

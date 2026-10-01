@@ -1,4 +1,6 @@
+import CommonCrypto
 import Foundation
+import JavaScriptCore
 import Testing
 @testable import WebHTVCore
 
@@ -513,4 +515,59 @@ private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScri
     #expect(try await runtime.action("/vod/12345.html").contains("\"nav\":false"))
     #expect(try await runtime.action("/index.php?id=99").contains("\"nav\":false"))
     await runtime.destroy()
+}
+
+/// IOS-POC-36.3: the CryptoKit hashes (ponytail audit item 16, `3fd68923`) against the CommonCrypto
+/// calls they replaced, through the `__crypto` functions a spider reaches: empty, Unicode and long
+/// messages, and keys shorter than, as long as and longer than the hash block — HMAC hashes a long
+/// key first — plus an algorithm name neither implementation knows, which both read as SHA-256.
+@Test func theJSVisibleHashesMatchCommonCryptoByteForByte() throws {
+    let context = try #require(JSContext())
+    CryptoHost.install(into: context)
+    let crypto = try #require(context.objectForKeyedSubscript("__crypto"))
+    func hex(_ bytes: [UInt8]) -> String { bytes.map { String(format: "%02x", $0) }.joined() }
+    func digest(_ algorithm: String, _ text: String) -> String {
+        let data = Array(text.utf8)
+        switch algorithm.lowercased() {
+        case "md5":
+            var out = [UInt8](repeating: 0, count: Int(CC_MD5_DIGEST_LENGTH))
+            _ = CC_MD5(data, CC_LONG(data.count), &out)
+            return hex(out)
+        case "sha1":
+            var out = [UInt8](repeating: 0, count: Int(CC_SHA1_DIGEST_LENGTH))
+            _ = CC_SHA1(data, CC_LONG(data.count), &out)
+            return hex(out)
+        default:
+            var out = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+            _ = CC_SHA256(data, CC_LONG(data.count), &out)
+            return hex(out)
+        }
+    }
+    func hmac(_ algorithm: String, _ text: String, _ key: String) -> String {
+        let (cc, length): (Int, Int32) = switch algorithm.lowercased() {
+        case "md5": (kCCHmacAlgMD5, CC_MD5_DIGEST_LENGTH)
+        case "sha1": (kCCHmacAlgSHA1, CC_SHA1_DIGEST_LENGTH)
+        default: (kCCHmacAlgSHA256, CC_SHA256_DIGEST_LENGTH)
+        }
+        let data = Array(text.utf8), secret = Array(key.utf8)
+        var out = [UInt8](repeating: 0, count: Int(length))
+        CCHmac(CCHmacAlgorithm(cc), secret, secret.count, data, data.count, &out)
+        return hex(out)
+    }
+    let alphabet = Array("aZ09 -_$#%往返繁體🎬\u{00e9}")
+    var random = SystemRandomNumberGenerator()
+    let messages = ["", "abc", "往返 🎬", String(repeating: "x", count: 1000)]
+        + (0..<16).map { _ in String((0..<Int.random(in: 1...300, using: &random)).map { _ in alphabet.randomElement(using: &random)! }) }
+    let keys = ["", "key", String(repeating: "k", count: 64), String(repeating: "k", count: 65),
+                String(repeating: "長", count: 50), String(repeating: "k", count: 200)]
+    for algorithm in ["md5", "sha1", "sha256", "SHA256", "sha512"] {
+        for message in messages {
+            let js = crypto.invokeMethod("digest", withArguments: [algorithm, message])?.toString()
+            #expect(js == digest(algorithm, message), "digest \(algorithm) of \(message.prefix(20))")
+            for key in keys {
+                let js = crypto.invokeMethod("hmac", withArguments: [algorithm, message, key])?.toString()
+                #expect(js == hmac(algorithm, message, key), "hmac \(algorithm) key \(key.count)")
+            }
+        }
+    }
 }

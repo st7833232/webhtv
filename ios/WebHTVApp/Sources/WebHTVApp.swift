@@ -1525,7 +1525,6 @@ private struct SiteChoiceList: View {
 @available(iOS 18.0, *)
 private struct JapaneseTranslationBar: View {
     private static let source = Locale.Language(identifier: "ja")
-    private static let target = Locale.Language(identifier: "zh-Hant")
     /// By source text, for the app's lifetime, so reopening a title does not translate it again.
     @MainActor private static var cache: [String: String] = [:]
 
@@ -1534,6 +1533,10 @@ private struct JapaneseTranslationBar: View {
     @Binding var translation: JapaneseTranslation.Texts?
     @Binding var showsOriginal: Bool
     @State private var status: LanguageAvailability.Status?
+    /// Traditional Chinese as the framework itself names it, taken from its own list rather than
+    /// written here, so a hand-written `zh-Hant` it spells differently cannot read as unsupported
+    /// (IOS-POC-32D-1; whether it ever did is not known).
+    @State private var target: Locale.Language?
     @State private var configuration: TranslationSession.Configuration?
     @State private var working = false
     @State private var failed = false
@@ -1547,7 +1550,12 @@ private struct JapaneseTranslationBar: View {
                         .font(.caption.weight(.semibold))
                         .frame(minHeight: 44)
                 }
-            } else if let status, status != .unsupported {
+            } else if status == .unsupported {
+                // Said, not hidden: an absent button looked exactly like a setting left off.
+                Text("這支手機目前不支援把日文翻成繁體中文。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if status != nil {
                 // Not downloaded yet is offered too: the first translation shows the system's
                 // download prompt.
                 VStack(alignment: .leading, spacing: 4) {
@@ -1565,7 +1573,14 @@ private struct JapaneseTranslationBar: View {
         }
         .task(id: texts) {
             guard !texts.isEmpty else { return }
-            status = await LanguageAvailability().status(from: Self.source, to: Self.target)
+            // A fresh `LanguageAvailability` per call: it is not Sendable, and one value carried
+            // across two suspensions is what Swift 6 rejects.
+            let supported = await LanguageAvailability().supportedLanguages
+            guard let chinese = supported.first(where: {
+                $0.languageCode == .chinese && $0.maximalIdentifier.contains("Hant")
+            }) else { status = .unsupported; return }
+            target = chinese
+            status = await LanguageAvailability().status(from: Self.source, to: chinese)
             if mode == .auto, status == .installed { start() }
         }
         .translationTask(configuration) { session in
@@ -1577,7 +1592,7 @@ private struct JapaneseTranslationBar: View {
         failed = false
         working = true
         if configuration == nil {
-            configuration = TranslationSession.Configuration(source: Self.source, target: Self.target)
+            configuration = TranslationSession.Configuration(source: Self.source, target: target)
         } else {
             configuration?.invalidate()
         }
@@ -1635,7 +1650,9 @@ private struct VodView: View {
     /// original is on show instead. Display only, like every other header string.
     @State private var translation: JapaneseTranslation.Texts?
     @State private var showsOriginal = false
-    private let translationMode = JapaneseTranslationPreference().mode
+    /// Read when the screen opens, not when this value is made: a grid builds every card's
+    /// `VodView` as it draws, so a setting changed after that never reached the screen (IOS-POC-32D-1).
+    @State private var translationMode = JapaneseTranslation.Mode.off
     /// The synopsis as shown (at most four lines) and in full, so 更多 appears only when the limit
     /// actually hides something, at any text size or screen width.
     @State private var synopsisShownHeight: CGFloat = 0
@@ -1771,6 +1788,7 @@ private struct VodView: View {
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBar()
         .task {
+            translationMode = JapaneseTranslationPreference().mode
             await WatchHistoryStore.shared.migrateSiteIdentities(in: [site])
             watched = await WatchHistoryStore.shared.record(forKey: historyKey)
             do {

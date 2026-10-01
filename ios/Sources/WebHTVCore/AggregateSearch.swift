@@ -215,8 +215,7 @@ public struct AggregateSearch: Sendable {
     }
 
     private static func milliseconds(since start: ContinuousClock.Instant) -> Int64 {
-        let elapsed = (ContinuousClock.now - start).components
-        return elapsed.seconds * 1000 + elapsed.attoseconds / 1_000_000_000_000_000
+        Int64((ContinuousClock.now - start) / .milliseconds(1))
     }
 
     /// Resumes one continuation exactly once, with whichever result comes first (a continuation must

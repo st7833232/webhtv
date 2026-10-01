@@ -115,6 +115,9 @@ private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScri
           sha1: host.sha1('abc'),
           sha256: host.sha256('abc'),
           hmac: host.hmac('sha256', 'abc', 'key'),
+          hmacMD5: host.hmac('md5', 'abc', 'key'),
+          hmacSHA1: host.hmac('sha1', 'abc', 'key'),
+          hmacNoKey: host.hmac('sha256', 'abc', ''),
           b64: host.base64.decode(host.base64.encode('往返')),
           enc: host.dec(host.enc('a b&c'))
         };
@@ -130,6 +133,10 @@ private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScri
     #expect(out["md5"] as? String == "900150983cd24fb0d6963f7d28e17f72")
     #expect(out["sha1"] as? String == "a9993e364706816aba3e25717850c26c9cd0d89d")
     #expect(out["sha256"] as? String == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    #expect(out["hmac"] as? String == "9c196e32dc0175f86f4b1cb89289d6619de6bee699e4c378e68309ed97a1a6ab")
+    #expect(out["hmacMD5"] as? String == "d2fe98063f876b03193afb49b4979591")
+    #expect(out["hmacSHA1"] as? String == "4fd0b215276ef12f2b3e4c8ecac2811498b656fc")
+    #expect(out["hmacNoKey"] as? String == "fd7adb152c05ef80dccf50a1fa4c05d5a3ec6da95575fc312ae7c5d091836351")
     #expect(out["b64"] as? String == "往返")
     #expect(out["enc"] as? String == "a b&c")
 }

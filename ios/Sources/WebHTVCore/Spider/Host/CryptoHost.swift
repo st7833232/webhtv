@@ -1,4 +1,5 @@
 import CommonCrypto
+import CryptoKit
 import Foundation
 import JavaScriptCore
 
@@ -21,19 +22,12 @@ enum CryptoHost {
         }
 
         let hmac: @convention(block) (String, String, String) -> String = { algorithm, input, key in
-            var out = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-            let (cc, length): (Int, Int) = switch algorithm.lowercased() {
-            case "md5": (kCCHmacAlgMD5, Int(CC_MD5_DIGEST_LENGTH))
-            case "sha1": (kCCHmacAlgSHA1, Int(CC_SHA1_DIGEST_LENGTH))
-            default: (kCCHmacAlgSHA256, Int(CC_SHA256_DIGEST_LENGTH))
+            let key = SymmetricKey(data: Data(key.utf8)), message = Data(input.utf8)
+            return switch algorithm.lowercased() {
+            case "md5": hex(Data(HMAC<Insecure.MD5>.authenticationCode(for: message, using: key)))
+            case "sha1": hex(Data(HMAC<Insecure.SHA1>.authenticationCode(for: message, using: key)))
+            default: hex(Data(HMAC<SHA256>.authenticationCode(for: message, using: key)))
             }
-            let keyData = Data(key.utf8), message = Data(input.utf8)
-            keyData.withUnsafeBytes { k in
-                message.withUnsafeBytes { m in
-                    CCHmac(CCHmacAlgorithm(cc), k.baseAddress, keyData.count, m.baseAddress, message.count, &out)
-                }
-            }
-            return hex(Data(out.prefix(length)))
         }
 
         /// `App99` ships `base64(iv‖ciphertext)` under a random IV per request, which no string
@@ -141,18 +135,9 @@ enum CryptoHost {
 
     static func digest(_ algorithm: String, _ data: Data) -> Data {
         switch algorithm.lowercased() {
-        case "md5":
-            var out = [UInt8](repeating: 0, count: Int(CC_MD5_DIGEST_LENGTH))
-            _ = data.withUnsafeBytes { CC_MD5($0.baseAddress, CC_LONG(data.count), &out) }
-            return Data(out)
-        case "sha1":
-            var out = [UInt8](repeating: 0, count: Int(CC_SHA1_DIGEST_LENGTH))
-            _ = data.withUnsafeBytes { CC_SHA1($0.baseAddress, CC_LONG(data.count), &out) }
-            return Data(out)
-        default:
-            var out = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-            _ = data.withUnsafeBytes { CC_SHA256($0.baseAddress, CC_LONG(data.count), &out) }
-            return Data(out)
+        case "md5": Data(Insecure.MD5.hash(data: data))
+        case "sha1": Data(Insecure.SHA1.hash(data: data))
+        default: Data(SHA256.hash(data: data))
         }
     }
 

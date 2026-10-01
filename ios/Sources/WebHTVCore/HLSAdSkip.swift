@@ -528,7 +528,7 @@ public struct HLSAdSkipper: Sendable {
                                   now: ContinuousClock.Instant) -> Bool {
         defer { self.last = (position, now) }
         guard position.isFinite, let last, now > last.at else { return false }
-        let elapsed = Self.seconds(now - last.at)
+        let elapsed = (now - last.at) / .seconds(1)
         let advanced = position - last.position
         let reach = elapsed * Double(max(rate, 0)) * 2 + 0.25
         let advancing = advanced > 0 && advanced <= reach
@@ -548,11 +548,6 @@ public struct HLSAdSkipper: Sendable {
     static func milliseconds(_ seconds: Double) -> Int64 {
         guard seconds.isFinite, seconds > 0 else { return 0 }
         return Int64((seconds * 1000).rounded(.down))
-    }
-
-    static func seconds(_ duration: Duration) -> Double {
-        let parts = duration.components
-        return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
     }
 }
 

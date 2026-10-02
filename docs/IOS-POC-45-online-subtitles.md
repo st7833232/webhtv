@@ -220,3 +220,61 @@
   4. `theTimingCorrectionFollowsTheVideoAcrossEnginesAndEndsWithIt`：MPV 設定 1.5 秒後切到 AVPlayer，新引擎在 load 前已拿到 1.5；同一集重新開啟保留；換集與關閉歸零。
 - 驗證：Linux swiftlang 6.0.3 scratch package `swift test` 147 項，146 通過；唯一失敗為既有的 `legacyFilesDecodeInTheirLanguagesCodePage`（Linux Foundation 沒有 CP1251 轉換器，macOS 通過，第 9 節已記錄）。App target（`MPVEngine.swift`、`WebHTVApp.swift`）未在 macOS 編譯，以下一次 release workflow 建置為準。
 - Rollback：revert 本 commit。
+
+## 13. IOS-POC-45C：其他字幕來源（官方 API）
+
+### 13.1 需求與限制
+
+- 使用者 2026-10-02「另外幫我提供其他字幕來源」。沿用第 1 節的限制：只用正式公開 API，不做 HTML scraping；API key／token 不寫進 repository、測試、log 或文件；沒有 key 時自動停用並顯示「未設定」，不送出任何請求；遇到 CAPTCHA 或 challenge 不繞過。
+
+### 13.2 Best-practice 查證（2026-10-02）
+
+此環境的出口代理擋下 `api.opensubtitles.com`、`opensubtitles.stoplight.io`、`api.subdl.com`、`api.assrt.net`、`jimaku.cc`（HTTP CONNECT 403），官方文件站與 API 都無法直接讀取，也無法做 live smoke test。改讀可取得的一手與成熟專案程式碼：
+
+| 來源 | 版本 | 等級 | 支持的結論 |
+|---|---|---|---|
+| `opensubtitles/service.subtitles.opensubtitles-com`（OpenSubtitles 官方 Kodi add-on），`resources/lib/osclient/provider.py`、`model/request/*.py` | `7acfa8f2932a0155ba921212882baa0fade05890`（2026-08-29） | 官方客戶端程式碼 | API 根 `https://api.opensubtitles.com/api/v1/`；每個請求帶 `Api-Key` 與應用程式 `User-Agent`；`GET subtitles`（`query`、逗號分隔 `languages`）回傳 `data[].attributes.{language,release,files[].file_id,file_name}`；`POST download` 以 JSON `{file_id, sub_format: "srt"}` 換一次性 `link`；未登入可下載（「Proceeding with free downloads」），每日額度用完回 406，429 為速率限制，401 為認證失敗；log 不得含 header（含 Api-Key）。 |
+| `morpheus65535/bazarr` master，`custom_libs/subliminal_patch/providers/opensubtitlescom.py` | 2026-10-02 讀取 | 成熟相關專案 | 與上表一致；查詢參數依字母排序以避免轉址。 |
+| 同上，`providers/assrt.py`、`converters/assrt.py` | 2026-10-02 讀取 | 成熟相關專案 | API 根 `https://api.assrt.net/v1`；`token` 為查詢參數；`sub/search?q=` 回傳 `sub.subs[].{id,videoname,native_name,lang.langlist}`；`sub/detail?id=` 回傳 `sub.subs[0].filelist[].{f,url}`（壓縮檔內的檔案逐一列出、各有直接連結）或單檔 `url`；`status`/`errmsg` 表示 API 自身錯誤；`langlist` 鍵為 `lang<代碼>`，`cht`/`twn` 繁體、`chs`/`chn` 簡體、`eng` 英文。 |
+| 同上，`providers/subdl.py` | 2026-10-02 讀取 | 成熟相關專案 | SubDL 的下載一律是 ZIP（部分舊檔是副檔名為 .zip 的 RAR），`api_key` 在 URL 查詢參數。 |
+
+不適用的證據類別：官方規格與文件（被出口政策擋下，已記錄為未讀）；論文與 benchmark（與 API 介接無關）。
+
+### 13.3 方案比較
+
+1. 不變：只有 Subtitle Cat，中文影視字幕的覆蓋差。
+2. 照搬成熟客戶端：Bazarr 的 OpenSubtitles 需要帳號密碼登入取得 JWT；保存使用者密碼的風險與維護成本高於收益（官方 add-on 證明未登入也能下載）。
+3. WebHTV 調整版（採用）：
+   - OpenSubtitles：只用 API key，不登入；下載的 `POST download` 只送一次、不重試（已回應的請求可能已扣額度）；一次性連結取回檔案時不帶 Api-Key；同一 session 再選同一檔案由 session 快取回傳，不再呼叫 API。
+   - 射手網：token 只出現在 API 請求的查詢字串，不出現在 track、referrer 或 log；結果依序開啟最多 4 筆、一筆一筆送（API 以每分鐘請求數計），遇 429 或 key 被拒即停止其餘；只列 `.srt`。
+   - SubDL：暫緩。每個下載都是壓縮檔，現有流程沒有解壓縮（ZIP 需實作 DEFLATE，RAR 無系統支援），不在本階段範圍。
+   - Jimaku：暫緩。只收動畫日文字幕，且常為壓縮檔。
+
+### 13.4 實作
+
+- `SubtitleCredentials.swift`：`SubtitleCredentialStore`、`KeychainSubtitleCredentials`（`kSecClassGenericPassword`，service `com.webhtv.ios.subtitle-credentials`，`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`），`OnlineSubtitleProviders.make` 依序提供 Subtitle Cat、OpenSubtitles、射手網。Subtitle Cat 仍排第一，未設定 key 的使用者預設行為不變。
+- `OpenSubtitlesProvider.swift`、`AssrtProvider.swift`；共用的 `SubtitleAPI`（JSON 物件、狀態分類、不記錄 URL／header／body）。
+- `SubtitleProviderError` 新增 `unauthorized`（401/403）、`quotaExceeded`（OpenSubtitles 406）、`rejected(Int)`（射手網 `status`）。
+- App：設定頁新增「線上字幕來源」，以 SecureField 輸入、存入鑰匙圈，只顯示「已設定／未設定」，不回顯內容；字幕面板對未設定來源顯示原因。key 變更在下一部影片生效（provider 每個播放 session 建立一次）。
+- 與 Keychain 的取捨：既有設定使用 `@AppStorage`（UserDefaults）；API key 屬於憑證，改用 Keychain（不進一般備份、不同步到其他裝置）。這是新增的儲存機制，設定頁仍是既有入口。
+
+### 13.5 驗收與測試
+
+`ios/Tests/WebHTVCoreTests/SubtitleAPIProviderTests.swift`：
+
+1. `aProviderWithoutItsKeyIsListedAsNotSetUpAndNeverCalled`：沒有 key 時兩個 API 來源顯示未設定、預設選 Subtitle Cat、搜尋不送出任何請求。
+2. `openSubtitlesSearchesWithTheKeyInItsHeaderOnly`：Api-Key 只在 header、參數順序、繁中優先、沒有 file id 的結果不列、track 不含 key。
+3. `openSubtitlesDownloadAsksForOneLinkAndKeepsTheKeyAway`：一次 POST、body 正確、連結請求不帶 key、同一 session 重選不再 POST。
+4. `openSubtitlesRefusalsAreNamedAndTheLinkRequestIsNotRetried`：406、401、503 各只送一次並分類正確；403 為 key 被拒。
+5. `assrtListsTheSubRipFilesOfEachResultAndKeepsTheTokenToTheAPI`：只列 `.srt`、檔名語言優先、langlist 補足、下載請求不含 token 與 referrer。
+6. `assrtErrorsAreRefusalsAndARateLimitStopsTheDetailRequests`：`status` 非 0 為拒絕、429 停止其餘 detail 請求。
+
+突變檢查：讓下載 POST 重試、連結請求帶 Api-Key、移除 `.srt` 過濾、移除 429 停止，四項各自讓上述測試失敗（已還原）。Linux swiftlang 6.0.3 `swift test` 153 項，152 通過，唯一失敗為既有的 Linux CP1251 項目。
+
+### 13.6 未驗證與風險
+
+- 兩個 API 都未實際連線（出口政策）；回應格式依官方 add-on 與 Bazarr 程式碼。若實際格式不同，只需修改各 provider 的解析與測試 fixture。
+- OpenSubtitles 一次性連結的主機與是否需要 Api-Key 未實測；目前不帶 key。若真機下載回 401/403，改為對該連結帶 key 即可。
+- 射手網的 `q` 是否需要 `is_file` 等其他參數未證實（Bazarr 以 `is_file=1` 搭配片名與年份）；目前只送 `q`。
+- App target（設定頁、面板）未在 macOS 編譯，以下一次 release workflow 為準。
+- Rollback：revert 本 commit；鑰匙圈中已存的 key 不影響其他功能，可在設定頁「清除」。

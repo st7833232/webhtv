@@ -292,6 +292,12 @@ public enum SubtitleProviderError: Error, Equatable, Sendable, LocalizedError {
     case cancelled
     /// A provider that needs a key or an account the viewer has not set up.
     case unconfigured
+    /// IOS-POC-45C: the API refused the viewer's key (HTTP 401/403).
+    case unauthorized
+    /// The account's download allowance for today is used up (OpenSubtitles: HTTP 406).
+    case quotaExceeded
+    /// The API answered with an error code of its own instead of results (Assrt: `status`).
+    case rejected(Int)
 
     public enum InvalidSubtitleReason: String, Sendable, Equatable {
         case empty, html, tooLarge, undecodable, noCues
@@ -317,6 +323,9 @@ public enum SubtitleProviderError: Error, Equatable, Sendable, LocalizedError {
             }
         case .cancelled: return "已取消"
         case .unconfigured: return "\(provider) 尚未設定"
+        case .unauthorized: return "\(provider) 拒絕了 API key，請到「設定」檢查"
+        case .quotaExceeded: return "\(provider) 今日下載次數已用完"
+        case .rejected(let code): return "\(provider) 拒絕了這次請求（代碼 \(code)）"
         }
     }
 
@@ -335,6 +344,9 @@ public enum SubtitleProviderError: Error, Equatable, Sendable, LocalizedError {
         case .invalidSubtitle(let reason): return "invalid-\(reason.rawValue)"
         case .cancelled: return "cancelled"
         case .unconfigured: return "unconfigured"
+        case .unauthorized: return "unauthorized"
+        case .quotaExceeded: return "quota-exceeded"
+        case .rejected(let code): return "rejected-\(code)"
         }
     }
 

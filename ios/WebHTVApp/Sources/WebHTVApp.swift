@@ -1294,6 +1294,76 @@ private struct AggregateSearchView: View {
     }
 }
 
+/// IOS-POC-45C: the keys the API subtitle providers need, the viewer's own. Stored in the
+/// Keychain (`KeychainSubtitleCredentials`) and never shown back: a row says whether one is set.
+/// A change reaches the subtitle panel at the next video.
+private struct SubtitleSourceSettingsView: View {
+    private let store = KeychainSubtitleCredentials()
+
+    var body: some View {
+        List {
+            Section {
+                SubtitleCredentialRow(store: store, key: .openSubtitlesAPIKey, title: "OpenSubtitles API key")
+            } header: {
+                Text("OpenSubtitles")
+            } footer: {
+                Text("使用你在 opensubtitles.com 帳號申請的 API key。每天可下載的數量有上限，用完時字幕面板會說明。")
+            }
+            Section {
+                SubtitleCredentialRow(store: store, key: .assrtToken, title: "射手網 API token")
+            } header: {
+                Text("射手網（Assrt）")
+            } footer: {
+                Text("使用你在 assrt.net 帳號取得的 API token。")
+            }
+            Section {
+                Text("Subtitle Cat 不需要設定。沒有 key 的來源在字幕面板會顯示「未設定」，不會送出任何請求。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("線上字幕來源")
+    }
+}
+
+private struct SubtitleCredentialRow: View {
+    let store: KeychainSubtitleCredentials
+    let key: SubtitleCredentialKey
+    let title: String
+    @State private var draft = ""
+    @State private var isSet: Bool
+    @State private var failed = false
+
+    init(store: KeychainSubtitleCredentials, key: SubtitleCredentialKey, title: String) {
+        self.store = store
+        self.key = key
+        self.title = title
+        _isSet = State(initialValue: store.value(for: key) != nil)
+    }
+
+    var body: some View {
+        LabeledContent(title, value: isSet ? "已設定" : "未設定")
+        SecureField(isSet ? "輸入新的值以取代" : "貼上你的值", text: $draft)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .textContentType(.password)
+        Button("儲存") { save(draft) }
+            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        if isSet {
+            Button("清除", role: .destructive) { save(nil) }
+        }
+        if failed {
+            Text("無法存入鑰匙圈，請再試一次").font(.footnote).foregroundStyle(.red)
+        }
+    }
+
+    private func save(_ value: String?) {
+        failed = !store.setValue(value, for: key)
+        draft = ""
+        isSet = store.value(for: key) != nil
+    }
+}
+
 private struct SettingsView: View {
     let sites: [Site]
     @Binding var selectedSiteID: Site.ID?
@@ -1404,6 +1474,13 @@ private struct SettingsView: View {
                 } footer: {
                     Text("詳情頁的日文片名與簡介翻成繁體中文，在手機上翻譯，文字不會送出。「詢問」顯示翻譯按鈕；「自動」在語言已下載時直接翻譯。第一次使用需要下載語言。")
                 }
+            }
+
+            // IOS-POC-45C
+            Section {
+                NavigationLink("線上字幕來源") { SubtitleSourceSettingsView() }
+            } footer: {
+                Text("OpenSubtitles 與射手網需要你自己申請的 API key／token，只存在這支手機的鑰匙圈。")
             }
 
             Section {
@@ -2891,7 +2968,8 @@ struct EpisodeSteps: Equatable {
     /// One subtitle session per video: begun or kept by `load`, ended by the player screen closing
     /// (`endOnlineSubtitles`) or the bridge's stop. Search, download and the session folder are
     /// all `WebHTVCore`'s; this only reports the boundaries and hands files to the router.
-    let onlineSubtitles = OnlineSubtitleCoordinator()
+    /// IOS-POC-45C: the API providers read the viewer's keys from the Keychain at each new video.
+    let onlineSubtitles = OnlineSubtitleCoordinator(providers: { OnlineSubtitleProviders.make() })
     /// The player screen's hooks: the panel's session changed (a new video), and a chosen file
     /// was handed to the engine.
     var onOnlineSubtitlesChange: ((OnlineSubtitleSession?) -> Void)?
@@ -5039,7 +5117,7 @@ private struct OnlineSubtitleSection: View {
         .padding(.vertical, 12)
     }
 
-    /// One provider today. The picker is there for the next ones; a provider that needs a key the
+    /// Subtitle Cat, OpenSubtitles and 射手網 (IOS-POC-45C); a provider that needs a key the
     /// viewer has not entered is listed as not set up rather than offered.
     @ViewBuilder private var providerRow: some View {
         if online.providerEntries.count > 1 {
@@ -5126,7 +5204,9 @@ private struct OnlineSubtitleSection: View {
         let provider = online.selectedProvider?.name ?? "字幕來源"
         switch online.phase {
         case .idle:
-            if online.selectedProvider?.availability != .available { note("\(provider) 尚未設定") }
+            if case .unconfigured(let reason)? = online.selectedProvider?.availability {
+                note("\(provider) 尚未設定：\(reason)")
+            }
         case .searching:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small).tint(.white)

@@ -63,9 +63,9 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - D12 的修正只有 iPad 模擬器證據：拿掉 guard 之後，「iPhone 上開子母畫面不會拆掉畫面」是前提（已拒絕 AVKit 的自動 dismiss，log 會記它有沒有問）；背景中結束兩種小視窗的做法只在模擬器驗過。
 - ~~冷啟動的第一次 Xcode build 會失敗一次~~：IOS-COLD-BUILD（2026-10-01）已修。實測剛 clone、沒有 payload 時是每次都失敗（`There is no XCFramework found`：Xcode 規劃 build 時就要找到 `Python.xcframework`，build phase 來不及）；有 payload、缺 module map 時，`ProcessXCFramework` 先複製了沒有 `Modules` 的 framework，phase 才補上，所以第一次掃描失敗。現在 payload 由 scheme 的 build pre-action 在規劃前準備，舊的「Prepare Python」build phase 已刪除。
 
-**真機待驗**：在 `0.1.43 (44)` 上跑 `docs/IOS-POC-36-playback-acceptance-stability.md` 第十六節之 8 的一次性清單（10 項：PiP 背景關閉、MPV／原生 PiP、暫停與播放中背景、中斷、MPV `hwdec-current`、旋轉／常亮／音軌字幕、AirPlay、去廣與片尾），另加第十七節之 8 的 D12 項目（HOME 進子母畫面不關畫面、最後一集在小視窗播完後小視窗消失、MPV 預設時再進一次、✕）。
+**真機待驗**：在最新版（`0.1.47 (48)`，`0.1.43 (44)` 起都含 D11、D12）上跑 `docs/IOS-POC-36-playback-acceptance-stability.md` 第十六節之 8 的一次性清單（10 項：PiP 背景關閉、MPV／原生 PiP、暫停與播放中背景、中斷、MPV `hwdec-current`、旋轉／常亮／音軌字幕、AirPlay、去廣與片尾），另加第十七節之 8 的 D12 項目（HOME 進子母畫面不關畫面、最後一集在小視窗播完後小視窗消失、MPV 預設時再進一次、✕）。
 
-**Next Recommended Step**：等使用者在 `0.1.43 (44)` 上跑 IOS-POC-36 第十六節之 8 的 10 項真機清單與第十七節之 8 的 D12 項目，結果逐項填回該文件第四節（`0.1.43 (44)` 不記錄 `hwdec-current`；之後的版本才有 `[playback] mpv hwdec-current=…`）。ponytail audit 第 1／7、11、18、19、28 項仍等使用者決定。
+**Next Recommended Step**：等使用者在最新版（`0.1.47 (48)`）上跑 IOS-POC-36 第十六節之 8 的 10 項真機清單與第十七節之 8 的 D12 項目，結果逐項填回該文件第四節（到 `0.1.47 (48)` 為止都不記錄 `hwdec-current`；含 `9e5b71d8` 的下一版才有 `[playback] mpv hwdec-current=…`）。另外：合併後 `swift test` 有 1 條失敗——`TaiwanTraditionalTests.nothingElseInCoreConverts`，因為 IOS-POC-32 D 的 `JapaneseTranslation.swift`（`b6c9185e`）在 Core 裡呼叫 `TaiwanTraditional.isJapanese`；等使用者決定要搬函式還是放寬測試。ponytail audit 第 1／7、11、18、19、28 項仍等使用者決定。
 
 ## Current handoff — 2026-09-30（前一次交接）
 

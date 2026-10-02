@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.52",
+          "date": "2026-10-02",
+          "localizedDescription": "WebHTV 0.1.52 (53)（線上字幕；真機未驗收）\n\n新增\n- 字幕面板新增「線上字幕」：自動帶入番號或片名，也可以把文字全部刪掉、自行輸入任何內容，向 Subtitle Cat 搜尋。結果依繁體中文、簡體中文、日文、英文、其他語言排列，列出語言、檔名與來源。\n- 點選字幕後才下載，下載完成立即套用；原生播放器與 MPV 都能顯示，切換播放器時保留已下載的字幕，不重新下載。\n- 下載的字幕只保留到這次播放結束：關閉播放器或換集後刪除，不建立字幕庫。\n- 字幕網站連不上、找不到字幕、需要網頁驗證或檔案無效時，只在面板顯示原因，不影響播放與影片內嵌字幕。\n\n已知限制\n- 原生播放器的線上字幕只在 App 畫面內顯示，子母畫面與 AirPlay 看不到。\n- 發布前通過自動測試（714 項）與 Debug、Release 建置；Subtitle Cat 實際網站與真機尚未驗收。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.52-b53/WebHTV-0.1.52-53.ipa",
+          "size": 29667971,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.51",
           "date": "2026-10-02",
           "localizedDescription": "WebHTV 0.1.51 (52)（支援更多 spider 來源類型；真機未驗收）\n\n新增\n- 支援更多 csp 類型的 spider：數種短劇 App 的介面，以及一種需要請求簽章的影視 App 介面。設定檔裡用到這些類型的來源，現在會出現在來源清單，可以瀏覽分類、篩選、搜尋與播放。\n- 這類來源若列了多個備用網域，會挑選目前真正能回應的網域；全部失效時改用來源內建的預設網域。\n\n已知限制\n- 發布前通過自動測試（659 項）、模擬器建置與實際播放；真機尚未驗收。\n- 其中一個短劇來源的搜尋目前沒有結果，是對方伺服器的問題；分類瀏覽與播放正常。\n- 部分來源的海報圖片伺服器較慢，海報可能要等一陣子才顯示。",

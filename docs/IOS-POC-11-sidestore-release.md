@@ -894,9 +894,26 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第五十二次發布：`0.1.51 (52)`（2026-10-02，**已發布**）
+## 第五十三次發布：`0.1.52 (53)`（2026-10-02，**已發布**）
 
-**目前最新版是 `0.1.51 (52)`。** 前面五十一版都已被取代。
+**目前最新版是 `0.1.52 (53)`。** 前面五十二版都已被取代。
+
+- 授權：使用者 2026-10-02 指示「不用跑CI直接發佈」（IOS-POC-45 commit 之後）。版號 `0.1.52`，build `53`。
+- 內容：`0.1.51 (52)` 的全部，加上 IOS-POC-45（`18f85127`）：字幕面板的線上字幕搜尋（Subtitle Cat）、下載、套用與 session 暫存。
+- 發布序列：
+  1. 版號 commit `151303a4`（Task-Guard `IOS-RELEASE-0.1.52-b53`，兩個 build configuration 的版號欄位，沒有其他行變動）；push `18f85127..151303a4`。
+  2. 以 MCP `workflow_dispatch`（ref `ios-poc`，version `0.1.52`、build `53`、release notes）觸發 → run `37003921157`（conclusion success，11:57:50Z → 12:04:50Z）。
+  3. workflow 建立 tag `ios-v0.1.52-b53`（target `151303a4`），並推回 `source.json`（`a6a199b0`，共五十三筆，第一筆 `0.1.52`，size 29,667,971 與 IPA 相同）。本機以 pull merge fast-forward 到 `a6a199b0`。
+
+  **沒有手動建 tag。**
+- 產物：
+  - GitHub Release `WebHTV 0.1.52 (53)`：不是 draft／prerelease，2026-10-02 12:04:36Z 發布。
+  - `WebHTV-0.1.52-53.ipa`：**29,667,971 bytes**，狀態 uploaded；GitHub 記錄的 digest SHA-256 為 `61d13695741f944959cccc5e1cd9b8fc7bba11685fcc5fed6b4f4aed605bebbf`。
+  - IPA **未在本機下載核對**（雲端 session 的網路政策不允許下載 release 資產）；workflow 的「Verify public Release URL」步驟以公開網址下載並與建置產物逐位元組比對，該 run 為 success。
+- 發布前驗證：依使用者指示發版時不另跑 CI；採用的是 IOS-POC-45 commit 前的暫時驗證 run `37001070319`（與 `18f85127` 的 `ios/` 內容逐檔相同）：`swift test` 714／714、Debug 與 Release（device）build 成功、iOS 模擬器只有與 base 相同的 9 個既有 WKWebView 測試失敗。詳見 `docs/IOS-POC-45-online-subtitles.md` 第 9 節。
+- **真機尚未驗收**；Subtitle Cat 實際網站也未在本 session 實測（網路政策擋下）。
+
+## 第五十二次發布：`0.1.51 (52)`（2026-10-02，**已發布**，已被 `0.1.52 (53)` 取代）
 
 - 授權：使用者 2026-10-02 指示「先 push、發版」（IOS-POC-44C commit 之後）。版號 `0.1.51`，build `52`。
 - 內容：`0.1.50 (51)` 的全部，加上：

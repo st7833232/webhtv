@@ -38,6 +38,11 @@ struct WebHTVApp: App {
         // making it the viewer's problem. After the first launch it is a no-op, because nothing
         // writes there any more. Only this app's own cache is touched; the sandbox sees to that.
         URLCache.shared.removeAllCachedResponses()
+        // IOS-POC-45: online subtitles live for one playback session only. A crash or a force quit
+        // skips that session's own cleanup, so what a previous run left is removed here — only this
+        // feature's session folders in the app's temporary directory, before any player can open.
+        let staleSubtitles = SubtitleSessionCache.removeStaleSessions()
+        if staleSubtitles > 0 { print("[subtitle] removed \(staleSubtitles) stale session folder(s)") }
         // Says out loud whether PiP can arm at all. The simulator does not implement it, so an
         // absent PiP button there is the platform rather than a defect — and without this line
         // that is a guess every time somebody looks.
@@ -2776,6 +2781,16 @@ struct EpisodeSteps: Equatable {
             self.onMediaSelectionChange?(selection)
             self.restoreTracksAfterReload(selection)
         }
+        // IOS-POC-45: a downloaded subtitle goes to the router, which hands it to whichever engine
+        // plays now and to every engine that takes over; an ended subtitle session empties it.
+        onlineSubtitles.onAttachmentsChange = { [weak self] subtitles, selected in
+            guard let self else { return }
+            self.router.setExternalSubtitles(subtitles, selectedID: selected)
+            guard let selected, let subtitle = subtitles.first(where: { $0.id == selected }) else { return }
+            Self.log.notice("[subtitle] applied \(subtitle.title, privacy: .public) on \(self.engineKind.shortName, privacy: .public)")
+            self.onNotice?("已套用線上字幕：\(subtitle.title)")
+            self.onOnlineSubtitleApplied?()
+        }
         router.onUnrecoverable = { [weak self] failure in
             guard let self else { return }
             // A pre-resolved address that does not play is an optimization miss, not the episode's
@@ -2866,8 +2881,31 @@ struct EpisodeSteps: Equatable {
         return selection
     }
 
+    /// Through the router, so an online subtitle chosen here is also the next engine's (IOS-POC-45).
     func selectMedia(_ kind: PlaybackMediaKind, id: String) async {
-        await engine?.selectMedia(kind, id: id)
+        await router.selectMedia(kind, id: id)
+    }
+
+    // MARK: - IOS-POC-45: online subtitles
+
+    /// One subtitle session per video: begun or kept by `load`, ended by the player screen closing
+    /// (`endOnlineSubtitles`) or the bridge's stop. Search, download and the session folder are
+    /// all `WebHTVCore`'s; this only reports the boundaries and hands files to the router.
+    let onlineSubtitles = OnlineSubtitleCoordinator()
+    /// The player screen's hooks: the panel's session changed (a new video), and a chosen file
+    /// was handed to the engine.
+    var onOnlineSubtitlesChange: ((OnlineSubtitleSession?) -> Void)?
+    var onOnlineSubtitleApplied: (() -> Void)?
+
+    /// The cues the AVPlayer overlay draws now; nil under MPV, which draws its own.
+    var nativeOnlineSubtitleCues: SubtitleCues? { (engine as? AVPlayerEngine)?.activeExternalCues }
+
+    /// The player screen closed, or the bridge stopped playback: this video's downloads are deleted.
+    /// Called the moment the screen goes, not after `persist()`, so a video opened right after can
+    /// never have its own new session ended by the old screen's close.
+    func endOnlineSubtitles() {
+        onlineSubtitles.playbackClosed()
+        onOnlineSubtitlesChange?(nil)
     }
 
     /// The settings page's choice, stored for the next session.
@@ -3504,6 +3542,7 @@ struct EpisodeSteps: Equatable {
         case "stop":
             // No foreground service to stop, so the equivalent is to drop what is loaded.
             retryWithoutPrefetch = nil
+            endOnlineSubtitles()
             reportItem()
             Task { @MainActor in await persist() }
             sampler?.cancel()
@@ -3624,6 +3663,14 @@ struct EpisodeSteps: Equatable {
         }
         if autoplay { Self.activateAudioSession() }
         reportItem()
+        // IOS-POC-45: before the engine opens it, so a different video's engine never gets the
+        // previous one's subtitles. The same episode again — a quality switch, the prefetch retry,
+        // a WebHome page reopening its address — keeps them.
+        let online = onlineSubtitles.playbackOpened(
+            OnlineSubtitleIdentity(titleKey: record?.key, line: record?.vodFlag, episode: record?.episodeUrl,
+                                   address: url.absoluteString),
+            title: title, alternatives: [record?.vodName].compactMap { $0 })
+        onOnlineSubtitlesChange?(online)
         itemTitle = title
         resolution = nextResolution
         nextResolution = ""
@@ -3955,6 +4002,16 @@ final class AVPlayerEngine: PlaybackEngine {
     /// `.failed` is terminal and the failure notification can follow it: one report per item.
     private weak var reportedItem: AVPlayerItem?
     private var lastAudioDiagnostic = ""
+    /// IOS-POC-45: the session's downloaded subtitles, and the one the overlay draws. AVPlayer
+    /// cannot side-load a subtitle into a streamed item, so a chosen one is drawn by the player
+    /// screen (`OnlineSubtitleOverlay`) and the item's own legible track is switched off for it.
+    private var externalSubtitles = [PlaybackExternalSubtitle]()
+    private var selectedExternalID: String?
+
+    /// What the overlay draws now; nil when no online subtitle is chosen.
+    var activeExternalCues: SubtitleCues? {
+        externalSubtitles.first { $0.id == selectedExternalID }?.cues
+    }
 
     init(session: PlaybackSession) {
         self.session = session
@@ -3994,6 +4051,9 @@ final class AVPlayerEngine: PlaybackEngine {
                     self.report(self.player.currentItem?.error)
                 case .readyToPlay:
                     self.checkRate()
+                    // IOS-POC-45: a reloaded item picks its own legible default; an online
+                    // subtitle chosen before the reload stays the one shown.
+                    if self.selectedExternalID != nil { await self.selectEmbeddedSubtitle(nil) }
                     await self.refreshMediaSelection()
                 default:
                     break
@@ -4094,18 +4154,57 @@ final class AVPlayerEngine: PlaybackEngine {
     func mediaSelection() async -> PlaybackMediaSelection {
         guard let item = player.currentItem else { return PlaybackMediaSelection() }
         let audioFacts = await Self.audioFacts(for: item.asset)
+        let embedded = await mediaTrack(item: item, characteristic: .legible, kind: .subtitle, audioFacts: [])
         return PlaybackMediaSelection(
-            subtitle: await mediaTrack(item: item, characteristic: .legible, kind: .subtitle,
-                                       audioFacts: []),
+            subtitle: .subtitles(embedded: embedded, external: externalSubtitles,
+                                 selectedExternalID: selectedExternalID),
             audio: await mediaTrack(item: item, characteristic: .audible, kind: .audio,
                                     audioFacts: audioFacts)
         )
     }
 
+    /// IOS-POC-45. A chosen subtitle turns the item's own legible track off, so AVKit does not draw
+    /// one under the overlay; the list goes back to the panel either way.
+    func setExternalSubtitles(_ subtitles: [PlaybackExternalSubtitle], selectedID: String?) {
+        externalSubtitles = subtitles
+        if let selectedID {
+            selectedExternalID = selectedID
+        } else if !subtitles.contains(where: { $0.id == selectedExternalID }) {
+            selectedExternalID = nil
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if self.selectedExternalID != nil { await self.selectEmbeddedSubtitle(nil) }
+            await self.refreshMediaSelection()
+        }
+    }
+
+    /// The item's legible track: `nil` turns it off where the group allows that.
+    private func selectEmbeddedSubtitle(_ option: AVMediaSelectionOption?) async {
+        guard let item = player.currentItem,
+              let group = try? await item.asset.loadMediaSelectionGroup(for: .legible),
+              option != nil || group.allowsEmptySelection else { return }
+        item.select(option, in: group)
+    }
+
     func selectMedia(_ kind: PlaybackMediaKind, id: String) async {
+        // IOS-POC-45: an online subtitle is the overlay's, and choosing anything else ends it.
+        if kind == .subtitle {
+            if externalSubtitles.contains(where: { $0.id == id }) {
+                selectedExternalID = id
+                await selectEmbeddedSubtitle(nil)
+                await refreshMediaSelection()
+                return
+            }
+            selectedExternalID = nil
+        }
         guard let item = player.currentItem else { return }
         let characteristic: AVMediaCharacteristic = kind == .audio ? .audible : .legible
-        guard let group = try? await item.asset.loadMediaSelectionGroup(for: characteristic) else { return }
+        guard let group = try? await item.asset.loadMediaSelectionGroup(for: characteristic) else {
+            // An item with no legible group lists 「關閉」 only beside online subtitles.
+            if kind == .subtitle { await refreshMediaSelection() }
+            return
+        }
 
         if kind == .subtitle, id == PlaybackMediaOption.subtitleOffID {
             item.select(nil, in: group)
@@ -4337,6 +4436,9 @@ private struct PlayerControlBar: View {
     /// The title's opening/ending, mirrored by `PlayerView`.
     let watching: WatchHistory?
     let media: PlaybackMediaSelection
+    /// IOS-POC-45: the online subtitle search for this video, shown under the subtitle panel's
+    /// tracks. Nil only when nothing is loaded.
+    let online: OnlineSubtitleSession?
     /// IOS-POC-17: the engine **actually** playing — not the settings page's default.
     let engine: PlaybackEngineKind
     let selectEngine: (PlaybackEngineKind) -> Void
@@ -4452,8 +4554,10 @@ private struct PlayerControlBar: View {
 
             // What the running engine cannot do is not drawn, rather than drawn and dead. A choice
             // of one decides nothing, so a track button needs more than one option (IOS-POC-5Q).
-            if let subtitle = media.subtitle, subtitle.options.count > 1 {
-                panelButton(.subtitle, value: zhTW(Self.selectedName(subtitle))) {
+            // IOS-POC-45: with online search the subtitle panel is a choice even for a video with
+            // no embedded subtitles.
+            if (media.subtitle?.options.count ?? 0) > 1 || online != nil {
+                panelButton(.subtitle, value: zhTW(media.subtitle.map(Self.selectedName) ?? "")) {
                     Image(systemName: "captions.bubble").font(.system(size: 17))
                 }
             }
@@ -4724,6 +4828,9 @@ private struct PlayerControlBar: View {
                 }
             case .subtitle:
                 trackRows(media.subtitle, kind: .subtitle)
+                if let online {
+                    OnlineSubtitleSection(online: online, selectedSubtitleID: media.subtitle?.selectedID)
+                }
             case .audio:
                 trackRows(media.audio, kind: .audio)
             case .opening:
@@ -4839,6 +4946,228 @@ private extension View {
 /// a viewer on a flaky source actually wants to see — so this is a bar, a drag, and nothing else.
 ///
 /// ponytail: no tick marks, no chapter marks, no haptics. They are additions, not omissions.
+/// IOS-POC-45 — the subtitle panel's 線上字幕: the provider, an editable query, the recognized
+/// candidates, and the files found. Everything here is `OnlineSubtitleSession`'s state; this only
+/// binds to it. Recognition prefills the field and offers chips — the field itself is the
+/// viewer's, and can be emptied and filled with anything.
+private struct OnlineSubtitleSection: View {
+    @Bindable var online: OnlineSubtitleSession
+    /// The subtitle the player shows now, to mark the row of a file that is in use.
+    let selectedSubtitleID: String?
+    @FocusState private var fieldFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Divider().overlay(.white.opacity(0.2))
+            Text("線上字幕")
+                .font(.subheadline.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
+            providerRow
+            HStack(spacing: 8) {
+                field
+                searchButton
+            }
+            if !online.keywords.candidates.isEmpty { candidates }
+            status
+            ForEach(online.results) { track in row(track) }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+    }
+
+    /// One provider today. The picker is there for the next ones; a provider that needs a key the
+    /// viewer has not entered is listed as not set up rather than offered.
+    @ViewBuilder private var providerRow: some View {
+        if online.providerEntries.count > 1 {
+            Picker("搜尋來源", selection: $online.selectedProviderID) {
+                ForEach(online.providerEntries) { entry in
+                    Text(entry.availability == .available ? entry.name : "\(entry.name)（未設定）").tag(entry.id)
+                }
+            }
+        } else {
+            note("搜尋來源：\(online.selectedProvider?.name ?? "—")")
+        }
+    }
+
+    private var field: some View {
+        HStack(spacing: 6) {
+            TextField("番號、片名或任何文字", text: $online.queryText)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .focused($fieldFocused)
+                .onSubmit { online.search() }
+                .accessibilityLabel("線上字幕搜尋文字")
+            if !online.queryText.isEmpty {
+                Button {
+                    online.queryText = ""
+                    fieldFocused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.white.opacity(0.6))
+                }
+                .accessibilityLabel("清除搜尋文字")
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: PlayerControlBar.hitTarget)
+        .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// Always 搜尋: a second tap of the same text is the same request (`OnlineSubtitleSession`),
+    /// new text replaces the search in flight, and cancelling is the status row's own button —
+    /// never this one turning into it under a double tap.
+    private var searchButton: some View {
+        let blocked = SubtitleSearchQuery(text: online.queryText).isEmpty
+            || online.selectedProvider?.availability != .available
+        return Button {
+            fieldFocused = false
+            online.search()
+        } label: {
+            Text("搜尋")
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14)
+                .frame(minHeight: PlayerControlBar.hitTarget)
+                .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
+                .contentShape(Rectangle())
+        }
+        .disabled(blocked)
+        .opacity(blocked ? 0.45 : 1)
+    }
+
+    private var candidates: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            note("自動辨識候選")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(online.keywords.candidates, id: \.self) { candidate in
+                        Button {
+                            fieldFocused = false
+                            online.search(candidate: candidate)
+                        } label: {
+                            Text(verbatim: candidate)
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(1)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(.white.opacity(candidate == online.queryText ? 0.28 : 0.12), in: Capsule())
+                        }
+                        .accessibilityLabel("以「\(candidate)」搜尋")
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var status: some View {
+        let provider = online.selectedProvider?.name ?? "字幕來源"
+        switch online.phase {
+        case .idle:
+            if online.selectedProvider?.availability != .available { note("\(provider) 尚未設定") }
+        case .searching:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small).tint(.white)
+                note("搜尋中…")
+                Spacer()
+                Button("取消") { online.cancelSearch() }
+                    .font(.caption.weight(.semibold))
+                    .frame(minHeight: PlayerControlBar.hitTarget)
+                    .accessibilityLabel("取消搜尋")
+            }
+        case .results:
+            note(online.openedCount < online.listedCount
+                 ? "找到 \(online.results.count) 個字幕（已開啟前 \(online.openedCount) 筆，共 \(online.listedCount) 筆結果）"
+                 : "找到 \(online.results.count) 個字幕")
+        case .noResults:
+            note(online.listedCount > 0 ? "找不到可直接下載的字幕" : "找不到字幕")
+        case .failed(_, let error):
+            note(error == .cancelled ? "已取消搜尋" : error.message(provider: provider))
+        }
+    }
+
+    /// Language, provider and file name; the result's own title when it says more than the file
+    /// name does. No match score: nothing a page gives would make one honest.
+    private func row(_ track: RemoteSubtitleTrack) -> some View {
+        let state = online.downloads[track.id]
+        let inUse: Bool = if case .ready(let id)? = state { id == selectedSubtitleID } else { false }
+        let language = track.language.displayName
+        return Button {
+            fieldFocused = false
+            online.choose(track)
+        } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(verbatim: "\(language)｜\(track.providerName)")
+                        .font(.subheadline.weight(.semibold))
+                    Text(verbatim: track.fileName)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(2)
+                    if let title = track.title, !track.fileName.hasPrefix(title) {
+                        Text(verbatim: title)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.55))
+                            .lineLimit(1)
+                    }
+                    if case .failed(let error)? = state {
+                        Text(error.message(provider: track.providerName))
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                switch state {
+                case .downloading?: ProgressView().controlSize(.small).tint(.white)
+                case .ready?: Text(inUse ? "使用中" : "已下載").font(.caption.weight(.semibold))
+                case .failed?: Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+                case nil: Image(systemName: "arrow.down.circle").font(.body)
+                }
+            }
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, minHeight: PlayerControlBar.hitTarget)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel("\(language)，\(track.fileName)")
+        .accessibilityValue(inUse ? "使用中" : state == .downloading ? "下載中" : "")
+        .accessibilityHint("下載並套用這個字幕")
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text).font(.caption).foregroundStyle(.white.opacity(0.75))
+    }
+}
+
+/// IOS-POC-45 — an online subtitle under AVPlayer: the active cue over the video, read ten times a
+/// second from the player's own clock. mpv draws its own (`sub-add`), and AVKit's Picture in
+/// Picture window shows only the video, so this belongs to the inline player alone. The text is
+/// the file's, untouched — no conversion. Never takes a touch.
+private struct OnlineSubtitleOverlay: View {
+    let cues: SubtitleCues
+    let session: PlaybackSession
+    /// The control bar is up: the line moves above the scrubber instead of under it.
+    let raised: Bool
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.1)) { _ in
+            if let text = cues.text(at: session.position) {
+                Text(verbatim: text)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .shadow(color: .black.opacity(0.9), radius: 2)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, raised ? 112 : 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .animation(.easeInOut(duration: 0.25), value: raised)
+    }
+}
+
 private struct PlaybackSlider: View {
     let value: Double
     let bounds: Double
@@ -5124,6 +5453,8 @@ private struct PlayerView: View {
     /// IOS-POC-35: the bar's 上一集／下一集, nil when this playback has no episode list.
     @State private var episodeSteps: EpisodeSteps?
     @State private var media = PlaybackMediaSelection()
+    /// IOS-POC-45: this video's online subtitle session, for the subtitle panel.
+    @State private var online: OnlineSubtitleSession?
     @State private var timeObserver: Any?
     /// IOS-POC-17: which engine is drawing, and what failed if nothing can.
     @State private var engineKind = PlaybackEngineKind.native
@@ -5153,6 +5484,13 @@ private struct PlayerView: View {
             } else {
                 PlayerSurface(player: session.player)
                     .ignoresSafeArea()
+            }
+        }
+        .overlay {
+            // IOS-POC-45: an online subtitle under AVPlayer, drawn here because AVPlayer cannot
+            // side-load one into a streamed item; mpv draws its own. Never takes a touch.
+            if engineKind == .native, let cues = session.nativeOnlineSubtitleCues {
+                OnlineSubtitleOverlay(cues: cues, session: session, raised: chrome.controlsVisible)
             }
         }
         .overlay {
@@ -5202,7 +5540,7 @@ private struct PlayerView: View {
             PlayerControlBar(
                 session: session, position: position, duration: duration, buffered: buffered,
                 intendsToPlay: intendsToPlay, rate: rate, episodeSteps: episodeSteps,
-                watching: watching, media: media,
+                watching: watching, media: media, online: online,
                 engine: engineKind,
                 selectEngine: { session.selectEngine($0) },
                 panel: chrome.panel,
@@ -5249,6 +5587,11 @@ private struct PlayerView: View {
             // ticker runs for AVPlayer too). One `AVPlayer` outlives this screen, so an observer
             // left on it would outlive it too.
             stopObserving()
+            // IOS-POC-45: leaving the player ends this video's subtitle session and deletes its
+            // downloads — now, not after the write below, so a video opened at once keeps its own.
+            session.endOnlineSubtitles()
+            session.onOnlineSubtitlesChange = nil
+            session.onOnlineSubtitleApplied = nil
             // IOS-POC-36.5 (D12): with a Picture in Picture window open too. IOS-POC-10H returned
             // here in PiP, assuming that starting PiP closes this screen; it does not (measured on
             // the iPad simulator), so a close in PiP is the last episode ending there, and leaving
@@ -5285,6 +5628,10 @@ private struct PlayerView: View {
             }
             session.onFailure = { failure = $0?.message }
             session.onNotice = { showNotice($0) }
+            online = session.onlineSubtitles.session
+            session.onOnlineSubtitlesChange = { online = $0 }
+            // A chosen file is on screen: the panel closes, as choosing any track does.
+            session.onOnlineSubtitleApplied = { chrome.dismissPanel() }
             startObserving()
             scheduleHide()
             media = await session.refreshMediaSelection()
@@ -5361,6 +5708,8 @@ private struct PlayerView: View {
         // The item or engine may have changed under an open panel. A panel with no actual choice
         // closes instead of showing stale ids from the previous engine/item.
         let track = chrome.panel == .subtitle ? media.subtitle : chrome.panel == .audio ? media.audio : nil
+        // IOS-POC-45: the subtitle panel also holds the online search, which is always a choice.
+        if chrome.panel == .subtitle, online != nil { return }
         if chrome.panel == .subtitle || chrome.panel == .audio, (track?.options.count ?? 0) < 2 {
             chrome.dismissPanel()
         }

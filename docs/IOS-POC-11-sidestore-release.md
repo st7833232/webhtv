@@ -894,9 +894,58 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第四十八次發布：`0.1.47 (48)`（2026-10-02，**已發布**）
+## 第四十九次發布：`0.1.48 (49)`（2026-10-02，**已發布**）
 
-**目前最新版是 `0.1.47 (48)`。** 前面四十七版都已被取代。
+**目前最新版是 `0.1.48 (49)`。** 前面四十八版都已被取代。
+
+- 授權：使用者 2026-10-02 指示「發佈」（IOS-POC-41C push 之後）。版號 `0.1.48`，build `49`。
+- 內容：`0.1.47 (48)` 的全部，加上：
+  - IOS-POC-41A（`c1459372`）：首頁／分類因網站問題回空時說明原因。
+  - IOS-POC-41B（`99f6ef66`）：來源清單的健康圓點、站點健康排序與清除。
+  - IOS-POC-41C（`cb38e30b`）：設定頁「檢查來源」與報告。
+  - `9e5b71d8`：MPV 每個檔案記錄 `hwdec-current`。
+  - `c1a4743c`：剛 clone 的 repo 不必手動準備 Python 就能 build，只影響建置。
+  - `4ac71c27`：`isJapanese` 移到 `JapaneseTranslation`，行為不變。
+  - 其餘是文件與 `0.1.47 (48)` 的 `source.json`（`667a056d`）。
+- 發布序列：
+  1. 版號 commit `72ad9891`（Task-Guard `IOS-RELEASE-0.1.48-b49`，兩個 build configuration 的 `MARKETING_VERSION`／`CURRENT_PROJECT_VERSION`，沒有其他行變動）。
+  2. push `cb38e30b..72ad9891`（push 前先 pull merge，遠端沒有新 commit）。
+  3. `gh workflow run ios-sidestore-release.yml --ref ios-poc -f version=0.1.48 -f build_number=49 -f release_notes=…` → run `36959157260`（conclusion success，2026-10-02 03:12:45Z → 03:18:46Z；未逐一檢查各步驟）。
+  4. workflow 建立 tag `ios-v0.1.48-b49`（target `72ad9891`），並推回 `source.json`（`f1c11850`，共四十九筆，第一筆 `0.1.48`，size 29,432,118 與 IPA 相同）。本機以 pull merge fast-forward 到 `f1c11850`。
+
+  **沒有手動建 tag。**
+- 產物：
+  - GitHub Release `WebHTV 0.1.48 (49)`：不是 draft／prerelease，2026-10-02 03:18:38Z 發布。
+  - `WebHTV-0.1.48-49.ipa`：**29,432,118 bytes**，狀態 uploaded；GitHub 記錄的 digest SHA-256 為 `15202803ed4f0ef4bc29cab0aa97c24e4c667ab2c2fff3db1f6d512a3ed7482f`。
+  - **IPA 已下載核對**（GET 200，SHA-256 與 digest 相同）：bundle `com.webhtv.ios.poc`，`CFBundleShortVersionString` `0.1.48`、`CFBundleVersion` `49`，`MinimumOSVersion` 與 `minos` 都是 `17.0`，`sdk 26.5`；`Translation.framework` 與 `_Translation_SwiftUI.framework` 仍為 `LC_LOAD_WEAK_DYLIB`。
+- 發布前驗證（這一版有做）：
+  - `swift test --package-path ios` 643／643；
+  - 模擬器 Debug 與 generic iOS 不簽章 Release build；
+  - 模擬器實看：41A 的原因文字、41B 的圓點與排序、41C 的檢查與報告；
+  - 熱點下真實 sweep 的結果與 IOS-POC-39 第 7.3 節一致。
+  - 詳見 IOS-POC-41 第 11～13 節。
+- **真機尚未驗收**。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.48 (49)（來源健康：說明為什麼沒有內容、來源清單的健康圓點、一鍵檢查來源；真機未驗收）
+
+新功能
+- 來源打不開時說明原因：首頁或分類回空、而且背後的請求失敗時，不再只顯示「沒有內容」，而是寫出原因（找不到網域、連線逾時、無法連線、安全連線失敗、Cloudflare 驗證、HTTP 錯誤、需要執行 JavaScript 的驗證或跳轉頁），並註明是不是網站本身的問題。網站正常回應但沒有片時，仍顯示「沒有內容」。
+- 來源清單的健康圓點：照 Android 的站點健康記錄，平常瀏覽、搜尋、詳情與播放的結果，會在首頁來源選單與設定頁的來源清單顯示綠（正常）、黃（不確定）、紅（常失敗）點；沒用過的站沒有圓點。設定頁「站點健康排序」（預設開）把較健康的來源排在前面，也可以清除記錄。
+- 設定頁「檢查來源」：一次檢查目前設定的所有來源，逐站確認讀得到影片，結果依原因分組，可以分享文字報告，也會更新健康圓點。同時檢查 8 站、每站最多 90 秒。
+
+改善
+- MPV 每個檔案都會在記錄中寫下實際使用的解碼器，方便診斷。
+
+已知限制
+- 發布前通過自動測試（643 項）與模擬器檢查；真機尚未驗收。
+- 檢查來源的結果取決於當下的網路，例如公司網路可能把很多站判成連不上。
+- 其餘同 0.1.47 (48)。
+```
+
+## 第四十八次發布：`0.1.47 (48)`（2026-10-02，**已發布**，已被 `0.1.48 (49)` 取代）
 
 - 授權：使用者 2026-10-02 指示「發佈」（IOS-POC-32D-2 push 之後）。版號 `0.1.47`，build `48`。
 - 內容：`0.1.46 (47)` 的全部，加上 IOS-POC-32D-2（`fc74afa9`：翻譯列改為永不為空的 `VStack`，語言檢查才會執行）；其餘是 `0.1.46 (47)` 的 `source.json` 與紀錄（`bbae28de`、`67cdbfa8`）。

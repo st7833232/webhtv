@@ -67,7 +67,12 @@ public struct SiteUnreachable: Error, Equatable, LocalizedError, Sendable {
     }
 
     public var errorDescription: String? {
-        let reason = switch failure {
+        isSiteSide ? reason + "這是網站本身或目前網路的問題，不是 App 的錯誤。" : reason
+    }
+
+    /// The cause alone, for a line in IOS-POC-41C's report.
+    public var reason: String {
+        switch failure {
         case .offline: "裝置目前沒有網路連線。"
         case .hostNotFound: "找不到網域 \(host)，網域可能已經失效。"
         case .timedOut: "連線 \(host) 逾時。"
@@ -78,7 +83,6 @@ public struct SiteUnreachable: Error, Equatable, LocalizedError, Sendable {
         case .verificationPage: "\(host) 回傳的是要執行 JavaScript 的驗證或跳轉頁，App 無法通過。"
         case .network(let code): "與 \(host) 的連線失敗（錯誤碼 \(code)）。"
         }
-        return isSiteSide ? reason + "這是網站本身或目前網路的問題，不是 App 的錯誤。" : reason
     }
 
     /// A 4xx other than Cloudflare's challenge may be an address the rule has outdated, and being

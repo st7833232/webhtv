@@ -421,88 +421,28 @@ private final class OneShotHTTPServer: @unchecked Sendable {
         print("[sweep] not-offered \(kind.padded(12)) \(site.key) [\(site.name)]")
     }
 
-    // Sites run side by side, `SWEEP_PARALLEL` at a time (8 by default): each is a chain of network
-    // waits, and one at a time left the run idle for most of an hour. A site gets `SWEEP_SITE_SECONDS`
-    // (90) and is then recorded as timed out, so one host that never answers cannot hold the run; its
-    // work is left to finish on its own, since a spider's JavaScript does not stop when cancelled.
+    // IOS-POC-41C: the app's 檢查來源 drives the sites, so this and the phone agree on what each
+    // verdict means. Sites run side by side, `SWEEP_PARALLEL` at a time (8 by default); a site gets
+    // `SWEEP_SITE_SECONDS` (90) and is then recorded as timed out.
     let width = max(Int(env["SWEEP_PARALLEL"] ?? "") ?? 8, 1)
     let limit = Double(env["SWEEP_SITE_SECONDS"] ?? "") ?? 90
     setvbuf(stdout, nil, _IOLBF, 0)   // a line per site as it finishes, also into a file
 
-    @Sendable func drive(_ site: Site) async -> (Stop, String) {
+    for await result in SourceCheck.run(drivable, resolver: resolver, width: width, limit: .seconds(limit)) {
+        let stop: Stop = switch result.verdict {
+        case .playable: .played
+        case .notMedia: .deadMedia
+        case .noPlayURL: .noPlay
+        case .noEpisodes: .noEpisode
+        case .noTitles: .empty
+        case .unreachable, .failed, .timedOut: .failed
+        }
+        tally[stop, default: 0] += 1
+        let site = result.site
         let kind = site.isCSPSpider ? SpiderRegistry.className(from: site.api) : "type-\(site.type)"
         // The name as well: a configuration can list one key twice (wang-sex.json does, eleven times).
-        var line = "[sweep] \(kind.padded(12)) \(site.key.padded(22)) [\(site.name)]"
-        var stop = Stop.failed
-        do {
-            let client = try await SourceClient.make(site: site, resolver: resolver)
-            let home = try await client.home()
-            line += " classes=\(home.classes.count) home=\(home.list.count)"
-            // A home with categories and no titles is common (8Movie); the app opens a category
-            // then, and so does the sweep, rather than calling the site empty.
-            var first = home.list.first
-            if first == nil, let category = home.classes.first {
-                let page = try await client.category(id: category.id)
-                line += " cat=\(page.list.count)"
-                first = page.list.first
-            }
-            if let vod = first {
-                let detail = try await client.detail(id: vod.id)
-                let flags = detail?.flags ?? []
-                line += " flags=\(flags.count) eps=\(flags.first?.episodes.count ?? 0)"
-                if let episode = flags.first?.episodes.first, let flag = flags.first?.name {
-                    let target = try await client.playbackURL(for: episode, flag: flag)
-                    line += " play=\(target?.url.absoluteString.prefix(58) ?? "nil")"
-                    // Resolving a URL is not the same as the media existing: AG動漫 resolves cleanly
-                    // and then 404s. Fetch the first bytes so the tally means "playable", not "parsed".
-                    if let target {
-                        if !target.headers.isEmpty { line += " +hdr\(target.headers.count)" }
-                        // Same classifier and the same headers the playback path uses, so the sweep
-                        // and the app agree — including on a CDN that answers 403 to a bare request.
-                        let kind = await MediaProbe.classify(target.url, headers: target.headers)
-                        line += " [\(kind)]"
-                        stop = kind == .media ? .played : .deadMedia
-                    } else {
-                        stop = .noPlay
-                    }
-                } else {
-                    stop = .noEpisode
-                }
-            } else {
-                stop = .empty
-            }
-        } catch {
-            line += "  \(error)"
-        }
-        return (stop, line)
-    }
-
-    actor Once {
-        private var claimed = false
-        func claim() -> Bool { defer { claimed = true }; return !claimed }
-    }
-    @Sendable func bounded(_ site: Site) async -> (Stop, String) {
-        await withCheckedContinuation { finished in
-            let once = Once()
-            Task { let result = await drive(site); if await once.claim() { finished.resume(returning: result) } }
-            Task {
-                try? await Task.sleep(for: .seconds(limit))
-                let kind = site.isCSPSpider ? SpiderRegistry.className(from: site.api) : "type-\(site.type)"
-                if await once.claim() {
-                    finished.resume(returning: (.failed, "[sweep] \(kind.padded(12)) \(site.key.padded(22)) [\(site.name)]  timed out after \(Int(limit)) s"))
-                }
-            }
-        }
-    }
-
-    await withTaskGroup(of: (Stop, String).self) { group in
-        var pending = drivable.makeIterator()
-        for _ in 0..<width { if let site = pending.next() { group.addTask { await bounded(site) } } }
-        while let (stop, line) = await group.next() {
-            tally[stop, default: 0] += 1
-            print("\(line)  -> \(stop.rawValue)")
-            if let site = pending.next() { group.addTask { await bounded(site) } }
-        }
+        print("[sweep] \(kind.padded(12)) \(site.key.padded(22)) [\(site.name)] \(result.trail)"
+              + (result.detail.map { "  \($0)" } ?? "") + "  -> \(stop.rawValue)")
     }
 
     let total = tally.values.reduce(0, +)

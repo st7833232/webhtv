@@ -160,7 +160,8 @@ C 對照 B 多出來的代價與取捨：
 - 回滾：本任務只有文件，`git revert` 即可。
 - 2026-10-02 使用者回覆「照建議，開始 41A」：第 9 節 6 項全部採建議（全部來源、三段都做、41A → 41B → 41C、排序照 Android 預設開、檢查到讀到影片位元組、先不做「只顯示可以播放」）。41A 已實作，見第 11 節。
 - 2026-10-02 使用者「開始 41B」；41B 已實作，見第 12 節。
-- **唯一下一步**：41A、41B 等使用者確認（模擬器已驗）；確認後做 41C（手動全站檢查與報告，第 6 節）。發版需要使用者授權。
+- 2026-10-02 使用者「開始 41C」；41C 已實作，見第 13 節。IOS-POC-41 的三段都已完成。
+- **唯一下一步**：等使用者確認 41A～41C（模擬器已驗、真機未驗證），以及是否發版；發版需要使用者授權。
 
 ## 11. 41A 實作紀錄（2026-10-02）
 
@@ -204,3 +205,50 @@ C 對照 B 多出來的代價與取捨：
 - **Ponytail**：`ponytail:ponytail-review` → Lean already（兩份來源清單各自加狀態，是因為既有的兩份清單 view；合併屬 audit 第 11 項，等使用者決定）。
 - **未驗證**：真機；全站台搜尋與單站搜尋的記錄只有程式路徑與 build，模擬器沒有實際搜一次看檔案；播放失敗（兩個核心都失敗）的記錄沒有實測。
 - **回滾**：`git revert` 這個 commit；使用者裝置上留下的 `site-health.json` 舊版 App 不會讀，無害。
+
+## 13. 41C 實作紀錄（2026-10-02）
+
+- task guard `IOS-POC-41C`（`standard`）。起始 HEAD `99f6ef66`。
+- **程式**：
+  - 新增 `ios/Sources/WebHTVCore/SourceCheck.swift`：
+    - `check(_:)`：和 sweep 相同的 App 路徑——首頁（或第一個分類）→ 第一部的詳情 → 第一集的播放網址 → `MediaProbe` 讀到影片位元組。
+    - 結論 `Verdict` 有 8 種：可以播放、網站連不上（帶 41A 的原因）、網站有回應但取不到片單、有片單但沒有集數、取不到播放網址、播放網址不是影片、其他錯誤（帶階段）、檢查逾時。
+    - `run(_:resolver:width:limit:)`：同時 8 站、每站 90 秒。逾時的站回報 `timedOut`，它的工作讓它自己跑完（spider 的 JavaScript 取消不了）。有站回報裝置離線（41A 的 `offline`）就結束整批。
+    - `report(_:of:source:at:)`：分享用的文字。開頭是時間、設定、各類站數，加一句「結果取決於檢查當下的網路」，再依類別列出站名與原因。
+    - `SiteHealthStore.record(_:source:)`：把檢查結果寫進 41B 的記錄。走到哪一階段就記成功，停在哪一階段就記失敗。「取不到片單」與「檢查逾時」無法歸因到站的健康，所以不記。
+  - `SiteFailure.swift`：`SiteUnreachable` 多一個不含結尾那句的 `reason`，給報告與檢查頁用。
+  - `WebHTVApp.swift`：設定頁「內容來源」區塊新增「檢查來源」。
+    - 新頁面 `SourceCheckView` 有：開始／停止／重新檢查、「已檢查 x／N」、檢查完的「分享報告」（`ShareLink`），以及依類別分組、附原因的結果。
+    - 離開頁面就停止檢查，已完成的結果保留並寫入記錄。遇到裝置離線就停止，顯示提示，這次的結果不寫入。
+  - `SourceClientTests.swift` 的 `sweepsEveryDrivableSourceThroughTheAppPath` 改用 `SourceCheck.run`。輸出格式與 PLAYABLE／DEAD-MEDIA／NO-PLAY／NO-EPISODE／EMPTY／ERROR 的統計不變，ERROR 這一行會帶原因；`drive`、`Once`、`bounded` 改由 Core 共用，淨減約 40 行。
+- **測試**：`SiteFailureTests.swift` 新增 4 項：
+  - 檢查停在被 Cloudflare 擋的片單；
+  - 有片單但沒有集數；
+  - 各結論寫進健康記錄的事件；
+  - 報告的開頭、統計與分組文字。
+- **驗證**：
+  - `swift test --package-path ios` **643／643**（原 639＋新 4）。
+  - 模擬器 Debug 與 generic iOS 不簽章 Release 都 BUILD SUCCEEDED，警告只有既有的 4 個。
+  - Ponytail 建議刪掉一行之後，又重跑了 `swift build` 與 41C 的 4 個測試。
+- **真實 sweep**（個人熱點，`wang-sex.json`，走新的 `SourceCheck`，82 秒）：
+  - 全部 220 站：PLAYABLE 42、DEAD-MEDIA 6、NO-PLAY 4、NO-EPISODE 29、EMPTY 25、ERROR 114。
+  - 其中 106 個 XBPQ 項目：
+    - 網站連不上 78：DNS 34、JS 驗證／跳轉頁 30、HTTP 錯誤 4、Cloudflare 3、TLS 3、逾時 3、連不上 1；
+    - 可以播放 10；取不到片單 13；其他 5。
+  - 和 IOS-POC-39 第 7.3 節一致：
+    - DNS 一樣是 34 站；
+    - 可以播放的 10 站正好是 E 4＋D 6；
+    - C 類 86 站＝連不上 78＋這次落在「取不到片單」的 8 站（跳百度、停放、導流、JS 載入，這幾種沒有可判斷的訊號）。
+  - 另有一行輸出格式異常（「风流视频」那一行），沒有細查。
+- **模擬器實看**（`05934376`，第 11 節的 4 站設定）：
+  - 「檢查來源」→ 開始檢查：約 20 秒內 4／4 完成，可以播放 1（天美），網站連不上 3（传媒二区：Cloudflare；香蕉中文资源、死掉的CMS：找不到網域 su-qq.vip）。
+  - 「分享報告」打開系統分享表單，內容以「WebHTV 來源檢查」開頭。
+  - `site-health.json` 寫入了檢查結果：传媒二区在這個 session 沒有手動開過，現在有分類失敗 1 筆；天美的詳情與播放成功也來自檢查。
+- **Ponytail**：`ponytail:ponytail-review` 指出 `run` 裡 `group.cancelAll()` 沒有作用（子工作不受結構化取消影響），已刪除；其餘 Lean。
+- **未驗證**：
+  - 真機；
+  - 裝置離線時整批停止（模擬器沒有切斷網路測，只有程式路徑）；
+  - 中途按停止（只有程式路徑）；
+  - 幾百站規模在手機上的耗時與耗電（Mac 上 220 站約 82 秒，不含 Python 站）；
+  - Python 站在手機上的檢查（`swift test` 沒有直譯器）。
+- **回滾**：`git revert` 這個 commit；41A、41B 不受影響。

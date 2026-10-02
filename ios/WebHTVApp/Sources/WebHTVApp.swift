@@ -1407,6 +1407,8 @@ private struct SettingsView: View {
                 } label: {
                     LabeledContent("目前來源", value: currentSiteName)
                 }
+                // IOS-POC-41C
+                NavigationLink("檢查來源") { SourceCheckView(sites: sites, source: source) }
                 // IOS-POC-41B: Android's 站點健康排序 and its 清空.
                 Toggle("站點健康排序", isOn: $healthSort)
                 Button(healthCleared ? "站點健康記錄已清空" : "清除站點健康記錄", role: .destructive) {
@@ -1608,6 +1610,85 @@ private struct SiteChoiceList: View {
         .navigationTitle("內容來源")
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBar()
+    }
+}
+
+/// IOS-POC-41C: every source in the configuration, driven the way the app drives one, grouped by
+/// where it stopped. The results also go into IOS-POC-41B's records, so the source lists' dots
+/// cover sites never opened by hand — unless the device turned out to be offline, when nothing is
+/// written. Leaving the screen stops the check; what finished is kept.
+private struct SourceCheckView: View {
+    let sites: [Site]
+    let source: ConfigSource
+
+    @State private var results: [SourceCheck.Result] = []
+    @State private var task: Task<Void, Never>?
+    @State private var checkedAt = Date()
+    @State private var offline = false
+
+    private var report: String {
+        SourceCheck.report(results, of: sites.count, source: source.identity, at: checkedAt)
+    }
+
+    var body: some View {
+        List {
+            Section {
+                Button(task != nil ? "停止檢查" : results.isEmpty ? "開始檢查" : "重新檢查") {
+                    if task != nil { task?.cancel() } else { start() }
+                }
+                if task != nil || !results.isEmpty {
+                    LabeledContent("已檢查", value: "\(results.count)／\(sites.count)")
+                }
+                if offline {
+                    Text("裝置沒有網路連線，檢查已停止，這次的結果沒有記錄。").foregroundStyle(.red)
+                }
+                if task == nil, !results.isEmpty {
+                    ShareLink("分享報告", item: report)
+                }
+            } footer: {
+                Text("逐站打開首頁、第一部影片的詳情與第一集的播放網址，確認讀得到影片；同時檢查 8 站，每站最多 90 秒。結果取決於當下的網路，也會更新來源清單的圓點。")
+            }
+            ForEach(SourceCheck.Category.allCases, id: \.self) { category in
+                let rows = results.filter { $0.category == category }
+                if !rows.isEmpty {
+                    Section("\(category.label)（\(rows.count)）") {
+                        ForEach(rows, id: \.index) { row in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(zhTW: row.site.name.displayName)
+                                if let detail = row.detail {
+                                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .appWallpaper()
+        .navigationTitle("檢查來源")
+        .navigationBarTitleDisplayMode(.inline)
+        .appNavigationBar()
+        .onDisappear { task?.cancel() }
+    }
+
+    private func start() {
+        results = []
+        offline = false
+        checkedAt = Date()
+        let sites = sites, source = source
+        task = Task {
+            for await result in SourceCheck.run(sites, resolver: CSPSourceResolver(source: source)) {
+                if case .unreachable(let failure) = result.verdict, failure.failure == .offline {
+                    offline = true
+                    break
+                }
+                results.append(result)
+            }
+            // A stopped check keeps what finished; an offline one would blame every site.
+            if !offline { await SiteHealthStore.shared.record(results, source: source.identity) }
+            task = nil
+        }
     }
 }
 

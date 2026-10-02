@@ -20,7 +20,14 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **IOS-POC-41B（2026-10-02，已 commit／push，未發布）**：使用者「開始 41B」。照 Android `SiteHealthStore` 被動記錄每站的首頁／分類（iOS 新增）、搜尋、詳情、播放結果，來源清單（首頁選單、設定頁）顯示綠／黃／紅點，設定頁「站點健康排序」（預設開）與「清除站點健康記錄」。`swift test` 639／639、模擬器 Debug、generic iOS Release、模擬器實看圓點／排序／播放記錄／清除；真機未驗證。見 IOS-POC-41 第 12 節。
 
-**Next Recommended Step**：等使用者確認 41A／41B，之後做 41C（手動全站檢查與報告，IOS-POC-41 第 6 節）。發版仍需使用者授權。
+**IOS-POC-41C（2026-10-02，已 commit／push，未發布）**：使用者「開始 41C」。
+- 設定頁新增「檢查來源」：用 App 自己的路徑逐站檢查到讀到影片位元組，同時 8 站、每站 90 秒。
+- 結果依結論分組、附原因，可以分享文字報告，也會寫進 41B 的健康記錄；遇到裝置離線就停止，不寫入結果。
+- sweep 測試改用同一個 `SourceCheck`。
+- 驗證：`swift test` 643／643；模擬器 Debug、generic iOS Release；熱點下真實 sweep 的結果與 IOS-POC-39 第 7.3 節一致；模擬器實看檢查、報告與記錄。真機未驗證。
+- 見 IOS-POC-41 第 13 節。IOS-POC-41 三段都已完成。
+
+**Next Recommended Step**：等使用者確認 IOS-POC-41（41A～41C）與是否發版。發版仍需使用者授權，不要自己 bump／tag／release。
 
 
 ## Current handoff — 2026-10-01（前一次交接）

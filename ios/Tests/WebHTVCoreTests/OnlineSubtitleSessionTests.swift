@@ -190,6 +190,17 @@ private func heldSession(_ provider: HeldProvider, title: String = "FC2PPV-12345
     #expect(provider.asked == ["完全自訂的 片名 & 演員"])
     provider.answer("完全自訂的 片名 & 演員", with: .success(.empty))
     await settle { !session.isSearching }
+    // Nothing found is its own state, not an empty list of results.
+    #expect(session.phase == .noResults(SubtitleSearchQuery(text: "完全自訂的 片名 & 演員")))
+    #expect(session.results.isEmpty && session.listedCount == 0)
+    // Results with no file ready to download are "nothing found" too, and say how many were seen.
+    session.queryText = "only translatable"
+    session.search()
+    await settle { provider.isWaiting("only translatable") }
+    provider.answer("only translatable", with: .success(SubtitleSearchResult(tracks: [], listedCount: 3, openedCount: 3)))
+    await settle { !session.isSearching }
+    #expect(session.phase == .noResults(SubtitleSearchQuery(text: "only translatable")))
+    #expect(session.listedCount == 3)
     // Untouched, the field does follow a keyword update.
     let untouched = heldSession(HeldProvider())
     untouched.updateKeywords(.make(title: "DLDSS553"))

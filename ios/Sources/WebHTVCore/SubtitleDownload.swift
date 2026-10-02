@@ -116,17 +116,22 @@ public enum SubtitleContent {
         }
         switch language.group {
         case .traditionalChinese: return [core(.big5_HKSCS_1999), core(.GB_18030_2000)]
-        case .simplifiedChinese, .chinese: return [core(.GB_18030_2000), core(.big5_HKSCS_1999)]
+        case .simplifiedChinese: return [core(.GB_18030_2000), core(.big5_HKSCS_1999)]
         case .japanese: return [.shiftJIS]
         case .english: return [.windowsCP1252]
         case .other:
             // The Windows code page each script's old files were written in.
             switch language.code.map({ String($0.prefix(2)) }) {
+            case "zh": return [core(.GB_18030_2000), core(.big5_HKSCS_1999)]
             case "ko": return [core(.dosKorean)]
             case "ru", "uk", "bg", "sr", "mk", "be": return [.windowsCP1251]
             case "pl", "cs", "sk", "sl", "hr", "hu", "ro": return [.windowsCP1250]
             case "el": return [.windowsCP1253]
             case "tr": return [.windowsCP1254]
+            case "he": return [core(.windowsHebrew)]
+            case "ar", "fa", "ur": return [core(.windowsArabic)]
+            case "th": return [core(.dosThai)]
+            case "vi": return [core(.windowsVietnamese)]
             default: return [.windowsCP1252]
             }
         }

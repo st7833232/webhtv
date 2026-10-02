@@ -18,11 +18,11 @@ import Foundation
 /// suffix (`…-zh-TW.srt`) — the order the user asked for, because a file name is the least
 /// reliable of the three.
 public struct SubtitleLanguage: Sendable, Equatable, Hashable {
-    /// The display order of the groups: Traditional Chinese, Simplified Chinese, Chinese whose
-    /// script the page does not say, Japanese, English, then everything else in the provider's
-    /// own order.
+    /// The display order the user set: Traditional Chinese, Simplified Chinese, Japanese, English,
+    /// then everything else in the provider's own order — Chinese whose script the page does not
+    /// say included, since it is neither of the first two.
     public enum Group: Int, Sendable, Comparable, CaseIterable {
-        case traditionalChinese = 0, simplifiedChinese, chinese, japanese, english, other
+        case traditionalChinese = 0, simplifiedChinese, japanese, english, other
 
         public static func < (lhs: Group, rhs: Group) -> Bool { lhs.rawValue < rhs.rawValue }
     }
@@ -44,7 +44,6 @@ public struct SubtitleLanguage: Sendable, Equatable, Hashable {
         switch code {
         case "zh-TW", "zh-HK": return .traditionalChinese
         case "zh-CN": return .simplifiedChinese
-        case "zh": return .chinese
         case "ja": return .japanese
         case "en": return .english
         default: return .other
@@ -255,8 +254,8 @@ public struct SubtitleSearchResult: Sendable, Equatable {
 
     public static let empty = SubtitleSearchResult(tracks: [], listedCount: 0, openedCount: 0)
 
-    /// Traditional Chinese, Simplified Chinese, Chinese of unstated script, Japanese, English, then
-    /// the rest — each group in the order the provider gave. A stable sort, so nothing within a
+    /// Traditional Chinese, Simplified Chinese, Japanese, English, then the rest — each group in
+    /// the order the provider gave. A stable sort, so nothing within a
     /// group is reordered, and nothing is dropped: a search tool shows every language it found.
     public static func ordered(_ tracks: [RemoteSubtitleTrack]) -> [RemoteSubtitleTrack] {
         tracks.enumerated()

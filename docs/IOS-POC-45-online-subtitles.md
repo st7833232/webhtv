@@ -13,7 +13,7 @@
 1. Provider 架構：`SubtitleProvider` 協定、共用模型（查詢、結果、下載、Session 暫存、錯誤）；第一個 Provider 是 Subtitle Cat，預留 OpenSubtitles／SubDL，但不假裝已可用。
 2. 搜尋文字：自動辨識只負責預填與候選 chip，欄位永遠可全部刪除、自由輸入；送出的就是欄位文字。
 3. Subtitle Cat：`https://www.subtitlecat.com/index.php?search=<URL encoded>` 的 HTTP GET → 解析結果頁連結 → GET 結果頁 → 只取已存在的 direct `.srt`；不用 WebView／JS，不觸發、不模擬 Translate。
-4. 排序：zh-TW → zh-CN → ja → en → 其他（Provider 原順序）；語言先看頁面 label，再看 metadata，最後看檔名。
+4. 排序：zh-TW → zh-CN → ja → en → 其他（Provider 原順序）；語言先看頁面 label，再看 metadata，最後看檔名。頁面只寫「Chinese」、沒說簡繁的檔案不屬於前兩組，依規格歸入「其他」（顯示為「中文」）；zh-HK 歸入繁體中文組。
 5. 下載：檢查 HTTP status、內容（非空、不是 HTML／CAPTCHA／Cloudflare／登入頁、有時間碼），UTF-8 BOM；寫入 session 專屬暫存目錄；同 session 同 URL 不重複下載。
 6. Session 暫存：暫停、seek、畫質／音軌／字幕切換、背景、鎖屏、回前景、AVPlayer ↔ MPV、fallback 重建、同片重載都保留；結束播放、換片、關閉播放器、下次啟動發現 stale 目錄才清除，且只清本功能的目錄。
 7. 錯誤：無結果、unreachable、HTTP failure、rate limited、搜尋頁解析失敗、結果頁解析失敗、download unavailable、invalid content、cancelled；最新搜尋為準；retry 最多一次且只對 transient／5xx。
@@ -139,7 +139,13 @@
 
 ### 9.2 macOS CI（暫時驗證分支）
 
-（CI 結果填在這裡。）
+雲端 session 沒有 Xcode，所以把工作區的改動複製到一次性的分支 `ci/ios-poc-45-verify`（另一個 git worktree，`ios-poc` 的 HEAD 不動），加一個只在該分支觸發的 workflow，在 `macos-26`（Xcode 26.6）上跑；驗證完即刪除該分支，workflow 不進 `ios-poc`。
+
+- Run 1 `36997761009`（第一版改動）：
+  - `swift test --package-path ios`（macOS host）：**706／706 通過**（含本任務 47 個）。
+  - iOS Simulator（`xcodebuild -scheme WebHTVCore test`）：706 個中 16 個 issue，全部在既有的 WKWebView／嗅探相關測試（`MediaSnifferTests` 6、`SnifferRulesTests` 1、`AdBlockListTests` 1、`SourceClientTests.theProbeReadsOnlyTheHeadOfABodyThatNeverEnds` 1）；本任務的測試沒有失敗。是否在 base 也失敗見 Run 2。
+  - Release（device，未簽章）：**BUILD SUCCEEDED**。
+  - Debug（device，未簽章）：BUILD FAILED，摘要沒有 `error:` 行；Run 2 改為完整擷取並與 base 對照。
 
 ### 9.3 Live smoke test
 
@@ -151,4 +157,9 @@
 
 ## 10. 尚待真機或連網驗證
 
-（CI 後填寫。）
+1. **Subtitle Cat 實際頁面**：用 `FC2PPV-4159457` 在 App 內搜尋，確認搜尋頁、結果頁、direct `.srt` 的實際 HTML 與 fixture 的假設一致（結果頁連結 `/subs/<數字>/<名>.html`、檔案 `…-<語言>.srt`、Translate 為按鈕或 `onclick`）。不一致時只需改 `SubtitleCatProvider` 的連結判斷與 fixture。
+2. **MPV CJK 字型**：libass 在 iOS 上是否能找到中文／日文字型（MPVKit 的 libass font provider 未驗證）。內嵌中文字幕若已能正常顯示，外掛字幕同樣可以。
+3. **MPV PiP**：`sub-add` 的字幕是否也畫進 PiP 的軟體輸出（libmpv render API 通常會，未實測）。
+4. **AVPlayer PiP／AirPlay**：overlay 只在 App 內的播放畫面顯示；PiP 視窗與 AirPlay 電視上看不到線上字幕（平台限制，已知）。
+5. **鍵盤**：直式底部 sheet 與橫式側邊 drawer 在鍵盤出現時的高度（SwiftUI keyboard avoidance 未實測）。
+6. **字幕同步**：HLS 廣告切除或片頭偏移時，外掛字幕可能整體偏移（`docs/IOS-POC-26-engine-switch-position.md` 的 H1 已記錄過同類現象）；本任務不提供時間軸微調。

@@ -245,12 +245,13 @@ func ordinaryTitlesAreNotForcedIntoCodes(_ title: String) {
 // MARK: - Order (case 12)
 
 /// Case 12. zh-TW, zh-CN, ja, en, then everything else in the provider's order — nothing hidden.
+/// Chinese whose script the page does not say is neither of the first two, so it is "the rest".
 @Test func resultsAreOrderedTraditionalSimplifiedJapaneseEnglishThenTheRest() {
     let tracks = [track("ko", "a-ko.srt"), track("en", "a-en.srt"), track(nil, "a.srt"), track("ja", "a-ja.srt"),
                   track("zh-CN", "a-zh-CN.srt"), track("fr", "a-fr.srt"), track("zh-TW", "a-zh-TW.srt"),
                   track("zh-TW", "b-zh-TW.srt"), track("zh", "a-zh.srt")]
     #expect(SubtitleSearchResult.ordered(tracks).map(\.fileName) == [
-        "a-zh-TW.srt", "b-zh-TW.srt", "a-zh-CN.srt", "a-zh.srt", "a-ja.srt", "a-en.srt", "a-ko.srt", "a.srt", "a-fr.srt",
+        "a-zh-TW.srt", "b-zh-TW.srt", "a-zh-CN.srt", "a-ja.srt", "a-en.srt", "a-ko.srt", "a.srt", "a-fr.srt", "a-zh.srt",
     ])
 }
 
@@ -334,10 +335,10 @@ func searchStatusesAreClassifiedAndOnlyServerErrorsRetried(_ status: Int, _ expe
 
 // MARK: - Downloads (cases 15–19)
 
-private func download(_ response: SubtitleHTTPResponse, code: String = "zh-TW",
-                      root: URL) async throws -> (PlaybackExternalSubtitle, SubtitleSessionCache, CannedFetch) {
+private func download(_ response: SubtitleHTTPResponse, code: String = "zh-TW", root: URL,
+                      canned given: CannedFetch? = nil) async throws -> (PlaybackExternalSubtitle, SubtitleSessionCache, CannedFetch) {
     let file = track(code, "FC2-PPV-4159457-\(code).srt")
-    let canned = CannedFetch([file.downloadURL.absoluteString: [response]])
+    let canned = given ?? CannedFetch([file.downloadURL.absoluteString: [response]])
     let cache = SubtitleSessionCache(root: root)
     let service = SubtitleDownloadService(fetch: canned.fetch, retryDelay: .zero)
     let subtitle = try await service.download(file, from: SubtitleCatProvider(fetch: canned.fetch), into: cache)
@@ -357,6 +358,21 @@ private func download(_ response: SubtitleHTTPResponse, code: String = "zh-TW",
     await #expect(throws: SubtitleProviderError.rateLimited) {
         try await download(SubtitleHTTPResponse(status: 429, data: Data()), root: root)
     }
+}
+
+/// Case 15, the retry rule for files: a refusal is asked once, a server error once more — and
+/// never more than that.
+@Test(arguments: [([403], 1, false), ([404], 1, false), ([429], 1, false), ([503, 200], 2, true), ([503], 2, false)])
+func downloadsAreRetriedOnlyOnceAndOnlyAfterAServerError(_ statuses: [Int], _ attempts: Int, _ succeeds: Bool) async {
+    let root = temporaryRoot("retry")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let address = track("zh-TW", "FC2-PPV-4159457-zh-TW.srt").downloadURL.absoluteString
+    let canned = CannedFetch([address: statuses.map {
+        SubtitleHTTPResponse(status: $0, data: $0 == 200 ? Data(SubtitleCatFixture.srt.utf8) : Data())
+    }])
+    let outcome = try? await download(SubtitleHTTPResponse(status: 0, data: Data()), root: root, canned: canned)
+    #expect((outcome != nil) == succeeds)
+    #expect(canned.count(address) == attempts)
 }
 
 /// Case 16. HTTP 200 with a page is never handed to a player as a subtitle.

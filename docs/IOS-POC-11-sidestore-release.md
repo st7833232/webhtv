@@ -894,9 +894,53 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第四十九次發布：`0.1.48 (49)`（2026-10-02，**已發布**）
+## 第五十次發布：`0.1.49 (50)`（2026-10-02，**已發布**）
 
-**目前最新版是 `0.1.48 (49)`。** 前面四十八版都已被取代。
+**目前最新版是 `0.1.49 (50)`。** 前面四十九版都已被取代。
+
+- 授權：使用者 2026-10-02 指示「push 並發佈新版本」，release notes 修正為不帶站台內容後「允許發布，照這版 release notes 繼續」。版號 `0.1.49`，build `50`。
+- 內容：`0.1.48 (49)` 的全部，加上：
+  - IOS-POC-42A（`c33bfa60`）：XYQHiker 直接播放模式的影片有集數。
+  - IOS-POC-42B（`f1cbfe89`）：直接播放頁先靜態擷取影片網址（略過片頭廣告、embed 一層、拆解析外層），再交給嗅探。
+  - IOS-POC-42C（`05f58a20`）：XYQHiker 搜尋讀中文鍵，支援 JSON 搜尋。
+  - 其餘是文件（`60932b30` assessment、`b785502e` 交接）與 `0.1.48 (49)` 的 `source.json`（`f1c11850`）。
+- 發布序列：
+  1. 版號 commit `f4231299`（Task-Guard `IOS-RELEASE-0.1.49-b50`，兩個 build configuration 的 `MARKETING_VERSION`／`CURRENT_PROJECT_VERSION`，沒有其他行變動）。第一次嘗試被 Claude Code auto mode 擋下，使用者允許後重做；另一次 guard 以不合法的 `--mode release` 啟動失敗，工作區還原後以 `standard` 重做，沒有留下錯誤的 commit。
+  2. push `05f58a20..f4231299`（push 前先 pull merge，遠端沒有新 commit；`b785502e..05f58a20` 已在前一步 push）。
+  3. `gh workflow run ios-sidestore-release.yml --ref ios-poc -f version=0.1.49 -f build_number=50 -f release_notes=…` → run `36973731602`（conclusion success，2026-10-02 06:28:43Z → 06:33:26Z；未逐一檢查各步驟）。
+  4. workflow 建立 tag `ios-v0.1.49-b50`（target `f4231299`），並推回 `source.json`（`3fc121b4`，共五十筆，第一筆 `0.1.49`，size 29,433,746 與 IPA 相同）。本機以 pull merge fast-forward 到 `3fc121b4`。
+
+  **沒有手動建 tag。**
+- 產物：
+  - GitHub Release `WebHTV 0.1.49 (50)`：不是 draft／prerelease，2026-10-02 06:33:18Z 發布。
+  - `WebHTV-0.1.49-50.ipa`：**29,433,746 bytes**，狀態 uploaded；GitHub 記錄的 digest SHA-256 為 `a8ff95e7c86a8cffc55e1d6f9f15110a468c621ac47d455ebd1549f021f774b0`。
+  - **IPA 已下載核對**（GET 200，SHA-256 與 digest 相同）：bundle `com.webhtv.ios.poc`，`CFBundleShortVersionString` `0.1.49`、`CFBundleVersion` `50`，`MinimumOSVersion` 與 `minos` 都是 `17.0`，`sdk 26.5`；`Translation.framework` 與 `_Translation_SwiftUI.framework` 仍為 `LC_LOAD_WEAK_DYLIB`。
+- 發布前驗證（這一版有做）：
+  - `swift test --package-path ios` 653／653；
+  - 模擬器 Debug 與 generic iOS 不簽章 Release build（`05f58a20` 的程式狀態；版號 commit 只改版號欄位）；
+  - 熱點下與修改前副本背對背的 sweep 與搜尋探測，模擬器實看農民播放與 App 內「檢查來源」；
+  - 詳見 IOS-POC-42 第 14～16 節。
+- **真機尚未驗收**。
+
+### Release notes（實際送出的內容）
+
+使用者 2026-10-02 指示 release notes 不帶站台內容（站名、設定檔名、站數、成人站），第一版草稿因此改寫。
+
+```text
+WebHTV 0.1.49 (50)（XYQHiker 規則來源的集數、播放與搜尋修正；真機未驗收）
+
+修正
+- XYQHiker 規則的來源中，設定為直接播放的影片不再沒有集數：照原版把影片頁本身當成唯一一集，可以直接播放。
+- 播放這類影片時，先從網頁或其中的播放框架找出影片網址，並略過片頭廣告；找不到才改用網頁嗅探。
+- XYQHiker 規則來源的搜尋：支援規則檔的中文欄位與 JSON 格式的搜尋結果，原本搜不到東西的來源現在可以搜尋。
+
+已知限制
+- 發布前通過自動測試（653 項）與模擬器建置、檢查；真機尚未驗收。
+- 需要網頁嗅探的影片，能不能播放取決於網站與當下的網路。
+- 其餘同 0.1.48 (49)。
+```
+
+## 第四十九次發布：`0.1.48 (49)`（2026-10-02，**已發布**，已被 `0.1.49 (50)` 取代）
 
 - 授權：使用者 2026-10-02 指示「發佈」（IOS-POC-41C push 之後）。版號 `0.1.48`，build `49`。
 - 內容：`0.1.47 (48)` 的全部，加上：

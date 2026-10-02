@@ -10,7 +10,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **IOS-POC-36 已結案（`CLOSED`，2026-10-02 使用者決定）**：WebHTV `0.1.43 (44)` 視為 IOS-POC-36 的完成版本。rollback 不需要、沒有 code blocker；D1～D12 都已修並隨 `0.1.43 (44)` 發布（D9＝36.2 與 D10 隨 `0.1.42 (43)`，D11 `c59577c9`、D12 `1355aa98` 隨 `0.1.43 (44)`；`0.1.44 (45)`～`0.1.47 (48)` 都包含）；`swift test` 622/622、模擬器 Debug、generic iOS Release build、Ponytail review 都已完成。**真機 PiP／background 驗收不再是阻塞條件**：日後若有做只算額外 evidence，不把任務改回 `BLOCKED`，也不再擴張 IOS-POC-36（`docs/IOS-POC-36-playback-acceptance-stability.md` 第十八節）。
 
-**最新發布是 `0.1.48 (49)`**（2026-10-02，使用者指示「發佈」；版號 commit `72ad9891`，tag `ios-v0.1.48-b49` → `72ad9891`，run `36959157260` success，`source.json` `f1c11850`，IPA 29,432,118 bytes，SHA-256 `15202803…`，已下載核對；IOS-POC-11 第四十九次發布）。內容是 `0.1.47 (48)` 加上 IOS-POC-41A／41B／41C、`9e5b71d8`（MPV `hwdec-current` log）、`c1a4743c`（冷啟動 build）、`4ac71c27`。發布前有 `swift test` 643／643、模擬器 Debug、generic iOS Release 與模擬器實看；**真機未驗證**。之後再發版仍需使用者授權。
+**最新發布是 `0.1.49 (50)`**（2026-10-02，使用者指示「push 並發佈新版本」；版號 commit `f4231299`，tag `ios-v0.1.49-b50` → `f4231299`，run `36973731602` success，`source.json` `3fc121b4`，IPA 29,433,746 bytes，SHA-256 `a8ff95e7…`，已下載核對；IOS-POC-11 第五十次發布）。內容是 `0.1.48 (49)` 加上 IOS-POC-42A／42B／42C。發布前有 `swift test` 653／653、模擬器 Debug、generic iOS Release 與模擬器實看；**真機未驗證**。之後再發版仍需使用者授權；release notes 不帶站台內容。前一版 `0.1.48 (49)`（2026-10-02，使用者指示「發佈」；版號 commit `72ad9891`，tag `ios-v0.1.48-b49` → `72ad9891`，run `36959157260` success，`source.json` `f1c11850`，IPA 29,432,118 bytes，SHA-256 `15202803…`，已下載核對；IOS-POC-11 第四十九次發布）。內容是 `0.1.47 (48)` 加上 IOS-POC-41A／41B／41C、`9e5b71d8`（MPV `hwdec-current` log）、`c1a4743c`（冷啟動 build）、`4ac71c27`。發布前有 `swift test` 643／643、模擬器 Debug、generic iOS Release 與模擬器實看；**真機未驗證**。之後再發版仍需使用者授權。
 
 **IOS-POC-39 S5 搜尋缺口 survey（2026-10-02，已完成，assessment、只改文件）**：`docs/IOS-POC-39-xbpq-rule-coverage.md` 第七節。用 gitlab `recha` 當天的 `wang-sex.json`／`wang-movie.json`（113 個 XBPQ 項目）與 `xyqxbpq.jar`（SHA-256 `7b732f22…`），App 路徑探測（暫時測試，已刪、未 commit）加 curl 實測：**A 0**、B 13、C 90、D 6、E 4。`搜索模式` 28 站、值全部是 `1`，讀完原版 `searchContent`／`Z()` 後確認 `1` 只在有 `搜索后缀` 或 `/ajax/` 網址時才和預設不同（28 站中只有色花堂，而它是 C）；`搜索模式0` 是原版重試用的內部旗標，0 站使用。**S5-3 預估救回 0 站、建議不做**；連同原版整條 fallback（suggest JSON、`rss.xml`、首頁／分類篩片名）一起移植也是 0 站，第 4 項同樣不做。`XBPQ.js` 沒有改。設定檔可修的兩站（亚瑟影库、魔法少女4 的 `搜索url`）在第 7.8 節，屬使用者 GitLab。
 
@@ -27,15 +27,15 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - 驗證：`swift test` 643／643；模擬器 Debug、generic iOS Release；熱點下真實 sweep 的結果與 IOS-POC-39 第 7.3 節一致；模擬器實看檢查、報告與記錄。真機未驗證。
 - 見 IOS-POC-41 第 13 節。IOS-POC-41 三段都已完成。
 
-**IOS-POC-42 XYQHiker 詳情頁沒有集數（2026-10-02，42A／42B／42C 已 commit，未 push、未發布）**：`docs/IOS-POC-42-xyqhiker-detail-episodes.md`（第 14～16 節是實作紀錄）。使用者「照建議，開始 42A＋42B，42C 一起做」。
+**IOS-POC-42 XYQHiker 詳情頁沒有集數（2026-10-02，42A／42B／42C 已 push，隨 `0.1.49 (50)` 發布）**：`docs/IOS-POC-42-xyqhiker-detail-episodes.md`（第 14～16 節是實作紀錄）。使用者「照建議，開始 42A＋42B，42C 一起做」。
 - **根因**：47 份可解析的成人規則檔中 44 份設 `链接是否直接播放=1`；原版在這個模式不解析選集，把那一部當成唯一一集，`XYQHiker.js` 沒有這個模式，所以 0 集。搜尋只讀英文鍵，規則檔用中文鍵，所以搜尋全空。
 - **42A**（`c33bfa60`）：詳情的直接播放模式。`wang-sex.json` PLAYABLE 42 → 49（XYQHiker 0 → 6 站）。
 - **42B**（`f1cbfe89`）：直接播放頁先靜態擷取（排除廣告路徑、embed 一層、拆 `?url=`）再嗅探；網域前綴不重複加。`wang-sex.json` 41 → 59（XYQHiker **0 → 15 站**，bongacams 的佔位影片不算）。
-- **42C**（本 commit）：搜尋讀中文鍵，加 `搜索截取模式=0` 的 JSON 模式（MacCMS suggest，15 份規則檔；比 assessment 多做，理由在第 16 節）。「中文」搜尋 `wang-sex.json` 0 → 13 站；`wang-movie.json`「海贼」1 → 3 站。
+- **42C**（`05f58a20`）：搜尋讀中文鍵，加 `搜索截取模式=0` 的 JSON 模式（MacCMS suggest，15 份規則檔；比 assessment 多做，理由在第 16 節）。「中文」搜尋 `wang-sex.json` 0 → 13 站；`wang-movie.json`「海贼」1 → 3 站。
 - 每段都是熱點下與 HEAD 副本背對背的 sweep：非 XYQHiker 站逐站相同；`wang-movie.json` 只有 Bili、type-1、type-4 的網路波動，农民、巴士动漫、動漫巴士與同時段基準相同。`swift test` 653／653；模擬器 Debug、generic iOS Release；模擬器實看农民播放與 App 內「檢查來源」。**真機未驗證。**
 - 未做（記錄）：直播三站的 JSON 分類、动漫PRO 的選集截取、`host.js` 的 `:not`／`:contains`、規則檔本身的問題（第 8 節「暫緩」）；`请求头参数` 只寫 `PC_UA`（沒有 `User-Agent$`，7 份規則檔）時 iOS 用手機 UA、原版用電腦 UA（第 16 節，未改）。
 
-**Next Recommended Step**：等使用者決定是否 push `ios-poc`（三個 commit）與發布新版；bump／tag／release 前要先問。真機驗收 `0.1.48 (49)` 由使用者另外進行。
+**Next Recommended Step**：IOS-POC-42 已隨 `0.1.49 (50)` 發布；等使用者在真機用 SideStore 更新後回報（XYQHiker 直接播放站的集數與播放、XYQHiker 站的搜尋）。之後再發版仍需使用者授權，不要自己 bump／tag／release。
 
 
 ## Current handoff — 2026-10-01（前一次交接）
@@ -1415,6 +1415,6 @@ Paste this into a new session:
 >
 > 目前狀態：**IOS-POC-36 已結案**（2026-10-02，以 `0.1.43 (44)` 為完成版本；真機 PiP／background 驗收不再是阻塞條件，日後有做只算額外 evidence，不再擴張 36，見 `docs/IOS-POC-36-playback-acceptance-stability.md` 第十八節）。最新發布是 `0.1.47 (48)`（tag `ios-v0.1.47-b48` → `6fcc8555`）；之後未發布的有 `c1a4743c`、`9e5b71d8`、`4ac71c27`。各版內容與真機結果見 Current handoff 的表格與 `docs/IOS-POC-11-sidestore-release.md`。ponytail audit 剩下的只有等我決定（第 1／7、11、18、19、28 項）、要升 ABI（第 4、6、26 項）、要跑 CI（第 3、22、29、30 項）的（`docs/PONYTAIL-AUDIT-2026-10-01.md`），沒有我的指示不要做。
 >
-> 下一步：IOS-POC-41（41A～41C）已完成並隨 `0.1.48 (49)` 發布，真機未驗證。IOS-POC-42「XYQHiker 詳情頁沒有集數」的 42A／42B／42C 已 commit（`docs/IOS-POC-42-xyqhiker-detail-episodes.md` 第 14～16 節），未 push、未發布，真機未驗證。沒有我的核准不改程式。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13。
+> 下一步：IOS-POC-41（41A～41C）已完成並隨 `0.1.48 (49)` 發布，真機未驗證。IOS-POC-42「XYQHiker 詳情頁沒有集數」的 42A／42B／42C 已隨 `0.1.49 (50)` 發布（`docs/IOS-POC-42-xyqhiker-detail-episodes.md` 第 14～16 節），真機未驗證。沒有我的核准不改程式。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13。
 >
 > 規則：Ponytail 只要環境有就一定要執行——每個程式修改在回報完成前，對最終 diff 跑 `ponytail:ponytail-review`，結果記進任務文件；只有環境沒有時才略過，不得因此阻擋功能修改、驗證、commit、build 或後續工作，也不得假稱已執行，或把可用的記成略過。功能修改仍須 `bash .codex/scripts/task_guard.sh start`，結束用 `finish --no-tag`。push 到 `ios-poc` 已授權，**push 前先 `git pull --no-rebase` merge**（同一個工作目錄可能有另一個 session 也在 commit）；bump 版本、tag、package、publish 或發 SideStore release 前要先問我。不要直接安裝到我的 iPhone（我用 SideStore）。真機沒測到的一律寫「未驗證」。雲端工作階段沒有 Swift／Xcode，編譯靠發版 workflow，單元測試照常撰寫但不執行（我選的「只靠編譯與真機」）。只 push 到 `ios-poc`，不建立新的遠端分支，也不 merge 到 `main`。

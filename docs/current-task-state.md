@@ -4,6 +4,10 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
+## Current handoff — 2026-10-02 晚：IOS-POC-45 線上字幕（先讀這一節）
+
+**IOS-POC-45**：線上字幕搜尋、下載、套用與 Session 暫存（Subtitle Cat）。文件 `docs/IOS-POC-45-online-subtitles.md`（設計、查證、驗證紀錄、待真機項目都在那裡）。task guard `IOS-POC-45`（`standard`）。Subtitle Cat 站台從雲端 session 連不上（egress 政策），live smoke test 未執行，fixture 為重建版本；真機驗證未做。下面「2026-10-02 下午」的交接其餘內容不變。
+
 ## Current handoff — 2026-10-02 下午（先讀這一節，再讀文末 Resume Prompt；下面「2026-10-02 上午」是前一次交接）
 
 **Git**：`ios-poc`。接手時一律先 `git fetch`、`git log --oneline -15`、`git status`，以實際 `origin/ios-poc` 為準、不要相信本文的 SHA；push 前 `git pull --no-rebase`；不建新分支、不 merge `main`。寫這一節時工作區乾淨；這份交接 commit 可能還沒 push（看 `git status -sb`）。

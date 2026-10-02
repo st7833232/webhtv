@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.53",
+          "date": "2026-10-02",
+          "localizedDescription": "WebHTV 0.1.53 (54)（字幕修正與新功能；真機未驗收）\n\n修正\n- MPV 播放器的中文字幕顯示為方格：改用系統內可讀取的中文字型（PingFang 等）。\n\n新增\n- 字幕面板加入「時間軸校正」：以 0.1 秒或 1 秒為單位提前或延後字幕。MPV 對所有字幕有效；AVPlayer 只對線上字幕有效。\n- 線上字幕新增 OpenSubtitles 與射手網兩個來源。需要在「設定 › 線上字幕來源」輸入你自己的 API key 或 token（存在裝置鑰匙圈）；未設定的來源會顯示「未設定」，不會連線。\n\n已知限制\n- 發布前通過 Core 自動測試；App 部分以此次 release 建置為第一次 macOS 編譯。\n- 中文字型修正與兩個新字幕來源的實際連線，都尚未在真機驗證。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.53-b54/WebHTV-0.1.53-54.ipa",
+          "size": 29715906,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.52",
           "date": "2026-10-02",
           "localizedDescription": "WebHTV 0.1.52 (53)（線上字幕；真機未驗收）\n\n新增\n- 字幕面板新增「線上字幕」：自動帶入番號或片名，也可以把文字全部刪掉、自行輸入任何內容，向 Subtitle Cat 搜尋。結果依繁體中文、簡體中文、日文、英文、其他語言排列，列出語言、檔名與來源。\n- 點選字幕後才下載，下載完成立即套用；原生播放器與 MPV 都能顯示，切換播放器時保留已下載的字幕，不重新下載。\n- 下載的字幕只保留到這次播放結束：關閉播放器或換集後刪除，不建立字幕庫。\n- 字幕網站連不上、找不到字幕、需要網頁驗證或檔案無效時，只在面板顯示原因，不影響播放與影片內嵌字幕。\n\n已知限制\n- 原生播放器的線上字幕只在 App 畫面內顯示，子母畫面與 AirPlay 看不到。\n- 發布前通過自動測試（714 項）與 Debug、Release 建置；Subtitle Cat 實際網站與真機尚未驗收。",

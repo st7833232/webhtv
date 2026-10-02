@@ -183,8 +183,24 @@
 ## 10. 尚待真機或連網驗證
 
 1. **Subtitle Cat 實際頁面**：用 `FC2PPV-4159457` 在 App 內搜尋，確認搜尋頁、結果頁、direct `.srt` 的實際 HTML 與 fixture 的假設一致（結果頁連結 `/subs/<數字>/<名>.html`、檔案 `…-<語言>.srt`、Translate 為按鈕或 `onclick`）。不一致時只需改 `SubtitleCatProvider` 的連結判斷與 fixture。
-2. **MPV CJK 字型**：libass 在 iOS 上是否能找到中文／日文字型（MPVKit 的 libass font provider 未驗證）。內嵌中文字幕若已能正常顯示，外掛字幕同樣可以。
+2. **MPV CJK 字型**：0.1.52 真機回報 MPV 字幕全是方格；IOS-POC-45A（第 11 節）改以 `sub-font` 指定 libass 能開啟的 CJK 字型，待真機確認。
 3. **MPV PiP**：`sub-add` 的字幕是否也畫進 PiP 的軟體輸出（libmpv render API 通常會，未實測）。
 4. **AVPlayer PiP／AirPlay**：overlay 只在 App 內的播放畫面顯示；PiP 視窗與 AirPlay 電視上看不到線上字幕（平台限制，已知）。
 5. **鍵盤**：直式底部 sheet 與橫式側邊 drawer 在鍵盤出現時的高度（SwiftUI keyboard avoidance 未實測）。
 6. **字幕同步**：HLS 廣告切除或片頭偏移時，外掛字幕可能整體偏移（`docs/IOS-POC-26-engine-switch-position.md` 的 H1 已記錄過同類現象）；本任務不提供時間軸微調。
+
+## 11. IOS-POC-45A：MPV 中文字幕顯示為方格
+
+- 回報：使用者 2026-10-02 於 `0.1.52 (53)` 真機回報「Mpv 的字幕都是方格」。
+- 證據：libass 0.17.5 原始碼（`libass/ass_coretext.c`、`libass/ass_fontselect.c`，tag `0.17.5`，2026-10-02 取得）。
+  1. CoreText provider 只收有檔案 URL 的字型（`get_font_info_ct`：URL 為空即跳過），之後由 FreeType 依路徑開檔。
+  2. `ass_font_select` 的順序：樣式字型 → 預設 family（mpv 的 `sub-font`）→ provider 的 `get_fallback`（`CTFontCreateForString` 回傳的 family 名稱，再以名稱比對）→ 預設字型檔。
+  3. mpv 的 `sub-font` 預設 `sans-serif`，CoreText provider 對應為 Helvetica，沒有中文字形；中文只能走 `get_fallback`。iOS 的 CoreText fallback 回傳的 family 若是系統私有字型（名稱以 `.` 開頭，模擬器的 PingFang 即為此類，見 `WebHTVApp.swift` 的 `displayName` 註解）或檔案打不開，比對就失敗，畫出方格。
+- 修正：`MPVSubtitleFont.family` 依序檢查 `PingFang TC`、`PingFang HK`、`PingFang SC`、`Hiragino Sans`，取第一個 CoreText 能找到、有檔案 URL 且檔案實際能開啟的 family，於 `mpv_initialize` 前設為 `sub-font`。文字字幕（SRT 轉成的樣式字型）直接使用它；ASS 指名但找不到的字型也先試它，再走 fallback。結果記一行 `[subtitle] mpv sub-font=…`（只有 family 名稱）。
+- 不採用：
+  1. 內建 CJK 字型檔：保證可用，但 IPA 增加約 7 至 16 MB，且需授權登錄；等真機證明系統字型開不了再評估。
+  2. `sub-fonts-dir` 指向系統字型：libass 會把目錄內字型整個讀進記憶體，PingFang 字型集合檔過大。
+  3. 以 SwiftUI overlay 取代 MPV 字幕：失去 ASS 樣式，內嵌圖形字幕仍需 libass，範圍過大。
+- 風險：四個 family 都開不了時行為與修正前相同，log 會寫 `default (no CJK family opens)`，屆時改走內建字型方案。
+- 驗證：此環境無 macOS／iOS，無法編譯 App target 或實機播放；以下一次 release workflow 的建置與真機播放中文 SRT／內嵌中文字幕為準。
+- Rollback：revert 本 commit（只動 `MPVEngine.swift` 與文件）。

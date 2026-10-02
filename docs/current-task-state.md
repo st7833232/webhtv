@@ -6,6 +6,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current handoff — 2026-10-02 晚：IOS-POC-45 線上字幕（先讀這一節）
 
+**IOS-POC-45A**（2026-10-02）：MPV 中文字幕方格，改以 `sub-font` 指定 libass 能開啟的系統 CJK 字型；未經 macOS 編譯與真機驗證，見 IOS-POC-45 文件第 11 節。
+
 **IOS-POC-45**：線上字幕搜尋、下載、套用與 Session 暫存（Subtitle Cat）。文件 `docs/IOS-POC-45-online-subtitles.md`（設計、查證、驗證紀錄、待真機項目都在那裡）。task guard `IOS-POC-45`（`standard`）。Subtitle Cat 站台從雲端 session 連不上（egress 政策），live smoke test 未執行，fixture 為重建版本；真機驗證未做。下面「2026-10-02 下午」的交接其餘內容不變。
 
 ## Current handoff — 2026-10-02 下午（先讀這一節，再讀文末 Resume Prompt；下面「2026-10-02 上午」是前一次交接）

@@ -1,5 +1,6 @@
 import Accelerate
 import AVKit
+import CoreText
 import Libmpv
 import SwiftUI
 import UIKit
@@ -383,6 +384,34 @@ struct MPVVideoSurface: UIViewRepresentable {
     }
 }
 
+/// IOS-POC-45A — the family mpv's subtitles fall back to: the first CJK family whose font file
+/// libass can open. libass's CoreText provider skips a face without a file URL and FreeType opens
+/// that file by path, so a family counts only once its file actually opens. Traditional Chinese
+/// first; Hiragino Sans covers kanji and kana when no PingFang qualifies.
+enum MPVSubtitleFont {
+    static let candidates = ["PingFang TC", "PingFang HK", "PingFang SC", "Hiragino Sans"]
+
+    /// Nil leaves mpv's own default, and the log says so.
+    static let family: String? = {
+        let found = MPVSubtitleFont.candidates.first(where: MPVSubtitleFont.opens)
+        Task { @MainActor in
+            PlaybackSession.log.notice("[subtitle] mpv sub-font=\(found ?? "default (no CJK family opens)", privacy: .public)")
+        }
+        return found
+    }()
+
+    private static func opens(_ family: String) -> Bool {
+        let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontFamilyNameAttribute: family] as CFDictionary)
+        let faces = CTFontDescriptorCreateMatchingFontDescriptors(descriptor, nil) as? [CTFontDescriptor] ?? []
+        return faces.contains { face in
+            guard let url = CTFontDescriptorCopyAttribute(face, kCTFontURLAttribute) as? URL, url.isFileURL,
+                  let file = FileHandle(forReadingAtPath: url.path) else { return false }
+            try? file.close()
+            return true
+        }
+    }
+}
+
 /// Everything that touches the mpv handle. Deliberately **not** actor-isolated: mpv calls back on
 /// its own threads, and IOS-POC-9C/9G each crashed once for letting a callback inherit
 /// `@MainActor`.
@@ -459,6 +488,14 @@ final class MPVPlayerCore: @unchecked Sendable {
         #endif
         mpv_set_option_string(handle, "video-rotate", "no")
         mpv_set_option_string(handle, "subs-fallback", "yes")
+        // IOS-POC-45A: Chinese subtitles drew as boxes. mpv's default `sans-serif` is Helvetica to
+        // libass's CoreText provider, and a character Helvetica lacks goes to CoreText's fallback,
+        // whose answer on iOS libass could not open. Naming a CJK family libass can open fixes the
+        // text subtitles (their style font) and every ASS font it cannot find (libass tries this
+        // default family before the fallback).
+        if let family = MPVSubtitleFont.family {
+            mpv_set_option_string(handle, "sub-font", family)
+        }
         // `render.h`'s advice for the software output Picture in Picture uses (17H). `sw-fast` is a
         // built-in profile (faster `sws`/`zimg` scalers, which the Metal output does not scale
         // with); as an option name it does not exist and is refused (MPV_ERROR_OPTION_NOT_FOUND).

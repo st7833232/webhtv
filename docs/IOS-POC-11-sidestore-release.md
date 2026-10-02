@@ -894,9 +894,51 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第五十次發布：`0.1.49 (50)`（2026-10-02，**已發布**）
+## 第五十一次發布：`0.1.50 (51)`（2026-10-02，**已發布**）
 
-**目前最新版是 `0.1.49 (50)`。** 前面四十九版都已被取代。
+**目前最新版是 `0.1.50 (51)`。** 前面五十版都已被取代。
+
+- 授權：使用者 2026-10-02 指示「push 並發佈新版本」（IOS-POC-43A commit 之後）。版號 `0.1.50`，build `51`。
+- 內容：`0.1.49 (50)` 的全部，加上：
+  - IOS-POC-43A（`18d6c8fd`，CI 相容修正 `9ff04eeb`）：「檢查來源」同時檢查時嗅探不再互相取消；一般播放不變。
+  - 其餘是文件（`7d662f69` assessment）與 `0.1.49 (50)` 的 `source.json`（`3fc121b4`）。
+- 發布序列：
+  1. 版號 commit `5912dbfc`（Task-Guard `IOS-RELEASE-0.1.50-b51`，兩個 build configuration 的版號欄位，沒有其他行變動）；push `b4560be7..5912dbfc`（含 `7d662f69`、`18d6c8fd`）。
+  2. 第一次 `gh workflow run` → run `36980547255` **失敗**（07:48:46Z → 07:53:17Z，「Build unsigned device app」）：CI 的 Xcode 26.6 不接受 `MediaSniffer` 裡 `@TaskLocal` 巨集在 `@MainActor` 類別下展開的 `$waitsForTurn`（本機 Xcode 27.0 接受）。建置失敗時沒有建 tag、Release，也沒有改 `source.json`。
+  3. 修正 `9ff04eeb`（Task-Guard `IOS-POC-43A-ci`；改用 `nonisolated public static let waitsForTurn = TaskLocal(wrappedValue: false)`，`swift test` 654／654；IOS-POC-43 第 12 節）；push `5912dbfc..9ff04eeb`。
+  4. 以相同版號與 release notes 重跑 → run `36981240970`（conclusion success，07:56:28Z → 08:03:14Z；未逐一檢查各步驟）。
+  5. workflow 建立 tag `ios-v0.1.50-b51`（target `9ff04eeb`），並推回 `source.json`（`be7889d5`，共五十一筆，第一筆 `0.1.50`，size 29,434,569 與 IPA 相同）。本機以 pull merge fast-forward 到 `be7889d5`。
+
+  **沒有手動建 tag。**
+- 產物：
+  - GitHub Release `WebHTV 0.1.50 (51)`：不是 draft／prerelease，2026-10-02 08:03:02Z 發布。
+  - `WebHTV-0.1.50-51.ipa`：**29,434,569 bytes**，狀態 uploaded；GitHub 記錄的 digest SHA-256 為 `37dc515d51b4c4bc5cdf3373bd46f54042c7e7776f6fea57e3f97fb485a07958`。
+  - **IPA 已下載核對**（GET 200，SHA-256 與 digest 相同）：bundle `com.webhtv.ios.poc`，`CFBundleShortVersionString` `0.1.50`、`CFBundleVersion` `51`，`MinimumOSVersion` 與 `minos` 都是 `17.0`，`sdk 26.5`；`Translation.framework` 與 `_Translation_SwiftUI.framework` 仍為 `LC_LOAD_WEAK_DYLIB`。
+- 發布前驗證（這一版有做）：
+  - `swift test --package-path ios` 654／654（修正後再跑一次）；
+  - 模擬器 Debug 與 generic iOS 不簽章 Release build（`18d6c8fd`，本機 Xcode 27.0）；CI（Xcode 26.6）以第二次 run 的建置為準；
+  - iOS 模擬器上與 HEAD 背對背的整批檢查、App 內「檢查來源」與播放實看；詳見 IOS-POC-43 第 11、12 節。
+- **真機尚未驗收**。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.50 (51)（檢查來源的判斷修正；真機未驗收）
+
+修正
+- 設定頁「檢查來源」同時檢查多個來源時，需要網頁嗅探的影片會互相干擾，被誤判成「取不到播放網址」，並記進來源的健康圓點。現在檢查時的嗅探會依序進行，結果與實際播放一致。
+- 一般播放不受影響：切換集數時仍以最新點選的為準。
+
+已知限制
+- 發布前通過自動測試（654 項）與模擬器建置、檢查；真機尚未驗收。
+- 先前檢查留下的錯誤記錄不會自動更正，可以重新檢查，或在設定頁清除站點健康記錄。
+- 檢查來源的耗時比上一版長約兩成。
+- 其餘同 0.1.49 (50)。
+```
+
+## 第五十次發布：`0.1.49 (50)`（2026-10-02，**已發布**，已被 `0.1.50 (51)` 取代）
+
+**`0.1.49 (50)` 當時是最新版。** 前面四十九版都已被取代。
 
 - 授權：使用者 2026-10-02 指示「push 並發佈新版本」，release notes 修正為不帶站台內容後「允許發布，照這版 release notes 繼續」。版號 `0.1.49`，build `50`。
 - 內容：`0.1.48 (49)` 的全部，加上：

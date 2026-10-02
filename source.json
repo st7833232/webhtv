@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.50",
+          "date": "2026-10-02",
+          "localizedDescription": "WebHTV 0.1.50 (51)（檢查來源的判斷修正；真機未驗收）\n\n修正\n- 設定頁「檢查來源」同時檢查多個來源時，需要網頁嗅探的影片會互相干擾，被誤判成「取不到播放網址」，並記進來源的健康圓點。現在檢查時的嗅探會依序進行，結果與實際播放一致。\n- 一般播放不受影響：切換集數時仍以最新點選的為準。\n\n已知限制\n- 發布前通過自動測試（654 項）與模擬器建置、檢查；真機尚未驗收。\n- 先前檢查留下的錯誤記錄不會自動更正，可以重新檢查，或在設定頁清除站點健康記錄。\n- 檢查來源的耗時比上一版長約兩成。\n- 其餘同 0.1.49 (50)。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.50-b51/WebHTV-0.1.50-51.ipa",
+          "size": 29434569,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.49",
           "date": "2026-10-02",
           "localizedDescription": "WebHTV 0.1.49 (50)（XYQHiker 規則來源的集數、播放與搜尋修正；真機未驗收）\n\n修正\n- XYQHiker 規則的來源中，設定為直接播放的影片不再沒有集數：照原版把影片頁本身當成唯一一集，可以直接播放。\n- 播放這類影片時，先從網頁或其中的播放框架找出影片網址，並略過片頭廣告；找不到才改用網頁嗅探。\n- XYQHiker 規則來源的搜尋：支援規則檔的中文欄位與 JSON 格式的搜尋結果，原本搜不到東西的來源現在可以搜尋。\n\n已知限制\n- 發布前通過自動測試（653 項）與模擬器建置、檢查；真機尚未驗收。\n- 需要網頁嗅探的影片，能不能播放取決於網站與當下的網路。\n- 其餘同 0.1.48 (49)。",

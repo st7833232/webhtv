@@ -652,3 +652,44 @@ func downloadsAreRetriedOnlyOnceAndOnlyAfterAServerError(_ statuses: [Int], _ at
     let data = Data(timing.utf8) + Data([0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2, 0x0A])
     #expect(SubtitleContent.decode(data, language: SubtitleLanguage(code: "ru")) == timing + "Привет\n")
 }
+
+// MARK: - IOS-POC-45B: 時間軸校正
+
+/// Positive means later, the way mpv's `sub-delay` reads, so the overlay and mpv move a line the
+/// same way for the same value: a cue at 10–12 s with +0.5 s shows from 10.5 s until 12.5 s.
+@Test func aPositiveDelayShowsTheSameLineLaterOnBothEngines() {
+    let cues = SubtitleCues([SubtitleCue(start: 10, end: 12, text: "台詞")])
+    #expect(cues.text(at: 10.4, delay: 0.5) == nil)
+    #expect(cues.text(at: 10.5, delay: 0.5) == "台詞")
+    #expect(cues.text(at: 12.4, delay: 0.5) == "台詞")
+    #expect(cues.text(at: 12.5, delay: 0.5) == nil)
+    #expect(cues.text(at: 9.5, delay: -0.5) == "台詞")
+    #expect(cues.text(at: 11.5, delay: -0.5) == nil)
+}
+
+/// Ten taps of +0.1 must read +1.0, not +0.9999; a runaway value stops at the limit; and the
+/// label shows the direction the viewer moved.
+@Test func theDelayStaysOnTenthsAndWithinItsLimit() {
+    var delay = 0.0
+    for _ in 0..<10 { delay = SubtitleDelay.clamped(delay + 0.1) }
+    #expect(delay == 1.0)
+    #expect(SubtitleDelay.label(delay) == "+1.0 秒")
+    #expect(SubtitleDelay.label(SubtitleDelay.clamped(delay - 2.2)) == "-1.2 秒")
+    #expect(SubtitleDelay.label(0) == "0.0 秒")
+    #expect(SubtitleDelay.clamped(10_000) == SubtitleDelay.limit)
+    #expect(SubtitleDelay.clamped(-10_000) == -SubtitleDelay.limit)
+    #expect(SubtitleDelay.clamped(.nan) == 0)
+}
+
+/// The control is offered only where it moves what is on screen: under AVPlayer an embedded
+/// track cannot be moved, so offering it there would be a button that does nothing.
+@Test func theCorrectionIsOfferedOnlyWhereItMovesTheSubtitleOnScreen() {
+    let online = "online-subtitle-1"
+    #expect(PlaybackExternalSubtitle.isExternalID(online))
+    #expect(SubtitleDelay.applies(to: .mpv, selectedSubtitleID: "2"))
+    #expect(SubtitleDelay.applies(to: .mpv, selectedSubtitleID: online))
+    #expect(SubtitleDelay.applies(to: .native, selectedSubtitleID: online))
+    #expect(!SubtitleDelay.applies(to: .native, selectedSubtitleID: "embedded-0"))
+    #expect(!SubtitleDelay.applies(to: .mpv, selectedSubtitleID: PlaybackMediaOption.subtitleOffID))
+    #expect(!SubtitleDelay.applies(to: .mpv, selectedSubtitleID: nil))
+}

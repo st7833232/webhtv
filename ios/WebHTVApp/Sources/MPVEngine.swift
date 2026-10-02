@@ -162,6 +162,10 @@ final class MPVEngine: PlaybackEngine {
         core.setExternalSubtitles(subtitles, selectedID: selectedID)
     }
 
+    func setSubtitleDelay(_ seconds: Double) {
+        core.setSubtitleDelay(seconds)
+    }
+
     func teardown() {
         setPlaybackIntent(false)
         pictureInPicture?.invalidate()
@@ -580,6 +584,14 @@ final class MPVPlayerCore: @unchecked Sendable {
                 refreshMediaSelection(mpv)
                 continuation.resume()
             }
+        }
+    }
+
+    /// IOS-POC-45B: `sub-delay` is an option, so it holds for every subtitle and every later file.
+    func setSubtitleDelay(_ seconds: Double) {
+        queue.async { [self] in
+            guard let mpv else { return }
+            mpv_set_property_string(mpv, "sub-delay", String(seconds))
         }
     }
 

@@ -2900,6 +2900,14 @@ struct EpisodeSteps: Equatable {
     /// The cues the AVPlayer overlay draws now; nil under MPV, which draws its own.
     var nativeOnlineSubtitleCues: SubtitleCues? { (engine as? AVPlayerEngine)?.activeExternalCues }
 
+    /// IOS-POC-45B: 時間軸校正 for this video's subtitles, seconds; positive shows them later.
+    var subtitleDelay: Double { router.subtitleDelay }
+
+    func setSubtitleDelay(_ seconds: Double) {
+        router.setSubtitleDelay(seconds)
+        Self.log.notice("[subtitle] delay \(SubtitleDelay.label(self.router.subtitleDelay), privacy: .public) on \(self.engineKind.shortName, privacy: .public)")
+    }
+
     /// The player screen closed, or the bridge stopped playback: this video's downloads are deleted.
     /// Called the moment the screen goes, not after `persist()`, so a video opened right after can
     /// never have its own new session ended by the old screen's close.
@@ -4828,6 +4836,9 @@ private struct PlayerControlBar: View {
                 }
             case .subtitle:
                 trackRows(media.subtitle, kind: .subtitle)
+                if SubtitleDelay.applies(to: engine, selectedSubtitleID: media.subtitle?.selectedID) {
+                    SubtitleDelayRow(session: session)
+                }
                 if let online {
                     OnlineSubtitleSection(online: online, selectedSubtitleID: media.subtitle?.selectedID)
                 }
@@ -4950,6 +4961,59 @@ private extension View {
 /// candidates, and the files found. Everything here is `OnlineSubtitleSession`'s state; this only
 /// binds to it. Recognition prefills the field and offers chips — the field itself is the
 /// viewer's, and can be emptied and filled with anything.
+/// IOS-POC-45B: 時間軸校正. Moves the subtitle on screen later (+) or earlier (-) by tenths or
+/// whole seconds; the value in the middle puts it back. Only shown where it moves something
+/// (`SubtitleDelay.applies`).
+private struct SubtitleDelayRow: View {
+    let session: PlaybackSession
+    /// The router's value, mirrored: nothing else changes it while this row is on screen.
+    @State private var delay = 0.0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider().overlay(.white.opacity(0.2))
+            Text("時間軸校正")
+                .font(.subheadline.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
+            HStack(spacing: 8) {
+                step(-1, "-1", spoken: "提前 1 秒")
+                step(-0.1, "-0.1", spoken: "提前 0.1 秒")
+                Button { apply(0) } label: {
+                    Text(SubtitleDelay.label(delay))
+                        .font(.subheadline.monospacedDigit().weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 36)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("目前 \(SubtitleDelay.label(delay))")
+                .accessibilityHint("歸零")
+                step(0.1, "+0.1", spoken: "延後 0.1 秒")
+                step(1, "+1", spoken: "延後 1 秒")
+            }
+            Text("字幕比聲音早出現按 +，晚出現按 -；點中間的數值歸零。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .onAppear { delay = session.subtitleDelay }
+    }
+
+    private func step(_ seconds: Double, _ title: String, spoken: String) -> some View {
+        Button { apply(delay + seconds) } label: {
+            Text(title)
+                .font(.subheadline.monospacedDigit())
+                .frame(minWidth: 44, minHeight: 36)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel(spoken)
+    }
+
+    private func apply(_ seconds: Double) {
+        session.setSubtitleDelay(seconds)
+        delay = session.subtitleDelay
+    }
+}
+
 private struct OnlineSubtitleSection: View {
     @Bindable var online: OnlineSubtitleSession
     /// The subtitle the player shows now, to mark the row of a file that is in use.
@@ -5148,7 +5212,7 @@ private struct OnlineSubtitleOverlay: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.1)) { _ in
-            if let text = cues.text(at: session.position) {
+            if let text = cues.text(at: session.position, delay: session.subtitleDelay) {
                 Text(verbatim: text)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(.white)

@@ -54,6 +54,40 @@ public struct SubtitleCues: Sendable, Equatable {
         }
         return showing.isEmpty ? nil : showing.reversed().joined(separator: "\n")
     }
+
+    /// What shows at `seconds` with the viewer's timing correction: a positive delay shows every
+    /// cue that much later, as mpv's `sub-delay` does.
+    public func text(at seconds: Double, delay: Double) -> String? {
+        text(at: seconds - delay)
+    }
+}
+
+/// IOS-POC-45B — 時間軸校正: how far the viewer moves the subtitles, in seconds. Positive shows
+/// them later, negative earlier.
+public enum SubtitleDelay {
+    /// Either way. A different cut of the same video is rarely minutes off; past ten it is the
+    /// wrong file.
+    public static let limit = 600.0
+
+    /// Within the limit and on a tenth of a second, so ten taps of +0.1 read 1.0, not 0.99999.
+    public static func clamped(_ seconds: Double) -> Double {
+        guard seconds.isFinite else { return 0 }
+        return (min(max(seconds, -limit), limit) * 10).rounded() / 10
+    }
+
+    /// 「+0.5 秒」, 「-1.2 秒」, 「0.0 秒」.
+    public static func label(_ seconds: Double) -> String {
+        let value = clamped(seconds)
+        let sign = value > 0 ? "+" : value < 0 ? "-" : ""
+        return sign + String(format: "%.1f", abs(value)) + " 秒"
+    }
+
+    /// Whether the correction reaches the subtitle on screen. mpv moves every subtitle it draws;
+    /// AVPlayer cannot move its own legible renditions, only the overlay's downloaded file.
+    public static func applies(to engine: PlaybackEngineKind, selectedSubtitleID: String?) -> Bool {
+        guard let id = selectedSubtitleID, id != PlaybackMediaOption.subtitleOffID else { return false }
+        return engine == .mpv || PlaybackExternalSubtitle.isExternalID(id)
+    }
 }
 
 /// SubRip (`.srt`), read the way players read it rather than the way the format is specified:

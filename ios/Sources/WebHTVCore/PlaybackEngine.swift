@@ -310,6 +310,10 @@ public protocol PlaybackEngine: AnyObject {
     /// switch puts them back — and listed after the embedded ones in `mediaSelection()`. An empty
     /// list takes them all away. `PlayerRouter` hands a fresh engine the same list before its load.
     func setExternalSubtitles(_ subtitles: [PlaybackExternalSubtitle], selectedID: String?)
+    /// IOS-POC-45B: the viewer's timing correction (`SubtitleDelay`), for every subtitle the engine
+    /// draws itself and every file it loads after this. `PlayerRouter` hands a fresh engine the
+    /// same value before its load.
+    func setSubtitleDelay(_ seconds: Double)
     /// Stops and releases everything. The engine is not used again afterwards.
     func teardown()
 }
@@ -318,6 +322,9 @@ public extension PlaybackEngine {
     func seek(toSeconds seconds: Double) { seek(toSeconds: seconds) {} }
     /// An engine that cannot show a side-loaded subtitle ignores the list.
     func setExternalSubtitles(_ subtitles: [PlaybackExternalSubtitle], selectedID: String?) {}
+    /// An engine that draws no subtitle it could move ignores the correction (AVPlayer: the
+    /// player screen's overlay applies it to the downloaded file).
+    func setSubtitleDelay(_ seconds: Double) {}
 }
 
 // MARK: - IOS-POC-22: speeds AVPlayer cannot play
@@ -484,6 +491,17 @@ public final class PlayerRouter {
         externalSubtitles = subtitles
         selectedExternalSubtitleID = subtitles.contains(where: { $0.id == selectedID }) ? selectedID : nil
         engine?.setExternalSubtitles(subtitles, selectedID: selectedExternalSubtitleID)
+        // The session ended: the next video starts on its own timing.
+        if subtitles.isEmpty { setSubtitleDelay(0) }
+    }
+
+    /// IOS-POC-45B: the viewer's timing correction for this video's subtitles, kept here for the
+    /// same reason as the files: the engine taking over keeps it.
+    public private(set) var subtitleDelay = 0.0
+
+    public func setSubtitleDelay(_ seconds: Double) {
+        subtitleDelay = SubtitleDelay.clamped(seconds)
+        engine?.setSubtitleDelay(subtitleDelay)
     }
 
     /// The panel's choice, through here so the online one is remembered for the next engine.
@@ -524,6 +542,7 @@ public final class PlayerRouter {
             engine = fresh
             // IOS-POC-45: before the load, so the engine has them when its file opens.
             fresh.setExternalSubtitles(externalSubtitles, selectedID: selectedExternalSubtitleID)
+            fresh.setSubtitleDelay(subtitleDelay)
             onEngineChange?(kind)
         }
         engine?.load(request)

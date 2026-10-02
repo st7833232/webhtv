@@ -187,7 +187,7 @@
 3. **MPV PiP**：`sub-add` 的字幕是否也畫進 PiP 的軟體輸出（libmpv render API 通常會，未實測）。
 4. **AVPlayer PiP／AirPlay**：overlay 只在 App 內的播放畫面顯示；PiP 視窗與 AirPlay 電視上看不到線上字幕（平台限制，已知）。
 5. **鍵盤**：直式底部 sheet 與橫式側邊 drawer 在鍵盤出現時的高度（SwiftUI keyboard avoidance 未實測）。
-6. **字幕同步**：HLS 廣告切除或片頭偏移時，外掛字幕可能整體偏移（`docs/IOS-POC-26-engine-switch-position.md` 的 H1 已記錄過同類現象）；本任務不提供時間軸微調。
+6. **字幕同步**：HLS 廣告切除或片頭偏移時，外掛字幕可能整體偏移（`docs/IOS-POC-26-engine-switch-position.md` 的 H1 已記錄過同類現象）；IOS-POC-45B（第 12 節）加入時間軸校正。
 
 ## 11. IOS-POC-45A：MPV 中文字幕顯示為方格
 
@@ -204,3 +204,19 @@
 - 風險：四個 family 都開不了時行為與修正前相同，log 會寫 `default (no CJK family opens)`，屆時改走內建字型方案。
 - 驗證：此環境無 macOS／iOS，無法編譯 App target 或實機播放；以下一次 release workflow 的建置與真機播放中文 SRT／內嵌中文字幕為準。
 - Rollback：revert 本 commit（只動 `MPVEngine.swift` 與文件）。
+
+## 12. IOS-POC-45B：字幕時間軸校正
+
+- 需求：使用者 2026-10-02「需要可以調整字幕的字軌」，隨後確認為「時間軸矯正」。
+- 行為：字幕 panel 在字幕清單下方新增「時間軸校正」：`-1`、`-0.1`、目前數值（點一下歸零）、`+0.1`、`+1`。正值讓字幕延後出現，與 mpv `sub-delay` 同號；數值固定在 0.1 秒刻度，上下限 ±600 秒（`SubtitleDelay`）。
+- 套用範圍（`SubtitleDelay.applies`）：
+  1. MPV：所選字幕不是「關閉」即顯示，內嵌與線上字幕都以 `sub-delay` 移動。
+  2. AVPlayer：只有選中線上字幕時顯示，由 overlay 以 `SubtitleCues.text(at:delay:)` 查 cue。AVPlayer 的內嵌 legible 字幕沒有可移動時間的 API，不顯示此列，避免出現按了沒有作用的按鈕。
+- 生命週期：數值存在 `PlayerRouter.subtitleDelay`，和線上字幕檔一樣在引擎切換、fallback、重新載入時於新引擎 load 前交給它；字幕 session 結束（換集、換影片、關閉播放器，即 `setExternalSubtitles([])`）時歸零。
+- 測試（`ios/Tests/WebHTVCoreTests`）：
+  1. `aPositiveDelayShowsTheSameLineLaterOnBothEngines`：+0.5 秒時 10 至 12 秒的 cue 在 10.5 至 12.5 秒顯示，負值相反。
+  2. `theDelayStaysOnTenthsAndWithinItsLimit`：十次 +0.1 等於 1.0、上下限、NaN 歸零、標籤符號。
+  3. `theCorrectionIsOfferedOnlyWhereItMovesTheSubtitleOnScreen`：AVPlayer 內嵌字幕與「關閉」不顯示。
+  4. `theTimingCorrectionFollowsTheVideoAcrossEnginesAndEndsWithIt`：MPV 設定 1.5 秒後切到 AVPlayer，新引擎在 load 前已拿到 1.5；同一集重新開啟保留；換集與關閉歸零。
+- 驗證：Linux swiftlang 6.0.3 scratch package `swift test` 147 項，146 通過；唯一失敗為既有的 `legacyFilesDecodeInTheirLanguagesCodePage`（Linux Foundation 沒有 CP1251 轉換器，macOS 通過，第 9 節已記錄）。App target（`MPVEngine.swift`、`WebHTVApp.swift`）未在 macOS 編譯，以下一次 release workflow 建置為準。
+- Rollback：revert 本 commit。

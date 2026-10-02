@@ -74,7 +74,7 @@ private final class SubtitleEngine: PlaybackEngine {
     var onMediaSelectionChange: ((PlaybackMediaSelection) -> Void)?
 
     init(kind: PlaybackEngineKind) { self.kind = kind }
-    func load(_ request: PlaybackLoadRequest) { loads.append(request); paused = !request.autoplay }
+    func load(_ request: PlaybackLoadRequest) { loads.append(request); delayAtLoad = delay; paused = !request.autoplay }
     func play() { paused = false }
     func pause() { paused = true }
     func seek(toSeconds seconds: Double, landed: @escaping @MainActor () -> Void) { currentTime = seconds; landed() }
@@ -98,6 +98,9 @@ private final class SubtitleEngine: PlaybackEngine {
         if let selectedID { selectedExternal = selectedID; embeddedSelection = PlaybackMediaOption.subtitleOffID }
         if subtitles.isEmpty { selectedExternal = nil }
     }
+    var delay = 0.0
+    var delayAtLoad: Double?
+    func setSubtitleDelay(_ seconds: Double) { delay = seconds }
     func teardown() { tornDown = true }
 }
 
@@ -430,4 +433,33 @@ private func heldSession(_ provider: HeldProvider, title: String = "FC2PPV-12345
     #expect(rig.router.externalSubtitles.isEmpty && rig.router.failure == nil)
     #expect(await engine.mediaSelection() == before)
     #expect(before.subtitle?.selectedID == "embedded-0")
+}
+
+// MARK: - IOS-POC-45B: 時間軸校正
+
+/// The correction belongs to the video, not to an engine: a switch or a fallback hands it to the
+/// engine taking over before that engine loads, so the line the viewer just lined up stays lined
+/// up. The next episode starts at zero, because its file is a different file.
+@MainActor @Test func theTimingCorrectionFollowsTheVideoAcrossEnginesAndEndsWithIt() async throws {
+    let rig = subtitleCatRig()
+    rig.router.open(PlaybackLoadRequest(target: PlaybackTarget(url: URL(string: "https://cdn/ep1.m3u8")!)))
+    _ = rig.coordinator.playbackOpened(episode, title: "FC2-PPV-4159457")
+    #expect(rig.router.select(.mpv))
+    let mpv = try #require(rig.engine)
+    rig.router.setSubtitleDelay(1.5)
+    #expect(mpv.delay == 1.5)
+
+    #expect(rig.router.select(.native))
+    let native = try #require(rig.engine)
+    #expect(native !== mpv && native.delayAtLoad == 1.5 && native.loads.count == 1)
+
+    // A reload of the same episode (a quality switch) keeps it.
+    _ = rig.coordinator.playbackOpened(episode, title: "FC2-PPV-4159457")
+    #expect(rig.router.subtitleDelay == 1.5)
+
+    _ = rig.coordinator.playbackOpened(nextEpisode, title: "FC2-PPV-4159457")
+    #expect(rig.router.subtitleDelay == 0 && native.delay == 0)
+    rig.router.setSubtitleDelay(-2)
+    rig.coordinator.playbackClosed()
+    #expect(rig.router.subtitleDelay == 0)
 }

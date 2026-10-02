@@ -494,6 +494,8 @@ private struct HomeView: View {
     let source: ConfigSource
 
     @State private var picking = false
+    @AppStorage(siteHealthSortKey) private var healthSort = true
+    @State private var health: [Site.ID: SiteHealth] = [:]
 
     private var selectedSite: Site {
         sites.first { $0.id == selectedSiteID } ?? sites[0]
@@ -504,7 +506,7 @@ private struct HomeView: View {
     private var sourcePicker: some View {
         NavigationStack {
             ScrollViewReader { proxy in
-                List(sites) { site in
+                List(healthSort ? SiteHealth.ordered(sites, by: health) : sites) { site in
                     Button {
                         selectedSiteID = site.id
                         picking = false
@@ -512,6 +514,7 @@ private struct HomeView: View {
                         HStack {
                             Text(zhTW: site.name.displayName).foregroundStyle(.primary)
                             Spacer()
+                            SiteHealthDot(status: health[site.id]?.status)
                             if site.id == selectedSite.id {
                                 Image(systemName: "checkmark").foregroundStyle(appAccent)
                             }
@@ -520,7 +523,11 @@ private struct HomeView: View {
                     }
                     .id(site.id)
                 }
-                .onAppear { proxy.scrollTo(selectedSite.id, anchor: .center) }
+                // IOS-POC-41B: the health first, since it may reorder the rows the scroll aims at.
+                .task {
+                    health = await SiteHealthStore.shared.health(in: source.identity)
+                    proxy.scrollTo(selectedSite.id, anchor: .center)
+                }
             }
             .navigationTitle("內容來源")
             .navigationBarTitleDisplayMode(.inline)
@@ -891,6 +898,8 @@ private struct CMSView: View {
     }
 
     private func load(search: String? = nil, category: String? = nil) async {
+        let started = ContinuousClock.now
+        let searched = !(search ?? "").isEmpty
         loading = true
         error = nil
         page = 1
@@ -919,6 +928,14 @@ private struct CMSView: View {
             // IOS-POC-41A: a spider home whose first category could not be fetched keeps its
             // categories and says why under them, instead of 「沒有內容」.
             if items.isEmpty, let failure = response.failure { error = failure.localizedDescription }
+            // IOS-POC-41B. A listing that came back empty with no failure behind it is not recorded:
+            // it may be an outdated rule or simply an empty category, and neither is the site's health.
+            if searched {
+                recordHealth(.search(count: items.count, milliseconds: elapsedMilliseconds(since: started)),
+                             succeeded: true, site: site, source: source)
+            } else if !items.isEmpty || response.failure != nil {
+                recordHealth(.browse, succeeded: !items.isEmpty, site: site, source: source)
+            }
             // A category listing usually omits `class`, so keep the set the home call established.
             if !response.classes.isEmpty { groups = response.categoryGroups }
             // Same for the filter rows: only the home call carries them.
@@ -930,6 +947,10 @@ private struct CMSView: View {
             }
         } catch {
             self.error = error.localizedDescription
+            if !isCancellation(error) {
+                recordHealth(searched ? .search(count: 0, milliseconds: elapsedMilliseconds(since: started)) : .browse,
+                             succeeded: false, site: site, source: source)
+            }
         }
     }
 }
@@ -1196,10 +1217,22 @@ private struct AggregateSearchView: View {
         total = targets.count
         searching = true
         let reports = engine.run(targets, keyword: text)
+        let started = ContinuousClock.now
         task = Task {
             for await report in reports {
                 guard current == generation else { return }
                 apply(report)
+                // IOS-POC-41B: as `SiteViewModel.searchContent` records each site's answer.
+                switch report.outcome {
+                case .found(let vods):
+                    recordHealth(.search(count: vods.count, milliseconds: elapsedMilliseconds(since: started)),
+                                 succeeded: true, site: report.site, source: source)
+                case .failed, .timedOut:
+                    recordHealth(.search(count: 0, milliseconds: elapsedMilliseconds(since: started)),
+                                 succeeded: false, site: report.site, source: source)
+                case .busy:
+                    break
+                }
             }
             if current == generation { searching = false }
         }
@@ -1276,6 +1309,8 @@ private struct SettingsView: View {
 
     @State private var renaming: SavedSource?
     @State private var renameText = ""
+    @AppStorage(siteHealthSortKey) private var healthSort = true
+    @State private var healthCleared = false
     /// IOS-POC-17: `globalDefaultEngine`. Mirrored here only so the checkmark redraws.
     @State private var defaultEngine = PlaybackSession.shared.globalDefaultEngine
     /// IOS-POC-25: Android's 智慧去廣. Mirrored here only so the switch redraws.
@@ -1366,12 +1401,22 @@ private struct SettingsView: View {
                 }
             }
 
-            Section("內容來源") {
+            Section {
                 NavigationLink {
-                    SiteChoiceList(sites: sites, selectedSiteID: $selectedSiteID, onOpenHome: onOpenHome)
+                    SiteChoiceList(sites: sites, source: source, selectedSiteID: $selectedSiteID, onOpenHome: onOpenHome)
                 } label: {
                     LabeledContent("目前來源", value: currentSiteName)
                 }
+                // IOS-POC-41B: Android's 站點健康排序 and its 清空.
+                Toggle("站點健康排序", isOn: $healthSort)
+                Button(healthCleared ? "站點健康記錄已清空" : "清除站點健康記錄", role: .destructive) {
+                    Task { await SiteHealthStore.shared.clear(); healthCleared = true }
+                }
+                .disabled(healthCleared)
+            } header: {
+                Text("內容來源")
+            } footer: {
+                Text("來源清單的圓點依平常瀏覽、搜尋、詳情與播放的結果標示：綠色正常、黃色不確定、紅色常失敗，沒用過的站沒有圓點。開啟排序時較健康的來源排在前面。記錄只存在這支手機，也取決於當時的網路。")
             }
 
             if let site = sites.first(where: { $0.id == selectedSiteID }) ?? sites.first {
@@ -1478,14 +1523,53 @@ private extension SettingsView {
     }
 }
 
+/// IOS-POC-41B: Android's `site_health_sort`, on by default as there.
+private let siteHealthSortKey = "webhtv.siteHealthSort"
+
+/// IOS-POC-41B: one call's outcome for the source list's dot. Never waits on the store.
+private func recordHealth(_ event: SiteHealth.Event, succeeded: Bool, site: Site, source: ConfigSource) {
+    let siteID = site.id, identity = source.identity
+    Task { await SiteHealthStore.shared.record(event, succeeded: succeeded, siteID: siteID, source: identity) }
+}
+
+/// A cancelled call says nothing about the site; Android skips `CancellationException` too.
+private func isCancellation(_ error: Error) -> Bool {
+    error is CancellationError || (error as? URLError)?.code == .cancelled
+}
+
+private func elapsedMilliseconds(since start: ContinuousClock.Instant) -> Int {
+    Int((ContinuousClock.now - start) / .milliseconds(1))
+}
+
+/// Android's green, yellow and red; a site with no record has no dot, so an unused list is unchanged.
+private struct SiteHealthDot: View {
+    let status: SiteHealth.Status?
+
+    var body: some View {
+        switch status {
+        case .good: dot(Color(red: 0x0B / 255, green: 0x80 / 255, blue: 0x43 / 255), "健康")
+        case .warn: dot(Color(red: 1, green: 0xD5 / 255, blue: 0x4F / 255), "不確定")
+        case .bad: dot(Color(red: 1, green: 0x52 / 255, blue: 0x52 / 255), "常失敗")
+        case .unknown, nil: EmptyView()
+        }
+    }
+
+    private func dot(_ color: Color, _ label: String) -> some View {
+        Circle().fill(color).frame(width: 9, height: 9).accessibilityLabel("站點狀態：\(label)")
+    }
+}
+
 /// IOS-POC-31: the settings page's 內容來源, one screen down. Opens on the source in use, as the home
 /// screen's picker does; choosing one goes back to the home screen with it, as the list on the
 /// settings page used to.
 private struct SiteChoiceList: View {
     let sites: [Site]
+    let source: ConfigSource
     @Binding var selectedSiteID: Site.ID?
     let onOpenHome: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(siteHealthSortKey) private var healthSort = true
+    @State private var health: [Site.ID: SiteHealth] = [:]
 
     private var currentID: Site.ID? {
         (sites.first { $0.id == selectedSiteID } ?? sites.first)?.id
@@ -1493,7 +1577,7 @@ private struct SiteChoiceList: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            List(sites) { site in
+            List(healthSort ? SiteHealth.ordered(sites, by: health) : sites) { site in
                 Button {
                     selectedSiteID = site.id
                     dismiss()
@@ -1502,6 +1586,7 @@ private struct SiteChoiceList: View {
                     HStack {
                         Text(zhTW: site.name.displayName).foregroundStyle(.primary)
                         Spacer()
+                        SiteHealthDot(status: health[site.id]?.status)
                         if site.id == currentID {
                             Image(systemName: "checkmark").foregroundStyle(appAccent)
                         }
@@ -1513,7 +1598,11 @@ private struct SiteChoiceList: View {
             }
             .scrollContentBackground(.hidden)
             // After the rows exist, as on the home screen's picker; on the stack it would scroll nothing.
-            .onAppear { if let currentID { proxy.scrollTo(currentID, anchor: .center) } }
+            // After the health too (IOS-POC-41B), which may reorder them.
+            .task {
+                health = await SiteHealthStore.shared.health(in: source.identity)
+                if let currentID { proxy.scrollTo(currentID, anchor: .center) }
+            }
         }
         .appWallpaper()
         .navigationTitle("內容來源")
@@ -1667,6 +1756,24 @@ private struct VodView: View {
     @State private var synopsisFullHeight: CGFloat = 0
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
+    /// The detail call, out of `body`'s `.task` so the type checker can still read `body`.
+    /// IOS-POC-41B: Android's `recordDetailHealth` — once per opening, a title that came back.
+    private func loadDetail() async {
+        let started = ContinuousClock.now
+        do {
+            let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
+            detail = try await client.detail(id: summary.id)
+            recordHealth(.detail(milliseconds: elapsedMilliseconds(since: started)), succeeded: detail != nil,
+                         site: site, source: source)
+        } catch {
+            self.error = error.localizedDescription
+            if !isCancellation(error) {
+                recordHealth(.detail(milliseconds: elapsedMilliseconds(since: started)), succeeded: false,
+                             site: site, source: source)
+            }
+        }
+    }
+
     var body: some View {
         ScrollView {
             if let detail {
@@ -1799,10 +1906,7 @@ private struct VodView: View {
             translationMode = JapaneseTranslationPreference().mode
             await WatchHistoryStore.shared.migrateSiteIdentities(in: [site])
             watched = await WatchHistoryStore.shared.record(forKey: historyKey)
-            do {
-                let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
-                detail = try await client.detail(id: summary.id)
-            } catch { self.error = error.localizedDescription }
+            await loadDetail()
         }
         // An episode goes straight to the player (2026-09-23, the user's request): the picker page
         // in between held one button, plus a quality menu no source in this configuration fills.
@@ -2596,11 +2700,18 @@ struct EpisodeSteps: Equatable {
             // A pre-resolved address that does not play is an optimization miss, not the episode's
             // failure (IOS-POC-15D): resolve it again, live, once — and show the failure only if that
             // does not produce a playback either.
-            guard let retry = self.retryWithoutPrefetch else { self.onFailure?(failure); return }
+            guard let retry = self.retryWithoutPrefetch else {
+                self.notePlayHealth(succeeded: false)
+                self.onFailure?(failure)
+                return
+            }
             self.retryWithoutPrefetch = nil
             Self.log.notice("[playback] prefetched address failed (\(failure.message, privacy: .public)) — resolving live")
             Task { @MainActor in
-                if await retry() == false { self.onFailure?(failure) }
+                if await retry() == false {
+                    self.notePlayHealth(succeeded: false)
+                    self.onFailure?(failure)
+                }
             }
         }
     }
@@ -2627,6 +2738,17 @@ struct EpisodeSteps: Equatable {
     /// item has replaced the one that failed (IOS-POC-36.3).
     var onEngineChange: ((PlaybackEngineKind) -> Void)?
     var onFailure: ((PlaybackFailure?) -> Void)?
+
+    /// IOS-POC-41B: the site the opened item belongs to, until its start or failure is recorded —
+    /// Android's `beginPlayHealth`/`recordPlayHealth`. A bridge URL has no watch record, so no site.
+    private var playHealth: (siteID: Site.ID, source: String)?
+
+    private func notePlayHealth(succeeded: Bool) {
+        guard let playHealth else { return }
+        self.playHealth = nil
+        Task { await SiteHealthStore.shared.record(.play, succeeded: succeeded, siteID: playHealth.siteID,
+                                                   source: playHealth.source) }
+    }
     /// IOS-POC-27A: a short message the player screen shows for a few seconds — why a start was
     /// handed to the other engine.
     var onNotice: ((String) -> Void)?
@@ -3413,6 +3535,12 @@ struct EpisodeSteps: Equatable {
         // waited for an engine change, which an item opened on the session's engine — the next
         // episode, a WebHome page's playUrl — never brings.
         onFailure?(nil)
+        // The record's key is `Site.id` + separator + vod id (`WatchHistory.key(siteID:vodId:)`).
+        playHealth = record.flatMap { record in
+            let suffix = WatchHistory.separator + record.vodId
+            guard let source = record.sourceID, record.key.hasSuffix(suffix) else { return nil }
+            return (String(record.key.dropLast(suffix.count)), source)
+        }
         if autoplay { Self.activateAudioSession() }
         reportItem()
         itemTitle = title
@@ -3576,6 +3704,7 @@ struct EpisodeSteps: Equatable {
                     let milliseconds = Int((ContinuousClock.now - loadedAt) / .milliseconds(1))
                     startupMilliseconds = milliseconds
                     retryWithoutPrefetch = nil
+                    notePlayHealth(succeeded: true)
                     Self.log.notice("[playback] started \(self.itemTitle, privacy: .public) on \(self.engineKind.shortName, privacy: .public) in \(milliseconds)ms after open; resolve \(self.resolution, privacy: .public)")
                     return
                 }

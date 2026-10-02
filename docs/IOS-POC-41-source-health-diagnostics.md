@@ -159,7 +159,8 @@ C 對照 B 多出來的代價與取捨：
 - Ponytail：`ponytail:ponytail-review` 對提案設計提出 4 項簡化（刪 ATS 類別、Cloudflare 5xx 併入 HTTP 錯誤、只用 −1009 判斷離線、不自動重試），已套用到第 4.3、6、7 節。
 - 回滾：本任務只有文件，`git revert` 即可。
 - 2026-10-02 使用者回覆「照建議，開始 41A」：第 9 節 6 項全部採建議（全部來源、三段都做、41A → 41B → 41C、排序照 Android 預設開、檢查到讀到影片位元組、先不做「只顯示可以播放」）。41A 已實作，見第 11 節。
-- **唯一下一步**：41A 等使用者確認（真機或模擬器看幾個死站）；確認後開始 41B（被動健康記錄，對齊 Android `SiteHealthStore`）。
+- 2026-10-02 使用者「開始 41B」；41B 已實作，見第 12 節。
+- **唯一下一步**：41A、41B 等使用者確認（模擬器已驗）；確認後做 41C（手動全站檢查與報告，第 6 節）。發版需要使用者授權。
 
 ## 11. 41A 實作紀錄（2026-10-02）
 
@@ -186,3 +187,20 @@ C 對照 B 多出來的代價與取捨：
 - **Ponytail**：`ponytail:ponytail-review` → 正式程式 Lean already；只提到測試替身 `FailingSite` 與 `RuleSite` 重複約 20 行，共用要改 24 個 XBPQ 測試依賴的 `private` 替身，不套用。
 - **未驗證**：真機；Python 站；JS 跳轉頁（`Redirecting...`）只有單元測試，模擬器沒有挑那類站實看。
 - **回滾**：`git revert` 這個 commit（Swift 原始碼、測試與文件；沒有 ABI、設定或二進位變更）。
+
+## 12. 41B 實作紀錄（2026-10-02）
+
+- task guard `IOS-POC-41B`（`standard`）。起始 HEAD `c1459372`。
+- **程式**：
+  - 新增 `ios/Sources/WebHTVCore/SiteHealth.swift`：`SiteHealth`（照 Android `Health` 的計數、分數公式與綠／黃／紅／灰門檻；只保留分數與顏色會讀的欄位）、`SiteHealth.ordered`（照 `sortSites`：分數高的在前、沒有記錄算 0、穩定排序）、`SiteHealthStore`（actor；檔案 `Application Support/site-health.json`；key＝`ConfigSource.identity`＋`Site.id`；最後一筆變更 2 秒後存檔，同 Android；存檔時丟掉 90 天沒有更新的站；`clear()` 刪檔）。
+  - **與 Android 的刻意差異**：(1) 首頁與分類也記錄（`browse`，權重同詳情 ×2）：回來有片算成功、`SiteUnreachable` 或丟出錯誤算失敗、回空但沒有失敗記錄不記（可能是規則過期或分類本來就空，不代表站的健康）。所以首頁就失敗的死站第一次開就是紅點（60·(0−2)/(2+4) = −20，剛好是 Android 的紅點門檻）。(2) key 用 `Site.id`，不是 `siteKey`。
+  - `WebHTVApp.swift` 的記錄點：首頁／分類與單站搜尋（`CMSView.load`）、全站台搜尋（`AggregateSearchView.submit`，每站的 `found`／`failed`／`timedOut`，`busy` 不記，耗時從整批開始算，同 Android）、詳情（`VodView.loadDetail`，從 body 的 `.task` 抽出來，否則編譯器在 body 型別推斷逾時；每次開啟記一次，有回傳影片算成功）、播放（`PlaybackSession`：每次 `load` 從觀看記錄的 `key` 去掉 `@@@vodId` 得到 `Site.id`，播放開始（`[playback] started`）算成功、兩個核心都失敗（`onUnrecoverable` 的最後一次）算失敗，每個 item 只記一次；WebHome 橋接的裸網址沒有觀看記錄，不記）。取消（`CancellationError`、`URLError.cancelled`）都不算失敗，同 Android。
+  - 首頁來源選單與設定頁 `SiteChoiceList`：有記錄的站在名稱右側顯示綠／黃／紅點（顏色值照 Android `#0B8043`／`#FFD54F`／`#FF5252`；沒有記錄不顯示，所以沒用過的清單和以前完全相同）；「站點健康排序」開啟時依分數排序（`@AppStorage("webhtv.siteHealthSort")`，預設開，同 Android）；載入健康資料後再捲到目前選取的站。
+  - 設定頁「內容來源」區塊新增「站點健康排序」開關與「清除站點健康記錄」（清除後顯示「站點健康記錄已清空」），附說明文字。
+  - 沒有做：全站台搜尋結果依健康排序（Android 的 `sortVods`／`CollectActivity` 有）——第 6 節 41B 沒有列入，要做另外決定。
+- **測試**：新增 `ios/Tests/WebHTVCoreTests/SiteHealthTests.swift`（4 項：以 Android 公式手算的分數與顏色、首頁失敗是紅點而一次成功是綠點、穩定排序、不同設定分開記錄＋存檔重讀＋90 天後清掉＋清除）。
+- **驗證**：`swift test --package-path ios` **639／639**（原 635＋新 4）；模擬器 Debug 與 generic iOS 不簽章 Release 都 BUILD SUCCEEDED；警告只有既有的 4 個（行號因新增程式碼後移）。
+- **模擬器實看**（`05934376`，第 11 節的 4 站設定）：啟動時落在「死掉的CMS」→ 來源選單只有它一個紅點、順序不變；開天美 → 綠點並排到第一；開香蕉中文资源 → 紅點，排序變成 天美（綠）→ 传媒二区（沒用過）→ 香蕉中文资源（紅）→ 死掉的CMS（紅，同分維持設定順序）；在天美開一部片播放 → `site-health.json` 記到天美 `browseSuccess` 2、`detailSuccess` 1（372 ms）、`playSuccess` 1，時間與 log 的 `[playback] started` 一致；設定頁的 `SiteChoiceList` 同樣有圓點與排序；關掉排序 → 回到設定順序、圓點仍在；按清除 → 按鈕變「站點健康記錄已清空」、檔案刪除；最後把排序開回預設的開。
+- **Ponytail**：`ponytail:ponytail-review` → Lean already（兩份來源清單各自加狀態，是因為既有的兩份清單 view；合併屬 audit 第 11 項，等使用者決定）。
+- **未驗證**：真機；全站台搜尋與單站搜尋的記錄只有程式路徑與 build，模擬器沒有實際搜一次看檔案；播放失敗（兩個核心都失敗）的記錄沒有實測。
+- **回滾**：`git revert` 這個 commit；使用者裝置上留下的 `site-health.json` 舊版 App 不會讀，無害。

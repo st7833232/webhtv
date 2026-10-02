@@ -18,7 +18,9 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **IOS-POC-41A（2026-10-02，已 commit／push，未發布）**：使用者「照建議，開始 41A」。spider 與 CMS 站的首頁或分類因網站問題回空時，首頁說明原因（找不到網域、逾時、連不上、TLS、Cloudflare 驗證、HTTP 錯誤、疑似 JavaScript 驗證頁），取代「沒有內容」；正常回應但 0 部仍是「沒有內容」。`swift test` 635／635、模擬器 Debug、generic iOS Release、模擬器實看 4 站；真機未驗證。見 IOS-POC-41 第 11 節。
 
-**Next Recommended Step**：等使用者確認 41A，之後做 41B（被動健康記錄，對齊 Android `SiteHealthStore`，第 6 節）。發版仍需使用者授權。
+**IOS-POC-41B（2026-10-02，已 commit／push，未發布）**：使用者「開始 41B」。照 Android `SiteHealthStore` 被動記錄每站的首頁／分類（iOS 新增）、搜尋、詳情、播放結果，來源清單（首頁選單、設定頁）顯示綠／黃／紅點，設定頁「站點健康排序」（預設開）與「清除站點健康記錄」。`swift test` 639／639、模擬器 Debug、generic iOS Release、模擬器實看圓點／排序／播放記錄／清除；真機未驗證。見 IOS-POC-41 第 12 節。
+
+**Next Recommended Step**：等使用者確認 41A／41B，之後做 41C（手動全站檢查與報告，IOS-POC-41 第 6 節）。發版仍需使用者授權。
 
 
 ## Current handoff — 2026-10-01（前一次交接）

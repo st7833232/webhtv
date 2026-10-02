@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.47",
+          "date": "2026-10-02",
+          "localizedDescription": "WebHTV 0.1.47 (48)（日文翻譯按鈕永遠不出現的修正；發布前沒有編譯與自動測試，真機未驗收）\n\n修正\n- 日文翻譯：0.1.45、0.1.46 的詳情頁從來沒有檢查語言，所以「翻譯成中文」按鈕與「不支援」說明都不會出現。現在設定為「詢問」或「自動」時，標題下方會顯示其中一個。\n\n已知限制\n- 此版發布前沒有執行自動測試，也沒有模擬器或真機驗收；這一版由發布流程第一次編譯。\n- 其餘同 0.1.46 (47)。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.47-b48/WebHTV-0.1.47-48.ipa",
+          "size": 29326712,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.46",
           "date": "2026-10-01",
           "localizedDescription": "WebHTV 0.1.46 (47)（日文翻譯按鈕沒有出現的修正；發布前沒有編譯與自動測試，真機未驗收）\n\n修正\n- 日文翻譯：在設定頁打開「日文翻譯」後，回到首頁點片子的詳情頁會立即套用（以前要重開 App 才會生效，按鈕不會出現）。\n- 日文翻譯：繁體中文改用系統翻譯功能自己提供的語言；手機不支援時會顯示「這支手機目前不支援把日文翻成繁體中文。」，不再什麼都不顯示。\n\n已知限制\n- 此版發布前沒有執行自動測試，也沒有模擬器或真機驗收；這一版由發布流程第一次編譯。\n- 其餘同 0.1.45 (46)。",

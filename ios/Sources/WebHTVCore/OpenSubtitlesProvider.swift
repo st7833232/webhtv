@@ -147,9 +147,21 @@ enum SubtitleAPI {
     static func object(_ request: URLRequest, fetch: SubtitleFetch, retryDelay: Duration, retries: Bool = true,
                        unreadable: SubtitleProviderError,
                        special: (Int) -> SubtitleProviderError? = { _ in nil }) async throws -> [String: Any] {
-        let response: SubtitleHTTPResponse
+        let response = try await self.response(request, fetch: fetch, retryDelay: retryDelay, retries: retries,
+                                               unreadable: unreadable)
+        if let failure = failure(for: response, special: special) { throw failure }
+        guard let object = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any] else {
+            throw unreadable
+        }
+        return object
+    }
+
+    /// The answer as it came, status unread. With `retries`, a transport failure or a 5xx is tried
+    /// once more.
+    static func response(_ request: URLRequest, fetch: SubtitleFetch, retryDelay: Duration, retries: Bool,
+                         unreadable: SubtitleProviderError) async throws -> SubtitleHTTPResponse {
         do {
-            response = retries
+            return retries
                 ? try await SubtitleFetching.fetch(request, limit: maximumBytes, using: fetch, retryDelay: retryDelay)
                 : try await fetch(request, maximumBytes)
         } catch is SubtitleBodyTooLarge {
@@ -157,11 +169,6 @@ enum SubtitleAPI {
         } catch {
             throw SubtitleProviderError.classify(error)
         }
-        if let failure = failure(for: response, special: special) { throw failure }
-        guard let object = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any] else {
-            throw unreadable
-        }
-        return object
     }
 
     /// A challenge page and a rate limit read the same on every API; then the provider's own

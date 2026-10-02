@@ -225,19 +225,39 @@ private func assrtDetail(_ id: String) -> [String: Any] {
     #expect(download.value(forHTTPHeaderField: "Referer") == nil)
 }
 
-/// The API's own error code is reported as a refusal, not as "no subtitles"; a rate limit on one
-/// result stops the rest, which would be refused too.
-@Test func assrtErrorsAreRefusalsAndARateLimitStopsTheDetailRequests() async throws {
-    let refusing = APIRecorder { _ in json(["status": 101, "errmsg": "invalid token"]) }
-    await #expect(throws: SubtitleProviderError.rejected(101)) {
-        _ = try await AssrtProvider(token: assrtToken, fetch: refusing.fetch, retryDelay: .zero).search(query)
+/// The API's own `status` decides, whatever the HTTP status carrying it: a refused token stops at
+/// once and says so, a used-up quota stops the remaining detail requests (each one would only
+/// spend the next minute's quota) and is never retried, and "not found" is an empty result.
+@Test func assrtStatusCodesDecideAndAUsedUpQuotaStopsAtOnce() async throws {
+    func run(_ answer: @escaping @Sendable (URLRequest) -> SubtitleHTTPResponse) async -> (Result<SubtitleSearchResult, Error>, Int) {
+        let recorder = APIRecorder(answer)
+        let provider = AssrtProvider(token: assrtToken, fetch: recorder.fetch, retryDelay: .zero)
+        do { return (.success(try await provider.search(query)), recorder.requests.count) }
+        catch { return (.failure(error), recorder.requests.count) }
     }
+    func error(_ outcome: (Result<SubtitleSearchResult, Error>, Int)) -> SubtitleProviderError? {
+        if case .failure(let error) = outcome.0 { return error as? SubtitleProviderError }
+        return nil
+    }
+    let isDetail: @Sendable (URLRequest) -> Bool = { $0.url?.path == "/v1/sub/detail" }
 
-    let limited = APIRecorder { request in
-        request.url?.path == "/v1/sub/detail" ? json([:], status: 429) : json(assrtSearchAnswer())
-    }
-    await #expect(throws: SubtitleProviderError.rateLimited) {
-        _ = try await AssrtProvider(token: assrtToken, fetch: limited.fetch, retryDelay: .zero).search(query)
-    }
-    #expect(limited.requests.count == 2)
+    let refusedToken = await run { _ in json(["status": 20001, "errmsg": "invalid token"], status: 400) }
+    #expect(error(refusedToken) == .unauthorized && refusedToken.1 == 1)
+
+    let quotaOnDetail = await run { isDetail($0) ? json(["status": 30900, "errmsg": "exceeding request limits"])
+                                                 : json(assrtSearchAnswer()) }
+    #expect(error(quotaOnDetail) == .rateLimited && quotaOnDetail.1 == 2)
+
+    let quota509 = await run { _ in SubtitleHTTPResponse(status: 509, data: Data("Bandwidth Limit Exceeded".utf8)) }
+    #expect(error(quota509) == .rateLimited && quota509.1 == 1)
+
+    let quota429 = await run { isDetail($0) ? json([:], status: 429) : json(assrtSearchAnswer()) }
+    #expect(error(quota429) == .rateLimited && quota429.1 == 2)
+
+    let tooShort = await run { _ in json(["status": 101, "errmsg": "length of keyword must be longer than 3"]) }
+    #expect(error(tooShort) == .rejected(101))
+
+    let notFound = await run { _ in json(["status": 20900, "errmsg": "subtitle not found"], status: 404) }
+    guard case .success(let empty) = notFound.0 else { Issue.record("not found was an error"); return }
+    #expect(empty.tracks.isEmpty && notFound.1 == 1)
 }

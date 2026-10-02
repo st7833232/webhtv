@@ -8,9 +8,11 @@ import os
 ///
 /// Requests and answers follow Bazarr's Assrt provider
 /// (`morpheus65535/bazarr` master, `custom_libs/subliminal_patch/providers/assrt.py`, read
-/// 2026-10-02): `token` as a query parameter, `status`/`errmsg` for the API's own errors,
-/// `sub.subs[]` with `id`, `videoname`, `native_name` and `lang.langlist`, and
-/// `sub.subs[0].filelist[]` with `f` and `url`.
+/// 2026-10-02): `token` as a query parameter, `sub.subs[]` with `id`, `videoname`, `native_name`
+/// and `lang.langlist`, and `sub.subs[0].filelist[]` with `f` and `url`. Errors (IOS-POC-45C-1)
+/// follow the API document's own table, as IINA's `AssrtSubtitle.swift` (45955567) and atv-player
+/// (afc26c47) read it: `status` other than 0 is the error whatever the HTTP status (20001 has been
+/// seen on HTTP 400, over-quota as HTTP 509).
 ///
 /// **The token rides in the URL**, so the search and detail URLs are never logged and never sent
 /// on as a referrer; a file's own link is fetched without it.
@@ -65,7 +67,12 @@ public struct AssrtProvider: SubtitleProvider {
     public func search(_ query: SubtitleSearchQuery) async throws -> SubtitleSearchResult {
         guard !query.isEmpty else { return .empty }
         guard let token else { throw SubtitleProviderError.unconfigured }
-        let root = try await answer(Self.searchURL(for: query, token: token), unreadable: .searchPageUnreadable)
+        let root: [String: Any]
+        do {
+            root = try await answer(Self.searchURL(for: query, token: token), unreadable: .searchPageUnreadable)
+        } catch SubtitleProviderError.rejected(let code) where code == Self.notFound {
+            return .empty
+        }
         let hits = try Self.hits(in: root)
         guard !hits.isEmpty else { return .empty }
         let opened = Array(hits.prefix(maximumResults))
@@ -90,13 +97,37 @@ public struct AssrtProvider: SubtitleProvider {
                                     openedCount: opened.count)
     }
 
-    /// The API's own error (`status` other than 0) before anything else.
+    /// `status` 20900: no such subtitle. From a search, nothing was found.
+    static let notFound = 20900
+
+    /// The API's own `status` first, whatever the HTTP status; an answer without one is classified
+    /// by its HTTP status (509 is the over-quota answer). Never retried: every request counts
+    /// against a per-minute quota, 20 by the document and 5 for some tokens.
     private func answer(_ url: URL, unreadable: SubtitleProviderError) async throws -> [String: Any] {
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let root = try await SubtitleAPI.object(request, fetch: fetch, retryDelay: retryDelay, unreadable: unreadable)
-        if let status = SubtitleAPI.integer(root["status"]), status != 0 { throw SubtitleProviderError.rejected(status) }
+        let response = try await SubtitleAPI.response(request, fetch: fetch, retryDelay: retryDelay, retries: false,
+                                                      unreadable: unreadable)
+        let root = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any]
+        if let status = SubtitleAPI.integer(root?["status"]), let failure = Self.failure(status: status) {
+            throw failure
+        }
+        if let failure = SubtitleAPI.failure(for: response, special: { $0 == 509 ? .rateLimited : nil }) {
+            throw failure
+        }
+        guard let root else { throw unreadable }
         return root
+    }
+
+    /// The document's codes: 20001 the token is missing or invalid, 30900 the quota is used up;
+    /// any other (101 a query too short, 20900 not found, 3xxxx the service failing) as itself.
+    static func failure(status: Int) -> SubtitleProviderError? {
+        switch status {
+        case 0: return nil
+        case 20001: return .unauthorized
+        case 30900: return .rateLimited
+        default: return .rejected(status)
+        }
     }
 
     static func hits(in root: [String: Any]) throws -> [Hit] {

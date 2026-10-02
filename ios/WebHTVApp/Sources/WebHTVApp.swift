@@ -1314,7 +1314,11 @@ private struct SubtitleSourceSettingsView: View {
             } header: {
                 Text("射手網（Assrt）")
             } footer: {
-                Text("使用你在 assrt.net 帳號取得的 API token。")
+                // IOS-POC-45C-1: the API document asks applications to credit the service.
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("使用你在 assrt.net 帳號取得的 API token。每分鐘可查詢的次數有上限，一次搜尋最多使用 5 次。")
+                    Text("字幕服務由 [assrt.net](https://assrt.net) 提供。")
+                }
             }
             Section {
                 Text("Subtitle Cat 不需要設定。沒有 key 的來源在字幕面板會顯示「未設定」，不會送出任何請求。")
@@ -5112,6 +5116,7 @@ private struct OnlineSubtitleSection: View {
             if !online.keywords.candidates.isEmpty { candidates }
             status
             ForEach(online.results) { track in row(track) }
+            if online.selectedProviderID == AssrtProvider.providerID { note("字幕服務由 assrt.net 提供") }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)

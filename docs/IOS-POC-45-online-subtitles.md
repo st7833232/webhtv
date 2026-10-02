@@ -278,3 +278,18 @@
 - 射手網的 `q` 是否需要 `is_file` 等其他參數未證實（Bazarr 以 `is_file=1` 搭配片名與年份）；目前只送 `q`。
 - App target（設定頁、面板）未在 macOS 編譯，以下一次 release workflow 為準。
 - Rollback：revert 本 commit；鑰匙圈中已存的 key 不影響其他功能，可在設定頁「清除」。
+
+## 14. IOS-POC-45C-1：射手網評估（2.assrt.net）與錯誤處理修正
+
+- 使用者 2026-10-02 要求評估 `https://2.assrt.net`。站台與 API 在此環境都連不上；以官方 API 文件的 GitHub 剪存（`PingWangWang/SubQuick` `0b77ff4eaa0718001a8d60ed661125bb10365faa`，`docs/API文档-射手网.md`，2026-06-29 剪存）、IINA `AssrtSubtitle.swift`（`45955567392afd6cf9c1228bc9208141c3e2c8a6`）、atv-player（`afc26c47745e6782d0e291ee4495c1d1bf049dd5`，實測 20001 以 HTTP 400 回傳）、Bazarr issue #1953（超出配額回 HTTP 509）與 DNS 查詢為據。
+- 結論：
+  1. `2.assrt.net` 是 assrt.net 營運者自己的備用網頁入口（同網域 A 記錄、同一組 Cloudflare IP），不是新的來源。API 仍是 `https://api.assrt.net/v1/`，第 13 節的 provider 已涵蓋，不另做 HTML 擷取。
+  2. 一般影視的中文字幕是主要用途；番號只在搜尋索引看到零星舊作，新番號命中率預期很低（未實測）。
+  3. 樣本 34 筆中約 65% 至少有一個 `.srt`，約 32% 只有 `.ass`；壓縮包內的檔案由 `filelist[].url` 逐一提供直接連結，不需要解壓。
+- 修正（本 commit）：
+  1. `AssrtProvider.answer` 不論 HTTP 狀態都先讀 JSON `status`：20001 → `unauthorized`，30900 → `rateLimited`，其他 → `rejected(code)`；沒有 `status` 才依 HTTP 分類，509 → `rateLimited`。搜尋的 20900（字幕不存在）視為沒有結果。
+  2. 射手網的請求一律不重試（配額以每分鐘計，文件寫 20 次、部分 token 只有 5 次）；`rateLimited` 與 `unauthorized` 會停止其餘 detail 請求。
+  3. `SubtitleAPI.response` 拆出未判讀狀態的取得步驟；`SubtitleAPI.object`（OpenSubtitles）行為不變。
+  4. 依 API 文件的使用條件，設定頁與字幕面板標示「字幕服務由 assrt.net 提供」。
+  5. 測試 `assrtStatusCodesDecideAndAUsedUpQuotaStopsAtOnce` 取代原本把 101 當成 token 無效的測試，涵蓋 20001／HTTP 400、30900／HTTP 200、HTTP 509、HTTP 429、101、20900／HTTP 404 與請求次數。突變檢查（恢復重試、30900 不對應、20900 不視為空）三項都讓測試失敗（已還原）。Linux `swift test` 153 項，152 通過（既有 CP1251 項目除外）。
+- 暫不做：`filelist=1` 預先篩選含 `.srt` 的結果、token 改用 `Authorization: Bearer`、`.ass` 支援、依 `user/quota` 節流；這些需要實測或另行核准。

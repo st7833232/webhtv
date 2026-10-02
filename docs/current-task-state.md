@@ -12,7 +12,10 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **最新發布仍是 `0.1.47 (48)`**（tag `ios-v0.1.47-b48` → `6fcc8555`）。之後未發布的程式：`c1a4743c`（冷啟動 build）、`9e5b71d8`（MPV `hwdec-current` log）、`4ac71c27`（IOS-POC-32D-ISJAPANESE）。發版仍需使用者授權。
 
-**下一條功能主線：IOS-POC-39 S5 搜尋缺口 survey**（先 survey，不直接做 `搜索模式`），結果與建議在 `docs/IOS-POC-39-xbpq-rule-coverage.md`。
+**IOS-POC-39 S5 搜尋缺口 survey（2026-10-02，已完成，assessment、只改文件）**：`docs/IOS-POC-39-xbpq-rule-coverage.md` 第七節。用 gitlab `recha` 當天的 `wang-sex.json`／`wang-movie.json`（113 個 XBPQ 項目）與 `xyqxbpq.jar`（SHA-256 `7b732f22…`），App 路徑探測（暫時測試，已刪、未 commit）加 curl 實測：**A 0**、B 13、C 90、D 6、E 4。`搜索模式` 28 站、值全部是 `1`，讀完原版 `searchContent`／`Z()` 後確認 `1` 只在有 `搜索后缀` 或 `/ajax/` 網址時才和預設不同（28 站中只有色花堂，而它是 C）；`搜索模式0` 是原版重試用的內部旗標，0 站使用。**S5-3 預估救回 0 站、建議不做**；連同原版整條 fallback（suggest JSON、`rss.xml`、首頁／分類篩片名）一起移植也是 0 站，第 4 項同樣不做。`XBPQ.js` 沒有改。設定檔可修的兩站（亚瑟影库、魔法少女4 的 `搜索url`）在第 7.8 節，屬使用者 GitLab。
+
+**Next Recommended Step**：等使用者決定是否另開 **Source Health / Diagnostics** 任務（IOS-POC-39 第 7.9 節：90／113 個 XBPQ 項目是網站本身不通，App 目前分不出網站死了還是程式問題）；要開就先做 assessment（範圍、呈現方式、是否定期檢查）再實作。沒有核准前不改 `XBPQ.js`。
+
 
 ## Current handoff — 2026-10-01（前一次交接）
 

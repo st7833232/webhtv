@@ -3,8 +3,8 @@ import Foundation
 import Testing
 @testable import WebHTVCore
 
-// IOS-POC-44A/44B: the short-drama ports against canned replies shaped like the live APIs'
-// (docs/IOS-POC-44-csp-portable-sites.md). Every class hard-codes its hosts, so the stub answers
+// IOS-POC-44A/44B/44C: the IOS-POC-44 ports against canned replies shaped like the live APIs'
+// (docs/IOS-POC-44-csp-portable-sites.md). Most classes hard-code their hosts, so the stub answers
 // those hosts — only inside the session these tests build, never process-wide.
 
 /// Answers by host + path (query ignored), one queued reply per call with the last one repeating,
@@ -25,8 +25,9 @@ final class ShortDramaSite: URLProtocol, @unchecked Sendable {
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
-        ["api.drama.9ddm.com", "freevideo.zqqds.cn", "neptune.qmplaylet.com", "api-store.qmplaylet.com",
-         "api-read.qmplaylet.com", "sv.baidu.com"].contains(request.url?.host ?? "")
+        let host = request.url?.host ?? ""
+        return host.hasSuffix(".invalid") || ["api.drama.9ddm.com", "freevideo.zqqds.cn", "neptune.qmplaylet.com",
+            "api-store.qmplaylet.com", "api-read.qmplaylet.com", "sv.baidu.com", "www.hkybqufgh.com"].contains(host)
     }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func stopLoading() {}
@@ -60,7 +61,7 @@ final class ShortDramaSite: URLProtocol, @unchecked Sendable {
     }
 }
 
-private func spider(_ name: String) async throws -> JavaScriptSpiderRuntime {
+private func spider(_ name: String, extend: String = "") async throws -> JavaScriptSpiderRuntime {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [ShortDramaSite.self]
     let registry = SpiderRegistry.bundled()
@@ -68,7 +69,7 @@ private func spider(_ name: String) async throws -> JavaScriptSpiderRuntime {
         name: name, script: try #require(registry.entry(for: "csp_\(name)")?.script), prelude: registry.prelude,
         storage: SpiderStorage(siteKey: "\(name)-test", defaults: UserDefaults(suiteName: "\(name)-test")!),
         session: URLSession(configuration: configuration))
-    try await runtime.initialize(extend: "")
+    try await runtime.initialize(extend: extend)
     return runtime
 }
 
@@ -280,4 +281,68 @@ private func md5(_ text: String) -> String {
     let search = try json(try await haokan.searchContent(key: "岁月", quick: false, page: "1"))
     #expect((search["list"] as? [[String: Any]])?.isEmpty == true)
     await haokan.destroy()
+}
+
+@Test func jpysTakesTheFirstMirrorThatAnswersAndJysFallsBackToTheDefaultHost() async throws {
+    let key = "cb808529bae6b6be45ecfab29a4889bc", api = "/api/mw-movie/anonymous/"
+    func signed(_ text: String) -> String {
+        Insecure.SHA1.hash(data: Data(md5(text).utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+    let hot = #"{"code":200,"data":[{"vodId":1,"vodName":"热","vodPic":"https://p.invalid/1.jpg","vodVersion":"HD"}]}"#
+    ShortDramaSite.serve([
+        "j2.invalid" + api + "home/hotSearch": [hot],
+        "j2.invalid" + api + "video/list":
+            [#"{"code":200,"data":{"totalPage":209,"list":[{"vodId":146870,"vodName":"醉胆追凶","vodPic":"https://p.invalid/2.jpg","vodVersion":"HD"}]}}"#],
+        "j2.invalid" + api + "video/detail": [#"""
+        {"code":200,"data":{"vodName":"醉胆追凶","vodPic":"https://p.invalid/2.jpg","vodYear":2026,"vodBlurb":"簡介",
+                            "episodeList":[{"name":"第1集","nid":1317757},{"name":"第2集","nid":1317758}]}}
+        """#],
+        "j2.invalid" + api + "v2/video/episode/url":
+            [#"{"code":200,"data":{"list":[{"url":"https://v.invalid/1080/index.m3u8"},{"url":"https://v.invalid/720/index.m3u8"}]}}"#],
+        "j2.invalid" + api + "video/searchByWord":
+            [#"{"code":200,"data":{"result":{"list":[{"vodId":7,"vodName":"甲","vodClass":"伦理"},{"vodId":8,"vodName":"乙","vodClass":"剧情","vodRemarks":"更新至3集"}]}}}"#],
+        "www.hkybqufgh.com" + api + "home/hotSearch": [hot],
+    ])
+    // j1 answers nothing (404), so the mirror after it is the one used; the trailing `/` is dropped.
+    let jpys = try await spider("Jpys", extend: "https://j1.invalid, https://j2.invalid/")
+    func asked(_ path: String) -> [ShortDramaSite.Asked] {
+        ShortDramaSite.requests(to: api + path).filter { $0.url.host == "j2.invalid" }
+    }
+
+    let home = try json(try await jpys.homeContent(filter: false))
+    #expect((home["class"] as? [[String: String]])?.map { $0["type_id"] ?? "" } == ["1", "2", "4", "3"])
+    let years = (((home["filters"] as? [String: Any])?["3"] as? [[String: Any]])?.last?["value"] as? [[String: String]])
+    #expect(years?.map { $0["n"] ?? "" } == ["全部", "2026", "2025", "2024", "2023", "2022", "2021", "2020", "更早"])
+    #expect((home["list"] as? [[String: Any]])?.first?["vod_remarks"] as? String == "HD")
+    let hotSearch = try #require(asked("home/hotSearch").last)
+    #expect(hotSearch.headers["sign"] == signed("key=\(key)&t=\(hotSearch.headers["T"] ?? "")"))
+
+    let page = try json(try await jpys.categoryContent(tid: "1", page: "1", filter: true,
+                                                       extend: ["area": "中国大陆", "year": "全部"]))
+    #expect(page["pagecount"] as? Int == 209)
+    let list = try #require(asked("video/list").last)
+    let query = Dictionary(uniqueKeysWithValues: try #require(URLComponents(url: list.url, resolvingAgainstBaseURL: false)?
+        .queryItems).map { ($0.name, $0.value ?? "") })
+    #expect(query == ["type1": "1", "pageNum": "1", "area": "中国大陆", "year": ""])
+    #expect(list.headers["sign"] == signed("area=中国大陆&pageNum=1&type1=1&year=&key=\(key)&t=\(list.headers["T"] ?? "")"),
+            "signed over the raw values in the original's own order")
+
+    let detail = try #require((try json(try await jpys.detailContent(ids: ["146870"]))["list"] as? [[String: Any]])?.first)
+    #expect(detail["vod_play_from"] as? String == "在线播放")
+    #expect(detail["vod_play_url"] as? String == "第1集$146870@1317757#第2集$146870@1317758")
+    #expect(detail["vod_year"] as? String == "2026")
+
+    let play = try json(try await jpys.playerContent(flag: "在线播放", id: "146870@1317757", vipFlags: []))
+    #expect(play["url"] as? String == "https://v.invalid/1080/index.m3u8")
+    #expect((play["header"] as? [String: String])?["Origin"] == "https://j2.invalid")
+
+    let search = try json(try await jpys.searchContent(key: "乙", quick: false, page: "1"))
+    #expect((search["list"] as? [[String: Any]])?.map { $0["vod_id"] as? String ?? "" } == ["8"], "伦理 is dropped")
+    await jpys.destroy()
+
+    // Jys's only mirror is dead here (its certificate expired), so it runs on the class default.
+    let jys = try await spider("Jys", extend: "https://dead.invalid/")
+    #expect((try json(try await jys.homeContent(filter: false))["list"] as? [[String: Any]])?.count == 1)
+    #expect(ShortDramaSite.requests(to: api + "home/hotSearch").contains { $0.url.host == "www.hkybqufgh.com" })
+    await jys.destroy()
 }

@@ -5,8 +5,8 @@
 - 目標：使用者 2026-10-02「開始 IOS-POC-44 assessment」。對象是 `docs/current-task-state.md`「Current handoff — 2026-10-02 下午」列的 23 站（19 個類別）：可以移植、iOS 還沒有 port 的 `csp_*` 站。
 - 範圍：只做 assessment，**不改程式**。task guard `IOS-POC-44`（`assessment`），路徑：本文件、`docs/current-task-state.md`、`docs/CSP_PORTABILITY_MATRIX.md`。探測腳本與回應都在 session scratchpad，不 commit。
 - 結論：23 站裡 **18 站後端今天活著、5 站死了**。活著的 18 站裡 13 站只要寫 JS，不必改 Swift；3 站（AppDrama×2、Uvod）要先在 host 補 RSA 和二進位 HTTP；Douban×2 要另做 App 功能。建議與分段見第 7 節，待決定事項見第 9 節。
-- 44A（`WeiguanDJ`＋`HemaDJ`）已完成，見第 11 節；44B（`QimaoDJ`＋`HaokanDJ`）已完成，見第 12 節。
-- 唯一下一步：等使用者決定下一段（第 7 節，建議 44C：`Jpys`＋`Jys`）；沒有核准不改程式。`QmdjAmns`／`HHkkAmns` 的 alias（第 6 節、第 9 節第 2 項）仍待使用者決定。
+- 44A（`WeiguanDJ`＋`HemaDJ`）見第 11 節；44B（`QimaoDJ`＋`HaokanDJ`）見第 12 節；44C（`Jpys`＋`Jys`）見第 13 節。三段都已完成。
+- 唯一下一步：等使用者決定下一段（第 7 節，建議 44D：`Feiyu`＋`MiaoWu`）；沒有核准不改程式。`QmdjAmns`／`HHkkAmns` 的 alias（第 6 節、第 9 節第 2 項）仍待使用者決定。
 
 ## 1. 問題與範圍
 
@@ -133,6 +133,7 @@
 - 2026-10-02：assessment 完成，未改程式。等使用者核准。
 - 2026-10-02 17:05：使用者「開始 44A」。實作見第 11 節。
 - 2026-10-02 17:24：使用者「開始 44B」。實作見第 12 節。
+- 2026-10-02 17:41：使用者「開始 44C」。實作見第 13 節。
 
 ## 11. 44A 實作紀錄（2026-10-02，Task-Guard `IOS-POC-44A`，`standard`）
 
@@ -213,3 +214,46 @@
     - 模擬器 App 的設定快取現在是這份測試設定（伺服器已關）。
   - **真機未驗證**。
 - Ponytail（`ponytail:ponytail-review`，對 sweep 時的 diff）：提出 1 項，已套用：刪掉 `HaokanDJ.js` 詳情裡多餘的 `vod_actor: ''`、`vod_director: ''`。套用後重跑 `swift test` 658／658，好看的即時 golden 也通過。
+
+## 13. 44C 實作紀錄（2026-10-02，Task-Guard `IOS-POC-44C`，`standard`）
+
+- 新發現（assessment 時沒有）：異界（`csp_Jys`）唯一的網域 `www.ndhfiohk.com`，**TLS 憑證在 2026-08-07 就過期了**。
+  - agent 當初探測時關掉了憑證檢查，所以沒有發現。
+  - `URLSession` 對它回 -1202，curl 回 60；App 沒有自訂憑證信任，也不該為這件事加。
+  - 原版 `init` 用 `HttpURLConnection` 做 HEAD 檢查，會照常驗證憑證，所以在 Android 上同樣失敗，會留在類別寫死的預設網域 `www.hkybqufgh.com`。
+  - 實測 `ndhfiohk`（跳過憑證檢查）、`hkybqufgh`、`y2s52n7` 三個網域回的列表、詳情與集數 id 完全相同，是同一套後端。
+- 改動：
+  - 新增 `Jpys.js`，一支腳本服務兩個類別。
+  - `SpiderRegistry` 的 `ported` 加 `Jpys`、`Jys`，`aliases` 加 `Jys → Jpys`，並補寫 alias 的說明：Jys 反編譯出來就是 Jpys，只差線路名和一個 header，而且同一套後端已實測。
+  - 測試：
+    - `ShortDramaSpiderTests.swift` 加一個離線測試，stub 多接受 `*.invalid` 與 `www.hkybqufgh.com`。
+      - 跳過不回應的鏡像、拿掉結尾的 `/`。
+      - `sign = sha1(md5(…))`：首頁的 `key=…&t=…`，以及分類「原始值、原版順序」的簽法。
+      - 篩選的年份列、詳情的 `vodId@nid`、播放取第一個網址並帶 Origin、搜尋去掉「伦理」。
+      - Jys 唯一的鏡像失敗時，回退到預設網域。
+    - registry 測試加上兩類，並檢查 `csp_Jys` 跑的就是 `Jpys` 的腳本。
+    - `SourceClientTests` 的 spider 站數由 36 改成 38。
+- 和原版刻意不同的地方：
+  - 鏡像的判斷，原版用 HEAD 回 200～399，這裡改成簽章過的 `hotSearch` 有回 `data`。當天 HEAD 在 6 個鏡像裡有 2 個跟 API 的結果相反。
+  - 異界的線路名顯示「在线播放」（原版是「星河」），播放也多帶 Origin／Referer。它實際跑在 `hkybqufgh`，金牌本來就是這樣送，媒體實測可播。
+  - 原版約 4 KB 的篩選 JSON 改用程式產生，內容相同。
+  - 分類的總頁數用 API 回的 `totalPage`。
+  - 彈幕需要 Android 的本機 proxy，不做。
+- 驗證：
+  - `swift test --package-path ios` 659／659（本機 Xcode 27.0）。
+  - 即時 golden（用設定檔原本的 ext，17:4x，相容包 golden 兩站也都通過）：
+    - 金牌：4 個分類 → 電影 48 筆 → 詳情（線路「在线播放」）→ 搜尋「我」8 筆 → `parse:0` m3u8。
+    - 異界：結果相同（回退到預設網域）。
+  - `WANG_MOVIE_JSON`：App 列表 68 站＝30 原生＋38 spider。
+  - sweep：HEAD `3e3657d6` 的副本當基準，背對背跑，17:47～17:51。
+    - PLAYABLE：基準 35／71，修改後 36／73。
+    - 兩個新站都 PLAYABLE：都是 4 個分類、39 集，都有讀到 m3u8。
+    - 原有站有兩站的判定變了，都跟 44C 無關：
+      - Bili 的聽書趣 PLAYABLE → NO-PLAY：詳情正常，這次抽到的作品 B 站沒給播放網址。IOS-POC-42 記過同一站同樣的翻轉，`Bili.js` 沒改。
+      - 88看球（type-4）DEAD-MEDIA → ERROR：詳情請求被對方伺服器拖到逾時，是 CMS 那條路，不是 spider。
+    - 驗收通過。
+  - 模擬器（設定是金牌、異界兩個原始 ext＋虎牙）：
+    - 金牌：首頁 4 個分類、地區與年份篩選、海報與「藍光」→ 詳情（年份、地區、類型、導演、演員、簡介）→ 立即播放，原生播放器播放中。
+    - 異界：首頁內容和金牌相同（回退到預設網域）→ 詳情 → 立即播放，原生播放器播放中。
+  - **真機未驗證**。
+- Ponytail（`ponytail:ponytail-review`，對最終 diff）：沒有可刪的項目（Lean already）。

@@ -64,11 +64,16 @@ public struct SpiderRegistry: Sendable {
         // IOS-POC-44B: two more short-drama APIs.
         "QimaoDJ",    // http-json: xiaosa-0807.jar (md5-signed GETs, a substituted-base64 header)
         "HaokanDJ",   // http-json: xiaosa-0807.jar (form POSTs; search is dead upstream)
+        // IOS-POC-44C: the mw-movie API, one script for both classes.
+        "Jpys",       // http-crypto: river-fman.jar
+        "Jys",        // http-crypto: river-fman.jar (as Jpys: the same body apart from a line label)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no
-    /// logic of its own. Only ever for a pair proven to be the same site.
-    static let aliases = ["JPianAmns": "JianPian"]
+    /// logic of its own, or none the other lacks. Only ever for a pair proven to be the same site:
+    /// `Jys` decompiles to `Jpys` with a different line label and one header fewer, and its host serves
+    /// the same listing, detail and episode ids as `Jpys`'s (IOS-POC-44C).
+    static let aliases = ["JPianAmns": "JianPian", "Jys": "Jpys"]
 
     /// The registry the app actually runs on: the bundled scripts, with a verified compatibility
     /// pack overlaid on top. `CSPSourceResolver` uses this, so every call site picks up a pack

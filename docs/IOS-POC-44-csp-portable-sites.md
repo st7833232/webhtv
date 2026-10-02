@@ -5,8 +5,8 @@
 - 目標：使用者 2026-10-02「開始 IOS-POC-44 assessment」。對象是 `docs/current-task-state.md`「Current handoff — 2026-10-02 下午」列的 23 站（19 個類別）：可以移植、iOS 還沒有 port 的 `csp_*` 站。
 - 範圍：只做 assessment，**不改程式**。task guard `IOS-POC-44`（`assessment`），路徑：本文件、`docs/current-task-state.md`、`docs/CSP_PORTABILITY_MATRIX.md`。探測腳本與回應都在 session scratchpad，不 commit。
 - 結論：23 站裡 **18 站後端今天活著、5 站死了**。活著的 18 站裡 13 站只要寫 JS，不必改 Swift；3 站（AppDrama×2、Uvod）要先在 host 補 RSA 和二進位 HTTP；Douban×2 要另做 App 功能。建議與分段見第 7 節，待決定事項見第 9 節。
-- 44A（`WeiguanDJ`＋`HemaDJ`）已完成，見第 11 節。
-- 唯一下一步：等使用者決定下一段（第 7 節，建議 44B：`QimaoDJ`＋`HaokanDJ`）；沒有核准不改程式。
+- 44A（`WeiguanDJ`＋`HemaDJ`）已完成，見第 11 節；44B（`QimaoDJ`＋`HaokanDJ`）已完成，見第 12 節。
+- 唯一下一步：等使用者決定下一段（第 7 節，建議 44C：`Jpys`＋`Jys`）；沒有核准不改程式。`QmdjAmns`／`HHkkAmns` 的 alias（第 6 節、第 9 節第 2 項）仍待使用者決定。
 
 ## 1. 問題與範圍
 
@@ -132,6 +132,7 @@
 
 - 2026-10-02：assessment 完成，未改程式。等使用者核准。
 - 2026-10-02 17:05：使用者「開始 44A」。實作見第 11 節。
+- 2026-10-02 17:24：使用者「開始 44B」。實作見第 12 節。
 
 ## 11. 44A 實作紀錄（2026-10-02，Task-Guard `IOS-POC-44A`，`standard`）
 
@@ -174,3 +175,41 @@
   - `cipher` 的判斷改為一行。
   - 測試的 stub 和 `RuleSite` 很像，但要另外記錄 POST body、header，還要能排隊回覆，所以保留。
   - 套用後重跑：`swift test` 656／656，河马即時 golden 通過（詳情 118 集、mp4）。sweep 與模擬器量測的是套用前的版本，套用的修改不改行為。
+
+## 12. 44B 實作紀錄（2026-10-02，Task-Guard `IOS-POC-44B`，`standard`）
+
+- 改動：
+  - 新增 `QimaoDJ.js`、`HaokanDJ.js`，在 `SpiderRegistry.ported` 加兩行，不碰 Swift host。
+  - 測試：
+    - `ShortDramaSpiderTests.swift` 加兩個離線測試，stub 多攔截 `neptune`／`api-store`／`api-read.qmplaylet.com` 與 `sv.baidu.com`。
+      - 七猫：查詢參數 `sign` 是排序後 `k=v` 加鹽的 md5；`qm-params` 照原版的字元表還原回 base64 後，就是裝置資料；header 的 `sign` 正確；網域檔的結尾 `/` 會拿掉；標題的 `<font>` 會拿掉；沒有網址的集數不列。
+      - 好看：兩段式詳情；畫質依 1080p → sc → 第一個挑選；搜尋回空。
+    - `SpiderGoldenTests.registryClaimsOnlyWhatIsActuallyPorted` 的清單加上兩類。
+    - `SourceClientTests` 的 spider 站數由 34 改成 36。
+    - golden 的「分類不得出現 伦理／福利／小影院」改成只對 `csp_AppGet` 檢查。那是 AppGet 原版的隱藏清單；七猫原版會列出「伦理」這個一般劇情分類，所以這是測試預期太廣，不是 port 的錯。
+- 和原版刻意不同的地方：
+  - 好看的分類頁，原版把總頁數報成 `Integer.MAX_VALUE`；這裡改成一頁不滿 9 筆就是最後一頁，跟 WeiguanDJ 一樣。
+  - 好看的搜尋照原版的參數送；上游回「猜空了」，就照實回空清單，不另外猜參數。
+  - host 的表單編碼會把 `_` 也編成 `%5F`，OkHttp 不會；伺服器解碼後一樣，即時 golden 也通過。
+- 驗證：
+  - `swift test --package-path ios` 658／658（本機 Xcode 27.0）。
+  - 即時 golden（`CSP_GOLDEN_SITE`，17:2x，家用網路；相容包 golden 兩站也都通過）：
+    - 七猫短剧：150 個分類 → 分類 -1 共 16 筆 → 詳情 69 集（線路「七猫」）→ 搜尋「我」10 筆 → `parse:0` m3u8。
+    - 好看短剧：29 個分類 → 分類 3 共 9 筆 → 詳情 70 集 → 搜尋 0 筆（上游壞了）→ `parse:0` 1080p mp4（http）。
+  - `WANG_MOVIE_JSON`：App 列表 66 站＝30 原生＋36 spider。
+  - sweep：HEAD `216bf4de` 的 `git archive` 副本當基準，背對背跑，17:29～17:33。
+    - PLAYABLE：基準 32／69，修改後 34／71。
+    - 兩個新站都 PLAYABLE，而且有讀到影片 bytes：七猫 150 個分類、80 集、m3u8；好看 29 個分類、70 集、mp4。
+    - 原有站逐站的判定完全相同，差異只在抽到的影片網址或集數。
+    - 驗收通過。
+  - `wang-sex.json` 沒有站用到這兩類，不跑。
+  - 模擬器（同 44A 的機器與方式，設定是七猫、好看＋虎牙）：
+    - 七猫：首頁分類、海報、集數 → 詳情（簡介、第 1 集起）→ 立即播放，原生播放器播放中。
+    - 好看：首頁 29 個分類與列表 → 兩段式詳情（70 集）→ 立即播放，原生播放器播出 http 的 1080p mp4（`NSAllowsArbitraryLoads` 本來就開著）。
+    - 好看的海報（`pic.rmb.bdstatic.com` 的 webp）在這個熱點上很慢：
+      - App 的 log 裡有一條連線拖了 143 秒，最後被取消。
+      - 用 curl 抓，一張要 1.6～13 秒，跟 User-Agent 無關，伺服器都回 200 webp。
+      - 判定是網路到這個 CDN 很慢，不是 port 的問題。
+    - 模擬器 App 的設定快取現在是這份測試設定（伺服器已關）。
+  - **真機未驗證**。
+- Ponytail（`ponytail:ponytail-review`，對 sweep 時的 diff）：提出 1 項，已套用：刪掉 `HaokanDJ.js` 詳情裡多餘的 `vod_actor: ''`、`vod_director: ''`。套用後重跑 `swift test` 658／658，好看的即時 golden 也通過。

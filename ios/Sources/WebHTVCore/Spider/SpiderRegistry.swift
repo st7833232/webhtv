@@ -61,6 +61,9 @@ public struct SpiderRegistry: Sendable {
         // IOS-POC-44A: short-drama app APIs, both live when ported (docs/IOS-POC-44-csp-portable-sites.md).
         "WeiguanDJ",  // http-crypto: xiaosa-0807.jar (only an md5 client id; no cipher)
         "HemaDJ",     // http-json: xiaosa-0807.jar (AES-CBC envelope)
+        // IOS-POC-44B: two more short-drama APIs.
+        "QimaoDJ",    // http-json: xiaosa-0807.jar (md5-signed GETs, a substituted-base64 header)
+        "HaokanDJ",   // http-json: xiaosa-0807.jar (form POSTs; search is dead upstream)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

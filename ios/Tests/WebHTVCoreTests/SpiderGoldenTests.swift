@@ -48,8 +48,11 @@ private func playURL(_ value: Any?) -> [String] {
     for entry in classes {
         #expect((entry["type_id"] as? String)?.isEmpty == false)
         #expect((entry["type_name"] as? String)?.isEmpty == false)
-        // The original hides these; the port must hide them too or the class list differs.
-        #expect(!["伦理", "福利", "小影院"].contains(entry["type_name"] as? String ?? ""))
+        // `AppGet`'s original hides these; its port must hide them too or the class list differs.
+        // Other classes keep them: 七猫短剧's 伦理 is an ordinary genre tag its original lists.
+        if site.api == "csp_AppGet" {
+            #expect(!["伦理", "福利", "小影院"].contains(entry["type_name"] as? String ?? ""))
+        }
     }
     print("[golden] home classes: \(classes.compactMap { $0["type_name"] as? String })")
 
@@ -192,8 +195,8 @@ private func playURL(_ value: Any?) -> [String] {
     let registry = SpiderRegistry.bundled()
     // IOS-POC-5L: every script the registry names must have actually loaded from the bundle.
     #expect(registry.entries.keys.sorted() ==
-            ["App3Q", "App99", "AppGet", "AppQi", "Bili", "HemaDJ", "JPianAmns", "JianPian", "WeiguanDJ", "XBPQ",
-             "XYQHiker"])
+            ["App3Q", "App99", "AppGet", "AppQi", "Bili", "HaokanDJ", "HemaDJ", "JPianAmns", "JianPian", "QimaoDJ",
+             "WeiguanDJ", "XBPQ", "XYQHiker"])
     #expect(!registry.prelude.isEmpty)
     #expect(registry.canDrive("csp_XBPQ"))
     // IOS-POC-5M: the alias must load JianPian's script, not an empty entry for a name with no file.

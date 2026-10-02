@@ -58,9 +58,17 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - 模擬器兩站都實際播放。
 - 真機未驗證，44A 還沒發版。
 
-下一段建議 44B（`QimaoDJ`＋`HaokanDJ`），等使用者核准；沒有核准不改程式。
+**44B（`QimaoDJ`＋`HaokanDJ`）也已完成**（Task-Guard `IOS-POC-44B`，該文件第 12 節）：
+- `swift test` 658／658。
+- 兩站即時 golden 通過。
+- sweep PLAYABLE 32 → 34，原有站逐站相同。
+- 模擬器兩站都實際播放。
+- 好看的搜尋上游壞了，照實回空。
+- 真機未驗證，44A、44B 都還沒發版。
 
-模擬器 App 的設定快取現在是 44A 的測試設定（`127.0.0.1:8766`：围观、河马、虎牙；伺服器已關）。下面原本的建議做法保留當作紀錄，「AppDrama 優先」的猜測已被實測推翻（要動 Swift，4 站只有 2 站活）。
+下一段建議 44C（`Jpys`＋`Jys`），等使用者核准；沒有核准不改程式。
+
+模擬器 App 的設定快取現在是 44B 的測試設定（`127.0.0.1:8766`：七猫、好看、虎牙；伺服器已關）。下面原本的建議做法保留當作紀錄，「AppDrama 優先」的猜測已被實測推翻（要動 Swift，4 站只有 2 站活）。
 
 **Next Recommended Step（原紀錄）**：**IOS-POC-44「`wang-movie.json` 可以移植、還沒做的 `csp_*` 站」的 assessment**（使用者尚未核准開始；只做 assessment、不改程式）。
 - 2026-10-02 用當天 `wang-movie.json` sweep 的 not-offered 清單對照 `docs/CSP_PORTABILITY_MATRIX.md`（2026-09-16 產生、09-17 手修）：`csp_*` 未提供 58 站＝**可移植 23 站**＋原生保護（H）34 站＋1 站不在矩陣（`AppV6`）。另 44 站是 Python spider，`swift test` 沒有直譯器所以不提供，App 內可用。
@@ -1488,6 +1496,6 @@ Paste this into a new session:
 >
 > 目前狀態：最新發布是 WebHTV `0.1.50 (51)`（tag `ios-v0.1.50-b51`）；IOS-POC-42（XYQHiker 直接播放、播放端擷取、中文搜尋鍵）隨 `0.1.49 (50)`、IOS-POC-43A（檢查來源的嗅探排隊）隨 `0.1.50 (51)` 發布，兩版真機都未驗證，由我另外用 SideStore 測，不擋新任務。
 >
-> 下一步：IOS-POC-44（`docs/IOS-POC-44-csp-portable-sites.md`：23 站活 18、死 5，分段 44A～44G）的 44A（`WeiguanDJ`＋`HemaDJ`）已完成並 commit，還沒發版。等我核准 44B（`QimaoDJ`＋`HaokanDJ`，只寫 JS、不動 Swift）或指定其他段；核准後照該文件第 7、8 節與第 11 節 44A 的做法實作與驗收，結果記回同一份文件。沒有我的核准不改程式；沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13。
+> 下一步：IOS-POC-44（`docs/IOS-POC-44-csp-portable-sites.md`：23 站活 18、死 5，分段 44A～44G）的 44A（`WeiguanDJ`＋`HemaDJ`）、44B（`QimaoDJ`＋`HaokanDJ`）已完成並 commit，還沒發版。等我核准 44C（`Jpys`＋`Jys`，只寫 JS、不動 Swift）或指定其他段；核准後照該文件第 7、8 節與第 11、12 節的做法實作與驗收，結果記回同一份文件。沒有我的核准不改程式；沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13。
 >
 > 規則：環境有 Ponytail 就一定要對最終 diff 跑 `ponytail:ponytail-review` 並記進任務文件；功能修改用 `bash .codex/scripts/task_guard.sh start`（模式只有 quick-fix／standard／assessment／upstream），結束用 `finish --no-tag`，不要把 guard 指令接 pipe（結束碼會被吃掉）。push 只推 `ios-poc`，push 前先 `git pull --no-rebase`，不建新分支、不 merge `main`；bump 版本、tag、發布前一定要先問我，release notes 不帶站台內容（站名、設定檔名、站數、成人站）。本機 Xcode 27 比 CI 的 Xcode 26.6 新，本機建置通過不代表 CI 會過。不要直接安裝到我的 iPhone（我用 SideStore）；真機沒測到的一律寫「未驗證」。最後回報要給明確結論，不要用「可能有幫助」這種說法。

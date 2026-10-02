@@ -96,7 +96,8 @@ func labelNumberCodesNormalizeToOneForm(_ title: String) {
 /// Case 5. Ordinary film and series titles are searched as titles. A code needs letters and digits
 /// joined by at most a hyphen, so "Blade Runner 2049" is not "RUNNER-2049".
 @Test(arguments: ["Blade Runner 2049", "進擊的巨人 第1集", "Friends S01E01", "Spider-Man 2", "WALL-E",
-                  "Interstellar 2014 1080p WEB-DL x264", "COVID-19 紀錄片", "Episode-100", "第100集", "鬼滅之刃 遊郭篇 EP-101"])
+                  "Interstellar 2014 1080p WEB-DL x264", "COVID-19 紀錄片", "Episode-100", "第100集", "鬼滅之刃 遊郭篇 EP-101",
+                  "Dune-2021", "Avatar2009"])
 func ordinaryTitlesAreNotForcedIntoCodes(_ title: String) {
     let keywords = SubtitleSearchKeywords.make(title: title)
     #expect(keywords.code == nil)
@@ -550,4 +551,88 @@ private func download(_ response: SubtitleHTTPResponse, code: String = "zh-TW",
     #expect(alone?.options.map(\.id) == [PlaybackMediaOption.subtitleOffID, "online-subtitle-1"])
     #expect(alone?.selectedID == PlaybackMediaOption.subtitleOffID)
     #expect(PlaybackMediaTrack.subtitles(embedded: embedded, external: [], selectedExternalID: nil) == embedded)
+}
+
+// MARK: - Review hardening
+
+/// Untrusted pages: thousands of tags that never close still parse, on a concurrency thread's
+/// small stack, and the file inside is still found.
+@Test func deeplyNestedMarkupIsBoundedAndStillRead() async throws {
+    let html = String(repeating: "<span>", count: 5000)
+        + #"Japanese <a href="/subs/1/x-ja.srt">Download</a>"# + String(repeating: "</i>", count: 5000)
+    let tracks = try await Task.detached {
+        try SubtitleCatProvider.tracks(in: html, pageURL: detailURL, title: nil)
+    }.value
+    #expect(tracks.map(\.downloadURL.path) == ["/subs/1/x-ja.srt"])
+}
+
+/// One file among Translate rows — a common Subtitle Cat page — keeps its own row's label, even
+/// for a language the name table does not know: it is never given a Translate row's language.
+@Test func aSingleFileAmongTranslateRowsKeepsItsOwnLanguage() throws {
+    let html = #"""
+    <div class="all-sub">
+      <div class="sub-single"><span>Croatian</span><span><a id="download_hr" href="/subs/1/Movie-hr.srt">Download</a></span></div>
+      <div class="sub-single"><span>Chinese (Traditional)</span><span><button onclick="translate_from_server_folder('zh-TW','Movie.srt','/subs/1/')">Translate</button></span></div>
+      <div class="sub-single"><span>Tok Pisin</span><span><a id="download_tpi" href="/subs/1/Movie-tpi.srt">Download</a></span></div>
+      <div class="sub-single"><span>English</span><span><button onclick="translate_from_server_folder('en','Movie.srt','/subs/1/')">Translate</button></span></div>
+    </div>
+    """#
+    let tracks = try SubtitleCatProvider.tracks(in: html, pageURL: detailURL, title: nil)
+    #expect(tracks.map { $0.language.code } == ["hr", nil])
+    #expect(tracks.last?.language.displayName == "Tok Pisin")
+    #expect(tracks.last?.language.group == .other)
+}
+
+/// A file name in `download=` is a file name: "El.Camino.2019" is not Greek.
+@Test func aDownloadAttributeIsNotReadAsLanguageTokens() throws {
+    let html = #"<div><a download="El.Camino.2019.srt" href="/subs/1/El.Camino.2019.srt">Download</a></div>"#
+    #expect(try SubtitleCatProvider.tracks(in: html, pageURL: detailURL, title: nil).first?.language.code == nil)
+}
+
+/// Results that loaded with nothing to download, beside results that were refused, is the
+/// refusal — not "no subtitles", which would hide a rate limit.
+@Test func refusedResultsAreNotReportedAsNoSubtitles() async {
+    let query = SubtitleSearchQuery(text: "FC2-PPV-4159457")
+    let canned = CannedFetch([
+        SubtitleCatProvider.searchURL(for: query).absoluteString: [ok(SubtitleCatFixture.searchPage)],
+        detailURL.absoluteString: [ok(SubtitleCatFixture.translateOnlyPage)],
+        "https://www.subtitlecat.com/subs/998/FC2PPV-4159457-part2.html": [SubtitleHTTPResponse(status: 429, data: Data())],
+        "https://www.subtitlecat.com/subs/77/fc2-ppv-4159457-alt.html": [SubtitleHTTPResponse(status: 429, data: Data())],
+    ])
+    await #expect(throws: SubtitleProviderError.rateLimited) {
+        try await SubtitleCatProvider(fetch: canned.fetch, retryDelay: .zero).search(query)
+    }
+}
+
+/// A redirect off the site is neither the page nor the file that was asked for.
+@Test func aRedirectOffTheSiteIsRefused() async {
+    let query = SubtitleSearchQuery(text: "x")
+    let url = SubtitleCatProvider.searchURL(for: query).absoluteString
+    let elsewhere = URL(string: "https://login.example/wall")!
+    let page = CannedFetch([url: [SubtitleHTTPResponse(status: 200, data: Data(SubtitleCatFixture.searchPage.utf8), url: elsewhere)]])
+    await #expect(throws: SubtitleProviderError.searchPageUnreadable) {
+        try await SubtitleCatProvider(fetch: page.fetch, retryDelay: .zero).search(query)
+    }
+    let root = temporaryRoot("redirect")
+    defer { try? FileManager.default.removeItem(at: root) }
+    await #expect(throws: SubtitleProviderError.downloadUnavailable) {
+        try await download(SubtitleHTTPResponse(status: 200, data: Data(SubtitleCatFixture.srt.utf8),
+                                                url: URL(string: "http://www.subtitlecat.com/subs/1/x.srt")!), root: root)
+    }
+}
+
+/// A word joined to a year is a title; a code written in capitals with a year-like number is
+/// still a code.
+@Test func yearsJoinedToWordsAreTitlesNotCodes() {
+    #expect(SubtitleReleaseCode.recognize("Dune-2021") == nil)
+    #expect(SubtitleReleaseCode.recognize("Avatar2009 1080p") == nil)
+    #expect(SubtitleReleaseCode.recognize("SSNI-1999")?.canonical == "SSNI-1999")
+}
+
+/// An old Cyrillic file decodes in its own code page, not as Latin mojibake.
+@Test func legacyFilesDecodeInTheirLanguagesCodePage() throws {
+    let timing = "1\n00:00:01,000 --> 00:00:02,000\n"
+    // "Привет" in Windows-1251, which is not valid UTF-8.
+    let data = Data(timing.utf8) + Data([0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2, 0x0A])
+    #expect(SubtitleContent.decode(data, language: SubtitleLanguage(code: "ru")) == timing + "Привет\n")
 }

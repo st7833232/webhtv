@@ -5013,23 +5013,25 @@ private struct OnlineSubtitleSection: View {
         .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
     }
 
+    /// Always 搜尋: a second tap of the same text is the same request (`OnlineSubtitleSession`),
+    /// new text replaces the search in flight, and cancelling is the status row's own button —
+    /// never this one turning into it under a double tap.
     private var searchButton: some View {
-        let searching = online.isSearching
         let blocked = SubtitleSearchQuery(text: online.queryText).isEmpty
             || online.selectedProvider?.availability != .available
         return Button {
             fieldFocused = false
-            if searching { online.cancelSearch() } else { online.search() }
+            online.search()
         } label: {
-            Text(searching ? "取消" : "搜尋")
+            Text("搜尋")
                 .font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 14)
                 .frame(minHeight: PlayerControlBar.hitTarget)
                 .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
                 .contentShape(Rectangle())
         }
-        .disabled(!searching && blocked)
-        .opacity(!searching && blocked ? 0.45 : 1)
+        .disabled(blocked)
+        .opacity(blocked ? 0.45 : 1)
     }
 
     private var candidates: some View {
@@ -5065,6 +5067,11 @@ private struct OnlineSubtitleSection: View {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small).tint(.white)
                 note("搜尋中…")
+                Spacer()
+                Button("取消") { online.cancelSearch() }
+                    .font(.caption.weight(.semibold))
+                    .frame(minHeight: PlayerControlBar.hitTarget)
+                    .accessibilityLabel("取消搜尋")
             }
         case .results:
             note(online.openedCount < online.listedCount

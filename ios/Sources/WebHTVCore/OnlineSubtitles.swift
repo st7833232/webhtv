@@ -155,6 +155,11 @@ public struct SubtitleLanguage: Sendable, Equatable, Hashable {
         ("dutch", "nl"), ("swedish", "sv"), ("ukrainian", "uk"), ("hebrew", "he"), ("greek", "el"),
         ("czech", "cs"), ("romanian", "ro"), ("hungarian", "hu"), ("danish", "da"), ("finnish", "fi"),
         ("norwegian", "no"), ("filipino", "tl"), ("tagalog", "tl"), ("persian", "fa"),
+        ("croatian", "hr"), ("serbian", "sr"), ("bulgarian", "bg"), ("slovenian", "sl"), ("slovak", "sk"),
+        ("estonian", "et"), ("lithuanian", "lt"), ("latvian", "lv"), ("bengali", "bn"), ("catalan", "ca"),
+        ("macedonian", "mk"), ("albanian", "sq"), ("icelandic", "is"), ("urdu", "ur"), ("tamil", "ta"),
+        ("telugu", "te"), ("khmer", "km"), ("burmese", "my"), ("mongolian", "mn"), ("georgian", "ka"),
+        ("armenian", "hy"), ("afrikaans", "af"), ("basque", "eu"), ("galician", "gl"), ("swahili", "sw"),
     ]
 
     /// Codes as pages and file names write them, lower-cased, to the canonical form.
@@ -172,6 +177,10 @@ public struct SubtitleLanguage: Sendable, Equatable, Hashable {
         "pl": "pl", "pol": "pl", "nl": "nl", "nld": "nl", "sv": "sv", "swe": "sv", "uk": "uk", "ukr": "uk",
         "he": "he", "iw": "he", "heb": "he", "el": "el", "cs": "cs", "ro": "ro", "hu": "hu", "da": "da",
         "fi": "fi", "no": "no", "tl": "tl", "fil": "tl", "fa": "fa", "ml": "ml",
+        "hr": "hr", "sr": "sr", "bg": "bg", "sl": "sl", "sk": "sk", "et": "et", "lt": "lt", "lv": "lv",
+        "bn": "bn", "ca": "ca", "mk": "mk", "sq": "sq", "is": "is", "ur": "ur", "ta": "ta", "te": "te",
+        "km": "km", "my": "my", "mn": "mn", "ka": "ka", "hy": "hy", "af": "af", "eu": "eu", "gl": "gl",
+        "sw": "sw", "be": "be",
     ]
 }
 
@@ -371,4 +380,10 @@ public protocol SubtitleProvider: Sendable {
     /// The request that fetches one track's file. A provider whose API hands out download links
     /// asks for one here; Subtitle Cat's links are already direct.
     func downloadRequest(for track: RemoteSubtitleTrack) async throws -> URLRequest
+    /// Whether a file may come from where the download ended up, redirects included.
+    func acceptsDownload(from url: URL) -> Bool
+}
+
+public extension SubtitleProvider {
+    func acceptsDownload(from url: URL) -> Bool { true }
 }

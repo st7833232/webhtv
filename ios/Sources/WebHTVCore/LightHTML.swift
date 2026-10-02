@@ -11,7 +11,13 @@ import Foundation
 /// with no matching open element is ignored, an end tag closes everything opened inside it, and
 /// the usual implied ends are applied (a new `<li>`, `<tr>`, `<td>`, `<option>` or `<p>` closes
 /// the previous one, a nested `<a>` closes the open one). Nothing throws: any input gives a tree.
+///
+/// **Bounded.** Pages are untrusted: past `maximumDepth` open elements a new element still joins
+/// the tree, as a child of the deepest one, but does not open, so the walks below, the tree's
+/// release and every stack scan stay bounded however a page nests or never closes its tags.
 enum LightHTML {
+    static let maximumDepth = 256
+
     final class Element {
         let name: String
         let attributes: [String: String]
@@ -140,7 +146,7 @@ enum LightHTML {
                 textStart = index
                 continue
             }
-            stack.append(element)
+            if stack.count < maximumDepth { stack.append(element) }
         }
         flushText(until: bytes.count)
         return root

@@ -41,7 +41,7 @@ enum SubtitleFetching {
             attempt += 1
             do {
                 let response = try await fetch(request, limit)
-                if attempt == 1, (500...599).contains(response.status),
+                if attempt == 1, SubtitleProviderError.httpStatus(response.status).isTransient,
                    !SubtitleContent.looksLikeChallenge(SubtitleContent.text(response.data)) {
                     try await Task.sleep(for: retryDelay)
                     continue
@@ -111,15 +111,24 @@ public enum SubtitleContent {
     }
 
     static func legacyEncodings(for language: SubtitleLanguage) -> [String.Encoding] {
-        let big5 = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(
-            CFStringEncoding(CFStringEncodings.big5_HKSCS_1999.rawValue)))
-        let gb18030 = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(
-            CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
+        func core(_ encoding: CFStringEncodings) -> String.Encoding {
+            String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(encoding.rawValue)))
+        }
         switch language.group {
-        case .traditionalChinese: return [big5, gb18030]
-        case .simplifiedChinese, .chinese: return [gb18030, big5]
+        case .traditionalChinese: return [core(.big5_HKSCS_1999), core(.GB_18030_2000)]
+        case .simplifiedChinese, .chinese: return [core(.GB_18030_2000), core(.big5_HKSCS_1999)]
         case .japanese: return [.shiftJIS]
-        case .english, .other: return [.windowsCP1252]
+        case .english: return [.windowsCP1252]
+        case .other:
+            // The Windows code page each script's old files were written in.
+            switch language.code.map({ String($0.prefix(2)) }) {
+            case "ko": return [core(.dosKorean)]
+            case "ru", "uk", "bg", "sr", "mk", "be": return [.windowsCP1251]
+            case "pl", "cs", "sk", "sl", "hr", "hu", "ro": return [.windowsCP1250]
+            case "el": return [.windowsCP1253]
+            case "tr": return [.windowsCP1254]
+            default: return [.windowsCP1252]
+            }
         }
     }
 
@@ -188,6 +197,9 @@ public struct SubtitleDownloadService: Sendable {
             throw SubtitleProviderError.classify(error)
         }
         try Task.checkCancellation()
+        if let final = response.url, !provider.acceptsDownload(from: final) {
+            throw SubtitleProviderError.downloadUnavailable
+        }
         let content = try SubtitleContent.validate(response, language: track.language)
         return try cache.store(text: content.text, cues: content.cues, for: track)
     }

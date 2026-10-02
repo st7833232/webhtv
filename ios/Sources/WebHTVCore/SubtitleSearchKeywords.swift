@@ -75,9 +75,12 @@ public struct SubtitleReleaseCode: Sendable, Equatable {
         },
         // DLDSS553, DLDSS-553, dldss-553, SSIS_001. Two to six letters, three to five digits, at
         // most one hyphen or underscore between them and nothing alphanumeric on either side.
+        // A word joined to a year ("Dune-2021", "Avatar2009") is a title, unless written all in
+        // capitals the way codes are.
         Rule(family: .labelNumber, pattern: #"(?<![a-z0-9])([a-z]{2,6})[-_]?(\d{3,5})(?![a-z0-9])"#) { groups in
             let label = groups[0].uppercased()
             guard !SubtitleReleaseCode.notALabel.contains(label) else { return nil }
+            if let number = Int(groups[1]), (1900...2099).contains(number), groups[0] != label { return nil }
             return ["\(label)-\(groups[1])", "\(label)\(groups[1])"]
         },
     ]
@@ -109,10 +112,10 @@ public struct SubtitleReleaseCode: Sendable, Equatable {
         return nil
     }
 
-    /// Full-width letters and digits to ASCII, every dash to "-", lower case.
+    /// Full-width letters and digits to ASCII and every dash to "-". Case is kept — the rules
+    /// match without it, and the year rule reads it.
     static func fold(_ text: String) -> String {
         let dashes: Set<Character> = ["‐", "‑", "‒", "–", "—", "―", "－", "−"]
         return String(text.precomposedStringWithCompatibilityMapping.map { dashes.contains($0) ? "-" : $0 })
-            .lowercased()
     }
 }

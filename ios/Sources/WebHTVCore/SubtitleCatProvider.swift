@@ -98,11 +98,15 @@ public struct SubtitleCatProvider: SubtitleProvider {
             if case .success(let tracks) = pages[index] { return tracks } else { return [] }
         }
         Self.log.notice("[subtitle] subtitlecat opened=\(opened.count) failed=\(failures.count) files=\(tracks.count)\(failures.first.map { " first-failure=\($0.category)" } ?? "", privacy: .public)")
-        // Every result page failed: the search did not work, and the reason is the first one's.
-        if failures.count == opened.count, let first = failures.first { throw first }
+        // Nothing to show and something failed: the search did not work, and the reason is the
+        // first failure's — "no subtitles" would hide a rate limit or a challenge.
+        if tracks.isEmpty, let first = failures.first { throw first }
         return SubtitleSearchResult(tracks: SubtitleSearchResult.ordered(tracks), listedCount: hits.count,
                                     openedCount: opened.count)
     }
+
+    /// Only the site's own host, over HTTPS — also after a redirect.
+    public func acceptsDownload(from url: URL) -> Bool { Self.isOwnHost(url) }
 
     /// A direct GET of the file, with the result page it was found on as the referrer.
     public func downloadRequest(for track: RemoteSubtitleTrack) async throws -> URLRequest {
@@ -126,6 +130,8 @@ public struct SubtitleCatProvider: SubtitleProvider {
         }
         Self.log.notice("[subtitle] subtitlecat GET \(url.path, privacy: .public) status=\(response.status) bytes=\(response.data.count)")
         if let failure = SubtitleFetching.failure(for: response, context: .page) { throw failure }
+        // A redirect off the site, or off HTTPS, is not the page that was asked for.
+        if let final = response.url, !Self.isOwnHost(final) { throw unreadable }
         return String(decoding: response.data, as: UTF8.self)
     }
 
@@ -180,18 +186,21 @@ public struct SubtitleCatProvider: SubtitleProvider {
             if !isPage(root) { throw SubtitleProviderError.detailPageUnreadable }
             return []
         }
-        // How many file links sit under each element, so a link's own block — the one holding
-        // its label and no other file — can be told from the list around it.
+        // How many language entries — file links and Translate controls alike — sit under each
+        // element, so a link's own block, the one holding its label and no other entry, can be
+        // told from the list around it. A page with one file and many Translate rows is common.
         var counts = [ObjectIdentifier: Int]()
-        for link in links {
-            for ancestor in link.anchor.ancestors { counts[ObjectIdentifier(ancestor), default: 0] += 1 }
+        let translateControls = root.descendants.filter { ["a", "button"].contains($0.name) && isTranslateAction($0) }
+        for entry in links.map(\.anchor) + translateControls {
+            for ancestor in entry.ancestors { counts[ObjectIdentifier(ancestor), default: 0] += 1 }
         }
         return links.map { link in
             let fileName = link.url.lastPathComponent.removingPercentEncoding ?? link.url.lastPathComponent
             let context = labelContext(of: link.anchor, counts: counts)
+            // Not `download=`: that is a file name, read by the file-name rule, not tokens.
             let metadata = [link.anchor.attribute("id"), link.anchor.attribute("hreflang"),
-                            link.anchor.attribute("data-lang"), link.anchor.attribute("lang"),
-                            link.anchor.attribute("download")].compactMap { $0 } + context.metadata
+                            link.anchor.attribute("data-lang"), link.anchor.attribute("lang")]
+                .compactMap { $0 } + context.metadata
             return RemoteSubtitleTrack(
                 providerID: providerID, providerName: displayName,
                 language: SubtitleLanguage.detect(label: context.label, metadata: metadata, fileName: fileName),

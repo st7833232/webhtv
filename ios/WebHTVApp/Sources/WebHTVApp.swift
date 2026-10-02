@@ -1542,7 +1542,10 @@ private struct JapaneseTranslationBar: View {
     @State private var failed = false
 
     var body: some View {
-        Group {
+        // A stack, never a `Group`, and never empty (IOS-POC-32D-2). A `Group` hands its modifiers
+        // to its children, and before the first check there is no child: `.task` never ran, so
+        // nothing below ever appeared — not the button, not even the unsupported message.
+        VStack(alignment: .leading, spacing: 4) {
             if translation != nil {
                 HStack(spacing: 12) {
                     Text("機器翻譯").font(.caption).foregroundStyle(.secondary)
@@ -1569,6 +1572,8 @@ private struct JapaneseTranslationBar: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+            } else {
+                Color.clear.frame(width: 0, height: 0)
             }
         }
         .task(id: texts) {

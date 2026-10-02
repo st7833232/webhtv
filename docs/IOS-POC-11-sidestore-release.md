@@ -894,9 +894,50 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第五十三次發布：`0.1.52 (53)`（2026-10-02，**已發布**）
+## 第五十四次發布：`0.1.53 (54)`（2026-10-02，**已發布**）
 
-**目前最新版是 `0.1.52 (53)`。** 前面五十二版都已被取代。
+**目前最新版是 `0.1.53 (54)`。** 前面五十三版都已被取代。
+
+- 授權：使用者 2026-10-02 指示「先發佈」（IOS-POC-45A／45B／45C 之後）。版號 `0.1.53`，build `54`。
+- 內容：`0.1.52 (53)` 的全部，加上：
+  - IOS-POC-45A（`70d5226a`）：MPV 字幕的 `sub-font` 改為 libass 能開啟的系統 CJK 字型（PingFang TC 優先）。
+  - IOS-POC-45B（`bbcb5794`）：字幕面板的時間軸校正（MPV `sub-delay`；AVPlayer 只作用於線上字幕 overlay）。
+  - IOS-POC-45C（`1db1a933`）：OpenSubtitles 與射手網兩個官方 API 字幕來源，使用者自己的 key 存在鑰匙圈。
+  - 其餘是另一個 session 推上來的文件合併（`3b920791`、`d570457f`）。
+- 發布序列：
+  1. 版號 commit `2233932b`（Task-Guard `IOS-RELEASE-0.1.53-b54`，只改兩個 build configuration 的版號欄位）；`git pull --no-rebase`（已是最新）後 push `d570457f..2233932b`。
+  2. 以 MCP `workflow_dispatch`（ref `ios-poc`，version `0.1.53`、build `54`、release notes）觸發 → run `37023552958`（conclusion success，14:57:42Z → 15:06:08Z，沒有失敗或略過的步驟）。
+  3. workflow 建立 tag `ios-v0.1.53-b54`（target `2233932b`），並推回 `source.json`（`17a94d8f`，共五十四筆，第一筆 `0.1.53`，size 29,715,906 與 IPA 相同）。本機以 pull merge fast-forward 到 `17a94d8f`。
+
+  **沒有手動建 tag。**
+- 產物：
+  - GitHub Release `WebHTV 0.1.53 (54)`：不是 draft／prerelease，2026-10-02 15:05:56Z 發布。
+  - `WebHTV-0.1.53-54.ipa`：**29,715,906 bytes**，狀態 uploaded；GitHub 記錄的 digest SHA-256 為 `4dd3c15f1883a0a26c983f5c7b8006d92597153ca24d926b81c5a800c991ed61`。
+  - IPA **未在本機下載核對**；workflow 的「Verify public Release URL」步驟以公開網址下載並與建置產物逐位元組比對，該 run 為 success。
+- 發布前驗證：
+  - Core：Linux swiftlang 6.0.3 scratch package `swift test` 153 項，152 通過；唯一失敗為既有的 Linux CP1251 轉換器項目（macOS 通過）。
+  - App target（`MPVEngine.swift`、`WebHTVApp.swift` 的修改）發布前**沒有在 macOS 編譯**；這次 run 的建置成功（Xcode 26.6）是第一次編譯。
+  - 兩個 API 字幕來源都沒有實際連線（雲端 session 的出口政策擋下）。
+- **真機尚未驗收**：MPV 中文字型、時間軸校正、OpenSubtitles／射手網的實際搜尋與下載。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.53 (54)（字幕修正與新功能；真機未驗收）
+
+修正
+- MPV 播放器的中文字幕顯示為方格：改用系統內可讀取的中文字型（PingFang 等）。
+
+新增
+- 字幕面板加入「時間軸校正」：以 0.1 秒或 1 秒為單位提前或延後字幕。MPV 對所有字幕有效；AVPlayer 只對線上字幕有效。
+- 線上字幕新增 OpenSubtitles 與射手網兩個來源。需要在「設定 › 線上字幕來源」輸入你自己的 API key 或 token（存在裝置鑰匙圈）；未設定的來源會顯示「未設定」，不會連線。
+
+已知限制
+- 發布前通過 Core 自動測試；App 部分以此次 release 建置為第一次 macOS 編譯。
+- 中文字型修正與兩個新字幕來源的實際連線，都尚未在真機驗證。
+```
+
+## 第五十三次發布：`0.1.52 (53)`（2026-10-02，**已發布**，已被 `0.1.53 (54)` 取代）
 
 - 授權：使用者 2026-10-02 指示「不用跑CI直接發佈」（IOS-POC-45 commit 之後）。版號 `0.1.52`，build `53`。
 - 內容：`0.1.51 (52)` 的全部，加上 IOS-POC-45（`18f85127`）：字幕面板的線上字幕搜尋（Subtitle Cat）、下載、套用與 session 暫存。

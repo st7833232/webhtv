@@ -27,18 +27,16 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - 驗證：`swift test` 643／643；模擬器 Debug、generic iOS Release；熱點下真實 sweep 的結果與 IOS-POC-39 第 7.3 節一致；模擬器實看檢查、報告與記錄。真機未驗證。
 - 見 IOS-POC-41 第 13 節。IOS-POC-41 三段都已完成。
 
-**Next Recommended Step**：建議的下一個任務是 **IOS-POC-42「XYQHiker 詳情頁沒有集數」**，先做 assessment，不改程式。真機驗收 `0.1.48 (49)` 由使用者另外進行（首頁死站的原因文字、來源清單圓點與排序、「檢查來源」與分享報告），不擋這個任務。之後再發版仍需使用者授權，不要自己 bump／tag／release。
+**IOS-POC-42 XYQHiker 詳情頁沒有集數（2026-10-02，assessment 完成，只改文件）**：`docs/IOS-POC-42-xyqhiker-detail-episodes.md`。
+- **根因（反編譯 `xyqxbpq.jar` 確認）**：47 份可解析的成人規則檔中 44 份設 `链接是否直接播放=1`。原版在這個模式**不解析選集**，直接把那一部當成唯一一集（`片名$詳情網址`），播放時是網頁就交給 WebView 嗅探；`XYQHiker.js` 沒有這個模式，所以 0 集。
+- **原型量測**（scratchpad 副本，未 commit；同一熱點、基準與原型背對背）：
+  - 42A（照原版補詳情的直接播放模式）：`wang-sex.json` XYQHiker 可以播放 0→5 站。
+  - 42A＋42B（播放端 WebHTV 窄版：先靜態擷取、排除廣告路徑、進一層 embed、拆 `?url=`，最後才嗅探）：0→15 站（17 項；bongacams 取到 3.7KB 佔位影片，不算）。`wang-sex.json` 全部 38→59（另 3 個 type-1 站是網路波動）。
+  - `wang-movie.json` 24→25，唯一差異是虎牙（type-1，網路波動）；农民、巴士动漫維持 PLAYABLE。兩份設定都沒有任何站退步。
+- **順帶發現**：XYQHiker 搜尋只讀英文鍵，45 份成人規則檔與巴士动漫、動漫巴士用中文鍵，搜尋全空（42C，待決定）。EMPTY 11／ERROR 19 逐站歸因：ERROR 全部是網站／設定；EMPTY 中直播1、直播2、直播大全（JSON 截取模式）與酷爱成人网（`:not`／`:contains`）是程式缺口，建議暫緩。
+- Ponytail：4 項 shrink 已寫進設計（第 13 節）。
 
-- **證據**（2026-10-02，個人熱點）：用 41C 的 `SourceCheck` 跑 `wang-sex.json` 的 sweep（`SWEEP_CONFIG=<wang-sex.json> SWEEP_BASE=https://gitlab.com/st7833232/recha/-/raw/main/wang-sex.json swift test --package-path ios --filter sweepsEveryDrivableSource`），共 220 站：
-  - 結果：PLAYABLE 42、DEAD-MEDIA 6、NO-PLAY 4、**NO-EPISODE 29**、EMPTY 25、ERROR 113。
-  - NO-EPISODE 中 **28 項是 XYQHiker**，扣掉重複約 24 站：18AV、300分类、AirAV、亞洲情色網、HOHOJ、IXXXJ、PPP、KANAV、OWOAV、ThisAV、xgroovy、正妹AV、鲨鱼av、AVbebe、bongacams直播、jiedmAV、Qinav、Ujizzcn、亚色影库、好色TV、动漫PRO、黄色仓库123、小嫂子、黄色仓库啦。
-  - 這些站首頁都拿得到片（8～72 部），但詳情全部是 `flags=0 eps=0`。
-  - XYQHiker 另有 EMPTY 11、ERROR 19，原因未逐站查。
-- **推論（未證實）**：24 個無關網域與規則檔都卡在同一步，比較像 `ios/Sources/WebHTVCore/Resources/Spiders/XYQHiker.js` 的詳情或播放清單解析有系統性缺口，與 IOS-POC-39 的 XBPQ S4 同類。`docs/SITE-AVAILABILITY-2026-09-30.md` 也記過「18AV 首頁 60 部、詳情沒有集數，原因未查」。
-- **做法**：
-  1. 讀原版 XYQHiker 的詳情與播放語意（Android 端 jar，方法可參考 IOS-POC-39 第 4.0 節的 jadx 與字串還原）。
-  2. 與 `XYQHiker.js` 逐鍵對照；抽 3～5 站實際看網頁與 `./json/*.json` 規則檔，確認是不是同一原因。
-  3. 寫 `docs/IOS-POC-42-<slug>.md`：最佳實務、方案比較、驗收（用 `SourceCheck` 量可播放站數，兩份設定都不能退步）、回滾。等使用者核准才實作。
+**Next Recommended Step**：等使用者回覆 IOS-POC-42 第 12 節（核准 42A＋42B；42C 一起做／另開／不做）。核准前不改 `XYQHiker.js`。真機驗收 `0.1.48 (49)` 由使用者另外進行，不擋這個任務。之後再發版仍需使用者授權，不要自己 bump／tag／release。
 
 
 ## Current handoff — 2026-10-01（前一次交接）
@@ -1418,6 +1416,6 @@ Paste this into a new session:
 >
 > 目前狀態：**IOS-POC-36 已結案**（2026-10-02，以 `0.1.43 (44)` 為完成版本；真機 PiP／background 驗收不再是阻塞條件，日後有做只算額外 evidence，不再擴張 36，見 `docs/IOS-POC-36-playback-acceptance-stability.md` 第十八節）。最新發布是 `0.1.47 (48)`（tag `ios-v0.1.47-b48` → `6fcc8555`）；之後未發布的有 `c1a4743c`、`9e5b71d8`、`4ac71c27`。各版內容與真機結果見 Current handoff 的表格與 `docs/IOS-POC-11-sidestore-release.md`。ponytail audit 剩下的只有等我決定（第 1／7、11、18、19、28 項）、要升 ABI（第 4、6、26 項）、要跑 CI（第 3、22、29、30 項）的（`docs/PONYTAIL-AUDIT-2026-10-01.md`），沒有我的指示不要做。
 >
-> 下一步：IOS-POC-41（41A～41C）已完成並隨 `0.1.48 (49)` 發布，真機未驗證。建議的下一個任務是 IOS-POC-42「XYQHiker 詳情頁沒有集數」的 assessment，證據與做法見最上方交接的 Next Recommended Step。沒有我的核准不改程式。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13。
+> 下一步：IOS-POC-41（41A～41C）已完成並隨 `0.1.48 (49)` 發布，真機未驗證。IOS-POC-42「XYQHiker 詳情頁沒有集數」的 assessment 已完成（`docs/IOS-POC-42-xyqhiker-detail-episodes.md`），等我回覆第 12 節才實作 42A／42B（／42C）。沒有我的核准不改程式。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13。
 >
 > 規則：Ponytail 只要環境有就一定要執行——每個程式修改在回報完成前，對最終 diff 跑 `ponytail:ponytail-review`，結果記進任務文件；只有環境沒有時才略過，不得因此阻擋功能修改、驗證、commit、build 或後續工作，也不得假稱已執行，或把可用的記成略過。功能修改仍須 `bash .codex/scripts/task_guard.sh start`，結束用 `finish --no-tag`。push 到 `ios-poc` 已授權，**push 前先 `git pull --no-rebase` merge**（同一個工作目錄可能有另一個 session 也在 commit）；bump 版本、tag、package、publish 或發 SideStore release 前要先問我。不要直接安裝到我的 iPhone（我用 SideStore）。真機沒測到的一律寫「未驗證」。雲端工作階段沒有 Swift／Xcode，編譯靠發版 workflow，單元測試照常撰寫但不執行（我選的「只靠編譯與真機」）。只 push 到 `ios-poc`，不建立新的遠端分支，也不 merge 到 `main`。

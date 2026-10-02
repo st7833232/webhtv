@@ -36,3 +36,4 @@
 
 - `kkys.py`（2026-10-01 取得，SHA-256 `5b507240927e80f59438322519e47e2036236628aac44a0da6fb351adbc1b9d1`）`detailContent` 第 922-929 行只回傳 `vod_id`、`vod_name`、`vod_pic`、`vod_content` 與播放清單，沒有 `vod_year`、`vod_area`、`vod_director`、`vod_actor`，所以詳情頁不顯示這些列。App 不需修改。
 - 要補欄位需要詳情頁 HTML；本環境 egress proxy 對 `www.kkys20.com` 回 `CONNECT tunnel failed, response 403`，無法取得。
+- **已結案（2026-10-02）**：使用者回報「可可影視也處理好了」（由使用者自行處理來源腳本；本 repo 沒有修改，修改內容與 commit 未取得）。

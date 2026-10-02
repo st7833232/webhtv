@@ -894,9 +894,37 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第四十七次發布：`0.1.46 (47)`（2026-10-01，**已發布**）
+## 第四十八次發布：`0.1.47 (48)`（2026-10-02，**已發布**）
 
-**目前最新版是 `0.1.46 (47)`。** 前面四十六版都已被取代。
+**目前最新版是 `0.1.47 (48)`。** 前面四十七版都已被取代。
+
+- 授權：使用者 2026-10-02 指示「發佈」（IOS-POC-32D-2 push 之後）。版號 `0.1.47`，build `48`。
+- 內容：`0.1.46 (47)` 的全部，加上 IOS-POC-32D-2（`fc74afa9`：翻譯列改為永不為空的 `VStack`，語言檢查才會執行）；其餘是 `0.1.46 (47)` 的 `source.json` 與紀錄（`bbae28de`、`67cdbfa8`）。
+- 發布序列：
+  1. 版號 commit `6fcc8555`（Task-Guard `IOS-RELEASE-0.1.47-b48`，兩個 build configuration 的 `MARKETING_VERSION`／`CURRENT_PROJECT_VERSION`，沒有其他行變動）。
+  2. push `fc74afa9..6fcc8555`（push 前先 pull merge，遠端沒有新 commit）。
+  3. GitHub MCP `actions_run_trigger` `run_workflow` `ios-sidestore-release.yml` ref `ios-poc`，`version=0.1.47`、`build_number=48`、`release_notes=…` → run `36945601982`（conclusion success，2026-10-02 00:21:49Z → 00:28:20Z；未逐一檢查各步驟）。
+  4. workflow 建立 tag `ios-v0.1.47-b48`（target `6fcc8555`），並推回 `source.json`（`667a056d`，共四十八筆，第一筆 `0.1.47`，size 29,326,712 與 IPA 相同）。本機以 pull merge fast-forward 到 `667a056d`。
+
+  **沒有手動建 tag。**
+- 產物：GitHub Release `WebHTV 0.1.47 (48)`（不是 draft／prerelease，2026-10-02 00:28:08Z 發布），`WebHTV-0.1.47-48.ipa` **29,326,712 bytes**、狀態 uploaded，GitHub 記錄的 digest SHA-256
+  `35164ac1a159de16f968348d1a49aaedd5f32c98f483f19dd8a53d1fa4d33e3c`。**IPA 已下載**（GET 200，SHA-256 與 digest 相同）：`minos 17.0`、`sdk 26.5`，`Translation.framework` 與 `_Translation_SwiftUI.framework` 仍為 `LC_LOAD_WEAK_DYLIB`。
+- 發布前驗證：**沒有**（本環境無 Swift toolchain）；Release device build 由本次 workflow 第一次編譯，第一次即成功。**真機尚未驗收**（清單：IOS-POC-32 第七節之 3、之 6）。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.47 (48)（日文翻譯按鈕永遠不出現的修正；發布前沒有編譯與自動測試，真機未驗收）
+
+修正
+- 日文翻譯：0.1.45、0.1.46 的詳情頁從來沒有檢查語言，所以「翻譯成中文」按鈕與「不支援」說明都不會出現。現在設定為「詢問」或「自動」時，標題下方會顯示其中一個。
+
+已知限制
+- 此版發布前沒有執行自動測試，也沒有模擬器或真機驗收；這一版由發布流程第一次編譯。
+- 其餘同 0.1.46 (47)。
+```
+
+## 第四十七次發布：`0.1.46 (47)`（2026-10-01，**已發布**，已被 `0.1.47 (48)` 取代）
 
 - 授權：使用者 2026-10-01 指示「發佈」（IOS-POC-32D-1 push 之後）。版號 `0.1.46`，build `47`。
 - 內容：`0.1.45 (46)` 的全部，加上 IOS-POC-32D-1（`60d4f932`：詳情頁打開時才讀「日文翻譯」設定；繁體中文取自框架的語言清單；不支援時顯示說明）；其餘是 `0.1.45 (46)` 的 `source.json` 與紀錄（`b8c857a3`、`e2d48c3b`）與 IOS-POC-40 真機紀錄（`9b33b19f`）。

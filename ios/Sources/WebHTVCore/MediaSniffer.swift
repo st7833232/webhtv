@@ -76,7 +76,10 @@ public final class MediaSniffer {
     /// Set by a caller that runs sniffs side by side — the source check (IOS-POC-43), eight sites at
     /// once — so its sniffs wait for the one in flight instead of cancelling it. Cancelling made
     /// every sniff but the last come back empty, and the check recorded those sites as unplayable.
-    @TaskLocal nonisolated public static var waitsForTurn = false
+    ///
+    /// A plain `TaskLocal`, not `@TaskLocal`: the macro's `$` storage is main-actor isolated like the
+    /// rest of this type, which Xcode 26.6 rejects — the 0.1.50 (51) release build failed on it.
+    nonisolated public static let waitsForTurn = TaskLocal(wrappedValue: false)
     private var waiting: [CheckedContinuation<Void, Never>] = []
 
     /// The **active configuration's** ad rules, or nil for none (IOS-POC-5S-1).
@@ -201,10 +204,11 @@ public final class MediaSniffer {
         // One sniff at a time: a second concurrent web view competes for the main actor and the
         // network. Playback wants the newest pick to win, so a new sniff cancels the one in flight;
         // a caller that sniffs side by side sets `waitsForTurn` and queues instead.
-        if !Self.waitsForTurn, let live = collector { live.cancel() }
+        let queued = Self.waitsForTurn.get()
+        if !queued, let live = collector { live.cancel() }
         let rules = await contentRules()
         // No await between this check and taking the slot, so two waiters cannot both pass.
-        while Self.waitsForTurn, collector != nil { await withCheckedContinuation { waiting.append($0) } }
+        while queued, collector != nil { await withCheckedContinuation { waiting.append($0) } }
         let collector = Collector(rules: rules, ruleset: snifferRules)
         self.collector = collector
         defer {

@@ -135,3 +135,10 @@ C2 對照 C1：兩者都消除誤判；C2 只讓嗅探排隊，整批檢查多 1
     - 另外看到：來源清單裡巴士動漫、xgroovy 等站帶著紅點，是修正前的「檢查來源」誤判寫進健康記錄的結果；43A 不會回頭修正已寫入的記錄，使用者可用「清除站點健康記錄」或之後的檢查覆蓋。
 - **Ponytail**：`ponytail:ponytail-review` 結果 Lean already。
 - **回滾**：`git revert` 這個 commit；只動 `MediaSniffer.swift`、`SourceCheck.swift`、`MediaSnifferTests.swift`。
+
+## 12. CI 編譯修正（2026-10-02，IOS-POC-43A-ci）
+
+- `0.1.50 (51)` 的發布 workflow run `36980547255` 在「Build unsigned device app」失敗：CI（`macos-26`）用 **Xcode 26.6**，`@TaskLocal` 巨集展開出的 `$waitsForTurn` 跟著 `MediaSniffer` 的 `@MainActor` 被隔離，舊版編譯器報 `main actor-isolated static property '$waitsForTurn' can not be referenced from a nonisolated context`。本機只有 Xcode 27.0，`swift test` 與兩個 build 都接受這個寫法，所以沒有抓到。建置失敗時 workflow 不會建 tag、Release，也不會改 `source.json`，使用者端沒有受影響。
+- 修正：不用巨集，改成 `nonisolated public static let waitsForTurn = TaskLocal(wrappedValue: false)`（`TaskLocal` 是 `Sendable`）；`sniff` 開頭讀一次 `get()`；`SourceCheck` 與測試改用 `withValue`。行為不變。
+- 驗證：`swift test --package-path ios` 654／654（`overlappingSniffsCancelUnlessTheyWaitTheirTurn` 通過）；本機沒有 Xcode 26.6，以重跑發布 workflow 的 CI 建置為準（見 IOS-POC-11 第五十一次發布）。Ponytail：Lean already。
+- 教訓：本機 Xcode 比 CI 新時，`swift test`／本機 build 通過不代表 CI 會過；新的 Swift 語法（巨集、隔離規則）要特別留意。

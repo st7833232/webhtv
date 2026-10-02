@@ -118,7 +118,7 @@ public enum SourceCheck {
             stage = .play
             // Sites are checked side by side, and the app's one sniffer would otherwise cancel one
             // site's sniff whenever another's starts (IOS-POC-43).
-            guard let target = try await MediaSniffer.$waitsForTurn.withValue(true, operation: {
+            guard let target = try await MediaSniffer.waitsForTurn.withValue(true, operation: {
                 try await client.playbackURL(for: episode, flag: flag)
             }) else {
                 return (.noPlayURL, trail, milliseconds)

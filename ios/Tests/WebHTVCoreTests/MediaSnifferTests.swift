@@ -101,10 +101,10 @@ private func sniff(_ html: String, timeout: Duration = .seconds(6)) async -> URL
     #expect(newer?.absoluteString == stream(2))
 
     let waiting = Task {
-        await MediaSniffer.$waitsForTurn.withValue(true) { await sniffer.sniff(page: page(3), timeout: .seconds(6)) }
+        await MediaSniffer.waitsForTurn.withValue(true) { await sniffer.sniff(page: page(3), timeout: .seconds(6)) }
     }
     try await Task.sleep(for: .milliseconds(100))
-    let queued = await MediaSniffer.$waitsForTurn.withValue(true) {
+    let queued = await MediaSniffer.waitsForTurn.withValue(true) {
         await sniffer.sniff(page: page(4), timeout: .seconds(6))
     }
     #expect(await waiting.value?.absoluteString == stream(3))

@@ -14,6 +14,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 | commit | 內容 | 驗證 |
 |---|---|---|
+| `fix(ios): MPV logs the decoder …`（`c1a4743c` 之後） | MPV 每個檔案記一行 `[playback] mpv hwdec-current=…`（第十六節之 8 第 7 項才量得到）；**未發布** | iPad 模擬器 MPV 播 G→H：各一行 `hwdec-current=no`；模擬器 Debug、generic iOS 不簽章 Release build；ponytail：Lean already |
+| `c1a4743c` | 剛 clone 的 repo 在 Xcode 一次就 build 得起來：CPython payload 改由 scheme 的 build pre-action 在規劃前準備，刪掉來不及的「Prepare Python」build phase；**未發布** | 乾淨 worktree（沒有 payload）真冷啟動 116 秒一次成功，App 在模擬器 Python 自檢 13/13、8 項 deps OK；缺 module map 的情境與 generic iOS Release 也通過；ponytail：Lean already |
 | `42ccc865`、`fd10a7a0` 與紀錄 | 發布 `0.1.43 (44)`：版號 commit、workflow 推回的 `source.json`、IOS-POC-11 第四十四次發布的紀錄 | run `36840330287` success；release asset、`source.json` 與下載網址核對；IPA 未下載 |
 | `1355aa98` | **D12**：子母畫面中播完最後一集，小視窗跟著結束、session 照常關閉（拿掉 `PlayerView.onDisappear` 的 PiP guard；兩個 surface 被拆時若自己的小視窗還開著就結束它：原生 `allowsPictureInPicturePlayback = false`，MPV `contentSource = nil`；原生拒絕 AVKit 在子母畫面開始時自動 dismiss）；矩陣 1／53／26／14／11／2／0；隨 `0.1.43 (44)` 發布 | iPad 模擬器修正前重現、修正後兩個核心重驗（IOS-POC-36 第十七節之 8）；`swift test` 622/622；模擬器 Debug、generic iOS Release；ponytail：Lean already |
 | `4f11edfb` | IOS-POC-36.4 模擬器驗收結果（IOS-POC-36 第十七節）、矩陣 1／52／26／14／11／2／1、D12 記錄 | 文件 |
@@ -63,7 +65,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **真機待驗**：在 `0.1.43 (44)` 上跑 `docs/IOS-POC-36-playback-acceptance-stability.md` 第十六節之 8 的一次性清單（10 項：PiP 背景關閉、MPV／原生 PiP、暫停與播放中背景、中斷、MPV `hwdec-current`、旋轉／常亮／音軌字幕、AirPlay、去廣與片尾），另加第十七節之 8 的 D12 項目（HOME 進子母畫面不關畫面、最後一集在小視窗播完後小視窗消失、MPV 預設時再進一次、✕）。
 
-**Next Recommended Step**：等使用者在 `0.1.43 (44)` 上跑 IOS-POC-36 第十六節之 8 的 10 項真機清單與第十七節之 8 的 D12 項目，結果逐項填回該文件第四節（這一版仍不記錄 `hwdec-current`）。ponytail audit 第 1／7、11、18、19、28 項仍等使用者決定。
+**Next Recommended Step**：等使用者在 `0.1.43 (44)` 上跑 IOS-POC-36 第十六節之 8 的 10 項真機清單與第十七節之 8 的 D12 項目，結果逐項填回該文件第四節（`0.1.43 (44)` 不記錄 `hwdec-current`；之後的版本才有 `[playback] mpv hwdec-current=…`）。ponytail audit 第 1／7、11、18、19、28 項仍等使用者決定。
 
 ## Current handoff — 2026-09-30（前一次交接）
 

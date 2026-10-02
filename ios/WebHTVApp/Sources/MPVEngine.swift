@@ -438,8 +438,8 @@ final class MPVPlayerCore: @unchecked Sendable {
         mpv_set_option_string(handle, "gpu-context", "moltenvk")
         // The simulator has no VideoToolbox, and `auto-safe` does not fall back there (9C); on a
         // device it picks VideoToolbox. ponytail: the device cell of this is still unmeasured;
-        // read `hwdec-current` on a device (MPV parity P1) and pin the decoder if `auto-safe`
-        // ends up in software.
+        // read `hwdec-current` on a device (MPV parity P1; logged per file as
+        // `[playback] mpv hwdec-current=…`) and pin the decoder if `auto-safe` ends up in software.
         #if targetEnvironment(simulator)
         mpv_set_option_string(handle, "hwdec", "no")
         #else
@@ -473,7 +473,8 @@ final class MPVPlayerCore: @unchecked Sendable {
                                ("speed", MPV_FORMAT_DOUBLE), ("volume", MPV_FORMAT_DOUBLE),
                                ("demuxer-cache-time", MPV_FORMAT_DOUBLE),
                                ("aid", MPV_FORMAT_STRING), ("sid", MPV_FORMAT_STRING),
-                               ("track-list/count", MPV_FORMAT_INT64)] {
+                               ("track-list/count", MPV_FORMAT_INT64),
+                               ("hwdec-current", MPV_FORMAT_STRING)] {
             mpv_observe_property(handle, 0, name, format)
         }
         mpv = handle
@@ -628,6 +629,13 @@ final class MPVPlayerCore: @unchecked Sendable {
                 else { break }
                 let name = String(cString: property.name)
                 record(property)
+                // MPV parity P1: the decoder `hwdec` picked, once per file ("no" is software);
+                // unavailable, and so not logged, between files.
+                if name == "hwdec-current", property.format == MPV_FORMAT_STRING,
+                   let value = property.data?.assumingMemoryBound(to: UnsafeMutablePointer<CChar>?.self).pointee {
+                    let decoder = String(cString: value)
+                    Task { @MainActor in PlaybackSession.log.notice("[playback] mpv hwdec-current=\(decoder, privacy: .public)") }
+                }
                 if name == "aid" || name == "sid" || name == "track-list/count" {
                     refreshMediaSelection(mpv)
                 }

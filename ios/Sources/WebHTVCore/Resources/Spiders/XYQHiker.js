@@ -123,7 +123,7 @@ var spider = (function () {
     // including `vod_id` — the title. `detailContent` then fetches that title as a URL and the
     // whole listing silently yields no episodes, which is exactly how 巴士动漫 presented.
     if (!urlRule) return [];
-    var nodes = host.pdfa(scope, text(keys.array));
+    var nodes = host.pdfa(scope, ruleFor(keys.array));
     var prefix = ruleFor(keys.prefix), suffix = ruleFor(keys.suffix);
     var titleRule = ruleFor(keys.title), picRule = ruleFor(keys.pic), remarkRule = ruleFor(keys.remark);
     var out = [];
@@ -154,8 +154,31 @@ var spider = (function () {
   var CATEGORY = { array: '分类列表数组规则', title: '分类片单标题', url: '分类片单链接',
                    pic: '分类片单图片', remark: '分类片单副标题',
                    prefix: '分类片单链接加前缀', suffix: '分类片单链接加后缀' };
-  var SEARCH = { array: 'sea_arr_rule', title: 'sea_title', url: 'sea_url', pic: 'sea_pic',
+  // The original reads the Chinese search keys and falls back to the English ones; 45 of the 47 adult
+  // rule files, 巴士动漫 and 動漫巴士 write only the Chinese, so their search always came back empty.
+  var SEARCH = { array: ['搜索列表数组规则', 'sea_arr_rule'], title: ['搜索片单标题', 'sea_title'],
+                 url: ['搜索片单链接', 'sea_url'], pic: ['搜索片单图片', 'sea_pic'],
                  remark: '搜索片单副标题', prefix: '搜索片单链接加前缀', suffix: '搜索片单链接加后缀' };
+
+  /**
+   * 搜索截取模式 0 means the search answers JSON — MacCMS's `ajax/suggest` in all 15 rule files that
+   * set it. The array rule is a dotted path and each field rule names a key, defaulting to the
+   * original's `list`, `name`, `id` and `pic`.
+   */
+  function listFromJSON(body) {
+    var items = (ruleFor(SEARCH.array) || 'list').split('.').reduce(function (node, name) {
+      return node && node[name];
+    }, host.parseJSON(body));
+    var title = ruleFor(SEARCH.title) || 'name', link = ruleFor(SEARCH.url) || 'id';
+    var pic = ruleFor(SEARCH.pic) || 'pic', prefix = ruleFor(SEARCH.prefix), suffix = ruleFor(SEARCH.suffix);
+    var out = [];
+    (Array.isArray(items) ? items : []).forEach(function (item) {
+      if (!item || !item[title] || item[link] === undefined) return;
+      out.push({ vod_id: joinPrefix(prefix, String(item[link])) + suffix, vod_name: String(item[title]),
+                 vod_pic: host.urljoin(prefix, String(item[pic] || '')), vod_remarks: '' });
+    });
+    return out;
+  }
 
   return {
     init: function (extend) {
@@ -248,17 +271,18 @@ var spider = (function () {
     },
 
     searchContent: function (key, quick, page) {
-      var spec = text('search_url');
+      var spec = text('搜索链接') || text('search_url');
       if (!spec) return { list: [] };
-      // "url;post" selects the method; the body template lives in sea_PtBody.
+      // "url;post" selects the method; the body template lives in POST请求数据 (sea_PtBody).
       var parts = spec.split(';');
       var url = fill(parts[0], { wd: host.enc(key), SearchPg: String(page || '1') });
       var isPost = (parts[1] || '').toLowerCase() === 'post';
-      var body = fill(text('sea_PtBody'), { wd: key, SearchPg: String(page || '1') });
+      var body = fill(text('POST请求数据') || text('sea_PtBody'), { wd: key, SearchPg: String(page || '1') });
       var res = isPost
         ? host.post(url, body, { headers: searchHeaders, timeout: 20000 })
         : host.get(url, { headers: searchHeaders, timeout: 20000 });
-      return host.result.list(extract(res.body || '', SEARCH));
+      return host.result.list(/^(0|否)$/.test(text('搜索截取模式') || text('search_mode'))
+        ? listFromJSON(res.body || '') : extract(res.body || '', SEARCH));
     },
 
     playerContent: function (flag, id) {

@@ -121,3 +121,41 @@ private func xyq(_ rules: String) async throws -> JavaScriptSpiderRuntime { try 
     #expect(sniffed.url == "https://h8.invalid/p/2")
     #expect(sniffed.parse == 1)
 }
+
+// MARK: - 42C: search
+
+/// 45 of the 47 adult rule files, 巴士动漫 and 動漫巴士 write the search keys in Chinese; the port read
+/// only the English ones, so their search always came back empty.
+@Test func searchesWithTheChineseKeysOrTheEnglishOnes() async throws {
+    RuleSite.serve([
+        "https://h9.invalid/s/abc/1": #"<ul><li><a href="/v/9">片九</a></li></ul>"#,
+        "https://h10.invalid/s/abc/1": #"<ul><li><a href="/v/10">片十</a></li></ul>"#,
+    ])
+    let chinese = try await xyq(#"""
+    {"搜索链接":"https://h9.invalid/s/{wd}/{SearchPg}","搜索列表数组规则":"li",
+     "搜索片单标题":"a&&Text","搜索片单链接":"a&&href","搜索片单链接加前缀":"https://h9.invalid"}
+    """#)
+    #expect(try await search(chinese, "abc").map { $0["vod_id"] } == ["https://h9.invalid/v/9"])
+    let english = try await xyq(#"""
+    {"search_url":"https://h10.invalid/s/{wd}/{SearchPg}","sea_arr_rule":"li",
+     "sea_title":"a&&Text","sea_url":"a&&href","搜索片单链接加前缀":"https://h10.invalid"}
+    """#)
+    #expect(try await search(english, "abc").map { $0["vod_name"] } == ["片十"])
+}
+
+/// The 15 rule files with 搜索截取模式 0 search MacCMS's `ajax/suggest`, which answers JSON.
+@Test func searchesAJSONSuggestAPI() async throws {
+    RuleSite.serve(["https://h11.invalid/index.php/ajax/suggest?mid=1&wd=abc": """
+    {"code":1,"list":[{"id":7,"name":"片七","pic":"/u/7.jpg"},{"id":8}]}
+    """])
+    let spider = try await xyq(#"""
+    {"搜索截取模式":"0","搜索链接":"https://h11.invalid/index.php/ajax/suggest?mid=1&wd={wd}",
+     "搜索列表数组规则":"list","搜索片单标题":"name","搜索片单链接":"id","搜索片单图片":"pic",
+     "搜索片单链接加前缀":"https://h11.invalid/vod/play/id/","搜索片单链接加后缀":"/sid/1/nid/1.html"}
+    """#)
+    let found = try await search(spider, "abc")
+    #expect(found.count == 1)
+    #expect(found.first?["vod_id"] == "https://h11.invalid/vod/play/id/7/sid/1/nid/1.html")
+    #expect(found.first?["vod_name"] == "片七")
+    #expect(found.first?["vod_pic"] == "https://h11.invalid/u/7.jpg")
+}

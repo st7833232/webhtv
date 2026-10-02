@@ -4,7 +4,64 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-02（先讀這一節，再讀文末 Resume Prompt；2026-10-01 那一節是前一次交接）
+## Current handoff — 2026-10-02 下午（先讀這一節，再讀文末 Resume Prompt；下面「2026-10-02 上午」是前一次交接）
+
+**Git**：`ios-poc`。接手時一律先 `git fetch`、`git log --oneline -15`、`git status`，以實際 `origin/ios-poc` 為準、不要相信本文的 SHA；push 前 `git pull --no-rebase`；不建新分支、不 merge `main`。寫這一節時工作區乾淨；這份交接 commit 可能還沒 push（看 `git status -sb`）。
+
+**Current Scope**：本 session 做完 IOS-POC-42（42A／42B／42C）與 IOS-POC-43（43A），各隨一版發布。下一個任務還沒開始，建議 IOS-POC-44（見 Next Recommended Step）。
+
+**最新發布是 `0.1.50 (51)`**（IOS-POC-11 第五十一次發布）：tag `ios-v0.1.50-b51` → `9ff04eeb`，run `36981240970` success，`source.json` `be7889d5`，IPA 29,434,569 bytes，SHA-256 `37dc515d…`，已下載核對。前一版 `0.1.49 (50)`：tag `ios-v0.1.49-b50` → `f4231299`，run `36973731602`，`source.json` `3fc121b4`。**兩版真機都未驗證**，由使用者另外用 SideStore 測。
+
+**本 session 的 commit（新到舊）**
+
+| commit | 內容 | 驗證 |
+|---|---|---|
+| `eff01b85` | 記錄 `0.1.50 (51)`（IOS-POC-11 第五十一次發布） | 文件 |
+| `be7889d5` | workflow 推回的 `source.json`（`0.1.50`） | workflow 產生 |
+| `9ff04eeb` | IOS-POC-43A-ci：`MediaSniffer.waitsForTurn` 改用 `nonisolated public static let … = TaskLocal(wrappedValue: false)`（CI 的 Xcode 26.6 不接受 `@MainActor` 類別裡的 `@TaskLocal` 巨集；第一次 run `36980547255` 建置失敗、沒有產物） | `swift test` 654／654；CI 以 run `36981240970` 建置成功為準 |
+| `5912dbfc` | 版號 `0.1.50 (51)` | 只改版號欄位 |
+| `18d6c8fd` | IOS-POC-43A：「檢查來源」同時檢查時嗅探排隊、不互相取消；一般播放仍是「新的取消舊的」 | `swift test` 654／654；iOS 模擬器 `SourceCheck.run`（`wang-sex.json` 220 站）背對背：取消 7／14 → 0、可播 58 → 58、101 → 119 秒；模擬器 Debug／generic Release；App 內兩站檢查都可播；农民播放正常 |
+| `7d662f69` | IOS-POC-43 assessment | 文件；E1～E8 探測與 C1／C2 原型在 scratchpad |
+| `b4560be7`、`3fc121b4`、`f4231299` | `0.1.49 (50)` 的紀錄、`source.json`、版號 | workflow success；IPA 已核對 |
+| `05f58a20` | IOS-POC-42C：XYQHiker 搜尋讀中文鍵＋`搜索截取模式=0` 的 JSON 模式 | `swift test` 653／653；搜尋探測 `wang-sex.json` 0 → 13 站、`wang-movie.json` 1 → 3 站 |
+| `f1cbfe89` | IOS-POC-42B：直接播放頁先靜態擷取（排除廣告路徑、embed 一層、拆 `?url=`）再嗅探；網域前綴不重複加 | `swift test` 651／651；sweep `wang-sex.json` XYQHiker 0 → 15 站 |
+| `c33bfa60` | IOS-POC-42A：XYQHiker 詳情的直接播放模式（`链接是否直接播放`／`force_play` = `1`／`是`） | `swift test` 646／646；sweep XYQHiker 0 → 6 站 |
+| `60932b30` | IOS-POC-42 assessment（反編譯 `xyqxbpq.jar` 的 `XYQHiker`） | 文件 |
+
+**Important Decisions（本 session）**
+- release notes **不帶站台內容**（站名、設定檔名、站數、成人站），只描述功能（使用者 2026-10-02；也記在 auto-memory）。
+- 42C 比 assessment 多做了 JSON 搜尋模式（理由在 IOS-POC-42 第 16 節）。
+- IOS-POC-43 採 C2（`MediaSniffer` 加預設關閉的 task-local 旗標），不是只動 `SourceCheck` 的 C1（+38% 耗時）。
+- 本機只有 Xcode 27.0，CI（`macos-26`）是 Xcode 26.6：**本機建置通過不代表 CI 會過**，新的 Swift 語法（巨集、隔離）要特別小心。
+
+**Files Modified（本 session，全部已 commit）**：`ios/Sources/WebHTVCore/Resources/Spiders/XYQHiker.js`、`ios/Sources/WebHTVCore/MediaSniffer.swift`、`ios/Sources/WebHTVCore/SourceCheck.swift`、`ios/Tests/WebHTVCoreTests/XYQHikerRuleTests.swift`（新）、`ios/Tests/WebHTVCoreTests/XBPQRuleTests.swift`（helper 改成 module 可見、`ruleSpider(_:_:)`）、`ios/Tests/WebHTVCoreTests/MediaSnifferTests.swift`、`ios/WebHTVApp/WebHTVApp.xcodeproj/project.pbxproj`（版號）、`docs/IOS-POC-42-xyqhiker-detail-episodes.md`、`docs/IOS-POC-43-in-app-sniff-gap.md`、`docs/IOS-POC-11-sidestore-release.md`、本文件；`source.json` 由 workflow 更新。
+
+**Current Diff Summary**：寫這一節時工作區乾淨，沒有未提交的改動。
+
+**Remaining Work / Open Questions**
+- 真機驗收 `0.1.49 (50)`／`0.1.50 (51)`：使用者另外進行（XYQHiker 直接播放站的集數與播放、XYQHiker 搜尋、設定頁「檢查來源」）。
+- 修正前的「檢查來源」已把部分嗅探站誤記成失敗（紅點）；43A 不回頭修正，使用者可重新檢查或清除站點健康記錄。
+- IOS-POC-42 記下但沒做：7 份規則檔的 `请求头参数` 只寫 `PC_UA` 時 iOS 用手機 UA（原版用電腦 UA）；KVS `get_file/…mp4/` 結尾 `/` 靜態擷取不收；直播三站的 JSON 分類、动漫PRO 的選集截取、`host.js` 的 `:not`／`:contains`（IOS-POC-42 第 8 節「暫緩」）。
+- 模擬器（iPhone 17 Pro Max `05934376`）上的 App 目前讀的是本機測試設定的快取（`http://127.0.0.1:8766/config.json`，只有农民＋虎牙；伺服器已關）。之後要測別的設定，替換 App 容器 `Library/Application Support/aHR0cDovLzEyNy4wLjAuMTo4NzY2L2NvbmZpZy5qc29u.json`，或在 App 內重新匯入。
+
+**Build / Test / Verification Status**
+- 已驗證：`swift test --package-path ios` 654／654（`9ff04eeb`，本機 Xcode 27.0）；模擬器 Debug 與 generic iOS 不簽章 Release build（`18d6c8fd`，Xcode 27.0）；CI（Xcode 26.6）建置以 run `36981240970` 成功為準；兩版 IPA 都下載核對過。
+- 未驗證：真機；本機沒有 Xcode 26.6，`9ff04eeb` 之後沒有在本機以舊版編譯器建置。
+- sweep／探測的數字都是當下網路的量測；43A 之前用 sweep 量到的嗅探站可播數是下限（IOS-POC-43 第 4 節）。
+
+**Risks**：網站狀態每小時在變；靜態擷取仍可能抓到不在排除路徑裡的廣告（IOS-POC-42 第 11 節）；本機與 CI 的 Xcode 版本不同。
+
+**Next Recommended Step**：**IOS-POC-44「`wang-movie.json` 可以移植、還沒做的 `csp_*` 站」的 assessment**（使用者尚未核准開始；只做 assessment、不改程式）。
+- 2026-10-02 用當天 `wang-movie.json` sweep 的 not-offered 清單對照 `docs/CSP_PORTABILITY_MATRIX.md`（2026-09-16 產生、09-17 手修）：`csp_*` 未提供 58 站＝**可移植 23 站**＋原生保護（H）34 站＋1 站不在矩陣（`AppV6`）。另 44 站是 Python spider，`swift test` 沒有直譯器所以不提供，App 內可用。
+  - A（HTTP＋JSON）8：AppYsV2、Douban×2、GuaziTY、HaokanDJ、HemaDJ、MoDu、Wwys
+  - B（HTTP＋Jsoup／Gson）3：AppSy、AppYQK、QimaoDJ
+  - C（HTTP＋crypto／token）12：AppDrama×4、Feiyu、Hxq、Jpys、Jys、MiaoWu、PianKu8、Uvod、WeiguanDJ
+  - H 34（不做）：AppV7Amns×9、AppV6Amns×2、BidysAmns×2、HgggAmns×2 等 Amns／Guard 空殼。
+- 建議做法：(1) 先實測 23 站的後端 API 現在還通不通（矩陣是 9/16 的，存活未知）；(2) 依「存活 × 每類站數 ÷ 工作量」排序（AppDrama 一類 4 站，可能優先，未證實）；(3) 每類讀原版 jar（`scripts/audit_spider_jars.py`、jadx）、照 `ios/Sources/WebHTVCore/Resources/Spiders/*.js` 既有 spider 的寫法移植；(4) 每類一段、各自 commit，用 `SourceCheck` sweep 量可播站數，兩份設定都不能退步。assessment 預估 1～1.5 小時。
+- 其他候選：真機驗收（使用者）；IOS-POC-42 的 `PC_UA`／KVS 小項（各約 30 分鐘）；全站台搜尋依站點健康排序（Android 有）；只建置不發布的 CI workflow（避免再次到發布才發現 CI 編譯器差異）。
+
+
+## Current handoff — 2026-10-02 上午（前一次交接）
 
 **Git**：`ios-poc`。接手時一律先 `git fetch`、`git log --oneline -15`、`git status`，以實際 `origin/ios-poc` 為準、不要相信本文的 SHA；push 前 `git pull --no-rebase`；不建新分支、不 merge `main`。
 
@@ -1416,10 +1473,10 @@ release version**.
 
 Paste this into a new session:
 
-> 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -15`、`git status`，以實際 `origin/ios-poc` 為準、不要相信文件裡的 SHA。依 `AGENTS.md` 先讀 `AGENTS.md`，再讀 `docs/current-task-state.md` 最上方「Current handoff — 2026-10-02」一節（「2026-10-01」「2026-09-30」是更早的交接，需要時再看）。
+> 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -15`、`git status`，以實際 `origin/ios-poc` 為準、不要相信文件裡的 SHA。先讀 `AGENTS.md`，再讀 `docs/current-task-state.md` 最上方「Current handoff — 2026-10-02 下午」一節（更早的交接需要時再看）。
 >
-> 目前狀態：**IOS-POC-36 已結案**（2026-10-02，以 `0.1.43 (44)` 為完成版本；真機 PiP／background 驗收不再是阻塞條件，日後有做只算額外 evidence，不再擴張 36，見 `docs/IOS-POC-36-playback-acceptance-stability.md` 第十八節）。最新發布是 `0.1.47 (48)`（tag `ios-v0.1.47-b48` → `6fcc8555`）；之後未發布的有 `c1a4743c`、`9e5b71d8`、`4ac71c27`。各版內容與真機結果見 Current handoff 的表格與 `docs/IOS-POC-11-sidestore-release.md`。ponytail audit 剩下的只有等我決定（第 1／7、11、18、19、28 項）、要升 ABI（第 4、6、26 項）、要跑 CI（第 3、22、29、30 項）的（`docs/PONYTAIL-AUDIT-2026-10-01.md`），沒有我的指示不要做。
+> 目前狀態：最新發布是 WebHTV `0.1.50 (51)`（tag `ios-v0.1.50-b51`）；IOS-POC-42（XYQHiker 直接播放、播放端擷取、中文搜尋鍵）隨 `0.1.49 (50)`、IOS-POC-43A（檢查來源的嗅探排隊）隨 `0.1.50 (51)` 發布，兩版真機都未驗證，由我另外用 SideStore 測，不擋新任務。
 >
-> 下一步：IOS-POC-41（41A～41C）已完成並隨 `0.1.48 (49)` 發布，真機未驗證。IOS-POC-42「XYQHiker 詳情頁沒有集數」的 42A／42B／42C 已隨 `0.1.49 (50)` 發布（`docs/IOS-POC-42-xyqhiker-detail-episodes.md` 第 14～16 節），真機未驗證。沒有我的核准不改程式。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13。
+> 下一步：建議的任務是 IOS-POC-44「`wang-movie.json` 可以移植、還沒做的 `csp_*` 站」的 assessment——23 站（A 8／B 3／C 12，清單在交接一節），先實測各站後端還通不通、再依存活與工作量排出先後、讀原版 jar 確認語意，寫 `docs/IOS-POC-44-<slug>.md` 後停下來等我核准；只做 assessment，不改程式。沒有我的核准不改程式；沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13。
 >
-> 規則：Ponytail 只要環境有就一定要執行——每個程式修改在回報完成前，對最終 diff 跑 `ponytail:ponytail-review`，結果記進任務文件；只有環境沒有時才略過，不得因此阻擋功能修改、驗證、commit、build 或後續工作，也不得假稱已執行，或把可用的記成略過。功能修改仍須 `bash .codex/scripts/task_guard.sh start`，結束用 `finish --no-tag`。push 到 `ios-poc` 已授權，**push 前先 `git pull --no-rebase` merge**（同一個工作目錄可能有另一個 session 也在 commit）；bump 版本、tag、package、publish 或發 SideStore release 前要先問我。不要直接安裝到我的 iPhone（我用 SideStore）。真機沒測到的一律寫「未驗證」。雲端工作階段沒有 Swift／Xcode，編譯靠發版 workflow，單元測試照常撰寫但不執行（我選的「只靠編譯與真機」）。只 push 到 `ios-poc`，不建立新的遠端分支，也不 merge 到 `main`。
+> 規則：環境有 Ponytail 就一定要對最終 diff 跑 `ponytail:ponytail-review` 並記進任務文件；功能修改用 `bash .codex/scripts/task_guard.sh start`（模式只有 quick-fix／standard／assessment／upstream），結束用 `finish --no-tag`，不要把 guard 指令接 pipe（結束碼會被吃掉）。push 只推 `ios-poc`，push 前先 `git pull --no-rebase`，不建新分支、不 merge `main`；bump 版本、tag、發布前一定要先問我，release notes 不帶站台內容（站名、設定檔名、站數、成人站）。本機 Xcode 27 比 CI 的 Xcode 26.6 新，本機建置通過不代表 CI 會過。不要直接安裝到我的 iPhone（我用 SideStore）；真機沒測到的一律寫「未驗證」。最後回報要給明確結論，不要用「可能有幫助」這種說法。

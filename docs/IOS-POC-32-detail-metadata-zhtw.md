@@ -441,7 +441,7 @@
 - 使用者回報（`0.1.46 (47)`，iPhone 18 Pro，附截圖：同一站另一部日文片名、日文簡介的片子）：「都沒看到按鈕呀 他會在哪」。標題下方什麼都沒有，連「不支援」的說明也沒有。
 - 原因（程式碼確認）：`JapaneseTranslationBar.body` 以 `Group` 包住內容。`Group` 把 modifier 交給每一個子 view；第一次檢查完成前（`status == nil`、`translation == nil`）沒有任何子 view，所以 `.task(id: texts)` 與 `.translationTask` 從未執行，`status` 永遠是 nil，按鈕與說明都不會出現。`0.1.45 (46)` 與 `0.1.46 (47)` 都有此問題；第七節之 5 的兩個原因不是使用者看不到按鈕的主因。
 - 修正：改為 `VStack(alignment: .leading, spacing: 4)`，沒有內容時放一個 0×0 的 `Color.clear`，讓兩個 modifier 永遠附在同一個存在的 view 上。
-- 驗證：隨 `0.1.47 (48)` 發布（IOS-POC-11 第四十八次發布），Release build 第一次即編譯成功；真機未驗證。
+- 驗證：隨 `0.1.47 (48)` 發布（IOS-POC-11 第四十八次發布），Release build 第一次即編譯成功。真機：使用者 2026-10-02 在 iPhone 18 Pro 上回報「可以了」（未逐項回報第七節之 3 的各項）。
 
 ## 八、階段順序與回滾
 
@@ -522,4 +522,4 @@
 - 狀態（2026-09-28）：階段 A、B 已隨 `0.1.28 (29)` 發布（第四節、第五節第 4～5 點；發布紀錄在 IOS-POC-11 第二十九次發布）；單元測試未執行、真機未驗證。C 已隨 `0.1.29 (30)` 發布（第六節第 5 點；發布紀錄在 IOS-POC-11 第三十次發布），Release build 第一次即編譯成功；單元測試未執行、真機未驗證。D 已隨 `0.1.45 (46)` 發布（2026-10-01，第七節之 4；發布紀錄在 IOS-POC-11 第四十六次發布），Release build 第一次即編譯成功、Translation 為弱連結；單元測試未執行、真機未驗證。
 - 相關檔案：`ios/WebHTVApp/Sources/WebHTVApp.swift`（`VodView` 表頭約 `:1503-1520`、`VodPoster` 約 `:1968-1988`）、`ios/Sources/WebHTVCore/CMSClient.swift`（`Vod` `:166-199`）、`ios/Sources/WebHTVCore/MacCMSXML.swift`。
 - C 的檔案：`ios/Sources/WebHTVCore/TaiwanTraditional.swift`、`ios/Sources/WebHTVCore/Resources/OpenCC/`、`WebHTVApp.swift` 的 `TaiwanDisplay`、`zhTW(_:_:)` 與 32 處顯示位置、`ios/Tests/WebHTVCoreTests/TaiwanTraditionalTests.swift`。
-- 下一步（唯一）：使用者在 `0.1.47 (48)` 上照第七節之 3 的第 1～5、7 項驗收並回報（第 6 項弱連結已通過）；若顯示「不支援」，回報後再查目標語言。
+- 下一步（唯一）：無。D 已在 `0.1.47 (48)` 真機確認可用（使用者「可以了」）；第七節之 3 未逐項回報的項目（自動模式、錯誤處理、中文片名配日文簡介、譯文品質）等使用者發現問題再處理。

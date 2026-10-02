@@ -17,6 +17,7 @@ var spider = (function () {
   var rule = {};
   var headers = {};
   var searchHeaders = {};
+  var VIDEO = /\.(m3u8|mp4|mkv|flv)(\?|$)/i;
 
   function text(key, fallback) {
     var value = rule[key];
@@ -87,6 +88,30 @@ var spider = (function () {
     return '';
   }
 
+  /**
+   * A site that now writes absolute links behind a rule whose prefix is only its origin (小嫂子,
+   * Ujizzcn) would otherwise get "https://a.comhttps://…". A prefix with a path or query is kept
+   * as written: "https://jx.example/?url=" in front of an absolute link is a parse API.
+   */
+  function joinPrefix(prefix, link) {
+    return /^https?:\/\//i.test(link) && /^https?:\/\/[^\/?#]+\/?$/i.test(prefix) ? link : prefix + link;
+  }
+
+  /**
+   * The stream a play page names in its own HTML: a player config's "url", MacCMS's `var now`, or
+   * the first media URL whose extension ends its path ("preview.m3u8.jpg" is a thumbnail). A
+   * "…?url=https://…" parse wrapper is peeled off (jiedm's 155jx.com).
+   */
+  function mediaIn(html) {
+    var url = host.match(html, '"url"\\s*:\\s*"([^"]+)"').replace(/\\\//g, '/');
+    if (!url) url = host.match(html, 'var\\s+now\\s*=\\s*"([^"]+)"');
+    if (!url) url = host.match(html, '(https?:[^"\'\\s\\\\$#]+\\.(?:m3u8|mp4|mkv|flv)(?=[?"\'\\s\\\\]|$)[^"\'\\s\\\\$#]*)');
+    url = url.replace(/^https?:\/\/[^?#]*\?url=(https?:)/i, '$1');
+    // ponytail: path words catch the pre-roll ads seen so far (正妹AV's /media/ads/, /media/preroll/);
+    // collect every candidate and pick one if an ad elsewhere starts winning.
+    return VIDEO.test(url) && !/\/(ads?|preroll)\//i.test(url) ? url : '';
+  }
+
   function extract(html, keys) {
     var scope = html;
     if (keys.outer && text(keys.outer)) {
@@ -107,7 +132,7 @@ var spider = (function () {
       var title = host.pdfh(nodes[i], titleRule);
       if (!link || !title) continue;
       out.push({
-        vod_id: prefix + link + suffix,
+        vod_id: joinPrefix(prefix, link) + suffix,
         vod_name: title,
         vod_pic: host.urljoin(prefix, host.pdfh(nodes[i], picRule)),
         vod_remarks: remarkRule ? host.pdfh(nodes[i], remarkRule) : ''
@@ -237,19 +262,24 @@ var spider = (function () {
     },
 
     playerContent: function (flag, id) {
-      if (text('链接是否直接播放') === '1') {
-        return host.result.play(text('直接播放链接加前缀') + id + text('直接播放链接加后缀'),
-                                false, parseHeaders(text('直接播放直链视频请求头')));
+      if (/^[12]$/.test(text('链接是否直接播放') || text('force_play'))) {
+        var target = joinPrefix(text('直接播放链接加前缀'), String(id)) + text('直接播放链接加后缀');
+        var playHeaders = text('直接播放直链视频请求头') ? parseHeaders(text('直接播放直链视频请求头')) : headers;
+        if (VIDEO.test(target)) return host.result.play(target, false, playHeaders);
+        // The original hands the page to Android's sniffer, which sees every request the page makes,
+        // iframes included. `MediaSniffer`'s script hook misses most of these players, so read what
+        // the page and its embed frame say first and only then let the app sniff.
+        var page = fetch(target);
+        var found = mediaIn(page);
+        var embed = found ? '' : host.match(page, '<iframe[^>]+src=["\']([^"\']*embed[^"\']*)');
+        if (embed) found = mediaIn(fetch(host.urljoin(target, embed)));
+        return found ? host.result.play(found, false, playHeaders) : host.result.play(target, true, playHeaders);
       }
-      var html = fetch(String(id));
-      var url = host.match(html, '"url"\\s*:\\s*"([^"]+)"').replace(/\\\//g, '/');
-      if (!url) url = host.match(html, 'var\\s+now\\s*=\\s*"([^"]+)"');
-      if (!url) url = host.match(html, '(https?:[^"\'\\s\\\\$#]+\\.(?:m3u8|mp4|mkv|flv)[^"\'\\s\\\\$#]*)');
-      if (url && /\.(m3u8|mp4|mkv|flv)/i.test(url)) return host.result.play(url, false, headers);
-      return host.result.play(String(id), true, headers);
+      var url = mediaIn(fetch(String(id)));
+      return url ? host.result.play(url, false, headers) : host.result.play(String(id), true, headers);
     },
 
-    isVideoFormat: function (url) { return /\.(m3u8|mp4|mkv|flv)(\?|$)/i.test(String(url)); },
+    isVideoFormat: function (url) { return VIDEO.test(String(url)); },
     manualVideoCheck: function () { return false; },
     destroy: function () { rule = {}; headers = {}; searchHeaders = {}; }
   };

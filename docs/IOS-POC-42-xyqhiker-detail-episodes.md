@@ -5,7 +5,7 @@
 - 目標：使用者 2026-10-02「開始 IOS-POC-42 assessment」。起因是 41C 的 `SourceCheck` sweep：`wang-sex.json` 的 NO-EPISODE 29 項中有 28 項是 XYQHiker，首頁都有片，詳情全部 `flags=0 eps=0`。
 - 範圍：只做 assessment（`AGENTS.md` §7 design-research gate），**不改程式**。task guard `IOS-POC-42`（`assessment`），路徑：本文件、`docs/current-task-state.md`。
 - 結論：根因已由原版反編譯確認（第 3 節）；原型在 scratchpad 副本量過（第 6 節，未 commit）；建議 42A → 42B，42C 待決定（第 8、12 節）。
-- 2026-10-02 使用者「照建議，開始 42A＋42B，42C 一起做」：第 12 節三項都採建議。42A 已完成（第 14 節）。
+- 2026-10-02 使用者「照建議，開始 42A＋42B，42C 一起做」：第 12 節三項都採建議。42A、42B 已完成（第 14、15 節）。
 - 唯一下一步：見第 13 節。
 
 ## 1. 問題與現況量測
@@ -187,7 +187,7 @@ C 的取捨：
 ## 13. 狀態
 
 - 2026-10-02 assessment 完成，只改文件。
-- 2026-10-02 使用者核准 42A＋42B＋42C（第 12 節三項都照建議）。42A 完成（第 14 節）；下一步 42B。
+- 2026-10-02 使用者核准 42A＋42B＋42C（第 12 節三項都照建議）。42A 完成（第 14 節）；42B 完成（第 15 節）；下一步 42C。
 - Ponytail：`ponytail:ponytail-review` 對附錄 A 與第 8 節，4 項 shrink（片名算一次、影片副檔名正規式共用、非直接分支重用 `mediaIn`、42C 用 `ruleFor` 陣列），net −7 行，已寫進第 8 節的設計；附錄 A 保留量測時的原樣。
 
 ## 14. 42A 實作紀錄（2026-10-02）
@@ -201,6 +201,22 @@ C 的取捨：
   - App build 與模擬器實看在 42C 後對合併狀態做一次（這段只改 JS 資源與測試）。
 - **Ponytail**：`direct` 兩行合成一行；兩個測試檔的 spider 建立共用一個函式（−8 行）。
 - **回滾**：`git revert` 這個 commit。
+
+## 15. 42B 實作紀錄（2026-10-02）
+
+- task guard `IOS-POC-42B`（`standard`），起始 HEAD `c33bfa60`。
+- **程式**（`XYQHiker.js`）：
+  - `playerContent` 直接播放模式：`链接是否直接播放`（`force_play`）`1`／`2` 照原版；網址＝`joinPrefix(直接播放链接加前缀, id)`＋後綴；標頭沒設 `直接播放直链视频请求头` 時用 `请求头参数`；網址本身是影片 → `parse:0`；否則抓頁面用 `mediaIn` 找，找不到再進第一個 `src` 含 `embed` 的 iframe 一層，都沒有才 `parse:1` 交給嗅探。
+  - `mediaIn`：原本非直接模式的三條擷取規則，副檔名必須在路徑結尾、拆 `…?url=https://…` 外層、排除 `/ad/`、`/ads/`、`/preroll/`（`ponytail:` 註明這是啟發式）。非直接模式也改用它（刪掉重複的三行）。
+  - `joinPrefix`：連結已是完整網址而前綴只是網域時不加前綴（首頁、分類、搜尋片單與直接播放共用）。
+  - `VIDEO` 一個正規式給 `mediaIn`、`playerContent`、`isVideoFormat` 共用。
+- **測試**：`XYQHikerRuleTests.swift` 新增 5 項（影片網址直通加後綴；頁面內 `"url"` 與 embed 一層＋拆 `?url=`；廣告與 `preview.m3u8.jpg` 交給嗅探；網域前綴不重複、解析 API 前綴保留；非直接模式的頁面擷取與嗅探）。
+- **驗證**：
+  - `swift test --package-path ios` **651／651**（原 646＋新 5）；Ponytail 縮減後再跑規則測試 32／32。
+  - sweep（熱點，HEAD `60932b30` 副本當基準，背對背）：`wang-sex.json` PLAYABLE **41 → 59**，XYQHiker 0 → 18 項（16 站，扣掉 bongacams 的 3.7KB 佔位影片是 **15 站**：18AV、300分类×2、AirAV、HOHOJ、PPP、Ujizzcn、jiedmAV×2、xgroovy、亚色影库、亞洲情色網、好色TV、小嫂子、正妹AV、鲨鱼av、黄色仓库123），非 XYQHiker 站逐站相同；`wang-movie.json` 26 → 25，唯一差異是楓林（type-4）PLAYABLE → EMPTY，不是 XYQHiker；农民 PLAYABLE，巴士动漫 NO-PLAY、動漫巴士 PLAYABLE 在基準與修改後相同（兩站同一網站同一規則，這一輪兩次都對調）。驗收（≥ 15 站、不退步）通過。
+  - 非直接模式改用 `mediaIn` 的條件（农民、巴士动漫不退步）成立：农民兩次 PLAYABLE，巴士动漫／動漫巴士與基準相同。
+- **Ponytail**：播放端的 `direct` 兩行合成一行（−1 行）。
+- **回滾**：`git revert` 這個 commit；42A 不受影響。
 
 ## 附錄 A：原型三 diff（scratchpad，未 commit；實作時拆成 42A／42B 並補測試，`PROTOTYPE` 註解要改寫）
 

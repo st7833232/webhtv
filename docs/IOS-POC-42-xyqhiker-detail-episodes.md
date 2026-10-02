@@ -5,7 +5,8 @@
 - 目標：使用者 2026-10-02「開始 IOS-POC-42 assessment」。起因是 41C 的 `SourceCheck` sweep：`wang-sex.json` 的 NO-EPISODE 29 項中有 28 項是 XYQHiker，首頁都有片，詳情全部 `flags=0 eps=0`。
 - 範圍：只做 assessment（`AGENTS.md` §7 design-research gate），**不改程式**。task guard `IOS-POC-42`（`assessment`），路徑：本文件、`docs/current-task-state.md`。
 - 結論：根因已由原版反編譯確認（第 3 節）；原型在 scratchpad 副本量過（第 6 節，未 commit）；建議 42A → 42B，42C 待決定（第 8、12 節）。
-- 唯一下一步：等使用者核准第 12 節；沒有核准前不改 `XYQHiker.js`。
+- 2026-10-02 使用者「照建議，開始 42A＋42B，42C 一起做」：第 12 節三項都採建議。42A 已完成（第 14 節）。
+- 唯一下一步：見第 13 節。
 
 ## 1. 問題與現況量測
 
@@ -185,8 +186,21 @@ C 的取捨：
 
 ## 13. 狀態
 
-- 2026-10-02 assessment 完成，只改文件。等使用者回覆第 12 節。
+- 2026-10-02 assessment 完成，只改文件。
+- 2026-10-02 使用者核准 42A＋42B＋42C（第 12 節三項都照建議）。42A 完成（第 14 節）；下一步 42B。
 - Ponytail：`ponytail:ponytail-review` 對附錄 A 與第 8 節，4 項 shrink（片名算一次、影片副檔名正規式共用、非直接分支重用 `mediaIn`、42C 用 `ruleFor` 陣列），net −7 行，已寫進第 8 節的設計；附錄 A 保留量測時的原樣。
+
+## 14. 42A 實作紀錄（2026-10-02）
+
+- task guard `IOS-POC-42A`（`standard`），起始 HEAD `60932b30`。
+- **程式**：`XYQHiker.js` `detailContent`：`链接是否直接播放`（空的話 `force_play`）是 `1`／`是` 時不解析選集（`listNodes` 為空），輸出一集「片名$詳情網址」，片名去掉 `$`、`#`，沒有片名用「播放」；片名與 `vod_name` 共用同一次計算。非直接模式不變。
+- **測試**：新增 `ios/Tests/WebHTVCoreTests/XYQHikerRuleTests.swift` 3 項（直接播放模式即使選集規則對得上也只有一集；片名的 `#`／`$` 與 `force_play`、`是`、沒有片名；`链接是否直接播放=0` 照樣讀選集）。`XBPQRuleTests.swift` 的 `RuleSite`、`titles`、`detail`、`play`、`search` 改成 module 內可見，spider 建立改成共用的 `ruleSpider(_:_:)`（Ponytail）。
+- **驗證**：
+  - `swift test --package-path ios` **646／646**（原 643＋新 3）；Ponytail 縮減後再跑規則測試 27／27。
+  - sweep（熱點，scratchpad 的 HEAD 副本當基準，背對背）：`wang-sex.json` PLAYABLE **42 → 49**，XYQHiker 0 → 7 項（**6 站**：300分类×2、xgroovy、亚色影库、好色TV、正妹AV、鲨鱼av），非 XYQHiker 站逐站相同；`wang-movie.json` 26 → 25：Bili 聽書趣 PLAYABLE → NO-PLAY、量子與非凡（type-1）互換，都不是 XYQHiker（`Bili.js` 與 CMS 路徑沒改），农民、巴士动漫 PLAYABLE、動漫巴士 NO-PLAY 與基準相同。驗收（≥ 5 站、XYQHiker 不退步）通過。
+  - App build 與模擬器實看在 42C 後對合併狀態做一次（這段只改 JS 資源與測試）。
+- **Ponytail**：`direct` 兩行合成一行；兩個測試檔的 spider 建立共用一個函式（−8 行）。
+- **回滾**：`git revert` 這個 commit。
 
 ## 附錄 A：原型三 diff（scratchpad，未 commit；實作時拆成 42A／42B 並補測試，`PROTOTYPE` 註解要改寫）
 

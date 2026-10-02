@@ -170,10 +170,17 @@ var spider = (function () {
       var url = String(ids[0]);
       var html = fetch(url);
       var prefix = text('播放链接加前缀') || text('分类片单链接加前缀');
+      // These pages put a breadcrumb in <h1>, so the document title is the better fallback
+      // when a rule file names no title rule of its own.
+      var name = host.pdfh(html, text('详情标题') || 'title&&Text').split(/[-_|]/)[0].trim();
+      // Hiker's direct-play mode never reads the playlist rules: the listing's link is the play
+      // page and the title its only episode. 44 of the 47 adult rule files set it, most beside a
+      // template `.line` playlist rule that matches nothing, so every one showed no episodes.
+      var direct = /^(1|是)$/.test(text('链接是否直接播放') || text('force_play'));
 
       var froms = [], urls = [];
       var lineNodes = text('线路列表数组规则') ? host.pdfa(html, text('线路列表数组规则')) : [];
-      var listNodes = text('播放列表数组规则') ? host.pdfa(html, text('播放列表数组规则')) : [];
+      var listNodes = !direct && text('播放列表数组规则') ? host.pdfa(html, text('播放列表数组规则')) : [];
       var episodePrefix = text('选集链接加前缀') || prefix || url;
       var episodeSuffix = text('选集链接加后缀');
       var reverse = text('是否反转选集序列') === '1';
@@ -194,12 +201,16 @@ var spider = (function () {
           urls.push(episodes.join('#'));
         }
       }
+      if (direct) {
+        // "$" and "#" would split the name$url#name$url encoding the app reads.
+        var label = name.replace(/[$#]/g, '') || '播放';
+        froms = [label];
+        urls = [label + '$' + url];
+      }
 
       return host.result.detail({
         vod_id: url,
-        // These pages put a breadcrumb in <h1>, so the document title is the better fallback
-        // when a rule file names no title rule of its own.
-        vod_name: host.pdfh(html, text('详情标题') || 'title&&Text').split(/[-_|]/)[0].trim(),
+        vod_name: name,
         vod_pic: host.pdfh(html, text('详情图片') || 'img&&src'),
         vod_year: host.pdfh(html, text('年代详情')),
         vod_area: host.pdfh(html, text('地区详情')),

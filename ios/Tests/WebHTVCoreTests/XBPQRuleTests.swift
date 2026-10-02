@@ -9,7 +9,7 @@ import Testing
 /// Answers from `pages` by exact URL (404 otherwise) and remembers every URL it was asked for.
 /// A test that only checks the address asked for calls `categoryContent` with `try?`: an unserved
 /// page's 404 behind an empty listing is a `SiteUnreachable` since IOS-POC-41A.
-private final class RuleSite: URLProtocol, @unchecked Sendable {
+final class RuleSite: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var pages: [String: String] = [:]
     nonisolated(unsafe) private static var asked: [String] = []
@@ -42,18 +42,21 @@ private final class RuleSite: URLProtocol, @unchecked Sendable {
     }
 }
 
-private func xbpq(_ extend: String) async throws -> JavaScriptSpiderRuntime {
+/// A bundled rule-engine spider (`XBPQ`, `XYQHiker`) whose requests `RuleSite` answers.
+func ruleSpider(_ name: String, _ extend: String) async throws -> JavaScriptSpiderRuntime {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [RuleSite.self]
     let registry = SpiderRegistry.bundled()
-    let script = try #require(registry.entry(for: "csp_XBPQ")?.script)
+    let script = try #require(registry.entry(for: "csp_\(name)")?.script)
     let runtime = try JavaScriptSpiderRuntime(
-        name: "XBPQ", script: script, prelude: registry.prelude,
-        storage: SpiderStorage(siteKey: "xbpq-test", defaults: UserDefaults(suiteName: "xbpq-test")!),
+        name: name, script: script, prelude: registry.prelude,
+        storage: SpiderStorage(siteKey: "\(name)-test", defaults: UserDefaults(suiteName: "\(name)-test")!),
         session: URLSession(configuration: configuration))
     try await runtime.initialize(extend: extend)
     return runtime
 }
+
+private func xbpq(_ extend: String) async throws -> JavaScriptSpiderRuntime { try await ruleSpider("XBPQ", extend) }
 
 private func classes(_ runtime: JavaScriptSpiderRuntime) async throws -> [String] {
     let home = try #require(try JSONSerialization.jsonObject(
@@ -209,7 +212,7 @@ private func classes(_ runtime: JavaScriptSpiderRuntime) async throws -> [String
 
 // MARK: - S3: the list
 
-private func titles(_ json: String) throws -> [[String: String]] {
+func titles(_ json: String) throws -> [[String: String]] {
     let object = try #require(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
     return (object["list"] as? [[String: Any]] ?? []).map { item in
         item.compactMapValues { $0 as? String }
@@ -353,14 +356,14 @@ private func category(_ spider: JavaScriptSpiderRuntime, _ tid: String = "1") as
 
 // MARK: - S4: detail and play
 
-private func detail(_ spider: JavaScriptSpiderRuntime, _ id: String) async throws -> [String: String] {
+func detail(_ spider: JavaScriptSpiderRuntime, _ id: String) async throws -> [String: String] {
     let object = try #require(try JSONSerialization.jsonObject(
         with: Data(try await spider.detailContent(ids: [id]).utf8)) as? [String: Any])
     let item = try #require((object["list"] as? [[String: Any]])?.first)
     return item.compactMapValues { $0 as? String }
 }
 
-private func play(_ spider: JavaScriptSpiderRuntime, _ id: String) async throws -> (url: String, parse: Int) {
+func play(_ spider: JavaScriptSpiderRuntime, _ id: String) async throws -> (url: String, parse: Int) {
     let object = try #require(try JSONSerialization.jsonObject(
         with: Data(try await spider.playerContent(flag: "", id: id, vipFlags: []).utf8)) as? [String: Any])
     return (object["url"] as? String ?? "", (object["parse"] as? NSNumber)?.intValue ?? -1)
@@ -455,7 +458,7 @@ private func play(_ spider: JavaScriptSpiderRuntime, _ id: String) async throws 
 
 // MARK: - S5: search
 
-private func search(_ spider: JavaScriptSpiderRuntime, _ key: String, page: String = "1") async throws -> [[String: String]] {
+func search(_ spider: JavaScriptSpiderRuntime, _ key: String, page: String = "1") async throws -> [[String: String]] {
     try titles(try await spider.searchContent(key: key, quick: false, page: page))
 }
 

@@ -1,6 +1,6 @@
 # IOS-POC-32 — 詳情頁：海報蓋到標題、顯示年份簡介演員、簡體顯示為台灣繁體、日文翻譯
 
-- 狀態：**階段 A、B 已實作、查核，並隨 `0.1.28 (29)` 發布（Release build 第一次即編譯成功）；單元測試未執行、真機未驗證。階段 C 已實作（2026-09-28，第六節第 5 點），隨 `0.1.29 (30)` 發布（Release build 第一次即編譯成功）；單元測試未執行、真機未驗證。階段 D 待核准。**
+- 狀態：**階段 A、B 已實作、查核，並隨 `0.1.28 (29)` 發布（Release build 第一次即編譯成功）；單元測試未執行、真機未驗證。階段 C 已實作（2026-09-28，第六節第 5 點），隨 `0.1.29 (30)` 發布（Release build 第一次即編譯成功）；單元測試未執行、真機未驗證。階段 D 已實作並 commit（2026-10-01 使用者指示「開工日文標題翻譯」，第七節之 4），隨 `0.1.45 (46)` 發布（Release build 第一次即編譯成功；IPA 解析確認 Translation 為弱連結）；單元測試未執行、真機未驗證。**
 - 使用者要求（2026-09-27，附詳情頁截圖，橫向海報超出左緣並蓋住標題）：「這個幫我規劃要怎麼處理，並且之後還需要顯示年份、簡介、演員相關訊息。然後 UI 呈現簡體中文都要顯示成台灣繁體中文，不要動到搜尋邏輯，最好日文也可以幫忙翻譯成中文。」
 - 分類：
   - 階段 A（海報版面）：quick-fix，設計由使用者指定（第四節），依 AGENTS.md §7 免設計研究門檻。
@@ -414,6 +414,35 @@
 - 回滾：設定改為「關」，或 `git revert`。
 - 規模：核心約 120 行、測試約 80 行、App 約 200 行，加上 `project.pbxproj`。
 
+### 4. 實作紀錄（2026-10-01，Task-Guard `IOS-POC-32D`）
+
+- 核心 `ios/Sources/WebHTVCore/JapaneseTranslation.swift`：`JapaneseTranslation.texts(title:synopsis:)` 以 C 的 `TaiwanTraditional.isJapanese` 分別判斷標題與簡介；標題先去掉 `[]【】()（）` 括號內的文字再判斷（「海贼王（ワンピース）」不算日文）。不去番號：分類器只數假名與漢字，英數字本來就不影響。`JapaneseTranslationPreference`（key `webhtv.translation.japanese`，預設 `.off`）。
+- App `WebHTVApp.swift`：`@preconcurrency import Translation`；`JapaneseTranslationBar`（`@available(iOS 18.0, *)`）放在詳情頁標題下方，以 `LanguageAvailability.status(from: ja, to: zh-Hant)` 決定是否顯示「翻譯成中文」，「自動」且已安裝時直接翻；`translationTask` 內逐一 `session.translate` 標題、簡介，結果顯示「機器翻譯」與「顯示原文／顯示譯文」；失敗保留原文並顯示「重試翻譯」與下載語言／錯誤 16 的提示。標題、導覽列標題與簡介在有譯文且未切回原文時顯示譯文（原樣顯示，不再經過 C）。設定頁新增「日文翻譯」關／詢問／自動（只在 iOS 18 以上顯示）。
+- `project.pbxproj` App 兩個 configuration 的 `OTHER_LDFLAGS` 加 `-weak_framework Translation -weak_framework _Translation_SwiftUI`。
+- 測試 `ios/Tests/WebHTVCoreTests/JapaneseTranslationTests.swift`（5 項）；預期值以 Python 對照 `isJapanese` 算過。
+- 與第二節設計不同之處：
+  1. 目標語言固定 `zh-Hant`，不做「沒有繁體時翻成簡體再轉」：多一條路徑，且違反「C 不轉譯文」；`zh-Hant` 不可用時視同不支援、不顯示按鈕。
+  2. 快取只在記憶體（以原文為鍵、上限 200 筆，滿了清空），不寫 Caches 檔案：翻譯在裝置上執行，重開 App 重翻的成本低。
+  3. 不指定 `.lowLatency`：iOS 26.4 的 `Strategy` 初始化寫法無法在本環境編譯確認，寫錯會讓 Release build 失敗。代價：支援 Apple Intelligence 的裝置走系統預設模型，其過濾行為未知。
+- 已知限制：分類器要求假名至少 2 個且占 25%，「進撃の巨人」這類假名只有一個的日文標題不會被判斷為日文（C 的既有規則，未修改）。
+- 驗證缺口：本環境沒有 Swift toolchain，App 與核心都沒有編譯、測試沒有執行；Swift 6 對 `TranslationSession`（非 Sendable）的檢查是否只成為 warning、`_Translation_SwiftUI` 能否以 `-weak_framework` 連結，都要等 Release build 才知道。發布後要以 Python 解析 IPA，確認兩者是 `LC_LOAD_WEAK_DYLIB`（第七節之 2 第 6 點）。
+- 回滾：設定改為「關」，或 `git revert` 本 commit。
+
+### 5. 追加修正 IOS-POC-32D-1（2026-10-01）
+
+- 使用者回報（`0.1.45 (46)`，附截圖：「✨黃色倉庫動態版✨」的日文片名與日文簡介）：「我沒看到翻譯按鈕」。使用者沒有說明設定頁「日文翻譯」選了什麼。
+- 原因一（程式碼確認）：`VodView` 以 `private let translationMode = JapaneseTranslationPreference().mode` 在建立 struct 時讀設定；格狀列表的 `NavigationLink { VodView(...) }` 在畫格子時就建立每一張卡片的 `VodView`，所以先開首頁、再到設定頁打開翻譯、回來點卡片，詳情頁拿到的仍是「關」。修正：改為 `@State`，在詳情頁的 `.task` 開頭讀。
+- 原因二（推測，未驗證）：目標語言寫死 `Locale.Language(identifier: "zh-Hant")`，若與框架的識別碼不相符，`status` 回 `.unsupported`，按鈕不顯示。修正：從 `LanguageAvailability().supportedLanguages` 取 `languageCode == .chinese` 且 `maximalIdentifier` 含 `Hant` 的語言。
+- 不再靜默隱藏：不支援時顯示「這支手機目前不支援把日文翻成繁體中文。」，以便分辨「設定關閉」與「不支援」。
+- 驗證：隨 `0.1.46 (47)` 發布（IOS-POC-11 第四十七次發布），Release build 第一次即編譯成功；真機未驗證。
+
+### 6. 追加修正 IOS-POC-32D-2（2026-10-02）
+
+- 使用者回報（`0.1.46 (47)`，iPhone 18 Pro，附截圖：同一站另一部日文片名、日文簡介的片子）：「都沒看到按鈕呀 他會在哪」。標題下方什麼都沒有，連「不支援」的說明也沒有。
+- 原因（程式碼確認）：`JapaneseTranslationBar.body` 以 `Group` 包住內容。`Group` 把 modifier 交給每一個子 view；第一次檢查完成前（`status == nil`、`translation == nil`）沒有任何子 view，所以 `.task(id: texts)` 與 `.translationTask` 從未執行，`status` 永遠是 nil，按鈕與說明都不會出現。`0.1.45 (46)` 與 `0.1.46 (47)` 都有此問題；第七節之 5 的兩個原因不是使用者看不到按鈕的主因。
+- 修正：改為 `VStack(alignment: .leading, spacing: 4)`，沒有內容時放一個 0×0 的 `Color.clear`，讓兩個 modifier 永遠附在同一個存在的 view 上。
+- 驗證：隨 `0.1.47 (48)` 發布（IOS-POC-11 第四十八次發布），Release build 第一次即編譯成功。真機：使用者 2026-10-02 在 iPhone 18 Pro 上回報「可以了」（未逐項回報第七節之 3 的各項）。
+
 ## 八、階段順序與回滾
 
 1. 順序固定：A → B → C → D，每個階段各自一個 task guard session 與 commit，可各自發布。
@@ -453,15 +482,16 @@
 | 階段 C 簡介換成台灣用語 | 不換，不採 `s2twp`（2026-09-28） |
 | 階段 D：你的 iPhone 的 iOS 版本 | iOS 26.x（2026-09-28） |
 | 階段 D：設定預設值 | 關（2026-09-28） |
+| 階段 D 開始實作 | 核准（2026-10-01「開工日文標題翻譯」） |
+| 階段 D：iOS 17.x | 不提供（2026-10-01 agent 依簡單優先選定，使用者未回答；設定頁在 iOS 18 以下不顯示） |
+| 階段 D：`.lowLatency` | 不指定，用系統預設（2026-10-01 agent 選定，使用者未回答；理由見第七節之 4） |
 
 尚待決定：
 
 1. 階段 C 是否發布（下一版 `0.1.29 (30)`；bump 版本、tag、發布前都要先問）。
-2. 階段 D 是否開始實作。
+2. ~~階段 D 是否開始實作~~：已核准（2026-10-01）。
 3. **階段 B**：演員、類型之後是否要可點（開分類頁，不是搜尋）；本階段不做。
-4. **階段 D**：
-   - iOS 17.x 的做法：系統彈出視窗或不提供。
-   - 是否同意固定使用 `.lowLatency`。
+4. **階段 D**：iOS 17.x 與 `.lowLatency` 已由 agent 先選定（見上表），使用者可推翻。
 
 ## 十一、查核紀錄
 
@@ -489,7 +519,7 @@
 ## Recovery anchor
 
 - 目標：詳情頁的海報版面修正，以及年份、簡介、演員顯示、簡體顯示為台灣繁體（不動搜尋）、日文翻成中文。
-- 狀態（2026-09-28）：階段 A、B 已隨 `0.1.28 (29)` 發布（第四節、第五節第 4～5 點；發布紀錄在 IOS-POC-11 第二十九次發布）；單元測試未執行、真機未驗證。C 已隨 `0.1.29 (30)` 發布（第六節第 5 點；發布紀錄在 IOS-POC-11 第三十次發布），Release build 第一次即編譯成功；單元測試未執行、真機未驗證。D 未實作，待核准（第十節）。
+- 狀態（2026-09-28）：階段 A、B 已隨 `0.1.28 (29)` 發布（第四節、第五節第 4～5 點；發布紀錄在 IOS-POC-11 第二十九次發布）；單元測試未執行、真機未驗證。C 已隨 `0.1.29 (30)` 發布（第六節第 5 點；發布紀錄在 IOS-POC-11 第三十次發布），Release build 第一次即編譯成功；單元測試未執行、真機未驗證。D 已隨 `0.1.45 (46)` 發布（2026-10-01，第七節之 4；發布紀錄在 IOS-POC-11 第四十六次發布），Release build 第一次即編譯成功、Translation 為弱連結；單元測試未執行、真機未驗證。
 - 相關檔案：`ios/WebHTVApp/Sources/WebHTVApp.swift`（`VodView` 表頭約 `:1503-1520`、`VodPoster` 約 `:1968-1988`）、`ios/Sources/WebHTVCore/CMSClient.swift`（`Vod` `:166-199`）、`ios/Sources/WebHTVCore/MacCMSXML.swift`。
 - C 的檔案：`ios/Sources/WebHTVCore/TaiwanTraditional.swift`、`ios/Sources/WebHTVCore/Resources/OpenCC/`、`WebHTVApp.swift` 的 `TaiwanDisplay`、`zhTW(_:_:)` 與 32 處顯示位置、`ios/Tests/WebHTVCoreTests/TaiwanTraditionalTests.swift`。
-- 下一步（唯一）：等使用者在 `0.1.29 (30)` 上做第四節第 3 點、第五節第 3 點與第六節第 4 點的真機項目並回報，以及決定第十節尚待決定的項目。
+- 下一步（唯一）：無。D 已在 `0.1.47 (48)` 真機確認可用（使用者「可以了」）；第七節之 3 未逐項回報的項目（自動模式、錯誤處理、中文片名配日文簡介、譯文品質）等使用者發現問題再處理。

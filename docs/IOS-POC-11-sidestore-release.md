@@ -894,9 +894,129 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第四十四次發布：`0.1.43 (44)`（2026-10-01，**已發布**）
+## 第四十八次發布：`0.1.47 (48)`（2026-10-02，**已發布**）
 
-**目前最新版是 `0.1.43 (44)`。** 前面四十三版都已被取代。
+**目前最新版是 `0.1.47 (48)`。** 前面四十七版都已被取代。
+
+- 授權：使用者 2026-10-02 指示「發佈」（IOS-POC-32D-2 push 之後）。版號 `0.1.47`，build `48`。
+- 內容：`0.1.46 (47)` 的全部，加上 IOS-POC-32D-2（`fc74afa9`：翻譯列改為永不為空的 `VStack`，語言檢查才會執行）；其餘是 `0.1.46 (47)` 的 `source.json` 與紀錄（`bbae28de`、`67cdbfa8`）。
+- 發布序列：
+  1. 版號 commit `6fcc8555`（Task-Guard `IOS-RELEASE-0.1.47-b48`，兩個 build configuration 的 `MARKETING_VERSION`／`CURRENT_PROJECT_VERSION`，沒有其他行變動）。
+  2. push `fc74afa9..6fcc8555`（push 前先 pull merge，遠端沒有新 commit）。
+  3. GitHub MCP `actions_run_trigger` `run_workflow` `ios-sidestore-release.yml` ref `ios-poc`，`version=0.1.47`、`build_number=48`、`release_notes=…` → run `36945601982`（conclusion success，2026-10-02 00:21:49Z → 00:28:20Z；未逐一檢查各步驟）。
+  4. workflow 建立 tag `ios-v0.1.47-b48`（target `6fcc8555`），並推回 `source.json`（`667a056d`，共四十八筆，第一筆 `0.1.47`，size 29,326,712 與 IPA 相同）。本機以 pull merge fast-forward 到 `667a056d`。
+
+  **沒有手動建 tag。**
+- 產物：GitHub Release `WebHTV 0.1.47 (48)`（不是 draft／prerelease，2026-10-02 00:28:08Z 發布），`WebHTV-0.1.47-48.ipa` **29,326,712 bytes**、狀態 uploaded，GitHub 記錄的 digest SHA-256
+  `35164ac1a159de16f968348d1a49aaedd5f32c98f483f19dd8a53d1fa4d33e3c`。**IPA 已下載**（GET 200，SHA-256 與 digest 相同）：`minos 17.0`、`sdk 26.5`，`Translation.framework` 與 `_Translation_SwiftUI.framework` 仍為 `LC_LOAD_WEAK_DYLIB`。
+- 發布前驗證：**沒有**（本環境無 Swift toolchain）；Release device build 由本次 workflow 第一次編譯，第一次即成功。**真機尚未驗收**（清單：IOS-POC-32 第七節之 3、之 6）。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.47 (48)（日文翻譯按鈕永遠不出現的修正；發布前沒有編譯與自動測試，真機未驗收）
+
+修正
+- 日文翻譯：0.1.45、0.1.46 的詳情頁從來沒有檢查語言，所以「翻譯成中文」按鈕與「不支援」說明都不會出現。現在設定為「詢問」或「自動」時，標題下方會顯示其中一個。
+
+已知限制
+- 此版發布前沒有執行自動測試，也沒有模擬器或真機驗收；這一版由發布流程第一次編譯。
+- 其餘同 0.1.46 (47)。
+```
+
+## 第四十七次發布：`0.1.46 (47)`（2026-10-01，**已發布**，已被 `0.1.47 (48)` 取代）
+
+- 授權：使用者 2026-10-01 指示「發佈」（IOS-POC-32D-1 push 之後）。版號 `0.1.46`，build `47`。
+- 內容：`0.1.45 (46)` 的全部，加上 IOS-POC-32D-1（`60d4f932`：詳情頁打開時才讀「日文翻譯」設定；繁體中文取自框架的語言清單；不支援時顯示說明）；其餘是 `0.1.45 (46)` 的 `source.json` 與紀錄（`b8c857a3`、`e2d48c3b`）與 IOS-POC-40 真機紀錄（`9b33b19f`）。
+- 發布序列：
+  1. 版號 commit `20b86b49`（Task-Guard `IOS-RELEASE-0.1.46-b47`，兩個 build configuration 的 `MARKETING_VERSION`／`CURRENT_PROJECT_VERSION`，沒有其他行變動）。
+  2. push `60d4f932..20b86b49`（push 前先 pull merge，遠端沒有新 commit）。
+  3. GitHub MCP `actions_run_trigger` `run_workflow` `ios-sidestore-release.yml` ref `ios-poc`，`version=0.1.46`、`build_number=47`、`release_notes=…` → run `36898386121`（conclusion success，2026-10-01 17:18:18Z → 17:26:55Z；未逐一檢查各步驟）。
+  4. workflow 建立 tag `ios-v0.1.46-b47`（target `20b86b49`），並推回 `source.json`（`bbae28de`，共四十七筆，第一筆 `0.1.46`，size 29,326,747 與 IPA 相同）。本機以 pull merge fast-forward 到 `bbae28de`。
+
+  **沒有手動建 tag。**
+- 產物：GitHub Release `WebHTV 0.1.46 (47)`（不是 draft／prerelease，2026-10-01 17:26:42Z 發布），`WebHTV-0.1.46-47.ipa` **29,326,747 bytes**、狀態 uploaded，GitHub 記錄的 digest SHA-256
+  `d50175dfc698cdfbb5a836b4958fb99a84bc88ebb011f519671ed4b2dac22a0b`。**IPA 已下載**（GET 200，SHA-256 與 digest 相同）：`minos 17.0`、`sdk 26.5`，`Translation.framework` 與 `_Translation_SwiftUI.framework` 仍為 `LC_LOAD_WEAK_DYLIB`。
+- 發布前驗證：**沒有**（本環境無 Swift toolchain）；Release device build 由本次 workflow 第一次編譯，第一次即成功。**真機尚未驗收**（清單：IOS-POC-32 第七節之 3、之 5）。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.46 (47)（日文翻譯按鈕沒有出現的修正；發布前沒有編譯與自動測試，真機未驗收）
+
+修正
+- 日文翻譯：在設定頁打開「日文翻譯」後，回到首頁點片子的詳情頁會立即套用（以前要重開 App 才會生效，按鈕不會出現）。
+- 日文翻譯：繁體中文改用系統翻譯功能自己提供的語言；手機不支援時會顯示「這支手機目前不支援把日文翻成繁體中文。」，不再什麼都不顯示。
+
+已知限制
+- 此版發布前沒有執行自動測試，也沒有模擬器或真機驗收；這一版由發布流程第一次編譯。
+- 其餘同 0.1.45 (46)。
+```
+
+## 第四十六次發布：`0.1.45 (46)`（2026-10-01，**已發布**，已被 `0.1.46 (47)` 取代）
+
+- 授權：使用者 2026-10-01 指示「發佈版本」（IOS-POC-32 D push 之後；同一輪先問過是否新增只編譯的 workflow，使用者選擇直接發布）。版號 `0.1.45`，build `46`。
+- 內容：`0.1.44 (45)` 的全部，加上 IOS-POC-32 D（`b6c9185e`：iOS 18 以上在裝置上把日文片名與簡介翻成繁體中文，設定「日文翻譯」預設關）；其餘是 `0.1.44 (45)` 的 `source.json` 與紀錄（`58d8d703`、`9fe0c925`）。
+- 發布序列：
+  1. 版號 commit `715b7731`（Task-Guard `IOS-RELEASE-0.1.45-b46`，兩個 build configuration 的 `MARKETING_VERSION`／`CURRENT_PROJECT_VERSION`，沒有其他行變動）。
+  2. push `b6c9185e..715b7731`（push 前先 pull merge，遠端沒有新 commit）。
+  3. GitHub MCP `actions_run_trigger` `run_workflow` `ios-sidestore-release.yml` ref `ios-poc`，`version=0.1.45`、`build_number=46`、`release_notes=…` → run `36896587110`（conclusion success，2026-10-01 17:03:41Z → 17:10:06Z；未逐一檢查各步驟）。
+  4. workflow 建立 tag `ios-v0.1.45-b46`（target `715b7731`），並推回 `source.json`（`b8c857a3`，共四十六筆，第一筆 `0.1.45`，size 29,326,100 與 IPA 相同）。本機以 pull merge fast-forward 到 `b8c857a3`。
+
+  **沒有手動建 tag。**
+- 產物：GitHub Release `WebHTV 0.1.45 (46)`（不是 draft／prerelease，2026-10-01 17:09:55Z 發布），`WebHTV-0.1.45-46.ipa` **29,326,100 bytes**、狀態 uploaded，GitHub 記錄的 digest SHA-256
+  `6ec4e25ea16e40bc3c6a0d810ddc5af39fcac30ea17c771a4b22f77200684468`。**IPA 已下載**（GET 200，29,326,100 bytes，SHA-256 與 digest 相同），以 Python 解析 `WebHTVApp` 的 Mach-O：`minos 17.0`、`sdk 26.5`；`Translation.framework` 與 `_Translation_SwiftUI.framework` 都是 `LC_LOAD_WEAK_DYLIB`（IOS-POC-32 第七節之 2 第 6 點、之 3 第 6 點通過）。
+- 發布前驗證：**沒有**。本環境是 Linux、沒有 Swift toolchain，IOS-POC-32 D 沒有在本機編譯、`swift test` 沒有執行；Release device build 由本次 workflow 第一次編譯，第一次即成功。**真機尚未驗收**（清單：IOS-POC-32 第七節之 3；IOS-POC-40 第四節；IOS-POC-36 第十六節之 8 與第十七節之 8）。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.45 (46)（新增日文片名與簡介翻譯；發布前沒有編譯與自動測試，真機未驗收）
+
+新功能
+- 日文翻譯（iOS 18 以上）：設定頁「日文翻譯」可選關、詢問、自動，預設為關。開啟後，詳情頁的日文片名與簡介可以翻成繁體中文，翻譯在手機上進行，文字不會送出。
+  - 詢問：標題下方顯示「翻譯成中文」按鈕；第一次使用會出現系統的語言下載提示。
+  - 自動：語言已下載時直接翻譯；未下載時一樣顯示按鈕。
+  - 譯文旁標「機器翻譯」，可切換「顯示原文」。翻譯失敗時保留原文，可重試。
+  - 中文片名配日文簡介時只翻簡介；演員、導演不翻。
+
+已知限制
+- 此版發布前沒有執行自動測試，也沒有模擬器或真機驗收；這一版由發布流程第一次編譯。
+- 假名很少的日文片名（例如「進撃の巨人」）不會被判斷為日文，因此不會出現翻譯按鈕。
+- iOS 17 沒有這個功能，設定頁也不顯示。
+- 其餘同 0.1.44 (45)。
+```
+
+## 第四十五次發布：`0.1.44 (45)`（2026-10-01，**已發布**，已被 `0.1.45 (46)` 取代）
+
+- 授權：使用者 2026-10-01 指示「你先push並發佈版本」（IOS-POC-40 commit 之後）。版號 `0.1.44`，build `45`。
+- 內容：`0.1.43 (44)` 的全部，加上 IOS-POC-40（`da10fe87`：spider 站集數值不是網址時，例如金牌系列的 `id@@nid`，詳情頁的集數與「立即播放」可以點選）；其餘是 `0.1.43 (44)` 的 `source.json` 與紀錄（`fd10a7a0`、`f0c2f3f9`）與 README（`277d4ac7`）。
+- 發布序列：
+  1. 版號 commit `25f9f780`（Task-Guard `IOS-RELEASE-0.1.44-b45`，兩個 build configuration 的 `MARKETING_VERSION`／`CURRENT_PROJECT_VERSION`，沒有其他行變動）。
+  2. push `da10fe87..25f9f780`（push 前先 pull merge，遠端沒有新 commit）。
+  3. GitHub MCP `actions_run_trigger` `run_workflow` `ios-sidestore-release.yml` ref `ios-poc`，`version=0.1.44`、`build_number=45`、`release_notes=…` → run `36892907513`（conclusion success，2026-10-01 16:33:39Z → 16:39:55Z；未逐一檢查各步驟）。
+  4. workflow 建立 tag `ios-v0.1.44-b45`（target `25f9f780`），並推回 `source.json`（`58d8d703`，共四十五筆，第一筆 `0.1.44`，size 29,300,289 與 IPA 相同）。本機以 pull merge fast-forward 到 `58d8d703`。
+
+  **沒有手動建 tag。**
+- 產物：GitHub Release `WebHTV 0.1.44 (45)`（不是 draft／prerelease，2026-10-01 16:39:46Z 發布），`WebHTV-0.1.44-45.ipa` **29,300,289 bytes**、狀態 uploaded，GitHub 記錄的 digest SHA-256
+  `b2cb6e690dc3c6c83ce321e384073d8522c918e26a07350664d4bde4991531d9`。本環境對 `source.json` 下載網址的 HEAD 回 401（經 egress proxy），**下載網址未驗證**；**IPA 未下載回來驗內容。**
+- 發布前驗證：**沒有**。本環境是 Linux、沒有 Swift toolchain，IOS-POC-40 沒有編譯、`swift test` 沒有執行、沒有模擬器驗證；Release device build 由本次 workflow 第一次編譯，第一次即成功。**真機尚未驗收**（清單：IOS-POC-40 第四節；IOS-POC-36 第十六節之 8 與第十七節之 8 仍待驗）。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.44 (45)（金牌系列等來源的集數按不下去的修正；發布前沒有編譯與自動測試，真機未驗收）
+
+修正
+- 金牌系列（jiabaide、zjuys、愛電影、界界、cqzuoer）這類集數不是網址的來源：詳情頁的集數與「立即播放」以前是灰色、按不下去，現在可以點選播放。
+
+已知限制
+- 此修正發布前沒有執行自動測試，也沒有模擬器或真機驗收；這一版由發布流程第一次編譯。
+- 可可影視詳情頁沒有年份、演員：來源腳本沒有提供這些欄位，此版未修正。
+- 其餘同 0.1.43 (44)。
+```
+
+## 第四十四次發布：`0.1.43 (44)`（2026-10-01，**已發布**，已被 `0.1.44 (45)` 取代）
 
 - 授權：使用者 2026-10-01 指示「發佈 0.1.43」（IOS-POC-36.5 push 之後）。版號 `0.1.43`，build `44`。
 - 內容：`0.1.42 (43)` 的全部，加上 IOS-POC-36.4 的 D11（`c59577c9`：位置超過片長的觀看記錄算看到結尾，再打開從頭播）與 IOS-POC-36.5 的 D12（`1355aa98`：子母畫面中播完最後一集，小視窗跟著結束、session 照常關閉）；其餘是文件（`046c717b`、`5df6bb9e`、`4f11edfb`）與 `0.1.42 (43)` 的 `source.json`（`499e791f`）。

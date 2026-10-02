@@ -301,4 +301,17 @@ private func site(key: String, type: Int, api: String, ext: String = "null") thr
         #expect(pick([Flag(name: "壞線", episodes: [Episode(name: "第01集", url: "custom://1")])],
                      nil, nil, nil) == nil)
     }
+
+    /// IOS-POC-40: 金牌系列 answers `vod_play_url` with `影片id@@集數id`, which only its
+    /// `playerContent` turns into an address. Gating a spider on http(s) greyed out every episode
+    /// and 立即播放 although playback itself worked; a CMS site must still need a real address.
+    @Test func aSpiderEpisodeNeedsOnlyATargetForPlayerContent() {
+        let jinpai = [Flag(name: "老王有金牌", episodes: [Episode(name: "名偵探柯南", url: "123@@456")])]
+        #expect(Flag.playNow(in: jinpai, watchedFlag: nil, watchedURL: nil, watchedName: nil, spider: true)?
+            .episode.url == "123@@456")
+        #expect(pick(jinpai, nil, nil, nil) == nil)
+        #expect(Episode(name: "第01集", url: "123@@456").isPlayable(spider: true))
+        #expect(!Episode(name: "第01集", url: "123@@456").isPlayable(spider: false))
+        #expect(!Episode(name: "第01集", url: "").isPlayable(spider: true))
+    }
 }

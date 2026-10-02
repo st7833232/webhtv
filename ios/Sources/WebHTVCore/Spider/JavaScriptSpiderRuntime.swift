@@ -14,6 +14,10 @@ public final class JavaScriptSpiderRuntime: SpiderRuntime, @unchecked Sendable {
     private let spider: JSValue
     private let timeout: TimeInterval
     public let cookies: CookieJar
+    private let trail: NetworkTrail
+    /// IOS-POC-41A: what `init` could not fetch — a rule-engine site's rule file. Kept for the
+    /// session: every later empty listing is explained by it.
+    private var initFailure: SiteUnreachable?
 
     public init(name: String, script: String, prelude: String, storage: SpiderStorage,
                 cookies: CookieJar = CookieJar(), session: URLSession = .webHTV,
@@ -21,12 +25,14 @@ public final class JavaScriptSpiderRuntime: SpiderRuntime, @unchecked Sendable {
         queue = DispatchQueue(label: "webhtv.spider.\(name)")
         self.timeout = timeout
         self.cookies = cookies
+        let trail = NetworkTrail()
+        self.trail = trail
         guard let context = JSContext() else { throw SpiderError.scriptFailed("no JSContext") }
         self.context = context
 
         var thrown: String?
         context.exceptionHandler = { _, value in thrown = value?.toString() ?? "unknown" }
-        CatVodHost.install(into: context, storage: storage, cookies: cookies, session: session)
+        CatVodHost.install(into: context, storage: storage, cookies: cookies, trail: trail, session: session)
         context.evaluateScript(prelude)
         if let thrown { throw SpiderError.scriptFailed("host.js: \(thrown)") }
 
@@ -54,38 +60,50 @@ public final class JavaScriptSpiderRuntime: SpiderRuntime, @unchecked Sendable {
     private func text(_ method: String, _ arguments: [Any]) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { [self] in
-                guard let function = spider.objectForKeyedSubscript(method), !function.isUndefined else {
-                    continuation.resume(throwing: SpiderError.methodMissing(method)); return
+                trail.reset()
+                let outcome = Result { try invoke(method, arguments) }
+                if method == "init" { initFailure = trail.first }
+                // IOS-POC-41A: a spider turns a failed fetch into an empty page (`XBPQ.js`'s `fetch` is
+                // `.body || ''`), so an empty listing with a failed request behind it says why.
+                if case .success(let text) = outcome, Self.isEmptyListing(text, method: method),
+                   let failure = trail.first ?? initFailure {
+                    continuation.resume(throwing: failure)
+                } else {
+                    continuation.resume(with: outcome)
                 }
-                var thrown: String?
-                context.exceptionHandler = { _, value in thrown = value?.toString() ?? "unknown" }
-                // invokeMethod, not function.call: a spider is an object and may keep state on
-                // `this` between calls, exactly as the Java original keeps instance fields.
-                let result = spider.invokeMethod(method, withArguments: arguments)
-                if let thrown {
-                    continuation.resume(throwing: SpiderError.scriptFailed("\(method): \(thrown)"))
-                    return
-                }
-                // A spider may return a JSON string, like the Java original, or a plain object,
-                // which is far more natural to write in JavaScript. Both arrive as the same JSON.
-                guard let value = result.map(settled) else {
-                    continuation.resume(returning: ""); return
-                }
-                if let failure = value.error {
-                    continuation.resume(throwing: SpiderError.scriptFailed("\(method): \(failure)"))
-                    return
-                }
-                guard let result = value.value, !result.isUndefined, !result.isNull else {
-                    continuation.resume(returning: ""); return
-                }
-                if result.isString {
-                    continuation.resume(returning: result.toString() ?? ""); return
-                }
-                let encoded = context.objectForKeyedSubscript("JSON")?
-                    .invokeMethod("stringify", withArguments: [result])?.toString() ?? ""
-                continuation.resume(returning: encoded)
             }
         }
+    }
+
+    /// Runs on `queue`.
+    private func invoke(_ method: String, _ arguments: [Any]) throws -> String {
+        guard let function = spider.objectForKeyedSubscript(method), !function.isUndefined else {
+            throw SpiderError.methodMissing(method)
+        }
+        var thrown: String?
+        context.exceptionHandler = { _, value in thrown = value?.toString() ?? "unknown" }
+        // invokeMethod, not function.call: a spider is an object and may keep state on
+        // `this` between calls, exactly as the Java original keeps instance fields.
+        let result = spider.invokeMethod(method, withArguments: arguments)
+        if let thrown { throw SpiderError.scriptFailed("\(method): \(thrown)") }
+        // A spider may return a JSON string, like the Java original, or a plain object,
+        // which is far more natural to write in JavaScript. Both arrive as the same JSON.
+        guard let value = result.map(settled) else { return "" }
+        if let failure = value.error { throw SpiderError.scriptFailed("\(method): \(failure)") }
+        guard let result = value.value, !result.isUndefined, !result.isNull else { return "" }
+        if result.isString { return result.toString() ?? "" }
+        return context.objectForKeyedSubscript("JSON")?
+            .invokeMethod("stringify", withArguments: [result])?.toString() ?? ""
+    }
+
+    /// A home with neither categories nor titles, or a category page with no titles. Only these two
+    /// listings explain themselves: an empty search or detail is an ordinary answer.
+    private static func isEmptyListing(_ text: String, method: String) -> Bool {
+        guard method == "homeContent" || method == "categoryContent" else { return false }
+        let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
+        let noTitles = (object?["list"] as? [Any])?.isEmpty ?? true
+        let noClasses = (object?["class"] as? [Any])?.isEmpty ?? true
+        return noTitles && (method == "categoryContent" || noClasses)
     }
 
     /// Settles a promise a spider handed back, so an `async` method reaches the ABI as its value.

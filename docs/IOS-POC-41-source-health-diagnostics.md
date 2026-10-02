@@ -136,7 +136,7 @@ C 對照 B 多出來的代價與取捨：
 - **網路環境**：公司網路上的檢查會把很多站判成連不上（第 3 節）。對策：顯示檢查時間、報告寫明「結果取決於當下的網路」、不自動隱藏或刪除。
 - **結果會過期**：網站狀態幾小時內就會變（妻妹）。對策：只顯示「x 小時前」，不自動重跑；被動記錄會隨使用自然更新。
 - **頁面內容判斷不可靠**：JS 跳轉頁、停放網域、導流頁只能靠頁面特徵猜，只標「疑似」；停放／導流頁不做判斷，落在「網站有回應但取不到片單」。
-- **Python 站**：網路錯誤不經過 `HTTPHost`，原因只能用例外文字分類（`PythonLiveCheck.cause` 的做法），精度較低；41A 對 Python 站只在例外文字明確時顯示原因。
+- **Python 站**：網路錯誤不經過 `HTTPHost`，原因只能用例外文字分類（`PythonLiveCheck.cause` 的做法），精度較低；41A 不處理 Python 站（錯誤訊息與之前相同；第 11 節）。
 - **排序改變清單順序**：Android 預設開；iOS 使用者習慣的來源順序會變（第 9 節第 4 點）。
 - **第三方網站負載**：只在使用者按下時主動檢查，每站一條鏈約 4～6 個請求，並行上限 8。
 - **JavaScript 呼叫無法取消**：取消後已送出的呼叫仍會跑完。
@@ -158,4 +158,31 @@ C 對照 B 多出來的代價與取捨：
 - 未驗證：OK影視／影視仓、CatVodTVOfficial；DNS 卡住時的錯誤碼；側載 App 的背景任務 entitlement（不影響結論）。
 - Ponytail：`ponytail:ponytail-review` 對提案設計提出 4 項簡化（刪 ATS 類別、Cloudflare 5xx 併入 HTTP 錯誤、只用 −1009 判斷離線、不自動重試），已套用到第 4.3、6、7 節。
 - 回滾：本任務只有文件，`git revert` 即可。
-- **唯一下一步**：等使用者回覆第 9 節 6 個決定並核准第一段（建議 41A）；核准前不改程式。
+- 2026-10-02 使用者回覆「照建議，開始 41A」：第 9 節 6 項全部採建議（全部來源、三段都做、41A → 41B → 41C、排序照 Android 預設開、檢查到讀到影片位元組、先不做「只顯示可以播放」）。41A 已實作，見第 11 節。
+- **唯一下一步**：41A 等使用者確認（真機或模擬器看幾個死站）；確認後開始 41B（被動健康記錄，對齊 Android `SiteHealthStore`）。
+
+## 11. 41A 實作紀錄（2026-10-02）
+
+- task guard `IOS-POC-41A`（`standard`）。起始 HEAD `0ab08c2b`。
+- **程式**：
+  - 新增 `ios/Sources/WebHTVCore/SiteFailure.swift`：`SiteFailure`（`init?(error:)` 依 `URLError` 碼分類、`init?(status:headers:body:)` 依 `cf-mitigated`、HTTP ≥ 400、2xx 頁面標題 `Just a moment`／`Redirecting`／`Security Check`／`检测中`／`跳转中` 分類；`cancelled` 與一般頁面回 `nil`）與 `SiteUnreachable`（`LocalizedError`，繁中說明；網站或網路的原因加一句「這是網站本身或目前網路的問題，不是 App 的錯誤。」，4xx 與裝置離線不加）。
+  - `HTTPHost.swift`：新增 `NetworkTrail`（記這次呼叫第一個失敗，限定在 runtime 的序列 queue 上使用）；`perform` 在每個請求後記錄。回給 JavaScript 的物件不變，`js.host` ABI 不變。
+  - `JavaScriptSpiderRuntime.swift`：`text()` 改成單一 resume 點（原本的呼叫邏輯移到 `invoke`）；每次呼叫前重設 trail；`homeContent`（沒有分類也沒有片）與 `categoryContent`（沒有片）回空且有失敗記錄時丟出 `SiteUnreachable`；`init` 的失敗（規則檔下載）保留給整個 session。
+  - `SourceClient.swift`：spider 首頁 fallback 到第一個分類失敗時，保留分類列並把原因放進 `CMSResponse.failure`（`CMSClient.swift` 新增的欄位，不參與解碼）；CMS 站的 `URLError` 經 `explained` 轉成同一套原因。
+  - `WebHTVApp.swift` `load`：首頁沒有片且回應有 `failure` 時，原因放進既有的 `error`，顯示在分類列下方（IOS-POC-38.1 的位置）。
+  - Python spider 不經過 `HTTPHost`，41A 不處理（錯誤訊息與之前相同）；全站台搜尋、詳情、播放不受影響（只有首頁與分類會說明原因）。
+- **測試**：新增 `ios/Tests/WebHTVCoreTests/SiteFailureTests.swift`（7 項：`URLError` 分類、回應分類與一般頁面不誤判、文字只在網站／網路原因時說「不是 App 的錯誤」、Cloudflare 挑戰保留分類列、網域不存在、正常回應但 0 部仍是「沒有內容」、規則檔抓不到時首頁說明原因）。另外 5 個既有測試借用「分類頁 404 回空」當佔位，現在會丟出 `SiteUnreachable`，屬過時的預期：`XBPQRuleTests.swift` 7 處只檢查請求網址的 `categoryContent` 改成 `try?`、`SpiderHostTests.swift` 的逾時測試改用 `searchContent`。這兩個檔案原本不在 task guard 的宣告範圍，是在發現後補登（只配合 41A 的行為，沒有擴大功能）。
+- **驗證**：`swift test --package-path ios` **635／635**（原 628＋新 7）；模擬器 Debug（`id=05934376…`）與 generic iOS 不簽章 Release（`CODE_SIGNING_ALLOWED=NO EXPANDED_CODE_SIGN_IDENTITY=-`）都 BUILD SUCCEEDED。新增的編譯 warning 只有 `HTTPHost.perform` 完成回呼裡 `failure` 的寫入，與同一個 closure 既有的 `result` 是同一種寫法（以 semaphore 同步，逾時路徑不讀它）。
+- **模擬器實看**（iPhone 17 Pro Max `05934376`，本機 4 站設定，個人熱點）：
+
+| 站 | 結果 |
+|---|---|
+| 香蕉中文资源（`su-qq.vip` 不存在） | 分類列保留，下方「載入失敗／找不到網域 su-qq.vip，網域可能已經失效。這是網站本身或目前網路的問題，不是 App 的錯誤。」 |
+| 传媒二区（Cloudflare 挑戰） | 分類要從首頁抓、首頁被擋，所以沒有分類列；「www.34gaobk.com 要求瀏覽器驗證（Cloudflare），App 無法通過。…」 |
+| 天美（正常） | 分類與片單照常 |
+| 死掉的CMS（type-1，`su-qq.vip`） | 與 spider 同一套文字 |
+
+  模擬器 App 的設定仍指向 `http://127.0.0.1:8766/config.json`，快取的是這份 4 站測試設定（之前快取的是 36.3 的測試設定，也不是使用者的設定）。
+- **Ponytail**：`ponytail:ponytail-review` → 正式程式 Lean already；只提到測試替身 `FailingSite` 與 `RuleSite` 重複約 20 行，共用要改 24 個 XBPQ 測試依賴的 `private` 替身，不套用。
+- **未驗證**：真機；Python 站；JS 跳轉頁（`Redirecting...`）只有單元測試，模擬器沒有挑那類站實看。
+- **回滾**：`git revert` 這個 commit（Swift 原始碼、測試與文件；沒有 ABI、設定或二進位變更）。

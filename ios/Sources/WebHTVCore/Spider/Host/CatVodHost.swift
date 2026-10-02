@@ -8,9 +8,9 @@ import JavaScriptCore
 /// the selector engine and the CatVod result builders — lives in `Resources/Spiders/host.js`.
 enum CatVodHost {
     static func install(into context: JSContext, storage: SpiderStorage,
-                        cookies: CookieJar, session: URLSession) {
+                        cookies: CookieJar, trail: NetworkTrail = NetworkTrail(), session: URLSession) {
         installConsole(context)
-        HTTPHost.install(into: context, cookies: cookies, session: session)
+        HTTPHost.install(into: context, cookies: cookies, trail: trail, session: session)
         CryptoHost.install(into: context)
         StorageHost.install(into: context, storage: storage)
         installUtil(context)

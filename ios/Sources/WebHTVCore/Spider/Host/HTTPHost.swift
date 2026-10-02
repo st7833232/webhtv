@@ -7,16 +7,17 @@ import JavaScriptCore
 /// decompiled original and stays auditable against it. Safe because `JavaScriptSpiderRuntime` gives
 /// each session its own serial `DispatchQueue` rather than a Swift-concurrency cooperative thread.
 enum HTTPHost {
-    static func install(into context: JSContext, cookies: CookieJar, session: URLSession) {
+    static func install(into context: JSContext, cookies: CookieJar, trail: NetworkTrail, session: URLSession) {
         let request: @convention(block) (String, [String: Any]?) -> [String: Any] = { url, options in
-            perform(url: url, options: options ?? [:], cookies: cookies, session: session)
+            perform(url: url, options: options ?? [:], cookies: cookies, trail: trail, session: session)
         }
         let host = JSValue(newObjectIn: context)
         host?.setObject(request, forKeyedSubscript: "request" as NSString)
         context.setObject(host, forKeyedSubscript: "__http" as NSString)
     }
 
-    static func perform(url: String, options: [String: Any], cookies: CookieJar, session: URLSession) -> [String: Any] {
+    static func perform(url: String, options: [String: Any], cookies: CookieJar, trail: NetworkTrail,
+                        session: URLSession) -> [String: Any] {
         guard let target = URL(string: url) else {
             return ["status": 0, "body": "", "headers": [:], "cookies": "", "url": url, "error": "invalid url"]
         }
@@ -45,11 +46,12 @@ enum HTTPHost {
 
         let semaphore = DispatchSemaphore(value: 0)
         var result: [String: Any] = ["status": 0, "body": "", "headers": [String: String](), "cookies": "", "url": url]
+        var failure: SiteFailure?
         let delegate = followRedirects ? nil : NoRedirect()
         let client = delegate.map { URLSession(configuration: session.configuration, delegate: $0, delegateQueue: nil) } ?? session
         let task = client.dataTask(with: request) { data, response, error in
             defer { semaphore.signal() }
-            if let error { result["error"] = error.localizedDescription; return }
+            if let error { result["error"] = error.localizedDescription; failure = SiteFailure(error: error); return }
             let http = response as? HTTPURLResponse
             var headers = [String: String]()
             for (key, value) in http?.allHeaderFields ?? [:] {
@@ -60,13 +62,17 @@ enum HTTPHost {
             result["headers"] = headers
             result["cookies"] = cookies.header(for: target)
             result["url"] = (http?.url ?? target).absoluteString
-            result["body"] = String(decoding: data ?? Data(), as: UTF8.self)
+            let body = String(decoding: data ?? Data(), as: UTF8.self)
+            result["body"] = body
+            failure = SiteFailure(status: http?.statusCode ?? 0, headers: headers, body: body)
         }
         task.resume()
-        if semaphore.wait(timeout: .now() + request.timeoutInterval + 5) == .timedOut {
+        let timedOut = semaphore.wait(timeout: .now() + request.timeoutInterval + 5) == .timedOut
+        if timedOut {
             task.cancel()
             result["error"] = "timeout"
         }
+        trail.record(timedOut ? .timedOut : failure, host: target.host ?? url)
         return result
     }
 
@@ -78,6 +84,20 @@ enum HTTPHost {
                         completionHandler: @escaping (URLRequest?) -> Void) {
             completionHandler(nil)
         }
+    }
+}
+
+/// IOS-POC-41A: the first failed request of the spider call in progress, so an empty answer can say
+/// why. Confined to the runtime's serial queue: `JavaScriptSpiderRuntime` resets and reads it around
+/// each call, and `perform` writes it from inside that call, on the same queue.
+final class NetworkTrail: @unchecked Sendable {
+    private(set) var first: SiteUnreachable?
+
+    func reset() { first = nil }
+
+    func record(_ failure: SiteFailure?, host: String) {
+        guard first == nil, let failure else { return }
+        first = SiteUnreachable(failure, host: host)
     }
 }
 

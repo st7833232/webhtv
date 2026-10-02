@@ -274,7 +274,9 @@ private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScri
     module.exports = {
       init: function () { return ''; },
       homeContent: function () { throw new Error('site is down'); },
-      categoryContent: function () {
+      // Not categoryContent: an empty listing behind a failed request is a SiteUnreachable there
+      // (IOS-POC-41A), and this checks the raw answer the host gives the spider.
+      searchContent: function () {
         // 1 ms budget against a black-hole address: the host must give up, not hang.
         var res = host.get('http://10.255.255.1/never', { timeout: 1 });
         return { status: res.status, error: res.error || '' };
@@ -283,7 +285,7 @@ private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScri
     """)
     await #expect(throws: SpiderError.self) { _ = try await spider.homeContent(filter: true) }
 
-    let out = try await spider.categoryContent(tid: "1", page: "1", filter: false, extend: [:])
+    let out = try await spider.searchContent(key: "x", quick: false, page: "1")
     let decoded = try #require(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
     #expect(decoded["status"] as? Double == 0)
     #expect((decoded["error"] as? String)?.isEmpty == false)

@@ -916,6 +916,9 @@ private struct CMSView: View {
                 response = try await client.home()
             }
             items = titles ?? response.list
+            // IOS-POC-41A: a spider home whose first category could not be fetched keeps its
+            // categories and says why under them, instead of 「沒有內容」.
+            if items.isEmpty, let failure = response.failure { error = failure.localizedDescription }
             // A category listing usually omits `class`, so keep the set the home call established.
             if !response.classes.isEmpty { groups = response.categoryGroups }
             // Same for the filter rows: only the home call carries them.

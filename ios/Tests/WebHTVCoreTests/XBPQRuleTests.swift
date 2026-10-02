@@ -7,6 +7,8 @@ import Testing
 // canned pages. Every test owns its own `.invalid` host, so they can run side by side.
 
 /// Answers from `pages` by exact URL (404 otherwise) and remembers every URL it was asked for.
+/// A test that only checks the address asked for calls `categoryContent` with `try?`: an unserved
+/// page's 404 behind an empty listing is a `SiteUnreachable` since IOS-POC-41A.
 private final class RuleSite: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var pages: [String: String] = [:]
@@ -77,14 +79,14 @@ private func classes(_ runtime: JavaScriptSpiderRuntime) async throws -> [String
     #expect(try await classes(spider) == ["国产=1", "日韩=2"])
 
     // `;;z` is the original's flag string, not part of the address: 45 sites carry one.
-    _ = try await spider.categoryContent(tid: "2", page: "1", filter: false, extend: [:])
+    _ = try? await spider.categoryContent(tid: "2", page: "1", filter: false, extend: [:])
     #expect(RuleSite.requests(on: "s1.invalid").last == "https://s1.invalid/t/2-1/")
     await spider.destroy()
 }
 
 @Test func takesAnExtURLWithACategoryPlaceholderAsTheCategoryURL() async throws {
     let spider = try await xbpq("https://s2.invalid/list/{cateId}/{catePg}.html")
-    _ = try await spider.categoryContent(tid: "7", page: "3", filter: false, extend: [:])
+    _ = try? await spider.categoryContent(tid: "7", page: "3", filter: false, extend: [:])
     // Nothing was downloaded as a rule file: the URL *is* the rule.
     #expect(RuleSite.requests(on: "s2.invalid") == ["https://s2.invalid/list/7/3.html"])
     await spider.destroy()
@@ -99,7 +101,7 @@ private func classes(_ runtime: JavaScriptSpiderRuntime) async throws -> [String
 /// `空` means "not configured", so the alias after it is used.
 @Test func treatsTheWordEmptyAsUnset() async throws {
     let spider = try await xbpq(#"{"分类url":"空","分类链接":"https://s4.invalid/c/{cateId}_{catePg}.html","分类":"一$1"}"#)
-    _ = try await spider.categoryContent(tid: "1", page: "1", filter: false, extend: [:])
+    _ = try? await spider.categoryContent(tid: "1", page: "1", filter: false, extend: [:])
     #expect(RuleSite.requests(on: "s4.invalid") == ["https://s4.invalid/c/1_1.html"])
     await spider.destroy()
 }
@@ -107,20 +109,20 @@ private func classes(_ runtime: JavaScriptSpiderRuntime) async throws -> [String
 @Test func buildsCategoryURLsTheWayTheOriginalDoes() async throws {
     // An unfilled placeholder goes, and so does the `/名/` segment named after it.
     let filters = try await xbpq(#"{"分类url":"https://s5.invalid/vod/show/area/{area}/by/{by}/id/{cateId}/page/{catePg}/year/{year}.html","分类":"一$1"}"#)
-    _ = try await filters.categoryContent(tid: "5", page: "1", filter: false, extend: [:])
+    _ = try? await filters.categoryContent(tid: "5", page: "1", filter: false, extend: [:])
     #expect(RuleSite.requests(on: "s5.invalid") == ["https://s5.invalid/vod/show/id/5/page/1.html"])
     await filters.destroy()
 
     // The first page may have an address of its own, in brackets.
     let firstPage = try await xbpq(#"{"分类url":"https://s6.invalid/t/{cateId}_{catePg}.html[firstPage=https://s6.invalid/t/{cateId}.html]","分类":"一$1"}"#)
-    _ = try await firstPage.categoryContent(tid: "9", page: "1", filter: false, extend: [:])
-    _ = try await firstPage.categoryContent(tid: "9", page: "2", filter: false, extend: [:])
+    _ = try? await firstPage.categoryContent(tid: "9", page: "1", filter: false, extend: [:])
+    _ = try? await firstPage.categoryContent(tid: "9", page: "2", filter: false, extend: [:])
     #expect(RuleSite.requests(on: "s6.invalid") == ["https://s6.invalid/t/9.html", "https://s6.invalid/t/9_2.html"])
     await firstPage.destroy()
 
     // Pages count from `起始页`, and a relative template joins the site.
     let offset = try await xbpq(#"{"主页url":"https://s7.invalid/","分类url":"/list/{cateId}/{catePg}","起始页":"2","分类":"一$1"}"#)
-    _ = try await offset.categoryContent(tid: "3", page: "1", filter: false, extend: [:])
+    _ = try? await offset.categoryContent(tid: "3", page: "1", filter: false, extend: [:])
     #expect(RuleSite.requests(on: "s7.invalid") == ["https://s7.invalid/list/3/2"])
     await offset.destroy()
 }

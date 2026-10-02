@@ -7,6 +7,9 @@ public struct CMSResponse: Decodable, Sendable {
     /// every MacCMS source: the protocol has no filter call, so only spiders whose API exposes one
     /// (`AppGet`'s `filter_type_list`) ever fill this.
     public let filters: [String: [CMSFilter]]
+    /// IOS-POC-41A: why `list` is empty when a spider home fell back to a category that could not
+    /// be fetched. Never decoded; `SourceClient.home` sets it so the categories stay on screen.
+    public var failure: SiteUnreachable?
 
     enum CodingKeys: String, CodingKey {
         case classes = "class"

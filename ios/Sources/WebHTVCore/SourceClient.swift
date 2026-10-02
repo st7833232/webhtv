@@ -28,16 +28,23 @@ public enum SourceClient: Sendable {
     public func home(page: Int = 1) async throws -> CMSResponse {
         switch self {
         case .cms(let client):
-            return try await client.home(page: page)
+            return try await explained { try await client.home(page: page) }
         case .spider(let session):
             let home = try await decode(CMSResponse.self, from: session.home())
             // XBPQ always returns an empty home list and XYQHiker only fills one when its rule file
             // sets 首页推荐链接, so a spider home would otherwise render an empty grid. This is the
             // same fallback a type-4 home already uses: list the first browsable category.
             guard home.list.isEmpty, let first = home.firstListableCategory else { return home }
-            let listing = try await category(id: first.id, page: page)
             // Keep the home response's filters: the fallback only borrows the category's titles.
-            return CMSResponse(classes: home.classes, list: listing.list, filters: home.filters)
+            do {
+                let listing = try await category(id: first.id, page: page)
+                return CMSResponse(classes: home.classes, list: listing.list, filters: home.filters)
+            } catch let failure as SiteUnreachable {
+                // IOS-POC-41A: the categories stay, so another one can still be tried.
+                var response = CMSResponse(classes: home.classes, list: [], filters: home.filters)
+                response.failure = failure
+                return response
+            }
         }
     }
 
@@ -47,10 +54,20 @@ public enum SourceClient: Sendable {
                          extend: [String: String] = [:]) async throws -> CMSResponse {
         switch self {
         case .cms(let client):
-            return try await client.category(id: id, page: page)
+            return try await explained { try await client.category(id: id, page: page) }
         case .spider(let session):
             return try await decode(CMSResponse.self,
                                     from: session.category(tid: id, page: String(page), extend: extend))
+        }
+    }
+
+    /// IOS-POC-41A: a CMS listing's transport failure in the words a spider's empty listing uses.
+    private func explained(_ listing: () async throws -> CMSResponse) async throws -> CMSResponse {
+        do {
+            return try await listing()
+        } catch let error as URLError {
+            guard let failure = SiteFailure(error: error) else { throw error }
+            throw SiteUnreachable(failure, host: error.failingURL?.host ?? "")
         }
     }
 

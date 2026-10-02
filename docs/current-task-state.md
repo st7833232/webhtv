@@ -16,7 +16,9 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **IOS-POC-41 Source Health / Diagnostics（2026-10-02，assessment 完成，只改文件）**：`docs/IOS-POC-41-source-health-diagnostics.md`。發現本 repo 的 Android 端已有被動的 `SiteHealthStore`（`474cc04f`，上游 FongMi 沒有：記錄搜尋／詳情／播放、綠黃紅點、排序預設開），但不記首頁／分類、spider 回空列表算成功，所以死站多半只是黃點；iOS 的 spider 網路失敗在 `HTTPHost.perform` 之後被 `XBPQ.js` 的 `fetch` 轉成空字串，首頁一律顯示「沒有內容」。建議 C：41A 失敗原因（`URLError`、HTTP 狀態、`cf-mitigated`）→ 41B 對齊 Android 的被動健康記錄並補首頁／分類 → 41C 使用者觸發的全站檢查與報告；不做背景檢查、伺服器端檢查、自動刪站。
 
-**Next Recommended Step**：等使用者回覆 IOS-POC-41 第 9 節 6 個決定並核准第一段（建議 41A）；核准前不改程式。
+**IOS-POC-41A（2026-10-02，已 commit／push，未發布）**：使用者「照建議，開始 41A」。spider 與 CMS 站的首頁或分類因網站問題回空時，首頁說明原因（找不到網域、逾時、連不上、TLS、Cloudflare 驗證、HTTP 錯誤、疑似 JavaScript 驗證頁），取代「沒有內容」；正常回應但 0 部仍是「沒有內容」。`swift test` 635／635、模擬器 Debug、generic iOS Release、模擬器實看 4 站；真機未驗證。見 IOS-POC-41 第 11 節。
+
+**Next Recommended Step**：等使用者確認 41A，之後做 41B（被動健康記錄，對齊 Android `SiteHealthStore`，第 6 節）。發版仍需使用者授權。
 
 
 ## Current handoff — 2026-10-01（前一次交接）

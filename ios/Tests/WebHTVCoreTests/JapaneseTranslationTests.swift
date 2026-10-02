@@ -23,7 +23,7 @@ private let japaneseSynopsis = "東京の高校生探偵・工藤新一は、幼
 
 @Test func aJapaneseNameInBracketsDoesNotMakeAChineseTitleJapanese() {
     // Without the brackets' content the kana would outnumber the Han four to three.
-    #expect(TaiwanTraditional.isJapanese("海贼王（ワンピース）"))
+    #expect(JapaneseTranslation.isJapanese("海贼王（ワンピース）"))
     #expect(JapaneseTranslation.texts(title: "海贼王（ワンピース）", synopsis: "").title == nil)
     #expect(JapaneseTranslation.texts(title: "【独占】ソードアート・オンライン", synopsis: "").title
         == "【独占】ソードアート・オンライン")

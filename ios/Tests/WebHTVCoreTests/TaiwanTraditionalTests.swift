@@ -94,17 +94,17 @@ private func converter() throws -> TaiwanTraditional { try bundled.get() }
     let zh = try converter()
     // 学 and 国 are Simplified-only in Chinese, and Japanese writes them the same way.
     for text in ["東京の大学に通う主人公は、ある日突然", "君の名は", "新人デビュー 国民的アイドル"] {
-        #expect(TaiwanTraditional.isJapanese(text), "\(text)")
+        #expect(JapaneseTranslation.isJapanese(text), "\(text)")
         #expect(zh.convert(text) == text, "\(text)")
     }
     // A Chinese synopsis quoting a Japanese title: only the Chinese changes.
     #expect(zh.convert("改编自漫画《ワンピース》，讲述了路飞的冒险") == "改編自漫畫《ワンピース》，講述了路飛的冒險")
     #expect(zh.convert("进击の巨人") == "進擊の巨人")
     // The middle dot of a foreign name is not kana.
-    #expect(!TaiwanTraditional.isJapanese("汤姆・克鲁斯"))
+    #expect(!JapaneseTranslation.isJapanese("汤姆・克鲁斯"))
     #expect(zh.convert("汤姆・克鲁斯") == "湯姆・克魯斯")
     // Accepted limitation: a short Chinese title that is mostly kana reads as Japanese and is shown as sent.
-    #expect(TaiwanTraditional.isJapanese("海贼王（ワンピース）"))
+    #expect(JapaneseTranslation.isJapanese("海贼王（ワンピース）"))
     #expect(zh.convert("海贼王（ワンピース）") == "海贼王（ワンピース）")
 }
 

@@ -26,7 +26,7 @@ import os
 ///   Simplified input and changes Traditional text (干擾 → 幹擾, 里長 → 裡長), and many sources
 ///   already send Traditional. Converted text never holds such a character, so a string is never
 ///   converted twice (OpenCC alone turns 朴樹 into 樸樹 on a second pass).
-/// - Japanese text is left alone (`isJapanese`): its kanji are not Simplified Chinese.
+/// - Japanese text is left alone (`JapaneseTranslation.isJapanese`): its kanji are not Simplified Chinese.
 /// - 臺 is written 台 (the user's choice): `s2tw` writes 臺北, 臺劇, 平臺.
 /// - `.names`, for director and cast, keeps the surnames 于 朴 范 姜 余 沈 and writes 钟 as 鍾;
 ///   `s2tw` reads them as ordinary words (于和伟 → 於和偉, 范伟 → 範偉, 余华 → 餘華).
@@ -120,29 +120,8 @@ public struct TaiwanTraditional: Sendable {
         }
     }
 
-    /// Mostly kana, by the ratio of kana to Han characters rather than by any kana at all: a Chinese
-    /// synopsis may quote a Japanese title. The katakana middle dot and the prolonged sound mark
-    /// (・ ー ･ ゠) are not counted, because Chinese writes foreign names with them (湯姆・克魯斯).
-    /// Shared with IOS-POC-32 D, which translates what this calls Japanese.
-    public static func isJapanese(_ text: String) -> Bool {
-        var kana = 0
-        var han = 0
-        for scalar in text.unicodeScalars {
-            switch scalar.value {
-            case 0x3041...0x3096, 0x309D...0x309F, 0x30A1...0x30FA, 0x30FD...0x30FF, 0x31F0...0x31FF,
-                 0xFF66...0xFF6F, 0xFF71...0xFF9D:
-                kana += 1
-            case 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF, 0x20000...0x3134F:
-                han += 1
-            default:
-                break
-            }
-        }
-        return kana >= 2 && kana * 4 >= kana + han
-    }
-
     private func needsConversion(_ text: String) -> Bool {
-        text.unicodeScalars.contains { simplifiedOnly.contains($0) } && !Self.isJapanese(text)
+        text.unicodeScalars.contains { simplifiedOnly.contains($0) } && !JapaneseTranslation.isJapanese(text)
     }
 
     /// One name of a director or cast field.

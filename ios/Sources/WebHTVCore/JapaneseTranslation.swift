@@ -39,8 +39,30 @@ public enum JapaneseTranslation {
     public static func texts(title: String, synopsis: String) -> Texts {
         let bare = title.replacingOccurrences(of: #"[\[【(（][^\]】)）]*[\]】)）]"#, with: "",
                                               options: .regularExpression)
-        return Texts(title: TaiwanTraditional.isJapanese(bare) ? title : nil,
-                     synopsis: TaiwanTraditional.isJapanese(synopsis) ? synopsis : nil)
+        return Texts(title: isJapanese(bare) ? title : nil,
+                     synopsis: isJapanese(synopsis) ? synopsis : nil)
+    }
+
+    /// Mostly kana, by the ratio of kana to Han characters rather than by any kana at all: a Chinese
+    /// synopsis may quote a Japanese title. The katakana middle dot and the prolonged sound mark
+    /// (・ ー ･ ゠) are not counted, because Chinese writes foreign names with them (湯姆・克魯斯).
+    /// The Taiwan display conversion leaves what this calls Japanese alone; it lives here because
+    /// nothing else in Core may name that conversion (the display-only rule, IOS-POC-32).
+    public static func isJapanese(_ text: String) -> Bool {
+        var kana = 0
+        var han = 0
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x3041...0x3096, 0x309D...0x309F, 0x30A1...0x30FA, 0x30FD...0x30FF, 0x31F0...0x31FF,
+                 0xFF66...0xFF6F, 0xFF71...0xFF9D:
+                kana += 1
+            case 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF, 0x20000...0x3134F:
+                han += 1
+            default:
+                break
+            }
+        }
+        return kana >= 2 && kana * 4 >= kana + han
     }
 }
 

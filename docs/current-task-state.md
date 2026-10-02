@@ -65,7 +65,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **真機待驗**：在最新版（`0.1.47 (48)`，`0.1.43 (44)` 起都含 D11、D12）上跑 `docs/IOS-POC-36-playback-acceptance-stability.md` 第十六節之 8 的一次性清單（10 項：PiP 背景關閉、MPV／原生 PiP、暫停與播放中背景、中斷、MPV `hwdec-current`、旋轉／常亮／音軌字幕、AirPlay、去廣與片尾），另加第十七節之 8 的 D12 項目（HOME 進子母畫面不關畫面、最後一集在小視窗播完後小視窗消失、MPV 預設時再進一次、✕）。
 
-**Next Recommended Step**：等使用者在最新版（`0.1.47 (48)`）上跑 IOS-POC-36 第十六節之 8 的 10 項真機清單與第十七節之 8 的 D12 項目，結果逐項填回該文件第四節（到 `0.1.47 (48)` 為止都不記錄 `hwdec-current`；含 `9e5b71d8` 的下一版才有 `[playback] mpv hwdec-current=…`）。另外：合併後 `swift test` 有 1 條失敗——`TaiwanTraditionalTests.nothingElseInCoreConverts`，因為 IOS-POC-32 D 的 `JapaneseTranslation.swift`（`b6c9185e`）在 Core 裡呼叫 `TaiwanTraditional.isJapanese`；等使用者決定要搬函式還是放寬測試。ponytail audit 第 1／7、11、18、19、28 項仍等使用者決定。
+**Next Recommended Step**：等使用者在最新版（`0.1.47 (48)`）上跑 IOS-POC-36 第十六節之 8 的 10 項真機清單與第十七節之 8 的 D12 項目，結果逐項填回該文件第四節（到 `0.1.47 (48)` 為止都不記錄 `hwdec-current`；含 `9e5b71d8` 的下一版才有 `[playback] mpv hwdec-current=…`）。合併後 `swift test` 失敗的 `TaiwanTraditionalTests.nothingElseInCoreConverts` 已修（IOS-POC-32D-ISJAPANESE：`isJapanese` 搬到 `JapaneseTranslation`，628／628，未發布；IOS-POC-32 第七節之 7）。ponytail audit 第 1／7、11、18、19、28 項仍等使用者決定。
 
 ## Current handoff — 2026-09-30（前一次交接）
 

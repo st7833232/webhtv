@@ -443,6 +443,12 @@
 - 修正：改為 `VStack(alignment: .leading, spacing: 4)`，沒有內容時放一個 0×0 的 `Color.clear`，讓兩個 modifier 永遠附在同一個存在的 view 上。
 - 驗證：隨 `0.1.47 (48)` 發布（IOS-POC-11 第四十八次發布），Release build 第一次即編譯成功。真機：使用者 2026-10-02 在 iPhone 18 Pro 上回報「可以了」（未逐項回報第七節之 3 的各項）。
 
+### 7. 追加修正 IOS-POC-32D-ISJAPANESE（2026-10-02）
+
+- 問題：D 的 `JapaneseTranslation.swift` 在 Core 裡呼叫 `TaiwanTraditional.isJapanese`，違反 C 的守護測試 `TaiwanTraditionalTests.nothingElseInCoreConverts`（Core 裡除了 `TaiwanTraditional.swift` 不得提到轉換器，以確保搜尋、觀看記錄、識別值與 WebHome 不會存或送出轉換後的文字）。D 的 commit 都沒有跑單元測試，所以在 `ios-poc` 合併後才由 `swift test` 發現（627／628）。
+- 修正（使用者選擇「(a) 搬函式」）：`isJapanese` 整段原樣搬到 `JapaneseTranslation`，`TaiwanTraditional` 的「日文不轉」改呼叫 `JapaneseTranslation.isJapanese`；行為與判斷規則不變，測試只改呼叫名稱。守護測試不放寬。
+- 驗證：`TaiwanTraditionalTests`、`JapaneseTranslationTests` 14／14；`swift test --package-path ios` 628／628；模擬器 Debug、generic iOS 不簽章 Release build 通過；ponytail-review：Lean already。未發布。
+
 ## 八、階段順序與回滾
 
 1. 順序固定：A → B → C → D，每個階段各自一個 task guard session 與 commit，可各自發布。

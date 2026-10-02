@@ -459,6 +459,7 @@ sweep（16:17～16:20，熱點 `172.20.10.1`，最終版程式；`swift test` 60
 
 - 113 個 XBPQ 項目中 90 個網站不通（DNS 失敗 34、JS 跳轉 32、TLS／逾時／拒絕 12、Cloudflare 3、520 2、停放／導流／JS 載入／Security Check 7），13 個卡在瀏覽鏈。使用者在 App 裡只看到「沒有內容」或搜不到，分不出是網站死了還是程式問題。
 - 建議下一個任務改做 Source Health / Diagnostics：依上面的原因分類，讓使用者看得到每個站為什麼不能用。範圍（只有 XBPQ 還是全部來源）、呈現方式（來源清單標示或可匯出的報告）、要不要定期檢查，都要另開任務編號、先做 assessment 再決定；這一輪不實作。
+- 2026-10-02 已開 IOS-POC-41 做 assessment：`docs/IOS-POC-41-source-health-diagnostics.md`。
 
 ### 7.10 未驗證與限制
 

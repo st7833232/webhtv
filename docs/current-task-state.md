@@ -14,7 +14,9 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **IOS-POC-39 S5 搜尋缺口 survey（2026-10-02，已完成，assessment、只改文件）**：`docs/IOS-POC-39-xbpq-rule-coverage.md` 第七節。用 gitlab `recha` 當天的 `wang-sex.json`／`wang-movie.json`（113 個 XBPQ 項目）與 `xyqxbpq.jar`（SHA-256 `7b732f22…`），App 路徑探測（暫時測試，已刪、未 commit）加 curl 實測：**A 0**、B 13、C 90、D 6、E 4。`搜索模式` 28 站、值全部是 `1`，讀完原版 `searchContent`／`Z()` 後確認 `1` 只在有 `搜索后缀` 或 `/ajax/` 網址時才和預設不同（28 站中只有色花堂，而它是 C）；`搜索模式0` 是原版重試用的內部旗標，0 站使用。**S5-3 預估救回 0 站、建議不做**；連同原版整條 fallback（suggest JSON、`rss.xml`、首頁／分類篩片名）一起移植也是 0 站，第 4 項同樣不做。`XBPQ.js` 沒有改。設定檔可修的兩站（亚瑟影库、魔法少女4 的 `搜索url`）在第 7.8 節，屬使用者 GitLab。
 
-**Next Recommended Step**：等使用者決定是否另開 **Source Health / Diagnostics** 任務（IOS-POC-39 第 7.9 節：90／113 個 XBPQ 項目是網站本身不通，App 目前分不出網站死了還是程式問題）；要開就先做 assessment（範圍、呈現方式、是否定期檢查）再實作。沒有核准前不改 `XBPQ.js`。
+**IOS-POC-41 Source Health / Diagnostics（2026-10-02，assessment 完成，只改文件）**：`docs/IOS-POC-41-source-health-diagnostics.md`。發現本 repo 的 Android 端已有被動的 `SiteHealthStore`（`474cc04f`，上游 FongMi 沒有：記錄搜尋／詳情／播放、綠黃紅點、排序預設開），但不記首頁／分類、spider 回空列表算成功，所以死站多半只是黃點；iOS 的 spider 網路失敗在 `HTTPHost.perform` 之後被 `XBPQ.js` 的 `fetch` 轉成空字串，首頁一律顯示「沒有內容」。建議 C：41A 失敗原因（`URLError`、HTTP 狀態、`cf-mitigated`）→ 41B 對齊 Android 的被動健康記錄並補首頁／分類 → 41C 使用者觸發的全站檢查與報告；不做背景檢查、伺服器端檢查、自動刪站。
+
+**Next Recommended Step**：等使用者回覆 IOS-POC-41 第 9 節 6 個決定並核准第一段（建議 41A）；核准前不改程式。
 
 
 ## Current handoff — 2026-10-01（前一次交接）
@@ -1394,6 +1396,6 @@ Paste this into a new session:
 >
 > 目前狀態：**IOS-POC-36 已結案**（2026-10-02，以 `0.1.43 (44)` 為完成版本；真機 PiP／background 驗收不再是阻塞條件，日後有做只算額外 evidence，不再擴張 36，見 `docs/IOS-POC-36-playback-acceptance-stability.md` 第十八節）。最新發布是 `0.1.47 (48)`（tag `ios-v0.1.47-b48` → `6fcc8555`）；之後未發布的有 `c1a4743c`、`9e5b71d8`、`4ac71c27`。各版內容與真機結果見 Current handoff 的表格與 `docs/IOS-POC-11-sidestore-release.md`。ponytail audit 剩下的只有等我決定（第 1／7、11、18、19、28 項）、要升 ABI（第 4、6、26 項）、要跑 CI（第 3、22、29、30 項）的（`docs/PONYTAIL-AUDIT-2026-10-01.md`），沒有我的指示不要做。
 >
-> 下一步：IOS-POC-39 S5 搜尋缺口 survey 的結論與建議在 `docs/IOS-POC-39-xbpq-rule-coverage.md`（Recovery anchor 與 S5 survey 一節）；照該文件的「唯一下一步」執行。沒有我的核准不改 `XBPQ.js`。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13。
+> 下一步：IOS-POC-39 S5 survey 已完成（S5-3 不做）；IOS-POC-41 Source Health / Diagnostics 的 assessment 在 `docs/IOS-POC-41-source-health-diagnostics.md`，等我回覆第 9 節的決定並核准第一段（建議 41A）才實作，照該文件第 10 節的「唯一下一步」。沒有我的核准不改 `XBPQ.js`。沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13。
 >
 > 規則：Ponytail 只要環境有就一定要執行——每個程式修改在回報完成前，對最終 diff 跑 `ponytail:ponytail-review`，結果記進任務文件；只有環境沒有時才略過，不得因此阻擋功能修改、驗證、commit、build 或後續工作，也不得假稱已執行，或把可用的記成略過。功能修改仍須 `bash .codex/scripts/task_guard.sh start`，結束用 `finish --no-tag`。push 到 `ios-poc` 已授權，**push 前先 `git pull --no-rebase` merge**（同一個工作目錄可能有另一個 session 也在 commit）；bump 版本、tag、package、publish 或發 SideStore release 前要先問我。不要直接安裝到我的 iPhone（我用 SideStore）。真機沒測到的一律寫「未驗證」。雲端工作階段沒有 Swift／Xcode，編譯靠發版 workflow，單元測試照常撰寫但不執行（我選的「只靠編譯與真機」）。只 push 到 `ios-poc`，不建立新的遠端分支，也不 merge 到 `main`。

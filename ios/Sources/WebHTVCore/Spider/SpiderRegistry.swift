@@ -58,6 +58,9 @@ public struct SpiderRegistry: Sendable {
         // Rule engines: one port serves every site configured for them, now and later.
         "XBPQ",       // http-crypto: xyqxbpq.jar, xiaosa-0807.jar
         "XYQHiker",   // http-json: xyqxbpq.jar, river-fman.jar
+        // IOS-POC-44A: short-drama app APIs, both live when ported (docs/IOS-POC-44-csp-portable-sites.md).
+        "WeiguanDJ",  // http-crypto: xiaosa-0807.jar (only an md5 client id; no cipher)
+        "HemaDJ",     // http-json: xiaosa-0807.jar (AES-CBC envelope)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

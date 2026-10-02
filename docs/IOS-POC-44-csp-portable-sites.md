@@ -5,7 +5,8 @@
 - 目標：使用者 2026-10-02「開始 IOS-POC-44 assessment」。對象是 `docs/current-task-state.md`「Current handoff — 2026-10-02 下午」列的 23 站（19 個類別）：可以移植、iOS 還沒有 port 的 `csp_*` 站。
 - 範圍：只做 assessment，**不改程式**。task guard `IOS-POC-44`（`assessment`），路徑：本文件、`docs/current-task-state.md`、`docs/CSP_PORTABILITY_MATRIX.md`。探測腳本與回應都在 session scratchpad，不 commit。
 - 結論：23 站裡 **18 站後端今天活著、5 站死了**。活著的 18 站裡 13 站只要寫 JS，不必改 Swift；3 站（AppDrama×2、Uvod）要先在 host 補 RSA 和二進位 HTTP；Douban×2 要另做 App 功能。建議與分段見第 7 節，待決定事項見第 9 節。
-- 唯一下一步：等使用者核准第 7 節的第一段（44A）；沒有核准不改程式。
+- 44A（`WeiguanDJ`＋`HemaDJ`）已完成，見第 11 節。
+- 唯一下一步：等使用者決定下一段（第 7 節，建議 44B：`QimaoDJ`＋`HaokanDJ`）；沒有核准不改程式。
 
 ## 1. 問題與範圍
 
@@ -130,3 +131,46 @@
 ## 10. 狀態
 
 - 2026-10-02：assessment 完成，未改程式。等使用者核准。
+- 2026-10-02 17:05：使用者「開始 44A」。實作見第 11 節。
+
+## 11. 44A 實作紀錄（2026-10-02，Task-Guard `IOS-POC-44A`，`standard`）
+
+- 改動：
+  - 新增 `ios/Sources/WebHTVCore/Resources/Spiders/WeiguanDJ.js`、`HemaDJ.js`，在 `SpiderRegistry.ported` 加兩行。不碰 Swift host，資源靠 `Package.swift` 的 `.copy("Resources/Spiders")` 自動帶進 App，Xcode 專案不用改。
+  - 測試：
+    - 新增 `ShortDramaSpiderTests.swift`，兩個離線測試。stub 只掛在測試自建的 `URLSession` 上，回覆兩個寫死的主機。
+    - `SpiderGoldenTests.registryClaimsOnlyWhatIsActuallyPorted` 的清單加上兩類。
+    - `SourceClientTests` 的 spider 站數由 32 改成 34。
+    - 相容包 golden 的播放網址改用既有的 `playURL()` 讀。原本只收字串，围观回的是畫質陣列（`PlayURL` 本來就支援）；這是測試預期過時，不是退步。
+- 和原版刻意不同的地方：
+  - 河马的詳情只輸出一組集數。原版把同一串寫三次，卻只有一個線路名，線路和網址的組數對不上。
+  - 回應的錯誤碼回 `{}`，不丟例外，跟 `AppGet.js` 一樣；空結果由 41A 的 `SiteUnreachable` 說明。
+  - 围观的裝置型號／品牌寫死成 `Pixel7`／`Google`，原版用 `Build.MODEL`。API 只記錄這兩個值。
+- 驗證：
+  - `swift test --package-path ios` 656／656（本機 Xcode 27.0）。
+  - 即時 golden（`CSP_GOLDEN_SITE`，2026-10-02 17:1x，家用網路）：
+    - 围观短剧：30 個分類 → 逆袭 30 筆 → 詳情 30 集 → 搜尋「我」30 筆 → `parse:0` mp4 畫質陣列。
+    - 河马短剧：8 個分類 → 159 分類 12 筆 → 詳情 71 集（線路「河马」）→ 搜尋「我」15 筆 → `parse:0` mp4。
+    - 兩站的相容包 golden 也都通過。
+  - `WANG_MOVIE_JSON`（當天設定）：`listsThePortedSpiderSitesAlongsideTheNativeCMSSites` 通過，App 列表 64 站＝30 原生＋34 spider。
+  - sweep（`sweepsEveryDrivableSource`，當天 `wang-movie.json`＋GitLab `SWEEP_BASE`）：基準是 HEAD `d790ea4a` 用 `git archive` 匯出的 scratchpad 副本，與修改後的版本背對背跑，17:12～17:16，家用網路。
+    - PLAYABLE：基準 28／67 站，修改後 29／69 站。
+    - 新的兩站都是 PLAYABLE，而且有讀到影片 bytes：
+      - 河马：8 個分類、60 集、mp4。
+      - 围观：30 個分類、30 集、mp4。
+    - 原有站逐站比對，唯一差異是 Bili 的 bilbil合集 PLAYABLE → DEAD-MEDIA：兩輪抽到首頁不同的影片，這次那支的媒體讀不到可辨識的 bytes。`Bili.js` 沒改，IOS-POC-42 也記過 Bili 一樣的翻轉，判定為網站內容變動，不是 44A 造成的。
+    - 驗收（新站可播、原有站不退步）通過。
+  - 模擬器（iPhone 17 Pro Max `05934376`，iOS 26.0，Debug，Xcode 27.0）：
+    - 設定：本機 `127.0.0.1:8766/config.json`，內容是这兩站＋虎牙。`ConfigLoader.validate` 規定至少要有一個原生 CMS 站，所以帶上虎牙。
+    - 围观短剧：首頁 30 個標籤、列表與海報 → 詳情（簡介、30 集）→ 立即播放，原生播放器播出直式短劇。
+    - 河马短剧：首頁分類、「類型」篩選列、「已完結/40集」標記 → 詳情（一條「河马」線路、40 集）→ 立即播放，原生播放器播放中（00:02／02:22）。
+    - 有一次重開 App 後，围观首頁短暫顯示「沒有內容」，當時我在 App 重新載入設定的過程中點了畫面。之後照同樣情境（上次選围观、重開、不碰畫面）重現一次，正常載入，沒有再出現，原因未查。
+    - 模擬器 App 的設定快取現在是這份測試設定（伺服器已關）。
+  - **真機未驗證**。
+  - `wang-sex.json` 沒有任何站用到這兩類（`grep` 0 筆），App 列出的站不變，所以不跑 sweep。
+- Ponytail（`ponytail:ponytail-review`，對 sweep 時的 diff）：提出 3 項，都在 `HemaDJ.js`，已全部套用：
+  - `Array.isArray` 取代 `Object.prototype.toString`。
+  - 媒體網址的挑選改成一個候選陣列跑一次迴圈。
+  - `cipher` 的判斷改為一行。
+  - 測試的 stub 和 `RuleSite` 很像，但要另外記錄 POST body、header，還要能排隊回覆，所以保留。
+  - 套用後重跑：`swift test` 656／656，河马即時 golden 通過（詳情 118 集、mp4）。sweep 與模擬器量測的是套用前的版本，套用的修改不改行為。

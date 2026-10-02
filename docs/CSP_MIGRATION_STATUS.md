@@ -8,7 +8,7 @@ compatibility pack published beside the configuration replaces it at runtime, ha
 bundled copy as the fallback. What still requires an app release is a new `CatVodHost` primitive.
 See `docs/IOS-POC-5O-remote-compatibility-pack.md`.
 
-Last updated 2026-09-18. Port coverage itself is unchanged since IOS-POC-5M (`JianPian`, which
+Last updated 2026-10-02: IOS-POC-44A ported `WeiguanDJ` and `HemaDJ` (one site each). Before that, port coverage was unchanged since IOS-POC-5M (`JianPian`, which
 drives 薦片 despite its class being blocked; IOS-POC-5L added `AppQi`, `App99`, `App3Q` and `Bili`).
 What changed since: IOS-POC-5P gave every spider's play result its request headers, and IOS-POC-5Q
 made `Bili` report one line per quality — both noted in the `Bili` row below.
@@ -19,8 +19,8 @@ made `Bili` report one line per quality — both noted in the `Bili` row below.
 |---|---:|---:|---:|
 | configured `csp_*` | 58 | 51 | 90 |
 | **portable** (categories A–C) | **33** | **26** | **54** |
-|  ported | 8 | 7 | 31 |
-|  portable, not yet ported | 25 | 19 | 23 |
+|  ported | 10 | 9 | 33 |
+|  portable, not yet ported | 23 | 17 | 21 |
 | blocked by native protection (H) | 24 | 24 | 35 |
 |   of which driven anyway, through an equivalent class | 1 | 1 | 1 |
 | missing resource | 1 | 1 | 1 |
@@ -75,6 +75,8 @@ here, all six `AppQi` hosts were dead on the day, and two of the four `App99` ho
 | `App3Q` | 2 | C. HTTP + crypto | IOS-POC-5L live golden on 云朵影视: home 4 classes → category 24 → detail 八仙！ with 4 flags → search 15. Playback stops at the site's own `{"code":403,"msg":"VIP权益已过期"}`. |
 | `Bili` | 4 | B. HTTP + JSON | IOS-POC-5L live: 39 classes from the site's own JSON → search listing 20 → detail → `playurl` `parse:0` progressive MP4. **The `Referer` that MP4 needs reaches the player since IOS-POC-5P.** Since IOS-POC-5Q the detail returns **one line per accepted quality** (`B站 高清 720P` …), each episode id carrying its own `qn`, verified live by `biliOffersMultipleQualityLines`. |
 | `AppQi` | 6 | B. HTTP + crypto | **Ported, unverified.** All four hosts the six sites resolve to were dead on 2026-09-17 — two connection-refused, one 504, one DNS failure — so no request reached a live API. |
+| `WeiguanDJ` | 1 | C. HTTP + md5 client id | IOS-POC-44A live golden on 围观短剧: 30 tag classes → category 30 → detail with 30 episodes → search 30 → `parse:0` mp4 quality list. |
+| `HemaDJ` | 1 | A. HTTP + AES envelope | IOS-POC-44A live golden on 河马短剧: 8 channel groups → category 12 → detail with 71 episodes (one flag; the original repeats the list three times under it) → search 15 → `parse:0` mp4. |
 | `JianPian` | 1 | A. HTTP + JSON | IOS-POC-5M live golden on 薦片 (configured as `csp_JPianAmns`): 5 classes → 15 titles → detail with **24 lines** → search 20 → `parse:0` m3u8 whose playlist fetches as media with no Referer. |
 
 The first three were re-run live on 2026-09-17 at HEAD `226e826c` and each still ends in a `parse:0`
@@ -96,7 +98,10 @@ IOS-POC-5L; `AppDrama` is the last of the family and is blocked on RSA in the ho
 |---|---:|---|---|
 | `AppDrama` | 4 | C | App-API family; **needs RSA in the host** |
 | `Douban` | 2 | A | plain JSON |
-| remaining A/B/C | 3 | A–C | `AppYsV2`, `GuaziTY`, `Wwys`, `Jpys`, `Jys`, `Hxq`, `PianKu8`, `Feiyu`, `AppYQK`, `HemaDJ`, `WeiguanDJ`, `HaokanDJ`, `QimaoDJ`, `AppSy`, `MiaoWu`, `MoDu`, `Uvod`, 1 site each |
+| remaining A/B/C | 15 | A–C | `AppYsV2`, `GuaziTY`, `Wwys`, `Jpys`, `Jys`, `Hxq`, `PianKu8`, `Feiyu`, `AppYQK`, `HaokanDJ`, `QimaoDJ`, `AppSy`, `MiaoWu`, `MoDu`, `Uvod`, 1 site each |
+
+Which of these were alive on 2026-10-02, what each needs from the host, and the staged order they
+are being ported in: `docs/IOS-POC-44-csp-portable-sites.md`.
 
 ### The App-API family, as ported in IOS-POC-5L
 

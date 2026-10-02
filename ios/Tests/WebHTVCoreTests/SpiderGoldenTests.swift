@@ -177,7 +177,8 @@ private func playURL(_ value: Any?) -> [String] {
     let resolved = try #require(play, "no listed title produced a playable episode")
     print("[golden-pack] \(className) home=\(classes.count) list=\(list.count) " +
           "play=\(String(describing: resolved["url"]).prefix(90))")
-    #expect((resolved["url"] as? String)?.isEmpty == false)
+    // A quality list is a valid answer too (`PlayURL`), so read the address the same way as above.
+    #expect(playURL(resolved["url"]).first?.isEmpty == false)
     let search = try await object(session.search(key: "我"))
     #expect(search["list"] is [[String: Any]])
 
@@ -191,7 +192,8 @@ private func playURL(_ value: Any?) -> [String] {
     let registry = SpiderRegistry.bundled()
     // IOS-POC-5L: every script the registry names must have actually loaded from the bundle.
     #expect(registry.entries.keys.sorted() ==
-            ["App3Q", "App99", "AppGet", "AppQi", "Bili", "JPianAmns", "JianPian", "XBPQ", "XYQHiker"])
+            ["App3Q", "App99", "AppGet", "AppQi", "Bili", "HemaDJ", "JPianAmns", "JianPian", "WeiguanDJ", "XBPQ",
+             "XYQHiker"])
     #expect(!registry.prelude.isEmpty)
     #expect(registry.canDrive("csp_XBPQ"))
     // IOS-POC-5M: the alias must load JianPian's script, not an empty entry for a name with no file.

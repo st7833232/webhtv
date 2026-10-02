@@ -144,3 +144,51 @@ public struct PlaybackMediaSelection: Sendable, Equatable {
         self.audio = audio
     }
 }
+
+// MARK: - IOS-POC-45: online subtitles
+
+/// A subtitle file this playback session downloaded, as both engines are handed it: a local file
+/// for mpv's `sub-add`, and its cues for the overlay AVPlayer needs. Its id is opaque like every
+/// other option id, and the same under either engine, so a selection survives an engine switch.
+public struct PlaybackExternalSubtitle: Sendable, Equatable, Identifiable {
+    public static let idPrefix = "online-subtitle-"
+
+    public let id: String
+    public let title: String
+    public let language: String?
+    public let fileURL: URL
+    public let cues: SubtitleCues
+
+    public init(id: String, title: String, language: String?, fileURL: URL, cues: SubtitleCues) {
+        self.id = id
+        self.title = title
+        self.language = language
+        self.fileURL = fileURL
+        self.cues = cues
+    }
+
+    public static func isExternalID(_ id: String?) -> Bool { id?.hasPrefix(idPrefix) == true }
+
+    public var option: PlaybackMediaOption {
+        PlaybackMediaOption(id: id, title: title, language: language, fallbackName: title)
+    }
+}
+
+public extension PlaybackMediaTrack {
+    /// An engine's embedded subtitles with the session's online ones after them, for the one
+    /// subtitle list the panel shows. With nothing embedded the list still gets its 「關閉」, so the
+    /// viewer can turn an online subtitle off again. The online selection, when there is one, is
+    /// the selection: the engine has already turned its embedded track off for it.
+    static func subtitles(embedded: PlaybackMediaTrack?, external: [PlaybackExternalSubtitle],
+                          selectedExternalID: String?) -> PlaybackMediaTrack? {
+        guard !external.isEmpty else { return embedded }
+        var options = embedded?.options
+            ?? [PlaybackMediaOption(id: PlaybackMediaOption.subtitleOffID, title: "關閉", isOff: true, fallbackName: "關閉")]
+        for subtitle in external where !options.contains(where: { $0.id == subtitle.id }) {
+            options.append(subtitle.option)
+        }
+        let selected = external.contains(where: { $0.id == selectedExternalID }) ? selectedExternalID
+            : embedded?.selectedID ?? PlaybackMediaOption.subtitleOffID
+        return PlaybackMediaTrack(options: options, selectedID: selected)
+    }
+}

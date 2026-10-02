@@ -156,6 +156,11 @@ final class MPVEngine: PlaybackEngine {
         await core.selectMedia(kind, id: id)
     }
 
+    /// IOS-POC-45: mpv draws a downloaded subtitle itself, libass included (`sub-add`).
+    func setExternalSubtitles(_ subtitles: [PlaybackExternalSubtitle], selectedID: String?) {
+        core.setExternalSubtitles(subtitles, selectedID: selectedID)
+    }
+
     func teardown() {
         setPlaybackIntent(false)
         pictureInPicture?.invalidate()
@@ -422,6 +427,13 @@ final class MPVPlayerCore: @unchecked Sendable {
     private var state = Snapshot()
     /// The software output while Picture in Picture has the video (17H). `queue` only.
     private var software: MPVSoftwareRenderer?
+    /// IOS-POC-45: the playback session's downloaded subtitles, added to every file this core
+    /// loads — a `sub-add` belongs to the file, and `loadfile … replace` drops it — and the one to
+    /// show. `queue` only.
+    private var externals = [PlaybackExternalSubtitle]()
+    private var selectedExternal: String?
+    /// Every file this core has added, so one taken out of the list is taken off the file too.
+    private var addedExternalPaths = Set<String>()
 
     var snapshot: Snapshot {
         lock.lock(); defer { lock.unlock() }
@@ -506,6 +518,18 @@ final class MPVPlayerCore: @unchecked Sendable {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             queue.async { [self] in
                 guard let mpv else { continuation.resume(); return }
+                // IOS-POC-45: an online subtitle is shown by its track on this file, added first
+                // if this file does not have it yet; choosing anything else forgets it.
+                if kind == .subtitle {
+                    if externals.contains(where: { $0.id == id }) {
+                        selectedExternal = id
+                        if snapshot.loaded { attachExternals(mpv, select: true) }
+                        refreshMediaSelection(mpv)
+                        continuation.resume()
+                        return
+                    }
+                    selectedExternal = nil
+                }
                 let property = kind == .audio ? "aid" : "sid"
                 let prefix = "mpv-\(kind.rawValue)-"
                 let value: String
@@ -519,6 +543,21 @@ final class MPVPlayerCore: @unchecked Sendable {
                 refreshMediaSelection(mpv)
                 continuation.resume()
             }
+        }
+    }
+
+    /// IOS-POC-45. With a file loaded the change applies now; otherwise at the next file's load.
+    func setExternalSubtitles(_ subtitles: [PlaybackExternalSubtitle], selectedID: String?) {
+        queue.async { [self] in
+            externals = subtitles
+            if let selectedID {
+                selectedExternal = selectedID
+            } else if !subtitles.contains(where: { $0.id == selectedExternal }) {
+                selectedExternal = nil
+            }
+            guard let mpv, snapshot.loaded else { return }
+            attachExternals(mpv, select: selectedID != nil)
+            refreshMediaSelection(mpv)
         }
     }
 
@@ -641,6 +680,8 @@ final class MPVPlayerCore: @unchecked Sendable {
                 }
             case MPV_EVENT_FILE_LOADED:
                 update { $0.loading = false; $0.loaded = true }
+                // IOS-POC-45: the session's online subtitles go onto every file, the chosen one shown.
+                if !externals.isEmpty { attachExternals(mpv, select: true) }
                 refreshMediaSelection(mpv)
                 let video = mpv_get_property_string(mpv, "current-tracks/video/id")
                 defer { mpv_free(video) }
@@ -675,6 +716,11 @@ final class MPVPlayerCore: @unchecked Sendable {
         var subtitles = [PlaybackMediaOption]()
         var selectedAudioFromList: String?
         var selectedSubtitleFromList: String?
+        // IOS-POC-45: this session's online files, listed under their own ids after the embedded
+        // tracks (`PlaybackMediaTrack.subtitles`), so an id means the same under either engine.
+        let externalByPath = Dictionary(externals.map { (Self.comparablePath($0.fileURL.path), $0.id) },
+                                        uniquingKeysWith: { first, _ in first })
+        var externalByTrack = [Int64: String]()
 
         for index in 0..<count {
             let base = "track-list/\(index)"
@@ -695,6 +741,12 @@ final class MPVPlayerCore: @unchecked Sendable {
                                        ?? "音軌 \(audio.count + 1)"))
                 if selected { selectedAudioFromList = id }
             } else if type == "sub" {
+                if flagProperty(mpv, "\(base)/external") == true,
+                   let path = stringProperty(mpv, "\(base)/external-filename"),
+                   let online = externalByPath[Self.comparablePath(path)] {
+                    externalByTrack[trackID] = online
+                    continue
+                }
                 let id = "mpv-subtitle-\(trackID)"
                 subtitles.append(.init(id: id, title: title, language: language, codec: codec,
                                        fallbackName: PlaybackMediaOption.localizedLanguageName(language)
@@ -712,11 +764,13 @@ final class MPVPlayerCore: @unchecked Sendable {
                                    isOff: true, fallbackName: "關閉"), at: 0)
         }
 
+        let embedded = subtitles.isEmpty ? nil : PlaybackMediaTrack(
+            options: subtitles,
+            selectedID: sid ?? (rawSID == "no" ? PlaybackMediaOption.subtitleOffID : nil)
+        )
         let selection = PlaybackMediaSelection(
-            subtitle: subtitles.isEmpty ? nil : PlaybackMediaTrack(
-                options: subtitles,
-                selectedID: sid ?? (rawSID == "no" ? PlaybackMediaOption.subtitleOffID : nil)
-            ),
+            subtitle: .subtitles(embedded: embedded, external: externals,
+                                 selectedExternalID: rawSID.flatMap(Int64.init).flatMap { externalByTrack[$0] }),
             audio: audio.isEmpty ? nil : PlaybackMediaTrack(options: audio, selectedID: aid)
         )
         var changed = false
@@ -725,6 +779,58 @@ final class MPVPlayerCore: @unchecked Sendable {
             $0.mediaSelection = selection
         }
         if changed { onEvent?(.mediaSelectionChanged(selection)) }
+    }
+
+    /// IOS-POC-45, on `queue` with a file loaded. Each wanted file the loaded one lacks is added, one
+    /// no longer wanted is removed, and the chosen one is shown when `select` says so or a file was
+    /// just added. Adding never changes what is shown otherwise: `subs-fallback` lets mpv pick an
+    /// added track by itself, so the selection from before the add is put back.
+    private func attachExternals(_ mpv: OpaquePointer, select: Bool) {
+        let before = stringProperty(mpv, "sid")
+        var present = externalTracks(mpv)
+        let wanted = Set(externals.map { Self.comparablePath($0.fileURL.path) })
+        for (path, id) in present where addedExternalPaths.contains(path) && !wanted.contains(path) {
+            command(mpv, ["sub-remove", String(id)])
+        }
+        var added = false
+        for external in externals where present[Self.comparablePath(external.fileURL.path)] == nil {
+            // `auto`: added without being selected; the selection is set below, deliberately.
+            var words = ["sub-add", external.fileURL.path, "auto", external.title]
+            if let language = external.language { words.append(language) }
+            command(mpv, words)
+            addedExternalPaths.insert(Self.comparablePath(external.fileURL.path))
+            added = true
+        }
+        if added { present = externalTracks(mpv) }
+        if select || added, let chosen = selectedExternal,
+           let file = externals.first(where: { $0.id == chosen }),
+           let id = present[Self.comparablePath(file.fileURL.path)] {
+            mpv_set_property_string(mpv, "sid", String(id))
+        } else if added, let before {
+            mpv_set_property_string(mpv, "sid", before)
+        }
+        let line = "[subtitle] mpv external files=\(externals.count) added=\(added) shown=\(selectedExternal ?? "none")"
+        Task { @MainActor in PlaybackSession.log.notice("\(line, privacy: .public)") }
+    }
+
+    /// The loaded file's external subtitle tracks, by file.
+    private func externalTracks(_ mpv: OpaquePointer) -> [String: Int64] {
+        let count = max(Int(intProperty(mpv, "track-list/count") ?? 0), 0)
+        var tracks = [String: Int64]()
+        for index in 0..<count {
+            let base = "track-list/\(index)"
+            guard stringProperty(mpv, "\(base)/type") == "sub", flagProperty(mpv, "\(base)/external") == true,
+                  let path = stringProperty(mpv, "\(base)/external-filename"),
+                  let id = intProperty(mpv, "\(base)/id") else { continue }
+            tracks[Self.comparablePath(path)] = id
+        }
+        return tracks
+    }
+
+    /// iOS's temporary directory is reached through the `/var` → `/private/var` link; mpv may
+    /// report either spelling, so both sides are compared resolved.
+    private static func comparablePath(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
 
     private func stringProperty(_ mpv: OpaquePointer, _ name: String) -> String? {

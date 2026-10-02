@@ -1,0 +1,97 @@
+# TEMPORARY — IOS-POC-45 verification only. Lives on the throwaway branch ci/ios-poc-45-verify,
+# which is deleted after the run; it is never merged into ios-poc.
+name: IOS-POC-45 temporary verification
+
+on:
+  push:
+    branches: [ci/ios-poc-45-verify]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-poc-45-verify
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: xcodebuild -version && swift --version
+
+      - name: WebHTVCore tests (macOS host)
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          swift test --package-path ios 2>&1 | tee core-tests.log | grep -E '✘|error:|Test run with|failed' | tail -n 150
+
+      - name: WebHTVCore tests (iOS Simulator)
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          udid=$(xcrun simctl list devices available -j | python3 -c 'import json,sys
+          d=json.load(sys.stdin)["devices"]
+          print(next(x["udid"] for k,v in sorted(d.items(), reverse=True) if "iOS" in k for x in v if x["name"].startswith("iPhone")))')
+          echo "simulator $udid"
+          cd ios
+          xcodebuild -list 2>&1 | sed -n '1,40p'
+          scheme=WebHTVCore-Package
+          xcodebuild -list 2>&1 | grep -q "WebHTVCore-Package" || scheme=WebHTVCore
+          xcodebuild -scheme "$scheme" -destination "id=$udid" -derivedDataPath ../build/CoreSim \
+            test 2>&1 | tee ../core-sim-tests.log | grep -E '✘|error:|Test run with|TEST SUCCEEDED|TEST FAILED|Executed' | tail -n 80
+
+      - name: Set up host Python for the native Python packages
+        id: host-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Prepare CPython payload
+        env:
+          PYTHON_HOST: ${{ steps.host-python.outputs.python-path }}
+        run: scripts/fetch_python_ios.sh --sdk iphoneos
+
+      - name: Debug build (device, unsigned)
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp -configuration Debug \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/Debug \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' build 2>&1 \
+            | tee debug-build.log | grep -E 'error:|\*\* BUILD' | tail -n 120
+
+      - name: Release build (device, unsigned)
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/Release \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
+            EXPANDED_CODE_SIGN_IDENTITY=- EXPANDED_CODE_SIGN_IDENTITY_NAME='Ad Hoc' build 2>&1 \
+            | tee release-build.log | grep -E 'error:|\*\* BUILD' | tail -n 120
+
+      - name: Warnings in the changed files
+        if: always()
+        run: |
+          grep -hE 'warning:' debug-build.log release-build.log core-tests.log 2>/dev/null \
+            | grep -E 'OnlineSubtitle|Subtitle(Cat|Cues|Download|HTTP|SearchKeywords|SessionCache)|LightHTML|PlaybackEngine.swift|PlaybackMediaSelection.swift|MPVEngine.swift|WebHTVApp.swift' \
+            | sort -u | head -n 80 || true
+
+      - name: Summary
+        if: always()
+        run: |
+          for f in core-tests.log core-sim-tests.log debug-build.log release-build.log; do
+            echo "== $f"; [ -f "$f" ] && grep -E 'Test run with|TEST SUCCEEDED|TEST FAILED|\*\* BUILD (SUCCEEDED|FAILED)' "$f" | tail -n 3
+          done
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-poc-45-logs
+          path: "*.log"
+          retention-days: 3

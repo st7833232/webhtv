@@ -305,12 +305,19 @@ public protocol PlaybackEngine: AnyObject {
     func mediaSelection() async -> PlaybackMediaSelection
     /// Select one embedded audio/subtitle option. The option id is opaque outside the engine adapter.
     func selectMedia(_ kind: PlaybackMediaKind, id: String) async
+    /// IOS-POC-45: the playback session's downloaded subtitles, and the one to show (nil keeps the
+    /// engine's own selection). Kept across every load of this engine — a reload or a quality
+    /// switch puts them back — and listed after the embedded ones in `mediaSelection()`. An empty
+    /// list takes them all away. `PlayerRouter` hands a fresh engine the same list before its load.
+    func setExternalSubtitles(_ subtitles: [PlaybackExternalSubtitle], selectedID: String?)
     /// Stops and releases everything. The engine is not used again afterwards.
     func teardown()
 }
 
 public extension PlaybackEngine {
     func seek(toSeconds seconds: Double) { seek(toSeconds: seconds) {} }
+    /// An engine that cannot show a side-loaded subtitle ignores the list.
+    func setExternalSubtitles(_ subtitles: [PlaybackExternalSubtitle], selectedID: String?) {}
 }
 
 // MARK: - IOS-POC-22: speeds AVPlayer cannot play
@@ -465,6 +472,29 @@ public final class PlayerRouter {
         }
     }
 
+    /// IOS-POC-45: the playback session's downloaded subtitles. Held here, not in an engine, so
+    /// that an engine switch, a fallback or a startup timeout hands the engine taking over the
+    /// same files and the same choice — the viewer never downloads one twice for one video.
+    public private(set) var externalSubtitles = [PlaybackExternalSubtitle]()
+    public private(set) var selectedExternalSubtitleID: String?
+
+    /// The subtitle session's list changed: a file was added (and, with `selectedID`, chosen), or
+    /// the session ended (an empty list).
+    public func setExternalSubtitles(_ subtitles: [PlaybackExternalSubtitle], selectedID: String?) {
+        externalSubtitles = subtitles
+        selectedExternalSubtitleID = subtitles.contains(where: { $0.id == selectedID }) ? selectedID : nil
+        engine?.setExternalSubtitles(subtitles, selectedID: selectedExternalSubtitleID)
+    }
+
+    /// The panel's choice, through here so the online one is remembered for the next engine.
+    /// Choosing an embedded track or 「關閉」 forgets it.
+    public func selectMedia(_ kind: PlaybackMediaKind, id: String) async {
+        if kind == .subtitle {
+            selectedExternalSubtitleID = externalSubtitles.contains(where: { $0.id == id }) ? id : nil
+        }
+        await engine?.selectMedia(kind, id: id)
+    }
+
     /// `player.control("stop")`: drop what is loaded.
     public func stop() {
         engine?.teardown()
@@ -492,6 +522,8 @@ public final class PlayerRouter {
                 self.onMediaSelectionChange?(selection)
             }
             engine = fresh
+            // IOS-POC-45: before the load, so the engine has them when its file opens.
+            fresh.setExternalSubtitles(externalSubtitles, selectedID: selectedExternalSubtitleID)
             onEngineChange?(kind)
         }
         engine?.load(request)

@@ -20,7 +20,13 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **Current Scope**：本 session 做完 IOS-POC-42（42A／42B／42C）與 IOS-POC-43（43A），各隨一版發布。下一個任務還沒開始，建議 IOS-POC-44（見 Next Recommended Step）。
 
-**最新發布是 `0.1.50 (51)`**（IOS-POC-11 第五十一次發布）：tag `ios-v0.1.50-b51` → `9ff04eeb`，run `36981240970` success，`source.json` `be7889d5`，IPA 29,434,569 bytes，SHA-256 `37dc515d…`，已下載核對。前一版 `0.1.49 (50)`：tag `ios-v0.1.49-b50` → `f4231299`，run `36973731602`，`source.json` `3fc121b4`。**兩版真機都未驗證**，由使用者另外用 SideStore 測。
+**`0.1.51 (52)` 已發布**（2026-10-02 傍晚，使用者「先 push、發版」；IOS-POC-11 第五十二次發布）。之後另一個 session 又發了 **`0.1.52 (53)`**（IOS-POC-45，IOS-POC-11 第五十三次發布），**目前最新版是 `0.1.52 (53)`**：
+- 版號 commit `46ceb14c`，run `36992709060` success，tag `ios-v0.1.51-b52` → `46ceb14c`，`source.json` `f6cd65db`。
+- IPA 29,449,853 bytes，SHA-256 `b53ce86e…`，已下載核對。
+- 內容是 `0.1.50 (51)` 加上 IOS-POC-44A／44B／44C。
+- **真機未驗證**。
+
+（以下是本節原本的紀錄）`0.1.50 (51)`（IOS-POC-11 第五十一次發布）：tag `ios-v0.1.50-b51` → `9ff04eeb`，run `36981240970` success，`source.json` `be7889d5`，IPA 29,434,569 bytes，SHA-256 `37dc515d…`，已下載核對。前一版 `0.1.49 (50)`：tag `ios-v0.1.49-b50` → `f4231299`，run `36973731602`，`source.json` `3fc121b4`。**兩版真機都未驗證**，由使用者另外用 SideStore 測。
 
 **本 session 的 commit（新到舊）**
 
@@ -66,7 +72,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - 兩站即時 golden 通過。
 - `wang-movie.json` sweep 背對背跑：PLAYABLE 28 → 29，兩個新站都可播；原有站只有 Bili 一站因網站內容變動翻轉。
 - 模擬器兩站都實際播放。
-- 真機未驗證，44A 還沒發版。
+- 真機未驗證，44A 還沒發版（後來隨 `0.1.51 (52)` 發布）。
 
 **44B（`QimaoDJ`＋`HaokanDJ`）也已完成**（Task-Guard `IOS-POC-44B`，該文件第 12 節）：
 - `swift test` 658／658。
@@ -74,7 +80,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - sweep PLAYABLE 32 → 34，原有站逐站相同。
 - 模擬器兩站都實際播放。
 - 好看的搜尋上游壞了，照實回空。
-- 真機未驗證，44A、44B 都還沒發版。
+- 真機未驗證，44A、44B 都還沒發版（後來隨 `0.1.51 (52)` 發布）。
 
 **44C（`Jpys`＋`Jys`）也已完成**（Task-Guard `IOS-POC-44C`，該文件第 13 節）：
 - 一支腳本服務兩個類別，`Jys` 是 alias。
@@ -83,11 +89,11 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - 兩站即時 golden 通過。
 - sweep PLAYABLE 35 → 36（兩個新站可播；原有站有兩站翻轉，經查都是網站本身的狀況）。
 - 模擬器兩站都實際播放。
-- 真機未驗證，44A～44C 都還沒發版。
+- 真機未驗證；44A～44C 已隨 `0.1.51 (52)` 發布。
 
 下一段建議 44D（`Feiyu`＋`MiaoWu`），等使用者核准；沒有核准不改程式。
 
-模擬器 App 的設定快取現在是 44C 的測試設定（`127.0.0.1:8766`：金牌、異界、虎牙；伺服器已關）。下面原本的建議做法保留當作紀錄，「AppDrama 優先」的猜測已被實測推翻（要動 Swift，4 站只有 2 站活）。
+44A～44C 已隨 `0.1.51 (52)` 發布（見上方「最新發布」）。模擬器 App 的設定快取現在是 44C 的測試設定（`127.0.0.1:8766`：金牌、異界、虎牙；伺服器已關）。下面原本的建議做法保留當作紀錄，「AppDrama 優先」的猜測已被實測推翻（要動 Swift，4 站只有 2 站活）。
 
 **Next Recommended Step（原紀錄）**：**IOS-POC-44「`wang-movie.json` 可以移植、還沒做的 `csp_*` 站」的 assessment**（使用者尚未核准開始；只做 assessment、不改程式）。
 - 2026-10-02 用當天 `wang-movie.json` sweep 的 not-offered 清單對照 `docs/CSP_PORTABILITY_MATRIX.md`（2026-09-16 產生、09-17 手修）：`csp_*` 未提供 58 站＝**可移植 23 站**＋原生保護（H）34 站＋1 站不在矩陣（`AppV6`）。另 44 站是 Python spider，`swift test` 沒有直譯器所以不提供，App 內可用。
@@ -1513,8 +1519,8 @@ Paste this into a new session:
 
 > 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -15`、`git status`，以實際 `origin/ios-poc` 為準、不要相信文件裡的 SHA。先讀 `AGENTS.md`，再讀 `docs/current-task-state.md` 最上方「Current handoff — 2026-10-02 下午」一節（更早的交接需要時再看）。
 >
-> 目前狀態：最新發布是 WebHTV `0.1.50 (51)`（tag `ios-v0.1.50-b51`）；IOS-POC-42（XYQHiker 直接播放、播放端擷取、中文搜尋鍵）隨 `0.1.49 (50)`、IOS-POC-43A（檢查來源的嗅探排隊）隨 `0.1.50 (51)` 發布，兩版真機都未驗證，由我另外用 SideStore 測，不擋新任務。
+> 目前狀態：最新發布是 WebHTV `0.1.52 (53)`（tag `ios-v0.1.52-b53`，含 IOS-POC-45 線上字幕）；前一版 `0.1.51 (52)`（tag `ios-v0.1.51-b52`，含 IOS-POC-44A／44B／44C）；兩版真機都未驗證；更早的 `0.1.50 (51)`（tag `ios-v0.1.50-b51`）；IOS-POC-42（XYQHiker 直接播放、播放端擷取、中文搜尋鍵）隨 `0.1.49 (50)`、IOS-POC-43A（檢查來源的嗅探排隊）隨 `0.1.50 (51)` 發布，兩版真機都未驗證，由我另外用 SideStore 測，不擋新任務。
 >
-> 下一步：IOS-POC-44（`docs/IOS-POC-44-csp-portable-sites.md`：23 站活 18、死 5，分段 44A～44G）的 44A（`WeiguanDJ`＋`HemaDJ`）、44B（`QimaoDJ`＋`HaokanDJ`）、44C（`Jpys`＋`Jys`）已完成並 commit，還沒發版。等我核准 44D（`Feiyu`＋`MiaoWu`，只寫 JS、不動 Swift）或指定其他段；核准後照該文件第 7、8 節與第 11～13 節的做法實作與驗收，結果記回同一份文件。沒有我的核准不改程式；沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13。
+> 下一步：IOS-POC-44（`docs/IOS-POC-44-csp-portable-sites.md`：23 站活 18、死 5，分段 44A～44G）的 44A（`WeiguanDJ`＋`HemaDJ`）、44B（`QimaoDJ`＋`HaokanDJ`）、44C（`Jpys`＋`Jys`）已完成並隨 `0.1.51 (52)` 發布。等我核准 44D（`Feiyu`＋`MiaoWu`，只寫 JS、不動 Swift）或指定其他段；核准後照該文件第 7、8 節與第 11～13 節的做法實作與驗收，結果記回同一份文件。沒有我的核准不改程式；沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13。
 >
 > 規則：環境有 Ponytail 就一定要對最終 diff 跑 `ponytail:ponytail-review` 並記進任務文件；功能修改用 `bash .codex/scripts/task_guard.sh start`（模式只有 quick-fix／standard／assessment／upstream），結束用 `finish --no-tag`，不要把 guard 指令接 pipe（結束碼會被吃掉）。push 只推 `ios-poc`，push 前先 `git pull --no-rebase`，不建新分支、不 merge `main`；bump 版本、tag、發布前一定要先問我，release notes 不帶站台內容（站名、設定檔名、站數、成人站）。本機 Xcode 27 比 CI 的 Xcode 26.6 新，本機建置通過不代表 CI 會過。不要直接安裝到我的 iPhone（我用 SideStore）；真機沒測到的一律寫「未驗證」。最後回報要給明確結論，不要用「可能有幫助」這種說法。

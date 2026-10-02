@@ -896,7 +896,7 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 
 ## 第五十三次發布：`0.1.52 (53)`（2026-10-02，**已發布**）
 
-**目前最新版是 `0.1.52 (53)`。** 第五十二次發布 `0.1.51 (52)`（tag `ios-v0.1.51-b52`，版號 commit `46ceb14c`、`source.json` `f6cd65db`）在本文件沒有獨立段落。
+**目前最新版是 `0.1.52 (53)`。** 前面五十二版都已被取代。
 
 - 授權：使用者 2026-10-02 指示「不用跑CI直接發佈」（IOS-POC-45 commit 之後）。版號 `0.1.52`，build `53`。
 - 內容：`0.1.51 (52)` 的全部，加上 IOS-POC-45（`18f85127`）：字幕面板的線上字幕搜尋（Subtitle Cat）、下載、套用與 session 暫存。
@@ -913,9 +913,52 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - 發布前驗證：依使用者指示發版時不另跑 CI；採用的是 IOS-POC-45 commit 前的暫時驗證 run `37001070319`（與 `18f85127` 的 `ios/` 內容逐檔相同）：`swift test` 714／714、Debug 與 Release（device）build 成功、iOS 模擬器只有與 base 相同的 9 個既有 WKWebView 測試失敗。詳見 `docs/IOS-POC-45-online-subtitles.md` 第 9 節。
 - **真機尚未驗收**；Subtitle Cat 實際網站也未在本 session 實測（網路政策擋下）。
 
-## 第五十一次發布：`0.1.50 (51)`（2026-10-02，**已發布**）
+## 第五十二次發布：`0.1.51 (52)`（2026-10-02，**已發布**，已被 `0.1.52 (53)` 取代）
 
-**目前最新版是 `0.1.50 (51)`。** 前面五十版都已被取代。
+- 授權：使用者 2026-10-02 指示「先 push、發版」（IOS-POC-44C commit 之後）。版號 `0.1.51`，build `52`。
+- 內容：`0.1.50 (51)` 的全部，加上：
+  - IOS-POC-44A（`216bf4de`）：`WeiguanDJ`、`HemaDJ`。
+  - IOS-POC-44B（`3e3657d6`）：`QimaoDJ`、`HaokanDJ`。
+  - IOS-POC-44C（`707aaf69`）：`Jpys`，`Jys` 是它的 alias。
+  - 全部是 JS spider 與 registry 的條目，沒有動 Swift host。
+  - 其餘是文件：`d02f1bfa` 交接、`d790ea4a` IOS-POC-44 assessment。
+- 發布序列：
+  1. 版號 commit `46ceb14c`（Task-Guard `IOS-RELEASE-0.1.51-b52`，只改兩個 build configuration 的版號欄位）。
+  2. `git pull --no-rebase`（已是最新）後 push `d02f1bfa..46ceb14c`。
+  3. `gh workflow run ios-sidestore-release.yml --ref ios-poc -f release_notes=…` → run `36992709060`，conclusion success，09:57:01Z → 10:03:53Z，沒有失敗或略過的步驟。本機的 `gh run watch` 中途因連線中斷結束，結果以 `gh run view` 為準。
+  4. workflow 建立 tag `ios-v0.1.51-b52`（target `46ceb14c`），並推回 `source.json`（`f6cd65db`，共五十二筆，第一筆 `0.1.51`，size 29,449,853，與 IPA 相同）。本機以 pull merge fast-forward 到 `f6cd65db`。
+
+  **沒有手動建 tag。**
+- 產物：
+  - GitHub Release `WebHTV 0.1.51 (52)`：不是 draft／prerelease，2026-10-02 10:03:43Z 發布。
+  - `WebHTV-0.1.51-52.ipa`：**29,449,853 bytes**，狀態 uploaded；GitHub 記錄的 digest SHA-256 為 `b53ce86e5836ed1d29fb068ec39664256274dfaf6ee2e70148dc53794422e1e1`。
+  - **IPA 已下載核對**（GET 200，SHA-256 與 digest 相同）：
+    - bundle `com.webhtv.ios.poc`，`CFBundleShortVersionString` `0.1.51`，`CFBundleVersion` `52`。
+    - `MinimumOSVersion` 與 `minos` 都是 `17.0`，`sdk 26.5`。
+    - `Translation.framework` 與 `_Translation_SwiftUI.framework` 仍為弱連結。
+    - `WebHTVCore_WebHTVCore.bundle/Spiders/` 含新的 `WeiguanDJ.js`、`HemaDJ.js`、`QimaoDJ.js`、`HaokanDJ.js`、`Jpys.js`。`Jys` 走 alias，本來就沒有自己的檔案。
+- 發布前驗證：
+  - `swift test --package-path ios` 659／659（`707aaf69`，本機 Xcode 27.0）。
+  - 每一段都有即時 golden、與 HEAD 背對背的 sweep，以及模擬器 Debug 實際播放（IOS-POC-44 第 11～13 節）。
+  - 沒有另外做本機 generic iOS Release build；CI（Xcode 26.6）以這次 run 的建置成功為準。
+- **真機尚未驗收**。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.51 (52)（支援更多 spider 來源類型；真機未驗收）
+
+新增
+- 支援更多 csp 類型的 spider：數種短劇 App 的介面，以及一種需要請求簽章的影視 App 介面。設定檔裡用到這些類型的來源，現在會出現在來源清單，可以瀏覽分類、篩選、搜尋與播放。
+- 這類來源若列了多個備用網域，會挑選目前真正能回應的網域；全部失效時改用來源內建的預設網域。
+
+已知限制
+- 發布前通過自動測試（659 項）、模擬器建置與實際播放；真機尚未驗收。
+- 其中一個短劇來源的搜尋目前沒有結果，是對方伺服器的問題；分類瀏覽與播放正常。
+- 部分來源的海報圖片伺服器較慢，海報可能要等一陣子才顯示。
+```
+
+## 第五十一次發布：`0.1.50 (51)`（2026-10-02，**已發布**，已被 `0.1.51 (52)` 取代）
 
 - 授權：使用者 2026-10-02 指示「push 並發佈新版本」（IOS-POC-43A commit 之後）。版號 `0.1.50`，build `51`。
 - 內容：`0.1.49 (50)` 的全部，加上：

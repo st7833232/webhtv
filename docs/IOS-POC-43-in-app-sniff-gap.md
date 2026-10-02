@@ -5,7 +5,8 @@
 - 目標：使用者 2026-10-02「開始 IOS-POC-43 assessment」。起因是 IOS-POC-42 第 16 節：模擬器 App 內「檢查來源」把 300分类、xgroovy、亞洲情色網判成「取不到播放網址」，同時段 Mac 的 sweep 卻能播放，原因未查。
 - 範圍：只做 assessment，**不改程式**。診斷用的探測測試、插樁與原型都在 session scratchpad 的副本，不 commit。task guard `IOS-POC-43`（`assessment`），路徑：本文件、`docs/current-task-state.md`。
 - 結論：根因已重現並確認（第 3 節），建議與待決定事項見第 6、9 節。
-- 唯一下一步：等使用者核准第 9 節；沒有核准前不改程式。
+- 2026-10-02 使用者「照建議，開始 IOS-POC-43A」：採 C2，接受動到 `MediaSniffer`。實作見第 11 節。
+- 唯一下一步：見第 10 節。
 
 ## 1. 問題
 
@@ -101,6 +102,36 @@ C2 對照 C1：兩者都消除誤判；C2 只讓嗅探排隊，整批檢查多 1
 
 ## 10. 狀態
 
-- 2026-10-02 assessment 完成，只改文件。等使用者回覆第 9 節。
+- 2026-10-02 assessment 完成，只改文件。
+- 2026-10-02 使用者核准 43A（C2）。43A 完成（第 11 節），已 commit，**未 push、未發布**。
+- 唯一下一步：等使用者決定是否 push 與發布；發布前要先問。真機未驗證。
 - Ponytail：`ponytail:ponytail-review` 對第 5～8 節，刪掉醒來時的 `Task.isCancelled` 檢查（不會發生的取消）、兩個測試合成一個，net −4 行，已寫進第 6、8 節。
 - 診斷用的探測（`SniffProbeTests`、`CheckProbeTests`）、`MediaSniffer` 插樁與 C1／C2 原型都在 scratchpad 的 `c42` 副本，不 commit；模擬器 App 目前用本機 `127.0.0.1:8766` 的測試設定（伺服器已關），App 本身沒有改。
+
+## 11. 43A 實作紀錄（2026-10-02）
+
+- task guard `IOS-POC-43A`（`standard`），起始 HEAD `7d662f69`。
+- **程式**：
+  - `MediaSniffer.swift`：
+    - 新增 `@TaskLocal nonisolated public static var waitsForTurn = false` 與 `waiting` 佇列。
+    - `sniff`：沒有設旗標時照舊先取消正在跑的那一個（同一行、同一個位置，只多 `!Self.waitsForTurn` 條件）；設了旗標時在 `await contentRules()` 之後、佔用之前等前一個結束（`while … collector != nil`，判斷與佔用之間沒有 `await`）；每次結束在 `defer` 喚醒下一個等待者。
+  - `SourceCheck.swift` `check`：播放階段的 `client.playbackURL` 包在 `MediaSniffer.$waitsForTurn.withValue(true)` 裡。
+- **測試**：`MediaSnifferTests.swift` 新增 `overlappingSniffsCancelUnlessTheyWaitTheirTurn`（離線 `data:` 頁面，300 ms 後才送出串流請求）：沒有旗標時先開始的回 `nil`、後開始的找到串流；有旗標時兩個都找到自己的串流。舊程式沒有 `waitsForTurn`，這個測試在舊程式上無法編譯，沒有紅燈對照；前半段鎖的是原本的行為。
+- **驗證**：
+  - `swift test --package-path ios` **654／654**（原 653＋新 1）。
+  - iOS 模擬器 `xcodebuild test`，`SourceCheck.run` width 8，`wang-sex.json` 220 站，HEAD 副本與 43A 副本背對背（兩份都只加了嗅探開始／取消時印一行）：
+
+    | | 可以播放 | 整批耗時 | 嗅探被取消 | 逾時 |
+    |---|---:|---:|---:|---:|
+    | HEAD `7d662f69` | 58 | 101 秒 | 7／14 | 0 |
+    | 43A | 58 | 119 秒（+18%） | **0／14** | 0 |
+
+    逐站差異：亞洲情色網 取不到 → **可以播放**；KANAV、ThisAV 取不到 → 播放網址不是影片（嗅探跑完才是正確判定）；鲨鱼资源 可以播放 → 連不上（首頁階段 `shayuapi.com` 逾時，在排隊的播放階段之前，是網路波動）。其餘 216 站相同。驗收（取消 0、可播不少於同時段基準、耗時增加 ≤ 20%）通過。
+  - App：模擬器 Debug（iPhone 17 Pro Max）與 generic iOS 不簽章 Release 都 BUILD SUCCEEDED，改動的兩個檔案沒有警告。
+  - 模擬器實看（`127.0.0.1:8766` 的測試設定，伺服器沒開，App 讀快取）：
+    - 「檢查來源」，設定只有虎牙＋300分类（E5 的情境）：**兩站都可以播放**（修正前每次都有一站被取消）。
+    - 一般播放、要嗅探的路徑：虎牙「幸福伽菜子…」`hyyun` 線路，log 有建立嗅探 WebView，2.9 秒解析出 HLS 播放清單；之後原生與 MPV 都在抓分段時 `-1004`，分段主機 `c.baisiweiting.com:18443` 從 Mac 用 curl 也連不上（錯誤 7），是 CDN 問題，與嗅探無關；同一部片 `hym3u8` 線路、另一部「寄生之心」同樣卡在這個 CDN。**要嗅探的站在模擬器上沒有完整播出畫面。**
+    - 一般播放、靜態網址的路徑：农民「我不是大師」第 01 集，解析 117 ms，原生播放器 1.58 秒起播，緩衝 30 秒 healthy。
+    - 另外看到：來源清單裡巴士動漫、xgroovy 等站帶著紅點，是修正前的「檢查來源」誤判寫進健康記錄的結果；43A 不會回頭修正已寫入的記錄，使用者可用「清除站點健康記錄」或之後的檢查覆蓋。
+- **Ponytail**：`ponytail:ponytail-review` 結果 Lean already。
+- **回滾**：`git revert` 這個 commit；只動 `MediaSniffer.swift`、`SourceCheck.swift`、`MediaSnifferTests.swift`。

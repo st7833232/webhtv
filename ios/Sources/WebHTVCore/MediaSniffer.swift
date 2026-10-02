@@ -73,6 +73,12 @@ public final class MediaSniffer {
 
     private var collector: Collector?
 
+    /// Set by a caller that runs sniffs side by side — the source check (IOS-POC-43), eight sites at
+    /// once — so its sniffs wait for the one in flight instead of cancelling it. Cancelling made
+    /// every sniff but the last come back empty, and the check recorded those sites as unplayable.
+    @TaskLocal nonisolated public static var waitsForTurn = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
     /// The **active configuration's** ad rules, or nil for none (IOS-POC-5S-1).
     ///
     /// Set when a configuration is adopted and cleared when it has no `ads`, so switching source
@@ -193,12 +199,18 @@ public final class MediaSniffer {
         }
 
         // One sniff at a time: a second concurrent web view competes for the main actor and the
-        // network, and no caller needs it.
-        if let live = collector { live.cancel() }
+        // network. Playback wants the newest pick to win, so a new sniff cancels the one in flight;
+        // a caller that sniffs side by side sets `waitsForTurn` and queues instead.
+        if !Self.waitsForTurn, let live = collector { live.cancel() }
         let rules = await contentRules()
+        // No await between this check and taking the slot, so two waiters cannot both pass.
+        while Self.waitsForTurn, collector != nil { await withCheckedContinuation { waiting.append($0) } }
         let collector = Collector(rules: rules, ruleset: snifferRules)
         self.collector = collector
-        defer { if self.collector === collector { self.collector = nil } }
+        defer {
+            if self.collector === collector { self.collector = nil }
+            if !waiting.isEmpty { waiting.removeFirst().resume() }
+        }
 
         let found = await collector.run(page: page, referer: referer, timeout: timeout)
         return found

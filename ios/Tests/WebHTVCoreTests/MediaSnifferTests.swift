@@ -82,6 +82,35 @@ private func sniff(_ html: String, timeout: Duration = .seconds(6)) async -> URL
     #expect(found?.absoluteString == "https://cdn.example.com/first/index.m3u8")
 }
 
+/// IOS-POC-43: two sniffs at once. Playback keeps "the newest wins" — the earlier one comes back
+/// empty — while the source check, which sniffs eight sites side by side, lets both finish.
+@MainActor @Test func overlappingSniffsCancelUnlessTheyWaitTheirTurn() async throws {
+    func page(_ n: Int) -> URL {
+        // The stream is requested late, so the second sniff starts while the first still waits.
+        let html = "<html><body><script>setTimeout(function () { var x = new XMLHttpRequest(); "
+            + "x.open('GET', 'https://cdn.example.com/\(n)/index.m3u8'); }, 300);</script></body></html>"
+        return URL(string: "data:text/html;base64,\(Data(html.utf8).base64EncodedString())")!
+    }
+    func stream(_ n: Int) -> String { "https://cdn.example.com/\(n)/index.m3u8" }
+    let sniffer = MediaSniffer()
+
+    let older = Task { await sniffer.sniff(page: page(1), timeout: .seconds(6)) }
+    try await Task.sleep(for: .milliseconds(100))
+    let newer = await sniffer.sniff(page: page(2), timeout: .seconds(6))
+    #expect(await older.value == nil)
+    #expect(newer?.absoluteString == stream(2))
+
+    let waiting = Task {
+        await MediaSniffer.$waitsForTurn.withValue(true) { await sniffer.sniff(page: page(3), timeout: .seconds(6)) }
+    }
+    try await Task.sleep(for: .milliseconds(100))
+    let queued = await MediaSniffer.$waitsForTurn.withValue(true) {
+        await sniffer.sniff(page: page(4), timeout: .seconds(6))
+    }
+    #expect(await waiting.value?.absoluteString == stream(3))
+    #expect(queued?.absoluteString == stream(4))
+}
+
 /// `MediaProbe` is what keeps the sniffer off the playback path for streams that already work:
 /// `…/play/e0R98E7b` has no extension but is media, and `…/share/<id>` has no extension and is a
 /// page. Only the second should ever be sniffed.

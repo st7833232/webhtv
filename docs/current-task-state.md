@@ -35,12 +35,12 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - 每段都是熱點下與 HEAD 副本背對背的 sweep：非 XYQHiker 站逐站相同；`wang-movie.json` 只有 Bili、type-1、type-4 的網路波動，农民、巴士动漫、動漫巴士與同時段基準相同。`swift test` 653／653；模擬器 Debug、generic iOS Release；模擬器實看农民播放與 App 內「檢查來源」。**真機未驗證。**
 - 未做（記錄）：直播三站的 JSON 分類、动漫PRO 的選集截取、`host.js` 的 `:not`／`:contains`、規則檔本身的問題（第 8 節「暫緩」）；`请求头参数` 只寫 `PC_UA`（沒有 `User-Agent$`，7 份規則檔）時 iOS 用手機 UA、原版用電腦 UA（第 16 節，未改）。
 
-**IOS-POC-43 App 內「檢查來源」的嗅探結果和 Mac 不一致（2026-10-02，assessment 完成，只改文件）**：`docs/IOS-POC-43-in-app-sniff-gap.md`。
+**IOS-POC-43 App 內「檢查來源」的嗅探結果和 Mac 不一致（2026-10-02，43A 已 commit，未 push、未發布）**：`docs/IOS-POC-43-in-app-sniff-gap.md`。
 - **根因（iOS 模擬器重現並插樁確認）**：`MediaSniffer.shared` 一次只跑一個嗅探，新的開始時取消正在跑的那一個；41C 的 `SourceCheck.run` 同時檢查 8 站，同時嗅探的站互相取消，被取消的判成「取不到播放網址」或「播放網址不是影片」，並寫進 41B 的站點健康記錄。`wang-sex.json` 一輪 14 次嗅探有 7 次被取消。一般播放、預取、自動下一集不受影響。排除過的假設：iOS 自動播放限制、iPhone UA、WKWebView 不在 window。
-- **建議 C2（IOS-POC-43A）**：`MediaSniffer` 加預設關閉的 task-local `waitsForTurn`，檢查時排隊、不取消；一般播放不變。原型：可以播放 58 → 59、取消 7 → 0、整批 106 → 119 秒（+12%；只動 `SourceCheck` 的 C1 是 +38%）。
+- **43A（C2，使用者核准）**：`MediaSniffer` 加預設關閉的 task-local `waitsForTurn`，`SourceCheck` 播放階段設為真，檢查時排隊、不取消；一般播放不變。iOS 模擬器背對背：取消 7／14 → 0、可以播放 58 → 58（亞洲情色網救回、鲨鱼资源首頁逾時）、整批 101 → 119 秒（+18%）。`swift test` 654／654；模擬器 Debug、generic iOS Release；App 內兩站檢查都可播；农民播放正常；要嗅探的虎牙卡在 CDN（curl 也連不上），沒有完整播出畫面。真機未驗證。已寫入的錯誤健康記錄不會自動修正。
 - IOS-POC-39／41／42 用 sweep 量到的嗅探站可播數是下限。
 
-**Next Recommended Step**：等使用者回覆 IOS-POC-43 第 9 節（核准 43A／是否接受動到 `MediaSniffer`）；核准前不改程式。IOS-POC-42 已隨 `0.1.49 (50)` 發布，真機回報由使用者另外進行。之後再發版仍需使用者授權，不要自己 bump／tag／release。
+**Next Recommended Step**：IOS-POC-43A 已 commit；等使用者決定是否 push 與發布（發布前要先問，release notes 不帶站台內容）。IOS-POC-42 已隨 `0.1.49 (50)` 發布，真機回報由使用者另外進行。之後再發版仍需使用者授權，不要自己 bump／tag／release。
 
 
 ## Current handoff — 2026-10-01（前一次交接）

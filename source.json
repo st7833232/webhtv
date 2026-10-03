@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.54",
+          "date": "2026-10-03",
+          "localizedDescription": "WebHTV 0.1.54 (55)（字幕修正與新功能；真機未驗收）\n\n修正\n- MPV 字幕顯示方格與播放掉幀、聲音斷續：改用 App 內建的中文字型（Noto Sans CJK 子集，SIL OFL 授權）。\n- 智慧去廣開啟時，校正好的字幕時間軸在快轉跨過廣告後跑掉：字幕時間改為扣除廣告時間計算；字幕面板新增「對齊上一句／下一句」與「扣除廣告時間」開關。\n\n新增\n- 字幕清單標示 CC、SDH 與強制字幕；沒有內嵌字幕時顯示說明，AVPlayer 下可一鍵改用 MPV 讀取。\n- 線上字幕新增「射手網（網頁）」來源，不需要 token，只下載單一 SRT 檔。\n- 片源自帶的字幕（播放回應中的字幕清單）會出現在字幕清單，AVPlayer 與 MPV 都能選用；WebVTT 與 ASS 會轉為 SRT 顯示（不保留樣式）。\n\n已知限制\n- 發布前通過 Core 自動測試；App 部分以此次 release 建置為第一次 macOS 編譯。\n- 內建字型、廣告時間軸、CC 標示、射手網網頁版與片源字幕都尚未在真機驗證。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.54-b55/WebHTV-0.1.54-55.ipa",
+          "size": 34041723,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.53",
           "date": "2026-10-02",
           "localizedDescription": "WebHTV 0.1.53 (54)（字幕修正與新功能；真機未驗收）\n\n修正\n- MPV 播放器的中文字幕顯示為方格：改用系統內可讀取的中文字型（PingFang 等）。\n\n新增\n- 字幕面板加入「時間軸校正」：以 0.1 秒或 1 秒為單位提前或延後字幕。MPV 對所有字幕有效；AVPlayer 只對線上字幕有效。\n- 線上字幕新增 OpenSubtitles 與射手網兩個來源。需要在「設定 › 線上字幕來源」輸入你自己的 API key 或 token（存在裝置鑰匙圈）；未設定的來源會顯示「未設定」，不會連線。\n\n已知限制\n- 發布前通過 Core 自動測試；App 部分以此次 release 建置為第一次 macOS 編譯。\n- 中文字型修正與兩個新字幕來源的實際連線，都尚未在真機驗證。",

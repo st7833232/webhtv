@@ -894,9 +894,43 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第五十六次發布：`0.1.55 (56)`（2026-10-03，**已發布**）
+## 第五十七次發布：`0.1.56 (57)`（2026-10-03，**已發布**）
 
-**目前最新版是 `0.1.55 (56)`。** 前面五十五版都已被取代。
+**目前最新版是 `0.1.56 (57)`。** 前面五十六版都已被取代。
+
+- 授權：使用者 2026-10-03 指示「發佈」（IOS-POC-46 之後），並在版號 commit 前補充「Ios17、18也要避免」，因此先完成 IOS-POC-46-1 再發布。版號 `0.1.56`，build `57`。
+- 內容：`0.1.55 (56)` 的全部，加上首頁左上角站台名稱的可讀性修正：
+  - IOS-POC-46（`22793b98`）：iOS 26 起標籤改用隨 Liquid Glass 翻轉的 `.primary`。
+  - IOS-POC-46-1（`f5419a90`）：iOS 17／18 白字加 50% 黑色膠囊（桌布 `wallpaper_1` 左上最亮處對比 5.2:1；純白字只有 1.4–1.6:1）。
+- 發布序列：
+  1. 版號 commit `22e9cf6b`（Task-Guard `IOS-RELEASE-0.1.56-b57`，只改兩個 build configuration 的版號欄位）；push `f5419a90..22e9cf6b`。
+  2. 以 MCP `workflow_dispatch`（ref `ios-poc`，version `0.1.56`、build `57`、release notes）觸發 → run `37103927388`（conclusion success，06:42:25Z → 06:48:40Z）。
+  3. workflow 建立 tag `ios-v0.1.56-b57`（target `22e9cf6b`），並推回 `source.json`（`a6409ac4`，共五十七筆，第一筆 `0.1.56`，size 34,062,283 與 IPA 相同）。本機以 pull merge fast-forward 到 `a6409ac4`。
+
+  **沒有手動建 tag。**
+- 產物：
+  - GitHub Release `WebHTV 0.1.56 (57)`：不是 draft／prerelease，2026-10-03 06:48:32Z 發布。
+  - `WebHTV-0.1.56-57.ipa`：**34,062,283 bytes**，狀態 uploaded；GitHub 記錄的 digest SHA-256 為 `b9d1c20d5985853c59c6e4cac3932829e973a9eafebf2997818eb9842e9fda5f`。
+  - IPA **未在本機下載核對**；workflow 的「Verify public Release URL」步驟為 success。
+- 發布前驗證：App 修改發布前沒有在 macOS 編譯，這次 release 建置成功即為第一次編譯；對比數值以 Python 依 WCAG 公式計算桌布像素。Core 未改動。
+- **真機尚未驗收**：iOS 26 的 `.primary` 是否隨玻璃翻轉（依 Apple 設計規則推論，未實測）；iOS 17／18 的膠囊外觀。其他工具列文字按鈕（全域 `tint` 為白色）未調整。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.56 (57)（首頁站台名稱顯示修正；真機未驗收）
+
+修正
+- 首頁左上角的站台名稱在淺色桌布上看不清楚：
+  - iOS 26：文字改用系統文字色，會隨按鈕底下的玻璃效果自動變深或變淺。
+  - iOS 17、18：白字加上半透明黑色膠囊底。
+
+已知限制
+- 尚未在任何真機驗證。
+- 其他工具列文字按鈕（例如選站台視窗的「關閉」）未調整。
+```
+
+## 第五十六次發布：`0.1.55 (56)`（2026-10-03，**已發布**，已被 `0.1.56 (57)` 取代）
 
 - 授權：使用者 2026-10-03 指示「幫我檢查git是否有新的commit有的話幫我發佈」。檢查時 `ios-poc` 在 `0.1.54 (55)` 之後只有一個新 commit：`76e0d57f`（IOS-POC-45I，另一個 session 推上，未附測試紀錄）。版號 `0.1.55`，build `56`。
 - 內容：`0.1.54 (55)` 的全部，加上 IOS-POC-45I（`76e0d57f`）：`parse:1` 與 probe 判定為網頁的播放頁，嗅探時另收該頁的 `<track>` 字幕與 VTT／SRT／ASS 請求，併入 `PlaybackTarget.subtitles`，走 45H 的片源字幕管線。找到影片後多保留 WKWebView 250 ms。

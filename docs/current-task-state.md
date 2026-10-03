@@ -8,7 +8,9 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **IOS-POC-46**（2026-10-03）：iOS 26 首頁左上角的站台名稱看不見（Liquid Glass 在淺色桌布上變淺，標籤寫死白色）。iOS 26 起改用會隨玻璃翻轉的 `.primary`；iOS 17／18 白字在桌布上只有 1.4–1.6:1，改為白字加 50% 黑色膠囊（桌布最亮處 5.2:1，IOS-POC-46-1）（`legibleToolbarLabel()`）。未在任何真機或模擬器驗證；App 全域 `tint` 也是白色，其他工具列文字按鈕（例如「關閉」）在 iOS 26 淺色背景上可能有同樣問題，尚未處理。
 
-**`0.1.55 (56)` 已發布**（2026-10-03，使用者「有新的 commit 就發佈」；IOS-POC-11 第五十六次發布：含 IOS-POC-45I `76e0d57f` 網頁播放頁字幕嗅探；版號 commit `46ef9c12`，run `37098285365` success，tag `ios-v0.1.55-b56` → `46ef9c12`，`source.json` `581fce56`，IPA 34,059,410 bytes，真機未驗證），**目前最新版是 `0.1.55 (56)`**。
+**`0.1.56 (57)` 已發布**（2026-10-03，使用者「發佈」；IOS-POC-11 第五十七次發布：含 IOS-POC-46／46-1 首頁站台名稱可讀性；版號 commit `22e9cf6b`，run `37103927388` success，tag `ios-v0.1.56-b57` → `22e9cf6b`，`source.json` `a6409ac4`，IPA 34,062,283 bytes，真機未驗證），**目前最新版是 `0.1.56 (57)`**。
+
+前一版：**`0.1.55 (56)` 已發布**（2026-10-03，使用者「有新的 commit 就發佈」；IOS-POC-11 第五十六次發布：含 IOS-POC-45I `76e0d57f` 網頁播放頁字幕嗅探；版號 commit `46ef9c12`，run `37098285365` success，tag `ios-v0.1.55-b56` → `46ef9c12`，`source.json` `581fce56`，IPA 34,059,410 bytes，真機未驗證）。
 
 **IOS-POC-45I**（2026-10-03，另一個 session）：`parse:1` 播放頁嗅探時一併收集 `<track>` 與 VTT／SRT／ASS 字幕，併入片源字幕。見 IOS-POC-45 文件第 21 節（原誤編為第 20 節，與 SubtitleNexus 評估重號，已改）。
 
@@ -1537,7 +1539,7 @@ Paste this into a new session:
 
 > 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -15`、`git status`，以實際 `origin/ios-poc` 為準、不要相信文件裡的 SHA。先讀 `AGENTS.md`，再讀 `docs/current-task-state.md` 最上方「Current handoff — 2026-10-02 下午」一節（更早的交接需要時再看）。
 >
-> 目前狀態：最新發布是 WebHTV `0.1.55 (56)`（tag `ios-v0.1.55-b56`，含 IOS-POC-45I）；前一版 `0.1.54 (55)`（tag `ios-v0.1.54-b55`，含 IOS-POC-45C-1／45D／45E／45F／45G／45H）；再前一版 `0.1.53 (54)`（tag `ios-v0.1.53-b54`，含 IOS-POC-45A／45B／45C）；再前一版 `0.1.52 (53)`（tag `ios-v0.1.52-b53`，含 IOS-POC-45 線上字幕）；再前一版 `0.1.51 (52)`（tag `ios-v0.1.51-b52`，含 IOS-POC-44A／44B／44C）；兩版真機都未驗證；更早的 `0.1.50 (51)`（tag `ios-v0.1.50-b51`）；IOS-POC-42（XYQHiker 直接播放、播放端擷取、中文搜尋鍵）隨 `0.1.49 (50)`、IOS-POC-43A（檢查來源的嗅探排隊）隨 `0.1.50 (51)` 發布，兩版真機都未驗證，由我另外用 SideStore 測，不擋新任務。
+> 目前狀態：最新發布是 WebHTV `0.1.56 (57)`（tag `ios-v0.1.56-b57`，含 IOS-POC-46／46-1）；前一版 `0.1.55 (56)`（tag `ios-v0.1.55-b56`，含 IOS-POC-45I）；再前一版 `0.1.54 (55)`（tag `ios-v0.1.54-b55`，含 IOS-POC-45C-1／45D／45E／45F／45G／45H）；再前一版 `0.1.53 (54)`（tag `ios-v0.1.53-b54`，含 IOS-POC-45A／45B／45C）；再前一版 `0.1.52 (53)`（tag `ios-v0.1.52-b53`，含 IOS-POC-45 線上字幕）；再前一版 `0.1.51 (52)`（tag `ios-v0.1.51-b52`，含 IOS-POC-44A／44B／44C）；兩版真機都未驗證；更早的 `0.1.50 (51)`（tag `ios-v0.1.50-b51`）；IOS-POC-42（XYQHiker 直接播放、播放端擷取、中文搜尋鍵）隨 `0.1.49 (50)`、IOS-POC-43A（檢查來源的嗅探排隊）隨 `0.1.50 (51)` 發布，兩版真機都未驗證，由我另外用 SideStore 測，不擋新任務。
 >
 > 下一步：IOS-POC-44（`docs/IOS-POC-44-csp-portable-sites.md`：23 站活 18、死 5，分段 44A～44G）的 44A（`WeiguanDJ`＋`HemaDJ`）、44B（`QimaoDJ`＋`HaokanDJ`）、44C（`Jpys`＋`Jys`）已完成並隨 `0.1.51 (52)` 發布。等我核准 44D（`Feiyu`＋`MiaoWu`，只寫 JS、不動 Swift）或指定其他段；核准後照該文件第 7、8 節與第 11～13 節的做法實作與驗收，結果記回同一份文件。沒有我的核准不改程式；沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13。
 >

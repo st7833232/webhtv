@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.55",
+          "date": "2026-10-03",
+          "localizedDescription": "WebHTV 0.1.55 (56)（網頁播放頁字幕；真機未驗收）\n\n新增\n- 來源要求抓取網頁播放頁的影片時，同時收集該頁面播放器外掛的字幕（<track> 字幕軌與 VTT、SRT、ASS 字幕檔），放進字幕清單的「片源」字幕，AVPlayer 與 MPV 都能選用。只有網頁標為預設的字幕會自動顯示。\n\n已知限制\n- 燒錄在畫面上的字幕無法取出。\n- 抓到影片後只多等 0.25 秒收集字幕，字幕載入較晚的頁面可能抓不到。\n- 發布前通過 Core 自動測試（網頁字幕嗅探的 WebKit 測試未執行）；尚未在真機驗證。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.55-b56/WebHTV-0.1.55-56.ipa",
+          "size": 34059410,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.54",
           "date": "2026-10-03",
           "localizedDescription": "WebHTV 0.1.54 (55)（字幕修正與新功能；真機未驗收）\n\n修正\n- MPV 字幕顯示方格與播放掉幀、聲音斷續：改用 App 內建的中文字型（Noto Sans CJK 子集，SIL OFL 授權）。\n- 智慧去廣開啟時，校正好的字幕時間軸在快轉跨過廣告後跑掉：字幕時間改為扣除廣告時間計算；字幕面板新增「對齊上一句／下一句」與「扣除廣告時間」開關。\n\n新增\n- 字幕清單標示 CC、SDH 與強制字幕；沒有內嵌字幕時顯示說明，AVPlayer 下可一鍵改用 MPV 讀取。\n- 線上字幕新增「射手網（網頁）」來源，不需要 token，只下載單一 SRT 檔。\n- 片源自帶的字幕（播放回應中的字幕清單）會出現在字幕清單，AVPlayer 與 MPV 都能選用；WebVTT 與 ASS 會轉為 SRT 顯示（不保留樣式）。\n\n已知限制\n- 發布前通過 Core 自動測試；App 部分以此次 release 建置為第一次 macOS 編譯。\n- 內建字型、廣告時間軸、CC 標示、射手網網頁版與片源字幕都尚未在真機驗證。",

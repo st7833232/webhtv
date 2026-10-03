@@ -74,10 +74,10 @@ private func osSearchAnswer() -> [String: Any] { ["data": [
 /// Cat chosen, and searching an API provider anyway sends nothing anywhere.
 @MainActor @Test func aProviderWithoutItsKeyIsListedAsNotSetUpAndNeverCalled() async {
     let providers = OnlineSubtitleProviders.make(credentials: MemoryCredentials(), userAgent: "WebHTV v1")
-    #expect(providers.map(\.id) == [SubtitleCatProvider.providerID, OpenSubtitlesProvider.providerID,
-                                    AssrtProvider.providerID])
-    #expect(providers[0].availability == .available)
-    for provider in providers.dropFirst() {
+    #expect(providers.map(\.id) == [SubtitleCatProvider.providerID, AssrtWebProvider.providerID,
+                                    OpenSubtitlesProvider.providerID, AssrtProvider.providerID])
+    #expect(providers[0].availability == .available && providers[1].availability == .available)
+    for provider in providers.dropFirst(2) {
         guard case .unconfigured(let reason) = provider.availability else {
             Issue.record("\(provider.id) offered without a key"); continue
         }

@@ -383,3 +383,36 @@
   5. 測試只查 `OTTO` 檔頭與字串：改為解析 sfnt 目錄（有 `CFF `、沒有 `hvgl`／`glyf`）與名稱表（平台 3、name ID 1 完全等於 `SubtitleFont.family`）；以未改名的字型替換時測試失敗（已還原）。
   6. 發布流程不檢查字型是否打包進 App：需要改 release workflow，不在本次範圍，僅記錄；裝置上的 `bundled=missing` 紀錄可判斷。
 - 第 16.4 節的真機檢查第 2 項，現在 `fontErrors`／`fallbackMisses` 才是有效的指標。
+
+## 17. IOS-POC-45G：射手網網頁版（2.assrt.net）
+
+### 17.1 需求與授權
+
+- 使用者 2026-10-02 指出 `2.assrt.net` 不需要 token 就能下載，並在選項中選了「新增網頁版來源」：放寬第 13 節「新來源只用官方 API、不擷取網頁」的條件，只限這個網站。登入、驗證碼、Cloudflare 與其他防爬機制仍一律不繞過；不偽裝瀏覽器 User-Agent；只取單一 `.srt`，不下載也不解壓壓縮檔。
+- 第 13 節的 API 版（`AssrtProvider`，需要 token）保留。
+
+### 17.2 查證（站台在此環境連不上）
+
+- 依據為讀過的開源擷取程式與搜尋引擎收錄的網址，沒有實測：TVBox `SubtitleViewModel.java`（`kukuqi666/TVBoxOS-Mobile` `6aabea8965a45df9a126d0436404ae8afccfe96f`）、tokimo `assrt.rs`（`d29fb883782ed10f685d74a189f48b756b624157`）、ShootingCodeTalker（`6a5df6fd915634764e17e7b556125e137eb1ec15`）、scrapy_l（`a6161f04b06a8dbef0fa854fab261a69b490de7e`）、jun9100 moviepilot-subtitle-agent（`8fdd1c78c80b8ee07b0fecbc3a078f7a253be2b7`）等，加上官方 API 文件剪存（`PingWangWang/SubQuick` `0b77ff4e…`）。完整規格（含信心等級與未決項）由 workflow 整理。
+- 結構：
+  1. 搜尋 `GET /sub/?searchword=<q>&sort=rank&no_redir=1`；結果是 `/xml/sub/<桶>/<id>.xml` 的連結（桶號一律從連結讀，不自己算）。
+  2. 詳情頁以 `onthefly("<id>","<part>","<檔名>")` 列出上傳（多半是壓縮檔）裡的每個檔案，對應網站的 `/download/<id>/-/<part>/<檔名>`，下載到的是解壓後的單一檔案；單檔上傳則是 `/download/<id>/<檔名>`。
+  3. 網站錯誤頁 `/errpage/…`（擷取程式看到的 HTTP 493）、登入頁 `/user/…`、`/usercp.php`。
+- 最大的未決項：沒有任何擷取程式在 `2.assrt.net` 上用過 `/download/<id>/-/<part>/<檔名>`（多用 `secure.assrt.net`、`assrt.net`），轉址目標也沒有紀錄。若真機上 2.assrt.net 不接受這個路徑，改主機需要再問使用者。
+
+### 17.3 實作
+
+- `AssrtWebProvider.swift`（新，`id = assrt-web`，名稱「射手網（網頁）」，不需要 key）：
+  1. 搜尋頁只讀第一頁；每個 id 一筆，標題取卡片的發布名稱或連結標題；卡片寫明 SubRip（或打包連結是 `.srt`）與沒寫格式的優先開啟，只寫其他格式的最後開；最多開 5 個詳情頁、同時 2 個，搜尋頁作為詳情頁的 Referer。
+  2. 詳情頁：逐個 `onclick` 比對 `onthefly`（檔名取到最後一個引號，處理 `\\ \" \' \/`），id 必須與頁面相同，只留 `.srt`；檔名已百分比編碼就沿用，否則依 `encodeURIComponent` 規則編碼。沒有 `onthefly` 時取單檔 `.srt` 連結。只有壓縮檔或沒有 `.srt` 時回空結果（不是錯誤）；完全沒有下載連結時回報頁面無法解析，避免改版被當成「找不到字幕」。
+  3. 語言以檔名為準；卡片只標一種語言時才補上。
+  4. 頁面與連結只接受 `https` 的 `2.assrt.net`、`assrt.net`、`secure.assrt.net`；下載最終位址另接受文件記載為 http 的 `file<N>.assrt.net`，內容仍須通過 SubRip 驗證。下載以詳情頁為 Referer，每次從網站連結重新取得（不保存有時效的轉址）。
+  5. 驗證頁 → `blockedByChallenge`；錯誤頁 → `rejected(493)`；登入頁 → `blockedByChallenge`；都不重試、不繞過。
+- 來源順序：Subtitle Cat、射手網（網頁）、OpenSubtitles、射手網（API）。字幕面板選射手網任一來源時標示「字幕服務由 assrt.net 提供」。
+
+### 17.4 測試與驗證
+
+- `AssrtWebProviderTests`（10 項，fixture 全為依規格重建，未經實站擷取）：搜尋網址編碼、結果辨識與開啟順序、壓縮檔逐檔連結與編碼、單檔上傳與卡片語言、壓縮檔無 SRT 與頁面無下載連結、驗證頁／錯誤頁／登入頁、下載主機限制、完整搜尋流程（Referer）、站台直接開啟單一結果、驗證頁立即停止。突變檢查五項（拿掉 `.srt` 過濾、拿掉 id 檢查、拿掉開啟順序、下載主機全開、拿掉錯誤頁判斷）都讓測試失敗（已還原）。
+- Linux swiftlang 6.0.3 `swift test` 243 項，242 通過（既有 CP1251 項目除外）。App 只改說明文字，未在 macOS 編譯。
+- 真機待驗（必要）：用一個常見片名搜尋，確認搜尋頁、詳情頁與一個逐檔下載實際可用；若下載回錯誤頁或 493，記錄狀態碼後回報。
+- Rollback：revert 本 commit。

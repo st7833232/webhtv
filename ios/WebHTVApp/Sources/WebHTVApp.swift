@@ -1321,7 +1321,7 @@ private struct SubtitleSourceSettingsView: View {
                 }
             }
             Section {
-                Text("Subtitle Cat 不需要設定。沒有 key 的來源在字幕面板會顯示「未設定」，不會送出任何請求。")
+                Text("Subtitle Cat 與射手網（網頁）不需要設定。沒有 key 的來源在字幕面板會顯示「未設定」，不會送出任何請求。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -5206,13 +5206,15 @@ private struct OnlineSubtitleSection: View {
             if !online.keywords.candidates.isEmpty { candidates }
             status
             ForEach(online.results) { track in row(track) }
-            if online.selectedProviderID == AssrtProvider.providerID { note("字幕服務由 assrt.net 提供") }
+            if [AssrtProvider.providerID, AssrtWebProvider.providerID].contains(online.selectedProviderID) {
+                note("字幕服務由 assrt.net 提供")
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
     }
 
-    /// Subtitle Cat, OpenSubtitles and 射手網 (IOS-POC-45C); a provider that needs a key the
+    /// Subtitle Cat, 射手網's website (IOS-POC-45G), OpenSubtitles and 射手網's API (IOS-POC-45C); a provider that needs a key the
     /// viewer has not entered is listed as not set up rather than offered.
     @ViewBuilder private var providerRow: some View {
         if online.providerEntries.count > 1 {

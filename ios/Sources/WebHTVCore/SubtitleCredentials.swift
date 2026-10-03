@@ -66,12 +66,14 @@ public struct KeychainSubtitleCredentials: SubtitleCredentialStore {
 }
 
 /// Every provider the subtitle panel offers, in the panel's order. Subtitle Cat stays first and
-/// so stays the default for a viewer who has set up nothing; a provider without its key is
-/// listed as not set up. Read once per playback session.
+/// so stays the default for a viewer who has set up nothing; 射手網's website (IOS-POC-45G) needs
+/// no key and comes next; a provider without its key is listed as not set up. Read once per
+/// playback session.
 public enum OnlineSubtitleProviders {
     public static func make(credentials: any SubtitleCredentialStore = KeychainSubtitleCredentials(),
                             userAgent: String = OpenSubtitlesProvider.defaultUserAgent) -> [any SubtitleProvider] {
         [SubtitleCatProvider(),
+         AssrtWebProvider(),
          OpenSubtitlesProvider(apiKey: credentials.value(for: .openSubtitlesAPIKey), userAgent: userAgent),
          AssrtProvider(token: credentials.value(for: .assrtToken))]
     }

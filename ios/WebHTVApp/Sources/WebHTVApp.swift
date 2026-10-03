@@ -559,7 +559,7 @@ private struct HomeView: View {
                                 Text(zhTW: selectedSite.name.displayName).font(.headline)
                                 Image(systemName: "chevron.down").font(.caption2)
                             }
-                            .foregroundStyle(.white)
+                            .toolbarLabelColor()
                             .lineLimit(1)
                             .frame(minHeight: 44)
                         }
@@ -6212,6 +6212,18 @@ private extension View {
 
     func appNavigationBar() -> some View {
         toolbarBackground(.hidden, for: .navigationBar)
+    }
+
+    /// IOS-POC-46: the colour of a toolbar item's own label. iOS 26 puts each item on Liquid Glass,
+    /// which turns light over the light wallpaper, and a fixed white label disappeared into it (the
+    /// home screen's source name). The semantic colour flips with the glass, dark on light glass and
+    /// light on dark. Before iOS 26 there is no glass and the label stays white over the wallpaper.
+    @ViewBuilder func toolbarLabelColor() -> some View {
+        if #available(iOS 26, *) {
+            foregroundStyle(.primary)
+        } else {
+            foregroundStyle(.white)
+        }
     }
 }
 

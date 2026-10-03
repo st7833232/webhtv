@@ -6,6 +6,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current handoff — 2026-10-02 晚：IOS-POC-45 線上字幕（先讀這一節）
 
+**IOS-POC-46**（2026-10-03）：iOS 26 首頁左上角的站台名稱看不見（Liquid Glass 在淺色桌布上變淺，標籤寫死白色）。iOS 26 起改用會隨玻璃翻轉的 `.primary`，iOS 17／18 維持白色（`toolbarLabelColor()`）。未在 iOS 26 真機或模擬器驗證；App 全域 `tint` 也是白色，其他工具列文字按鈕（例如「關閉」）在 iOS 26 淺色背景上可能有同樣問題，尚未處理。
+
 **`0.1.55 (56)` 已發布**（2026-10-03，使用者「有新的 commit 就發佈」；IOS-POC-11 第五十六次發布：含 IOS-POC-45I `76e0d57f` 網頁播放頁字幕嗅探；版號 commit `46ef9c12`，run `37098285365` success，tag `ios-v0.1.55-b56` → `46ef9c12`，`source.json` `581fce56`，IPA 34,059,410 bytes，真機未驗證），**目前最新版是 `0.1.55 (56)`**。
 
 **IOS-POC-45I**（2026-10-03，另一個 session）：`parse:1` 播放頁嗅探時一併收集 `<track>` 與 VTT／SRT／ASS 字幕，併入片源字幕。見 IOS-POC-45 文件第 21 節（原誤編為第 20 節，與 SubtitleNexus 評估重號，已改）。

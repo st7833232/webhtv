@@ -87,6 +87,24 @@ public struct SourceSubtitlePlan: Sendable, Equatable {
 
 public enum SourceSubtitles {
     public static let providerName = "片源"
+
+    /// Adds out-of-band subtitle resources observed on a player page after the source's explicit
+    /// CatVod `subs`. Explicit entries win when both point at the same URL. A web track only
+    /// becomes the default when the page explicitly marked it `default`; otherwise it stays
+    /// autoselect-only so an inferred XHR/fetch file cannot unexpectedly replace embedded subtitles.
+    public static func merging(_ listed: [SourceSubtitle], sniffed: [SniffedSubtitle]) -> [SourceSubtitle] {
+        var result = listed
+        var seen = Set(listed.map(\.url))
+        for track in sniffed where seen.insert(track.url.absoluteString).inserted {
+            result.append(SourceSubtitle(
+                url: track.url.absoluteString,
+                name: track.name,
+                language: track.language,
+                format: track.format,
+                flag: track.isDefault ? 1 : 4))
+        }
+        return result
+    }
     /// A source listing every language of a release still costs one request each; past this, none.
     public static let maximumFiles = 8
 

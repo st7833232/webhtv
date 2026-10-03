@@ -130,17 +130,19 @@ public enum SourceClient: Sendable {
         guard !qualities.isEmpty else { return nil }
         let index = PlaybackQuality.defaultIndex(in: qualities, position: play.position)
         let chosen = qualities[index].url
-        let resolved: URL?
+        let sniffed: MediaSniffResult?
         if parse != 0 {
             // parse:1 is the spider saying outright "this is a page, sniff it" — no need to probe.
-            resolved = await MediaSniffer.shared.sniff(page: chosen,
-                                                       referer: headers["Referer"] ?? headers["referer"])
+            sniffed = await MediaSniffer.shared.sniffWithSubtitles(
+                page: chosen, referer: headers["Referer"] ?? headers["referer"])
         } else {
-            resolved = await Self.resolveMedia(chosen, headers: headers)
+            sniffed = await Self.resolveMedia(chosen, headers: headers)
         }
-        guard let resolved else { return nil }
-        return PlaybackTarget(url: resolved, headers: headers,
-                              qualities: qualities, position: play.position, defaultIndex: index, subtitles: subtitles)
+        guard let sniffed else { return nil }
+        let allSubtitles = SourceSubtitles.merging(subtitles, sniffed: sniffed.subtitles)
+        return PlaybackTarget(url: sniffed.mediaURL, headers: headers,
+                              qualities: qualities, position: play.position, defaultIndex: index,
+                              subtitles: allSubtitles)
     }
 
     /// A resolved URL may still be a player page rather than a stream: three type-1 sources hand
@@ -150,13 +152,16 @@ public enum SourceClient: Sendable {
     ///
     /// Sniffing is best effort, so a miss hands back the original URL rather than nil: a page that
     /// at least opens is not made worse by us failing to improve it.
-    private static func resolveMedia(_ url: URL, headers: [String: String]) async -> URL? {
-        if CMSClient.isDirectMedia(url) { return url }
+    private static func resolveMedia(_ url: URL, headers: [String: String]) async -> MediaSniffResult? {
+        if CMSClient.isDirectMedia(url) { return MediaSniffResult(mediaURL: url) }
         // Probing without the spider's headers is what made a referer-checked stream look dead:
         // the probe got the CDN's 403 and reported `.unknown`, never `.media`.
-        guard await MediaProbe.classify(url, headers: headers) == .page else { return url }
-        return await MediaSniffer.shared.sniff(page: url,
-                                               referer: headers["Referer"] ?? headers["referer"]) ?? url
+        guard await MediaProbe.classify(url, headers: headers) == .page else {
+            return MediaSniffResult(mediaURL: url)
+        }
+        return await MediaSniffer.shared.sniffWithSubtitles(
+            page: url, referer: headers["Referer"] ?? headers["referer"])
+            ?? MediaSniffResult(mediaURL: url)
     }
 
     private func decode<T: Decodable>(_ type: T.Type, from text: String) throws -> T {

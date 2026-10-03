@@ -447,3 +447,30 @@ private struct OnlineFiles: SubtitleProvider {
     #expect(attachedAfterEnd == 0 && session.hasEnded)
     #expect(files.requests.isEmpty)
 }
+
+
+/// IOS-POC-45I: a web page's out-of-band tracks join explicit CatVod subs, but never overwrite
+/// metadata the source supplied for the same address.
+@Test func sniffedWebTracksMergeAfterExplicitSourceSubtitles() {
+    let explicit = SourceSubtitle(url: "https://cdn.example/zh.vtt", name: "來源名稱",
+                                  language: "zh-TW", format: "text/vtt", flag: 1)
+    let sniffed = [
+        SniffedSubtitle(url: URL(string: "https://cdn.example/zh.vtt")!, name: "網頁名稱",
+                        language: "zh-TW", format: "text/vtt", isDefault: false),
+        SniffedSubtitle(url: URL(string: "https://cdn.example/en.srt")!, name: "English",
+                        language: "en", format: "application/x-subrip", isDefault: false),
+    ]
+    let merged = SourceSubtitles.merging([explicit], sniffed: sniffed)
+    #expect(merged.count == 2)
+    #expect(merged[0].name == "來源名稱" && merged[0].flag == 1)
+    #expect(merged[1].url == "https://cdn.example/en.srt")
+    #expect(merged[1].flag == 4)
+}
+
+@Test func onlyAnExplicitDefaultWebTrackBecomesASourceDefault() {
+    let normal = SniffedSubtitle(url: URL(string: "https://cdn.example/normal.vtt")!, language: "zh-TW")
+    let preferred = SniffedSubtitle(url: URL(string: "https://cdn.example/default.vtt")!,
+                                    language: "zh-TW", isDefault: true)
+    let merged = SourceSubtitles.merging([], sniffed: [normal, preferred])
+    #expect(merged.map(\.flag) == [4, 1])
+}

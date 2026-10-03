@@ -11,6 +11,40 @@ public enum MediaKind: Sendable {
     case unknown
 }
 
+/// One external timed-text track observed while a web player page is being sniffed.
+///
+/// A <track> element supplies the useful metadata directly. XHR/fetch discovery may only know the
+/// URL, so name/language/format can be empty and SourceSubtitles falls back to its normal detection.
+public struct SniffedSubtitle: Sendable, Equatable {
+    public let url: URL
+    public let name: String
+    public let language: String
+    public let format: String
+    public let isDefault: Bool
+
+    public init(url: URL, name: String = "", language: String = "", format: String = "",
+                isDefault: Bool = false) {
+        self.url = url
+        self.name = name
+        self.language = language
+        self.format = format
+        self.isDefault = isDefault
+    }
+}
+
+/// What a player-page sniff discovered. HLS master-playlist subtitle renditions remain part of the
+/// media URL itself and are exposed by AVPlayer/mpv as embedded tracks; this list is only for
+/// out-of-band subtitle resources the web page declares or requests separately.
+public struct MediaSniffResult: Sendable, Equatable {
+    public let mediaURL: URL
+    public let subtitles: [SniffedSubtitle]
+
+    public init(mediaURL: URL, subtitles: [SniffedSubtitle] = []) {
+        self.mediaURL = mediaURL
+        self.subtitles = subtitles
+    }
+}
+
 /// Classifies a URL by fetching its first bytes.
 ///
 /// Exists because the extension heuristic cuts both ways: `…/share/<id>` is a player page with no
@@ -194,51 +228,79 @@ public final class MediaSniffer {
         referer: String? = nil,
         timeout: Duration = .seconds(12)
     ) async -> URL? {
-        // A page that names the stream in its own query string needs no web view at all. Checked
-        // first because it is both cheaper and more reliable than loading the page and hoping the
-        // player asks for it somewhere the hook can see.
+        await sniffResult(page: page, referer: referer, timeout: timeout,
+                          captureSubtitles: false, subtitleGrace: .milliseconds(0))?.mediaURL
+    }
+
+    /// Resolves the first playable URL and, for a short grace period, keeps the same web view alive
+    /// long enough to collect external subtitle tracks the page declares or requests alongside it.
+    ///
+    /// The grace only exists on this API. Legacy `sniff()` still finishes on the first media match,
+    /// so source-health checks and other callers do not pay extra latency.
+    public func sniffWithSubtitles(
+        page: URL,
+        referer: String? = nil,
+        timeout: Duration = .seconds(12),
+        subtitleGrace: Duration = .milliseconds(250)
+    ) async -> MediaSniffResult? {
+        await sniffResult(page: page, referer: referer, timeout: timeout,
+                          captureSubtitles: true, subtitleGrace: subtitleGrace)
+    }
+
+    private func sniffResult(
+        page: URL,
+        referer: String?,
+        timeout: Duration,
+        captureSubtitles: Bool,
+        subtitleGrace: Duration
+    ) async -> MediaSniffResult? {
         if let embedded = Self.embeddedMedia(in: page) {
-            return embedded
+            return MediaSniffResult(mediaURL: embedded)
         }
 
-        // One sniff at a time: a second concurrent web view competes for the main actor and the
-        // network. Playback wants the newest pick to win, so a new sniff cancels the one in flight;
-        // a caller that sniffs side by side sets `waitsForTurn` and queues instead.
         let queued = Self.waitsForTurn.get()
         if !queued, let live = collector { live.cancel() }
         let rules = await contentRules()
-        // No await between this check and taking the slot, so two waiters cannot both pass.
         while queued, collector != nil { await withCheckedContinuation { waiting.append($0) } }
-        let collector = Collector(rules: rules, ruleset: snifferRules)
+        let collector = Collector(rules: rules, ruleset: snifferRules,
+                                  captureSubtitles: captureSubtitles, subtitleGrace: subtitleGrace)
         self.collector = collector
         defer {
             if self.collector === collector { self.collector = nil }
             if !waiting.isEmpty { waiting.removeFirst().resume() }
         }
-
-        let found = await collector.run(page: page, referer: referer, timeout: timeout)
-        return found
+        return await collector.run(page: page, referer: referer, timeout: timeout)
     }
 
     /// Owns one web view and one continuation for the duration of a single sniff.
     @MainActor
     private final class Collector: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         private var webView: WKWebView?
-        private var continuation: CheckedContinuation<URL?, Never>?
+        private var continuation: CheckedContinuation<MediaSniffResult?, Never>?
         private var timeoutTask: Task<Void, Never>?
+        private var finishTask: Task<Void, Never>?
+        private var mediaURL: URL?
+        private var subtitles = [SniffedSubtitle]()
+        private var subtitleIndexes = [String: Int]()
 
         /// `rules` is the active configuration's ad blocker, or nil for none.
         private let rules: WKContentRuleList?
         /// The active configuration's sniffer rules (IOS-POC-5S-3), or nil for none.
         private let ruleset: SnifferRules?
+        private let captureSubtitles: Bool
+        private let subtitleGrace: Duration
+        private static let maximumCapturedSubtitles = 16
 
-        init(rules: WKContentRuleList?, ruleset: SnifferRules?) {
+        init(rules: WKContentRuleList?, ruleset: SnifferRules?,
+             captureSubtitles: Bool, subtitleGrace: Duration) {
             self.rules = rules
             self.ruleset = ruleset
+            self.captureSubtitles = captureSubtitles
+            self.subtitleGrace = subtitleGrace
         }
 
-        func run(page: URL, referer: String?, timeout: Duration) async -> URL? {
-            await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
+        func run(page: URL, referer: String?, timeout: Duration) async -> MediaSniffResult? {
+            await withCheckedContinuation { (continuation: CheckedContinuation<MediaSniffResult?, Never>) in
                 self.continuation = continuation
 
                 let configuration = WKWebViewConfiguration()
@@ -260,9 +322,10 @@ public final class MediaSniffer {
                 webView.navigationDelegate = self
                 self.webView = webView
 
-                timeoutTask = Task { [weak self] in
+                timeoutTask = Task { @MainActor [weak self] in
                     try? await Task.sleep(for: timeout)
-                    self?.finish(with: nil)
+                    guard !Task.isCancelled else { return }
+                    self?.finishCurrent()
                 }
 
                 var request = URLRequest(url: page)
@@ -273,28 +336,28 @@ public final class MediaSniffer {
 
         func cancel() { finish(with: nil) }
 
-        private func finish(with url: URL?) {
+        private func finishCurrent() {
+            guard let mediaURL else { finish(with: nil); return }
+            finish(with: MediaSniffResult(mediaURL: mediaURL, subtitles: subtitles))
+        }
+
+        private func finish(with result: MediaSniffResult?) {
             guard let continuation else { return }
             self.continuation = nil
             timeoutTask?.cancel()
             timeoutTask = nil
-            // Stop the page before handing back, or it keeps loading media in the background.
+            finishTask?.cancel()
+            finishTask = nil
             webView?.stopLoading()
             webView?.configuration.userContentController.removeScriptMessageHandler(forName: Self.channel)
             webView?.navigationDelegate = nil
             webView = nil
-            continuation.resume(returning: url)
+            continuation.resume(returning: result)
         }
 
-        func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard let raw = message.body as? String else { return }
+        private func acceptMedia(_ raw: String) {
             let candidate = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            // A floor Android gets structurally: `shouldInterceptRequest` only ever sees http(s)
-            // requests, so requiring a scheme here is parity, not a narrowing.
             guard candidate.lowercased().hasPrefix("http") else { return }
-            // IOS-POC-5S-3. The configuration's rules decide first, exactly as `Sniffer` does:
-            // `exclude` rejects outright, `regex` accepts outright, and only when the matched rule
-            // says nothing — or no rule matched this host — does the built-in test get a say.
             switch ruleset?.verdict(for: candidate) ?? .undecided {
             case .notVideo:
                 return
@@ -304,10 +367,67 @@ public final class MediaSniffer {
                 guard MediaSniffer.isCandidate(candidate) else { return }
             }
             guard let url = URL(string: candidate) else { return }
-            // The reported URL may be a wrapper around the real one — that is how 去看吧's player
-            // page resolves (IOS-POC-6B/6C), and the wrapper only matched because of the address
-            // inside it.
-            finish(with: MediaSniffer.unwrapped(url))
+            let resolved = MediaSniffer.unwrapped(url)
+            guard mediaURL == nil else { return }
+            mediaURL = resolved
+            guard captureSubtitles else { finishCurrent(); return }
+            finishTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: self?.subtitleGrace ?? .milliseconds(0))
+                guard !Task.isCancelled else { return }
+                self?.finishCurrent()
+            }
+        }
+
+        private func acceptSubtitle(_ raw: String, name: String, language: String,
+                                    format: String, isDefault: Bool) {
+            guard captureSubtitles else { return }
+            let candidate = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let url = URL(string: candidate),
+                  let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return }
+            let key = url.absoluteString
+            let inferred: String
+            switch url.pathExtension.lowercased() {
+            case "vtt": inferred = "text/vtt"
+            case "srt": inferred = "application/x-subrip"
+            case "ass", "ssa": inferred = "text/x-ssa"
+            default: inferred = ""
+            }
+            let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanLanguage = language.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanFormat = format.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let index = subtitleIndexes[key] {
+                let old = subtitles[index]
+                subtitles[index] = SniffedSubtitle(
+                    url: url,
+                    name: old.name.isEmpty ? cleanName : old.name,
+                    language: old.language.isEmpty ? cleanLanguage : old.language,
+                    format: old.format.isEmpty ? (cleanFormat.isEmpty ? inferred : cleanFormat) : old.format,
+                    isDefault: old.isDefault || isDefault)
+                return
+            }
+            guard subtitles.count < Self.maximumCapturedSubtitles else { return }
+            subtitleIndexes[key] = subtitles.count
+            subtitles.append(SniffedSubtitle(
+                url: url, name: cleanName, language: cleanLanguage,
+                format: cleanFormat.isEmpty ? inferred : cleanFormat, isDefault: isDefault))
+        }
+
+        func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+            if let raw = message.body as? String {
+                acceptMedia(raw)
+                return
+            }
+            guard let body = message.body as? [String: Any],
+                  let raw = body["url"] as? String else { return }
+            if (body["kind"] as? String) == "subtitle" {
+                acceptSubtitle(raw,
+                               name: body["name"] as? String ?? "",
+                               language: body["language"] as? String ?? "",
+                               format: body["format"] as? String ?? "",
+                               isDefault: body["default"] as? Bool ?? false)
+            } else {
+                acceptMedia(raw)
+            }
         }
 
         /// `CustomWebView.onPageFinished` — evaluate the matched rule's `script` entries
@@ -341,11 +461,11 @@ public final class MediaSniffer {
 
         /// A page that fails to load will never report anything, so stop waiting for the timeout.
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            finish(with: nil)
+            finishCurrent()
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            finish(with: nil)
+            finishCurrent()
         }
 
         private static let channel = "webhtvSniff"
@@ -355,33 +475,83 @@ public final class MediaSniffer {
         private static let hook = """
         (function () {
           'use strict';
-          var seen = Object.create(null);
-          function report(value) {
-            if (!value) return;
+          var seenMedia = Object.create(null);
+
+          function absolute(value) {
+            if (!value) return '';
             var url = String(value);
-            if (url.indexOf('blob:') === 0 || url.indexOf('data:') === 0) return;
-            try { url = new URL(url, location.href).href; } catch (e) { return; }
-            if (seen[url]) return;
-            seen[url] = 1;
-            try { window.webkit.messageHandlers.\(channel).postMessage(url); } catch (e) {}
+            if (url.indexOf('blob:') === 0 || url.indexOf('data:') === 0) return '';
+            try { return new URL(url, location.href).href; } catch (e) { return ''; }
+          }
+
+          function post(body) {
+            try { window.webkit.messageHandlers.\(channel).postMessage(body); } catch (e) {}
+          }
+
+          function subtitleFormat(url) {
+            var path = '';
+            try { path = new URL(url).pathname.toLowerCase(); } catch (e) { return ''; }
+            if (/\\.vtt$/.test(path)) return 'text/vtt';
+            if (/\\.srt$/.test(path)) return 'application/x-subrip';
+            if (/\\.(ass|ssa)$/.test(path)) return 'text/x-ssa';
+            return '';
+          }
+
+          function reportSubtitle(value, meta) {
+            var url = absolute(value);
+            if (!url) return;
+            meta = meta || {};
+            post({
+              kind: 'subtitle',
+              url: url,
+              name: meta.name || '',
+              language: meta.language || '',
+              format: meta.format || subtitleFormat(url),
+              default: !!meta.default
+            });
+          }
+
+          function reportMedia(value) {
+            var url = absolute(value);
+            if (!url || seenMedia[url]) return;
+            seenMedia[url] = 1;
+            post({ kind: 'media', url: url });
+          }
+
+          function reportRequest(value) {
+            var url = absolute(value);
+            if (!url) return;
+            if (subtitleFormat(url)) reportSubtitle(url, {});
+            else reportMedia(url);
+          }
+
+          function reportTrack(track, override) {
+            if (!track) return;
+            var kind = String(track.getAttribute('kind') || track.kind || 'subtitles').toLowerCase();
+            if (kind !== 'subtitles' && kind !== 'captions' && kind !== '') return;
+            var src = override || track.getAttribute('src') || track.src;
+            reportSubtitle(src, {
+              name: track.getAttribute('label') || track.label || '',
+              language: track.getAttribute('srclang') || track.srclang || '',
+              format: subtitleFormat(absolute(src)),
+              default: track.hasAttribute('default') || !!track.default
+            });
           }
 
           var open = XMLHttpRequest.prototype.open;
           XMLHttpRequest.prototype.open = function (method, url) {
-            report(url);
+            reportRequest(url);
             return open.apply(this, arguments);
           };
 
           var fetcher = window.fetch;
           if (fetcher) {
             window.fetch = function (input) {
-              report(typeof input === 'string' ? input : (input && input.url));
+              reportRequest(typeof input === 'string' ? input : (input && input.url));
               return fetcher.apply(this, arguments);
             };
           }
 
-          // A native player sets `src` rather than issuing a request we can hook, so watch the
-          // property itself as well as the attribute.
           ['HTMLVideoElement', 'HTMLAudioElement', 'HTMLSourceElement'].forEach(function (name) {
             var type = window[name];
             if (!type) return;
@@ -389,15 +559,32 @@ public final class MediaSniffer {
             if (!descriptor || !descriptor.set) return;
             Object.defineProperty(type.prototype, 'src', {
               get: function () { return descriptor.get ? descriptor.get.call(this) : ''; },
-              set: function (value) { report(value); return descriptor.set.call(this, value); },
+              set: function (value) { reportMedia(value); return descriptor.set.call(this, value); },
               configurable: true
             });
           });
 
+          var trackType = window.HTMLTrackElement;
+          if (trackType) {
+            var trackDescriptor = Object.getOwnPropertyDescriptor(trackType.prototype, 'src');
+            if (trackDescriptor && trackDescriptor.set) {
+              Object.defineProperty(trackType.prototype, 'src', {
+                get: function () { return trackDescriptor.get ? trackDescriptor.get.call(this) : ''; },
+                set: function (value) {
+                  var result = trackDescriptor.set.call(this, value);
+                  reportTrack(this, value);
+                  return result;
+                },
+                configurable: true
+              });
+            }
+          }
+
           function scan(root) {
-            var nodes = (root.querySelectorAll ? root.querySelectorAll('video,audio,source') : []);
+            var nodes = (root.querySelectorAll ? root.querySelectorAll('video,audio,source,track') : []);
             for (var i = 0; i < nodes.length; i++) {
-              report(nodes[i].getAttribute('src') || nodes[i].src);
+              if (nodes[i].tagName === 'TRACK') reportTrack(nodes[i]);
+              else reportMedia(nodes[i].getAttribute('src') || nodes[i].src);
             }
           }
 
@@ -405,15 +592,21 @@ public final class MediaSniffer {
             new MutationObserver(function (records) {
               for (var i = 0; i < records.length; i++) {
                 var record = records[i];
-                if (record.type === 'attributes') { report(record.target.getAttribute('src')); continue; }
+                if (record.type === 'attributes') {
+                  if (record.target.tagName === 'TRACK') reportTrack(record.target);
+                  else if (record.attributeName === 'src') reportMedia(record.target.getAttribute('src'));
+                  continue;
+                }
                 for (var j = 0; j < record.addedNodes.length; j++) {
                   var node = record.addedNodes[j];
                   if (node.nodeType !== 1) continue;
-                  if (/^(VIDEO|AUDIO|SOURCE)$/.test(node.tagName)) report(node.getAttribute('src') || node.src);
+                  if (node.tagName === 'TRACK') reportTrack(node);
+                  else if (/^(VIDEO|AUDIO|SOURCE)$/.test(node.tagName)) reportMedia(node.getAttribute('src') || node.src);
                   scan(node);
                 }
               }
-            }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
+            }).observe(document, { childList: true, subtree: true, attributes: true,
+                                   attributeFilter: ['src', 'label', 'srclang', 'kind', 'default'] });
           }
 
           document.addEventListener('DOMContentLoaded', function () { scan(document); });

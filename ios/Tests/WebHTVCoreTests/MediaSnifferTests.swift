@@ -14,6 +14,14 @@ private func sniff(_ html: String, timeout: Duration = .seconds(6)) async -> URL
     return await MediaSniffer().sniff(page: page, timeout: timeout)
 }
 
+@MainActor
+private func sniffResult(_ html: String, timeout: Duration = .seconds(6),
+                         grace: Duration = .milliseconds(250)) async -> MediaSniffResult? {
+    let encoded = Data(html.utf8).base64EncodedString()
+    guard let page = URL(string: "data:text/html;base64,\(encoded)") else { return nil }
+    return await MediaSniffer().sniffWithSubtitles(page: page, timeout: timeout, subtitleGrace: grace)
+}
+
 @MainActor @Test func catchesAStreamRequestedThroughXMLHttpRequest() async throws {
     // hls.js and every 苹果CMS player skin fetch the playlist this way.
     let found = await sniff("""
@@ -80,6 +88,76 @@ private func sniff(_ html: String, timeout: Duration = .seconds(6)) async -> URL
     </script></body></html>
     """)
     #expect(found?.absoluteString == "https://cdn.example.com/first/index.m3u8")
+}
+
+@MainActor @Test func capturesADeclaredTrackWithItsMetadata() async throws {
+    let found = await sniffResult("""
+    <html><body><video>
+      <source src="https://cdn.example.com/show/master.m3u8">
+      <track kind="subtitles" src="https://cdn.example.com/show/zh.vtt"
+             srclang="zh-TW" label="繁體中文" default>
+    </video></body></html>
+    """)
+    #expect(found?.mediaURL.absoluteString == "https://cdn.example.com/show/master.m3u8")
+    #expect(found?.subtitles == [
+        SniffedSubtitle(url: URL(string: "https://cdn.example.com/show/zh.vtt")!,
+                        name: "繁體中文", language: "zh-TW", format: "text/vtt", isDefault: true)
+    ])
+}
+
+@MainActor @Test func capturesASubtitleRequestedJustAfterTheMediaURL() async throws {
+    let found = await sniffResult("""
+    <html><body><script>
+      var video = document.createElement('video');
+      video.src = 'https://cdn.example.com/show/movie.mp4';
+      setTimeout(function () {
+        fetch('https://cdn.example.com/show/captions.srt').catch(function () {});
+      }, 40);
+    </script></body></html>
+    """, grace: .milliseconds(180))
+    #expect(found?.mediaURL.absoluteString == "https://cdn.example.com/show/movie.mp4")
+    #expect(found?.subtitles.map(\.url.absoluteString) == ["https://cdn.example.com/show/captions.srt"])
+    #expect(found?.subtitles.first?.format == "application/x-subrip")
+}
+
+@MainActor @Test func aSubtitleRequestAloneIsNeverMistakenForTheVideo() async throws {
+    let found = await sniffResult("""
+    <html><body><script>
+      fetch('https://cdn.example.com/show/captions.vtt').catch(function () {});
+    </script></body></html>
+    """, timeout: .milliseconds(350), grace: .milliseconds(80))
+    #expect(found == nil)
+}
+
+@MainActor @Test func aLaterTrackDeclarationUpgradesMetadataForTheSameURL() async throws {
+    let found = await sniffResult("""
+    <html><body><script>
+      fetch('https://cdn.example.com/show/zh.vtt').catch(function () {});
+      var video = document.createElement('video');
+      var track = document.createElement('track');
+      track.kind = 'subtitles';
+      track.srclang = 'zh-TW';
+      track.label = '中文';
+      track.src = 'https://cdn.example.com/show/zh.vtt';
+      video.appendChild(track);
+      video.src = 'https://cdn.example.com/show/movie.mp4';
+      document.body.appendChild(video);
+    </script></body></html>
+    """)
+    #expect(found?.subtitles.count == 1)
+    #expect(found?.subtitles.first?.name == "中文")
+    #expect(found?.subtitles.first?.language == "zh-TW")
+}
+
+@MainActor @Test func metadataTracksAreNotOfferedAsSubtitles() async throws {
+    let found = await sniffResult("""
+    <html><body><video>
+      <source src="https://cdn.example.com/show/movie.mp4">
+      <track kind="metadata" src="https://cdn.example.com/show/chapters.vtt" label="chapters">
+    </video></body></html>
+    """)
+    #expect(found?.mediaURL.absoluteString == "https://cdn.example.com/show/movie.mp4")
+    #expect(found?.subtitles.isEmpty == true)
 }
 
 /// IOS-POC-43: two sniffs at once. Playback keeps "the newest wins" — the earlier one comes back

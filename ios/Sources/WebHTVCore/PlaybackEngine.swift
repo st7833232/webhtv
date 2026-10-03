@@ -314,6 +314,9 @@ public protocol PlaybackEngine: AnyObject {
     /// draws itself and every file it loads after this. `PlayerRouter` hands a fresh engine the
     /// same value before its load.
     func setSubtitleDelay(_ seconds: Double)
+    /// IOS-POC-45E: hide the subtitles the engine draws itself, while the playhead is inside an ad
+    /// a downloaded file has no lines for.
+    func setSubtitleHidden(_ hidden: Bool)
     /// Stops and releases everything. The engine is not used again afterwards.
     func teardown()
 }
@@ -325,6 +328,7 @@ public extension PlaybackEngine {
     /// An engine that draws no subtitle it could move ignores the correction (AVPlayer: the
     /// player screen's overlay applies it to the downloaded file).
     func setSubtitleDelay(_ seconds: Double) {}
+    func setSubtitleHidden(_ hidden: Bool) {}
 }
 
 // MARK: - IOS-POC-22: speeds AVPlayer cannot play
@@ -492,16 +496,99 @@ public final class PlayerRouter {
         selectedExternalSubtitleID = subtitles.contains(where: { $0.id == selectedID }) ? selectedID : nil
         engine?.setExternalSubtitles(subtitles, selectedID: selectedExternalSubtitleID)
         // The session ended: the next video starts on its own timing.
-        if subtitles.isEmpty { setSubtitleDelay(0) }
+        if subtitles.isEmpty {
+            // The session ended: the next video starts on its own timing.
+            subtitleDelay = 0
+            subtitleDelayLinedUp = false
+            subtitleAdMapping = true
+        }
+        refreshSubtitleTiming()
     }
 
     /// IOS-POC-45B: the viewer's timing correction for this video's subtitles, kept here for the
-    /// same reason as the files: the engine taking over keeps it.
+    /// same reason as the files: the engine taking over keeps it. Always the viewer's own value,
+    /// on the programme's clock; what an engine is given is `effectiveSubtitleTiming`.
     public private(set) var subtitleDelay = 0.0
 
     public func setSubtitleDelay(_ seconds: Double) {
         subtitleDelay = SubtitleDelay.clamped(seconds)
-        engine?.setSubtitleDelay(subtitleDelay)
+        subtitleDelayLinedUp = selectedExternalSubtitleID != nil
+        refreshSubtitleTiming()
+    }
+
+    /// The viewer set the value for this video against the downloaded file, by eye on the file's
+    /// clock of that moment.
+    private var subtitleDelayLinedUp = false
+
+    /// IOS-POC-45E: the item's ads, as far as the engine's clock is the ad plan's (`.none`
+    /// otherwise). The session sets it from 智慧去廣's plan.
+    public private(set) var subtitleClock = SubtitleAdClock.none
+    /// The viewer's switch for this video: off for a file timed to a copy that had the ads in.
+    public private(set) var subtitleAdMapping = true
+    private var appliedSubtitleTiming: (delay: Double, hidden: Bool)?
+
+    /// The clock a subtitle is looked up on now: the ads' for a downloaded file, unless the viewer
+    /// turned it off; `.none` for an embedded track, which is timed to the stream itself.
+    public var activeSubtitleClock: SubtitleAdClock {
+        subtitleAdMapping && selectedExternalSubtitleID != nil ? subtitleClock : .none
+    }
+
+    /// The item's ads changed (a plan arrived, a new item cleared it, an engine's clock stopped
+    /// matching). A value the viewer lined up against the downloaded file is rebased so the file
+    /// keeps the timing it had, whichever track is on screen now, and a plan arriving late does not
+    /// undo that; it is not rounded, so a clock cleared and restored (a quality switch) gives the
+    /// same value back. A value nobody lined up is left alone: then the mapping is the whole
+    /// correction.
+    ///
+    /// Inside an ad: the clock being left counts that whole ad, as the engine was given it; the
+    /// clock arriving counts only the ads already over, since a value lined up by eye without the
+    /// mapping was lined up before this ad.
+    public func setSubtitleClock(_ clock: SubtitleAdClock) {
+        guard clock != subtitleClock else { return }
+        let position = subtitlePosition
+        let before = fileSubtitleClock.engineDelay(user: 0, at: position)
+        subtitleClock = clock
+        let after = fileSubtitleClock.adSeconds(endedBy: position)
+        if subtitleDelayLinedUp, before != after {
+            subtitleDelay = min(max(subtitleDelay + before - after, -SubtitleDelay.limit), SubtitleDelay.limit)
+        }
+        refreshSubtitleTiming()
+    }
+
+    /// The clock the downloaded file is looked up on, whichever track is selected now.
+    private var fileSubtitleClock: SubtitleAdClock { subtitleAdMapping ? subtitleClock : .none }
+
+    /// Where the engine is, or — while it has reported nothing since a load (MPV reads 0 until
+    /// its file opens) — where it was asked to start, as `PlaybackSession.position` reads it.
+    private var subtitlePosition: Double {
+        guard let engine else { return 0 }
+        let reported = engine.currentTime
+        return reported > 0 || engine.duration > 0 ? reported : request?.startSeconds ?? 0
+    }
+
+    /// Not rebased: turning it over has to show its effect.
+    public func setSubtitleAdMapping(_ enabled: Bool) {
+        subtitleAdMapping = enabled
+        refreshSubtitleTiming()
+    }
+
+    /// What the engine is given at `position`: the viewer's correction plus the ads already begun,
+    /// hidden inside one.
+    public func effectiveSubtitleTiming(at position: Double) -> (delay: Double, hidden: Bool) {
+        let clock = activeSubtitleClock
+        return (clock.engineDelay(user: subtitleDelay, at: position), clock.isInsideAd(position))
+    }
+
+    /// Hands the engine the timing for `position` (`subtitlePosition`, when nil) if it changed. The
+    /// session calls this as the playhead moves and before every seek, so an ad crossed by playing
+    /// on or by a seek moves the subtitles with it.
+    public func refreshSubtitleTiming(at position: Double? = nil) {
+        guard let engine else { return }
+        let timing = effectiveSubtitleTiming(at: position ?? subtitlePosition)
+        if let applied = appliedSubtitleTiming, applied.delay == timing.delay, applied.hidden == timing.hidden { return }
+        appliedSubtitleTiming = timing
+        engine.setSubtitleDelay(timing.delay)
+        engine.setSubtitleHidden(timing.hidden)
     }
 
     /// The panel's choice, through here so the online one is remembered for the next engine.
@@ -509,6 +596,7 @@ public final class PlayerRouter {
     public func selectMedia(_ kind: PlaybackMediaKind, id: String) async {
         if kind == .subtitle {
             selectedExternalSubtitleID = externalSubtitles.contains(where: { $0.id == id }) ? id : nil
+            refreshSubtitleTiming()
         }
         await engine?.selectMedia(kind, id: id)
     }
@@ -517,6 +605,7 @@ public final class PlayerRouter {
     public func stop() {
         engine?.teardown()
         engine = nil
+        appliedSubtitleTiming = nil
         onMediaSelectionChange?(PlaybackMediaSelection())
     }
 
@@ -542,7 +631,8 @@ public final class PlayerRouter {
             engine = fresh
             // IOS-POC-45: before the load, so the engine has them when its file opens.
             fresh.setExternalSubtitles(externalSubtitles, selectedID: selectedExternalSubtitleID)
-            fresh.setSubtitleDelay(subtitleDelay)
+            appliedSubtitleTiming = nil
+            refreshSubtitleTiming(at: request.startSeconds)
             onEngineChange?(kind)
         }
         engine?.load(request)

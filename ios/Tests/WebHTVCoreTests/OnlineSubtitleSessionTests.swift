@@ -100,7 +100,9 @@ private final class SubtitleEngine: PlaybackEngine {
     }
     var delay = 0.0
     var delayAtLoad: Double?
+    var hidden = false
     func setSubtitleDelay(_ seconds: Double) { delay = seconds }
+    func setSubtitleHidden(_ hidden: Bool) { self.hidden = hidden }
     func teardown() { tornDown = true }
 }
 
@@ -462,4 +464,175 @@ private func heldSession(_ provider: HeldProvider, title: String = "FC2PPV-12345
     rig.router.setSubtitleDelay(-2)
     rig.coordinator.playbackClosed()
     #expect(rig.router.subtitleDelay == 0)
+}
+
+// MARK: - IOS-POC-45E: the ads in the engine's clock
+
+/// A downloaded file is mapped through the ads; the viewer's own value stays the one the panel
+/// shows, and mpv is given that value plus the ads begun — refreshed by the playhead and before a
+/// seek, hidden inside an ad. An embedded track is timed to the stream and gets the viewer's value.
+@MainActor @Test func aDownloadedSubtitleIsMappedThroughTheAdsAndAnEmbeddedOneIsNot() async throws {
+    let rig = subtitleCatRig()
+    rig.router.open(PlaybackLoadRequest(target: PlaybackTarget(url: URL(string: "https://cdn/ep1.m3u8")!)))
+    let session = rig.coordinator.playbackOpened(episode, title: "FC2-PPV-4159457")
+    session.search()
+    await settle { !session.isSearching }
+    session.choose(try #require(session.results.first))
+    await settle { session.attached.count == 1 }
+    #expect(rig.router.select(.mpv))
+    let mpv = try #require(rig.engine)
+
+    rig.router.setSubtitleDelay(0.5)
+    rig.router.setSubtitleClock(SubtitleAdClock(ads: [.init(start: 100, end: 120)]))
+    #expect(rig.router.subtitleDelay == 0.5 && mpv.delay == 0.5)
+
+    rig.router.refreshSubtitleTiming(at: 110)
+    #expect(mpv.delay == 20.5 && mpv.hidden)
+    mpv.currentTime = 300
+    rig.router.refreshSubtitleTiming()
+    #expect(mpv.delay == 20.5 && !mpv.hidden && rig.router.subtitleDelay == 0.5)
+
+    rig.router.setSubtitleAdMapping(false)
+    #expect(mpv.delay == 0.5)
+    rig.router.setSubtitleAdMapping(true)
+    #expect(mpv.delay == 20.5)
+
+    await rig.router.selectMedia(.subtitle, id: "embedded-0")
+    #expect(mpv.delay == 0.5 && rig.router.activeSubtitleClock == .none)
+
+    // A fresh engine starts on the mapped value for where it is asked to start: 300 s, one ad in.
+    let subtitle = try #require(session.attached.first)
+    await rig.router.selectMedia(.subtitle, id: subtitle.id)
+    #expect(rig.router.select(.native))
+    #expect(rig.router.request?.startSeconds == 300)
+    #expect(try #require(rig.engine).delayAtLoad == 20.5)
+}
+
+/// A plan arriving after the viewer lined a file up by eye keeps the line on screen where it is:
+/// the viewer's value takes the ads already passed back out.
+@MainActor @Test func aLatePlanKeepsTheLineOnScreenWhereItWas() async throws {
+    let rig = subtitleCatRig()
+    rig.router.open(PlaybackLoadRequest(target: PlaybackTarget(url: URL(string: "https://cdn/ep1.m3u8")!)))
+    let session = rig.coordinator.playbackOpened(episode, title: "FC2-PPV-4159457")
+    session.search()
+    await settle { !session.isSearching }
+    session.choose(try #require(session.results.first))
+    await settle { session.attached.count == 1 }
+    #expect(rig.router.select(.mpv))
+    let mpv = try #require(rig.engine)
+    mpv.currentTime = 400
+    rig.router.setSubtitleDelay(30.5)
+    let shownBefore = mpv.currentTime - mpv.delay
+
+    rig.router.setSubtitleClock(SubtitleAdClock(ads: [.init(start: 100, end: 130)]))
+    #expect(rig.router.subtitleDelay == 0.5)
+    #expect(abs((mpv.currentTime - mpv.delay) - shownBefore) < 0.05)
+
+    // Cleared and restored (a quality switch): the same value back, unrounded.
+    rig.router.setSubtitleClock(.none)
+    rig.router.setSubtitleClock(SubtitleAdClock(ads: [.init(start: 100, end: 130.333)]))
+    rig.router.setSubtitleClock(.none)
+    rig.router.setSubtitleClock(SubtitleAdClock(ads: [.init(start: 100, end: 130)]))
+    #expect(abs(rig.router.subtitleDelay - 0.5) < 1e-9)
+
+    // The next video starts unmapped by the viewer and at zero.
+    _ = rig.coordinator.playbackOpened(nextEpisode, title: "FC2-PPV-4159457")
+    #expect(rig.router.subtitleDelay == 0 && rig.router.subtitleAdMapping)
+}
+
+/// Nobody lined the file up: a plan arriving while it is on screen is the whole correction, and
+/// the value stays the viewer's zero.
+@MainActor @Test func aLatePlanForAFileNobodyLinedUpAppliesInFull() async throws {
+    let rig = subtitleCatRig()
+    rig.router.open(PlaybackLoadRequest(target: PlaybackTarget(url: URL(string: "https://cdn/ep1.m3u8")!)))
+    let session = rig.coordinator.playbackOpened(episode, title: "FC2-PPV-4159457")
+    session.search()
+    await settle { !session.isSearching }
+    session.choose(try #require(session.results.first))
+    await settle { session.attached.count == 1 }
+    #expect(rig.router.select(.mpv))
+    let mpv = try #require(rig.engine)
+    mpv.currentTime = 400
+    rig.router.setSubtitleClock(SubtitleAdClock(ads: [.init(start: 100, end: 130)]))
+    #expect(rig.router.subtitleDelay == 0 && mpv.delay == 30)
+}
+
+/// Review of IOS-POC-45E: a quality switch clears the clock while MPV reads 0 from its new load.
+/// The rebase is at the position the item resumes from, so the lined-up value comes back intact.
+@MainActor @Test func aQualitySwitchKeepsALinedUpValueWhileTheEngineReadsZero() async throws {
+    let rig = subtitleCatRig()
+    rig.router.open(PlaybackLoadRequest(target: PlaybackTarget(url: URL(string: "https://cdn/ep1.m3u8")!)))
+    let session = rig.coordinator.playbackOpened(episode, title: "FC2-PPV-4159457")
+    session.search()
+    await settle { !session.isSearching }
+    session.choose(try #require(session.results.first))
+    await settle { session.attached.count == 1 }
+    #expect(rig.router.select(.mpv))
+    let mpv = try #require(rig.engine)
+    let ads = SubtitleAdClock(ads: [.init(start: 100, end: 130)])
+    rig.router.setSubtitleClock(ads)
+    mpv.currentTime = 400
+    mpv.duration = 1800
+    rig.router.setSubtitleDelay(0.5)
+    #expect(mpv.delay == 30.5)
+
+    // The new quality loads from 400 s; the engine reads nothing yet.
+    rig.router.open(PlaybackLoadRequest(target: PlaybackTarget(url: URL(string: "https://cdn/ep1-720.m3u8")!),
+                                        startSeconds: 400))
+    mpv.currentTime = 0
+    mpv.duration = 0
+    rig.router.setSubtitleClock(.none)
+    #expect(mpv.delay == 30.5)
+    rig.router.refreshSubtitleTiming()
+    #expect(mpv.delay == 30.5)
+    mpv.currentTime = 400
+    mpv.duration = 1800
+    rig.router.setSubtitleClock(ads)
+    #expect(abs(rig.router.subtitleDelay - 0.5) < 1e-9 && abs(mpv.delay - 30.5) < 1e-9)
+}
+
+/// Review of IOS-POC-45E: skipping stops inside an ad (the clock is cleared there). The engine
+/// keeps the delay it had, which already counts that whole ad, so after the ad the line is right.
+@MainActor @Test func aClockClearedInsideAnAdKeepsTheWholeAd() async throws {
+    let rig = subtitleCatRig()
+    rig.router.open(PlaybackLoadRequest(target: PlaybackTarget(url: URL(string: "https://cdn/ep1.m3u8")!)))
+    let session = rig.coordinator.playbackOpened(episode, title: "FC2-PPV-4159457")
+    session.search()
+    await settle { !session.isSearching }
+    session.choose(try #require(session.results.first))
+    await settle { session.attached.count == 1 }
+    #expect(rig.router.select(.mpv))
+    let mpv = try #require(rig.engine)
+    rig.router.setSubtitleClock(SubtitleAdClock(ads: [.init(start: 100, end: 130)]))
+    mpv.duration = 1800
+    mpv.currentTime = 50
+    rig.router.setSubtitleDelay(0.5)
+    mpv.currentTime = 103.3
+    rig.router.refreshSubtitleTiming()
+    #expect(mpv.delay == 30.5 && mpv.hidden)
+    rig.router.setSubtitleClock(.none)
+    #expect(abs(mpv.delay - 30.5) < 1e-9 && !mpv.hidden)
+}
+
+/// Review of IOS-POC-45E: a value lined up against the file is rebased for the file even while an
+/// embedded track is on screen when the plan arrives.
+@MainActor @Test func aPlanArrivingUnderAnEmbeddedTrackStillRebasesTheFilesValue() async throws {
+    let rig = subtitleCatRig()
+    rig.router.open(PlaybackLoadRequest(target: PlaybackTarget(url: URL(string: "https://cdn/ep1.m3u8")!)))
+    let session = rig.coordinator.playbackOpened(episode, title: "FC2-PPV-4159457")
+    session.search()
+    await settle { !session.isSearching }
+    session.choose(try #require(session.results.first))
+    await settle { session.attached.count == 1 }
+    let subtitle = try #require(session.attached.first)
+    #expect(rig.router.select(.mpv))
+    let mpv = try #require(rig.engine)
+    mpv.duration = 1800
+    mpv.currentTime = 400
+    rig.router.setSubtitleDelay(30.5)
+    await rig.router.selectMedia(.subtitle, id: "embedded-0")
+    rig.router.setSubtitleClock(SubtitleAdClock(ads: [.init(start: 100, end: 130)]))
+    #expect(rig.router.subtitleDelay == 0.5)
+    await rig.router.selectMedia(.subtitle, id: subtitle.id)
+    #expect(mpv.delay == 30.5)
 }

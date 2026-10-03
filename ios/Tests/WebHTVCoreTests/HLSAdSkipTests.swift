@@ -718,3 +718,24 @@ private func splitAdPlan(gapMs: Int64 = 1, discontinuity: Bool = true) -> HLSAdP
     preference.setEnabled(true)
     #expect(preference.enabled)
 }
+
+// MARK: - IOS-POC-45E: the subtitle's view of the plan
+
+/// A subtitle timed to the programme needs the ranges whenever the ads are in the engine's clock,
+/// 智慧去廣 on or off; and never when that clock is not the plan's — a duration that disagrees, or
+/// an engine whose skipping stopped because its time stopped being playlist time.
+@Test func subtitleTimelineNeedsThePlaylistClockButNotTheSwitch() {
+    var drive = Drive(adPlan(discontinuity: false))
+    #expect(drive.skipper.subtitleTimeline(engine: .native, duration: 255)?.ranges.isEmpty == false)
+    #expect(drive.skipper.activeTimeline(engine: .native, duration: 255, enabled: false) == nil)
+    #expect(drive.skipper.subtitleTimeline(engine: .native, duration: 300) == nil)
+
+    drive.engine = .mpv
+    _ = drive.read(119.9)
+    _ = drive.read(120.0)
+    _ = drive.read(134.9)
+    _ = drive.read(141.0)
+    #expect(drive.skipper.suspensionReason == "landed-past-target")
+    #expect(drive.skipper.subtitleTimeline(engine: .mpv, duration: 255) == nil)
+    #expect(drive.skipper.subtitleTimeline(engine: .native, duration: 255) != nil)
+}

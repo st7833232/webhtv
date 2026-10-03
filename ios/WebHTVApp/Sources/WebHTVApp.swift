@@ -2987,7 +2987,56 @@ struct EpisodeSteps: Equatable {
 
     func setSubtitleDelay(_ seconds: Double) {
         router.setSubtitleDelay(seconds)
-        Self.log.notice("[subtitle] delay \(SubtitleDelay.label(self.router.subtitleDelay), privacy: .public) on \(self.engineKind.shortName, privacy: .public)")
+        logSubtitleTiming("delay")
+    }
+
+    /// IOS-POC-45E: the clock a downloaded subtitle is looked up on (`.none` when it is not
+    /// mapped), every ad the plan found for this item, and the viewer's switch.
+    var subtitleClock: SubtitleAdClock { router.activeSubtitleClock }
+    var subtitleAds: SubtitleAdClock { router.subtitleClock }
+    var subtitleAdMapping: Bool { router.subtitleAdMapping }
+
+    func setSubtitleAdMapping(_ enabled: Bool) {
+        router.setSubtitleAdMapping(enabled)
+        logSubtitleTiming(enabled ? "ads-on" : "ads-off")
+    }
+
+    /// The downloaded file on screen, for 對齊上一句／下一句; nil for an embedded track.
+    private var selectedOnlineCues: SubtitleCues? {
+        router.externalSubtitles.first { $0.id == router.selectedExternalSubtitleID }?.cues
+    }
+    var canAlignSubtitle: Bool { selectedOnlineCues != nil }
+
+    /// Makes the previous or the next line start now. False inside an ad (no programme time) or
+    /// with no line that way.
+    @discardableResult
+    func alignSubtitle(next: Bool) -> Bool {
+        guard let cues = selectedOnlineCues, let content = subtitleClock.contentTime(at: position),
+              let aligned = SubtitleDelay.aligned(cues, contentTime: content, delay: subtitleDelay, next: next)
+        else { return false }
+        router.setSubtitleDelay(aligned)
+        logSubtitleTiming(next ? "align-next" : "align-previous")
+        return true
+    }
+
+    /// Numbers only, never a line's text.
+    private func logSubtitleTiming(_ what: String) {
+        let position = self.position
+        let clock = subtitleClock
+        let content = clock.contentTime(at: position).map { String(format: "%.1f", $0) } ?? "in-ad"
+        Self.log.notice("[subtitle] \(what, privacy: .public) \(SubtitleDelay.label(self.router.subtitleDelay), privacy: .public) on \(self.engineKind.shortName, privacy: .public) at \(String(format: "%.1f", position), privacy: .public)s content \(content, privacy: .public)s adBefore \(String(format: "%.1f", clock.adSeconds(before: position)), privacy: .public)s engineDelay \(String(format: "%.1f", self.router.effectiveSubtitleTiming(at: position).delay), privacy: .public)s")
+    }
+
+    /// The item's ads as a subtitle clock, when the engine's time is the plan's. Left as it is while
+    /// the engine has not opened the item yet (an engine switch): its zero duration would clear
+    /// and then restore the clock, rebasing the viewer's value twice for nothing.
+    private func syncSubtitleClock(_ engine: PlaybackEngine) {
+        guard engine.duration > 0 else { return }
+        let clock = adSkip.subtitleTimeline(engine: engine.kind, duration: engine.duration)
+            .map(SubtitleAdClock.init) ?? .none
+        guard clock != router.subtitleClock else { return }
+        router.setSubtitleClock(clock)
+        Self.log.notice("[subtitle] clock \(clock.isEmpty ? "off" : "on", privacy: .public) \(engine.kind.shortName, privacy: .public) ads=\(clock.count) adTotal=\(String(format: "%.1f", clock.totalSeconds), privacy: .public)s reason=\(clock.isEmpty ? (self.adSkip.suspensionReason ?? "no-plan-or-duration-mismatch") : "plan", privacy: .public)")
     }
 
     /// The player screen closed, or the bridge stopped playback: this video's downloads are deleted.
@@ -3182,6 +3231,8 @@ struct EpisodeSteps: Equatable {
         // IOS-POC-36: where a seek was asked from and to; the engine logs where it landed.
         let from = Self.oneDecimal(engine.currentTime)
         Self.log.notice("[playback] seek requested \(Self.oneDecimal(target), privacy: .public)s from \(from, privacy: .public)s on \(engine.kind.shortName, privacy: .public)")
+        // IOS-POC-45E: mpv's subtitle delay for where the seek lands, ahead of it on the same queue.
+        router.refreshSubtitleTiming(at: target)
         engine.seek(toSeconds: target)
     }
 
@@ -3648,7 +3699,10 @@ struct EpisodeSteps: Equatable {
             // Android's repeat seeks to 0 as a viewer's seek: a pre-roll is skipped again. Played
             // again from the start, it may end again — once it is back there (IOS-POC-36.1): until
             // then an end still arriving is the playthrough's that just ended.
-            engine?.seek(toSeconds: adSeekTarget(0)) { [weak self] in self?.endGate.itemLoaded() }
+            let target = adSeekTarget(0)
+            // IOS-POC-45E: mpv's subtitle timing for where it lands, ahead of the seek.
+            router.refreshSubtitleTiming(at: target)
+            engine?.seek(toSeconds: target) { [weak self] in self?.endGate.itemLoaded() }
             engine?.play()
         default: break
         }
@@ -3808,6 +3862,8 @@ struct EpisodeSteps: Equatable {
         adWatch?.cancel()
         adWatch = nil
         let generation = adSkip.begin(url: url)
+        // IOS-POC-45E: until this item's plan arrives, its subtitles are not mapped.
+        router.setSubtitleClock(.none)
         guard !adSkip.isSettled else { return }
         let headers = self.headers
         adWatch = Task { @MainActor in
@@ -3830,6 +3886,8 @@ struct EpisodeSteps: Equatable {
             }
         }
         guard adSkip.plan != nil else { return .milliseconds(250) }
+        // IOS-POC-45E: the ads in this engine's clock, for a downloaded subtitle.
+        syncSubtitleClock(engine)
         let position = engine.currentTime
         let rate = engine.rate
         let wasSuspended = adSkip.suspensionReason != nil
@@ -3842,9 +3900,13 @@ struct EpisodeSteps: Equatable {
         }
         if let target {
             Self.log.notice("[adskip] \(self.itemTitle, privacy: .public) skip from=\(Int(position * 1000))ms to=\(Int(target * 1000))ms on \(engine.kind.shortName, privacy: .public)")
+            router.refreshSubtitleTiming(at: target)
             engine.seek(toSeconds: target)
             return .milliseconds(100)
         }
+        // An ad entered or left by playing on. At the router's position, which is the start asked
+        // for while the engine still reads 0 from a load (it would undo what the load was given).
+        router.refreshSubtitleTiming()
         // Paused or stalled: read often enough that playing again is seen at once.
         guard engine.isPlaying else { return .milliseconds(100) }
         // Wake at the next range's start rather than a tick after it.
@@ -5048,40 +5110,58 @@ private extension View {
 /// (`SubtitleDelay.applies`).
 private struct SubtitleDelayRow: View {
     let session: PlaybackSession
-    /// The router's value, mirrored: nothing else changes it while this row is on screen.
-    @State private var delay = 0.0
+    /// The session is not observable: the row's own taps redraw it now through this, and the
+    /// timeline catches what changes under it (a plan arriving).
+    @State private var revision = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Divider().overlay(.white.opacity(0.2))
-            Text("時間軸校正")
-                .font(.subheadline.weight(.semibold))
-                .accessibilityAddTraits(.isHeader)
-            HStack(spacing: 8) {
-                step(-1, "-1", spoken: "提前 1 秒")
-                step(-0.1, "-0.1", spoken: "提前 0.1 秒")
-                Button { apply(0) } label: {
-                    Text(SubtitleDelay.label(delay))
-                        .font(.subheadline.monospacedDigit().weight(.semibold))
-                        .frame(maxWidth: .infinity, minHeight: 36)
+        let _ = revision
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+            VStack(alignment: .leading, spacing: 8) {
+                Divider().overlay(.white.opacity(0.2))
+                Text("時間軸校正")
+                    .font(.subheadline.weight(.semibold))
+                    .accessibilityAddTraits(.isHeader)
+                HStack(spacing: 8) {
+                    step(-1, "-1", spoken: "提前 1 秒")
+                    step(-0.1, "-0.1", spoken: "提前 0.1 秒")
+                    Button { session.setSubtitleDelay(0); revision &+= 1 } label: {
+                        Text(SubtitleDelay.label(session.subtitleDelay))
+                            .font(.subheadline.monospacedDigit().weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 36)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("目前 \(SubtitleDelay.label(session.subtitleDelay))")
+                    .accessibilityHint("歸零")
+                    step(0.1, "+0.1", spoken: "延後 0.1 秒")
+                    step(1, "+1", spoken: "延後 1 秒")
                 }
-                .buttonStyle(.bordered)
-                .accessibilityLabel("目前 \(SubtitleDelay.label(delay))")
-                .accessibilityHint("歸零")
-                step(0.1, "+0.1", spoken: "延後 0.1 秒")
-                step(1, "+1", spoken: "延後 1 秒")
+                if session.canAlignSubtitle {
+                    HStack(spacing: 8) {
+                        align("對齊上一句", next: false)
+                        align("對齊下一句", next: true)
+                    }
+                    caption("聽到那句台詞開口時按，字幕會立刻對上。")
+                }
+                caption("字幕比聲音早出現按 +，晚出現按 -；點中間的數值歸零。")
+                // IOS-POC-45E: the ads 智慧去廣 found stay in the player's time; a downloaded file
+                // is timed without them.
+                if session.canAlignSubtitle, !session.subtitleAds.isEmpty {
+                    Toggle("扣除廣告時間", isOn: Binding(get: { session.subtitleAdMapping },
+                                                     set: { session.setSubtitleAdMapping($0); revision &+= 1 }))
+                        .font(.subheadline)
+                    caption(session.subtitleAdMapping
+                        ? "已扣除 \(session.subtitleAds.count) 段廣告（共 \(String(format: "%.1f", session.subtitleAds.totalSeconds)) 秒）：快轉跨過廣告不必重調。字幕若本來就含廣告時段，請關閉。"
+                        : "未扣除廣告時間：每經過一段廣告，字幕都要重新對齊。")
+                }
             }
-            Text("字幕比聲音早出現按 +，晚出現按 -；點中間的數值歸零。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .onAppear { delay = session.subtitleDelay }
     }
 
     private func step(_ seconds: Double, _ title: String, spoken: String) -> some View {
-        Button { apply(delay + seconds) } label: {
+        Button { session.setSubtitleDelay(session.subtitleDelay + seconds); revision &+= 1 } label: {
             Text(title)
                 .font(.subheadline.monospacedDigit())
                 .frame(minWidth: 44, minHeight: 36)
@@ -5090,9 +5170,19 @@ private struct SubtitleDelayRow: View {
         .accessibilityLabel(spoken)
     }
 
-    private func apply(_ seconds: Double) {
-        session.setSubtitleDelay(seconds)
-        delay = session.subtitleDelay
+    private func align(_ title: String, next: Bool) -> some View {
+        Button { session.alignSubtitle(next: next); revision &+= 1 } label: {
+            Text(title)
+                .font(.subheadline)
+                .frame(maxWidth: .infinity, minHeight: 36)
+        }
+        .buttonStyle(.bordered)
+    }
+
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
     }
 }
 
@@ -5297,7 +5387,7 @@ private struct OnlineSubtitleOverlay: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.1)) { _ in
-            if let text = cues.text(at: session.position, delay: session.subtitleDelay) {
+            if let text = cues.text(at: session.position, delay: session.subtitleDelay, clock: session.subtitleClock) {
                 Text(verbatim: text)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(.white)

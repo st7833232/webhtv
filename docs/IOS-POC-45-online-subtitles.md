@@ -293,3 +293,43 @@
   4. 依 API 文件的使用條件，設定頁與字幕面板標示「字幕服務由 assrt.net 提供」。
   5. 測試 `assrtStatusCodesDecideAndAUsedUpQuotaStopsAtOnce` 取代原本把 101 當成 token 無效的測試，涵蓋 20001／HTTP 400、30900／HTTP 200、HTTP 509、HTTP 429、101、20900／HTTP 404 與請求次數。突變檢查（恢復重試、30900 不對應、20900 不視為空）三項都讓測試失敗（已還原）。Linux `swift test` 153 項，152 通過（既有 CP1251 項目除外）。
 - 暫不做：`filelist=1` 預先篩選含 `.srt` 的結果、token 改用 `Authorization: Bearer`、`.ass` 支援、依 `user/quota` 節流；這些需要實測或另行核准。
+
+## 15. IOS-POC-45E：快轉後時間軸跑掉（廣告留在播放器時間軸）
+
+### 15.1 回報與查證
+
+- 回報：使用者 2026-10-02「為什麼設定好時間軸然後快轉字幕的時間軸就跑掉了」。2026-10-03 使用者同意實作（「好」）。
+- 查證（workflow，四個方向各附反駁）：
+  1. 沒有程式錯誤會改動偏移量：快轉、自動跳過廣告、重新載入、切換引擎、PiP 都不寫 `subtitleDelay`；mpv 的 `sub-delay` 是全域選項，跨 seek 與 `loadfile` 保留（mpv v0.41.0 `options/options.c`）。
+  2. 成因是設計缺口：智慧去廣不改寫播放清單，而是播放時 seek 跳過（`HLSAdTimeline.swift` 開頭說明、`HLSAdSkip.swift`），廣告秒數留在兩個引擎的時間軸裡；下載的字幕是照沒有廣告的正片做的。固定偏移量只在兩段廣告之間成立：在第一段廣告後對齊，快轉越過第二段廣告後字幕會早出現該段的長度。IOS-POC-25 的樣本（兩段 19.633 s、17.359 s）在 10:00 對齊、快轉到 30:00 時早 17.4 s。
+  3. 其他較低可能：偵測器沒抓到的插入片段、不同剪輯版本、影格率不同；App 只能以重新對齊緩解。
+
+### 15.2 方案比較
+
+1. 不變：每過一段廣告就要重調。
+2. 重新產生已扣廣告時間的 SRT 再 `sub-add`：ASS 需要另寫輸出器，計畫晚到或切換引擎要重新掛載，近廣告邊界時與 overlay 的時間不同。
+3. 在 FFmpeg 層移除廣告：二進位變更，範圍過大。
+4. 採用：同一個「字幕時鐘」給兩個引擎。`content(p) = p − adBefore(p)`，廣告中沒有節目時間（字幕隱藏）；查詢時間 `content(p) − 使用者偏移`。
+
+### 15.3 實作
+
+- `SubtitleAdClock.swift`（新）：由 `HLSAdTimeline` 建立，合併相隔 `adjacentRangeGapMs` 的區間；`adSeconds(before:)`、`adSeconds(endedBy:)`、`isInsideAd`、`contentTime(at:)`、`engineDelay(user:at:)`（使用者值加上所有已開始的廣告）。
+- `SubtitleCues.text(at:delay:clock:)`：`.none` 時與原本 `text(at:delay:)` 完全相同。`SubtitleDelay.aligned` 計算「對齊上一句／下一句」。
+- `HLSAdSkipper.subtitleTimeline(engine:duration:)`：與 `activeTimeline` 相同條件但不看智慧去廣開關（引擎時長與計畫相差 1 秒內、該引擎未暫停跳過）；`activeTimeline` 改為 `enabled ? subtitleTimeline : nil`，行為不變。
+- `PlayerRouter`：
+  1. `subtitleDelay` 永遠是使用者的值（節目時間）；`subtitleClock`、`subtitleAdMapping`（每部影片的開關）、`activeSubtitleClock`（只對選中的下載字幕生效，內嵌字幕維持使用者值）。
+  2. `refreshSubtitleTiming(at:)` 只在值改變時推給引擎：`sub-delay = 使用者值 + 已開始的廣告`，廣告中 `setSubtitleHidden(true)`。新引擎在 load 前以起播位置推送。
+  3. `setSubtitleClock` 只對「使用者以下載字幕對齊過」的值重新換算，讓字幕維持原本的時間：離開時鐘時計入目前所在的整段廣告，進入時只計已播完的廣告；不四捨五入，畫質切換清除再恢復會得到原值。位置在引擎尚未回報時取起播位置（`subtitlePosition`）。
+- App：
+  1. `PlaybackSession.seek`、自動跳過、重播在 seek 前先 `refreshSubtitleTiming(at: 目標)`；ad tick 每次以路由器位置更新；每個新項目清除時鐘，計畫到後由 `syncSubtitleClock` 設定（引擎尚未載入時不動，避免切換引擎時清除再恢復）。
+  2. AVPlayer overlay 改用 `text(at:delay:clock:)`。MPV：`setSubtitleHidden` → `sub-visibility`；`sub-delay` 以固定小數格式寫入並記錄失敗。
+  3. 時間軸校正列：「對齊上一句／下一句」、「扣除廣告時間」開關與說明（只在選中下載字幕且有廣告計畫時顯示）。
+  4. 診斷：`[subtitle] clock on|off <引擎> ads= adTotal= reason=`；偏移量相關動作記錄位置、節目時間、已扣廣告秒數與給引擎的值（不含字幕內容）。
+
+### 15.4 Review 與驗證
+
+- Review workflow（四個面向、每項反駁）確認 11 項，皆已修正：畫質切換時以載入中的 0 秒重新換算（3 項同源）、廣告中途重新換算只計部分廣告、重新換算受當下選的字幕軌影響、載入中以 0 秒覆寫 MPV 的值（3 項同源）、重播未先更新、面板數值在點擊後最多延遲 0.5 秒才更新（加 `revision` 觸發重繪）。駁回 1 項（`?? .none` 的型別推斷）。
+- 測試：`SubtitleAdClockTests`（9 項）、`HLSAdSkipTests.subtitleTimelineNeedsThePlaylistClockButNotTheSwitch`、`OnlineSubtitleSessionTests` 新增 6 項（下載與內嵌字幕的差異、晚到的計畫、沒對齊過的值、畫質切換、廣告中清除時鐘、內嵌字幕時到達的計畫）。三項 review 回歸測試以突變檢查確認會失敗（已還原）。
+- Linux swiftlang 6.0.3 `swift test` 232 項，231 通過；唯一失敗為既有的 Linux CP1251 項目。HLS 相關測試在 Linux 以替代 CryptoKit 的副本執行（僅 scratchpad，未進 repo）。
+- App target 未在 macOS 編譯；以下一次 release workflow 為準。真機待驗：快轉跨廣告後字幕仍對齊、廣告中字幕隱藏、對齊按鈕、開關。
+- Rollback：revert 本 commit；沒有廣告計畫時行為與修改前相同。

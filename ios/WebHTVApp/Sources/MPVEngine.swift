@@ -166,6 +166,10 @@ final class MPVEngine: PlaybackEngine {
         core.setSubtitleDelay(seconds)
     }
 
+    func setSubtitleHidden(_ hidden: Bool) {
+        core.setSubtitleHidden(hidden)
+    }
+
     func teardown() {
         setPlaybackIntent(false)
         pictureInPicture?.invalidate()
@@ -588,11 +592,22 @@ final class MPVPlayerCore: @unchecked Sendable {
     }
 
     /// IOS-POC-45B: `sub-delay` is an option, so it holds for every subtitle and every later file.
+    /// IOS-POC-45E: the router sends the viewer's value plus the ads begun, so it changes as the
+    /// playhead crosses an ad; a refusal is logged (fixed notation: mpv parses no exponent here).
     func setSubtitleDelay(_ seconds: Double) {
         queue.async { [self] in
             guard let mpv else { return }
-            mpv_set_property_string(mpv, "sub-delay", String(seconds))
+            let value = String(format: "%.3f", seconds)
+            let status = mpv_set_property_string(mpv, "sub-delay", value)
+            if status < 0 {
+                Task { @MainActor in PlaybackSession.log.notice("[subtitle] mpv refused sub-delay=\(value, privacy: .public) status=\(status)") }
+            }
         }
+    }
+
+    /// IOS-POC-45E: hidden while the playhead is inside an ad a downloaded file has no lines for.
+    func setSubtitleHidden(_ hidden: Bool) {
+        set("sub-visibility", hidden ? "no" : "yes")
     }
 
     /// IOS-POC-45. With a file loaded the change applies now; otherwise at the next file's load.

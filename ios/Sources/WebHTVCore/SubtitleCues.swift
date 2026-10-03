@@ -60,6 +60,14 @@ public struct SubtitleCues: Sendable, Equatable {
     public func text(at seconds: Double, delay: Double) -> String? {
         text(at: seconds - delay)
     }
+
+    /// IOS-POC-45E: the same on a stream that still carries its ads: the lookup runs on the
+    /// programme's time, and nothing shows inside an ad. With `.none` it is `text(at:delay:)`.
+    public func text(at seconds: Double, delay: Double, clock: SubtitleAdClock) -> String? {
+        guard !clock.isEmpty else { return text(at: seconds, delay: delay) }
+        guard let content = clock.contentTime(at: seconds) else { return nil }
+        return text(at: content - delay)
+    }
 }
 
 /// IOS-POC-45B — 時間軸校正: how far the viewer moves the subtitles, in seconds. Positive shows
@@ -80,6 +88,15 @@ public enum SubtitleDelay {
         let value = clamped(seconds)
         let sign = value > 0 ? "+" : value < 0 ? "-" : ""
         return sign + String(format: "%.1f", abs(value)) + " 秒"
+    }
+
+    /// IOS-POC-45E 對齊上一句／下一句: the correction that makes a line start now, `contentTime`
+    /// being the programme time on screen. The previous line is the last one already started on
+    /// the file's own clock (`contentTime - delay`), the next the first still to come.
+    public static func aligned(_ cues: SubtitleCues, contentTime: Double, delay: Double, next: Bool) -> Double? {
+        let fileTime = contentTime - delay
+        let cue = next ? cues.cues.first { $0.start > fileTime } : cues.cues.last { $0.start <= fileTime }
+        return cue.map { clamped(contentTime - $0.start) }
     }
 
     /// Whether the correction reaches the subtitle on screen. mpv moves every subtitle it draws;

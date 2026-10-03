@@ -400,7 +400,14 @@ public struct HLSAdSkipper: Sendable {
 
     /// The ranges that may act now, or nil.
     public func activeTimeline(engine: PlaybackEngineKind, duration: Double, enabled: Bool) -> HLSAdTimeline? {
-        guard enabled, !suspended.contains(engine), let timeline = plan?.timeline(for: engine),
+        enabled ? subtitleTimeline(engine: engine, duration: duration) : nil
+    }
+
+    /// IOS-POC-45E: the ranges a subtitle timed to the programme has to step over, on an engine
+    /// whose clock is the plan's (durations agree, skipping not suspended for it). The switch
+    /// does not matter here: with 智慧去廣 turned off mid-video the ads still play in that clock.
+    public func subtitleTimeline(engine: PlaybackEngineKind, duration: Double) -> HLSAdTimeline? {
+        guard !suspended.contains(engine), let timeline = plan?.timeline(for: engine),
               duration.isFinite, duration > 0,
               abs(duration - Double(timeline.durationUs) / 1_000_000) <= Self.durationTolerance
         else { return nil }

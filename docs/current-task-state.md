@@ -6,6 +6,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current handoff — 2026-10-02 晚：IOS-POC-45 線上字幕（先讀這一節）
 
+**IOS-POC-45D**（2026-10-03）：MPV 字幕內建 `WebHTV Subtitle CJK`（Noto Sans CJK TC 子集，OFL，約 4.8 MB）取代讀不了的 PingFang，並加字型與斷音診斷。見 IOS-POC-45 文件第 16 節。
+
 **IOS-POC-45E**（2026-10-03）：字幕時間軸扣除智慧去廣留在播放器時間軸裡的廣告（`SubtitleAdClock`），快轉跨廣告不必重調；加「對齊上一句／下一句」與「扣除廣告時間」開關。見 IOS-POC-45 文件第 15 節。
 
 **IOS-POC-45C**（2026-10-02）：新增 OpenSubtitles 與射手網兩個官方 API 字幕來源，使用者自己的 key 存在鑰匙圈；SubDL 因下載皆為壓縮檔暫緩。見 IOS-POC-45 文件第 13 節。

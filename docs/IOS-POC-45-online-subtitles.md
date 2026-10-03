@@ -333,3 +333,42 @@
 - Linux swiftlang 6.0.3 `swift test` 232 項，231 通過；唯一失敗為既有的 Linux CP1251 項目。HLS 相關測試在 Linux 以替代 CryptoKit 的副本執行（僅 scratchpad，未進 repo）。
 - App target 未在 macOS 編譯；以下一次 release workflow 為準。真機待驗：快轉跨廣告後字幕仍對齊、廣告中字幕隱藏、對齊按鈕、開關。
 - Rollback：revert 本 commit；沒有廣告計畫時行為與修改前相同。
+
+## 16. IOS-POC-45D：MPV 字幕內建中文字型
+
+### 16.1 回報與成因
+
+- 回報：`0.1.53 (54)` 真機上 MPV 中文字幕仍是方格，且字幕顯示時掉幀、聲音斷續（使用者 2026-10-02 截圖）。2026-10-03 使用者同意內建字型（約增加 4 MB）。
+- 成因（workflow 查證，各項附反駁）：
+  1. 方格：iOS 18 以後 CoreText 把 PingFang 解析到 `PingFangUI.ttc`，字形只存在 Apple 的 `hvgl` 表（Apple developer forums 758189、759219）。MPVKit libass-build `0.17.5`（`e08eb5bb3be5137e845f781dc9477d1843f23261`）用 FreeType `VER-2-14-3`，沒有 HVF driver（FreeType master 的 HVF 是實驗性、僅 macOS）。FreeType 能讀檔頭但開不了字型，libass 不登錄它，缺字時畫 face 0 的 `.notdef` 方格。第 11 節（IOS-POC-45A）的 `FileHandle` 檢查只證明檔案能開，所以正好選中這個讀不了的字型；它沒有造成方格，但讓每個缺字多一次失敗查詢。
+  2. 掉幀與斷音（中高可信度，未在 iPhone 量測）：libass 0.17.5 每格重新排版字幕，每個字查一次字型索引，缺字不做快取，每次都重跑 CoreText 查詢與 FreeType 開檔。mpv v0.41.0 在 VO 執行緒持有字幕鎖時繪製，核心執行緒補音訊前也要拿同一把鎖。另一個 iOS 播放器（NuvioMobile #1843，iPadOS 26.6，MPV）症狀相同並記錄 `Audio device underrun`，內建 Noto CJK 後消失（PR #1833）。
+- 第 11 節「不採用」的第 1 項（內建字型）與第 2 項的前提被證據推翻；第 3 項的描述也要更正：圖形字幕（PGS、VobSub）不經 libass。
+
+### 16.2 方案比較
+
+1. 內建 CJK 字型給 libass（採用）：修好線上 SRT 與內嵌 SRT/ASS（保留 ASS 樣式），MPV PiP 仍有字幕；IPA 約 +4.05 MB，播放字幕時約 +5 MB 記憶體（libass 會把 `sub-fonts-dir` 的檔案讀進記憶體；估計值）。
+2. MPV 文字字幕改用 SwiftUI overlay：不增大小，但 ASS 樣式全失、MPV PiP 沒有字幕、改動大。
+3. 兩者並用：overlay 對線上 SRT 沒有額外好處。
+4. 以 `CTFontManagerRegisterFontsForURL` 註冊字型（記憶體較省）：未驗證 libass 能否看到，保留為記憶體備案。
+5. 改用其他系統字型（例如 Hiragino）：缺簡體字，方格與查詢成本仍在，只作診斷。
+
+### 16.3 實作
+
+- 字型：Noto Sans CJK TC 2.004（`notofonts/noto-cjk` `f8d157532fbfaeda587e826d4cd5b21a49186f7c`，SHA-256 `dce08bd4…`），以 fontTools 4.66.1 取 Big5-HKSCS、GB2312 全部 BMP 字元、KS X 1001 韓文、假名、拉丁、希臘、西里爾與標點符號（21,786 個字元全收），去掉 `locl`／`vert`／`vrt2`、不保留 hinting，改名為 `WebHTV Subtitle CJK`（Noto 是商標；OFL 允許改名後的修改版）。結果 4,776,328 bytes，SHA-256 `f1c79354…`。來源、指令與檢查記在 `ios/Sources/WebHTVCore/Resources/SubtitleFont/README.md`，OFL 原文為同目錄 `LICENSE`。
+- `ios/Package.swift` 加 `.copy("Resources/SubtitleFont")`（沿用 Spiders、OpenCC 的方式，不動 pbxproj）；`SubtitleFont.family`、`SubtitleFont.directory`（`fonts/` 只放這一個檔）。
+- `MPVPlayerCore.init`（`mpv_initialize` 前）：`sub-fonts-dir`＝內建字型目錄、`sub-font`＝`WebHTV Subtitle CJK`、`sub-font-provider`＝`auto`（CoreText 仍處理泰文等字型未涵蓋的文字）。移除 IOS-POC-45A 的 PingFang 偵測與 `sub-font` 設定。
+- 診斷（不含字幕內容）：
+  1. 啟動時一行：`[subtitle] libass font bundled=ok|missing family=… setopt dir=… font=… provider=… device=… pingfang glyf=… CFF=… CFF2=… hvgl=…`（最後一段直接確認裝置上的 PingFang 是否只有 hvgl）。
+  2. `mpv_request_log_messages(handle, "warn")`，只計數：`Error opening font`（只記第一次的檔名）、`failed to find any fallback`、`underrun`。
+  3. 每個檔案結束時：`[subtitle] mpv health fontErrors= fallbackMisses= underruns= frameDrops= decoderDrops= sid=`。
+- 測試：`SubtitleFontTests.theSubtitleFontFolderHoldsOneCFFFontAndNothingElse`（目錄只有一個檔、是 CFF OpenType、內含 `sub-font` 指定的名稱）。
+
+### 16.4 驗證與待驗
+
+- Linux swiftlang 6.0.3：字型測試通過；Core 全套見 commit 紀錄。App target 未在 macOS 編譯，以下一次 release workflow 為準。
+- 真機待驗：
+  1. 啟動紀錄 `bundled=ok`、三個 setopt 為 0、PingFang 一段為 `hvgl=1`。
+  2. 繁體與簡體 SRT 各播 2 分鐘：沒有方格、沒有斷音，`mpv health` 的 fontErrors／fallbackMisses／underruns 為 0，frameDrops 與關字幕時相近。
+  3. 內嵌 ASS（含 `\an8` 或 `\pos`）保留樣式；MPV PiP 有字幕。
+- 若第 2 項仍斷續：先試 `sub-font-provider=none`（需使用者接受泰文等字型的取捨），再考慮 overlay，最後才是 libass 修補。
+- Rollback：revert 本 commit。

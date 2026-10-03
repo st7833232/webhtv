@@ -392,31 +392,31 @@ struct MPVVideoSurface: UIViewRepresentable {
     }
 }
 
-/// IOS-POC-45A — the family mpv's subtitles fall back to: the first CJK family whose font file
-/// libass can open. libass's CoreText provider skips a face without a file URL and FreeType opens
-/// that file by path, so a family counts only once its file actually opens. Traditional Chinese
-/// first; Hiragino Sans covers kanji and kana when no PingFang qualifies.
-enum MPVSubtitleFont {
-    static let candidates = ["PingFang TC", "PingFang HK", "PingFang SC", "Hiragino Sans"]
-
-    /// Nil leaves mpv's own default, and the log says so.
-    static let family: String? = {
-        let found = MPVSubtitleFont.candidates.first(where: MPVSubtitleFont.opens)
-        Task { @MainActor in
-            PlaybackSession.log.notice("[subtitle] mpv sub-font=\(found ?? "default (no CJK family opens)", privacy: .public)")
+/// IOS-POC-45D — diagnosis only: what iOS keeps for PingFang, which IOS-POC-45A named as the
+/// subtitle font. On iOS 18+ it resolves to `PingFangUI.ttc`, whose outlines are only in Apple's
+/// `hvgl` table, so FreeType (and with it libass) cannot draw it. Logged once, as table flags.
+enum MPVSubtitleFontCheck {
+    static func pingFangTables() -> String {
+        let font = CTFontCreateWithName("PingFang TC" as CFString, 12, nil)
+        guard let tables = CTFontCopyAvailableTables(font, CTFontTableOptions(rawValue: 0)) else { return "none" }
+        var tags = Set<UInt32>()
+        for index in 0..<CFArrayGetCount(tables) {
+            tags.insert(UInt32(UInt(bitPattern: CFArrayGetValueAtIndex(tables, index))))
         }
-        return found
-    }()
-
-    private static func opens(_ family: String) -> Bool {
-        let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontFamilyNameAttribute: family] as CFDictionary)
-        let faces = CTFontDescriptorCreateMatchingFontDescriptors(descriptor, nil) as? [CTFontDescriptor] ?? []
-        return faces.contains { face in
-            guard let url = CTFontDescriptorCopyAttribute(face, kCTFontURLAttribute) as? URL, url.isFileURL,
-                  let file = FileHandle(forReadingAtPath: url.path) else { return false }
-            try? file.close()
-            return true
+        func flag(_ name: String) -> String {
+            let tag = name.utf8.reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+            return "\(name.trimmingCharacters(in: .whitespaces))=\(tags.contains(tag) ? 1 : 0)"
         }
+        return ["glyf", "CFF ", "CFF2", "hvgl"].map(flag).joined(separator: " ")
+    }
+
+    /// `iPhone16,2 iOS 26.0`, for the same line.
+    static var device: String {
+        var info = utsname()
+        uname(&info)
+        let machine = withUnsafeBytes(of: &info.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        let version = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(machine) iOS \(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
     }
 }
 
@@ -471,6 +471,11 @@ final class MPVPlayerCore: @unchecked Sendable {
     private var selectedExternal: String?
     /// Every file this core has added, so one taken out of the list is taken off the file too.
     private var addedExternalPaths = Set<String>()
+    /// IOS-POC-45D: this file's libass font failures and audio underruns, from mpv's warnings.
+    /// `queue` only.
+    private var fontErrors = 0
+    private var fallbackMisses = 0
+    private var underruns = 0
 
     var snapshot: Snapshot {
         lock.lock(); defer { lock.unlock() }
@@ -496,14 +501,21 @@ final class MPVPlayerCore: @unchecked Sendable {
         #endif
         mpv_set_option_string(handle, "video-rotate", "no")
         mpv_set_option_string(handle, "subs-fallback", "yes")
-        // IOS-POC-45A: Chinese subtitles drew as boxes. mpv's default `sans-serif` is Helvetica to
-        // libass's CoreText provider, and a character Helvetica lacks goes to CoreText's fallback,
-        // whose answer on iOS libass could not open. Naming a CJK family libass can open fixes the
-        // text subtitles (their style font) and every ASS font it cannot find (libass tries this
-        // default family before the fallback).
-        if let family = MPVSubtitleFont.family {
-            mpv_set_option_string(handle, "sub-font", family)
+        // IOS-POC-45D: libass draws through FreeType, which cannot read iOS 18+'s PingFang (hvgl
+        // outlines only): Chinese was boxes, and each missing character re-ran the font search on
+        // every frame (the stutter). The bundled CFF subset is the style font of text subtitles and
+        // the default for every ASS font not found; CoreText stays for what it does not cover.
+        // Before `mpv_initialize`, so the renderer is set up with them once.
+        var fontOptions = [String]()
+        if let fonts = SubtitleFont.directory {
+            fontOptions.append("dir=\(mpv_set_option_string(handle, "sub-fonts-dir", fonts.path))")
+            fontOptions.append("font=\(mpv_set_option_string(handle, "sub-font", SubtitleFont.family))")
         }
+        fontOptions.append("provider=\(mpv_set_option_string(handle, "sub-font-provider", "auto"))")
+        let fontLine = "[subtitle] libass font bundled=\(SubtitleFont.directory == nil ? "missing" : "ok")"
+            + " family=\(SubtitleFont.family) setopt \(fontOptions.joined(separator: " "))"
+            + " device=\(MPVSubtitleFontCheck.device) pingfang \(MPVSubtitleFontCheck.pingFangTables())"
+        Task { @MainActor in PlaybackSession.log.notice("\(fontLine, privacy: .public)") }
         // `render.h`'s advice for the software output Picture in Picture uses (17H). `sw-fast` is a
         // built-in profile (faster `sws`/`zimg` scalers, which the Metal output does not scale
         // with); as an option name it does not exist and is refused (MPV_ERROR_OPTION_NOT_FOUND).
@@ -525,6 +537,9 @@ final class MPVPlayerCore: @unchecked Sendable {
             mpv_terminate_destroy(handle)
             return
         }
+        // IOS-POC-45D: warnings carry libass's font failures and the audio output's underruns;
+        // they are counted per file (`countLogMessage`), never stored or logged as text.
+        mpv_request_log_messages(handle, "warn")
         for (name, format) in [("time-pos", MPV_FORMAT_DOUBLE), ("duration", MPV_FORMAT_DOUBLE),
                                ("pause", MPV_FORMAT_FLAG), ("paused-for-cache", MPV_FORMAT_FLAG),
                                ("speed", MPV_FORMAT_DOUBLE), ("volume", MPV_FORMAT_DOUBLE),
@@ -757,7 +772,13 @@ final class MPVPlayerCore: @unchecked Sendable {
                 mpv_get_property(mpv, "dwidth", MPV_FORMAT_INT64, &width)
                 mpv_get_property(mpv, "dheight", MPV_FORMAT_INT64, &height)
                 onEvent?(.videoReconfigured(width: Int(width), height: Int(height)))
+            case MPV_EVENT_LOG_MESSAGE:
+                if let message = event.pointee.data?.assumingMemoryBound(to: mpv_event_log_message.self).pointee,
+                   let text = message.text {
+                    countLogMessage(String(cString: text))
+                }
             case MPV_EVENT_END_FILE:
+                reportSubtitleHealth(mpv)
                 guard let end = event.pointee.data?.assumingMemoryBound(to: mpv_event_end_file.self).pointee
                 else { break }
                 if end.reason == MPV_END_FILE_REASON_EOF {
@@ -901,6 +922,34 @@ final class MPVPlayerCore: @unchecked Sendable {
         guard let value = mpv_get_property_string(mpv, name) else { return nil }
         defer { mpv_free(value) }
         return String(cString: value)
+    }
+
+    /// IOS-POC-45D: counts, and the first font file that failed (its name only). No line text.
+    private func countLogMessage(_ text: String) {
+        if text.contains("Error opening font") {
+            fontErrors += 1
+            if fontErrors == 1 {
+                let path = text.split(separator: "'").dropFirst().first.map(String.init) ?? ""
+                let name = (path as NSString).lastPathComponent
+                Task { @MainActor in PlaybackSession.log.notice("[subtitle] libass could not open font \(name, privacy: .public)") }
+            }
+        } else if text.contains("failed to find any fallback") {
+            fallbackMisses += 1
+        } else if text.localizedCaseInsensitiveContains("underrun") {
+            underruns += 1
+        }
+    }
+
+    /// Once per file: whether subtitles cost fonts or audio, beside the frames dropped.
+    private func reportSubtitleHealth(_ mpv: OpaquePointer) {
+        let line = "[subtitle] mpv health fontErrors=\(fontErrors) fallbackMisses=\(fallbackMisses)"
+            + " underruns=\(underruns) frameDrops=\(intProperty(mpv, "frame-drop-count").map(String.init) ?? "n/a")"
+            + " decoderDrops=\(intProperty(mpv, "decoder-frame-drop-count").map(String.init) ?? "n/a")"
+            + " sid=\(stringProperty(mpv, "sid") ?? "n/a")"
+        fontErrors = 0
+        fallbackMisses = 0
+        underruns = 0
+        Task { @MainActor in PlaybackSession.log.notice("\(line, privacy: .public)") }
     }
 
     private func intProperty(_ mpv: OpaquePointer, _ name: String) -> Int64? {

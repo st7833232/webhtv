@@ -212,6 +212,7 @@ python3.13 -m unittest discover -s ios/Tests/Python
 - MPV 使用 MPVKit 1.0.0 的 LGPL 產品（libmpv 以 `-Dgpl=false` 建置，mpv v0.41.0、FFmpeg n8.1.2）。其中 Libmpv 與 Libavformat 兩個 xcframework 由本 repo 加上修補後重建，發布在本 repo 的 prerelease；其餘是上游 MPVKit 的二進位。各元件的授權原文在 [`third_party/mpv-ios/licenses/`](third_party/mpv-ios/licenses/)。
 - 內嵌的 CPython 3.13 來自 BeeWare Python-Apple-support；CPython 與各 Python 套件的授權記在 [`third_party/python-ios-lock.json`](third_party/python-ios-lock.json)。
 - 台灣繁體顯示用的 OpenCC 字典為 Apache License 2.0。
+- MPV 字幕使用的中文字型是 Noto Sans CJK TC 的子集，改名為 WebHTV Subtitle CJK，授權為 SIL Open Font License 1.1；來源、製作方式與授權原文在 [`ios/Sources/WebHTVCore/Resources/SubtitleFont/`](ios/Sources/WebHTVCore/Resources/SubtitleFont/)。
 - App 內目前沒有開源授權畫面。上述授權資訊不是正式的授權稽核，也不是法律意見。
 
 ## 免責聲明

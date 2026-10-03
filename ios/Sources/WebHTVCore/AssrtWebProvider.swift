@@ -69,8 +69,10 @@ public struct AssrtWebProvider: SubtitleProvider {
         var pages = [Int: Result<[RemoteSubtitleTrack], SubtitleProviderError>]()
         try await withThrowingTaskGroup(of: (Int, Result<[RemoteSubtitleTrack], SubtitleProviderError>).self) { group in
             var next = 0
+            // A challenge, a rate limit or the error page: open nothing more (no retry after a block).
+            var blocked = false
             func add() {
-                guard next < opened.count else { return }
+                guard !blocked, next < opened.count else { return }
                 let index = next, hit = opened[index]
                 next += 1
                 group.addTask { [self] in
@@ -87,6 +89,10 @@ public struct AssrtWebProvider: SubtitleProvider {
             for _ in 0..<Self.concurrentPages { add() }
             while let (index, result) = try await group.next() {
                 pages[index] = result
+                if case .failure(let error) = result,
+                   [.blockedByChallenge, .rateLimited, .rejected(493)].contains(error) {
+                    blocked = true
+                }
                 add()
             }
         }
@@ -130,10 +136,16 @@ public struct AssrtWebProvider: SubtitleProvider {
     private func page(_ url: URL, referer: URL?, unreadable: SubtitleProviderError) async throws -> (String, URL) {
         var request = SubtitleCatProvider.request(url)
         if let referer { request.setValue(referer.absoluteString, forHTTPHeaderField: "Referer") }
+        let fetch = self.fetch
         let response: SubtitleHTTPResponse
         do {
-            response = try await SubtitleFetching.fetch(request, limit: Self.maximumPageBytes, using: fetch,
-                                                        retryDelay: retryDelay)
+            // A landing on the error or login pages is an answer, decided before the one retry and
+            // the status mapping: never requested twice, and never read as a mere HTTP status.
+            response = try await SubtitleFetching.fetch(request, limit: Self.maximumPageBytes, using: { request, limit in
+                let response = try await fetch(request, limit)
+                if let final = response.url, let blocked = Self.blockedPath(final) { throw blocked }
+                return response
+            }, retryDelay: retryDelay)
         } catch is SubtitleBodyTooLarge {
             throw unreadable
         } catch {
@@ -143,7 +155,6 @@ public struct AssrtWebProvider: SubtitleProvider {
         if let failure = SubtitleFetching.failure(for: response, context: .page) { throw failure }
         let final = response.url ?? url
         guard Self.isPageHost(final) else { throw unreadable }
-        if let blocked = Self.blockedPath(final) { throw blocked }
         return (String(decoding: response.data, as: UTF8.self), final)
     }
 
@@ -216,15 +227,23 @@ public struct AssrtWebProvider: SubtitleProvider {
         var seen = Set<String>()
         var hits = [Hit]()
         for link in links where seen.insert(link.id).inserted {
-            let card = link.anchor.ancestors.prefix(6).last { ids[ObjectIdentifier($0)]?.count == 1 }
-            let canonical = URL(string: "https://\(link.url.host!.lowercased())\(link.url.path)")!
-            let display = link.anchor.attribute("title").flatMap(nonEmpty) ?? nonEmpty(link.anchor.text)
+            // The lowest single-id ancestor that looks like a card; else the highest. With one hit on
+            // the page every ancestor holds one id, and the whole page is not that hit's card.
+            let single = link.anchor.ancestors.prefix(6).prefix { ids[ObjectIdentifier($0)]?.count == 1 }
+            let card = single.first { element in
+                element.descendants.contains { $0.attribute("id") == "meta_top" } || !labelFields(element.text).isEmpty
+            } ?? single.last
+            // Only xml, sub, digits and .xml: lower-cased, it is the canonical form.
+            let canonical = URL(string: "https://\(link.url.host!.lowercased())\(link.url.path.lowercased())")!
+            let display = links.lazy.filter { $0.id == link.id }
+                .compactMap { $0.anchor.attribute("title").flatMap(nonEmpty) ?? nonEmpty($0.anchor.text) }.first
             let release = card.flatMap { card in
                 card.descendants.first { $0.attribute("id") == "meta_top" }?.descendants.first { $0.name == "b" }
             }.flatMap { nonEmpty($0.text) }
-            let fields = card.map { labelFields($0.text) } ?? [:]
-            hits.append(Hit(id: link.id, url: canonical, title: release ?? display.map(joinHan),
-                            label: fields["语言"], srtHint: srtHint(format: fields["格式"], card: card, pageURL: pageURL)))
+            let fields = card.map(cardFields) ?? [:]
+            hits.append(Hit(id: link.id, url: canonical, title: release ?? display.map(joinHan) ?? "#\(link.id)",
+                            label: fields["语言"],
+                            srtHint: srtHint(format: fields["格式"], card: card, id: link.id, pageURL: pageURL)))
         }
         return hits
     }
@@ -235,14 +254,15 @@ public struct AssrtWebProvider: SubtitleProvider {
         hits.filter { $0.srtHint != false } + hits.filter { $0.srtHint == false }
     }
 
-    /// 格式：Subrip(srt) / SSA …, or the card's package link ending in `.srt`.
-    static func srtHint(format: String?, card: LightHTML.Element?, pageURL: URL) -> Bool? {
+    /// 格式：Subrip(srt) / SSA …, or the card's own package link (`/download/<id>/…`) ending in `.srt`.
+    static func srtHint(format: String?, card: LightHTML.Element?, id: String, pageURL: URL) -> Bool? {
         if let card {
             for element in card.descendants {
                 for value in [element.attribute("href"), element.attribute("onclick").flatMap(locationTarget)] {
-                    guard let value, let url = resolve(value, against: pageURL),
-                          url.path.lowercased().hasPrefix("/download/") else { continue }
-                    if url.path.lowercased().hasSuffix(".srt") { return true }
+                    guard let value, let url = resolve(value, against: pageURL) else { continue }
+                    let parts = url.path.lowercased().split(separator: "/")
+                    guard parts.count >= 3, parts[0] == "download", parts[1] == id else { continue }
+                    if parts.last!.hasSuffix(".srt") { return true }
                 }
             }
         }
@@ -252,17 +272,36 @@ public struct AssrtWebProvider: SubtitleProvider {
 
     static let fieldNames = ["格式", "语言", "来源", "日期", "查阅次数", "下载次数"]
 
-    /// `格式：… 语言：…` in a card's text.
-    static func labelFields(_ text: String) -> [String: String] {
+    nonisolated(unsafe) static let labelFieldsRegex: NSRegularExpression? = {
         let names = fieldNames.joined(separator: "|")
-        guard let regex = try? NSRegularExpression(pattern: "(\(names))\\s*[：:]\\s*(.+?)(?=\\s*(?:\(names))\\s*[：:]|$)") else { return [:] }
+        return try? NSRegularExpression(pattern: "(\(names))\\s*[：:]\\s*(.+?)(?=\\s*(?:\(names))\\s*[：:]|$)")
+    }()
+
+    /// `格式：… 语言：…` in a text; the first of each name wins.
+    static func labelFields(_ text: String) -> [String: String] {
+        guard let regex = labelFieldsRegex else { return [:] }
         var fields = [String: String]()
         let range = NSRange(text.startIndex..., in: text)
         for match in regex.matches(in: text, range: range) {
             guard let name = Range(match.range(at: 1), in: text), let value = Range(match.range(at: 2), in: text) else { continue }
-            fields[String(text[name])] = String(text[value]).trimmingCharacters(in: .whitespaces)
+            let key = String(text[name])
+            if fields[key] == nil { fields[key] = String(text[value]).trimmingCharacters(in: .whitespaces) }
         }
         return fields
+    }
+
+    /// A card's fields, each read from the text its own element holds, so the last one stops where
+    /// its element does instead of running on into the button text after it. A value kept in a
+    /// child element (`语言：<b>简</b>`) comes from the whole card's text, as before.
+    static func cardFields(_ card: LightHTML.Element) -> [String: String] {
+        var fields = [String: String]()
+        for element in [card] + card.descendants {
+            var own = [String]()
+            for case .text(let value) in element.children { own.append(value) }
+            let text = own.joined(separator: " ").split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            fields.merge(labelFields(text)) { first, _ in first }
+        }
+        return fields.merging(labelFields(card.text)) { own, _ in own }
     }
 
     /// Search highlighting splits CJK titles; the spaces between two Han characters go.
@@ -295,10 +334,12 @@ public struct AssrtWebProvider: SubtitleProvider {
         // A: onthefly("<id>","<part>","<name>"), one call per handler.
         for element in root.descendants {
             guard let handler = element.attribute("onclick"), let entry = ontheflyEntry(handler) else { continue }
+            guard entry.id == pageID else { continue }
             referencesDownload = true
-            guard entry.id == pageID, entry.part >= 1, isSubRip(entry.name) else { continue }
+            guard entry.part >= 1, isSubRip(entry.name) else { continue }
             let (display, segment) = pathSegment(for: entry.name)
-            guard let url = URL(string: "https://\(host)/download/\(entry.id)/-/\(entry.part)/\(segment)") else { continue }
+            guard let url = URL(string: "https://\(host)/download/\(entry.id)/-/\(entry.part)/\(segment)"),
+                  staysOnPath(url) else { continue }
             files.append((display, url))
         }
         // B and C: per-file or single-file links written as hrefs or `location.href=` handlers.
@@ -308,10 +349,11 @@ public struct AssrtWebProvider: SubtitleProvider {
                 guard let value, let url = resolve(value, against: pageURL) else { continue }
                 let parts = url.path.split(separator: "/").map(String.init)
                 guard parts.count >= 3, parts[0].lowercased() == "download" else { continue }
+                guard parts[1] == pageID else { continue }
                 referencesDownload = true
                 let name = parts.last!.removingPercentEncoding ?? parts.last!
-                guard parts[1] == pageID, isSubRip(name) else { continue }
-                if parts.count >= 5, parts[2] == "-" {
+                guard isSubRip(name), staysOnPath(url) else { continue }
+                if parts.count >= 5, parts[2] == "-", parts[3].allSatisfy(isDigit), parts[3].contains(where: { $0 != "0" }) {
                     files.append((name, url))
                 } else if parts.count == 3, parts[2] != "-" {
                     singles.append((name, url))
@@ -333,6 +375,14 @@ public struct AssrtWebProvider: SubtitleProvider {
         return files.map { file in
             // The file's own name first: one upload often holds several languages.
             var language = SubtitleLanguage.detect(label: nil, fileName: file.name)
+            // 「繁体」「简体」「英文」 anywhere in the name; the Latin names are not searched for inside
+            // one ("malay" is in "Himalaya"). As `AssrtProvider` reads its file names.
+            let lowered = file.name.lowercased()
+            if language.code == nil, let named = SubtitleLanguage.names.first(where: { entry in
+                !entry.0.allSatisfy(\.isASCII) && lowered.contains(entry.0)
+            }) {
+                language = SubtitleLanguage(code: named.1)
+            }
             if language.code == nil, let cardLanguage { language = SubtitleLanguage(code: cardLanguage) }
             return RemoteSubtitleTrack(providerID: providerID, providerName: displayName, language: language,
                                        fileName: file.name, title: hit.title, downloadURL: file.url, detailURL: pageURL)
@@ -341,9 +391,13 @@ public struct AssrtWebProvider: SubtitleProvider {
 
     /// `onthefly("710863","2","[Fan&Sub] S01E02.chs.srt")`, from one decoded handler. The name is
     /// greedy to the last quote, so quotes inside it survive; `\\ \" \' \/` are undone.
+    nonisolated(unsafe) static let ontheflyRegex = try? NSRegularExpression(
+        pattern: #"onthefly\(\s*(["'])(\d+)\1\s*,\s*(["'])(\d+)\3\s*,\s*(["'])(.*)\5\s*\)"#,
+        options: [.dotMatchesLineSeparators])
+    nonisolated(unsafe) static let locationRegex = try? NSRegularExpression(pattern: #"location\.href\s*=\s*['"]([^'"]+)['"]"#)
+
     static func ontheflyEntry(_ handler: String) -> (id: String, part: Int, name: String)? {
-        let pattern = #"onthefly\(\s*(["'])(\d+)\1\s*,\s*(["'])(\d+)\3\s*,\s*(["'])(.*)\5\s*\)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]),
+        guard handler.contains("onthefly"), let regex = ontheflyRegex,
               let match = regex.firstMatch(in: handler, range: NSRange(handler.startIndex..., in: handler)),
               let id = Range(match.range(at: 2), in: handler), let part = Range(match.range(at: 4), in: handler),
               let name = Range(match.range(at: 6), in: handler), let number = Int(handler[part]) else { return nil }
@@ -368,10 +422,14 @@ public struct AssrtWebProvider: SubtitleProvider {
     /// (an escape and nothing raw): kept as it is. Otherwise encoded as `encodeURIComponent` does,
     /// each folder level on its own.
     static func pathSegment(for name: String) -> (display: String, segment: String) {
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!'()*")
         let escaped = name.range(of: "%[0-9A-Fa-f]{2}", options: .regularExpression) != nil
         let raw = name.contains { $0 == " " || $0 == "[" || $0 == "]" || $0 == "\"" || !$0.isASCII }
-        if escaped, !raw { return (name.removingPercentEncoding ?? name, name) }
-        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!'()*")
+        if escaped, !raw {
+            // Existing escapes and path-legal characters kept; `#`, `?`, `|` and the like encoded.
+            let kept = allowed.union(CharacterSet(charactersIn: "%/&+,;=:@$"))
+            return (name.removingPercentEncoding ?? name, name.addingPercentEncoding(withAllowedCharacters: kept) ?? name)
+        }
         let segment = name.split(separator: "/", omittingEmptySubsequences: false)
             .map { $0.addingPercentEncoding(withAllowedCharacters: allowed) ?? String($0) }
             .joined(separator: "/")
@@ -380,10 +438,17 @@ public struct AssrtWebProvider: SubtitleProvider {
 
     /// `location.href='/download/…';return false;` → its target.
     static func locationTarget(_ handler: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: #"location\.href\s*=\s*['"]([^'"]+)['"]"#),
+        guard handler.contains("location"), let regex = locationRegex,
               let match = regex.firstMatch(in: handler, range: NSRange(handler.startIndex..., in: handler)),
               let range = Range(match.range(at: 1), in: handler) else { return nil }
         return String(handler[range])
+    }
+
+    /// A download link that stays on its own path: no query or fragment, no `.` or `..` level. The
+    /// name comes from inside an uploaded archive, so the uploader writes it. `url.path` is decoded,
+    /// so `%2E%2E` is caught too.
+    static func staysOnPath(_ url: URL) -> Bool {
+        url.query == nil && url.fragment == nil && !url.path.split(separator: "/").contains { $0 == "." || $0 == ".." }
     }
 
     static func isSubRip(_ name: String) -> Bool {

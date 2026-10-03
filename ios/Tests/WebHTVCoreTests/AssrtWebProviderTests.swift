@@ -124,6 +124,34 @@ private func page(_ html: String, at url: URL, status: Int = 200) -> SubtitleHTT
     #expect(hits.map(\.srtHint) == [false, true, true])
     #expect(AssrtWebProvider.openingOrder(hits).map(\.id) == ["710863", "678767", "31971"])
     #expect(hits[1].label == "英 简 双语")
+    // The last field ends with its own element, not in the 下载 button after it.
+    #expect(hits[2].label == "简")
+}
+
+/// A single hit kept on the results page (`no_redir`): its card is the block holding its fields,
+/// not the whole page, so the filter bar's 格式 is not the card's. The title comes from whichever
+/// link carries one, and the path is read lower-cased.
+@Test func aLoneHitsCardIsItsOwnBlockNotThePage() throws {
+    let html = """
+    <html><body><div id="filter"><span>格式：SSA</span></div>
+    <div id="resultsdiv"><div class="subitem">
+     <a href="/XML/Sub/678/678767.XML"><img alt="cover"></a>
+     <a class="introtitle" title="Iron.Man.2008" href="/xml/sub/678/678767.xml">Iron.Man.2008</a>
+     <div id="sublist_div"><span>格式：Subrip(srt)</span><span>语言：简</span></div>
+    </div></div></body></html>
+    """
+    let hits = try AssrtWebProvider.searchHits(in: html, pageURL: searchURL)
+    #expect(hits.map(\.url) == [ironMan])
+    #expect(hits.map(\.title) == ["Iron.Man.2008"])
+    #expect(hits.map(\.srtHint) == [true] && hits.map(\.label) == ["简"])
+}
+
+/// A package link counts for its own upload only: a card linking another upload's `.srt` says
+/// nothing about this one.
+@Test func anotherUploadsPackageLinkSaysNothingAboutThisCard() {
+    let card = LightHTML.parse(#"<div><a onclick="location.href='/download/31971/other.srt'">相關</a></div>"#)
+    #expect(AssrtWebProvider.srtHint(format: "SSA", card: card, id: "678767", pageURL: searchURL) == false)
+    #expect(AssrtWebProvider.srtHint(format: "SSA", card: card, id: "31971", pageURL: searchURL) == true)
 }
 
 /// One `.srt` out of an archive: each `onthefly` row naming one, built as the site's per-file
@@ -159,6 +187,44 @@ private func page(_ html: String, at url: URL, status: Int = 200) -> SubtitleHTT
     #expect(throws: SubtitleProviderError.detailPageUnreadable) {
         try AssrtWebProvider.tracks(in: "<html><body><div>改版了</div></body></html>", pageURL: ironManZh, hit: hit)
     }
+}
+
+/// Only this page's own upload counts: a page whose only download references are another
+/// upload's is unreadable, not an archive without SubRip.
+@Test func anotherUploadsLinksAreNotThisPagesDownloads() {
+    let hit = AssrtWebProvider.Hit(id: "31971", url: ironManZh, title: nil, label: nil, srtHint: nil)
+    for html in [#"<html><body><div onclick='onthefly("999999","1","Elsewhere.srt")'></div></body></html>"#,
+                 #"<html><body><a href="/download/999999/Elsewhere.zip">下载</a></body></html>"#] {
+        #expect(throws: SubtitleProviderError.detailPageUnreadable) {
+            try AssrtWebProvider.tracks(in: html, pageURL: ironManZh, hit: hit)
+        }
+    }
+}
+
+/// A file name inside an archive is written by its uploader. One that climbs out of its path,
+/// carries a query or names part 0 is dropped; a `#` is encoded, never a fragment; a Chinese
+/// language word in it outranks the card's language.
+@Test func uploaderWrittenNamesStayOnTheirOwnPath() throws {
+    let html = """
+    <html><body>
+    <div onclick='onthefly("31971","1","../../../usercp.php/x.srt")'></div>
+    <div onclick='onthefly("31971","2","%2E%2E/%2E%2E/x.srt")'></div>
+    <div onclick='onthefly("31971","3","Iron%20Man#2.srt")'></div>
+    <div onclick='onthefly("31971","0","Zero.srt")'></div>
+    <div onclick='onthefly("31971","5","钢铁侠.繁体.srt")'></div>
+    <a href="/download/31971/-/0/Zero.srt">0</a>
+    <a href="/download/31971/-/4/Query.srt?next=/usercp.php">q</a>
+    </body></html>
+    """
+    let hit = AssrtWebProvider.Hit(id: "31971", url: ironManZh, title: nil, label: "简", srtHint: nil)
+    let tracks = try AssrtWebProvider.tracks(in: html, pageURL: ironManZh, hit: hit)
+    #expect(tracks.map(\.downloadURL.absoluteString) == [
+        "https://2.assrt.net/download/31971/-/3/Iron%20Man%232.srt",
+        "https://2.assrt.net/download/31971/-/5/%E9%92%A2%E9%93%81%E4%BE%A0.%E7%B9%81%E4%BD%93.srt",
+    ])
+    #expect(tracks.allSatisfy { $0.downloadURL.fragment == nil })
+    #expect(tracks.map(\.fileName) == ["Iron Man#2.srt", "钢铁侠.繁体.srt"])
+    #expect(tracks.map(\.language.code) == ["zh-CN", "zh-TW"])
 }
 
 /// A challenge, the site's error page and its login pages are reported as what they are.
@@ -219,6 +285,34 @@ private func page(_ html: String, at url: URL, status: Int = 200) -> SubtitleHTT
 @Test func aChallengeStopsTheSearchAtOnce() async {
     let pages = Pages([searchURL.absoluteString: page(challengePage, at: searchURL, status: 503)])
     await #expect(throws: SubtitleProviderError.blockedByChallenge) {
+        _ = try await AssrtWebProvider(fetch: pages.fetch, retryDelay: .zero).search(SubtitleSearchQuery(text: "Daria"))
+    }
+    #expect(pages.requests.count == 1)
+}
+
+/// A block on a detail page opens nothing more: the page already in flight finishes, the rest
+/// are never asked for.
+@Test func aBlockOnADetailPageOpensNothingMore() async {
+    let pages = Pages([
+        searchURL.absoluteString: page(searchPage, at: searchURL),
+        darias.absoluteString: page(challengePage, at: darias, status: 403),
+        ironMan.absoluteString: page(challengePage, at: ironMan, status: 403),
+        ironManZh.absoluteString: page(archiveOnlyPage, at: ironManZh),
+    ])
+    await #expect(throws: SubtitleProviderError.blockedByChallenge) {
+        _ = try await AssrtWebProvider(fetch: pages.fetch, retryDelay: .zero).search(SubtitleSearchQuery(text: "Daria"))
+    }
+    #expect(pages.requests.count == 3)
+    #expect(!pages.requests.contains { $0.url == ironManZh })
+}
+
+/// Landing on the site's error page is its answer, even behind a server error: asked once, never
+/// retried.
+@Test func theErrorPageIsAskedForOnce() async {
+    let errpage = URL(string: "https://2.assrt.net/errpage/403.html")!
+    let pages = Pages([searchURL.absoluteString: SubtitleHTTPResponse(
+        status: 503, mimeType: "text/html", data: Data("<html><body>busy</body></html>".utf8), url: errpage)])
+    await #expect(throws: SubtitleProviderError.rejected(493)) {
         _ = try await AssrtWebProvider(fetch: pages.fetch, retryDelay: .zero).search(SubtitleSearchQuery(text: "Daria"))
     }
     #expect(pages.requests.count == 1)

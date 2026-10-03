@@ -481,6 +481,11 @@ final class MPVPlayerCore: @unchecked Sendable {
     private var frameDrops: Int64?
     private var decoderDrops: Int64?
     private var shownSid: String?
+    /// IOS-POC-45F: the file's subtitle list as last logged, each embedded track's codec, and the
+    /// track the viewer just chose, to tell when mpv drops it for want of a decoder. `queue` only.
+    private var lastSubtitleList: String?
+    private var subtitleCodecs = [Int64: String]()
+    private var chosenSubtitle: (id: Int64, at: ContinuousClock.Instant)?
 
     var snapshot: Snapshot {
         lock.lock(); defer { lock.unlock() }
@@ -607,6 +612,7 @@ final class MPVPlayerCore: @unchecked Sendable {
                 } else {
                     guard id.hasPrefix(prefix) else { continuation.resume(); return }
                     value = String(id.dropFirst(prefix.count))
+                    if kind == .subtitle, let track = Int64(value) { chosenSubtitle = (track, .now) }
                 }
                 mpv_set_property_string(mpv, property, value)
                 refreshMediaSelection(mpv)
@@ -766,6 +772,12 @@ final class MPVPlayerCore: @unchecked Sendable {
                    let value = property.data?.assumingMemoryBound(to: UnsafeMutablePointer<CChar>?.self).pointee {
                     let sid = String(cString: value)
                     if sid != "no" { shownSid = sid }
+                    // IOS-POC-45F: a choice turned off again at once is a track mpv could not decode.
+                    if sid == "no", let chosen = chosenSubtitle, ContinuousClock.now - chosen.at < .seconds(3) {
+                        let codec = subtitleCodecs[chosen.id] ?? "unknown"
+                        Task { @MainActor in PlaybackSession.log.notice("[subtitle] mpv dropped the chosen subtitle id=\(chosen.id) codec=\(codec, privacy: .public)") }
+                    }
+                    if sid != "no" || chosenSubtitle.map({ ContinuousClock.now - $0.at >= .seconds(3) }) == true { chosenSubtitle = nil }
                 }
                 // MPV parity P1: the decoder `hwdec` picked, once per file ("no" is software);
                 // unavailable, and so not logged, between files.
@@ -853,6 +865,7 @@ final class MPVPlayerCore: @unchecked Sendable {
                     continue
                 }
                 let id = "mpv-subtitle-\(trackID)"
+                if let codec { subtitleCodecs[trackID] = codec }
                 subtitles.append(.init(id: id, title: title, language: language, codec: codec,
                                        fallbackName: PlaybackMediaOption.localizedLanguageName(language)
                                            ?? "字幕 \(subtitles.count + 1)"))
@@ -864,6 +877,12 @@ final class MPVPlayerCore: @unchecked Sendable {
             .map { "mpv-audio-\($0)" } ?? selectedAudioFromList
         let rawSID = stringProperty(mpv, "sid")
         let sid = rawSID.flatMap(Int64.init).map { "mpv-subtitle-\($0)" } ?? selectedSubtitleFromList
+        // IOS-POC-45F: the embedded list as one line (counts and codecs), each time it changes.
+        let subtitleList = SubtitleTrackSummary.line(engine: "MPV", status: "ok", options: subtitles)
+        if subtitleList != lastSubtitleList {
+            lastSubtitleList = subtitleList
+            Task { @MainActor in PlaybackSession.log.notice("\(subtitleList, privacy: .public)") }
+        }
         if !subtitles.isEmpty {
             subtitles.insert(.init(id: PlaybackMediaOption.subtitleOffID, title: "關閉",
                                    isOff: true, fallbackName: "關閉"), at: 0)

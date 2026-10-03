@@ -6,6 +6,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current handoff — 2026-10-02 晚：IOS-POC-45 線上字幕（先讀這一節）
 
+**IOS-POC-45F**（2026-10-03）：CC／SDH／強制字幕標示、沒有內嵌字幕時的說明與「改用 MPV」按鈕、字幕清單診斷紀錄。見 IOS-POC-45 文件第 18 節。
+
 **IOS-POC-45G**（2026-10-03）：新增「射手網（網頁）」來源（2.assrt.net，不需 token，只取單一 `.srt`，驗證頁不繞過），站台未實測。見 IOS-POC-45 文件第 17 節。
 
 **IOS-POC-45D**（2026-10-03）：MPV 字幕內建 `WebHTV Subtitle CJK`（Noto Sans CJK TC 子集，OFL，約 4.8 MB）取代讀不了的 PingFang，並加字型與斷音診斷。見 IOS-POC-45 文件第 16 節。

@@ -4378,11 +4378,32 @@ final class AVPlayerEngine: PlaybackEngine {
         await reportAudioDiagnostics(selection)
     }
 
+    /// IOS-POC-45F: the item's subtitle list as one line, each time it changes.
+    private var lastSubtitleList: String?
+
+    private func logSubtitleList(_ status: String, _ options: [PlaybackMediaOption]) {
+        let line = SubtitleTrackSummary.line(engine: "AVPlayer", status: status, options: options)
+        guard line != lastSubtitleList else { return }
+        lastSubtitleList = line
+        PlaybackSession.log.notice("\(line, privacy: .public)")
+    }
+
     private func mediaTrack(item: AVPlayerItem, characteristic: AVMediaCharacteristic,
                             kind: PlaybackMediaKind,
                             audioFacts: [NativeAudioTrackFacts]) async -> PlaybackMediaTrack? {
-        guard let group = try? await item.asset.loadMediaSelectionGroup(for: characteristic),
-              !group.options.isEmpty else { return nil }
+        // IOS-POC-45F: why a list is empty is logged (counts and error codes only), not swallowed.
+        let loaded: AVMediaSelectionGroup?
+        do {
+            loaded = try await item.asset.loadMediaSelectionGroup(for: characteristic)
+        } catch {
+            let error = error as NSError
+            if kind == .subtitle { logSubtitleList("error:\(error.domain)#\(error.code)", []) }
+            return nil
+        }
+        guard let group = loaded, !group.options.isEmpty else {
+            if kind == .subtitle { logSubtitleList(loaded == nil ? "nil" : "empty", []) }
+            return nil
+        }
 
         let selected = item.currentMediaSelection.selectedMediaOption(in: group)
         var options = [PlaybackMediaOption]()
@@ -4408,6 +4429,20 @@ final class AVPlayerEngine: PlaybackEngine {
             let channels = Self.common(matching.compactMap(\.channelCount))
             let layout = Self.common(matching.compactMap(\.channelLayout))
             let preciseCodec = Self.common(matching.compactMap(\.codec))
+            // IOS-POC-45F: a caption, SDH or forced track says so in the panel.
+            let role: PlaybackSubtitleRole
+            if kind != .subtitle {
+                role = .normal
+            } else if option.mediaType == .closedCaption {
+                role = .closedCaptions
+            } else if option.hasMediaCharacteristic(.containsOnlyForcedSubtitles) {
+                role = .forced
+            } else if option.hasMediaCharacteristic(.transcribesSpokenDialogForAccessibility),
+                      option.hasMediaCharacteristic(.describesMusicAndSound) {
+                role = .sdh
+            } else {
+                role = .normal
+            }
             options.append(.init(
                 id: id,
                 title: option.displayName,
@@ -4415,9 +4450,11 @@ final class AVPlayerEngine: PlaybackEngine {
                 codec: preciseCodec ?? (codecs.isEmpty ? nil : codecs.joined(separator: "/")),
                 channelCount: channels,
                 channelLayout: layout,
-                fallbackName: kind == .audio ? "音軌 \(index + 1)" : "字幕 \(index + 1)"
+                fallbackName: kind == .audio ? "音軌 \(index + 1)" : "字幕 \(index + 1)",
+                subtitleRole: role
             ))
         }
+        if kind == .subtitle { logSubtitleList("ok", options) }
 
         let selectedID: String?
         if let selected, let index = group.options.firstIndex(of: selected) {
@@ -4980,6 +5017,7 @@ private struct PlayerControlBar: View {
                 }
             case .subtitle:
                 trackRows(media.subtitle, kind: .subtitle)
+                subtitleEmptyState
                 if SubtitleDelay.applies(to: engine, selectedSubtitleID: media.subtitle?.selectedID) {
                     SubtitleDelayRow(session: session)
                 }
@@ -4995,6 +5033,28 @@ private struct PlayerControlBar: View {
                 skipControls(offset: \.endingOffset, mark: session.markEnding,
                              apply: session.setEnding)
             }
+        }
+    }
+
+    /// IOS-POC-45F: what the panel says when the engine lists no embedded subtitle. Never "none":
+    /// AVPlayer does not list captions a stream carries without declaring them, and MPV adds a
+    /// caption track only once captions arrive.
+    @ViewBuilder private var subtitleEmptyState: some View {
+        switch SubtitleEmptyState.state(engine: engine, subtitles: media.subtitle) {
+        case .none:
+            EmptyView()
+        case .provisional:
+            Text("目前未偵測到內嵌字幕；隱藏式字幕（CC）可能在播放後才出現。")
+                .font(.caption).foregroundStyle(.white.opacity(0.75))
+                .padding(.horizontal, 20).padding(.vertical, 8)
+        case .tryMPV:
+            VStack(alignment: .leading, spacing: 8) {
+                Text("目前未偵測到內嵌字幕。有些串流的隱藏式字幕（CC）只有 MPV 讀得到。")
+                    .font(.caption).foregroundStyle(.white.opacity(0.75))
+                Button("改用 MPV 讀取內嵌字幕") { selectEngine(.mpv) }
+                    .buttonStyle(.bordered)
+            }
+            .padding(.horizontal, 20).padding(.vertical, 8)
         }
     }
 

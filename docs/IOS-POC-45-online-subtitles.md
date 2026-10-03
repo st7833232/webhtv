@@ -416,3 +416,30 @@
 - Linux swiftlang 6.0.3 `swift test` 243 項，242 通過（既有 CP1251 項目除外）。App 只改說明文字，未在 macOS 編譯。
 - 真機待驗（必要）：用一個常見片名搜尋，確認搜尋頁、詳情頁與一個逐檔下載實際可用；若下載回錯誤頁或 493，記錄狀態碼後回報。
 - Rollback：revert 本 commit。
+
+## 18. IOS-POC-45F：有些影片選不出 CC 字幕
+
+### 18.1 查證結論（workflow，四個方向各附反駁）
+
+- 沒有找到 App 把字幕軌弄丟的路徑：0.1.53 不改寫、不代理播放清單（智慧去廣只 seek），兩個引擎回報的字幕軌都會列在面板上。
+- 較可能的原因：
+  1. 影片本身沒有軟字幕（燒錄在畫面、HLS master 沒宣告字幕、來源直接給 media playlist）。
+  2. AVPlayer 不列出串流裡沒有宣告的 CEA-608 隱藏式字幕（推測的平台行為，沒有文件證實）；同一個串流在 MPV 可能讀得到（FFmpeg 從 SEI 取出、mpv 收到資料才建立 `eia_608` 軌）。
+  3. CC 軌其實在，但標示不清：AVPlayer 的 CC 選項只顯示語言，和同語言字幕一模一樣；MPV 顯示成「字幕 N · EIA_608」。
+  4. 少數格式（`dvb_teletext`、`arib_caption`）在 MPVKit 的 FFmpeg 沒有解碼器，選了會跳回「關閉」，沒有任何提示。
+  5. 來源播放回應裡的 `subs` 欄位 iOS 版沒有讀取（Android 會當成外掛字幕）：這是新功能，需要使用者核准，本階段不做。
+- 不建議 `sub-create-cc-track=yes`：mpv 建立的 CC 軌帶 default 旗標，可能在載入時被自動選中，蓋掉原本會顯示的內嵌字幕。
+
+### 18.2 實作
+
+- `PlaybackSubtitleRole`（一般、CC、SDH、強制）：AVPlayer 依 `mediaType == .closedCaption`、`containsOnlyForcedSubtitles`、`transcribesSpokenDialogForAccessibility` 加 `describesMusicAndSound` 判斷；任一引擎的 `eia_608`／`c608` 等格式自動視為 CC，格式名稱顯示為「CC」。標籤附在名稱後（「English · CC」）；一般字幕的名稱不變。
+- `dvb_teletext`、`arib_caption` 標示「不支援」，不隱藏。MPV 在使用者選擇後 3 秒內把字幕關回 `no` 時記錄 `[subtitle] mpv dropped the chosen subtitle id= codec=`。
+- 面板：沒有內嵌字幕時顯示說明（不寫「沒有字幕」）。AVPlayer 下另有「改用 MPV 讀取內嵌字幕」按鈕（沿用既有的切換引擎）；MPV 下說明 CC 可能在播放後才出現（`SubtitleEmptyState`）。
+- 診斷：兩個引擎的字幕清單變動時各記一行 `[subtitle] engine= list=ok|nil|empty|error:<domain>#<code> options= cc= sdh= forced= unsupported= codecs=`（`SubtitleTrackSummary`，不含標題、語言名稱、網址）；AVPlayer 載入字幕群組失敗不再被 `try?` 吞掉。
+
+### 18.3 測試與驗證
+
+- `SubtitleTrackLabelTests`（5 項）：CC 標示（兩個引擎）、SDH／強制／不支援、一般字幕名稱不變（回歸）、空清單的面板說明、診斷行只含計數。Linux swiftlang 6.0.3 `swift test` 248 項，247 通過（既有 CP1251 項目除外）。App target 未在 macOS 編譯。
+- 真機待驗：找一部「選不出 CC」的影片，看面板說明與按鈕、切到 MPV 後是否出現「CC」列，並回傳 `[subtitle] engine=` 那幾行紀錄。
+- 待使用者決定：讀取來源回應的 `subs`（外掛字幕）。
+- Rollback：revert 本 commit。

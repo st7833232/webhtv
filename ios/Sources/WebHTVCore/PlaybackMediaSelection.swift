@@ -7,8 +7,32 @@ public enum PlaybackMediaKind: String, Sendable, Equatable {
     case subtitle
 }
 
+/// IOS-POC-45F: what a subtitle option is, beyond its language — so a closed-caption track is not
+/// an unlabelled twin of the subtitles in the same language.
+public enum PlaybackSubtitleRole: String, Sendable, Equatable {
+    case normal
+    /// CEA-608/708 captions: AVFoundation's `.closedCaption` media type, mpv's `eia_608`.
+    case closedCaptions
+    /// Subtitles for the deaf and hard of hearing: dialogue transcribed and sounds described.
+    case sdh
+    /// Only the forced lines (foreign dialogue, signs).
+    case forced
+
+    var label: String? {
+        switch self {
+        case .normal: return nil
+        case .closedCaptions: return "CC"
+        case .sdh: return "SDH"
+        case .forced: return "強制"
+        }
+    }
+}
+
 public struct PlaybackMediaOption: Sendable, Equatable, Identifiable {
     public static let subtitleOffID = "subtitle-off"
+    /// IOS-POC-45F: subtitle codecs the bundled FFmpeg has no decoder for (MPVKit's build enables
+    /// none for teletext or ARIB). Listed, labelled, never hidden: the list may drift from the build.
+    public static let unsupportedSubtitleCodecs: Set<String> = ["dvb_teletext", "arib_caption"]
 
     public let id: String
     public let title: String?
@@ -18,10 +42,11 @@ public struct PlaybackMediaOption: Sendable, Equatable, Identifiable {
     public let channelLayout: String?
     public let isOff: Bool
     public let fallbackName: String
+    public let subtitleRole: PlaybackSubtitleRole
 
     public init(id: String, title: String? = nil, language: String? = nil, codec: String? = nil,
                 channelCount: Int? = nil, channelLayout: String? = nil, isOff: Bool = false,
-                fallbackName: String) {
+                fallbackName: String, subtitleRole: PlaybackSubtitleRole = .normal) {
         self.id = id
         self.title = Self.trimmed(title)
         self.language = Self.trimmed(language)
@@ -30,6 +55,18 @@ public struct PlaybackMediaOption: Sendable, Equatable, Identifiable {
         self.channelLayout = Self.trimmed(channelLayout)
         self.isOff = isOff
         self.fallbackName = fallbackName
+        // A caption codec says what the track is, whichever engine listed it.
+        self.subtitleRole = subtitleRole == .normal && Self.isClosedCaptionCodec(codec) ? .closedCaptions : subtitleRole
+    }
+
+    /// The FFmpeg build cannot decode it: choosing it falls back to 「關閉」.
+    public var isUnsupportedSubtitle: Bool {
+        codec.map { Self.unsupportedSubtitleCodecs.contains($0.lowercased()) } ?? false
+    }
+
+    static func isClosedCaptionCodec(_ raw: String?) -> Bool {
+        guard let key = trimmed(raw)?.lowercased().replacingOccurrences(of: "_", with: "-") else { return false }
+        return ["eia-608", "eia-708", "cea-608", "cea-708", "c608", "c708"].contains(key)
     }
 
     public var codecDisplayName: String? { Self.normalizedCodec(codec) }
@@ -51,12 +88,14 @@ public struct PlaybackMediaOption: Sendable, Equatable, Identifiable {
         }
     }
 
-    /// One presentation contract for both engines: title/language · codec · channel layout.
+    /// One presentation contract for both engines: title/language · codec · channel layout, then
+    /// what kind of subtitle it is (CC, SDH, 強制) and 不支援 for a codec the build cannot decode.
     public var displayName: String {
         if isOff { return title ?? fallbackName }
         let base = title ?? Self.localizedLanguageName(language) ?? fallbackName
         var parts = [base]
-        for value in [codecDisplayName, channelDescription].compactMap({ $0 }) {
+        for value in [codecDisplayName, channelDescription, subtitleRole.label,
+                      isUnsupportedSubtitle ? "不支援" : nil].compactMap({ $0 }) {
             if !parts.contains(where: {
                 $0.caseInsensitiveCompare(value) == .orderedSame ||
                 $0.localizedCaseInsensitiveContains(value)
@@ -107,6 +146,8 @@ public struct PlaybackMediaOption: Sendable, Equatable, Identifiable {
         case "flac": return "FLAC"
         case "alac": return "ALAC"
         case "lpcm", "pcm", "sowt", "twos", "in24", "in32", "fl32", "fl64": return "PCM"
+        // IOS-POC-45F: closed captions read as what they are, not as `EIA_608`.
+        case "eia-608", "eia-708", "cea-608", "cea-708", "c608", "c708": return "CC"
         default:
             if key.hasPrefix("pcm-") { return "PCM" }
             return trimmed.uppercased()
@@ -190,5 +231,39 @@ public extension PlaybackMediaTrack {
         let selected = external.contains(where: { $0.id == selectedExternalID }) ? selectedExternalID
             : embedded?.selectedID ?? PlaybackMediaOption.subtitleOffID
         return PlaybackMediaTrack(options: options, selectedID: selected)
+    }
+}
+
+// MARK: - IOS-POC-45F: when no embedded subtitle is listed
+
+/// What the subtitle panel says when the engine lists no embedded subtitle. Never "this video has
+/// none": MPV adds a caption track only once captions arrive, and AVPlayer does not list captions a
+/// stream carries without declaring them, which MPV reads.
+public enum SubtitleEmptyState: Sendable, Equatable {
+    /// Embedded subtitles are listed.
+    case none
+    /// None listed yet.
+    case provisional
+    /// AVPlayer listed none: offer MPV.
+    case tryMPV
+
+    public static func state(engine: PlaybackEngineKind, subtitles: PlaybackMediaTrack?) -> SubtitleEmptyState {
+        let embedded = subtitles?.options.contains { !$0.isOff && !PlaybackExternalSubtitle.isExternalID($0.id) } ?? false
+        if embedded { return .none }
+        return engine == .native ? .tryMPV : .provisional
+    }
+}
+
+/// IOS-POC-45F: one log line for an engine's subtitle list — counts, kinds and codecs, never a
+/// title, a language name or an address, so a device log says why nothing could be chosen.
+public enum SubtitleTrackSummary {
+    public static func line(engine: String, status: String, options: [PlaybackMediaOption]) -> String {
+        let listed = options.filter { !$0.isOff && !PlaybackExternalSubtitle.isExternalID($0.id) }
+        func count(_ role: PlaybackSubtitleRole) -> Int { listed.filter { $0.subtitleRole == role }.count }
+        let codecs = Set(listed.compactMap { $0.codec?.lowercased() }).sorted()
+            .map { $0.filter { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" } }
+        return "[subtitle] engine=\(engine) list=\(status) options=\(listed.count) cc=\(count(.closedCaptions))"
+            + " sdh=\(count(.sdh)) forced=\(count(.forced)) unsupported=\(listed.filter(\.isUnsupportedSubtitle).count)"
+            + " codecs=\(codecs.isEmpty ? "-" : codecs.joined(separator: ","))"
     }
 }

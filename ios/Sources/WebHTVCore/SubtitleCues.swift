@@ -151,8 +151,9 @@ public enum SubRip {
     static func timing(_ line: Substring) -> (start: Double, end: Double)? {
         guard let arrow = line.range(of: "-->") else { return nil }
         let left = line[..<arrow.lowerBound].trimmingCharacters(in: .whitespaces)
+        // WebVTT allows a tab before the cue settings as well as a space.
         let right = line[arrow.upperBound...].trimmingCharacters(in: .whitespaces)
-            .split(separator: " ", maxSplits: 1).first.map(String.init) ?? ""
+            .split(maxSplits: 1, whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init) ?? ""
         guard let start = seconds(left), let end = seconds(right) else { return nil }
         return (start, end)
     }
@@ -198,10 +199,12 @@ public enum SubtitleTextFormat: Sendable, Equatable {
     case subRip, webVTT, ssa
 
     public static func of(_ text: String) -> SubtitleTextFormat {
-        let head = text.prefix(64 << 10)
-        if head.drop(while: { $0.isWhitespace || $0 == "\u{FEFF}" }).hasPrefix("WEBVTT") { return .webVTT }
-        let lowered = head.lowercased()
-        if lowered.contains("[events]"), lowered.contains("dialogue:") { return .ssa }
+        if text.prefix(64).drop(while: { $0.isWhitespace || $0 == "\u{FEFF}" }).hasPrefix("WEBVTT") { return .webVTT }
+        // A line that is the `[Events]` heading, wherever it is: an Aegisub file puts its embedded
+        // fonts before it, often far past the first few kilobytes.
+        for line in text.split(whereSeparator: \.isNewline) where line.count <= 16 {
+            if line.trimmingCharacters(in: .whitespaces).lowercased() == "[events]" { return .ssa }
+        }
         return .subRip
     }
 }
@@ -266,13 +269,44 @@ public enum SSA {
             guard parts.count == fields.count,
                   let start = SubRip.seconds(parts[startIndex].trimmingCharacters(in: .whitespaces)),
                   let end = SubRip.seconds(parts[endIndex].trimmingCharacters(in: .whitespaces)), end > start else { continue }
-            let body = String(parts[textIndex])
-            if body.range(of: #"\{[^}]*\\p[1-9]"#, options: .regularExpression) != nil { continue }
-            let shown = SubRip.displayText([body.replacingOccurrences(of: "\\h", with: " ")
-                .replacingOccurrences(of: #"\{[^}]{0,200}\}"#, with: "", options: .regularExpression)])
+            // Past this a line is a drawing or an attack, not something to read out.
+            guard parts[textIndex].utf8.count <= 16_384, let body = withoutOverrides(parts[textIndex]) else { continue }
+            let shown = SubRip.displayText([body.replacingOccurrences(of: "\\h", with: " ")])
             guard !shown.isEmpty, seen.insert("\(start)|\(end)|\(shown)").inserted else { continue }
             cues.append(SubtitleCue(start: start, end: end, text: shown))
         }
         return SubtitleCues(cues)
+    }
+
+    /// The text with every `{…}` override block taken out, however long; nil for a drawing (a block
+    /// with `\p1`…`\p9`). One pass, no regular expression: a line of a million `{` with no `}`
+    /// must not cost a million scans of the rest of the line.
+    static func withoutOverrides(_ text: Substring) -> String? {
+        var shown = ""
+        var index = text.startIndex
+        while index < text.endIndex {
+            guard text[index] == "{" else {
+                shown.append(text[index])
+                index = text.index(after: index)
+                continue
+            }
+            guard let close = text[index...].firstIndex(of: "}") else {
+                // No `}` after this one, so none after any later `{` either: the rest is text.
+                shown += text[index...]
+                break
+            }
+            let block = text[text.index(after: index)..<close]
+            var position = block.startIndex
+            while let slash = block[position...].firstIndex(of: "\\") {
+                let next = block.index(after: slash)
+                if next < block.endIndex, block[next] == "p" {
+                    let digit = block.index(after: next)
+                    if digit < block.endIndex, ("1"..."9").contains(block[digit]) { return nil }
+                }
+                position = next
+            }
+            index = text.index(after: close)
+        }
+        return shown
     }
 }

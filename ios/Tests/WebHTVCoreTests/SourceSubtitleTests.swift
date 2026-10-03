@@ -50,10 +50,13 @@ private func play(_ json: String) throws -> [SourceSubtitle] {
         "file:///sdcard/a.srt", "proxy://do=csp&siteKey=dav&url=/a.srt", "http://127.0.0.1:9978/proxy?a.srt",
         "http://localhost/a.srt", "http://[::1]/a.srt", "http://2130706433/a.srt", "http://127.1/a.srt",
         "sub/a.srt", "https://cdn.example/a.srt", "https://cdn.example/a.srt", "http://192.168.1.5:5244/d/a.ass",
+        "http://[0::1]/a.srt", "http://[::0.0.0.1]/a.srt", "http://[::0:ffff:7f00:1]/a.srt", "http://0177.0.0.1/a.srt",
+        "http://localhost./a.srt", "http://127.0.0.1./a.srt", "http://[2001:db8::1]/a.srt",
     ].map { SourceSubtitle(url: $0) }
     let plan = SourceSubtitles.plan(listed, preferredLanguage: "zh-Hant-TW")
-    #expect(plan.tracks.map(\.downloadURL.absoluteString) == ["https://cdn.example/a.srt", "http://192.168.1.5:5244/d/a.ass"])
-    #expect(plan.listed == 11 && plan.skipped == 9)
+    #expect(plan.tracks.map(\.downloadURL.absoluteString)
+        == ["https://cdn.example/a.srt", "http://192.168.1.5:5244/d/a.ass", "http://[2001:db8::1]/a.srt"])
+    #expect(plan.listed == 18 && plan.skipped == 15)
     #expect(plan.tracks.allSatisfy { $0.providerID == SourceSubtitleProvider.providerID })
 }
 
@@ -61,8 +64,18 @@ private func play(_ json: String) throws -> [SourceSubtitle] {
     let listed = (1...12).map { SourceSubtitle(url: "https://cdn.example/\($0).srt", flag: $0 == 10 ? 1 : 0) }
     let plan = SourceSubtitles.plan(listed, preferredLanguage: nil)
     #expect(plan.tracks.count == SourceSubtitles.maximumFiles && plan.skipped == 4)
-    // The only flagged one was past the limit: as with no flags at all, the first is the default.
-    #expect(plan.chosenID == "https://cdn.example/1.srt")
+    // The source's default was past the limit: none is shown rather than one it did not choose.
+    #expect(plan.chosenID == nil)
+}
+
+/// The flags are decided on the source's whole list, as upstream does, so an entry the source did
+/// not make the default never becomes it because the one it did is an address iOS cannot fetch.
+@Test func aDefaultIOSCannotFetchIsNotReplacedByAnother() {
+    #expect(chosen([SourceSubtitle(url: "proxy://do=csp&url=/zh.srt", language: "zh", flag: 1),
+                    SourceSubtitle(url: "https://c.example/en.srt", language: "en")], device: "zh-Hant-TW") == nil)
+    #expect(chosen([SourceSubtitle(url: "file:///sdcard/zh.srt", language: "zh"),
+                    SourceSubtitle(url: "https://c.example/en.srt", language: "en"),
+                    SourceSubtitle(url: "https://c.example/ja.srt", language: "ja")], device: "zh-Hant-TW") == nil)
 }
 
 /// The stream's credentials go only to the stream's host; Referer and User-Agent (what a CDN
@@ -84,6 +97,15 @@ private func play(_ json: String) throws -> [SourceSubtitle] {
     #expect(other.value(forHTTPHeaderField: "X-Token") == nil)
     #expect(other.value(forHTTPHeaderField: "Referer") == "https://site.example/")
     #expect(other.value(forHTTPHeaderField: "User-Agent") == "WebHTV")
+    // Not in clear text, and not to another port: either is somewhere else.
+    for elsewhere in ["http://cdn.example/a.srt", "https://cdn.example:8443/a.srt"] {
+        let sent = try await request(elsewhere)
+        #expect(sent.value(forHTTPHeaderField: "Cookie") == nil && sent.value(forHTTPHeaderField: "Authorization") == nil)
+    }
+    let upgraded = try await SourceSubtitleProvider(headers: headers, mediaURL: URL(string: "http://cdn.example/v.m3u8"))
+        .downloadRequest(for: SourceSubtitles.track(for: SourceSubtitle(url: "https://cdn.example/a.srt"),
+                                                    url: URL(string: "https://cdn.example/a.srt")!))
+    #expect(upgraded.value(forHTTPHeaderField: "Cookie") == "sid=1")
     await #expect(throws: SubtitleProviderError.downloadUnavailable) { _ = try await request("http://127.0.0.1/a.srt") }
     #expect(!provider.acceptsDownload(from: URL(string: "http://localhost/a.srt")!))
     #expect(provider.acceptsDownload(from: URL(string: "https://files.example/a.srt")!))
@@ -180,6 +202,36 @@ Dialogue: 0,0:00:05.00,0:00:06.00,Default,,0,0,0,,{\\p1}m 0 0 l 100 0 100 100{\\
     // A SubRip file is kept exactly as it came.
     let srt = "1\n00:00:01,000 --> 00:00:02,000\n<i>hi</i>\n"
     #expect(try SubtitleContent.validate(SubtitleHTTPResponse(status: 200, data: Data(srt.utf8)), language: .unknown).text == srt)
+}
+
+/// An Aegisub file keeps its embedded fonts before `[Events]`, far past the first kilobytes; a
+/// SubRip file whose lines merely say `[Events]` and `Dialogue:` stays the SubRip it always was.
+@Test func whereTheEventsAreDecidesASSNotWhatALineSays() throws {
+    let fonts = "[Fonts]\nfontname: a.ttf\n" + String(repeating: "M" + String(repeating: "!", count: 79) + "\n", count: 2000)
+    let embedded = ass.replacingOccurrences(of: "[Events]", with: fonts + "\n[Events]")
+    #expect(SubtitleTextFormat.of(embedded) == .ssa)
+    let fromEmbedded = try SubtitleContent.validate(SubtitleHTTPResponse(status: 200, data: Data(embedded.utf8)), language: .unknown)
+    #expect(fromEmbedded.cues.cues.map(\.text) == ["描邊, 第一句", "上\n下 句"])
+
+    let srt = "1\n00:00:01,000 --> 00:00:02,000\n[Events]\n\n2\n00:00:03,000 --> 00:00:04,000\nDialogue: none\n"
+    let kept = try SubtitleContent.validate(SubtitleHTTPResponse(status: 200, data: Data(srt.utf8)), language: .unknown)
+    #expect(kept.text == srt && kept.cues.cues.map(\.text) == ["[Events]", "Dialogue: none"])
+}
+
+/// An override block of any length is taken out (typeset lines chain `\clip` and `\t`), a line of
+/// nothing but `{` costs one pass, and WebVTT settings may follow a tab.
+@Test func longOverridesAndFloodsAndTabsAreRead() {
+    let long = "{\\an7\\pos(960,540)" + String(repeating: "\\t(0,500,\\fscx120)", count: 20) + "}站牌"
+    #expect(SSA.withoutOverrides(Substring(long)) == "站牌")
+    #expect(SSA.withoutOverrides("{\\p1}m 0 0 l 1 1{\\p0}") == nil)
+    #expect(SSA.withoutOverrides("{\\pos(1,2)}a{b") == "a{b")
+    let started = ContinuousClock.now
+    #expect(SSA.withoutOverrides(Substring(String(repeating: "{", count: 1_000_000))) != nil)
+    #expect(ContinuousClock.now - started < .seconds(2))
+    let flood = "[Events]\nFormat: Start, End, Text\nDialogue: 0:00:01.00,0:00:02.00," + String(repeating: "{", count: 100_000)
+        + "\nDialogue: 0:00:03.00,0:00:04.00,還在\n"
+    #expect(SSA.parse(flood).cues.map(\.text) == ["還在"])
+    #expect(WebVTT.parse("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\talign:start\n定位\n").cues.map(\.text) == ["定位"])
 }
 
 /// A Format line that orders the fields differently is followed, and Text keeps its commas.
@@ -292,6 +344,64 @@ private let listed = [
                                 preferredLanguage: "zh-Hant-TW")
     await settle { shown.count == 1 }
     #expect(shown == [nil] && session.attached.count == 1)
+}
+
+/// A list whose files all failed (a prefetched answer whose signed links expired) gives way to the
+/// live retry's list for the same video, and its default is shown.
+@MainActor @Test func aListWhoseFilesAllFailedGivesWayToTheRetrysList() async {
+    let files = Files(["https://cdn.example/cht.srt?sign=new": srt("你好")])
+    let (coordinator, root) = coordinator(files)
+    defer { try? FileManager.default.removeItem(at: root) }
+    var shown = [String?]()
+    coordinator.onSourceAttachmentsChange = { _, id in shown.append(id) }
+    let session = coordinator.playbackOpened(identity, title: "片名")
+    let provider = SourceSubtitleProvider(headers: [:], mediaURL: stream)
+    session.loadSourceSubtitles([SourceSubtitle(url: "https://cdn.example/cht.srt?sign=old", language: "zh-TW")],
+                                provider: provider, preferredLanguage: "zh-Hant-TW")
+    await settle { files.requests.count >= 2 }
+    try? await Task.sleep(for: .milliseconds(20))
+    session.loadSourceSubtitles([SourceSubtitle(url: "https://cdn.example/cht.srt?sign=new", language: "zh-TW")],
+                                provider: provider, preferredLanguage: "zh-Hant-TW")
+    await settle { shown.count == 1 }
+    #expect(session.attached.count == 1 && shown.first != nil && shown.first == session.attached.first?.id)
+}
+
+private struct OnlineFiles: SubtitleProvider {
+    let id = "online"
+    let name = "Online"
+    let availability = SubtitleProviderAvailability.available
+    func search(_ query: SubtitleSearchQuery) async throws -> SubtitleSearchResult { .empty }
+    func downloadRequest(for track: RemoteSubtitleTrack) async throws -> URLRequest { URLRequest(url: track.downloadURL) }
+}
+
+/// The viewer downloading an online file is a pick of their own: the source's default arriving
+/// later is listed, not shown; and neither download cancels the other, whichever starts first.
+@MainActor @Test func anOnlineDownloadAndTheSourcesFilesNeverCancelEachOther() async {
+    let online = RemoteSubtitleTrack(providerID: "online", providerName: "Online", language: SubtitleLanguage(code: "zh-TW"),
+                                     fileName: "o.srt", title: nil, downloadURL: URL(string: "https://subs.example/o.srt")!,
+                                     detailURL: nil)
+    for onlineFirst in [false, true] {
+        let files = Files(["https://cdn.example/cht.srt": srt("你好"), "https://cdn.example/en.srt": srt("hello"),
+                           "https://subs.example/o.srt": srt("線上")])
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("source-online-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let coordinator = OnlineSubtitleCoordinator(providers: { [OnlineFiles()] },
+                                                    downloader: SubtitleDownloadService(fetch: files.fetch, retryDelay: .zero),
+                                                    root: root)
+        var sourceShown = [String?]()
+        var onlineChosen = [String?]()
+        coordinator.onSourceAttachmentsChange = { _, id in sourceShown.append(id) }
+        coordinator.onAttachmentsChange = { _, id in onlineChosen.append(id) }
+        let session = coordinator.playbackOpened(identity, title: "片名")
+        let provider = SourceSubtitleProvider(headers: [:], mediaURL: stream)
+        if onlineFirst { session.choose(online) }
+        session.loadSourceSubtitles(Array(listed.prefix(2)), provider: provider, preferredLanguage: "zh-Hant-TW")
+        if !onlineFirst { session.choose(online) }
+        await settle { sourceShown.count == 2 && onlineChosen.count == 1 }
+        #expect(sourceShown == [nil, nil])
+        #expect(onlineChosen.count == 1 && onlineChosen.first != nil)
+        #expect(session.attached.count == 3)
+    }
 }
 
 /// An empty list is not "this video's list": a later open that brings one still loads it.

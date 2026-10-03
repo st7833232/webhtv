@@ -91,19 +91,25 @@ public enum SourceSubtitles {
     public static let maximumFiles = 8
 
     public static func plan(_ subtitles: [SourceSubtitle], preferredLanguage: String?) -> SourceSubtitlePlan {
+        // The flags are the source's whole list's, as upstream decides them, before anything iOS
+        // cannot fetch is left out: an entry the source did not make the default never becomes it
+        // because the one it did make is a `proxy://` address or past the limit.
+        let urls = subtitles.map { url($0.url) }
+        let flags = flags(subtitles.map(\.flag), scores: subtitles.indices.map { index in
+            languageScore(language(of: subtitles[index], file: urls[index].map(fileName) ?? "").code,
+                          preferred: preferredLanguage)
+        })
         var seen = Set<String>()
-        var usable = [(subtitle: SourceSubtitle, url: URL)]()
-        for subtitle in subtitles {
-            guard let url = url(subtitle.url), SourceSubtitleProvider.isFetchable(url),
+        var usable = [(track: RemoteSubtitleTrack, flag: Int)]()
+        for (index, subtitle) in subtitles.enumerated() {
+            guard let url = urls[index], SourceSubtitleProvider.isFetchable(url),
                   seen.insert(url.absoluteString).inserted else { continue }
-            usable.append((subtitle, url))
+            usable.append((track(for: subtitle, url: url), flags[index]))
         }
         usable = Array(usable.prefix(maximumFiles))
-        let tracks = usable.map { track(for: $0.subtitle, url: $0.url) }
-        let flags = flags(usable.map(\.subtitle.flag),
-                          scores: tracks.map { languageScore($0.language.code, preferred: preferredLanguage) })
+        let tracks = usable.map(\.track)
         // As FongMi's mpv engine: the first default or forced entry.
-        let chosen = flags.firstIndex { $0 & 0b11 != 0 }
+        let chosen = usable.firstIndex { $0.flag & 0b11 != 0 }
         var order = tracks
         if let chosen, chosen > 0 { order.insert(order.remove(at: chosen), at: 0) }
         return SourceSubtitlePlan(tracks: order, chosenID: chosen.map { tracks[$0].id },
@@ -152,12 +158,20 @@ public enum SourceSubtitles {
     }
 
     static func track(for subtitle: SourceSubtitle, url: URL) -> RemoteSubtitleTrack {
-        let file = url.lastPathComponent.removingPercentEncoding ?? url.lastPathComponent
-        let words = [subtitle.language, subtitle.name].filter { !$0.isEmpty }
-        let language = SubtitleLanguage.detect(label: words.first, metadata: words, fileName: file)
+        let file = fileName(url)
         return RemoteSubtitleTrack(providerID: SourceSubtitleProvider.providerID, providerName: providerName,
-                                   language: language, fileName: file.isEmpty ? "subtitle" : file,
+                                   language: language(of: subtitle, file: file), fileName: file.isEmpty ? "subtitle" : file,
                                    title: subtitle.name.isEmpty ? nil : subtitle.name, downloadURL: url, detailURL: nil)
+    }
+
+    static func fileName(_ url: URL) -> String {
+        url.lastPathComponent.removingPercentEncoding ?? url.lastPathComponent
+    }
+
+    /// `lang` first, then the name (「繁體中文」), then the file name.
+    static func language(of subtitle: SourceSubtitle, file: String) -> SubtitleLanguage {
+        let words = [subtitle.language, subtitle.name].filter { !$0.isEmpty }
+        return SubtitleLanguage.detect(label: words.first, metadata: words, fileName: file)
     }
 
     static func url(_ raw: String) -> URL? {
@@ -176,11 +190,11 @@ public struct SourceSubtitleProvider: SubtitleProvider {
     public let name = SourceSubtitles.providerName
     public let availability = SubtitleProviderAvailability.available
     let headers: [String: String]
-    let mediaHost: String?
+    let media: URL?
 
     public init(headers: [String: String], mediaURL: URL?) {
         self.headers = headers
-        mediaHost = mediaURL?.host?.lowercased()
+        media = mediaURL
     }
 
     /// Never searched: its files come with the play result.
@@ -189,7 +203,7 @@ public struct SourceSubtitleProvider: SubtitleProvider {
     public func downloadRequest(for track: RemoteSubtitleTrack) async throws -> URLRequest {
         guard Self.isFetchable(track.downloadURL) else { throw SubtitleProviderError.downloadUnavailable }
         var request = URLRequest(url: track.downloadURL)
-        for (name, value) in Self.forwarded(headers, to: track.downloadURL, mediaHost: mediaHost) {
+        for (name, value) in Self.forwarded(headers, to: track.downloadURL, media: media) {
             request.setValue(value, forHTTPHeaderField: name)
         }
         request.setValue("text/plain, application/x-subrip, text/vtt, text/x-ssa, */*;q=0.5", forHTTPHeaderField: "Accept")
@@ -206,22 +220,60 @@ public struct SourceSubtitleProvider: SubtitleProvider {
         return !isLoopback(host)
     }
 
-    /// `localhost`, `127.0.0.0/8`, `::1`, `0.0.0.0`, and any numeric host not written as four
-    /// decimal parts (`127.1`, `2130706433`, `0x7f.0.0.1` all reach loopback through the resolver).
+    /// `localhost`, `127.0.0.0/8`, `0.0.0.0`, `::1`, `::` and IPv4-mapped or -compatible forms of
+    /// those, however written; any numeric IPv4 host not written as four plain decimal parts
+    /// (`127.1`, `2130706433`, `0x7f.0.0.1`, `0177.0.0.1` all reach loopback through the resolver);
+    /// and an IPv6 literal that does not parse.
     static func isLoopback(_ raw: String) -> Bool {
-        let host = raw.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        if host == "localhost" || host.hasSuffix(".localhost") || host == "::1" || host == "::"
-            || host.hasPrefix("::ffff:") || host.hasPrefix("0:0:0:0:0:") {
-            return true
+        var host = raw.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        if host.hasSuffix(".") { host.removeLast() }
+        if host == "localhost" || host.hasSuffix(".localhost") { return true }
+        if host.contains(":") {
+            guard let groups = ipv6Groups(host) else { return true }
+            guard groups.prefix(5).allSatisfy({ $0 == 0 }), groups[5] == 0 || groups[5] == 0xFFFF else { return false }
+            if groups[5] == 0, groups[6] == 0, groups[7] <= 1 { return true }
+            return loopbackIPv4([UInt8(groups[6] >> 8), UInt8(groups[6] & 0xFF), UInt8(groups[7] >> 8), UInt8(groups[7] & 0xFF)])
         }
         let parts = host.split(separator: ".", omittingEmptySubsequences: false)
         let numeric = parts.allSatisfy { part in
             !part.isEmpty && (part.allSatisfy(\.isASCII) && part.allSatisfy(\.isNumber) || part.hasPrefix("0x"))
         }
         guard numeric else { return false }
-        let octets = parts.compactMap { $0.hasPrefix("0x") ? nil : UInt8($0) }
+        // A leading zero is octal to the resolver: not the number it looks like.
+        let octets = parts.compactMap { part in part.count > 1 && part.hasPrefix("0") ? nil : UInt8(part) }
         guard parts.count == 4, octets.count == 4 else { return true }
-        return octets[0] == 127 || octets.allSatisfy { $0 == 0 }
+        return loopbackIPv4(octets)
+    }
+
+    static func loopbackIPv4(_ octets: [UInt8]) -> Bool {
+        octets[0] == 127 || octets.allSatisfy { $0 == 0 }
+    }
+
+    /// The eight groups of an IPv6 literal (`::` expanded, a dotted IPv4 tail read as two), nil when
+    /// it is not one.
+    static func ipv6Groups(_ host: String) -> [UInt16]? {
+        let halves = host.components(separatedBy: "::")
+        guard halves.count <= 2 else { return nil }
+        func groups(_ text: String) -> [UInt16]? {
+            guard !text.isEmpty else { return [] }
+            var result = [UInt16]()
+            let parts = text.split(separator: ":", omittingEmptySubsequences: false)
+            for (index, part) in parts.enumerated() {
+                if index == parts.count - 1, part.contains(".") {
+                    let octets = part.split(separator: ".", omittingEmptySubsequences: false).compactMap { UInt8($0) }
+                    guard octets.count == 4, part.split(separator: ".").count == 4 else { return nil }
+                    result += [UInt16(octets[0]) << 8 | UInt16(octets[1]), UInt16(octets[2]) << 8 | UInt16(octets[3])]
+                } else {
+                    guard (1...4).contains(part.count), let value = UInt16(part, radix: 16) else { return nil }
+                    result.append(value)
+                }
+            }
+            return result
+        }
+        guard let head = groups(halves[0]) else { return nil }
+        if halves.count == 1 { return head.count == 8 ? head : nil }
+        guard let tail = groups(halves[1]), head.count + tail.count < 8 else { return nil }
+        return head + Array(repeating: 0, count: 8 - head.count - tail.count) + tail
     }
 
     /// Never sent: the transfer's own headers, and `Accept`, which is set for subtitles.
@@ -230,12 +282,21 @@ public struct SourceSubtitleProvider: SubtitleProvider {
     /// Sent to any host; everything else only to the stream's own host.
     static let anyHost: Set<String> = ["user-agent", "referer"]
 
-    static func forwarded(_ headers: [String: String], to url: URL, mediaHost: String?) -> [(String, String)] {
-        let sameHost = mediaHost != nil && url.host?.lowercased() == mediaHost
+    static func forwarded(_ headers: [String: String], to url: URL, media: URL?) -> [(String, String)] {
+        let trusted = media.map { sameOrigin(url, as: $0) } ?? false
         return headers.sorted { $0.key < $1.key }.filter { name, value in
             let key = name.lowercased()
             guard !dropped.contains(key), !value.contains(where: { $0 == "\r" || $0 == "\n" }) else { return false }
-            return sameHost || anyHost.contains(key)
+            return trusted || anyHost.contains(key)
         }
+    }
+
+    /// The stream's own host, on the port it named, never from https down to plain http: a Cookie
+    /// sent in clear text or to another port is a Cookie sent somewhere else.
+    static func sameOrigin(_ url: URL, as media: URL) -> Bool {
+        guard let host = url.host?.lowercased(), host == media.host?.lowercased(), url.port == media.port else {
+            return false
+        }
+        return !(media.scheme?.lowercased() == "https" && url.scheme?.lowercased() != "https")
     }
 }

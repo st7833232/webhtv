@@ -91,11 +91,16 @@ public enum SubtitleContent {
                 : SubtitleProviderError.invalidSubtitle(.html)
         }
         // IOS-POC-45H: WebVTT and ASS are kept as SubRip, the one format both engines are given.
-        let format = SubtitleTextFormat.of(text)
-        let cues = switch format {
+        var format = SubtitleTextFormat.of(text)
+        var cues = switch format {
         case .subRip: SubRip.parse(text)
         case .webVTT: WebVTT.parse(text)
         case .ssa: SSA.parse(text)
+        }
+        // A SubRip file that merely looks like ASS stays SubRip, as it always was.
+        if cues.isEmpty, format == .ssa {
+            format = .subRip
+            cues = SubRip.parse(text)
         }
         guard !cues.isEmpty else { throw SubtitleProviderError.invalidSubtitle(.noCues) }
         return (format == .subRip ? text : SubRip.serialize(cues), cues)

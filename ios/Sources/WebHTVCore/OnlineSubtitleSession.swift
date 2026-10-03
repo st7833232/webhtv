@@ -82,7 +82,8 @@ public final class OnlineSubtitleSession {
     /// source's default is no longer shown in its place.
     @ObservationIgnored public private(set) var viewerChoseSubtitle = false
     @ObservationIgnored private var sourceTask: Task<Void, Never>?
-    @ObservationIgnored private var sourceListed = false
+    @ObservationIgnored private var sourceGeneration = 0
+    @ObservationIgnored private var sourceAttached = false
     @ObservationIgnored private var sourceShown = false
     @ObservationIgnored public let cache: SubtitleSessionCache
     @ObservationIgnored private let providers: [any SubtitleProvider]
@@ -244,15 +245,19 @@ public final class OnlineSubtitleSession {
     public func noteSubtitleChoice() { viewerChoseSubtitle = true }
 
     /// The subtitles the source listed with this item's play result: downloaded through the same
-    /// checks as an online file, the default one first, then the rest one at a time. Only the first
-    /// list for this video counts — a quality switch or the prefetch retry opens the same video
-    /// again, often with freshly signed copies of the same files. The default is shown once, and
-    /// only while the viewer has not picked a subtitle for this video. Separate from `choose`, so
-    /// neither cancels the other.
+    /// checks as an online file, the default one first, then the rest one at a time. Once one of a
+    /// list's files is here, later lists for this video are ignored — a quality switch or the
+    /// prefetch retry opens the same video again, often with freshly signed copies of the same
+    /// files. Until then a later list replaces the earlier one: the prefetch retry's live answer is
+    /// exactly what comes after a list whose signed links had expired. The default is shown once,
+    /// and only while the viewer has not picked a subtitle for this video. Separate from `choose`,
+    /// so neither cancels the other.
     public func loadSourceSubtitles(_ subtitles: [SourceSubtitle], provider: SourceSubtitleProvider,
                                     preferredLanguage: String?) {
-        guard !hasEnded, !sourceListed, !subtitles.isEmpty else { return }
-        sourceListed = true
+        guard !hasEnded, !sourceAttached, !subtitles.isEmpty else { return }
+        sourceTask?.cancel()
+        sourceGeneration += 1
+        let generation = sourceGeneration
         let plan = SourceSubtitles.plan(subtitles, preferredLanguage: preferredLanguage)
         Self.log.notice("[subtitle] source listed=\(plan.listed) usable=\(plan.tracks.count) skipped=\(plan.skipped) default=\(plan.chosenID == nil ? "none" : "yes", privacy: .public)")
         guard !plan.tracks.isEmpty else { return }
@@ -270,7 +275,7 @@ public final class OnlineSubtitleSession {
                 } catch {
                     outcome = .failure(.classify(error))
                 }
-                guard let self else { return }
+                guard let self, generation == self.sourceGeneration else { return }
                 self.finishSourceDownload(outcome, track: track, chosen: track.id == plan.chosenID)
             }
         }
@@ -283,6 +288,7 @@ public final class OnlineSubtitleSession {
         switch outcome {
         case .success(let subtitle):
             if !attached.contains(where: { $0.id == subtitle.id }) { attached.append(subtitle) }
+            sourceAttached = true
             let show = chosen && !viewerChoseSubtitle && !sourceShown
             if show { sourceShown = true }
             // Never the address or the file name: either can carry a source's token.

@@ -51,7 +51,8 @@ public enum RuntimeABI {
         public var version: Version {
             switch self {
             // 1.0 is the state frozen at 0.1.31 (32); older IPAs carry no runtime ABI at all.
-            case .catvodResult: Version(1, 0)
+            // 1.1 (IOS-POC-45H): a play result's `subs` is read.
+            case .catvodResult: Version(1, 1)
             // Minor 1 is `SpiderPackStore.hostApiVersion` 1, so a schema-1 compatibility pack's
             // `minHostApi` n means `js.host` {1, n} with no translation table.
             case .jsHost: Version(1, 1)

@@ -2614,6 +2614,8 @@ struct EpisodeSteps: Equatable {
     /// Request headers for whatever is loaded now. Cleared by every `open`, because they belong to
     /// the source that resolved the URL and mean nothing for the next one.
     private var headers = [String: String]()
+    /// IOS-POC-45H: the subtitles the source listed with this item, set and cleared with `headers`.
+    private var sourceSubtitles = [SourceSubtitle]()
     private var started = false
     /// Resolves an episode the page kept for itself. Set while a WebHome page owns the web view.
     var resolveEpisode: ((String) async -> URL?)?
@@ -2872,6 +2874,15 @@ struct EpisodeSteps: Equatable {
             self.onNotice?("已套用線上字幕：\(subtitle.title)")
             self.onOnlineSubtitleApplied?()
         }
+        // IOS-POC-45H: one of the source's own subtitles arrived. Shown only when it is the
+        // source's default and the viewer has not picked one; otherwise whatever shows now stays.
+        onlineSubtitles.onSourceAttachmentsChange = { [weak self] subtitles, shown in
+            guard let self else { return }
+            self.router.setExternalSubtitles(subtitles, selectedID: shown ?? self.router.selectedExternalSubtitleID)
+            if shown != nil {
+                Self.log.notice("[subtitle] source default shown on \(self.engineKind.shortName, privacy: .public)")
+            }
+        }
         router.onUnrecoverable = { [weak self] failure in
             guard let self else { return }
             // A pre-resolved address that does not play is an optimization miss, not the episode's
@@ -3085,8 +3096,8 @@ struct EpisodeSteps: Equatable {
     /// title (IOS-POC-14). One record covers a whole title — `WatchHistory.key` is site plus vod,
     /// not the episode — so resuming there would seek the new episode to where the previous one
     /// stopped. The near-ending rule usually hides that; a source with no duration would not.
-    func open(url: URL, headers: [String: String] = [:], title: String, artwork: String = "",
-              history: WatchHistory? = nil, resuming: Bool = true,
+    func open(url: URL, headers: [String: String] = [:], sourceSubtitles: [SourceSubtitle] = [], title: String,
+              artwork: String = "", history: WatchHistory? = nil, resuming: Bool = true,
               quality: PlaybackQualityChoice? = nil, retry: (() async -> Bool)? = nil) {
         self.quality = quality
         retryWithoutPrefetch = retry
@@ -3101,6 +3112,7 @@ struct EpisodeSteps: Equatable {
         }
         items = [.init(name: "", url: url)]
         self.headers = headers
+        self.sourceSubtitles = sourceSubtitles
         self.title = title
         self.artwork = artwork
         record = history
@@ -3138,8 +3150,8 @@ struct EpisodeSteps: Equatable {
         let choice = PlaybackQualityChoice(target: target, preferred: preferredQuality)
         var record = history
         record?.quality = choice.name
-        open(url: choice.url, headers: target.headers, title: title, artwork: artwork,
-             history: record, resuming: resuming, quality: choice, retry: retry)
+        open(url: choice.url, headers: target.headers, sourceSubtitles: target.subtitles, title: title,
+             artwork: artwork, history: record, resuming: resuming, quality: choice, retry: retry)
     }
 
     /// What the control bar's quality menu shows. Nil for a bare URL, which has no menu.
@@ -3282,6 +3294,7 @@ struct EpisodeSteps: Equatable {
         quality = nil
         retryWithoutPrefetch = nil
         items = vod.items
+        sourceSubtitles = []
         title = vod.title
         artwork = vod.picture
         record = nil
@@ -3815,6 +3828,10 @@ struct EpisodeSteps: Equatable {
                                    address: url.absoluteString),
             title: title, alternatives: [record?.vodName].compactMap { $0 })
         onOnlineSubtitlesChange?(online)
+        // IOS-POC-45H: the source's own subtitles, fetched with the stream's headers. The session
+        // takes only the first list for this video, so a quality switch or a reload asks nothing.
+        online.loadSourceSubtitles(sourceSubtitles, provider: SourceSubtitleProvider(headers: headers, mediaURL: url),
+                                   preferredLanguage: Locale.preferredLanguages.first)
         itemTitle = title
         resolution = nextResolution
         nextResolution = ""
@@ -5090,6 +5107,8 @@ private struct PlayerControlBar: View {
             ForEach(track.options) { option in
                 choiceRow(zhTW(option.displayName), selected: option.id == track.selectedID) {
                     Task { @MainActor in
+                        // IOS-POC-45H: the viewer's pick; a source's default no longer replaces it.
+                        if kind == .subtitle { session.onlineSubtitles.session?.noteSubtitleChoice() }
                         await session.selectMedia(kind, id: option.id)
                         mediaChanged()
                     }

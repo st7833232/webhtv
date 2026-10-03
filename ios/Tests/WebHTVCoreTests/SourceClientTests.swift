@@ -173,6 +173,34 @@ private func gatedSession() -> URLSession {
     #expect(target.headers["User-Agent"] == "WebHTV")
 }
 
+/// IOS-POC-45H: a spider's `subs` reaches the playback target as the source wrote it, and a broken
+/// `subs` costs neither the stream nor its headers.
+@Test func aSpidersSubtitlesReachThePlaybackTarget() async throws {
+    let runtime = try JavaScriptSpiderRuntime(
+        name: "t", script: """
+        module.exports = {
+          init: function () { return ''; },
+          playerContent: function (flag, id) {
+            if (id === 'bad') return JSON.stringify({ parse: 0, url: 'https://cdn.invalid/bad.m3u8', header: { Referer: 'r' }, subs: 'x' });
+            return JSON.stringify({ parse: 0, url: 'https://cdn.invalid/' + id + '.m3u8',
+              subs: [{ url: 'https://cdn.invalid/' + id + '.ass', name: '简体', lang: 'zh-CN', format: 'text/x-ssa', flag: 1 },
+                     { name: 'no url' }] });
+          }
+        };
+        """,
+        prelude: SpiderRegistry.bundled().prelude,
+        storage: SpiderStorage(siteKey: "t", defaults: .standard))
+    let site = try JSONDecoder().decode(Site.self, from: Data(#"{"key":"t","name":"t","type":3,"api":"csp_T"}"#.utf8))
+    let client = SourceClient.spider(SpiderSession(site: site, runtime: runtime))
+
+    let target = try #require(try await client.playbackURL(for: Episode(name: "01", url: "ep1"), flag: "線路"))
+    #expect(target.subtitles == [SourceSubtitle(url: "https://cdn.invalid/ep1.ass", name: "简体", language: "zh-CN",
+                                                format: "text/x-ssa", flag: 1)])
+    let bad = try #require(try await client.playbackURL(for: Episode(name: "02", url: "bad"), flag: "線路"))
+    #expect(bad.url.absoluteString == "https://cdn.invalid/bad.m3u8" && bad.headers["Referer"] == "r")
+    #expect(bad.subtitles.isEmpty)
+}
+
 /// A CMS source has no header protocol, and must not grow one by accident.
 @Test func aCMSSourceResolvesWithNoHeaders() throws {
     let target = PlaybackTarget(url: URL(string: "https://example.invalid/a.m3u8")!)

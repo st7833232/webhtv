@@ -34,7 +34,9 @@ private func matches(_ pattern: String, in text: String) throws -> [String] {
 /// change" is not a reason — a comment-only edit bumps too, which is the conservative price of never
 /// having to judge that by hand.
 private let frozen: [RuntimeABI.Surface: [RuntimeABI.Version: String]] = [
-    .catvodResult: [.init(1, 0): "d62107dd0a481f15ec026a0bc6d7c5f766db1d6a3ea4c2de26ff1ff5b3021c5b"],
+    .catvodResult: [.init(1, 0): "d62107dd0a481f15ec026a0bc6d7c5f766db1d6a3ea4c2de26ff1ff5b3021c5b",
+                    // IOS-POC-45H: `subs` on spider and type-4 play results; `SourceSubtitles.swift`'s keys.
+                    .init(1, 1): "584279fcf060436cfa33ee943ab76c1254b20fec1a9f036a5e2c6566543c1f21"],
     .jsHost: [.init(1, 1): "3724fb8a7f10f4c4467aadc3280d616c30a1801e319ef12d45ed4deba40d798b"],
     .pythonHost: [.init(1, 0): "151b866af42baf0cde224ff3cdcf6ca501a4c6ae6dc7274f9d0c1870958769f7",
                   // IOS-POC-37: pycryptodome, lxml, bs4, pyquery; `html()`; void `init`.
@@ -86,7 +88,7 @@ private func canonical(_ surface: RuntimeABI.Surface) throws -> String {
         let session = try read("Sources/WebHTVCore/Spider/SpiderSession.swift")
         lines += Set(try matches(#"runtime\.([A-Za-z]+)\("#, in: session)).sorted().map { "called " + $0 }
         // The JSON keys the App's decoders read back: a new key is a new output field.
-        for file in ["CMSClient.swift", "PlayURL.swift", "SourceClient.swift"] {
+        for file in ["CMSClient.swift", "PlayURL.swift", "SourceClient.swift", "SourceSubtitles.swift"] {
             let text = try read("Sources/WebHTVCore/" + file)
             for block in try matches(#"enum CodingKeys: String, CodingKey \{([^}]*)\}"#, in: text) {
                 let cases = block.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }

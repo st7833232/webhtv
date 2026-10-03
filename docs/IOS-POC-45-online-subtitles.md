@@ -465,3 +465,71 @@
 - 真機待驗：找一部「選不出 CC」的影片，看面板說明與按鈕、切到 MPV 後是否出現「CC」列，並回傳 `[subtitle] engine=` 那幾行紀錄。
 - 待使用者決定：讀取來源回應的 `subs`（外掛字幕）。
 - Rollback：revert 本 commit。
+
+## 19. IOS-POC-45H：片源自帶字幕（playerContent `subs`）
+
+### 19.1 需求與授權
+
+- 使用者 2026-10-03 回覆「影片來源自帶的字幕 要做」，核准 18.1 第 5 點記錄的功能：讀取來源播放回應的 `subs`，在 iOS 當成外掛字幕顯示。
+- 完成條件：來源回應附的字幕出現在 iOS 字幕清單，AVPlayer（畫面疊字）與 MPV 都能選用；預設字幕的選擇規則對齊 Android 上游；不影響既有線上字幕、時間軸校正、廣告時鐘與內嵌字幕。
+
+### 19.2 查證（workflow，Android／iOS／上游三路加完整性檢查，2026-10-03）
+
+| 來源 | 版本 | 等級 | 結論與影響 |
+|---|---|---|---|
+| WebHTV Android `bean/Sub.java`、`bean/Result.java`、`player/exo/ExoUtil.java`、`PlayerManager.java` | 1d46bc927ecb2708af4546c27eec8d3866882526 | 本地主要程式碼 | 欄位 `url`、`name`、`lang`、`format`（MIME 字串）、`flag`（Media3 選擇旗標：1 預設、2 強制、4 自動選）；`flag` 0 視為預設；Exo 用影片的 header 下載；mpv 用 `sub-add <uri> auto`（不選取）；`subs` 型別錯誤會讓整個播放結果失效；沒有網址協定、大小、內容檢查；名稱依繁簡設定轉換。 |
+| FongMi/TV `player/media/MediaItemFactory.java:78-134`、`player/track/LangUtil.java` | c616c0aa3613e87529791587a9f71b78c278c991 | 上游主要程式碼 | 較新的預設規則：只有一筆時依自身旗標；多筆且有人帶旗標時，帶旗標者照舊、其餘改自動選；多筆且都沒旗標時，`lang` 與系統語言最接近者為預設（同字 400、同書寫系統 300、`zh` 200、另一書寫系統 100），都不符時第一筆；mpv 選第一個預設或強制字幕；缺 `format` 時依副檔名推斷（fe6a5b235477c02633cf3bc50d4cd83414a521b4，2026-08-27）。 |
+| FongMi/CatVodSpider `bean/Sub.java`、`spider/WebDAV.java`、`Push.java`、`Local.java` | db4cf26356fa59d1331769f11cbbfb2a779227e6 | 上游主要程式碼 | 爬蟲只輸出 `application/x-subrip`、`text/x-ssa`、`text/vtt`；網址有 http(s)、`file://`、`proxy://`（WebDAV，依賴本機代理）。 |
+| takagen99/Box `PlayActivity.java`、`SubtitleLoader.java` | 258a5fef61578869ae905ca230bdde9e99fc19a8 | 相關專案程式碼 | TVBox 系另讀單一網址 `subt`；下載時偵測字元集；依內容嘗試 SRT、ASS。WebHTV Android 與 FongMi 都不讀 `subt`。 |
+| mpv `demux/demux_lavf.c`、`DOCS/man/options.rst`（`--sub-codepage`） | 413ff0b1cd4585294803308a1a14be2fad30cede | 官方文件與程式碼 | 依內容判斷格式；字元集依 BOM、UTF-8、uchardet。支持「依內容判斷，不信任 `format`」。 |
+| FongMi/TV issue #85（SRT 亂碼） | 2023-05-19 | 次級 | 非 UTF-8 字幕是實際問題。 |
+| iOS 現況：`SourceClient.swift` `SpiderPlayResponse`、`CMSClient.swift` `PlayResponse`、`SubtitleDownload.swift`、`SubtitleSessionCache.swift`、`OnlineSubtitleSession.swift`、`PlaybackEngine.swift` `PlayerRouter`、`WebHTVApp.swift` `PlaybackSession` | 1d46bc92 | 本地主要程式碼 | `subs` 被 `JSONDecoder` 靜默丟棄；13 個內建爬蟲都不輸出 `subs`（下載的 drpy／JS／Python 爬蟲可能輸出）；外掛字幕管線只收 SubRip（ASS 會因沒有 cue 被拒）；檔案以 `online-subtitle-<n>` 交給路由器，時間軸校正與廣告時鐘自動適用；iOS 沒有本機代理，`proxy://`、`127.0.0.1:9978` 無法使用；`catvod.result` ABI 會因新增解碼欄位而改變。 |
+
+未取得：CatVodTVOfficial 規格倉庫（404 或私有）、drpy-node（私有）。現行規格以上游程式碼為準。
+
+### 19.3 方案比較
+
+| 方案 | 內容 | 優點 | 缺點 |
+|---|---|---|---|
+| 不做 | 維持丟棄 `subs` | 零風險 | 帶字幕的來源在 iOS 沒有字幕，與 Android 不一致 |
+| 照搬上游 | 遠端網址直接 `sub-add`；AVPlayer 不支援 | 改動小 | AVPlayer 無法顯示；遠端網址交給 mpv 不經大小、內容與主機檢查；ASS 字型會繞過內建字型（45D 的方格與掉幀風險） |
+| WebHTV 調整版（建議） | 解碼後經既有下載管線（大小上限、HTML 拒絕、編碼）下載到本次播放的暫存資料夾，再交給兩個引擎 | 兩個引擎一致；沿用時間軸校正、廣告時鐘、清理機制與內建字型 | 每筆字幕在開播後多一次請求；ASS 樣式不保留 |
+
+### 19.4 決定（WebHTV 調整版）
+
+1. **解碼**：`SpiderPlayResponse` 與 type-4 `?play=` 的 `PlayResponse` 讀 `subs`，逐筆容錯（一筆壞掉只略過那一筆，`subs` 型別錯誤視為沒有字幕，不再像 Android 讓整個播放失敗）。`catvod.result` ABI 1.0 → 1.1，新增凍結指紋列；指紋來源加入新檔 `SourceSubtitles.swift`，避免解碼欄位逃過檢查。不讀 `subt`（與 Android、FongMi 一致）。
+2. **攜帶**：`PlaybackTarget.subtitles`；`PlaybackSession` 在 `open` 時保存、`open(vod)` 清空；預取的下一集自動帶上。
+3. **網址**：只接受 http／https，拒絕 loopback（`localhost`、`127.0.0.0/8`、`::1`、`0.0.0.0`）；`file://`、`proxy://`、相對路徑略過並記錄數量。每支影片最多處理 8 筆。
+4. **Header**：與影片同主機時轉送全部 header（`Range`、`Host`、`Content-Length`、`Connection`、`Accept-Encoding`、`Accept` 除外）；不同主機只送 `User-Agent` 與 `Referer`，避免 Cookie、Authorization 外流。轉址後的 header 行為與影片本身相同（URLSession 預設），列為已知限制。
+5. **格式**：不信任 `format`，依內容判斷：開頭 `WEBVTT` 為 WebVTT；含 `[Events]` 與 `Dialogue:` 為 ASS／SSA；其餘為 SubRip。WebVTT 與 ASS 轉成 SubRip 儲存（樣式與位置不保留，ASS 繪圖行略過、同時間同文字的多層合併），所以 MPV 一律用內建字型。此判斷放在共用驗證，線上來源若拿到內容其實是 WebVTT／ASS 的檔案也會轉換（原本 ASS 會被拒）。
+6. **編碼**：沿用 BOM、UTF-8、依語言的舊編碼；片源字幕語言不明時以中文（GB18030、Big5）解碼，不用 Windows-1252。
+7. **預設字幕**：採 FongMi 上游較新的規則（見 19.2），語言比對用 `SubtitleLanguage` 判斷出的代碼與 `Locale.preferredLanguages.first`。WebHTV Android 仍是「每個旗標 0 都是預設」的舊規則，兩者衝突時採上游（較新、已處理多筆字幕），Android 端另列待同步。預設字幕先下載，其餘依序下載（一次一筆）。只在本支影片還沒有使用者自己選過字幕（面板選字幕或下載線上字幕）時自動選取，每支影片最多一次；內嵌字幕原本自動顯示時會被來源的預設字幕取代，與 Android 行為一致。
+8. **名稱**：`<來源名稱>（片源）`，沒有名稱時 `<語言>（片源）`；面板顯示時照常轉繁體。
+9. **生命週期**：同一支影片（畫質切換、重新載入、預取重試）只處理第一份非空清單；換集或關閉播放器時隨線上字幕一起刪除。自動載入不顯示「已套用線上字幕」通知，也不收起面板。
+10. **紀錄**：只記筆數、語言、位元組與 cue 數，不記網址、檔名、header。
+11. **廣告時鐘**：維持預設開啟（字幕對應節目本身，廣告是 CDN 插入的）；可用既有的「扣除廣告時間」開關關閉。
+
+### 19.5 驗收標準
+
+1. Linux 可執行的測試涵蓋：容錯解碼、預設規則（單筆、多筆有旗標、多筆無旗標依語言）、網址與主機限制、header 轉送規則、WebVTT／ASS 轉換、語言不明時的中文解碼、名稱、每支影片只處理一次、使用者選過就不自動選、與線上下載互不取消、結束時取消。
+2. 既有測試全部維持通過（Linux 既有 CP1251 項目除外）。
+3. ABI 指紋：以 Python 移植的 `canonical(.catvodResult)` 先重現 1.0 的指紋，再計算 1.1。
+4. 真機待驗：用一個會回傳 `subs` 的來源確認兩個引擎都能顯示，並回傳 `[subtitle] source` 紀錄。
+
+### 19.6 Rollback
+
+revert 本 commit。ABI 1.1 尚未出貨前可整列移除；出貨後依規則只能新增。
+
+## 20. SubtitleNexus 評估（番號字幕後續，只評估不實作）
+
+使用者 2026-10-03 要求「確認 SubtitleNexus 能不能用」。workflow 三路查證（官方文件與條款、廠商外掛原始碼、未帶 key 的公開端點與社群資料）加兩個對抗式驗證，結論：**依目前證據不能用**，不實作。
+
+| 依據 | 來源 | 等級 |
+|---|---|---|
+| 廠商所有用戶端（Kodi、IINA、Emby 等 5 個倉庫的完整歷史）只用 `GET https://api.subtitlenexus.com/v1/subtitle/search/?file_hash=…` 搜尋，雜湊是 OpenSubtitles 的檔案雜湊（檔案大小加頭尾各 64 KiB），沒有片名、番號或關鍵字搜尋 | github.com/subtitlenexus（Kodi `nexus_api.py:78-84`、IINA `nexus.lua:1400`） | 主要程式碼 |
+| 廠商用戶端拒絕網路串流（IINA `nexus.lua:1814-1820` 'Live subtitles for URLs not supported'；Kodi `service.py:137-139` 略過 http(s)）；HLS 沒有單一檔案可算雜湊，轉檔或重新封裝的串流副本也不會與上傳檔案相同 | 同上 | 主要程式碼 |
+| 驗證用使用者自己的 `X-API-Key`；每日免費額度用完回 HTTP 402，之後扣付費點數；免費下載可能是 10 分鐘試用（`is_demo`）；字幕為 AI 轉錄與翻譯 | 同上加 README | 主要程式碼與廠商說明 |
+| 唯一的文字搜尋是一個第三方 CLI 使用、未記載的 `term` 參數，在網站主機的 `/api/v1`；該主機據報有 Cloudflare 驗證（依使用者規則不可繞過） | 第三方 CLI 原始碼與社群文章 | 次級 |
+| 官方 API 文件、服務條款、隱私權政策都讀不到：`subtitlenexus.com`、`www.`、`api.` 從此環境一律 CONNECT 403 或 EGRESS_BLOCKED | 2026-10-03 實測 | 實測 |
+
+條件式可行（不建議）：只有使用者自己讀過條款確認第三方 App 可用，並用自己的 key 在可連線的網路確認 `term=<番號>` 經廠商支援的端點回傳完整（非試用）中文 `.srt`、沒有驗證頁時，才值得當補充來源；HLS 與 FC2-PPV 仍無法期待命中。番號字幕目前仍以 Subtitle Cat 為主，另一條可行路是本機 `.srt` 匯入（尚未核准）。

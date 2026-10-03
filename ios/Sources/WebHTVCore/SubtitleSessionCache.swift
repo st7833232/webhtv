@@ -42,7 +42,8 @@ public final class SubtitleSessionCache: @unchecked Sendable {
 
     /// Writes a validated file as UTF-8 (whatever it arrived in, so both engines read the same
     /// text) and hands back what the engines are given. Refused once the session has ended.
-    public func store(text: String, cues: SubtitleCues, for track: RemoteSubtitleTrack) throws -> PlaybackExternalSubtitle {
+    public func store(text: String, cues: SubtitleCues, for track: RemoteSubtitleTrack,
+                      label: String? = nil) throws -> PlaybackExternalSubtitle {
         lock.lock(); defer { lock.unlock() }
         guard !ended else { throw SubtitleProviderError.cancelled }
         if let subtitle = kept[track.downloadURL.absoluteString],
@@ -51,7 +52,7 @@ public final class SubtitleSessionCache: @unchecked Sendable {
         count += 1
         let file = directory.appendingPathComponent("\(count)-\(Self.safeName(track.fileName))")
         try Data(text.utf8).write(to: file, options: .atomic)
-        let base = "\(track.language.displayName)（\(track.providerName)）"
+        let base = "\(label ?? track.language.displayName)（\(track.providerName)）"
         let taken = kept.values.filter { $0.title.hasPrefix(base) }.count
         let subtitle = PlaybackExternalSubtitle(
             id: PlaybackExternalSubtitle.idPrefix + String(count),

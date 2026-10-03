@@ -90,9 +90,15 @@ public enum SubtitleContent {
             throw looksLikeChallenge(text) || looksLikeCaptcha(text) ? SubtitleProviderError.blockedByChallenge
                 : SubtitleProviderError.invalidSubtitle(.html)
         }
-        let cues = SubRip.parse(text)
+        // IOS-POC-45H: WebVTT and ASS are kept as SubRip, the one format both engines are given.
+        let format = SubtitleTextFormat.of(text)
+        let cues = switch format {
+        case .subRip: SubRip.parse(text)
+        case .webVTT: WebVTT.parse(text)
+        case .ssa: SSA.parse(text)
+        }
         guard !cues.isEmpty else { throw SubtitleProviderError.invalidSubtitle(.noCues) }
-        return (text, cues)
+        return (format == .subRip ? text : SubRip.serialize(cues), cues)
     }
 
     /// UTF-8 with or without a byte order mark, UTF-16 with one; otherwise one legacy encoding
@@ -188,8 +194,12 @@ public struct SubtitleDownloadService: Sendable {
         self.retryDelay = retryDelay
     }
 
+    /// `label` names the file in the subtitle list instead of its language (IOS-POC-45H: a source's
+    /// own name for it); `decodingLanguage` picks the legacy encodings when the track's language
+    /// does not say.
     public func download(_ track: RemoteSubtitleTrack, from provider: any SubtitleProvider,
-                         into cache: SubtitleSessionCache) async throws -> PlaybackExternalSubtitle {
+                         into cache: SubtitleSessionCache, label: String? = nil,
+                         decodingLanguage: SubtitleLanguage? = nil) async throws -> PlaybackExternalSubtitle {
         if let kept = cache.existing(for: track.downloadURL) { return kept }
         let request = try await provider.downloadRequest(for: track)
         let response: SubtitleHTTPResponse
@@ -205,7 +215,7 @@ public struct SubtitleDownloadService: Sendable {
         if let final = response.url, !provider.acceptsDownload(from: final) {
             throw SubtitleProviderError.downloadUnavailable
         }
-        let content = try SubtitleContent.validate(response, language: track.language)
-        return try cache.store(text: content.text, cues: content.cues, for: track)
+        let content = try SubtitleContent.validate(response, language: decodingLanguage ?? track.language)
+        return try cache.store(text: content.text, cues: content.cues, for: track, label: label)
     }
 }

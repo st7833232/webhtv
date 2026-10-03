@@ -189,3 +189,90 @@ public enum SubRip {
         .joined(separator: "\n")
     }
 }
+
+// MARK: - IOS-POC-45H: WebVTT and ASS, read into the same cues
+
+/// What a subtitle file's text is, read from the text itself: a source's `format` (a MIME string)
+/// and a file name are often missing or wrong, and mpv also decides by content.
+public enum SubtitleTextFormat: Sendable, Equatable {
+    case subRip, webVTT, ssa
+
+    public static func of(_ text: String) -> SubtitleTextFormat {
+        let head = text.prefix(64 << 10)
+        if head.drop(while: { $0.isWhitespace || $0 == "\u{FEFF}" }).hasPrefix("WEBVTT") { return .webVTT }
+        let lowered = head.lowercased()
+        if lowered.contains("[events]"), lowered.contains("dialogue:") { return .ssa }
+        return .subRip
+    }
+}
+
+public extension SubRip {
+    /// Cues as a SubRip file, for a WebVTT or ASS file kept as SubRip: both engines then read one
+    /// format, and mpv draws it in the bundled font (IOS-POC-45D) rather than an ASS style's.
+    static func serialize(_ cues: SubtitleCues) -> String {
+        func stamp(_ seconds: Double) -> String {
+            let total = Int((max(seconds, 0) * 1000).rounded())
+            return String(format: "%02d:%02d:%02d,%03d", total / 3_600_000, total / 60_000 % 60, total / 1000 % 60, total % 1000)
+        }
+        return cues.cues.filter { !$0.text.isEmpty }.enumerated().map { index, cue in
+            "\(index + 1)\n\(stamp(cue.start)) --> \(stamp(cue.end))\n\(cue.text)\n"
+        }.joined(separator: "\n")
+    }
+}
+
+/// WebVTT: SubRip's timing lines with `.` milliseconds and optional hours, cue settings after the
+/// end time, `NOTE`/`STYLE` blocks without timings — all of which the SubRip reading already
+/// passes over — plus character references in the text.
+public enum WebVTT {
+    public static func parse(_ text: String) -> SubtitleCues {
+        SubtitleCues(SubRip.parse(text).cues.map { cue in
+            var text = cue.text
+            for (entity, character) in [("&lt;", "<"), ("&gt;", ">"), ("&nbsp;", " "), ("&lrm;", ""), ("&rlm;", ""),
+                                        ("&amp;", "&")] {
+                text = text.replacingOccurrences(of: entity, with: character)
+            }
+            return SubtitleCue(start: cue.start, end: cue.end, text: text)
+        })
+    }
+}
+
+/// ASS/SSA `[Events]`: each `Dialogue:` line's Start, End and Text, by the section's `Format:`
+/// (v4+ and v4 order by default). Styles, positions and effects are not kept; a vector drawing
+/// (`{\p1}`) is not text and is left out; the same line on several layers (an outline under a
+/// fill) shows once.
+public enum SSA {
+    public static func parse(_ text: String) -> SubtitleCues {
+        var inEvents = false
+        var fields = ["layer", "start", "end", "style", "name", "marginl", "marginr", "marginv", "effect", "text"]
+        var cues = [SubtitleCue]()
+        var seen = Set<String>()
+        for raw in text.replacingOccurrences(of: "\r\n", with: "\n").split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") {
+                inEvents = line.lowercased() == "[events]"
+                continue
+            }
+            guard inEvents, let colon = line.firstIndex(of: ":") else { continue }
+            let key = line[..<colon].lowercased()
+            let value = line[line.index(after: colon)...]
+            if key == "format" {
+                fields = value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+                continue
+            }
+            guard key == "dialogue", let startIndex = fields.firstIndex(of: "start"),
+                  let endIndex = fields.firstIndex(of: "end"), let textIndex = fields.firstIndex(of: "text"),
+                  textIndex == fields.count - 1 else { continue }
+            let parts = value.split(separator: ",", maxSplits: fields.count - 1, omittingEmptySubsequences: false)
+            guard parts.count == fields.count,
+                  let start = SubRip.seconds(parts[startIndex].trimmingCharacters(in: .whitespaces)),
+                  let end = SubRip.seconds(parts[endIndex].trimmingCharacters(in: .whitespaces)), end > start else { continue }
+            let body = String(parts[textIndex])
+            if body.range(of: #"\{[^}]*\\p[1-9]"#, options: .regularExpression) != nil { continue }
+            let shown = SubRip.displayText([body.replacingOccurrences(of: "\\h", with: " ")
+                .replacingOccurrences(of: #"\{[^}]{0,200}\}"#, with: "", options: .regularExpression)])
+            guard !shown.isEmpty, seen.insert("\(start)|\(end)|\(shown)").inserted else { continue }
+            cues.append(SubtitleCue(start: start, end: end, text: shown))
+        }
+        return SubtitleCues(cues)
+    }
+}

@@ -104,11 +104,11 @@ public enum SourceClient: Sendable {
         switch self {
         case .cms(let client):
             // A MacCMS endpoint has no header protocol, so these are the app's own defaults: none.
-            guard let play = try await client.playbackURL(for: episode, flag: flag) else { return nil }
-            return await Self.target(from: play, headers: [:], parse: 0)
+            guard let play = try await client.playback(for: episode, flag: flag) else { return nil }
+            return await Self.target(from: play.url, headers: [:], parse: 0, subtitles: play.subtitles)
         case .spider(let session):
             let play = try await decode(SpiderPlayResponse.self, from: session.player(flag: flag, id: episode.url))
-            return await Self.target(from: play.url, headers: play.header ?? [:], parse: play.parse)
+            return await Self.target(from: play.url, headers: play.header ?? [:], parse: play.parse, subtitles: play.subs)
         }
     }
 
@@ -122,7 +122,8 @@ public enum SourceClient: Sendable {
     /// ponytail: switching quality in the picker therefore opens that entry's URL exactly as the
     /// source gave it, with no probe or sniff hop. Resolve the others lazily if a real multi-value
     /// source ever needs it — none of the 62 listed sources answers with a `url` array today.
-    private static func target(from play: PlayURL, headers: [String: String], parse: Int) async -> PlaybackTarget? {
+    private static func target(from play: PlayURL, headers: [String: String], parse: Int,
+                               subtitles: [SourceSubtitle]) async -> PlaybackTarget? {
         let qualities = play.values.compactMap { value in
             URL(string: value.v).map { PlaybackQuality(name: value.n ?? "", url: $0) }
         }
@@ -139,7 +140,7 @@ public enum SourceClient: Sendable {
         }
         guard let resolved else { return nil }
         return PlaybackTarget(url: resolved, headers: headers,
-                              qualities: qualities, position: play.position, defaultIndex: index)
+                              qualities: qualities, position: play.position, defaultIndex: index, subtitles: subtitles)
     }
 
     /// A resolved URL may still be a player page rather than a stream: three type-1 sources hand
@@ -181,15 +182,19 @@ public struct PlaybackTarget: Sendable, Equatable {
     public let position: Int
     /// The entry `url` was resolved from.
     public let defaultIndex: Int
+    /// IOS-POC-45H: the subtitles the source listed with the play result (`subs`), as it wrote them.
+    public let subtitles: [SourceSubtitle]
 
     public init(url: URL, headers: [String: String] = [:],
-                qualities: [PlaybackQuality] = [], position: Int = 0, defaultIndex: Int = 0) {
+                qualities: [PlaybackQuality] = [], position: Int = 0, defaultIndex: Int = 0,
+                subtitles: [SourceSubtitle] = []) {
         self.url = url
         self.headers = headers
         // A single-URL source still has a one-entry menu, so callers never special-case emptiness.
         self.qualities = qualities.isEmpty ? [PlaybackQuality(name: "", url: url)] : qualities
         self.position = position
         self.defaultIndex = defaultIndex
+        self.subtitles = subtitles
     }
 }
 
@@ -204,8 +209,10 @@ struct SpiderPlayResponse: Decodable, Sendable {
     /// stream needs. It was decoded away until IOS-POC-5P; a source whose CDN checks Referer could
     /// not play without it.
     let header: [String: String]?
+    /// IOS-POC-45H: the source's own subtitles, entry by entry (`SourceSubtitle.list`).
+    let subs: [SourceSubtitle]
 
-    enum CodingKeys: String, CodingKey { case parse, url, header }
+    enum CodingKeys: String, CodingKey { case parse, url, header, subs }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -213,6 +220,7 @@ struct SpiderPlayResponse: Decodable, Sendable {
         // A spider may emit a non-string value here (a number, or `false` for "none"); one odd
         // header must not cost the whole play result, so anything undecodable is simply no headers.
         header = try? values.decodeIfPresent([String: String].self, forKey: .header)
+        subs = SourceSubtitle.list(in: values, forKey: .subs)
         if let number = try? values.decode(Int.self, forKey: .parse) {
             parse = number
         } else if let text = try? values.decode(String.self, forKey: .parse) {

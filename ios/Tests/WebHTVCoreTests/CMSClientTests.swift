@@ -169,6 +169,19 @@ private func site(key: String, type: Int, api: String, ext: String = "null") thr
     #expect(URLSession.webHTV.configuration.timeoutIntervalForRequest == 10)
 }
 
+/// IOS-POC-45H: a type-4 `?play=` answer's `subs` is read like a spider's; a broken one costs only
+/// itself, and the url is still required as before.
+@Test func aType4PlayAnswerCarriesItsSubtitles() throws {
+    let answer = try JSONDecoder().decode(PlayResponse.self, from: Data("""
+        {"url": "https://cdn.example/a.m3u8", "subs": [{"url": "https://cdn.example/a.vtt", "lang": "en"}, {"flag": 1}]}
+        """.utf8))
+    #expect(answer.url.values.first?.v == "https://cdn.example/a.m3u8")
+    #expect(answer.subs == [SourceSubtitle(url: "https://cdn.example/a.vtt", language: "en")])
+    let odd = try JSONDecoder().decode(PlayResponse.self, from: Data(#"{"url": "https://cdn.example/a.m3u8", "subs": {}}"#.utf8))
+    #expect(odd.subs.isEmpty)
+    #expect(throws: (any Error).self) { try JSONDecoder().decode(PlayResponse.self, from: Data(#"{"subs": []}"#.utf8)) }
+}
+
 /// Live smoke over every type-4 site in the supplied config. Remote reachability is volatile, so an
 /// unreachable host is reported and skipped; only a host that answers is held to the contract.
 @Test func reportsLiveType4SitesFromProvidedConfig() async throws {

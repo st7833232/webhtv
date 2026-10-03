@@ -358,6 +358,16 @@ public struct Episode: Equatable, Sendable {
 /// 「這一集沒有可播放的網址」 for a source that was in fact listing several qualities.
 struct PlayResponse: Decodable, Sendable {
     let url: PlayURL
+    /// IOS-POC-45H: the source's own subtitles, as a spider's play result lists them.
+    let subs: [SourceSubtitle]
+
+    enum CodingKeys: String, CodingKey { case url, subs }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        url = try values.decode(PlayURL.self, forKey: .url)
+        subs = SourceSubtitle.list(in: values, forKey: .subs)
+    }
 }
 
 /// IOS-POC-10K: same reason as `DrpyError` — without `LocalizedError` these reach the screen as
@@ -426,11 +436,17 @@ public struct CMSClient: Sendable {
     /// `vod_play_url` target is single-valued by construction, but a `?play=` response is free to
     /// list qualities and used to be discarded whole when it did.
     public func playbackURL(for episode: Episode, flag: String) async throws -> PlayURL? {
+        try await playback(for: episode, flag: flag)?.url
+    }
+
+    /// The same, with the subtitles a type-4 `?play=` answer lists (IOS-POC-45H). A direct address
+    /// asks nothing, so it has none.
+    public func playback(for episode: Episode, flag: String) async throws -> (url: PlayURL, subtitles: [SourceSubtitle])? {
         guard let direct = episode.mediaURL else { return nil }
-        guard site.type == 4, !Self.isDirectMedia(direct) else { return PlayURL(direct.absoluteString) }
+        guard site.type == 4, !Self.isDirectMedia(direct) else { return (PlayURL(direct.absoluteString), []) }
         let data = try await data(for: [URLQueryItem(name: "play", value: episode.url), URLQueryItem(name: "flag", value: flag)])
         guard let resolved = try? JSONDecoder().decode(PlayResponse.self, from: data) else { return nil }
-        return resolved.url
+        return (resolved.url, resolved.subs)
     }
 
     // ponytail: path-extension heuristic; probe the content type only if a real site needs it.

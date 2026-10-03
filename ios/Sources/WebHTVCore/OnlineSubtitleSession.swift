@@ -76,6 +76,14 @@ public final class OnlineSubtitleSession {
 
     /// A file is ready; `OnlineSubtitleCoordinator` hands it to the player.
     @ObservationIgnored var onAttach: ((PlaybackExternalSubtitle) -> Void)?
+    /// IOS-POC-45H: one of the source's own subtitles is ready, and whether to show it.
+    @ObservationIgnored var onSourceAttach: ((PlaybackExternalSubtitle, Bool) -> Void)?
+    /// The viewer picked a subtitle for this video — in the panel, or by downloading one — so a
+    /// source's default is no longer shown in its place.
+    @ObservationIgnored public private(set) var viewerChoseSubtitle = false
+    @ObservationIgnored private var sourceTask: Task<Void, Never>?
+    @ObservationIgnored private var sourceListed = false
+    @ObservationIgnored private var sourceShown = false
     @ObservationIgnored public let cache: SubtitleSessionCache
     @ObservationIgnored private let providers: [any SubtitleProvider]
     @ObservationIgnored private let downloader: SubtitleDownloadService
@@ -187,6 +195,7 @@ public final class OnlineSubtitleSession {
     /// or, for a file this session already has, hands that over at once.
     public func choose(_ track: RemoteSubtitleTrack) {
         guard !hasEnded else { return }
+        viewerChoseSubtitle = true
         if downloads[track.id] == .downloading { return }
         downloadTask?.cancel()
         for (id, state) in downloads where state == .downloading { downloads[id] = nil }
@@ -229,6 +238,63 @@ public final class OnlineSubtitleSession {
         }
     }
 
+    // MARK: Source subtitles (IOS-POC-45H)
+
+    /// The viewer chose a subtitle track in the panel.
+    public func noteSubtitleChoice() { viewerChoseSubtitle = true }
+
+    /// The subtitles the source listed with this item's play result: downloaded through the same
+    /// checks as an online file, the default one first, then the rest one at a time. Only the first
+    /// list for this video counts — a quality switch or the prefetch retry opens the same video
+    /// again, often with freshly signed copies of the same files. The default is shown once, and
+    /// only while the viewer has not picked a subtitle for this video. Separate from `choose`, so
+    /// neither cancels the other.
+    public func loadSourceSubtitles(_ subtitles: [SourceSubtitle], provider: SourceSubtitleProvider,
+                                    preferredLanguage: String?) {
+        guard !hasEnded, !sourceListed, !subtitles.isEmpty else { return }
+        sourceListed = true
+        let plan = SourceSubtitles.plan(subtitles, preferredLanguage: preferredLanguage)
+        Self.log.notice("[subtitle] source listed=\(plan.listed) usable=\(plan.tracks.count) skipped=\(plan.skipped) default=\(plan.chosenID == nil ? "none" : "yes", privacy: .public)")
+        guard !plan.tracks.isEmpty else { return }
+        let downloader = downloader, cache = cache
+        sourceTask = Task { [weak self] in
+            for track in plan.tracks {
+                guard !Task.isCancelled else { return }
+                let outcome: Result<PlaybackExternalSubtitle, SubtitleProviderError>
+                do {
+                    // A source that names no language is most likely Chinese: GB 18030 or Big5,
+                    // not Windows-1252, when the file is not UTF-8.
+                    outcome = .success(try await downloader.download(
+                        track, from: provider, into: cache, label: track.title,
+                        decodingLanguage: track.language.code == nil ? SubtitleLanguage(code: "zh") : nil))
+                } catch {
+                    outcome = .failure(.classify(error))
+                }
+                guard let self else { return }
+                self.finishSourceDownload(outcome, track: track, chosen: track.id == plan.chosenID)
+            }
+        }
+    }
+
+    private func finishSourceDownload(_ outcome: Result<PlaybackExternalSubtitle, SubtitleProviderError>,
+                                      track: RemoteSubtitleTrack, chosen: Bool) {
+        guard !hasEnded else { return }
+        let language = track.language.code ?? "unknown"
+        switch outcome {
+        case .success(let subtitle):
+            if !attached.contains(where: { $0.id == subtitle.id }) { attached.append(subtitle) }
+            let show = chosen && !viewerChoseSubtitle && !sourceShown
+            if show { sourceShown = true }
+            // Never the address or the file name: either can carry a source's token.
+            Self.log.notice("[subtitle] source file language=\(language, privacy: .public) cues=\(subtitle.cues.cues.count) default=\(chosen ? "yes" : "no", privacy: .public) shown=\(show ? "yes" : "no", privacy: .public)")
+            onSourceAttach?(subtitle, show)
+        case .failure(.cancelled):
+            break
+        case .failure(let error):
+            Self.log.notice("[subtitle] source file language=\(language, privacy: .public) failed=\(error.category, privacy: .public)")
+        }
+    }
+
     // MARK: End
 
     /// The playback session is over: work in flight stops and the files are deleted.
@@ -236,9 +302,12 @@ public final class OnlineSubtitleSession {
         hasEnded = true
         searchTask?.cancel()
         downloadTask?.cancel()
+        sourceTask?.cancel()
         searchTask = nil
         downloadTask = nil
+        sourceTask = nil
         onAttach = nil
+        onSourceAttach = nil
         cache.end()
     }
 }
@@ -257,6 +326,9 @@ public final class OnlineSubtitleCoordinator {
     /// What the player should have now: the session's files, and the one just chosen (nil when
     /// the list was emptied because the session ended).
     public var onAttachmentsChange: (([PlaybackExternalSubtitle], String?) -> Void)?
+    /// IOS-POC-45H: the session's files after one of the source's own arrived, and the one to show
+    /// (nil keeps whatever is shown now). Not a choice of the viewer's: no notice, no panel change.
+    public var onSourceAttachmentsChange: (([PlaybackExternalSubtitle], String?) -> Void)?
 
     private let makeProviders: @MainActor () -> [any SubtitleProvider]
     private let downloader: SubtitleDownloadService
@@ -285,6 +357,10 @@ public final class OnlineSubtitleCoordinator {
         made.onAttach = { [weak self, weak made] subtitle in
             guard let self, let made, self.session === made else { return }
             self.onAttachmentsChange?(made.attached, subtitle.id)
+        }
+        made.onSourceAttach = { [weak self, weak made] subtitle, show in
+            guard let self, let made, self.session === made else { return }
+            self.onSourceAttachmentsChange?(made.attached, show ? subtitle.id : nil)
         }
         session = made
         return made

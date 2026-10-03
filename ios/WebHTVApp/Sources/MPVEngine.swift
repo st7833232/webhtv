@@ -471,11 +471,16 @@ final class MPVPlayerCore: @unchecked Sendable {
     private var selectedExternal: String?
     /// Every file this core has added, so one taken out of the list is taken off the file too.
     private var addedExternalPaths = Set<String>()
-    /// IOS-POC-45D: this file's libass font failures and audio underruns, from mpv's warnings.
-    /// `queue` only.
+    /// IOS-POC-45D: this file's libass font failures and audio underruns, from mpv's log, and its
+    /// dropped frames as last observed. `queue` only. Approximate at file boundaries: mpv returns
+    /// queued events (END_FILE) before pending log messages, so a warning emitted just before a file
+    /// ends may count in the next one.
     private var fontErrors = 0
     private var fallbackMisses = 0
     private var underruns = 0
+    private var frameDrops: Int64?
+    private var decoderDrops: Int64?
+    private var shownSid: String?
 
     var snapshot: Snapshot {
         lock.lock(); defer { lock.unlock() }
@@ -537,16 +542,20 @@ final class MPVPlayerCore: @unchecked Sendable {
             mpv_terminate_destroy(handle)
             return
         }
-        // IOS-POC-45D: warnings carry libass's font failures and the audio output's underruns;
-        // they are counted per file (`countLogMessage`), never stored or logged as text.
-        mpv_request_log_messages(handle, "warn")
+        // IOS-POC-45D: libass's font failures arrive at mpv's "info" (sub/ass_mp.c maps libass
+        // warnings there), the audio output's underruns at "warn". Counted per file
+        // (`countLogMessage`), never stored or logged as text.
+        mpv_request_log_messages(handle, "info")
         for (name, format) in [("time-pos", MPV_FORMAT_DOUBLE), ("duration", MPV_FORMAT_DOUBLE),
                                ("pause", MPV_FORMAT_FLAG), ("paused-for-cache", MPV_FORMAT_FLAG),
                                ("speed", MPV_FORMAT_DOUBLE), ("volume", MPV_FORMAT_DOUBLE),
                                ("demuxer-cache-time", MPV_FORMAT_DOUBLE),
                                ("aid", MPV_FORMAT_STRING), ("sid", MPV_FORMAT_STRING),
                                ("track-list/count", MPV_FORMAT_INT64),
-                               ("hwdec-current", MPV_FORMAT_STRING)] {
+                               ("hwdec-current", MPV_FORMAT_STRING),
+                               // IOS-POC-45D: kept as they change; mpv frees them before END_FILE.
+                               ("frame-drop-count", MPV_FORMAT_INT64),
+                               ("decoder-frame-drop-count", MPV_FORMAT_INT64)] {
             mpv_observe_property(handle, 0, name, format)
         }
         mpv = handle
@@ -719,6 +728,8 @@ final class MPVPlayerCore: @unchecked Sendable {
     func shutdown() {
         queue.async { [self] in
             guard let handle = mpv else { return }
+            // IOS-POC-45D: the last file's END_FILE is never drained once the handle goes.
+            reportSubtitleHealth()
             // The render API requires its context freed before the core is destroyed.
             software?.detach()
             software = nil
@@ -747,6 +758,15 @@ final class MPVPlayerCore: @unchecked Sendable {
                 else { break }
                 let name = String(cString: property.name)
                 record(property)
+                if property.format == MPV_FORMAT_INT64, let value = property.data?.assumingMemoryBound(to: Int64.self).pointee {
+                    if name == "frame-drop-count" { frameDrops = value }
+                    if name == "decoder-frame-drop-count" { decoderDrops = value }
+                }
+                if name == "sid", property.format == MPV_FORMAT_STRING,
+                   let value = property.data?.assumingMemoryBound(to: UnsafeMutablePointer<CChar>?.self).pointee {
+                    let sid = String(cString: value)
+                    if sid != "no" { shownSid = sid }
+                }
                 // MPV parity P1: the decoder `hwdec` picked, once per file ("no" is software);
                 // unavailable, and so not logged, between files.
                 if name == "hwdec-current", property.format == MPV_FORMAT_STRING,
@@ -778,7 +798,7 @@ final class MPVPlayerCore: @unchecked Sendable {
                     countLogMessage(String(cString: text))
                 }
             case MPV_EVENT_END_FILE:
-                reportSubtitleHealth(mpv)
+                reportSubtitleHealth()
                 guard let end = event.pointee.data?.assumingMemoryBound(to: mpv_event_end_file.self).pointee
                 else { break }
                 if end.reason == MPV_END_FILE_REASON_EOF {
@@ -926,29 +946,36 @@ final class MPVPlayerCore: @unchecked Sendable {
 
     /// IOS-POC-45D: counts, and the first font file that failed (its name only). No line text.
     private func countLogMessage(_ text: String) {
-        if text.contains("Error opening font") {
+        if text.contains("Error opening font") || text.contains("Error opening memory font") {
             fontErrors += 1
             if fontErrors == 1 {
                 let path = text.split(separator: "'").dropFirst().first.map(String.init) ?? ""
                 let name = (path as NSString).lastPathComponent
                 Task { @MainActor in PlaybackSession.log.notice("[subtitle] libass could not open font \(name, privacy: .public)") }
             }
-        } else if text.contains("failed to find any fallback") {
+        } else if text.contains("failed to find any fallback") || text.contains("not found in font for") {
             fallbackMisses += 1
         } else if text.localizedCaseInsensitiveContains("underrun") {
             underruns += 1
         }
     }
 
-    /// Once per file: whether subtitles cost fonts or audio, beside the frames dropped.
-    private func reportSubtitleHealth(_ mpv: OpaquePointer) {
+    /// Once per file, and for the last one when the core goes: whether subtitles cost fonts or
+    /// audio, beside the frames dropped and the subtitle track shown last. Nothing for a file that
+    /// never got a value (another `END_FILE` in a row).
+    private func reportSubtitleHealth() {
+        defer {
+            fontErrors = 0
+            fallbackMisses = 0
+            underruns = 0
+            frameDrops = nil
+            decoderDrops = nil
+            shownSid = nil
+        }
+        guard frameDrops != nil || decoderDrops != nil || fontErrors + fallbackMisses + underruns > 0 else { return }
         let line = "[subtitle] mpv health fontErrors=\(fontErrors) fallbackMisses=\(fallbackMisses)"
-            + " underruns=\(underruns) frameDrops=\(intProperty(mpv, "frame-drop-count").map(String.init) ?? "n/a")"
-            + " decoderDrops=\(intProperty(mpv, "decoder-frame-drop-count").map(String.init) ?? "n/a")"
-            + " sid=\(stringProperty(mpv, "sid") ?? "n/a")"
-        fontErrors = 0
-        fallbackMisses = 0
-        underruns = 0
+            + " underruns=\(underruns) frameDrops=\(frameDrops.map(String.init) ?? "n/a")"
+            + " decoderDrops=\(decoderDrops.map(String.init) ?? "n/a") sid=\(shownSid ?? "none")"
         Task { @MainActor in PlaybackSession.log.notice("\(line, privacy: .public)") }
     }
 

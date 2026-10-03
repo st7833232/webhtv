@@ -372,3 +372,14 @@
   3. 內嵌 ASS（含 `\an8` 或 `\pos`）保留樣式；MPV PiP 有字幕。
 - 若第 2 項仍斷續：先試 `sub-font-provider=none`（需使用者接受泰文等字型的取捨），再考慮 overlay，最後才是 libass 修補。
 - Rollback：revert 本 commit。
+
+### 16.5 IOS-POC-45D-1：review 修正
+
+- Review workflow（行為與編譯兩個面向、每項反駁）確認 6 項，沒有駁回：
+  1. 字型錯誤計數永遠是 0：libass 的警告在 mpv 被降為 info（mpv v0.41.0 `sub/ass_mp.c` `map_ass_level`），而 `mpv_request_log_messages` 只訂閱 warn。改為 info，並同時比對 `Error opening font`、`Error opening memory font`（`sub-fonts-dir` 的字型以記憶體字型開啟）、`failed to find any fallback`、`not found in font for`。
+  2. `frame-drop-count`、`decoder-frame-drop-count` 在 `END_FILE` 時已被 mpv 釋放，永遠讀到 n/a，最後一支影片也不會回報：改為觀察這兩個屬性並保留最後的值，`shutdown()` 前補回報。
+  3. 子集缺《通用規範漢字表》中的 544 字（例如「啰」）：加入全部 8,105 字（`shengdoushi/common-standard-chinese-characters-table` `d9b599a9c9cc0dd2d58cad829e285bc780cd4451`），字型 4,776,328 → 4,966,308 bytes（壓縮後 4,200,451），SHA-256 `f8259c8d…`；8,105 字全收，FreeType 都畫得出來。
+  4. 檔案交界處計數為近似值：加註解。
+  5. 測試只查 `OTTO` 檔頭與字串：改為解析 sfnt 目錄（有 `CFF `、沒有 `hvgl`／`glyf`）與名稱表（平台 3、name ID 1 完全等於 `SubtitleFont.family`）；以未改名的字型替換時測試失敗（已還原）。
+  6. 發布流程不檢查字型是否打包進 App：需要改 release workflow，不在本次範圍，僅記錄；裝置上的 `bundled=missing` 紀錄可判斷。
+- 第 16.4 節的真機檢查第 2 項，現在 `fontErrors`／`fallbackMisses` 才是有效的指標。

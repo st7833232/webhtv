@@ -18,9 +18,15 @@ libass reads every file in it into memory.
 
 ## Subset and rename (fontTools 4.66.1)
 
-Coverage: every BMP character of Big5-HKSCS and GB2312, KS X 1001 Hangul, kana, Latin, Greek,
-Cyrillic, punctuation and symbols. 23,124 code points requested, 21,786 present in the source, all
-21,786 kept (21,810 glyphs).
+Coverage: every BMP character of Big5-HKSCS and GB2312, all 8,105 characters of the 通用规范汉字表
+(2013; 196 of them beyond the BMP), KS X 1001 Hangul, kana, Latin, Greek, Cyrillic, punctuation and
+symbols. 23,668 code points requested, 22,330 present in the source, all 22,330 kept (22,354
+glyphs). Left out: GBK Han outside these lists, most of CJK Extension A, Hangul outside KS X 1001
+and emoji; libass falls back to CoreText for those.
+
+The standard table comes from `shengdoushi/common-standard-chinese-characters-table`
+`d9b599a9c9cc0dd2d58cad829e285bc780cd4451` (`level-1.txt`, `level-2.txt`, `level-3.txt`, cloned
+as `tgscc/`).
 
 ```sh
 python3 - > unicodes.txt <<'PY'
@@ -41,6 +47,9 @@ for a, b in [(0x20, 0x7E), (0xA0, 0x24F), (0x370, 0x4FF), (0x1E00, 0x1EFF), (0x2
              (0x2100, 0x21FF), (0x2460, 0x257F), (0x25A0, 0x26FF), (0x3000, 0x30FF), (0x31F0, 0x31FF),
              (0xFE30, 0xFE4F), (0xFF00, 0xFFEF)]:
     cps.update(range(a, b + 1))
+import pathlib
+for level in ("level-1.txt", "level-2.txt", "level-3.txt"):
+    cps.update(ord(c) for c in pathlib.Path("tgscc", level).read_text(encoding="utf-8") if not c.isspace())
 print("\n".join(f"U+{c:04X}" for c in sorted(cps)))
 PY
 pyftsubset NotoSansCJKtc-Regular.otf --unicodes-file=unicodes.txt --no-hinting \
@@ -67,7 +76,7 @@ for k, v in (("FamilyName", FAM), ("FullName", FULL)):
 f.save("WebHTVSubtitleCJK-Regular.otf")
 ```
 
-Result: `fonts/WebHTVSubtitleCJK-Regular.otf`, 4,776,328 bytes (4,054,547 gzipped), SHA-256
-`f1c79354e580116aeadbc56f0ec74807dc7c2e6e68b9aca9efe32448a12cc882`. Checked: `CFF ` present, no
-`hvgl`; name ID 1 is `WebHTV Subtitle CJK`; 还请伤啲嘅咗喺♪這們한の all mapped and drawn with ink by
-FreeType 2.13.2 (freetype-py).
+Result: `fonts/WebHTVSubtitleCJK-Regular.otf`, 4,966,308 bytes (4,200,451 gzipped), SHA-256
+`f8259c8d8ee658a8f9161e9a0a5f9d3069d682ec9f3cd248a9ad632842495cec`. Checked: `CFF ` present, no
+`hvgl` or `glyf`; name ID 1 is `WebHTV Subtitle CJK`; 啰镕祎还请伤啲嘅咗喺♪這們한の all mapped and drawn
+with ink by FreeType 2.13.2 (freetype-py).

@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.56",
+          "date": "2026-10-03",
+          "localizedDescription": "WebHTV 0.1.56 (57)（首頁站台名稱顯示修正；真機未驗收）\n\n修正\n- 首頁左上角的站台名稱在淺色桌布上看不清楚：\n  - iOS 26：文字改用系統文字色，會隨按鈕底下的玻璃效果自動變深或變淺。\n  - iOS 17、18：白字加上半透明黑色膠囊底。\n\n已知限制\n- 尚未在任何真機驗證。\n- 其他工具列文字按鈕（例如選站台視窗的「關閉」）未調整。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.56-b57/WebHTV-0.1.56-57.ipa",
+          "size": 34062283,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.55",
           "date": "2026-10-03",
           "localizedDescription": "WebHTV 0.1.55 (56)（網頁播放頁字幕；真機未驗收）\n\n新增\n- 來源要求抓取網頁播放頁的影片時，同時收集該頁面播放器外掛的字幕（<track> 字幕軌與 VTT、SRT、ASS 字幕檔），放進字幕清單的「片源」字幕，AVPlayer 與 MPV 都能選用。只有網頁標為預設的字幕會自動顯示。\n\n已知限制\n- 燒錄在畫面上的字幕無法取出。\n- 抓到影片後只多等 0.25 秒收集字幕，字幕載入較晚的頁面可能抓不到。\n- 發布前通過 Core 自動測試（網頁字幕嗅探的 WebKit 測試未執行）；尚未在真機驗證。",

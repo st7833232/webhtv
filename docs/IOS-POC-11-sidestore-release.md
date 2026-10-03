@@ -894,9 +894,43 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第五十五次發布：`0.1.54 (55)`（2026-10-03，**已發布**）
+## 第五十六次發布：`0.1.55 (56)`（2026-10-03，**已發布**）
 
-**目前最新版是 `0.1.54 (55)`。** 前面五十四版都已被取代。
+**目前最新版是 `0.1.55 (56)`。** 前面五十五版都已被取代。
+
+- 授權：使用者 2026-10-03 指示「幫我檢查git是否有新的commit有的話幫我發佈」。檢查時 `ios-poc` 在 `0.1.54 (55)` 之後只有一個新 commit：`76e0d57f`（IOS-POC-45I，另一個 session 推上，未附測試紀錄）。版號 `0.1.55`，build `56`。
+- 內容：`0.1.54 (55)` 的全部，加上 IOS-POC-45I（`76e0d57f`）：`parse:1` 與 probe 判定為網頁的播放頁，嗅探時另收該頁的 `<track>` 字幕與 VTT／SRT／ASS 請求，併入 `PlaybackTarget.subtitles`，走 45H 的片源字幕管線。找到影片後多保留 WKWebView 250 ms。
+- 發布序列：
+  1. 版號 commit `46ef9c12`（Task-Guard `IOS-RELEASE-0.1.55-b56`，只改兩個 build configuration 的版號欄位）；push `76e0d57f..46ef9c12`。
+  2. 以 MCP `workflow_dispatch`（ref `ios-poc`，version `0.1.55`、build `56`、release notes）觸發 → run `37098285365`（conclusion success，04:58:09Z → 05:02:40Z）。
+  3. workflow 建立 tag `ios-v0.1.55-b56`（target `46ef9c12`），並推回 `source.json`（`581fce56`，共五十六筆，第一筆 `0.1.55`，size 34,059,410 與 IPA 相同）。本機以 pull merge fast-forward 到 `581fce56`。
+
+  **沒有手動建 tag。**
+- 產物：
+  - GitHub Release `WebHTV 0.1.55 (56)`：不是 draft／prerelease，2026-10-03 05:02:32Z 發布。
+  - `WebHTV-0.1.55-56.ipa`：**34,059,410 bytes**，狀態 uploaded；GitHub 記錄的 digest SHA-256 為 `67eec61f30339ee032656921023bcc2154e8097b2ace26ff3691a61d7dfaebe8`。
+  - IPA **未在本機下載核對**；workflow 的「Verify public Release URL」步驟為 success。
+- 發布前驗證：
+  - Core：Linux swiftlang 6.0.3 scratch package（另以 scratchpad 複製 `SniffedSubtitle`／`MediaSniffResult` 兩個型別，因 `MediaSniffer.swift` 依賴 WebKit）`swift test` 274 項，272 通過；未通過的 2 項是 Linux 缺少字元集轉換器（CP1251、GB18030）。新增的兩項合併測試通過。
+  - `MediaSnifferTests`（WebKit）未執行；App 與 `MediaSniffer.swift` 的修改以這次 release 建置為第一次編譯（成功）。
+  - `catvod.result` 指紋不變。
+- **真機尚未驗收**：8Movie 等 `parse:1` 來源的網頁字幕是否出現在字幕清單；若頁面沒有外掛字幕，畫面上的文字可能是燒錄字幕。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.55 (56)（網頁播放頁字幕；真機未驗收）
+
+新增
+- 來源要求抓取網頁播放頁的影片時，同時收集該頁面播放器外掛的字幕（<track> 字幕軌與 VTT、SRT、ASS 字幕檔），放進字幕清單的「片源」字幕，AVPlayer 與 MPV 都能選用。只有網頁標為預設的字幕會自動顯示。
+
+已知限制
+- 燒錄在畫面上的字幕無法取出。
+- 抓到影片後只多等 0.25 秒收集字幕，字幕載入較晚的頁面可能抓不到。
+- 發布前通過 Core 自動測試（網頁字幕嗅探的 WebKit 測試未執行）；尚未在真機驗證。
+```
+
+## 第五十五次發布：`0.1.54 (55)`（2026-10-03，**已發布**，已被 `0.1.55 (56)` 取代）
 
 - 授權：使用者 2026-10-03 指示「發佈」（IOS-POC-45H／45H-1 之後）。版號 `0.1.54`，build `55`。
 - 內容：`0.1.53 (54)` 的全部，加上：

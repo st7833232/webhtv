@@ -561,23 +561,23 @@ revert 本 commit。ABI 1.1 尚未出貨前可整列移除；出貨後依規則�
 - 修正後以重新觸發的 release 建置驗證。Rollback：revert 本 commit。
 
 
-## 20. IOS-POC-45I：Web 播放頁字幕嗅探（8Movie 類來源）
+## 21. IOS-POC-45I：Web 播放頁字幕嗅探（8Movie 類來源）
 
-### 20.1 需求與現況
+### 21.1 需求與現況
 
 - 使用者 2026-10-03 指定 `https://8movie.com/play/16178/`，要求由 WebHTV 開發把網站播放器的字幕導入 App，而不是再產生給其他 agent 的提示詞。
 - 45H 已完成 CatVod `playerContent.subs` → `PlaybackTarget.subtitles` → Session 暫存 → AVPlayer／MPV 的後半段；本次只補「來源沒有輸出 `subs`、而字幕藏在 Web 播放頁」的前半段。
 - 修改前 `SourceClient.target` 的 `parse:1` 路徑只取 `MediaSniffer.sniff() -> URL`；`MediaSniffer` 在第一個影片 URL 出現時立刻銷毀 WKWebView，因此頁面即使另有 `<track>`、VTT/SRT/ASS request，也全部丟失。
 - 本 session 無法直接開啟 8Movie 的實際播放頁與 Network，因此不假定該站一定是軟字幕；若字幕已燒錄進影片像素，本功能不會假裝能抽出字幕檔。
 
-### 20.2 規格與方案查證（2026-10-03）
+### 21.2 規格與方案查證（2026-10-03）
 
 - WHATWG HTML Standard `track`：外掛 timed-text 的標準欄位就是 `src`、`srclang`、`label`、`kind`、`default`；`subtitles`／`captions` 是可顯示文字軌，`metadata`／`chapters` 不是字幕。來源：https://html.spec.whatwg.org/multipage/media.html
 - Apple HLS Authoring Specification / RFC 8216：HLS master 以 `#EXT-X-MEDIA:TYPE=SUBTITLES` 宣告字幕 rendition；Apple HLS 的字幕為 WebVTT 或 IMSC1。來源：https://developer.apple.com/documentation/http-live-streaming/hls-authoring-specification-for-apple-devices 、https://www.rfc-editor.org/rfc/rfc8216.html
 - WebHTV 現況：若 sniffer 拿到的是 HLS master，AVPlayer／MPV 本來就會把 `EXT-X-MEDIA` 當內嵌字幕軌，不應再下載、重組 master；本次只捕捉「master 之外的 out-of-band 字幕」。
 - Android `Sniffer.java` 只找影片 URL，沒有字幕 contract；直接照搬 Android 不能解決需求。
 
-### 20.3 採用設計
+### 21.3 採用設計
 
 1. 新增 `MediaSniffResult(mediaURL, subtitles)` 與 `SniffedSubtitle`。舊 `sniff()` API 保留第一個 media match 就回傳，不增加 source-health 等既有路徑延遲。
 2. 新增 `sniffWithSubtitles()`：找到影片後只多保留 WKWebView **250 ms**，收集同一播放頁的外掛字幕，再回傳；取消、換來源時仍沿用「newest wins」。
@@ -590,7 +590,7 @@ revert 本 commit。ABI 1.1 尚未出貨前可整列移除；出貨後依規則�
 5. 明確的 CatVod `subs` 優先於網頁嗅探：同 URL 時保留來源明確提供的 metadata。網頁嗅探字幕只有 `<track default>` 才設 flag 1；其他設 flag 4（autoselect-only），避免僅因抓到一個 VTT 就蓋掉原本內嵌字幕。
 6. HLS master 不拆解成 `SourceSubtitle`：維持交給兩個播放器原生解析，避免把 subtitle media-playlist URL 當單一 SRT/VTT 下載。
 
-### 20.4 範圍、風險與驗收
+### 21.4 範圍、風險與驗收
 
 - Branch：`ios-poc-45i-web-sniffed-subtitles`，base `c7fdda2ee5a7dd84ef58241af6fcea520b7c8c7a`。
 - 修改：`MediaSniffer.swift`、`SourceClient.swift`、`SourceSubtitles.swift`、兩個既有測試檔、本文件；不動播放器核心、版本、SideStore source、release workflow。

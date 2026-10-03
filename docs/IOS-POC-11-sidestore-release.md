@@ -894,9 +894,56 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第五十四次發布：`0.1.53 (54)`（2026-10-02，**已發布**）
+## 第五十五次發布：`0.1.54 (55)`（2026-10-03，**已發布**）
 
-**目前最新版是 `0.1.53 (54)`。** 前面五十三版都已被取代。
+**目前最新版是 `0.1.54 (55)`。** 前面五十四版都已被取代。
+
+- 授權：使用者 2026-10-03 指示「發佈」（IOS-POC-45H／45H-1 之後）。版號 `0.1.54`，build `55`。
+- 內容：`0.1.53 (54)` 的全部，加上：
+  - IOS-POC-45D／45D-1（`af0a791b` 等）：MPV 字幕內建中文字型（Noto Sans CJK 子集，OFL），修正方格與掉幀、斷音。
+  - IOS-POC-45E：字幕時間軸扣除智慧去廣的廣告時間；對齊上一句／下一句、扣除廣告時間開關。
+  - IOS-POC-45C-1：射手網 API 錯誤碼處理。
+  - IOS-POC-45F（`f3505e2f`）與 45F-1（`80a4c288`）：CC／SDH／強制字幕標示、空清單說明。
+  - IOS-POC-45G（`2576c564`）與 45G-1（`1d46bc92`）：射手網（網頁）來源。
+  - IOS-POC-45H（`3532b109`）與 45H-1（`cae4e8f8`）：片源自帶字幕（`subs`），`catvod.result` ABI 1.1。
+- 發布序列：
+  1. 版號 commit `6f3e5766`（Task-Guard `IOS-RELEASE-0.1.54-b55`，只改兩個 build configuration 的版號欄位）；push `cae4e8f8..6f3e5766`。
+  2. 第一次 `workflow_dispatch` → run `37094163945` **failure**：App 編譯錯誤（`WebHTVApp.swift:4458`，`AVMediaCharacteristic` 沒有 `describesMusicAndSound`，45F 引入）。編譯階段即停止，沒有建立 tag 或 Release。
+  3. 修正 commit `80a4c288`（IOS-POC-45F-1，改為 `describesMusicAndSoundForAccessibility`）；push `6f3e5766..80a4c288`。
+  4. 第二次 `workflow_dispatch`（ref `ios-poc`，version `0.1.54`、build `55`、同一份 release notes）→ run `37094806291`（conclusion success，03:55:35Z → 04:01:58Z）。
+  5. workflow 建立 tag `ios-v0.1.54-b55`（target `80a4c288`），並推回 `source.json`（`f220d087`，共五十五筆，第一筆 `0.1.54`，size 34,041,723 與 IPA 相同）。本機以 pull merge fast-forward 到 `f220d087`。
+
+  **沒有手動建 tag。**
+- 產物：
+  - GitHub Release `WebHTV 0.1.54 (55)`：不是 draft／prerelease，2026-10-03 04:01:49Z 發布。
+  - `WebHTV-0.1.54-55.ipa`：**34,041,723 bytes**（比 0.1.53 多約 4.3 MB，主要是內建字型），狀態 uploaded；GitHub 記錄的 digest SHA-256 為 `1276fe3d175fede99c11b88372ca8ce5209117ca4d7fe4ad77508c4069cd1235`。
+  - IPA **未在本機下載核對**；workflow 的「Verify public Release URL」步驟以公開網址下載並與建置產物逐位元組比對，該 run 為 success。
+- 發布前驗證：
+  - Core：Linux swiftlang 6.0.3 scratch package `swift test` 272 項，270 通過；未通過的 2 項是 Linux 缺少字元集轉換器（CP1251 既有項目、GB18030 新項目，macOS 預期通過）。
+  - App target（45D 以後的 `MPVEngine.swift`、`WebHTVApp.swift` 修改）發布前沒有在 macOS 編譯；第一次 release 建置抓到一個編譯錯誤並修正，第二次建置成功是 App 的第一次成功編譯。
+  - 射手網網頁版、OpenSubtitles／射手網 API、片源字幕都沒有實際連線測試。
+- **真機尚未驗收**：內建字型與掉幀、廣告時間軸、CC 標示、射手網網頁版、片源字幕。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.54 (55)（字幕修正與新功能；真機未驗收）
+
+修正
+- MPV 字幕顯示方格與播放掉幀、聲音斷續：改用 App 內建的中文字型（Noto Sans CJK 子集，SIL OFL 授權）。
+- 智慧去廣開啟時，校正好的字幕時間軸在快轉跨過廣告後跑掉：字幕時間改為扣除廣告時間計算；字幕面板新增「對齊上一句／下一句」與「扣除廣告時間」開關。
+
+新增
+- 字幕清單標示 CC、SDH 與強制字幕；沒有內嵌字幕時顯示說明，AVPlayer 下可一鍵改用 MPV 讀取。
+- 線上字幕新增「射手網（網頁）」來源，不需要 token，只下載單一 SRT 檔。
+- 片源自帶的字幕（播放回應中的字幕清單）會出現在字幕清單，AVPlayer 與 MPV 都能選用；WebVTT 與 ASS 會轉為 SRT 顯示（不保留樣式）。
+
+已知限制
+- 發布前通過 Core 自動測試；App 部分以此次 release 建置為第一次 macOS 編譯。
+- 內建字型、廣告時間軸、CC 標示、射手網網頁版與片源字幕都尚未在真機驗證。
+```
+
+## 第五十四次發布：`0.1.53 (54)`（2026-10-02，**已發布**，已被 `0.1.54 (55)` 取代）
 
 - 授權：使用者 2026-10-02 指示「先發佈」（IOS-POC-45A／45B／45C 之後）。版號 `0.1.53`，build `54`。
 - 內容：`0.1.52 (53)` 的全部，加上：

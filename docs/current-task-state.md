@@ -6,6 +6,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current handoff — 2026-10-02 晚：IOS-POC-45 線上字幕（先讀這一節）
 
+**`0.1.54 (55)` 已發布**（2026-10-03，使用者「發佈」；IOS-POC-11 第五十五次發布：版號 commit `6f3e5766`，第一次 run `37094163945` 因 45F 的編譯錯誤失敗，修正 `80a4c288` 後 run `37094806291` success，tag `ios-v0.1.54-b55` → `80a4c288`，`source.json` `f220d087`，IPA 34,041,723 bytes，真機未驗證），**目前最新版是 `0.1.54 (55)`**。
+
 **IOS-POC-45H**（2026-10-03）：讀取來源播放回應的 `subs`，片源自帶字幕成為兩個引擎都能選的外掛字幕（預設規則採 FongMi 上游，WebVTT／ASS 轉 SubRip，`catvod.result` ABI 1.1）；真機未驗證。SubtitleNexus 評估結論為不可用（第 20 節）。見 IOS-POC-45 文件第 19 節。
 
 **IOS-POC-45F**（2026-10-03）：CC／SDH／強制字幕標示、沒有內嵌字幕時的說明與「改用 MPV」按鈕、字幕清單診斷紀錄。見 IOS-POC-45 文件第 18 節。
@@ -1529,7 +1531,7 @@ Paste this into a new session:
 
 > 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -15`、`git status`，以實際 `origin/ios-poc` 為準、不要相信文件裡的 SHA。先讀 `AGENTS.md`，再讀 `docs/current-task-state.md` 最上方「Current handoff — 2026-10-02 下午」一節（更早的交接需要時再看）。
 >
-> 目前狀態：最新發布是 WebHTV `0.1.53 (54)`（tag `ios-v0.1.53-b54`，含 IOS-POC-45A／45B／45C）；前一版 `0.1.52 (53)`（tag `ios-v0.1.52-b53`，含 IOS-POC-45 線上字幕）；再前一版 `0.1.51 (52)`（tag `ios-v0.1.51-b52`，含 IOS-POC-44A／44B／44C）；兩版真機都未驗證；更早的 `0.1.50 (51)`（tag `ios-v0.1.50-b51`）；IOS-POC-42（XYQHiker 直接播放、播放端擷取、中文搜尋鍵）隨 `0.1.49 (50)`、IOS-POC-43A（檢查來源的嗅探排隊）隨 `0.1.50 (51)` 發布，兩版真機都未驗證，由我另外用 SideStore 測，不擋新任務。
+> 目前狀態：最新發布是 WebHTV `0.1.54 (55)`（tag `ios-v0.1.54-b55`，含 IOS-POC-45C-1／45D／45E／45F／45G／45H）；前一版 `0.1.53 (54)`（tag `ios-v0.1.53-b54`，含 IOS-POC-45A／45B／45C）；再前一版 `0.1.52 (53)`（tag `ios-v0.1.52-b53`，含 IOS-POC-45 線上字幕）；再前一版 `0.1.51 (52)`（tag `ios-v0.1.51-b52`，含 IOS-POC-44A／44B／44C）；兩版真機都未驗證；更早的 `0.1.50 (51)`（tag `ios-v0.1.50-b51`）；IOS-POC-42（XYQHiker 直接播放、播放端擷取、中文搜尋鍵）隨 `0.1.49 (50)`、IOS-POC-43A（檢查來源的嗅探排隊）隨 `0.1.50 (51)` 發布，兩版真機都未驗證，由我另外用 SideStore 測，不擋新任務。
 >
 > 下一步：IOS-POC-44（`docs/IOS-POC-44-csp-portable-sites.md`：23 站活 18、死 5，分段 44A～44G）的 44A（`WeiguanDJ`＋`HemaDJ`）、44B（`QimaoDJ`＋`HaokanDJ`）、44C（`Jpys`＋`Jys`）已完成並隨 `0.1.51 (52)` 發布。等我核准 44D（`Feiyu`＋`MiaoWu`，只寫 JS、不動 Swift）或指定其他段；核准後照該文件第 7、8 節與第 11～13 節的做法實作與驗收，結果記回同一份文件。沒有我的核准不改程式；沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13。
 >

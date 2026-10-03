@@ -4455,7 +4455,7 @@ final class AVPlayerEngine: PlaybackEngine {
             } else if option.hasMediaCharacteristic(.containsOnlyForcedSubtitles) {
                 role = .forced
             } else if option.hasMediaCharacteristic(.transcribesSpokenDialogForAccessibility),
-                      option.hasMediaCharacteristic(.describesMusicAndSound) {
+                      option.hasMediaCharacteristic(.describesMusicAndSoundForAccessibility) {
                 role = .sdh
             } else {
                 role = .normal

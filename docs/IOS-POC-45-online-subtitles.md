@@ -454,7 +454,7 @@
 
 ### 18.2 實作
 
-- `PlaybackSubtitleRole`（一般、CC、SDH、強制）：AVPlayer 依 `mediaType == .closedCaption`、`containsOnlyForcedSubtitles`、`transcribesSpokenDialogForAccessibility` 加 `describesMusicAndSound` 判斷；任一引擎的 `eia_608`／`c608` 等格式自動視為 CC，格式名稱顯示為「CC」。標籤附在名稱後（「English · CC」）；一般字幕的名稱不變。
+- `PlaybackSubtitleRole`（一般、CC、SDH、強制）：AVPlayer 依 `mediaType == .closedCaption`、`containsOnlyForcedSubtitles`、`transcribesSpokenDialogForAccessibility` 加 `describesMusicAndSoundForAccessibility` 判斷；任一引擎的 `eia_608`／`c608` 等格式自動視為 CC，格式名稱顯示為「CC」。標籤附在名稱後（「English · CC」）；一般字幕的名稱不變。
 - `dvb_teletext`、`arib_caption` 標示「不支援」，不隱藏。MPV 在使用者選擇後 3 秒內把字幕關回 `no` 時記錄 `[subtitle] mpv dropped the chosen subtitle id= codec=`。
 - 面板：沒有內嵌字幕時顯示說明（不寫「沒有字幕」）。AVPlayer 下另有「改用 MPV 讀取內嵌字幕」按鈕（沿用既有的切換引擎）；MPV 下說明 CC 可能在播放後才出現（`SubtitleEmptyState`）。
 - 診斷：兩個引擎的字幕清單變動時各記一行 `[subtitle] engine= list=ok|nil|empty|error:<domain>#<code> options= cc= sdh= forced= unsupported= codecs=`（`SubtitleTrackSummary`，不含標題、語言名稱、網址）；AVPlayer 載入字幕群組失敗不再被 `try?` 吞掉。
@@ -554,3 +554,8 @@ revert 本 commit。ABI 1.1 尚未出貨前可整列移除；出貨後依規則�
 - Linux swiftlang 6.0.3 `swift test` 272 項，270 通過；未通過的 2 項是 Linux 缺少字元集轉換（CP1251 既有項目、GB18030 的 `aFileOfUnknownLanguageIsDecodedAsChinese`）。
 - `catvod.result` 指紋不變（本次未改解碼欄位）。App 未改動。
 - Rollback：revert 本 commit（回到 45H 的行為）。
+
+### 18.4 IOS-POC-45F-1：編譯修正
+
+- `0.1.54 (55)` 的 release 建置（run `37094163945`）是 45F 之後 App 的第一次 macOS 編譯，失敗於 `WebHTVApp.swift:4458`：`AVMediaCharacteristic` 沒有 `describesMusicAndSound`。正確名稱是 `describesMusicAndSoundForAccessibility`（與同一判斷式的 `transcribesSpokenDialogForAccessibility` 成對）。該次建置只有這一個錯誤。
+- 修正後以重新觸發的 release 建置驗證。Rollback：revert 本 commit。

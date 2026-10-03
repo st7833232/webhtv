@@ -559,8 +559,8 @@ private struct HomeView: View {
                                 Text(zhTW: selectedSite.name.displayName).font(.headline)
                                 Image(systemName: "chevron.down").font(.caption2)
                             }
-                            .toolbarLabelColor()
                             .lineLimit(1)
+                            .legibleToolbarLabel()
                             .frame(minHeight: 44)
                         }
                         .accessibilityLabel("切換內容來源，目前為 \(zhTW(selectedSite.name))")
@@ -6214,15 +6214,19 @@ private extension View {
         toolbarBackground(.hidden, for: .navigationBar)
     }
 
-    /// IOS-POC-46: the colour of a toolbar item's own label. iOS 26 puts each item on Liquid Glass,
-    /// which turns light over the light wallpaper, and a fixed white label disappeared into it (the
-    /// home screen's source name). The semantic colour flips with the glass, dark on light glass and
-    /// light on dark. Before iOS 26 there is no glass and the label stays white over the wallpaper.
-    @ViewBuilder func toolbarLabelColor() -> some View {
+    /// IOS-POC-46: a toolbar item's own label (the home screen's source name), legible over the
+    /// light wallpaper, where plain white measures 1.4–1.6:1 (`wallpaper_1`'s top-left). iOS 26 puts
+    /// each item on Liquid Glass, which turns light there; the label takes the semantic colour that
+    /// flips with the glass. Before iOS 26 there is no glass, so the white label gets its own 50%
+    /// black capsule: 5.2:1 at the wallpaper's lightest point there.
+    @ViewBuilder func legibleToolbarLabel() -> some View {
         if #available(iOS 26, *) {
             foregroundStyle(.primary)
         } else {
             foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(.black.opacity(0.5)))
         }
     }
 }

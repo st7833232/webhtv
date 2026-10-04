@@ -2141,13 +2141,7 @@ private struct VodView: View {
                                 }
                             }
                             // IOS-POC-49 全部下載: from where the viewer left off to the end of the line.
-                            let remaining = downloadAllEpisodes(flag)
-                            Button("全部下載", systemImage: "arrow.down.circle") {
-                                downloadAll = OfflineDownloadAllPlan(flag: flag.name, episodes: remaining)
-                            }
-                            .buttonStyle(.bordered)
-                            .frame(minHeight: 44)
-                            .disabled(remaining.isEmpty || resolving)
+                            downloadAllButton(flag)
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 10)], spacing: 10) {
                                 ForEach(Array(flag.episodes.enumerated())[blocks[max(0, chunk)]], id: \.offset) { index, episode in
                                     let lastWatched = watched?.vodFlag == flag.name
@@ -2239,14 +2233,6 @@ private struct VodView: View {
             Text(downloadError ?? "")
         }
         .sheet(item: $downloadDraft) { OfflineDownloadSheet(draft: $0) }
-        .confirmationDialog(downloadAll.map { "下載 \($0.episodes.count) 集？" } ?? "",
-                            isPresented: Binding(get: { downloadAll != nil }, set: { if !$0 { downloadAll = nil } }),
-                            titleVisibility: .visible, presenting: downloadAll) { plan in
-            Button("全部下載") { Task { await queueDownloadAll(plan) } }
-            Button("取消", role: .cancel) {}
-        } message: { plan in
-            Text("從「\(zhTW(plan.episodes.first?.episode.name ?? ""))」起尚未下載的 \(plan.episodes.count) 集，畫質「\(OfflineDownloadPreferences().mode.label)」，依序下載。")
-        }
     }
 
     private var historyKey: String { WatchHistory.key(siteID: site.id, vodId: summary.id) }
@@ -2276,6 +2262,26 @@ private struct VodView: View {
         guard let asset = await OfflineDownloads.manager.completedAsset(for: offlineIdentity(episode, flag: flag))
         else { return nil }
         return await OfflineDownloads.playbackSource(for: asset)
+    }
+
+    /// IOS-POC-49 全部下載 and its confirmation. A function of its own: written inline, it pushed the
+    /// detail body past what the type checker finishes in time (IOS-POC-49-1).
+    private func downloadAllButton(_ flag: Flag) -> some View {
+        let remaining = downloadAllEpisodes(flag)
+        return Button("全部下載", systemImage: "arrow.down.circle") {
+            downloadAll = OfflineDownloadAllPlan(flag: flag.name, episodes: remaining)
+        }
+        .buttonStyle(.bordered)
+        .frame(minHeight: 44)
+        .disabled(remaining.isEmpty || resolving)
+        .confirmationDialog(downloadAll.map { "下載 \($0.episodes.count) 集？" } ?? "",
+                            isPresented: Binding(get: { downloadAll != nil }, set: { if !$0 { downloadAll = nil } }),
+                            titleVisibility: .visible, presenting: downloadAll) { plan in
+            Button("全部下載") { Task { await queueDownloadAll(plan) } }
+            Button("取消", role: .cancel) {}
+        } message: { plan in
+            Text("從「\(zhTW(plan.episodes.first?.episode.name ?? ""))」起尚未下載的 \(plan.episodes.count) 集，畫質「\(OfflineDownloadPreferences().mode.label)」，依序下載。")
+        }
     }
 
     /// IOS-POC-49 全部下載: from where the viewer left off to the end of `flag`, without the episodes

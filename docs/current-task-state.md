@@ -4,11 +4,15 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-04：IOS-UI-A4 子分類收合（實作中）
+## Current handoff — 2026-10-04：IOS-UI-A4 子分類收合（0.1.64／65 已發布）
 
 基準為 fetch 最新 `origin/ios-poc` `7b6fc1d89b6bdb552a03e714ae0b5d5bd8c9183c`，獨立 branch `ios-ui-a4-filter-disclosure`，工作區乾淨。使用者問不同來源自動選分類差異，並要求子分類可收合／預設收合。首頁 CMSView 新增獨立「子分類與篩選」入口，同時收起真正子分類與類型／地區／年代／排序。切換分類重新收合，收合保留選擇，控制不觸發 API。原首頁自動選取規則保留，未改 backend／Core／player domain。詳見 `docs/IOS-UI-A-cinematic-minimal.md` A4。
 
-最新已發布仍為 0.1.63 (64)；本輪目標 0.1.64 (65)，tag 不存在已核對。Swift baseline／edited 語法各 0 error，diff whitespace 通過；獨立 review 無 Critical／Important，Ponytail：Lean already. Ship. Release device build 尚待完成，沒有真機／Simulator rendering。下一步：atomic commit，發布前再次 fetch 安全整合，再由既有 SideStore workflow 發 IPA／source.json。
+Swift baseline／edited 語法各 0 error，diff whitespace 通過；獨立 review 無 Critical／Important，Ponytail：Lean already. Ship. 發布前再次 fetch，遠端沒有新增變更；GitHub API 原子提交的 tree 與已驗證本機 commit 相同，force=false 更新 ios-poc，保留所有既有來源／下載／收藏／播放器功能。
+
+已發布 **0.1.64 (65)**（2026-10-04 22:33，Asia/Taipei）：成功 run [37209250026](https://github.com/st7833232/webhtv/actions/runs/37209250026)，全部 steps success（device Release build、IPA／schema validation、公開下載 byte comparison、source publish）。tag `ios-v0.1.64-b65` → IPA code commit `033d43368ff7aa629375834d9e48da0997490ca5`；source update commit `57ef2ca38e72be9ddb4380f0baea290a94e59e30`。asset `WebHTV-0.1.64-65.ipa` uploaded，35,082,545 bytes，SHA-256 `67eda949b95cf06a57a835d52f668bedd99a35558dfd6031465ad43aa0915acc`。已從 immutable source commit 核對 versions[0] 0.1.64，downloadURL／size 與 Release 相同，bundle `com.webhtv.ios.poc`／source identifier `com.webhtv.sidestore.source` 未改。
+
+程式與發布已完成，未另跑測試 CI，沒有真機／Simulator rendering。下一步只有 SideStore 真機驗收：薦片的類型／地區／年代／排序預設收合、展開與再次收合、切換分類重新收合、收合時條件仍生效、帶真正 child categories 的來源、大字級／VoiceOver／深淺主題。
 
 ## Previous handoff — 2026-10-04：IOS-UI-A3 真機回報修正（0.1.63／64 已發布）
 

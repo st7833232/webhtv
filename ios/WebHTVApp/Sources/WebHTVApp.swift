@@ -12,8 +12,12 @@ import UniformTypeIdentifiers
 import WebHTVCore
 import WebKit
 
-private let appSurface = Color(red: 0.075, green: 0.14, blue: 0.16)
-private let appAccent = Color.white
+// IOS-UI-A: Cinematic Minimal trial theme. Functional state remains semantic; these are visual tokens only.
+private let appBackground = Color(red: 0.018, green: 0.026, blue: 0.045)
+private let appSurface = Color(red: 0.040, green: 0.058, blue: 0.086)
+private let appRaisedSurface = Color(red: 0.060, green: 0.082, blue: 0.116)
+private let appAccent = Color(red: 0.105, green: 0.515, blue: 1.000)
+private let appStroke = Color.white.opacity(0.10)
 private let selectedSiteKey = "selectedSiteKey"
 /// IOS-POC-19: `[ConfigSource.identity: SiteSelection.token]`, the site each source was left on.
 private let siteBySourceKey = "selectedSiteBySource"
@@ -191,7 +195,8 @@ private struct ConfigView: View {
                     .tag(2)
                     .tabItem { Label("設定", systemImage: "gearshape.fill") }
                 }
-                .toolbarBackground(.hidden, for: .tabBar)
+                .toolbarBackground(.ultraThinMaterial, for: .tabBar)
+                .toolbarBackground(.visible, for: .tabBar)
                 .appWallpaper()
                 // IOS-POC-48 A13: above the tab bar on every tab, since the player that removed the
                 // favourite may have been opened from any of them.
@@ -672,7 +677,7 @@ private struct CMSView: View {
     @State private var loading = false
     @State private var error: String?
 
-    private let columns = [GridItem(.adaptive(minimum: 140, maximum: 220), spacing: 12)]
+    private let columns = [GridItem(.adaptive(minimum: 148, maximum: 228), spacing: 14)]
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -1062,11 +1067,16 @@ private struct VodCard: View {
                     .padding(8)
             }
         }
-        .clipShape(.rect(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(appStroke, lineWidth: 0.7)
+        }
+        .clipShape(.rect(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.34), radius: 12, y: 7)
         // IOS-POC-28: clipping hides the overflow of a filled poster but does not stop it taking
         // touches, so a wide artwork reached into the card beside it and a tap there opened this
         // title. The tappable area is the card's own shape.
-        .contentShape(.rect(cornerRadius: 10))
+        .contentShape(.rect(cornerRadius: 16))
         .accessibilityElement(children: .combine)
     }
 }
@@ -1619,7 +1629,7 @@ private struct SettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .appWallpaper()
-        .listRowBackground(Color.black.opacity(0.22))
+        .listRowBackground(appRaisedSurface.opacity(0.72))
         .navigationTitle("設定")
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBar()
@@ -1775,7 +1785,7 @@ private struct SiteChoiceList: View {
                     .contentShape(Rectangle())
                 }
                 .id(site.id)
-                .listRowBackground(Color.black.opacity(0.22))
+                .listRowBackground(appRaisedSurface.opacity(0.72))
             }
             .scrollContentBackground(.hidden)
             // After the rows exist, as on the home screen's picker; on the stack it would scroll nothing.
@@ -2755,7 +2765,7 @@ private struct HistoryView: View {
                             }
                         }
                     }
-                    .listRowBackground(appSurface)
+                    .listRowBackground(appRaisedSurface.opacity(0.82))
                 }
                 .scrollContentBackground(.hidden)
             }
@@ -3076,8 +3086,13 @@ private struct FavoriteCard: View {
                             .padding(8)
                     }
                 }
-                .clipShape(.rect(cornerRadius: 10))
-                .padding(.bottom, 4)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(appStroke, lineWidth: 0.7)
+                }
+                .clipShape(.rect(cornerRadius: 16))
+                .shadow(color: .black.opacity(0.30), radius: 10, y: 6)
+                .padding(.bottom, 6)
             Text(zhTW: favorite.name)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(2)
@@ -3897,7 +3912,7 @@ private struct OfflineDownloadsView: View {
                     }
                 }
                 .scrollContentBackground(.hidden)
-                .listRowBackground(appSurface)
+                .listRowBackground(appRaisedSurface.opacity(0.82))
             }
         }
         .appWallpaper()
@@ -4012,14 +4027,19 @@ private struct VodPoster: View {
         AsyncImage(url: URL(string: picture)) { phase in
             switch phase {
             case .success(let image):
-                image.resizable().scaledToFit().clipShape(.rect(cornerRadius: 10))
+                image.resizable().scaledToFit().clipShape(.rect(cornerRadius: 18))
             default:
-                appSurface.overlay { Image(systemName: "film").foregroundStyle(.secondary) }
-                    .clipShape(.rect(cornerRadius: 10))
+                appRaisedSurface.overlay { Image(systemName: "film").foregroundStyle(.secondary) }
+                    .clipShape(.rect(cornerRadius: 18))
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 240)
+        .frame(height: 300)
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(appStroke, lineWidth: 0.8)
+        }
+        .shadow(color: .black.opacity(0.38), radius: 18, y: 10)
     }
 }
 
@@ -7725,23 +7745,37 @@ private extension View {
     /// this.**
     func appWallpaper() -> some View {
         background {
-            // `.ignoresSafeArea()` belongs on a view that fills, and `scaledToFill` does not: it
-            // sizes the image to its own aspect-filled bounds, so the modifier had nothing to
-            // expand and the wallpaper stopped at the safe area — the black band under the tab bar
-            // (IOS-POC-8G). `Color.clear` fills, ignores the safe area, and the image fills that
-            // instead. Still a `.background`, so it still cannot relayout anything.
-            Color.clear
-                .overlay {
-                    bundledImage("wallpaper_1")
-                        .resizable()
-                        .scaledToFill()
-                }
-                .ignoresSafeArea()
+            ZStack {
+                appBackground
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.022, green: 0.038, blue: 0.070),
+                        appBackground,
+                        Color.black
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                RadialGradient(
+                    colors: [appAccent.opacity(0.13), .clear],
+                    center: .topTrailing,
+                    startRadius: 0,
+                    endRadius: 430
+                )
+                RadialGradient(
+                    colors: [Color.indigo.opacity(0.08), .clear],
+                    center: .bottomLeading,
+                    startRadius: 0,
+                    endRadius: 360
+                )
+            }
+            .ignoresSafeArea()
         }
     }
 
     func appNavigationBar() -> some View {
-        toolbarBackground(.hidden, for: .navigationBar)
+        toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
     }
 
     /// IOS-POC-46: a toolbar item's own label (the home screen's source name), legible over the

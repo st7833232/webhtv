@@ -324,16 +324,27 @@ public actor OfflineDownloadManager {
         return .created(asset)
     }
 
-    /// Starts the oldest queued download when nothing is running.
+    /// IOS-POC-50: at most this many downloads prepare or download at once.
+    public static let concurrentDownloads = 3
+
+    /// Starts the oldest queued downloads while fewer than `concurrentDownloads` are running. Each
+    /// is marked preparing before anything is awaited, so a pump that runs meanwhile counts it.
     func pump() async {
         guard started else { return }
         let all = store.all()
-        guard !all.contains(where: { $0.state == .preparing || $0.state == .downloading }),
-              let next = all.filter({ $0.state == .queued }).min(by: { $0.createdAt < $1.createdAt }),
-              let preparing = try? store.update(next.id, now: deps.now(), { $0.state = .preparing; $0.failure = nil })
-        else { return }
+        let running = all.filter { $0.state == .preparing || $0.state == .downloading }.count
+        let next = all.filter { $0.state == .queued }.sorted { $0.createdAt < $1.createdAt }
+            .prefix(max(Self.concurrentDownloads - running, 0))
+        let starting = next.compactMap { asset in
+            try? store.update(asset.id, now: deps.now(), { $0.state = .preparing; $0.failure = nil })
+        }
+        guard !starting.isEmpty else { return }
         publish(force: true)
-        await prepare(preparing.id, generation: preparing.generation)
+        await withTaskGroup(of: Void.self) { group in
+            for asset in starting {
+                group.addTask { await self.prepare(asset.id, generation: asset.generation) }
+            }
+        }
     }
 
     // MARK: - Preparing
@@ -561,7 +572,9 @@ public actor OfflineDownloadManager {
 
         let downloaded = OfflineStorage.allocatedSize(of: layout.folder(for: id))
         let remaining = prepared.estimate.bytes.map { max($0 - downloaded, 0) }
-        guard OfflineStorage.hasRoom(estimate: remaining, available: deps.capacity()) else {
+        // IOS-POC-50: the downloads already running need their share of the same free space.
+        guard OfflineStorage.hasRoom(estimate: (remaining ?? 0) + reservedBytes(excluding: id),
+                                     available: deps.capacity()) else {
             fail(id, OfflineFailure(.insufficientStorage))
             return
         }
@@ -578,6 +591,15 @@ public actor OfflineDownloadManager {
         OfflineLog.notice("[offline] \(OfflineLog.short(id)) downloading units=\(prepared.plan.units.count) video=\(prepared.video?.summary ?? "file") estimate=\(prepared.estimate.bytes ?? -1)")
         publish(force: true)
         await submitMissing(updated.id, plan: prepared.plan)
+    }
+
+    /// What the other running downloads still need by their estimates, so two of them cannot each
+    /// find room for themselves in the same free space (IOS-POC-50).
+    private func reservedBytes(excluding id: String) -> Int64 {
+        store.all().filter { $0.id != id && $0.state == .downloading }.reduce(0) { total, asset in
+            guard let bytes = asset.estimate.bytes else { return total }
+            return total + max(bytes - OfflineStorage.allocatedSize(of: layout.folder(for: asset.id)), 0)
+        }
     }
 
     /// The source's own subtitle files, kept as UTF-8 SubRip beside the media. A file that fails is

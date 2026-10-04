@@ -2280,7 +2280,7 @@ private struct VodView: View {
             Button("全部下載") { Task { await queueDownloadAll(plan) } }
             Button("取消", role: .cancel) {}
         } message: { plan in
-            Text("從「\(zhTW(plan.episodes.first?.episode.name ?? ""))」起尚未下載的 \(plan.episodes.count) 集，畫質「\(OfflineDownloadPreferences().mode.label)」，依序下載。")
+            Text("從「\(zhTW(plan.episodes.first?.episode.name ?? ""))」起尚未下載的 \(plan.episodes.count) 集，畫質「\(OfflineDownloadPreferences().mode.label)」，最多同時下載 \(OfflineDownloadManager.concurrentDownloads) 集。")
         }
     }
 

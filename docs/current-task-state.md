@@ -4,7 +4,11 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-04：IOS-POC-49 行動網路設定與全部下載（先讀這一節）
+## Current handoff — 2026-10-04：IOS-POC-50 多工下載（先讀這一節）
+
+**IOS-POC-50**（2026-10-04）：使用者要求「多工下載」，選定同時 3 集。`pump()` 最多讓 3 集同時準備或下載，依加入順序補位；開始下載前的空間檢查加上其他正在下載的集數還需要的空間。每主機連線數維持 4，所以同一來源的 HLS 總速度不會提高。Linux 71／71、突變 3／3；依使用者「不要跑ci修改後就發佈」直接發布。真機未驗證。見 `docs/IOS-POC-50-concurrent-downloads.md`。
+
+## Previous handoff — 2026-10-04：IOS-POC-49 行動網路設定與全部下載
 
 **IOS-POC-49**（2026-10-04）：使用者回報 5G 下載停在 0%。原因是行動網路設定只在加入下載時記錄。改為切換設定與每次啟動都即時套用到所有未完成的下載：下載中的項目重新送出未完成片段，單檔續傳資料作廢。只有行動網路時顯示「等待 Wi-Fi」，前景 session 改為等待連線。新增「全部下載」：從觀看進度那一集（含）起本線路尚未下載的集數，用設定的預設畫質，每集輪到時才解析，選擇與單集畫面預設相同。Linux 69／69、突變 4／4；依使用者指示不跑 CI，直接發布。原本也編為 IOS-POC-48，push 時發現另一個 session 已用該編號（收藏與片庫）並發布 `0.1.58 (59)`，改編 IOS-POC-49，在其上重新套用。
 

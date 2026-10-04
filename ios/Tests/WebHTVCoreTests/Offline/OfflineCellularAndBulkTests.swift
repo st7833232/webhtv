@@ -87,17 +87,20 @@ struct OfflineCellularAndBulkTests {
             return Fixture.target()
         }
         await harness.manager.start()
-        let first = try #require(await queueAutomatic(harness, "ep1"))
-        let second = try #require(await queueAutomatic(harness, "ep2"))
+        // IOS-POC-50: three run at once, so the fourth is the one that waits its turn.
+        var queued = [OfflineAsset]()
+        for episode in ["ep1", "ep2", "ep3", "ep4"] { queued.append(try #require(await queueAutomatic(harness, episode))) }
 
-        _ = await harness.waitFor(first.id, .downloading)
-        _ = await harness.waitForSubmissions(4, assetID: first.id)
-        #expect(resolved.all == [Fixture.identity("ep1").episodeURL])
-        #expect(await harness.manager.asset(second.id)?.state == .queued)
+        for asset in queued.prefix(3) {
+            _ = await harness.waitFor(asset.id, .downloading)
+            _ = await harness.waitForSubmissions(4, assetID: asset.id)
+        }
+        #expect(Set(resolved.all) == Set(["ep1", "ep2", "ep3"].map { Fixture.identity($0).episodeURL }))
+        #expect(await harness.manager.asset(queued[3].id)?.state == .queued)
 
-        #expect(await harness.completeAll(first.id)?.state == .completed)
-        #expect(await harness.waitFor(second.id, .downloading)?.state == .downloading)
-        #expect(resolved.all == [Fixture.identity("ep1").episodeURL, Fixture.identity("ep2").episodeURL])
+        #expect(await harness.completeAll(queued[0].id)?.state == .completed)
+        #expect(await harness.waitFor(queued[3].id, .downloading)?.state == .downloading)
+        #expect(resolved.all.count == 4 && resolved.all.last == Fixture.identity("ep4").episodeURL)
         #expect(!harness.log.all.contains { $0.url?.scheme == "about" })
     }
 

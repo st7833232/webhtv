@@ -74,7 +74,7 @@ AVPlayer 本機 HLS 入口比較：
 
 | 需求名稱 | 實作 | 職責 |
 |---|---|---|
-| OfflineDownloadManager | `OfflineDownloadManager`（actor） | 排程（一次一個）、開始、暫停、繼續、重試、失敗、唯一刪除入口、看完事件、重開後接回 |
+| OfflineDownloadManager | `OfflineDownloadManager`（actor） | 排程（一次一個；IOS-POC-50 起最多同時 3 個）、開始、暫停、繼續、重試、失敗、唯一刪除入口、看完事件、重開後接回 |
 | OfflineAssetStore | `OfflineAssetStore`（由 manager 獨占的 class） | 每個資產一個 `metadata.json`，原子寫入、版本、migration、不可讀時保守保留 |
 | OfflineMediaSelector | `OfflineMediaSelector` | 第 7 節規則 |
 | OfflineStorageManager | `OfflineStorage`、`OfflineStorageLayout` | 路徑、排除 iCloud 備份、實際占用、可用空間、safety margin、原子寫入、暫存清理 |

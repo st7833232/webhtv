@@ -12,7 +12,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 程式驗證：完整 Swift tree-sitter baseline／edited 各 0 error；12 個 protected data／engine 宣告 byte-identical，PlayerView 只有 preferredColorScheme(.dark) presentation modifier；既有 protected engine／store／player methods 未變。Code/layout 檢查不等於 device rendering。獨立 review finding 已修正（Home 不額外 pop、light-mode badge／FEATURED、字幕設定返回註冊）；無剩餘 Critical／Important，Ponytail：Lean already. Ship. 未另跑測試 CI。
 
-已依 GitHub 最新 Releases 核對 0.1.62 (63) 為最新，`ios-v0.1.63-b64` 不存在；本輪新目標 0.1.63 (64)。下一步：final review 後再 fetch、安全原子整合並沿既有 SideStore Release workflow 發布；未聲稱發布成功。SideStore 尚需驗收完整末列／回頂端可見、iOS 27 原生邊緣返回、多層重點 tab、鍵盤／安全區、主題與設定持久性，以及既有播放／下載／收藏復原操作。
+首次整合 code f916df556fa4035e1ffa4bbad4090ea3ab8cc491；Release run 37205918063 的 device compile 失敗於兩處 conditional `.primary`／`.primary.opacity` 推斷不相容，已依 logs 改成明確 Color.primary。其他既有 actor／async warning 保留未改。第一次沒有建立 Release／tag／IPA，亦未更新 source。再次核對 latest 仍 0.1.62 (63)，`ios-v0.1.63-b64` 不存在；本輪 candidate 保持尚未發布的 0.1.63 (64)。下一步：此兩行型別修正原子整合後沿既有 workflow 重建。SideStore 尚需驗收完整末列／回頂端可見、iOS 27 原生邊緣返回、多層重點 tab、鍵盤／安全區、主題與設定持久性，以及既有播放／下載／收藏復原操作。
 
 ## Previous handoff — 2026-10-04：IOS-UI-A2 真正結構重構（0.1.62／63 已發布）
 

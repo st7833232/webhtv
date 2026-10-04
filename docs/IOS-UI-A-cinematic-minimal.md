@@ -31,7 +31,11 @@
 
 Final read-only review：所有四項 finding 已修正（Home 不額外 pop、badge／FEATURED 淺色對比、字幕設定 dismiss 註冊）；無剩餘 Critical／Important。Ponytail：Lean already. Ship. 不能由靜態檢查證明 UIKit／SwiftUI lifecycle timing、背景點擊或手勢像素行為，保留真機驗收。
 
-Recovery anchor：IOS-UI-A3 guard active，branch ios-ui-a-device-fixes，clean start，無 protected dirty paths。0.1.62 (63) 仍為實際最新 Release，新 tag 0.1.63 (64) 不存在。下一步：最後 fetch／原子整合並發布；尚未發布。
+首次 Release device compile（run 37205918063，code f916df556fa4035e1ffa4bbad4090ea3ab8cc491）失敗：兩處 `selected ? .primary : .primary.opacity(...)` 被推斷成 HierarchicalShapeStyle 與 opaque ShapeStyle 不相容。已依實際 Xcode logs 將兩個分支都明確寫成 Color.primary；沒有擴大 UI 或 domain 行為。原有 WebHome/PythonBoot 的 actor／async warning 不屬此修改，保留未改。第一次沒有建立 Release／tag／IPA 或更新 source；latest 仍 0.1.62 (63)，新 candidate 0.1.63 (64) tag 不存在。
+
+局部編譯修正驗證：整份 Swift diff 精確等於兩個 Color.primary 型別更正；parse 0 error；read-only review 無問題；final Ponytail：Lean already. Ship. 實際 device build 仍待重建通過。
+
+Recovery anchor：IOS-UI-A3-COMPILE guard active，branch ios-ui-a3-release-evidence，base f916df556fa4035e1ffa4bbad4090ea3ab8cc491，無 protected dirty paths。下一步：原子整合後再次發布尚未存在的 0.1.63 (64)；尚未發布。
 
 ## A2 structure redesign — 2026-10-04 (current task)
 

@@ -3,6 +3,8 @@
 
 ## Current release preparation — 2026-10-04：0.1.63 (64) / IOS-UI-A3
 
+首輪 run 37205918063（code f916df556fa4035e1ffa4bbad4090ea3ab8cc491）device compile 失敗：兩處新 UI conditional ShapeStyle 型別推斷。已局部改為 Color.primary。當次 Release／IPA／tag／source 後續步驟全 skipped，因此未發布／重用任何既有 Release；0.1.63 (64) 仍為尚未存在的新 candidate。必要修正後才重啟既有 release build，未啟動測試 CI。
+
 沿本 session 已授權的既有 SideStore workflow 發布真機 UI 修正；未另外執行測試 CI。最新 GitHub Release 實際為 0.1.62 (63)，下一版 0.1.63 (64)，新 tag 尚不存在。修正底部遮擋／原生返回、鍵盤／空白搜尋、片庫記錄優先、重點分頁動作及深／淺主題；播放 engine、source 和資料 ownership 不改。發布尚未完成，run／IPA／source.json 實際證據待記錄。Linux 無 Xcode／Simulator，將以既有 release device build 驗證 compilation，行為／視覺仍待真機。
 
 ## Previous release — 2026-10-04：0.1.62 (63) / IOS-UI-A2

@@ -809,7 +809,7 @@ private struct CinematicChoice: View {
     var body: some View {
         Button(action: action) {
             Text(title).font(.subheadline.weight(selected ? .semibold : .regular))
-                .foregroundStyle(selected ? .primary : .primary.opacity(0.65))
+                .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.65))
                 .padding(.horizontal, 14)
                 .frame(minHeight: 44)
                 .background(selected ? appAccent.opacity(0.20) : appSurface,
@@ -1188,7 +1188,7 @@ private struct CMSView: View {
                 }
             }
             .font(.subheadline.weight(isHighlighted ? .bold : .regular))
-            .foregroundStyle(isHighlighted ? .primary : .primary.opacity(0.55))
+            .foregroundStyle(isHighlighted ? Color.primary : Color.primary.opacity(0.55))
             .padding(.horizontal, 5)
             .frame(minHeight: 44)
             .overlay(alignment: .bottom) {

@@ -281,6 +281,22 @@ public final class OnlineSubtitleSession {
         }
     }
 
+    /// IOS-POC-47: a downloaded episode's own subtitle files, already on the device. Handed to the
+    /// engines like the source's files — nothing is fetched, and the files are not this session's
+    /// to delete (they live with the download, not in `cache`). The first is shown unless the
+    /// viewer has picked one.
+    public func attachOffline(_ subtitles: [PlaybackExternalSubtitle]) {
+        guard !hasEnded, !sourceAttached, !subtitles.isEmpty else { return }
+        sourceAttached = true
+        for (index, subtitle) in subtitles.enumerated() where !attached.contains(where: { $0.id == subtitle.id }) {
+            attached.append(subtitle)
+            let show = index == 0 && !viewerChoseSubtitle && !sourceShown
+            if show { sourceShown = true }
+            onSourceAttach?(subtitle, show)
+        }
+        Self.log.notice("[subtitle] offline files=\(subtitles.count)")
+    }
+
     private func finishSourceDownload(_ outcome: Result<PlaybackExternalSubtitle, SubtitleProviderError>,
                                       track: RemoteSubtitleTrack, chosen: Bool) {
         guard !hasEnded else { return }

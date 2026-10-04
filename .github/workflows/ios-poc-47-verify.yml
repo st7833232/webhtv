@@ -1,0 +1,82 @@
+# TEMPORARY — IOS-POC-47 verification only. Lives on the throwaway branch ci/ios-poc-47-verify,
+# which is deleted after the run; it is never merged into ios-poc.
+name: IOS-POC-47 temporary verification
+
+on:
+  push:
+    branches: [ci/ios-poc-47-verify]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-poc-47-verify
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: xcodebuild -version && swift --version
+
+      - name: WebHTVCore tests (macOS host)
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          swift test --package-path ios 2>&1 | tee core-tests.log | grep -E '✘|error:|Test run with' | tail -n 150
+          echo "== offline suites"
+          grep -E 'Suite Offline.*(passed|failed)|Test .*Offline' core-tests.log | grep -E 'Suite|✘' | sort -u | tail -n 40 || true
+
+      - name: Set up host Python for the native Python packages
+        id: host-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Prepare CPython payload (device)
+        env:
+          PYTHON_HOST: ${{ steps.host-python.outputs.python-path }}
+        run: scripts/fetch_python_ios.sh --sdk iphoneos
+
+      - name: Builds (Debug device, Release device)
+        continue-on-error: true
+        run: |
+          build() { # name configuration
+            xcodebuild -project ios/WebHTVApp/WebHTVApp.xcodeproj -scheme WebHTVApp -configuration "$2" \
+              -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$GITHUB_WORKSPACE/build/$1" \
+              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
+              EXPANDED_CODE_SIGN_IDENTITY=- EXPANDED_CODE_SIGN_IDENTITY_NAME='Ad Hoc' build > "$GITHUB_WORKSPACE/$1.log" 2>&1 || true
+            echo "== $1: $(grep -E '\*\* BUILD (SUCCEEDED|FAILED)' "$GITHUB_WORKSPACE/$1.log" | tail -n 1)"
+            grep -n -E 'error:|: error|fatal error' "$GITHUB_WORKSPACE/$1.log" | sort -u | head -n 60 || true
+            sed -n '/The following build commands failed/,+12p' "$GITHUB_WORKSPACE/$1.log" || true
+          }
+          build debug-device Debug
+          build release-device Release
+
+      - name: Warnings in the changed files
+        if: always()
+        run: |
+          grep -hE 'warning:' debug-device.log release-device.log core-tests.log 2>/dev/null \
+            | grep -E 'Offline|OnlineSubtitleSession|WebHTVApp.swift' | sed 's#.*/ios/#ios/#' | sort -u | head -n 80 || true
+
+      - name: WebHTVCore tests (iOS Simulator)
+        continue-on-error: true
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c 'import json,sys
+          d=json.load(sys.stdin)["devices"]
+          print(next(x["udid"] for k,v in sorted(d.items(), reverse=True) if "iOS" in k for x in v if x["name"].startswith("iPhone")))')
+          echo "simulator $udid"
+          (cd ios && xcodebuild -scheme WebHTVCore -destination "id=$udid" -derivedDataPath ../build/CoreSim test > ../core-sim-tests.log 2>&1) || true
+          grep -E '✘ Test .* failed|Test run with|TEST SUCCEEDED|TEST FAILED' core-sim-tests.log | sed 's/ after [0-9.]* seconds.*//' | sort -u | tail -n 60
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-poc-47-logs
+          path: "*.log"
+          retention-days: 3

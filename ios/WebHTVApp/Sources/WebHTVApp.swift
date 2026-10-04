@@ -21,6 +21,9 @@ private let configUpdatedAtKey = "configUpdatedAt"
 
 @main
 struct WebHTVApp: App {
+    /// IOS-POC-47: the download session's background events.
+    @UIApplicationDelegateAdaptor(OfflineAppDelegate.self) private var offlineDelegate
+
     init() {
         // IOS-POC-10H. Picture in Picture will not start without an active `.playback` session,
         // and it is also what lets audio continue when the app is not in front. Failing here is
@@ -43,6 +46,13 @@ struct WebHTVApp: App {
         // feature's session folders in the app's temporary directory, before any player can open.
         let staleSubtitles = SubtitleSessionCache.removeStaleSessions()
         if staleSubtitles > 0 { print("[subtitle] removed \(staleSubtitles) stale session folder(s)") }
+        // IOS-POC-47: offline downloads — their records, a delete a crash interrupted, and the
+        // transfers the background session kept going — before any screen asks about them.
+        Task { @MainActor in
+            await offlineLibrary.connect(OfflineDownloads.manager)
+            await OfflineDownloads.manager.setResolver { asset in await OfflineAppContext.resolve(asset) }
+            await OfflineDownloads.manager.start()
+        }
         // Says out loud whether PiP can arm at all. The simulator does not implement it, so an
         // absent PiP button there is the platform rather than a defect — and without this line
         // that is a guess every time somebody looks.
@@ -144,6 +154,13 @@ private struct ConfigView: View {
                     .tag(1)
                     .tabItem { Label("記錄", systemImage: "clock.arrow.circlepath") }
 
+                    // IOS-POC-47. Tag 4: the other tabs keep the tags code already switches to.
+                    NavigationStack {
+                        OfflineDownloadsView()
+                    }
+                    .tag(4)
+                    .tabItem { Label("下載", systemImage: "arrow.down.circle") }
+
                     NavigationStack {
                         SettingsView(
                             sites: sites,
@@ -174,6 +191,9 @@ private struct ConfigView: View {
             }
         }
         .appWallpaper()
+        // IOS-POC-47: a retried download resolves its episode against the configuration loaded now.
+        .onChange(of: sites.map(\.id), initial: true) { OfflineAppContext.shared.sites = sites }
+        .onChange(of: source, initial: true) { OfflineAppContext.shared.source = source }
         .task {
             restore()
             await WatchHistoryStore.shared.migrateSiteIdentities(in: sites)
@@ -1398,6 +1418,11 @@ private struct SettingsView: View {
     @State private var defaultSpeed = PlaybackSpeedPreference().defaultSpeed
     /// IOS-POC-32 D. Mirrored here only so the checkmark redraws.
     @State private var japaneseTranslation = JapaneseTranslationPreference().mode
+    /// IOS-POC-47. Mirrored here only so the controls redraw.
+    @State private var offlineMode = OfflineDownloadPreferences().mode
+    @State private var offlineAutoDelete = OfflineDownloadPreferences().autoDeleteAfterWatching
+    @State private var offlineCellular = OfflineDownloadPreferences().allowsCellular
+    @State private var offlineHighFrameRate = OfflineDownloadPreferences().prefersHighFrameRate
 
     var body: some View {
         List {
@@ -1478,6 +1503,30 @@ private struct SettingsView: View {
                 } footer: {
                     Text("詳情頁的日文片名與簡介翻成繁體中文，在手機上翻譯，文字不會送出。「詢問」顯示翻譯按鈕；「自動」在語言已下載時直接翻譯。第一次使用需要下載語言。")
                 }
+            }
+
+            // IOS-POC-47
+            Section {
+                Picker("預設畫質", selection: Binding(
+                    get: { offlineMode },
+                    set: { mode in
+                        OfflineDownloadPreferences().mode = mode
+                        offlineMode = mode
+                    }
+                )) {
+                    ForEach(OfflineQualityMode.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.menu)
+                Toggle("看完後自動刪除", isOn: $offlineAutoDelete)
+                    .onChange(of: offlineAutoDelete) { _, on in OfflineDownloadPreferences().autoDeleteAfterWatching = on }
+                Toggle("允許使用行動網路下載", isOn: $offlineCellular)
+                    .onChange(of: offlineCellular) { _, on in OfflineDownloadPreferences().allowsCellular = on }
+                Toggle("下載 60fps 高幀率版本", isOn: $offlineHighFrameRate)
+                    .onChange(of: offlineHighFrameRate) { _, on in OfflineDownloadPreferences().prefersHighFrameRate = on }
+            } header: {
+                Text("離線下載")
+            } footer: {
+                Text("離線畫質最高 1080p。「智慧 1080p」優先 HEVC、SDR 與合理的低位元率；「最省空間」最高 720p。看完後自動刪除只在真正播放到結尾（或片尾自動跳下一集）後才刪除。行動網路與高幀率設定套用到之後開始的下載。")
             }
 
             // IOS-POC-45C
@@ -1899,6 +1948,9 @@ private struct VodView: View {
     /// about sites, flags or how an episode becomes a URL.
     @State private var playingEpisode: Episode?
     @State private var resolving = false
+    /// IOS-POC-47: the download sheet's episode, once its stream has been read.
+    @State private var downloadDraft: OfflineDownloadDraft?
+    @State private var downloadError: String?
     /// What was watched last, if anything. Marks the episode in the grid (R4) and supplies the
     /// remembered quality playback starts on (R6).
     @State private var watched: WatchHistory?
@@ -2038,11 +2090,18 @@ private struct VodView: View {
                                 }
                             }
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 10)], spacing: 10) {
-                                ForEach(Array(flag.episodes.enumerated())[blocks[max(0, chunk)]], id: \.offset) { _, episode in
+                                ForEach(Array(flag.episodes.enumerated())[blocks[max(0, chunk)]], id: \.offset) { index, episode in
                                     let lastWatched = watched?.vodFlag == flag.name
                                         && watched?.episodeUrl == episode.url
-                                    Button(zhTW(episode.name)) {
+                                    let download = offlineIdentity(episode, flag: flag.name)
+                                    Button {
                                         Task { await play(episode, flag: flag.name) }
+                                    } label: {
+                                        // IOS-POC-47: the download's state under the name, when there is one.
+                                        VStack(spacing: 1) {
+                                            Text(zhTW(episode.name))
+                                            OfflineEpisodeStatus(identity: download)
+                                        }
                                     }
                                     .buttonStyle(.bordered)
                                     // Marks where the viewer left off. Android puts the same cue on
@@ -2050,9 +2109,18 @@ private struct VodView: View {
                                     .tint(lastWatched ? .accentColor : nil)
                                     .fontWeight(lastWatched ? .bold : nil)
                                     .frame(minHeight: 44)
+                                    // IOS-POC-47: download, and whatever the download's state allows.
+                                    .overlay(alignment: .topTrailing) {
+                                        OfflineEpisodeMenu(
+                                            identity: download,
+                                            onDownload: { Task { await prepareDownload(episode, flag: flag.name, index: index) } },
+                                            onPlay: { Task { await play(episode, flag: flag.name) } })
+                                            .offset(x: 8, y: -8)
+                                    }
                                     .disabled(!episode.isPlayable(spider: site.isSpiderShape) || resolving)
                                 }
                             }
+                            OfflineTitleLink(historyKey: historyKey, title: displayName)
                         }
                     }
                 }
@@ -2096,9 +2164,55 @@ private struct VodView: View {
         } message: {
             Text(playbackError ?? "")
         }
+        .alert("無法下載", isPresented: Binding(get: { downloadError != nil }, set: { if !$0 { downloadError = nil } })) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(downloadError ?? "")
+        }
+        .sheet(item: $downloadDraft) { OfflineDownloadSheet(draft: $0) }
     }
 
     private var historyKey: String { WatchHistory.key(siteID: site.id, vodId: summary.id) }
+
+    // MARK: IOS-POC-47 — downloads
+
+    /// One episode's download identity: the title, the line and the episode as the listing names
+    /// it — never the resolved, signed address, so a refreshed signature is still the same download.
+    private func offlineIdentity(_ episode: Episode, flag: String) -> OfflineIdentity {
+        OfflineIdentity(historyKey: historyKey, flag: flag, episodeURL: episode.url)
+    }
+
+    /// A finished download of this episode, ready to play; nil means "resolve it online".
+    private func offlineSource(for episode: Episode, flag: String) async -> OfflinePlaybackSource? {
+        guard let asset = await OfflineDownloads.manager.completedAsset(for: offlineIdentity(episode, flag: flag))
+        else { return nil }
+        return await OfflineDownloads.playbackSource(for: asset)
+    }
+
+    /// 下載: resolves the episode the way a play does, reads what its stream offers, then opens the
+    /// sheet. Nothing is stored until the sheet's 下載.
+    private func prepareDownload(_ episode: Episode, flag: String, index: Int) async {
+        resolving = true
+        defer { resolving = false }
+        do {
+            let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
+            guard let target = try await client.playbackURL(for: episode, flag: flag) else {
+                downloadError = "這一集沒有可下載的網址。"
+                return
+            }
+            let options = try await OfflineDownloads.manager.options(
+                for: target, preferredSubtitleLanguage: Locale.preferredLanguages.first,
+                allowHighFrameRate: OfflineDownloadPreferences().prefersHighFrameRate)
+            downloadDraft = OfflineDownloadDraft(
+                identity: offlineIdentity(episode, flag: flag),
+                title: OfflineTitleInfo(siteKey: site.key, siteName: site.name, sourceID: source.identity,
+                                        vodId: summary.id, vodName: summary.name, vodPic: summary.picture,
+                                        episodeName: episode.name, episodeIndex: index),
+                target: target, options: options)
+        } catch {
+            downloadError = OfflineDownloadManager.failure(for: error).message
+        }
+    }
 
     /// IOS-POC-32 D: the translated part, unless the original is asked for. Shown verbatim: it is
     /// already Traditional Chinese, and IOS-POC-32 C converts a source string once, never output.
@@ -2299,21 +2413,34 @@ private struct VodView: View {
         PlaybackSession.shared.prefetch.invalidate()
         let began = Date()
         do {
-            let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
-            guard let target = try await client.playbackURL(for: episode, flag: flag) else {
-                playbackError = "這一集沒有可播放的網址。"
-                return
+            // IOS-POC-47: a downloaded episode plays from this device; the source is not asked.
+            let offline = await offlineSource(for: episode, flag: flag)
+            var target: PlaybackTarget?
+            if offline == nil {
+                let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
+                guard let resolved = try await client.playbackURL(for: episode, flag: flag) else {
+                    playbackError = "這一集沒有可播放的網址。"
+                    return
+                }
+                target = resolved
             }
             PlaybackSession.shared.noteResolution(seconds: Date().timeIntervalSince(began),
-                                                  how: "live", episode: episode.name)
-            let record = record(for: episode, flag: flag)
+                                                  how: offline == nil ? "live" : "offline", episode: episode.name)
+            var record = record(for: episode, flag: flag)
             // Closing the player is this screen's to do, so the session asks rather than reaching
             // for a dismiss it has no handle on (IOS-POC-14).
             PlaybackSession.shared.onPlaylistFinished = { playing = false }
-            // The quality the viewer last watched at outranks the source's default (D8, R6).
-            PlaybackSession.shared.open(target, preferredQuality: watched?.quality ?? "",
-                                        title: "\(summary.name) \(episode.name)",
-                                        artwork: summary.picture, history: record)
+            if let offline {
+                // The quality remembered for the online stream stays the online stream's.
+                record.quality = watched?.quality ?? ""
+                PlaybackSession.shared.open(offline: offline, title: "\(summary.name) \(episode.name)",
+                                            artwork: summary.picture, history: record)
+            } else if let target {
+                // The quality the viewer last watched at outranks the source's default (D8, R6).
+                PlaybackSession.shared.open(target, preferredQuality: watched?.quality ?? "",
+                                            title: "\(summary.name) \(episode.name)",
+                                            artwork: summary.picture, history: record)
+            }
             playing = true
             // What the player asks when this episode ends. This screen owns the episode list and
             // the resolving, so it is the only place that can answer (IOS-POC-14).
@@ -2343,6 +2470,8 @@ private struct VodView: View {
         guard let current = playingEpisode,
               let line = detail?.flags.first(where: { $0.name == flag }),
               let next = line.episode(after: current) else { return }
+        // IOS-POC-47: a downloaded next episode needs no address.
+        if await OfflineDownloads.manager.completedAsset(for: offlineIdentity(next, flag: flag)) != nil { return }
         let wanted = identity(for: next, flag: flag)
         guard PlaybackSession.shared.prefetch.beginResolving(for: wanted) else { return }
         let began = Date()
@@ -2407,6 +2536,19 @@ private struct VodView: View {
                        liveReason: String = "live, retrying an unplayable prefetch") async -> Bool {
         let began = Date()
         do {
+            // IOS-POC-47: the next (or previous) episode from this device when it was downloaded.
+            if let offline = await offlineSource(for: next, flag: flag) {
+                let session = PlaybackSession.shared
+                session.noteResolution(seconds: 0, how: "offline", episode: next.name)
+                var record = record(for: next, flag: flag)
+                record.quality = await WatchHistoryStore.shared.record(forKey: historyKey)?.quality ?? ""
+                playingEpisode = next
+                publishEpisodeSteps(flag: flag)
+                session.open(offline: offline, title: "\(summary.name) \(next.name)", artwork: summary.picture,
+                             history: record, resuming: false)
+                watched = await WatchHistoryStore.shared.record(forKey: historyKey)
+                return true
+            }
             // `take` hands the address back only when every part of the identity still matches and
             // it is still fresh, and consumes it either way — a target for an episode we are no
             // longer about to play is simply wrong.
@@ -2457,6 +2599,17 @@ private struct HistoryView: View {
     let source: ConfigSource
     @State private var records = [WatchHistory]()
     @State private var loaded = false
+    /// IOS-POC-47: a removal that would also delete downloads, waiting for the viewer's yes.
+    @State private var removal: HistoryRemoval?
+
+    /// Records leaving the list, and every download of those titles — a series' whole line-up —
+    /// which go with them (the user's rule, 2026-10-04). The 60-day prune deletes no download.
+    struct HistoryRemoval: Identifiable {
+        let id = UUID()
+        let records: [WatchHistory]
+        let clearsAll: Bool
+        let downloads: [OfflineAsset]
+    }
 
     var body: some View {
         Group {
@@ -2473,14 +2626,12 @@ private struct HistoryView: View {
                     }
                     .onDelete { offsets in
                         let removing = offsets.map { records[$0] }
-                        records.remove(atOffsets: offsets)
-                        // IOS-POC-30: off this source's list only, like 清除.
-                        let sourceID = source.identity
-                        Task {
-                            for record in removing {
-                                await WatchHistoryStore.shared.remove(key: record.key, for: sourceID)
-                            }
+                        let downloads = removing.flatMap { offlineLibrary.assets(forHistoryKey: $0.key) }
+                        guard downloads.isEmpty else {
+                            removal = HistoryRemoval(records: removing, clearsAll: false, downloads: downloads)
+                            return
                         }
+                        remove(removing, clearsAll: false, downloads: [])
                     }
                     .listRowBackground(appSurface)
                 }
@@ -2494,11 +2645,26 @@ private struct HistoryView: View {
         .toolbar {
             if !records.isEmpty {
                 Button("清除") {
-                    records = []
-                    // IOS-POC-30: this source's list only; another source's history stays.
-                    Task { await WatchHistoryStore.shared.clear(for: source.identity) }
+                    let downloads = records.flatMap { offlineLibrary.assets(forHistoryKey: $0.key) }
+                    guard downloads.isEmpty else {
+                        removal = HistoryRemoval(records: records, clearsAll: true, downloads: downloads)
+                        return
+                    }
+                    remove(records, clearsAll: true, downloads: [])
                 }
             }
+        }
+        .confirmationDialog(
+            "同時刪除 \(removal?.downloads.count ?? 0) 個離線下載（\(OfflineByteFormat.string(OfflineBulkSelection.bytes(removal?.downloads ?? []))))",
+            isPresented: Binding(get: { removal != nil }, set: { if !$0 { removal = nil } }),
+            titleVisibility: .visible, presenting: removal
+        ) { pending in
+            Button("刪除記錄與下載", role: .destructive) {
+                remove(pending.records, clearsAll: pending.clearsAll, downloads: pending.downloads)
+            }
+            Button("取消", role: .cancel) {}
+        } message: { _ in
+            Text("從記錄刪除的作品，已下載的集數會一併從這支手機刪除，無法復原。")
         }
         // .task runs again whenever the tab is re-entered, which is what keeps the list current
         // after a viewing without any notification plumbing.
@@ -2506,6 +2672,26 @@ private struct HistoryView: View {
             await WatchHistoryStore.shared.migrateSiteIdentities(in: sites)
             records = await WatchHistoryStore.shared.records(for: source.identity)
             loaded = true
+        }
+    }
+
+    /// The rows leave the list now; the history and the downloads follow.
+    private func remove(_ removing: [WatchHistory], clearsAll: Bool, downloads: [OfflineAsset]) {
+        let keys = Set(removing.map(\.key))
+        records.removeAll { keys.contains($0.key) }
+        let sourceID = source.identity
+        Task {
+            if clearsAll {
+                // IOS-POC-30: this source's list only; another source's history stays.
+                await WatchHistoryStore.shared.clear(for: sourceID)
+            } else {
+                // IOS-POC-30: off this source's list only, like 清除.
+                for record in removing {
+                    await WatchHistoryStore.shared.remove(key: record.key, for: sourceID)
+                }
+            }
+            // IOS-POC-47: through the one delete, like every other.
+            if !downloads.isEmpty { await OfflineDownloads.manager.delete(downloads.map(\.id)) }
         }
     }
 
@@ -2562,6 +2748,726 @@ private struct HistoryView: View {
         let minutes = total / 60, seconds = total % 60
         if minutes < 60 { return String(format: "%d:%02d", minutes, seconds) }
         return String(format: "%d:%02d:%02d", minutes / 60, minutes % 60, seconds)
+    }
+}
+
+// MARK: - IOS-POC-47: offline downloads
+
+/// The downloads screens' snapshot, kept current by `OfflineDownloadManager` from launch on.
+@MainActor let offlineLibrary = OfflineLibrary()
+
+/// The configuration a retry resolves an expired download's episode against: the one `ConfigView`
+/// has loaded now.
+@MainActor final class OfflineAppContext {
+    static let shared = OfflineAppContext()
+    var sites = [Site]()
+    var source = ConfigSource.importedFile
+
+    nonisolated static func resolve(_ asset: OfflineAsset) async -> PlaybackTarget? {
+        let (sites, source) = await MainActor.run { (shared.sites, shared.source) }
+        return await OfflineEpisodeResolver.target(for: asset, sites: sites, source: source)
+    }
+}
+
+/// iOS relaunches the app for the download session's events: creating the transport reconnects the
+/// session, and the handler tells iOS when everything it held has been delivered.
+final class OfflineAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
+                     completionHandler: @escaping () -> Void) {
+        guard identifier == URLSessionOfflineTransport.backgroundIdentifier else {
+            completionHandler()
+            return
+        }
+        OfflineDownloads.transport.setBackgroundCompletion(completionHandler)
+    }
+}
+
+/// The words the downloads screens use for sizes and states.
+@MainActor enum OfflineText {
+    static func bytes(_ value: Int64?) -> String { value.map(OfflineByteFormat.string) ?? "—" }
+
+    /// 「約 820 MB」, 「最多約 1.2 GB」 (BANDWIDTH is a peak), or the exact size a server gave.
+    static func estimate(_ estimate: OfflineSizeEstimate) -> String {
+        guard let bytes = estimate.bytes else { return "無法預估" }
+        switch estimate.basis {
+        case .exact: return OfflineByteFormat.string(bytes)
+        case .averageBandwidth: return "約 " + OfflineByteFormat.string(bytes)
+        case .peakBandwidth: return "最多約 " + OfflineByteFormat.string(bytes)
+        case .unknown: return "無法預估"
+        }
+    }
+
+    /// One line under an episode: 「742 MB」「68%」「已暫停」「下載失敗」.
+    static func status(_ asset: OfflineAsset) -> String {
+        switch asset.state {
+        case .queued: return "等待下載"
+        case .preparing: return "準備中"
+        case .downloading: return "\(Int((asset.progress.fraction * 100).rounded(.down)))%"
+        case .paused: return "已暫停"
+        case .failed: return "下載失敗"
+        case .completed: return bytes(asset.actualBytes)
+        case .deleting: return "刪除中"
+        }
+    }
+
+    /// 「1080p · HEVC」 for a package, 「單一檔案」 for a progressive file.
+    static func quality(_ asset: OfflineAsset) -> String {
+        guard let video = asset.video else { return asset.package?.isHLS == true ? "HLS" : "單一檔案" }
+        return "\(video.resolutionLabel) · \(video.codec.label)"
+    }
+
+    static var available: Int64? {
+        OfflineStorage.availableCapacity(at: OfflineDownloads.layout.root.deletingLastPathComponent())
+    }
+}
+
+/// The record online playback writes for this episode, so offline playback resumes and records the
+/// same title in the same place (`VodView.record(for:flag:)`).
+@MainActor enum OfflinePlayer {
+    static func record(_ asset: OfflineAsset, quality: String) -> WatchHistory {
+        WatchHistory(key: asset.identity.historyKey, siteKey: asset.title.siteKey, siteName: asset.title.siteName,
+                     sourceID: asset.title.sourceID, vodId: asset.title.vodId, vodName: asset.title.vodName,
+                     vodPic: asset.title.vodPic, vodFlag: asset.identity.flag, vodRemarks: asset.title.episodeName,
+                     episodeUrl: asset.identity.episodeURL, quality: quality)
+    }
+
+    /// Opens a completed download in the shared session; false when it cannot be played now.
+    static func open(_ asset: OfflineAsset, resuming: Bool) async -> Bool {
+        guard let source = await OfflineDownloads.playbackSource(for: asset) else { return false }
+        // The quality remembered for the online stream stays the online stream's.
+        let remembered = await WatchHistoryStore.shared.record(forKey: asset.identity.historyKey)?.quality ?? ""
+        PlaybackSession.shared.noteResolution(seconds: 0, how: "offline", episode: asset.title.episodeName)
+        PlaybackSession.shared.open(offline: source, title: "\(asset.title.vodName) \(asset.title.episodeName)",
+                                    artwork: asset.title.vodPic, history: record(asset, quality: remembered),
+                                    resuming: resuming)
+        return true
+    }
+
+    /// The downloaded episode before or after this one on the same line: what offline 上一集／下一集
+    /// and auto-next walk.
+    static func neighbour(of asset: OfflineAsset, forward: Bool, in assets: [OfflineAsset]) -> OfflineAsset? {
+        let line = assets.filter {
+            $0.state == .completed && $0.identity.historyKey == asset.identity.historyKey
+                && $0.identity.flag == asset.identity.flag && $0.id != asset.id
+        }
+        let index = asset.title.episodeIndex
+        return forward
+            ? line.filter { $0.title.episodeIndex > index }.min { $0.title.episodeIndex < $1.title.episodeIndex }
+            : line.filter { $0.title.episodeIndex < index }.max { $0.title.episodeIndex < $1.title.episodeIndex }
+    }
+}
+
+/// Plays a download from a downloads screen, with 上一集／下一集 and auto-next over the line's other
+/// downloads. The detail screen does not need this: its own play path checks for a download first.
+private struct OfflinePlaybackPresenter: ViewModifier {
+    @Binding var asset: OfflineAsset?
+    @State private var playing = false
+    @State private var current: OfflineAsset?
+    @State private var failure: String?
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: asset?.id) { _, id in
+                guard id != nil, let asset else { return }
+                self.asset = nil
+                Task { await start(asset) }
+            }
+            .fullScreenCover(isPresented: $playing, onDismiss: {
+                let session = PlaybackSession.shared
+                session.onPlaylistFinished = nil
+                session.advance = nil
+                session.episodeStepper = nil
+                session.episodeSteps = EpisodeSteps()
+                current = nil
+            }) { PlayerView() }
+            .alert("無法離線播放", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
+                Button("好", role: .cancel) {}
+            } message: {
+                Text(failure ?? "")
+            }
+    }
+
+    private func start(_ asset: OfflineAsset) async {
+        let session = PlaybackSession.shared
+        session.prefetch.invalidate()
+        guard await OfflinePlayer.open(asset, resuming: true) else {
+            failure = "找不到這一集的離線檔案。"
+            return
+        }
+        current = asset
+        session.onPlaylistFinished = { playing = false }
+        session.advance = { await step(forward: true) }
+        session.episodeStepper = { forward in await step(forward: forward) }
+        publishSteps()
+        playing = true
+    }
+
+    private func step(forward: Bool) async -> Bool {
+        guard let current,
+              let next = OfflinePlayer.neighbour(of: current, forward: forward, in: offlineLibrary.snapshot.assets),
+              await OfflinePlayer.open(next, resuming: false) else { return false }
+        self.current = next
+        publishSteps()
+        return true
+    }
+
+    private func publishSteps() {
+        let assets = offlineLibrary.snapshot.assets
+        PlaybackSession.shared.episodeSteps = EpisodeSteps(
+            previous: current.flatMap { OfflinePlayer.neighbour(of: $0, forward: false, in: assets) } != nil,
+            next: current.flatMap { OfflinePlayer.neighbour(of: $0, forward: true, in: assets) } != nil)
+    }
+}
+
+/// What a delete confirmation is about.
+struct OfflineDeletion: Identifiable {
+    let id = UUID()
+    let ids: [String]
+    let title: String
+
+    init(_ assets: [OfflineAsset], title: String) {
+        ids = assets.map(\.id)
+        let bytes = OfflineBulkSelection.bytes(assets)
+        self.title = bytes > 0 ? "\(title)（\(OfflineByteFormat.string(bytes))）" : title
+    }
+
+    init(unreadable folder: String) {
+        ids = [folder]
+        title = "刪除無法讀取的下載"
+    }
+}
+
+private extension View {
+    /// The one confirmation every delete goes through, then the one delete (`OfflineDownloadManager.delete`).
+    /// A real dialog rather than an undo window: the files are gone the moment it is confirmed.
+    func offlineDeleteConfirmation(_ pending: Binding<OfflineDeletion?>) -> some View {
+        confirmationDialog(pending.wrappedValue?.title ?? "", isPresented: Binding(
+            get: { pending.wrappedValue != nil }, set: { if !$0 { pending.wrappedValue = nil } }
+        ), titleVisibility: .visible, presenting: pending.wrappedValue) { deletion in
+            Button("刪除", role: .destructive) {
+                Task { await OfflineDownloads.manager.delete(deletion.ids) }
+            }
+            Button("取消", role: .cancel) {}
+        } message: { _ in
+            Text("檔案會立即從這支手機刪除，無法復原。")
+        }
+    }
+}
+
+/// The state as an icon: ↓ not downloaded, a ring while downloading, ⏸ paused, ⚠ failed, ✓ done.
+private struct OfflineStateIcon: View {
+    let asset: OfflineAsset?
+
+    var body: some View {
+        switch asset?.state {
+        case nil:
+            Image(systemName: "arrow.down.circle").foregroundStyle(.secondary)
+        case .queued?, .preparing?:
+            Image(systemName: "clock").foregroundStyle(.secondary)
+        case .downloading?:
+            ZStack {
+                Circle().stroke(.secondary.opacity(0.35), lineWidth: 2.5)
+                Circle()
+                    .trim(from: 0, to: max(asset?.progress.fraction ?? 0, 0.02))
+                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 15, height: 15)
+        case .paused?:
+            Image(systemName: "pause.circle.fill").foregroundStyle(.yellow)
+        case .failed?:
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+        case .completed?:
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case .deleting?:
+            Image(systemName: "trash.circle").foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// The actions that make sense in the asset's state — never a fixed list of dead buttons.
+private struct OfflineActions: View {
+    let asset: OfflineAsset?
+    let onDownload: () -> Void
+    let onPlay: () -> Void
+    let onInfo: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        if let asset {
+            let manager = OfflineDownloads.manager
+            switch asset.state {
+            case .queued, .preparing, .downloading:
+                Button("暫停", systemImage: "pause.fill") { Task { await manager.pause(asset.id) } }
+                Button("取消並刪除", systemImage: "trash", role: .destructive, action: onDelete)
+            case .paused:
+                Button("繼續", systemImage: "play.fill") { Task { await manager.resume(asset.id) } }
+                Button("刪除", systemImage: "trash", role: .destructive, action: onDelete)
+            case .failed:
+                Section(asset.failure?.message ?? "下載失敗") {
+                    Button("重新下載／繼續", systemImage: "arrow.clockwise") { Task { await manager.resume(asset.id) } }
+                    Button("刪除下載", systemImage: "trash", role: .destructive, action: onDelete)
+                }
+            case .completed:
+                Button("離線播放", systemImage: "play.fill", action: onPlay)
+                Button("下載資訊", systemImage: "info.circle", action: onInfo)
+                Toggle(isOn: Binding(get: { asset.autoDeleteAfterWatching },
+                                     set: { enabled in Task { await manager.setAutoDelete(enabled, for: asset.id) } })) {
+                    Label("看完自動刪除", systemImage: "trash.slash")
+                }
+                Button("刪除下載", systemImage: "trash", role: .destructive, action: onDelete)
+            case .deleting:
+                Text("刪除中…")
+            }
+        } else {
+            Button("下載", systemImage: "arrow.down.circle", action: onDownload)
+        }
+    }
+}
+
+/// The corner of an episode button on the detail screen: its download state, and a menu of what
+/// can be done about it.
+private struct OfflineEpisodeMenu: View {
+    let identity: OfflineIdentity
+    let onDownload: () -> Void
+    let onPlay: () -> Void
+    @State private var deletion: OfflineDeletion?
+    @State private var info: OfflineAsset?
+
+    var body: some View {
+        let asset = offlineLibrary.asset(for: identity)
+        Menu {
+            OfflineActions(asset: asset, onDownload: onDownload, onPlay: onPlay, onInfo: { info = asset },
+                           onDelete: { deletion = asset.map { OfflineDeletion([$0], title: "刪除這一集的下載") } })
+        } label: {
+            OfflineStateIcon(asset: asset)
+                .font(.caption)
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel(Text(asset.map { "下載：\(OfflineText.status($0))" } ?? "下載"))
+        .offlineDeleteConfirmation($deletion)
+        .sheet(item: $info) { OfflineAssetInfoView(asset: $0) }
+    }
+}
+
+/// The line under an episode's name: 「742 MB」「68%」「下載失敗」. Nothing when not downloaded.
+private struct OfflineEpisodeStatus: View {
+    let identity: OfflineIdentity
+
+    var body: some View {
+        if let asset = offlineLibrary.asset(for: identity) {
+            Text(OfflineText.status(asset))
+                .font(.caption2)
+                .monospacedDigit()
+                .foregroundStyle(asset.state == .failed ? .orange : .secondary)
+        }
+    }
+}
+
+/// 下載資訊.
+private struct OfflineAssetInfoView: View {
+    let asset: OfflineAsset
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                LabeledContent("作品", value: zhTW(asset.title.vodName))
+                LabeledContent("集數", value: zhTW(asset.title.episodeName))
+                LabeledContent("線路", value: zhTW(asset.identity.flag))
+                LabeledContent("狀態", value: asset.failure?.message ?? OfflineText.status(asset))
+                LabeledContent("影片", value: asset.video?.summary ?? (asset.package == nil ? "—" : "單一檔案"))
+                if let audio = asset.audio { LabeledContent("音軌", value: audio.summary) }
+                LabeledContent("字幕", value: asset.subtitles.isEmpty ? "無" : asset.subtitles.map { zhTW($0.name) }.joined(separator: "、"))
+                LabeledContent("實際大小", value: OfflineText.bytes(asset.actualBytes))
+                LabeledContent("下載前預估", value: OfflineText.estimate(asset.estimate))
+                LabeledContent("播放器", value: asset.compatibility == .avPlayerOnly ? "此下載僅支援 AVPlayer" : "原生播放器與 MPV 共用同一份")
+                LabeledContent("看完自動刪除", value: asset.autoDeleteAfterWatching ? "開" : "關")
+            }
+            .navigationTitle("下載資訊")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { Button("完成") { dismiss() } }
+        }
+    }
+}
+
+/// What the download sheet is for: one resolved episode and what its stream offers.
+struct OfflineDownloadDraft: Identifiable {
+    let id = UUID()
+    let identity: OfflineIdentity
+    let title: OfflineTitleInfo
+    let target: PlaybackTarget
+    let options: OfflineDownloadOptions
+}
+
+/// The sheet before a download: quality mode, the video it means, audio, subtitles, the estimated
+/// size against the free space, and 看完後自動刪除.
+private struct OfflineDownloadSheet: View {
+    let draft: OfflineDownloadDraft
+    @Environment(\.dismiss) private var dismiss
+    @State private var mode = OfflineDownloadPreferences().mode
+    @State private var audioID: String?
+    @State private var subtitleIDs = Set<String>()
+    @State private var autoDelete = OfflineDownloadPreferences().autoDeleteAfterWatching
+    @State private var available = OfflineText.available
+    @State private var submitting = false
+    @State private var message: String?
+    @State private var prepared = false
+
+    private var option: OfflineModeOption? {
+        draft.options.option(for: mode) ?? draft.options.option(for: .smart) ?? draft.options.modes.values.first
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let refusal = draft.options.refusal {
+                    Section {
+                        Text(refusal.message)
+                        if draft.options.compatibility == .avPlayerOnly {
+                            Text("受 DRM 保護的影片只能用 Apple 的正式離線授權下載，且僅支援 AVPlayer；目前的來源沒有提供這種授權。")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
+                } else if let option {
+                    qualitySection(option)
+                    if !option.audio.isEmpty { audioSection(option) }
+                    if !option.subtitles.isEmpty { subtitleSection(option) }
+                    Section {
+                        LabeledContent("預估容量", value: OfflineText.estimate(option.estimate))
+                        LabeledContent("可用空間", value: OfflineText.bytes(available))
+                        Toggle("看完後自動刪除", isOn: $autoDelete)
+                    } footer: {
+                        Text(OfflineDownloadPreferences().allowsCellular
+                             ? "會使用行動網路下載。離開 App 或鎖定螢幕時，iOS 會在允許時繼續下載。"
+                             : "只在 Wi-Fi 下載（可在「設定」開啟行動網路）。離開 App 或鎖定螢幕時，iOS 會在允許時繼續下載。")
+                    }
+                    if let message {
+                        Section { Text(message).foregroundStyle(.orange) }
+                    }
+                } else {
+                    Section { Text("這部影片沒有可下載的版本。") }
+                }
+            }
+            .navigationTitle(zhTW("\(draft.title.vodName) \(draft.title.episodeName)"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("下載") { Task { await submit() } }
+                        .disabled(submitting || draft.options.refusal != nil || option == nil)
+                }
+            }
+            .onAppear {
+                guard !prepared else { return }
+                prepared = true
+                applyDefaults()
+            }
+            .onChange(of: mode) { applyDefaults() }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    @ViewBuilder private func qualitySection(_ option: OfflineModeOption) -> some View {
+        Section {
+            if draft.options.kind == .hls {
+                Picker("畫質", selection: $mode) {
+                    ForEach(OfflineQualityMode.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+            }
+            LabeledContent("影片", value: option.video.map(\.summary) ?? "單一檔案（來源只有一種畫質）")
+            if option.hdrOnly {
+                Text("這部影片只提供 HDR 版本。").font(.footnote).foregroundStyle(.secondary)
+            }
+            if option.resolutionUnknown, draft.options.kind == .hls {
+                Text("來源沒有標示解析度，依位元率挑選不超過 1080p 的版本。").font(.footnote).foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("畫質")
+        } footer: {
+            Text("離線畫質最高 1080p，不會下載 1440p 或 4K。")
+        }
+    }
+
+    @ViewBuilder private func audioSection(_ option: OfflineModeOption) -> some View {
+        Section("音軌") {
+            if option.audio.count > 1 {
+                Picker("音軌", selection: $audioID) {
+                    ForEach(option.audio) { Text(audioLabel($0)).tag(Optional($0.id)) }
+                }
+            } else if let only = option.audio.first {
+                Text(audioLabel(only))
+            }
+        }
+    }
+
+    @ViewBuilder private func subtitleSection(_ option: OfflineModeOption) -> some View {
+        Section("字幕") {
+            ForEach(option.subtitles) { subtitle in
+                Toggle(zhTW(subtitle.name.isEmpty ? (subtitle.language ?? "字幕") : subtitle.name), isOn: Binding(
+                    get: { subtitleIDs.contains(subtitle.id) },
+                    set: { if $0 { subtitleIDs.insert(subtitle.id) } else { subtitleIDs.remove(subtitle.id) } }))
+            }
+        }
+    }
+
+    private func audioLabel(_ audio: OfflineAudioOption) -> String {
+        var info = audio.info
+        if info.name.isEmpty { info.name = audio.muxed ? "影片內建音軌" : (audio.language ?? "音軌") }
+        return zhTW(info.summary)
+    }
+
+    /// The mode's own defaults: the audio rendition it chose, the subtitle in the viewer's language.
+    private func applyDefaults() {
+        audioID = option?.defaultAudioID ?? option?.audio.first?.id
+        subtitleIDs = Set(option?.defaultSubtitleIDs ?? [])
+        message = nil
+    }
+
+    private func submit() async {
+        guard let option else { return }
+        submitting = true
+        defer { submitting = false }
+        let preferences = OfflineDownloadPreferences()
+        let choice = OfflineDownloadChoice(mode: mode, allowHighFrameRate: preferences.prefersHighFrameRate,
+                                           variant: option.variant, audioID: audioID, subtitleIDs: Array(subtitleIDs))
+        let result = await OfflineDownloads.manager.enqueue(
+            identity: draft.identity, title: draft.title, target: draft.target, choice: choice,
+            estimate: option.estimate, autoDeleteAfterWatching: autoDelete, allowsCellular: preferences.allowsCellular)
+        switch result {
+        case .created, .existing:
+            dismiss()
+        case .refused(let failure):
+            available = OfflineText.available
+            message = failure.kind == .insufficientStorage
+                ? "可用空間不足：開始下載前需要至少 \(OfflineByteFormat.string(OfflineStorage.requiredBytes(estimate: option.estimate.bytes))) 可用空間。"
+                : failure.message
+        }
+    }
+}
+
+/// One download in a list: what it is, where it got to, and its actions behind 「…」.
+private struct OfflineAssetRow: View {
+    let asset: OfflineAsset
+    /// The title is already the screen's on 管理下載.
+    var showsTitle = true
+    /// 管理下載's checkmark; nil elsewhere.
+    var selected: Binding<Bool>?
+    let onPlay: () -> Void
+    @State private var deletion: OfflineDeletion?
+    @State private var info: OfflineAsset?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if let selected {
+                Button {
+                    selected.wrappedValue.toggle()
+                } label: {
+                    Image(systemName: selected.wrappedValue ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .frame(width: 32, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(selected.wrappedValue ? "取消選取" : "選取"))
+            }
+            OfflineStateIcon(asset: asset).font(.title3).frame(width: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(zhTW(showsTitle ? "\(asset.title.vodName) \(asset.title.episodeName)" : asset.title.episodeName))
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+                detail
+            }
+            Spacer(minLength: 4)
+            Menu {
+                OfflineActions(asset: asset, onDownload: {}, onPlay: onPlay, onInfo: { info = asset },
+                               onDelete: { deletion = OfflineDeletion([asset], title: "刪除這一集的下載") })
+            } label: {
+                Image(systemName: "ellipsis.circle").font(.title3).frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .accessibilityLabel(Text("更多動作"))
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { if asset.state == .completed { onPlay() } }
+        // 左滑 → 刪除, confirmed first: deleting gigabytes is not something an undo can take back.
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button("刪除", systemImage: "trash") {
+                deletion = OfflineDeletion([asset], title: "刪除這一集的下載")
+            }
+            .tint(.red)
+        }
+        .offlineDeleteConfirmation($deletion)
+        .sheet(item: $info) { OfflineAssetInfoView(asset: $0) }
+    }
+
+    @ViewBuilder private var detail: some View {
+        switch asset.state {
+        case .downloading:
+            ProgressView(value: asset.progress.fraction)
+            Text("\(OfflineText.status(asset)) · 已下載 \(OfflineText.bytes(asset.progress.receivedBytes)) / \(OfflineText.estimate(asset.estimate))")
+                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+        case .failed:
+            Text("\(asset.failure?.message ?? "下載失敗") · 已下載 \(OfflineText.bytes(asset.displayBytes ?? 0))")
+                .font(.caption).foregroundStyle(.orange)
+        case .completed:
+            Text("\(OfflineText.quality(asset)) · \(OfflineText.bytes(asset.actualBytes))\(asset.watched ? " · 已看完" : "")")
+                .font(.caption).foregroundStyle(.secondary)
+        default:
+            Text(OfflineText.status(asset)).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// The 下載 tab: 正在下載, 需要處理, 已下載, and how much space offline content takes against what is free.
+private struct OfflineDownloadsView: View {
+    @State private var playing: OfflineAsset?
+    @State private var available = OfflineText.available
+    @State private var deletion: OfflineDeletion?
+
+    var body: some View {
+        let snapshot = offlineLibrary.snapshot
+        let assets = snapshot.assets.filter { $0.state != .deleting }
+        let running = assets.filter(\.state.isActive)
+        let attention = assets.filter(\.state.needsAttention)
+        let done = assets.filter { $0.state == .completed }
+            .sorted { ($0.title.vodName, $0.identity.flag, $0.title.episodeIndex) < ($1.title.vodName, $1.identity.flag, $1.title.episodeIndex) }
+        Group {
+            if assets.isEmpty && snapshot.unreadable.isEmpty {
+                ContentUnavailableView("沒有下載內容", systemImage: "arrow.down.circle",
+                                       description: Text("在影片詳情頁點選集數右上角的下載圖示。"))
+            } else {
+                List {
+                    Section {
+                        LabeledContent("離線內容", value: OfflineByteFormat.string(snapshot.usageBytes))
+                        LabeledContent("裝置可用", value: OfflineText.bytes(available))
+                    }
+                    if !running.isEmpty {
+                        Section("正在下載") {
+                            ForEach(running) { OfflineAssetRow(asset: $0, onPlay: {}) }
+                        }
+                    }
+                    if !attention.isEmpty || !snapshot.unreadable.isEmpty {
+                        Section("需要處理") {
+                            ForEach(attention) { OfflineAssetRow(asset: $0, onPlay: {}) }
+                            ForEach(snapshot.unreadable, id: \.self) { folder in
+                                HStack {
+                                    Image(systemName: "questionmark.folder").foregroundStyle(.orange)
+                                    Text("無法讀取的下載").font(.subheadline)
+                                    Spacer()
+                                    Button("刪除", role: .destructive) { deletion = OfflineDeletion(unreadable: folder) }
+                                }
+                            }
+                        }
+                    }
+                    if !done.isEmpty {
+                        Section("已下載") {
+                            ForEach(done) { asset in OfflineAssetRow(asset: asset, onPlay: { playing = asset }) }
+                        }
+                    }
+                }
+                .scrollContentBackground(.hidden)
+                .listRowBackground(appSurface)
+            }
+        }
+        .appWallpaper()
+        .navigationTitle("下載內容")
+        .navigationBarTitleDisplayMode(.inline)
+        .appNavigationBar()
+        .offlineDeleteConfirmation($deletion)
+        .modifier(OfflinePlaybackPresenter(asset: $playing))
+        // The free space moves with everything else on the phone; read it whenever the list changes.
+        .onChange(of: snapshot.sequence) { available = OfflineText.available }
+        .onAppear { available = OfflineText.available }
+    }
+}
+
+/// 管理下載 for one title: pick episodes, see what they free, delete them — or the watched ones, the
+/// failed ones, or all of them.
+private struct OfflineTitleDownloadsView: View {
+    let historyKey: String
+    let title: String
+    @State private var selected = Set<String>()
+    @State private var deletion: OfflineDeletion?
+    @State private var playing: OfflineAsset?
+
+    var body: some View {
+        let assets = offlineLibrary.assets(forHistoryKey: historyKey)
+        let chosen = assets.filter { selected.contains($0.id) }
+        List {
+            ForEach(assets) { asset in
+                OfflineAssetRow(asset: asset, showsTitle: false,
+                                selected: Binding(get: { selected.contains(asset.id) },
+                                                  set: { if $0 { selected.insert(asset.id) } else { selected.remove(asset.id) } }),
+                                onPlay: { playing = asset })
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .appWallpaper()
+        .navigationTitle(zhTW(title))
+        .navigationBarTitleDisplayMode(.inline)
+        .appNavigationBar()
+        .toolbar {
+            Menu {
+                let watched = OfflineBulkSelection.watched(assets, historyKey: historyKey)
+                let failed = OfflineBulkSelection.failed(assets, historyKey: historyKey)
+                Button("刪除已看完（\(watched.count)）", systemImage: "checkmark.circle") {
+                    deletion = OfflineDeletion(watched, title: "刪除已看完的 \(watched.count) 集")
+                }
+                .disabled(watched.isEmpty)
+                Button("刪除失敗下載（\(failed.count)）", systemImage: "exclamationmark.triangle") {
+                    deletion = OfflineDeletion(failed, title: "刪除失敗的 \(failed.count) 個下載")
+                }
+                .disabled(failed.isEmpty)
+                Button("刪除本作品全部下載", systemImage: "trash", role: .destructive) {
+                    deletion = OfflineDeletion(assets, title: "刪除本作品全部 \(assets.count) 個下載")
+                }
+                .disabled(assets.isEmpty)
+            } label: {
+                Label("批次刪除", systemImage: "trash")
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if !chosen.isEmpty {
+                HStack {
+                    Text("已選 \(chosen.count) 項 · \(OfflineByteFormat.string(OfflineBulkSelection.bytes(chosen)))")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Button("刪除", role: .destructive) {
+                        deletion = OfflineDeletion(chosen, title: "刪除已選的 \(chosen.count) 項")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial)
+            }
+        }
+        .offlineDeleteConfirmation($deletion)
+        .modifier(OfflinePlaybackPresenter(asset: $playing))
+        // Deleted rows leave the selection too.
+        .onChange(of: assets.map(\.id)) { _, ids in selected.formIntersection(ids) }
+    }
+}
+
+/// 管理下載 on the detail screen, only when the title has downloads.
+private struct OfflineTitleLink: View {
+    let historyKey: String
+    let title: String
+
+    var body: some View {
+        let assets = offlineLibrary.assets(forHistoryKey: historyKey)
+        if !assets.isEmpty {
+            NavigationLink {
+                OfflineTitleDownloadsView(historyKey: historyKey, title: title)
+            } label: {
+                Label("管理下載（\(assets.count)）· \(OfflineByteFormat.string(OfflineBulkSelection.bytes(assets)))",
+                      systemImage: "arrow.down.circle")
+                    .font(.subheadline)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            }
+        }
     }
 }
 
@@ -3058,6 +3964,46 @@ struct EpisodeSteps: Equatable {
         onOnlineSubtitlesChange?(nil)
     }
 
+    // MARK: - IOS-POC-47: a downloaded episode
+
+    /// The downloaded episode being opened or played, if any: its address is on this device, the
+    /// same for both engines (`OfflinePlaybackResolver`).
+    private(set) var offlineSource: OfflinePlaybackSource?
+    /// When it counts as watched and when it may be auto-deleted: a real end, then the release.
+    private var offlineCompletion = OfflineCompletionPolicy()
+    /// The manager calls, one after another: "watched" lands before "released".
+    private var offlineEvents: Task<Void, Never>?
+
+    /// A downloaded episode: one local address, no headers, the device's own subtitle files, and a
+    /// quality menu of one entry. `history` is the same record online playback writes.
+    func open(offline source: OfflinePlaybackSource, title: String, artwork: String = "", history: WatchHistory?,
+              resuming: Bool = true) {
+        let target = OfflinePlaybackResolver.target(for: source, engine: engineKind) ?? PlaybackTarget(url: source.url)
+        open(url: source.url, title: title, artwork: artwork, history: history, resuming: resuming,
+             quality: PlaybackQualityChoice(target: target, preferred: ""), offline: source)
+    }
+
+    /// Hands the policy's decisions to the manager, in order.
+    private func applyOffline(_ decisions: [OfflineCompletionPolicy.Decision]) {
+        guard !decisions.isEmpty else { return }
+        let previous = offlineEvents
+        let engine = engineKind.shortName
+        offlineEvents = Task { @MainActor in
+            await previous?.value
+            for decision in decisions {
+                switch decision {
+                case .markWatched(let id):
+                    Self.log.notice("[offline] \(String(id.prefix(8)), privacy: .public) ended on \(engine, privacy: .public)")
+                    await OfflineDownloads.manager.playbackEnded(id)
+                case .released(let id):
+                    // mpv closes its file on its own queue after the load or teardown that let it go.
+                    try? await Task.sleep(for: .seconds(1))
+                    await OfflineDownloads.manager.playbackReleased(id)
+                }
+            }
+        }
+    }
+
     /// The settings page's choice, stored for the next session.
     func setGlobalDefaultEngine(_ kind: PlaybackEngineKind) {
         PlaybackEnginePreference().setGlobalDefaultEngine(kind)
@@ -3068,6 +4014,17 @@ struct EpisodeSteps: Equatable {
         // A retry belongs to a player that is open; a late failure after closing must not reopen it.
         retryWithoutPrefetch = nil
         reportItem()
+        // IOS-POC-47: a downloaded episode that really ended is unloaded, so the player lets go of it
+        // and an armed auto-delete can run. Any other item stays loaded and paused, as it always did.
+        let offline = offlineCompletion.closed()
+        if offline.unload {
+            sampler?.cancel()
+            adWatch?.cancel()
+            router.stop()
+            started = false
+            offlineSource = nil
+        }
+        applyOffline(offline.decisions)
         router.endSession()
     }
 
@@ -3098,8 +4055,10 @@ struct EpisodeSteps: Equatable {
     /// stopped. The near-ending rule usually hides that; a source with no duration would not.
     func open(url: URL, headers: [String: String] = [:], sourceSubtitles: [SourceSubtitle] = [], title: String,
               artwork: String = "", history: WatchHistory? = nil, resuming: Bool = true,
-              quality: PlaybackQualityChoice? = nil, retry: (() async -> Bool)? = nil) {
+              quality: PlaybackQualityChoice? = nil, retry: (() async -> Bool)? = nil,
+              offline: OfflinePlaybackSource? = nil) {
         self.quality = quality
+        offlineSource = offline
         retryWithoutPrefetch = retry
         // The chosen speed belongs to the **title**, not to the app session (IOS-POC-14B). The
         // history key is site plus vod, so it is exactly the identity "the same film or series" —
@@ -3293,6 +4252,7 @@ struct EpisodeSteps: Equatable {
         chosenRate = PlaybackSpeedPreference().defaultSpeed
         quality = nil
         retryWithoutPrefetch = nil
+        offlineSource = nil
         items = vod.items
         sourceSubtitles = []
         title = vod.title
@@ -3703,6 +4663,8 @@ struct EpisodeSteps: Equatable {
             adWatch?.cancel()
             router.stop()
             started = false
+            // IOS-POC-47: nothing is loaded now; a stop is never an end.
+            applyOffline(offlineCompletion.stopped())
         case "prev": start(at: index - 1)
         case "next": start(at: index + 1)
         case "loop": looping.toggle()
@@ -3761,6 +4723,9 @@ struct EpisodeSteps: Equatable {
             return
         }
         if outcome == .replay { control("replay"); return }
+        // IOS-POC-47: the real end of a downloaded episode — the engine's end of file, or the formal
+        // auto-next at the viewer's ending. Seeks, stops, errors and switches never come here.
+        applyOffline(offlineCompletion.ended(reason == "end" ? .endOfFile : .formalAutoNext))
         Self.log.notice("[playback] \(self.itemTitle, privacy: .public) finished (\(reason, privacy: .public)) on \(self.engineKind.shortName, privacy: .public) at \(Int(self.position))s/\(Int(self.duration))s")
         Task { @MainActor in
             // Record the end **before** moving on, and await it. The comment here always claimed
@@ -3812,8 +4777,13 @@ struct EpisodeSteps: Equatable {
         // waited for an engine change, which an item opened on the session's engine — the next
         // episode, a WebHome page's playUrl — never brings.
         onFailure?(nil)
+        // IOS-POC-47: a downloaded episode is this item only when its address is the one loading.
+        // Another item releases the one before (and runs its armed auto-delete).
+        let offline = offlineSource?.url == url ? offlineSource : nil
+        applyOffline(offlineCompletion.opened(offline?.assetID))
         // The record's key is `Site.id` + separator + vod id (`WatchHistory.key(siteID:vodId:)`).
-        playHealth = record.flatMap { record in
+        // A downloaded episode says nothing about how the site plays today.
+        playHealth = offline != nil ? nil : record.flatMap { record in
             let suffix = WatchHistory.separator + record.vodId
             guard let source = record.sourceID, record.key.hasSuffix(suffix) else { return nil }
             return (String(record.key.dropLast(suffix.count)), source)
@@ -3828,10 +4798,15 @@ struct EpisodeSteps: Equatable {
                                    address: url.absoluteString),
             title: title, alternatives: [record?.vodName].compactMap { $0 })
         onOnlineSubtitlesChange?(online)
-        // IOS-POC-45H: the source's own subtitles, fetched with the stream's headers. The session
-        // takes only the first list for this video, so a quality switch or a reload asks nothing.
-        online.loadSourceSubtitles(sourceSubtitles, provider: SourceSubtitleProvider(headers: headers, mediaURL: url),
-                                   preferredLanguage: Locale.preferredLanguages.first)
+        if let offline {
+            // IOS-POC-47: the files kept with the download; nothing is fetched.
+            online.attachOffline(OfflinePlaybackResolver.externalSubtitles(offline))
+        } else {
+            // IOS-POC-45H: the source's own subtitles, fetched with the stream's headers. The session
+            // takes only the first list for this video, so a quality switch or a reload asks nothing.
+            online.loadSourceSubtitles(sourceSubtitles, provider: SourceSubtitleProvider(headers: headers, mediaURL: url),
+                                       preferredLanguage: Locale.preferredLanguages.first)
+        }
         itemTitle = title
         resolution = nextResolution
         nextResolution = ""

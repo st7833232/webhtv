@@ -8,7 +8,11 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 **IOS-UI-A**（2026-10-04）：使用者選擇 A 版「Cinematic Minimal」並要求合併到 `ios-poc`、同步狀態後發布供 SideStore 實機試用。A 版只改視覺層：深黑藍電影感背景、藍色 Primary CTA、半透明 Navigation／Tab Bar、首頁與搜尋海報卡 16pt 圓角＋陰影、詳情海報加大、收藏卡一致化、片庫／下載／設定提高 surface 層次；收藏 heart 已收藏狀態保留粉紅語意。播放器、來源解析、收藏資料、觀看記錄、下載資料與播放引擎邏輯不改。A 版原試用 branch `ios-poc-ui-a-cinematic` 已落後 IOS-POC-50，因此沒有直接覆蓋；變更重套到最新 `ios-poc`。依使用者要求**不另跑 CI**，發布 workflow 的 unsigned device Release build 僅作 IPA 編譯／打包檢查。詳細紀錄：`docs/IOS-UI-A-cinematic-minimal.md`。
 
-本次 `0.1.60 (61)` 內容同時包含 **IOS-POC-50（最多 3 集同時下載）+ IOS-UI-A Cinematic Minimal**。版號已由前一個 session 提前更新到 0.1.60 / build 61；發布前不得再重複 bump。
+**更正（2026-10-04 11:50Z，IOS-POC-50 session）：`0.1.60 (61)` 不含 IOS-UI-A。**
+- `0.1.60 (61)` 已由 run `37199415029` 從版號 commit `8889c9a1` 發布：tag `ios-v0.1.60-b61` → `8889c9a1`，`source.json` `6e019a09`。
+- 內容只有 IOS-POC-50（最多 3 集同時下載）。
+- IOS-UI-A（`d759a346`）是在這次發布的 workflow 推回 `source.json` 之前才 push，**尚未包含在任何已發布版本中**。
+- 要讓 IOS-UI-A 上架，下一次發布必須是 `0.1.61 (62)` 或更新的版號；不可重用 0.1.60／61，因為 tag 已存在。
 
 ## Previous handoff — 2026-10-04：IOS-POC-50 多工下載（先讀這一節)
 

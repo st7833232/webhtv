@@ -4,7 +4,11 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-02 晚：IOS-POC-45 線上字幕（先讀這一節）
+## Current handoff — 2026-10-04：IOS-POC-47 離線下載（先讀這一節）
+
+**IOS-POC-47**（2026-10-04）：單集下載為一份 ≤1080p 的 `OfflineAsset`（智慧 1080p／最省空間／1080p 高畫質），AVPlayer 與 MPV 共用同一份（HLS 走 loopback `OfflineMediaServer`，單檔走 `file://`）；background `URLSession`、重開接回、失敗保留 partial、唯一刪除入口 `OfflineDownloadManager.delete`、真正 EOF／正式自動下一集且播放器釋放後才自動刪除；「下載」分頁、詳情頁每集狀態與選單、管理下載、設定頁「離線下載」；從觀看記錄刪除作品時一併刪除其所有下載（使用者 2026-10-04 補充）。設計、查證、驗證與限制都在 `docs/IOS-POC-47-offline-downloads.md`。**未發布新版、真機未驗證**（背景下載、飛航模式播放、loopback server 在 App 暫停後恢復）。FairPlay 離線授權未實作（DRM 影片拒絕下載）。
+
+## Previous handoff — 2026-10-02 晚：IOS-POC-45 線上字幕
 
 **IOS-POC-46**（2026-10-03）：iOS 26 首頁左上角的站台名稱看不見（Liquid Glass 在淺色桌布上變淺，標籤寫死白色）。iOS 26 起改用會隨玻璃翻轉的 `.primary`；iOS 17／18 白字在桌布上只有 1.4–1.6:1，改為白字加 50% 黑色膠囊（桌布最亮處 5.2:1，IOS-POC-46-1）（`legibleToolbarLabel()`）。未在任何真機或模擬器驗證；App 全域 `tint` 也是白色，其他工具列文字按鈕（例如「關閉」）在 iOS 26 淺色背景上可能有同樣問題，尚未處理。
 

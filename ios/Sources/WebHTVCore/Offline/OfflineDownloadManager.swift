@@ -1,0 +1,1008 @@
+import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+#if canImport(os)
+import os
+#endif
+
+/// IOS-POC-47 — what the downloads screens see: every record, the folders that could not be read,
+/// and how much the offline root occupies.
+public struct OfflineSnapshot: Equatable, Sendable {
+    public var assets: [OfflineAsset]
+    public var unreadable: [String]
+    public var usageBytes: Int64
+    /// Increases with every snapshot, so a late one never replaces a newer one.
+    public var sequence: Int
+
+    public init(assets: [OfflineAsset] = [], unreadable: [String] = [], usageBytes: Int64 = 0, sequence: Int = 0) {
+        self.assets = assets
+        self.unreadable = unreadable
+        self.usageBytes = usageBytes
+        self.sequence = sequence
+    }
+}
+
+public enum OfflineEnqueueResult: Equatable, Sendable {
+    /// A new download was queued.
+    case created(OfflineAsset)
+    /// This episode already has a download — finished, running or waiting for a decision. Nothing
+    /// new was created; the screen shows that one.
+    case existing(OfflineAsset)
+    /// Refused before anything was stored (no room, DRM).
+    case refused(OfflineFailure)
+}
+
+public struct OfflineDeletionResult: Equatable, Sendable {
+    public var deleted: Int
+    /// What the deleted folders occupied on disk.
+    public var releasedBytes: Int64
+}
+
+/// Download logging: asset id (a UUID, no address), counts, bytes, status codes and failure kinds
+/// only — never a URL, a header, a cookie or a token.
+enum OfflineLog {
+    #if canImport(os)
+    static let logger = Logger(subsystem: "com.webhtv.ios.poc", category: "offline")
+    static func notice(_ line: String) { logger.notice("\(line, privacy: .public)") }
+    #else
+    static func notice(_ line: String) {}
+    #endif
+
+    static func short(_ id: String) -> String { String(id.prefix(8)) }
+}
+
+/// IOS-POC-47 — the one owner of offline downloads: scheduling, start, pause, resume, retry,
+/// delete, the playback-completion rule, and recovery after a relaunch.
+///
+/// **One entry for deleting** (`delete(_:)`): the downloads screen, a failed download's 刪除下載,
+/// a swipe, the bulk actions, the watch-history delete and the watched-auto-delete all come here,
+/// and it always does the whole job — cancel the transfers, remove the folder (record, media,
+/// audio, subtitles, keys, partial data), forget the record, remeasure the space.
+///
+/// **Generations, not hopes.** Every pause, resume, retry, failure and delete bumps the asset's
+/// generation and every transfer carries the generation it started under, so a callback that
+/// arrives late — a segment finishing after the viewer deleted the episode — is recognised and
+/// dropped. A deleted asset has no record to update, so nothing can bring it back.
+///
+/// One asset downloads at a time; the rest wait as `queued`.
+public actor OfflineDownloadManager {
+    public struct Dependencies: Sendable {
+        public var layout: OfflineStorageLayout
+        public var transport: any OfflineTransport
+        public var capacity: @Sendable () -> Int64?
+        /// Builds the foreground fetcher used for playlists and the progressive probe.
+        public var fetcher: @Sendable (_ origin: URL, _ headers: [String: String]) -> OfflineFetch
+        public var subtitles: SubtitleDownloadService
+        public var retryDelay: Duration
+        public var now: @Sendable () -> Date
+
+        public init(layout: OfflineStorageLayout, transport: any OfflineTransport,
+                    capacity: @escaping @Sendable () -> Int64?,
+                    fetcher: @escaping @Sendable (URL, [String: String]) -> OfflineFetch,
+                    subtitles: SubtitleDownloadService, retryDelay: Duration = .seconds(2),
+                    now: @escaping @Sendable () -> Date = { .now }) {
+            self.layout = layout
+            self.transport = transport
+            self.capacity = capacity
+            self.fetcher = fetcher
+            self.subtitles = subtitles
+            self.retryDelay = retryDelay
+            self.now = now
+        }
+    }
+
+    /// A transfer that failed is tried again this many times before the download is failed.
+    static let transferRetries = 2
+
+    public let layout: OfflineStorageLayout
+    let store: OfflineAssetStore
+    private let deps: Dependencies
+    private var started = false
+    private var observer: (@Sendable (OfflineSnapshot) -> Void)?
+    private var resolver: (@Sendable (OfflineAsset) async -> PlaybackTarget?)?
+    private var plans = [String: OfflinePackagePlan]()
+    private var done = [String: Set<Int>]()
+    private var attempts = [OfflineTransferTag: Int]()
+    private var usage: Int64 = 0
+    private var lastPublish = Date.distantPast
+    private var trailingPublish: Task<Void, Never>?
+    private var unitsSinceFlush = 0
+    private var sequence = 0
+
+    public init(_ dependencies: Dependencies) {
+        deps = dependencies
+        layout = dependencies.layout
+        store = OfflineAssetStore(layout: dependencies.layout)
+    }
+
+    // MARK: - Hooks
+
+    public func setObserver(_ observer: @escaping @Sendable (OfflineSnapshot) -> Void) {
+        self.observer = observer
+        observer(snapshot())
+    }
+
+    /// Resolves an episode again for a retry whose addresses expired. The app supplies it: only the
+    /// app knows the loaded configuration and its sites.
+    public func setResolver(_ resolver: @escaping @Sendable (OfflineAsset) async -> PlaybackTarget?) {
+        self.resolver = resolver
+    }
+
+    public func snapshot() -> OfflineSnapshot {
+        sequence += 1
+        return OfflineSnapshot(assets: store.all(), unreadable: store.unreadable.keys.sorted(), usageBytes: usage,
+                               sequence: sequence)
+    }
+
+    // MARK: - Launch
+
+    /// Reads the records, finishes what a crash interrupted, and reconnects to the transfers a
+    /// background session kept going. Called once at launch (and again by tests).
+    public func start() async {
+        guard !started else { return }
+        started = true
+        let report = store.load()
+        OfflineLog.notice("[offline] launch loaded=\(report.loaded) migrated=\(report.migrated) unreadable=\(report.unreadable.count) orphans=\(report.removedOrphans) temporaries=\(report.removedTemporaries)")
+        cleanTemporary()
+        await deps.transport.attach { [weak self] tag, event in await self?.handle(tag, event) }
+
+        // A delete or an auto-delete a crash interrupted is finished now: no player holds anything
+        // this early in a launch.
+        let pending = store.all().filter { $0.state == .deleting || $0.pendingAutoDelete }.map(\.id)
+        if !pending.isEmpty { _ = await deleteNow(pending, reason: "launch") }
+
+        for asset in store.all() {
+            switch asset.state {
+            case .preparing:
+                // Preparing is network work in the app's own process: nothing kept it going.
+                _ = try? store.update(asset.id, now: deps.now()) { $0.state = .queued }
+            case .downloading:
+                await reconnect(asset)
+            case .completed:
+                if let package = asset.package,
+                   !FileManager.default.fileExists(atPath: layout.folder(for: asset.id).appendingPathComponent(package.entryPath).path) {
+                    _ = try? store.update(asset.id, now: deps.now()) {
+                        $0.state = .failed
+                        $0.failure = OfflineFailure(.integrity, detail: "檔案遺失")
+                    }
+                }
+            default:
+                break
+            }
+        }
+        usage = store.usage()
+        publish(force: true)
+        await pump()
+    }
+
+    /// Only this feature's staging files go, and only the ones no current transfer will claim.
+    private func cleanTemporary() {
+        let manager = FileManager.default
+        try? manager.createDirectory(at: layout.stagingDirectory, withIntermediateDirectories: true)
+        let files = (try? manager.contentsOfDirectory(atPath: layout.stagingDirectory.path)) ?? []
+        for name in files {
+            let tag = OfflineTransferTag(description: name.components(separatedBy: ".").first)
+            if let tag, let asset = store.asset(tag.assetID), asset.state == .downloading,
+               asset.generation == tag.generation { continue }
+            try? manager.removeItem(at: layout.stagingDirectory.appendingPathComponent(name))
+        }
+    }
+
+    /// A download the record says is running: whatever the session no longer has is sent again.
+    private func reconnect(_ asset: OfflineAsset) async {
+        guard let plan = loadPlan(asset.id) else {
+            _ = try? store.update(asset.id, now: deps.now()) {
+                $0.state = .failed
+                $0.failure = OfflineFailure(.interrupted)
+                $0.generation += 1
+            }
+            return
+        }
+        await submitMissing(asset.id, plan: plan)
+    }
+
+    // MARK: - The sheet
+
+    /// Reads the stream once — master, one media playlist — and answers what each mode would
+    /// download. Nothing is stored.
+    public func options(for target: PlaybackTarget, preferredAudioLanguage: String? = nil,
+                        preferredAudioName: String? = nil, preferredSubtitleLanguage: String? = nil,
+                        allowHighFrameRate: Bool = false) async throws -> OfflineDownloadOptions {
+        let sidecars = OfflineOptionsBuilder.sidecars(target.subtitles)
+        let fetch = deps.fetcher(target.url, target.headers)
+        switch try await probe(target.url, headers: target.headers, fetch: fetch) {
+        case .progressive(let size, _):
+            return OfflineOptionsBuilder.progressive(size: size, sidecars: sidecars,
+                                                     preferredSubtitleLanguage: preferredSubtitleLanguage)
+        case .playlist(let text, let base):
+            switch try HLSPlaylist.parse(text, base: base) {
+            case .media(let media):
+                do { try OfflinePackageBuilder.validate([media]) } catch let error as OfflinePackageError {
+                    return OfflineOptionsBuilder.refused(error.failure, compatibility: error == .drmProtected ? .avPlayerOnly : .bothEngines)
+                }
+                let variant = HLSVariant(uri: base, bandwidth: 0, averageBandwidth: nil, width: nil, height: nil, codecs: [],
+                                         frameRate: nil, videoRange: nil, audioGroup: nil, subtitlesGroup: nil,
+                                         closedCaptions: nil, attributes: [:])
+                let master = HLSMasterPlaylist(version: nil, independentSegments: false, variants: [variant],
+                                               renditions: [], sessionKeys: [])
+                let options = OfflineOptionsBuilder.options(
+                    master: master, duration: media.duration, sidecars: sidecars, allowHighFrameRate: allowHighFrameRate,
+                    preferredAudioLanguage: preferredAudioLanguage, preferredAudioName: preferredAudioName,
+                    preferredSubtitleLanguage: preferredSubtitleLanguage)
+                return Self.withExactSize(options, media: media)
+            case .master(let master):
+                if master.sessionKeys.contains(where: \.isDRM) {
+                    return OfflineOptionsBuilder.refused(OfflineFailure(.drmProtected), compatibility: .avPlayerOnly)
+                }
+                guard let smart = OfflineMediaSelector.chooseVideo(from: master, mode: .smart, allowHighFrameRate: allowHighFrameRate)
+                    ?? OfflineMediaSelector.chooseVideo(from: master, mode: .saver) else {
+                    return OfflineOptionsBuilder.refused(OfflineFailure(.unsupported, detail: "沒有 1080p 以下的版本"),
+                                                         compatibility: .bothEngines)
+                }
+                let media = try await mediaPlaylist(smart.variant.uri, fetch: fetch, headers: target.headers, origin: target.url)
+                do { try OfflinePackageBuilder.validate([media], sessionKeys: master.sessionKeys) } catch let error as OfflinePackageError {
+                    return OfflineOptionsBuilder.refused(error.failure, compatibility: error == .drmProtected ? .avPlayerOnly : .bothEngines)
+                }
+                return OfflineOptionsBuilder.options(
+                    master: master, duration: media.duration, sidecars: sidecars, allowHighFrameRate: allowHighFrameRate,
+                    preferredAudioLanguage: preferredAudioLanguage, preferredAudioName: preferredAudioName,
+                    preferredSubtitleLanguage: preferredSubtitleLanguage)
+            }
+        }
+    }
+
+    /// A media playlist whose segments all carry byte ranges knows its exact size.
+    static func withExactSize(_ options: OfflineDownloadOptions, media: HLSMediaPlaylist) -> OfflineDownloadOptions {
+        guard media.segments.allSatisfy({ $0.byteRange != nil }) else { return options }
+        let bytes = media.segments.reduce(Int64(0)) { $0 + ($1.byteRange?.length ?? 0) }
+        var modes = options.modes
+        for (mode, option) in modes {
+            modes[mode] = OfflineModeOption(video: option.video, variant: option.variant,
+                                            estimate: OfflineSizeEstimate(bytes: bytes, basis: .exact),
+                                            hdrOnly: option.hdrOnly, resolutionUnknown: option.resolutionUnknown,
+                                            audio: option.audio, defaultAudioID: option.defaultAudioID,
+                                            subtitles: option.subtitles, defaultSubtitleIDs: option.defaultSubtitleIDs)
+        }
+        return OfflineDownloadOptions(kind: options.kind, durationSeconds: options.durationSeconds, modes: modes,
+                                      refusal: options.refusal, compatibility: options.compatibility)
+    }
+
+    // MARK: - Queue
+
+    /// Queues one episode. An episode that already has a download — in any state — gets that one
+    /// back instead of a second: a double tap, another quality, a refreshed signature or another
+    /// engine never makes two.
+    public func enqueue(identity: OfflineIdentity, title: OfflineTitleInfo, target: PlaybackTarget,
+                        choice: OfflineDownloadChoice, estimate: OfflineSizeEstimate,
+                        autoDeleteAfterWatching: Bool, allowsCellular: Bool) -> OfflineEnqueueResult {
+        if let existing = store.asset(for: identity) { return .existing(existing) }
+        guard OfflineStorage.hasRoom(estimate: estimate.bytes, available: deps.capacity()) else {
+            OfflineLog.notice("[offline] refused: insufficient storage estimate=\(estimate.bytes ?? -1)")
+            return .refused(OfflineFailure(.insufficientStorage))
+        }
+        var asset = OfflineAsset(identity: identity, title: title, mode: choice.mode,
+                                 autoDeleteAfterWatching: autoDeleteAfterWatching, allowsCellular: allowsCellular,
+                                 now: deps.now())
+        asset.estimate = estimate
+        let sidecars = OfflineOptionsBuilder.sidecars(target.subtitles).filter { choice.subtitleIDs.contains($0.id) }
+        let request = OfflineDownloadRequest(mediaURL: target.url, headers: target.headers, choice: choice, sidecars: sidecars)
+        do {
+            try store.save(asset)
+            try store.saveRequest(request, for: asset.id)
+        } catch {
+            _ = store.removeFolder(asset.id)
+            return .refused(OfflineFailure(OfflineStorage.isOutOfSpace(error) ? .insufficientStorage : .unknown,
+                                           detail: "無法建立下載"))
+        }
+        OfflineLog.notice("[offline] \(OfflineLog.short(asset.id)) queued mode=\(choice.mode.rawValue) estimate=\(estimate.bytes ?? -1) basis=\(estimate.basis.rawValue)")
+        publish(force: true)
+        Task { await self.pump() }
+        return .created(asset)
+    }
+
+    /// Starts the oldest queued download when nothing is running.
+    func pump() async {
+        guard started else { return }
+        let all = store.all()
+        guard !all.contains(where: { $0.state == .preparing || $0.state == .downloading }),
+              let next = all.filter({ $0.state == .queued }).min(by: { $0.createdAt < $1.createdAt }),
+              let preparing = try? store.update(next.id, now: deps.now(), { $0.state = .preparing; $0.failure = nil })
+        else { return }
+        publish(force: true)
+        await prepare(preparing.id, generation: preparing.generation)
+    }
+
+    // MARK: - Preparing
+
+    private enum Probe {
+        case playlist(String, base: URL)
+        case progressive(size: Int64?, ext: String)
+    }
+
+    /// Whether the address is a playlist or a file, and how big the file is. One small request:
+    /// the first kilobyte, which is either `#EXTM3U` or media.
+    private func probe(_ url: URL, headers: [String: String], fetch: OfflineFetch) async throws -> Probe {
+        var request = URLRequest(url: url)
+        for (name, value) in OfflineRequestPolicy.headers(headers, for: url, origin: url) {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        let looksLikePlaylist = url.pathExtension.lowercased() == "m3u8" || url.absoluteString.lowercased().contains(".m3u8")
+        if !looksLikePlaylist { request.setValue("bytes=0-1023", forHTTPHeaderField: "Range") }
+        let response = try await fetch(request, looksLikePlaylist ? OfflineHTTP.playlistLimit : OfflineHTTP.probeLimit)
+        guard (200...299).contains(response.status) else { throw OfflineFetchError.http(response.status) }
+        let head = String(decoding: response.data.prefix(16), as: UTF8.self)
+        if head.hasPrefix("#EXTM3U") || head.hasPrefix("\u{FEFF}#EXTM3U") {
+            var whole = response
+            if !looksLikePlaylist && (response.status == 206 || response.truncated) {
+                var full = URLRequest(url: url)
+                for (name, value) in OfflineRequestPolicy.headers(headers, for: url, origin: url) {
+                    full.setValue(value, forHTTPHeaderField: name)
+                }
+                whole = try await fetch(full, OfflineHTTP.playlistLimit)
+            }
+            guard !whole.truncated else { throw OfflineFetchError.notMedia }
+            let text = String(decoding: whole.data, as: UTF8.self)
+            return .playlist(text.replacingOccurrences(of: "\u{FEFF}", with: ""), base: response.url ?? url)
+        }
+        if OfflineStorage.looksLikeHTMLText(response.data) { throw OfflineFetchError.notMedia }
+        let size: Int64?
+        if let range = response.headers["content-range"], let total = range.split(separator: "/").last, let value = Int64(total) {
+            size = value
+        } else if response.status == 200, let length = response.headers["content-length"].flatMap({ Int64($0) }) {
+            size = length
+        } else {
+            size = nil
+        }
+        return .progressive(size: size, ext: Self.fileExtension(url: response.url ?? url,
+                                                                 contentType: response.headers["content-type"]))
+    }
+
+    static func fileExtension(url: URL, contentType: String?) -> String {
+        let ext = url.pathExtension.lowercased()
+        if ["mp4", "m4v", "mov", "mkv", "webm", "flv", "avi", "ts", "wmv", "rmvb", "3gp"].contains(ext) { return ext }
+        switch contentType?.lowercased().split(separator: ";").first.map(String.init) ?? "" {
+        case "video/x-matroska": return "mkv"
+        case "video/webm": return "webm"
+        case "video/quicktime": return "mov"
+        case "video/x-flv": return "flv"
+        case "video/mp2t": return "ts"
+        default: return "mp4"
+        }
+    }
+
+    private func mediaPlaylist(_ url: URL, fetch: OfflineFetch, headers: [String: String], origin: URL) async throws -> HLSMediaPlaylist {
+        var request = URLRequest(url: url)
+        for (name, value) in OfflineRequestPolicy.headers(headers, for: url, origin: origin) {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        let response = try await fetch(request, OfflineHTTP.playlistLimit)
+        guard (200...299).contains(response.status) else { throw OfflineFetchError.http(response.status) }
+        guard !response.truncated,
+              case .media(let media) = try HLSPlaylist.parse(String(decoding: response.data, as: UTF8.self),
+                                                             base: response.url ?? url)
+        else { throw OfflineFetchError.notMedia }
+        return media
+    }
+
+    /// The package for a request: what to fetch, and what the record says about it.
+    struct Prepared {
+        var plan: OfflinePackagePlan
+        var video: OfflineVideoInfo?
+        var audio: OfflineAudioInfo?
+        var subtitles: [OfflineSubtitleInfo]
+        var estimate: OfflineSizeEstimate
+        var duration: Double?
+    }
+
+    func build(_ request: OfflineDownloadRequest) async throws -> Prepared {
+        let fetch = deps.fetcher(request.mediaURL, request.headers)
+        switch try await probe(request.mediaURL, headers: request.headers, fetch: fetch) {
+        case .progressive(let size, let ext):
+            let unit = OfflineDownloadUnit(index: 0, remoteURL: request.mediaURL, byteRange: nil,
+                                           relativePath: "media/video.\(ext)", role: .progressive)
+            let plan = OfflinePackagePlan(units: [unit], playlists: [:], package: .progressive(relativePath: unit.relativePath),
+                                          origin: request.mediaURL, headers: request.headers, sidecars: request.sidecars)
+            return Prepared(plan: plan, video: nil, audio: nil, subtitles: [],
+                            estimate: size.map { OfflineSizeEstimate(bytes: $0, basis: .exact) } ?? .unknown, duration: nil)
+        case .playlist(let text, let base):
+            switch try HLSPlaylist.parse(text, base: base) {
+            case .media(let media):
+                var plan = try OfflinePackageBuilder.build(
+                    .init(master: nil, variant: nil, video: media, audio: nil, subtitles: []),
+                    origin: request.mediaURL, headers: request.headers)
+                plan.sidecars = request.sidecars
+                let exact = media.segments.allSatisfy { $0.byteRange != nil }
+                let estimate = exact
+                    ? OfflineSizeEstimate(bytes: media.segments.reduce(0) { $0 + ($1.byteRange?.length ?? 0) }, basis: .exact)
+                    : OfflineSizeEstimate.unknown
+                return Prepared(plan: plan, video: nil, audio: nil, subtitles: [], estimate: estimate, duration: media.duration)
+            case .master(let master):
+                let choice = request.choice
+                let variant = choice.variant.flatMap { key in master.variants.first(where: key.matches) }
+                    ?? OfflineMediaSelector.chooseVideo(from: master, mode: choice.mode,
+                                                        allowHighFrameRate: choice.allowHighFrameRate)?.variant
+                guard let variant else { throw OfflinePackageError.empty }
+                let video = try await mediaPlaylist(variant.uri, fetch: fetch, headers: request.headers, origin: request.mediaURL)
+                let groupAudio = master.renditions(type: "AUDIO", group: variant.audioGroup)
+                let wantedAudio = choice.audioID.flatMap { id in groupAudio.first { OfflineOptionsBuilder.audioID($0) == id } }
+                    ?? OfflineMediaSelector.chooseAudio(groupAudio, preferredLanguage: nil, preferredName: nil, mode: choice.mode)
+                var audio: OfflinePackageBuilder.Rendition?
+                if let wantedAudio, let uri = wantedAudio.uri {
+                    audio = .init(rendition: wantedAudio,
+                                  playlist: try await mediaPlaylist(uri, fetch: fetch, headers: request.headers, origin: request.mediaURL))
+                }
+                var subtitles = [OfflinePackageBuilder.Rendition]()
+                for rendition in OfflineMediaSelector.subtitleOptions(for: variant, in: master)
+                where choice.subtitleIDs.contains(OfflineOptionsBuilder.subtitleID(rendition)) {
+                    guard let uri = rendition.uri else { continue }
+                    subtitles.append(.init(rendition: rendition,
+                                           playlist: try await mediaPlaylist(uri, fetch: fetch, headers: request.headers,
+                                                                             origin: request.mediaURL)))
+                }
+                var plan = try OfflinePackageBuilder.build(
+                    .init(master: master, variant: variant, video: video, audio: audio, subtitles: subtitles),
+                    origin: request.mediaURL, headers: request.headers)
+                plan.sidecars = request.sidecars
+                let subtitleInfo = subtitles.enumerated().map { index, item in
+                    OfflineSubtitleInfo(id: OfflineOptionsBuilder.subtitleID(item.rendition), name: item.rendition.name,
+                                        language: item.rendition.language, kind: .hlsRendition,
+                                        relativePath: "playlists/sub-\(index + 1).m3u8")
+                }
+                return Prepared(plan: plan, video: variant.info,
+                                audio: wantedAudio.map { OfflineOptionsBuilder.audioOption($0).info },
+                                subtitles: subtitleInfo,
+                                estimate: OfflineMediaSelector.estimate(variant, duration: video.duration),
+                                duration: video.duration)
+            }
+        }
+    }
+
+    private func prepare(_ id: String, generation: Int) async {
+        guard var request = store.request(for: id) else {
+            fail(id, OfflineFailure(.interrupted))
+            return
+        }
+        if request.needsFreshSource {
+            guard let asset = store.asset(id), let resolver, let target = await resolver(asset) else {
+                fail(id, OfflineFailure(.expiredSource, detail: "無法重新取得來源"))
+                return
+            }
+            guard isCurrent(id, generation, .preparing) else { return }
+            request.mediaURL = target.url
+            request.headers = target.headers
+            request.needsFreshSource = false
+            try? store.saveRequest(request, for: id)
+        }
+
+        let previous = loadPlan(id)
+        let prepared: Prepared
+        do {
+            prepared = try await build(request)
+        } catch {
+            guard isCurrent(id, generation, .preparing) else { return }
+            fail(id, Self.failure(for: error))
+            return
+        }
+        guard isCurrent(id, generation, .preparing) else { return }
+
+        // Files already here are kept only when the new plan names the same files for the same
+        // timeline; otherwise the package starts over rather than mixing two copies.
+        if let previous, previous.timelineFingerprint != prepared.plan.timelineFingerprint {
+            for folder in ["media", "audio", "subtitles", "keys", "playlists", "partial"] {
+                try? FileManager.default.removeItem(at: layout.folder(for: id).appendingPathComponent(folder))
+            }
+            OfflineLog.notice("[offline] \(OfflineLog.short(id)) timeline changed: partial files discarded")
+        }
+        do {
+            try store.savePlan(prepared.plan, for: id)
+        } catch {
+            fail(id, OfflineFailure(OfflineStorage.isOutOfSpace(error) ? .insufficientStorage : .unknown))
+            return
+        }
+        plans[id] = prepared.plan
+
+        let sidecars = await downloadSidecars(prepared.plan, id: id)
+        guard isCurrent(id, generation, .preparing) else { return }
+
+        let downloaded = OfflineStorage.allocatedSize(of: layout.folder(for: id))
+        let remaining = prepared.estimate.bytes.map { max($0 - downloaded, 0) }
+        guard OfflineStorage.hasRoom(estimate: remaining, available: deps.capacity()) else {
+            fail(id, OfflineFailure(.insufficientStorage))
+            return
+        }
+        guard let updated = try? store.update(id, now: deps.now(), {
+            $0.video = prepared.video
+            $0.audio = prepared.audio
+            $0.subtitles = prepared.subtitles + sidecars
+            $0.package = prepared.plan.package
+            if prepared.estimate.bytes != nil { $0.estimate = prepared.estimate }
+            $0.durationSeconds = prepared.duration
+            $0.progress = OfflineProgress(completedUnits: 0, totalUnits: prepared.plan.units.count)
+            $0.state = .downloading
+        }) else { return }
+        OfflineLog.notice("[offline] \(OfflineLog.short(id)) downloading units=\(prepared.plan.units.count) video=\(prepared.video?.summary ?? "file") estimate=\(prepared.estimate.bytes ?? -1)")
+        publish(force: true)
+        await submitMissing(updated.id, plan: prepared.plan)
+    }
+
+    /// The source's own subtitle files, kept as UTF-8 SubRip beside the media. A file that fails is
+    /// left out (and logged); the video still downloads.
+    private func downloadSidecars(_ plan: OfflinePackagePlan, id: String) async -> [OfflineSubtitleInfo] {
+        guard !plan.sidecars.isEmpty else { return [] }
+        let folder = layout.folder(for: id)
+        let cache = SubtitleSessionCache(root: folder.appendingPathComponent("subtitles", isDirectory: true),
+                                         id: UUID(uuidString: "00000000-0000-0000-0000-000000000047") ?? UUID())
+        let provider = SourceSubtitleProvider(headers: plan.headers, mediaURL: plan.origin)
+        var kept = [OfflineSubtitleInfo]()
+        for sidecar in plan.sidecars {
+            let source = SourceSubtitle(url: sidecar.url.absoluteString, name: sidecar.name,
+                                        language: sidecar.language ?? "", format: sidecar.format)
+            let track = SourceSubtitles.track(for: source, url: sidecar.url)
+            do {
+                let file = try await deps.subtitles.download(
+                    track, from: provider, into: cache, label: sidecar.name,
+                    decodingLanguage: track.language.code == nil ? SubtitleLanguage(code: "zh") : nil)
+                let path = String(file.fileURL.standardizedFileURL.path.dropFirst(folder.standardizedFileURL.path.count + 1))
+                kept.append(OfflineSubtitleInfo(id: sidecar.id, name: sidecar.name, language: sidecar.language ?? track.language.code,
+                                                kind: .sidecar, relativePath: path))
+            } catch {
+                OfflineLog.notice("[offline] \(OfflineLog.short(id)) sidecar subtitle failed=\(SubtitleProviderError.classify(error).category)")
+            }
+        }
+        return kept
+    }
+
+    /// What an error in preparing (or in reading a stream for the sheet) means for the viewer.
+    public static func failure(for error: Error) -> OfflineFailure {
+        if let error = error as? OfflinePackageError { return error.failure }
+        if let error = error as? OfflineFetchError {
+            switch error {
+            case .http(let status): return OfflineFailure.forHTTP(status)
+            case .notMedia: return OfflineFailure(.expiredSource, detail: "來源回傳的不是影片")
+            }
+        }
+        if error is HLSPlaylist.ParseError { return OfflineFailure(.unsupported, detail: "無法讀取播放清單") }
+        if OfflineStorage.isOutOfSpace(error) { return OfflineFailure(.insufficientStorage) }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain { return OfflineFailure(.network, detail: "NSURLError \(nsError.code)") }
+        return OfflineFailure(.unknown, detail: nsError.domain)
+    }
+
+    // MARK: - Transfers
+
+    private func loadPlan(_ id: String) -> OfflinePackagePlan? {
+        if let plan = plans[id] { return plan }
+        let plan = store.plan(for: id)
+        plans[id] = plan
+        return plan
+    }
+
+    private func finalURL(_ id: String, _ unit: OfflineDownloadUnit) -> URL {
+        layout.folder(for: id).appendingPathComponent(unit.relativePath)
+    }
+
+    private func isCurrent(_ id: String, _ generation: Int, _ state: OfflineAssetState) -> Bool {
+        guard let asset = store.asset(id) else { return false }
+        return asset.generation == generation && asset.state == state
+    }
+
+    /// Sends every unit not yet on disk and not already in flight. The files on disk are the truth:
+    /// a unit is done when its final file is there, which survives any crash.
+    private func submitMissing(_ id: String, plan: OfflinePackagePlan) async {
+        guard let asset = store.asset(id), asset.state == .downloading else { return }
+        let generation = asset.generation
+        let manager = FileManager.default
+        var finished = Set<Int>()
+        var bytes: Int64 = 0
+        for unit in plan.units {
+            let file = finalURL(id, unit)
+            if let size = (try? manager.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.int64Value, size > 0 {
+                finished.insert(unit.index)
+                bytes += size
+            }
+        }
+        done[id] = finished
+        store.updateInMemory(id) {
+            $0.progress.completedUnits = finished.count
+            $0.progress.totalUnits = plan.units.count
+            $0.progress.receivedBytes = bytes
+        }
+        let active = await deps.transport.activeTags()
+        guard isCurrent(id, generation, .downloading) else { return }
+        let inFlight = Set(active.filter { $0.assetID == id && $0.generation == generation }.map(\.unit))
+        let missing = plan.units.filter { !finished.contains($0.index) && !inFlight.contains($0.index) }
+        if missing.isEmpty && inFlight.isEmpty {
+            await finalize(id, generation: generation)
+            return
+        }
+        let requests = missing.map { request(for: $0, asset: asset, plan: plan) }
+        if !requests.isEmpty {
+            OfflineLog.notice("[offline] \(OfflineLog.short(id)) submit=\(requests.count) done=\(finished.count)/\(plan.units.count) inflight=\(inFlight.count)")
+            await deps.transport.submit(requests)
+        }
+        publish(force: true)
+    }
+
+    private func request(for unit: OfflineDownloadUnit, asset: OfflineAsset, plan: OfflinePackagePlan) -> OfflineTransferRequest {
+        let headers = OfflineRequestPolicy.headers(plan.headers, for: unit.remoteURL, origin: plan.origin)
+        let resume = unit.role == .progressive
+            ? try? Data(contentsOf: layout.resumeDataFile(for: asset.id, unit: unit.index)) : nil
+        return OfflineTransferRequest(
+            tag: OfflineTransferTag(assetID: asset.id, generation: asset.generation, unit: unit.index),
+            url: unit.remoteURL, headers: headers, byteRange: unit.byteRange, allowsCellular: asset.allowsCellular,
+            credentialed: OfflineRequestPolicy.isCredentialed(headers), origin: plan.origin, resumeData: resume,
+            reportsProgress: unit.role == .progressive)
+    }
+
+    /// The transport's report. Anything for an asset that is gone, not downloading, or of an older
+    /// generation is dropped — and its file deleted — so it can change nothing.
+    public func handle(_ tag: OfflineTransferTag, _ event: OfflineTransferEvent) async {
+        guard let asset = store.asset(tag.assetID), asset.generation == tag.generation, asset.state == .downloading,
+              let plan = loadPlan(tag.assetID), plan.units.indices.contains(tag.unit) else {
+            if case .finished(let file, _) = event { try? FileManager.default.removeItem(at: file) }
+            return
+        }
+        let unit = plan.units[tag.unit]
+        switch event {
+        case .progress(let written, let expected):
+            guard unit.role == .progressive else { return }
+            store.updateInMemory(asset.id) {
+                $0.progress.receivedBytes = written
+                $0.progress.expectedBytes = expected ?? $0.estimate.bytes
+            }
+            publish(force: false)
+        case .finished(let file, let status):
+            await accept(file, status: status, unit: unit, tag: tag)
+        case .failed(let failure):
+            await transferFailed(tag, unit: unit, failure: failure)
+        }
+    }
+
+    private func accept(_ file: URL, status: Int, unit: OfflineDownloadUnit, tag: OfflineTransferTag) async {
+        let manager = FileManager.default
+        defer { try? manager.removeItem(at: file) }
+        guard (200...299).contains(status) else {
+            await transferFailed(tag, unit: unit, failure: OfflineTransferFailure(.http(status)))
+            return
+        }
+        guard manager.fileExists(atPath: file.path) else { return }
+        var body = file
+        if let range = unit.byteRange, status == 200 {
+            // The server ignored Range and sent the whole resource: cut the part this unit is.
+            guard let sliced = Self.slice(file, range: range) else {
+                await transferFailed(tag, unit: unit, failure: OfflineTransferFailure(.network("short body")))
+                return
+            }
+            body = sliced
+        }
+        let size = (try? manager.attributesOfItem(atPath: body.path)[.size] as? NSNumber)?.int64Value ?? 0
+        let wrongSize = unit.byteRange.map { size != $0.length } ?? (size == 0)
+        if wrongSize || (unit.role != .key && unit.role != .subtitleSegment && OfflineStorage.looksLikeHTML(body)) {
+            if body != file { try? manager.removeItem(at: body) }
+            // An HTML page where media should be is how a CDN refuses an expired address.
+            fail(tag.assetID, wrongSize ? OfflineFailure(.integrity, detail: "片段大小不符")
+                                        : OfflineFailure(.expiredSource, detail: "來源回傳網頁"))
+            return
+        }
+        do {
+            try OfflineStorage.moveIntoPlace(body, to: finalURL(tag.assetID, unit))
+        } catch {
+            if body != file { try? manager.removeItem(at: body) }
+            fail(tag.assetID, OfflineFailure(OfflineStorage.isOutOfSpace(error) ? .insufficientStorage : .unknown,
+                                             detail: "無法寫入"))
+            return
+        }
+        if unit.role == .progressive {
+            try? manager.removeItem(at: layout.resumeDataFile(for: tag.assetID, unit: unit.index))
+        }
+        attempts[tag] = nil
+        var finished = done[tag.assetID] ?? []
+        finished.insert(unit.index)
+        done[tag.assetID] = finished
+        store.updateInMemory(tag.assetID) {
+            $0.progress.completedUnits = finished.count
+            if unit.role == .progressive { $0.progress.receivedBytes = size } else { $0.progress.receivedBytes += size }
+        }
+        unitsSinceFlush += 1
+        if unitsSinceFlush >= 25 {
+            unitsSinceFlush = 0
+            try? store.flush(tag.assetID)
+        }
+        // The disk filling up stops the download cleanly, with everything so far kept.
+        if let free = deps.capacity(), free < OfflineStorage.minimumFreeWhileDownloading {
+            fail(tag.assetID, OfflineFailure(.insufficientStorage))
+            return
+        }
+        guard let plan = loadPlan(tag.assetID) else { return }
+        if finished.count >= plan.units.count {
+            await finalize(tag.assetID, generation: tag.generation)
+        } else {
+            publish(force: false)
+        }
+    }
+
+    static func slice(_ file: URL, range: HLSByteRange) -> URL? {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        defer { try? handle.close() }
+        do {
+            try handle.seek(toOffset: UInt64(range.offset))
+            guard let data = try handle.read(upToCount: Int(range.length)), data.count == Int(range.length) else { return nil }
+            let target = file.deletingLastPathComponent().appendingPathComponent(file.lastPathComponent + ".slice")
+            try data.write(to: target)
+            return target
+        } catch {
+            return nil
+        }
+    }
+
+    private func transferFailed(_ tag: OfflineTransferTag, unit: OfflineDownloadUnit, failure: OfflineTransferFailure) async {
+        if let data = failure.resumeData, unit.role == .progressive {
+            saveResumeData(data, assetID: tag.assetID, unit: unit.index)
+        }
+        switch failure.kind {
+        case .noSpace:
+            fail(tag.assetID, OfflineFailure(.insufficientStorage))
+            return
+        case .http(let status) where [401, 403, 404, 410].contains(status):
+            fail(tag.assetID, OfflineFailure.forHTTP(status))
+            return
+        case .http, .network, .cancelled:
+            break
+        }
+        let count = (attempts[tag] ?? 0) + 1
+        attempts[tag] = count
+        guard count <= Self.transferRetries else {
+            attempts[tag] = nil
+            switch failure.kind {
+            case .http(let status): fail(tag.assetID, OfflineFailure.forHTTP(status))
+            case .network(let detail): fail(tag.assetID, OfflineFailure(.network, detail: detail))
+            default: fail(tag.assetID, OfflineFailure(.network))
+            }
+            return
+        }
+        try? await Task.sleep(for: deps.retryDelay)
+        guard let asset = store.asset(tag.assetID), asset.generation == tag.generation, asset.state == .downloading,
+              let plan = loadPlan(tag.assetID) else { return }
+        OfflineLog.notice("[offline] \(OfflineLog.short(tag.assetID)) retry unit=\(unit.index) attempt=\(count)")
+        await deps.transport.submit([request(for: unit, asset: asset, plan: plan)])
+    }
+
+    private func saveResumeData(_ data: Data, assetID: String, unit: Int) {
+        let file = layout.resumeDataFile(for: assetID, unit: unit)
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? OfflineStorage.writeAtomically(data, to: file)
+    }
+
+    /// Writes the playlists, checks the package, and only then calls it complete.
+    private func finalize(_ id: String, generation: Int) async {
+        guard isCurrent(id, generation, .downloading), let plan = loadPlan(id) else { return }
+        let folder = layout.folder(for: id)
+        do {
+            for (path, text) in plan.playlists {
+                let file = folder.appendingPathComponent(path)
+                try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try OfflineStorage.writeAtomically(Data(text.utf8), to: file)
+            }
+        } catch {
+            fail(id, OfflineFailure(OfflineStorage.isOutOfSpace(error) ? .insufficientStorage : .unknown))
+            return
+        }
+        let problems = OfflinePackageVerifier.problems(plan: plan, root: folder)
+        guard problems.isEmpty else {
+            // A unit of the wrong size goes, so a retry fetches it again.
+            for unit in plan.units {
+                if let range = unit.byteRange,
+                   let size = (try? FileManager.default.attributesOfItem(atPath: finalURL(id, unit).path)[.size] as? NSNumber)?.int64Value,
+                   size != range.length {
+                    try? FileManager.default.removeItem(at: finalURL(id, unit))
+                }
+            }
+            OfflineLog.notice("[offline] \(OfflineLog.short(id)) verification failed problems=\(problems.count)")
+            fail(id, OfflineFailure(.integrity, detail: "缺少 \(problems.count) 個檔案"))
+            return
+        }
+        store.removeDownloadSecrets(for: id)
+        plans[id] = nil
+        done[id] = nil
+        removeStaging(for: id)
+        let actual = store.size(of: id)
+        _ = try? store.update(id, now: deps.now()) {
+            $0.state = .completed
+            $0.failure = nil
+            $0.actualBytes = actual
+            $0.progress.completedUnits = plan.units.count
+            $0.progress.totalUnits = plan.units.count
+        }
+        OfflineLog.notice("[offline] \(OfflineLog.short(id)) completed bytes=\(actual) units=\(plan.units.count)")
+        usage = store.usage()
+        publish(force: true)
+        await pump()
+    }
+
+    private func removeStaging(for id: String) {
+        let manager = FileManager.default
+        for name in (try? manager.contentsOfDirectory(atPath: layout.stagingDirectory.path)) ?? [] where name.hasPrefix(id + "|") {
+            try? manager.removeItem(at: layout.stagingDirectory.appendingPathComponent(name))
+        }
+    }
+
+    // MARK: - Pause, resume, retry, fail
+
+    /// Stops a download where it is. A progressive file keeps what it received as resume data.
+    public func pause(_ id: String) async {
+        guard let asset = store.asset(id), asset.state.isActive,
+              let paused = try? store.update(id, now: deps.now(), { $0.state = .paused; $0.generation += 1 })
+        else { return }
+        OfflineLog.notice("[offline] \(OfflineLog.short(id)) paused")
+        publish(force: true)
+        await cancelTransfers(id, previousGeneration: paused.generation - 1)
+        await pump()
+    }
+
+    /// 繼續 for a paused download, 重新下載／繼續 for a failed one: back in the queue, keeping every
+    /// file already here. When the addresses had stopped working, preparing resolves the episode
+    /// again first.
+    public func resume(_ id: String) async {
+        guard let asset = store.asset(id), asset.state == .paused || asset.state == .failed else { return }
+        if var request = store.request(for: id),
+           asset.failure?.kind == .expiredSource || store.plan(for: id) == nil && asset.failure?.kind == .integrity {
+            request.needsFreshSource = asset.failure?.kind == .expiredSource
+            try? store.saveRequest(request, for: id)
+        }
+        guard (try? store.update(id, now: deps.now(), {
+            $0.state = .queued
+            $0.failure = nil
+            $0.generation += 1
+        })) != nil else { return }
+        OfflineLog.notice("[offline] \(OfflineLog.short(id)) resumed")
+        publish(force: true)
+        await pump()
+    }
+
+    /// A failed download keeps its partial files, so 重新下載／繼續 can use them and 刪除下載 can
+    /// free them. It is never hidden or deleted by itself.
+    private func fail(_ id: String, _ failure: OfflineFailure) {
+        guard let asset = store.asset(id), asset.state != .completed, asset.state != .deleting,
+              let failed = try? store.update(id, now: deps.now(), {
+                  $0.state = .failed
+                  $0.failure = failure
+                  $0.generation += 1
+              }) else { return }
+        OfflineLog.notice("[offline] \(OfflineLog.short(id)) failed kind=\(failure.kind.rawValue) status=\(failure.httpStatus ?? 0) done=\(failed.progress.completedUnits)/\(failed.progress.totalUnits)")
+        publish(force: true)
+        let previous = failed.generation - 1
+        Task {
+            await self.cancelTransfers(id, previousGeneration: previous)
+            await self.pump()
+        }
+    }
+
+    private func cancelTransfers(_ id: String, previousGeneration: Int) async {
+        let resume = await deps.transport.cancel(assetID: id, producingResumeData: true)
+        guard store.asset(id) != nil else { return }
+        for (tag, data) in resume where tag.generation == previousGeneration {
+            if let plan = loadPlan(id), plan.units.indices.contains(tag.unit), plan.units[tag.unit].role == .progressive {
+                saveResumeData(data, assetID: id, unit: tag.unit)
+            }
+        }
+    }
+
+    // MARK: - Delete (the one way)
+
+    /// Deletes downloads in any state — queued, preparing, downloading, paused, failed, completed —
+    /// or an unreadable folder. Cancels their transfers first, then removes each whole folder.
+    @discardableResult
+    public func delete(_ ids: [String]) async -> OfflineDeletionResult {
+        await deleteNow(ids, reason: "viewer")
+    }
+
+    private func deleteNow(_ ids: [String], reason: String) async -> OfflineDeletionResult {
+        var result = OfflineDeletionResult(deleted: 0, releasedBytes: 0)
+        for id in Set(ids) {
+            if store.asset(id) != nil {
+                // Recorded first, so a crash mid-delete is finished at the next launch.
+                _ = try? store.update(id, now: deps.now()) {
+                    $0.state = .deleting
+                    $0.generation += 1
+                }
+            } else if store.unreadable[id] == nil {
+                continue
+            }
+            publish(force: true)
+            _ = await deps.transport.cancel(assetID: id, producingResumeData: false)
+            plans[id] = nil
+            done[id] = nil
+            removeStaging(for: id)
+            let released = store.removeFolder(id)
+            if store.asset(id) == nil && store.unreadable[id] == nil {
+                result.deleted += 1
+                result.releasedBytes += released
+            }
+            OfflineLog.notice("[offline] \(OfflineLog.short(id)) deleted reason=\(reason) released=\(released)")
+        }
+        usage = store.usage()
+        publish(force: true)
+        await pump()
+        return result
+    }
+
+    // MARK: - Watched, and the auto-delete
+
+    /// The episode really finished — the engine's end of file, or the formal auto-next
+    /// (`OfflineCompletionPolicy`). Records it, and arms the auto-delete when it is on. Nothing is
+    /// deleted here: the player may still hold the file.
+    public func playbackEnded(_ id: String) {
+        guard let asset = store.asset(id), asset.state == .completed,
+              (try? store.update(id, now: deps.now(), {
+                  $0.watched = true
+                  if $0.autoDeleteAfterWatching { $0.pendingAutoDelete = true }
+              })) != nil else { return }
+        OfflineLog.notice("[offline] \(OfflineLog.short(id)) watched autoDelete=\(asset.autoDeleteAfterWatching ? "armed" : "off")")
+        publish(force: true)
+    }
+
+    /// The player let go of the asset. Answers whether the armed auto-delete ran.
+    @discardableResult
+    public func playbackReleased(_ id: String) async -> Bool {
+        guard let asset = store.asset(id), asset.pendingAutoDelete, asset.autoDeleteAfterWatching else { return false }
+        return await deleteNow([id], reason: "watched").deleted == 1
+    }
+
+    public func setAutoDelete(_ enabled: Bool, for id: String) {
+        _ = try? store.update(id, now: deps.now()) {
+            $0.autoDeleteAfterWatching = enabled
+            if !enabled { $0.pendingAutoDelete = false }
+        }
+        publish(force: true)
+    }
+
+    // MARK: - Lookups
+
+    public func asset(_ id: String) -> OfflineAsset? { store.asset(id) }
+    public func asset(for identity: OfflineIdentity) -> OfflineAsset? { store.asset(for: identity) }
+
+    /// A finished download of this episode, if there is one to play.
+    public func completedAsset(for identity: OfflineIdentity) -> OfflineAsset? {
+        store.asset(for: identity).flatMap { $0.state == .completed ? $0 : nil }
+    }
+
+    // MARK: - Publishing
+
+    private func publish(force: Bool) {
+        guard let observer else { return }
+        let now = Date()
+        if force || now.timeIntervalSince(lastPublish) >= 0.5 {
+            lastPublish = now
+            trailingPublish?.cancel()
+            trailingPublish = nil
+            observer(snapshot())
+            return
+        }
+        guard trailingPublish == nil else { return }
+        trailingPublish = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            self.publishTrailing()
+        }
+    }
+
+    private func publishTrailing() {
+        trailingPublish = nil
+        lastPublish = Date()
+        observer?(snapshot())
+    }
+}
+
+public enum OfflineFetchError: Error, Equatable {
+    case http(Int)
+    /// HTML (or nothing usable) where a playlist or media was expected.
+    case notMedia
+}
+
+extension OfflineStorage {
+    static func looksLikeHTMLText(_ data: Data) -> Bool {
+        let text = String(decoding: data.prefix(256), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return text.hasPrefix("<!doctype html") || text.hasPrefix("<html") || text.hasPrefix("<head") || text.hasPrefix("<body")
+    }
+}

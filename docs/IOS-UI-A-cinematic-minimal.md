@@ -20,8 +20,8 @@
 - [x] 修正 ConfigView bottom layout、重點 tab 事件與原生返回。
 - [x] 修正搜尋 focus／空白提交、片庫順序與深淺主題。
 - [x] 一次必要 Swift syntax／domain 保留比對、final Ponytail／read-only review；不另跑測試 CI。
-- [ ] 再 fetch 安全整合，依最新 Releases 決定新版本，沿既有 SideStore workflow 建置與發布。
-- [ ] 核對公開 IPA／source.json，寫回實際 commit／run／asset 證據。
+- [x] 再 fetch 安全整合，依最新 Releases 決定新版本，沿既有 SideStore workflow 建置與發布。
+- [x] 核對公開 IPA／source.json，寫回實際 commit／run／asset 證據。
 
 限制：Linux 無 Simulator／SwiftUI rendering；使用者截圖是失敗重現證據，程式檢查與 Release device build 不能取代 SideStore 手勢／focus／layout／淺色真機驗收。回退：在最新 ios-poc revert 本次 presentation commit，發布更高版本；不移動舊 tag／清除資料。
 
@@ -35,7 +35,13 @@ Final read-only review：所有四項 finding 已修正（Home 不額外 pop、b
 
 局部編譯修正驗證：整份 Swift diff 精確等於兩個 Color.primary 型別更正；parse 0 error；read-only review 無問題；final Ponytail：Lean already. Ship. 實際 device build 仍待重建通過。
 
-Recovery anchor：IOS-UI-A3-COMPILE guard active，branch ios-ui-a3-release-evidence，base f916df556fa4035e1ffa4bbad4090ea3ab8cc491，無 protected dirty paths。下一步：原子整合後再次發布尚未存在的 0.1.63 (64)；尚未發布。
+### A3 publication evidence
+
+已發布 **0.1.63 (64)**（2026-10-04 21:53，Asia/Taipei）：成功 run [37206772558](https://github.com/st7833232/webhtv/actions/runs/37206772558)，全部 steps success（unsigned device Release build、IPA／schema validation、公開下載 byte comparison、source publish）。tag `ios-v0.1.63-b64` → IPA code commit `353879d4b2a72503fc3ee2b087f4ee34c37804bc`；source update commit `257f3f77f5a7ad45a7b92d2e8f08c2e2fa060f10`。asset `WebHTV-0.1.63-64.ipa` uploaded，35,076,199 bytes，SHA-256 `f714ae171121051746ba520c46317600e14d45eabbdbbd4a09140eb4fbcbde1b`。已從 immutable source commit 核對 versions[0] 0.1.63，downloadURL／size 與 Release 相同，bundle `com.webhtv.ios.poc`／source identifier `com.webhtv.sidestore.source` 未改。
+
+Runtime 與 compile 明確區分：第二次 actual iOS device build 已通過；first failed run 未發布任何 asset／tag，後續只是兩行型別修正的必要重建。無另跑測試 CI，無 Core／backend／engine／download queue 更改。本機及 GitHub code trees 逐 blob／整樹核對相同；每次 force=false 更新前確認最新 origin/ios-poc，未覆蓋 concurrent session。
+
+Recovery anchor：IOS-UI-A3 開發／發布已完成；post-publication 文件 guard IOS-UI-A3-RELEASE-STATE，branch ios-ui-a3-final-state，base source commit 257f3f77f5a7ad45a7b92d2e8f08c2e2fa060f10，無 protected dirty paths。唯一下一步：SideStore 真機驗收（末列／回頂端按鈕、edge back、多層重點 tab、背景點擊與 keyboard、淺色完整畫面／主題持久性、既有播放與下載／收藏復原）。無 Simulator／真機新 rendering，不宣稱像素或手勢已驗收。
 
 ## A2 structure redesign — 2026-10-04 (current task)
 

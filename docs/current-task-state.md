@@ -4,7 +4,7 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-04：IOS-UI-A3 真機回報修正（發布準備）
+## Current handoff — 2026-10-04：IOS-UI-A3 真機回報修正（0.1.63／64 已發布）
 
 本輪從再次 fetch 的 `origin/ios-poc` `c3cc8c5600b4bb70368fd1ea161d2dc16190f964` 開始，獨立 branch `ios-ui-a-device-fixes`，無 protected dirty paths。使用者回報 0.1.62 真機底部遮擋、返回手勢、鍵盤、片庫順序、缺主題與空白搜尋。詳見同一份 `docs/IOS-UI-A-cinematic-minimal.md` A3。
 
@@ -12,7 +12,11 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 程式驗證：完整 Swift tree-sitter baseline／edited 各 0 error；12 個 protected data／engine 宣告 byte-identical，PlayerView 只有 preferredColorScheme(.dark) presentation modifier；既有 protected engine／store／player methods 未變。Code/layout 檢查不等於 device rendering。獨立 review finding 已修正（Home 不額外 pop、light-mode badge／FEATURED、字幕設定返回註冊）；無剩餘 Critical／Important，Ponytail：Lean already. Ship. 未另跑測試 CI。
 
-首次整合 code f916df556fa4035e1ffa4bbad4090ea3ab8cc491；Release run 37205918063 的 device compile 失敗於兩處 conditional `.primary`／`.primary.opacity` 推斷不相容，已依 logs 改成明確 Color.primary。其他既有 actor／async warning 保留未改。第一次沒有建立 Release／tag／IPA，亦未更新 source。再次核對 latest 仍 0.1.62 (63)，`ios-v0.1.63-b64` 不存在；本輪 candidate 保持尚未發布的 0.1.63 (64)。下一步：此兩行型別修正原子整合後沿既有 workflow 重建。SideStore 尚需驗收完整末列／回頂端可見、iOS 27 原生邊緣返回、多層重點 tab、鍵盤／安全區、主題與設定持久性，以及既有播放／下載／收藏復原操作。
+歷史建置：首次整合 code f916df556fa4035e1ffa4bbad4090ea3ab8cc491；run 37205918063 失敗於兩處 conditional `.primary`／`.primary.opacity` 推斷不相容，依 logs 改成明確 Color.primary。其他既有 actor／async warning 保留未改。第一次沒有建立 Release／tag／IPA 或更新 source，當時 tag 未存在，故沒有重用既有發布。
+
+已發布 **0.1.63 (64)**（2026-10-04 21:53，Asia/Taipei）：成功 run [37206772558](https://github.com/st7833232/webhtv/actions/runs/37206772558)，全部 steps success（unsigned device Release build、IPA／schema validation、公開下載 byte comparison、source publish）。tag `ios-v0.1.63-b64` → IPA code commit `353879d4b2a72503fc3ee2b087f4ee34c37804bc`；source update commit `257f3f77f5a7ad45a7b92d2e8f08c2e2fa060f10`。asset `WebHTV-0.1.63-64.ipa` uploaded，35,076,199 bytes，SHA-256 `f714ae171121051746ba520c46317600e14d45eabbdbbd4a09140eb4fbcbde1b`。已從 immutable source commit 核對 versions[0] 0.1.63，downloadURL／size 與 Release 相同，bundle `com.webhtv.ios.poc`／source identifier `com.webhtv.sidestore.source` 未改。
+
+已再次 fetch 發布後最新 ios-poc，以 source commit 為文件基準。UI／發布／source 均完成，下一步只有 SideStore 真機驗收：完整末列／回頂端可見、iOS 27 原生邊緣返回、多層重點 tab、鍵盤／安全區、深／淺主題與持久性、既有播放／下载／收藏復原操作。沒有 Simulator／真機 rendering，不能把 compile success 宣稱為操作／1:1 驗收。
 
 ## Previous handoff — 2026-10-04：IOS-UI-A2 真正結構重構（0.1.62／63 已發布）
 

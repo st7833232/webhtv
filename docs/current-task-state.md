@@ -6,13 +6,17 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current handoff — 2026-10-04：IOS-POC-47 離線下載（先讀這一節）
 
-**IOS-POC-47**（2026-10-04）：單集下載為一份 ≤1080p 的 `OfflineAsset`（智慧 1080p／最省空間／1080p 高畫質），AVPlayer 與 MPV 共用同一份（HLS 走 loopback `OfflineMediaServer`，單檔走 `file://`）；background `URLSession`、重開接回、失敗保留 partial、唯一刪除入口 `OfflineDownloadManager.delete`、真正 EOF／正式自動下一集且播放器釋放後才自動刪除；「下載」分頁、詳情頁每集狀態與選單、管理下載、設定頁「離線下載」；從觀看記錄刪除作品時一併刪除其所有下載（使用者 2026-10-04 補充）。設計、查證、驗證與限制都在 `docs/IOS-POC-47-offline-downloads.md`。**未發布新版、真機未驗證**（背景下載、飛航模式播放、loopback server 在 App 暫停後恢復）。FairPlay 離線授權未實作（DRM 影片拒絕下載）。
+**IOS-POC-47**（2026-10-04）：單集下載為一份 ≤1080p 的 `OfflineAsset`（智慧 1080p／最省空間／1080p 高畫質），AVPlayer 與 MPV 共用同一份（HLS 走 loopback `OfflineMediaServer`，單檔走 `file://`）；background `URLSession`、重開接回、失敗保留 partial、唯一刪除入口 `OfflineDownloadManager.delete`、真正 EOF／正式自動下一集且播放器釋放後才自動刪除；「下載」分頁、詳情頁每集狀態與選單、管理下載、設定頁「離線下載」；從觀看記錄刪除作品時一併刪除其所有下載（使用者 2026-10-04 補充）。設計、查證、驗證與限制都在 `docs/IOS-POC-47-offline-downloads.md`。**真機未驗證**（背景下載、飛航模式播放、loopback server 在 App 暫停後恢復）。FairPlay 離線授權未實作（DRM 影片拒絕下載）。
+
+**`0.1.57 (58)` 已發布**（2026-10-04，使用者「整理git文件 commit push然後發佈」；IOS-POC-11 第五十八次發布：含 IOS-POC-47 離線下載；版號 commit `f8dcc555`，run `37180972314` success，tag `ios-v0.1.57-b58` → `f8dcc555`，`source.json` `d5c34b0a`，IPA 34,737,906 bytes，真機未驗證），**目前最新版是 `0.1.57 (58)`**。
+
+待處理：遠端暫時驗證分支 `ci/ios-poc-47-verify`、`ci/ios-poc-45-verify` 從雲端 session 刪不掉（git push 刪除被 proxy 拒絕），需在 GitHub 網頁刪除。IOS-POC-47 的多面向程式審查 workflow 於發布時仍在執行，結果未納入 `0.1.57 (58)`。
 
 ## Previous handoff — 2026-10-02 晚：IOS-POC-45 線上字幕
 
 **IOS-POC-46**（2026-10-03）：iOS 26 首頁左上角的站台名稱看不見（Liquid Glass 在淺色桌布上變淺，標籤寫死白色）。iOS 26 起改用會隨玻璃翻轉的 `.primary`；iOS 17／18 白字在桌布上只有 1.4–1.6:1，改為白字加 50% 黑色膠囊（桌布最亮處 5.2:1，IOS-POC-46-1）（`legibleToolbarLabel()`）。未在任何真機或模擬器驗證；App 全域 `tint` 也是白色，其他工具列文字按鈕（例如「關閉」）在 iOS 26 淺色背景上可能有同樣問題，尚未處理。
 
-**`0.1.56 (57)` 已發布**（2026-10-03，使用者「發佈」；IOS-POC-11 第五十七次發布：含 IOS-POC-46／46-1 首頁站台名稱可讀性；版號 commit `22e9cf6b`，run `37103927388` success，tag `ios-v0.1.56-b57` → `22e9cf6b`，`source.json` `a6409ac4`，IPA 34,062,283 bytes，真機未驗證），**目前最新版是 `0.1.56 (57)`**。
+**`0.1.56 (57)` 已發布**（2026-10-03，使用者「發佈」；IOS-POC-11 第五十七次發布：含 IOS-POC-46／46-1 首頁站台名稱可讀性；版號 commit `22e9cf6b`，run `37103927388` success，tag `ios-v0.1.56-b57` → `22e9cf6b`，`source.json` `a6409ac4`，IPA 34,062,283 bytes，真機未驗證）。
 
 前一版：**`0.1.55 (56)` 已發布**（2026-10-03，使用者「有新的 commit 就發佈」；IOS-POC-11 第五十六次發布：含 IOS-POC-45I `76e0d57f` 網頁播放頁字幕嗅探；版號 commit `46ef9c12`，run `37098285365` success，tag `ios-v0.1.55-b56` → `46ef9c12`，`source.json` `581fce56`，IPA 34,059,410 bytes，真機未驗證）。
 

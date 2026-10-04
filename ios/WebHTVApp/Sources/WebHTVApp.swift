@@ -2789,8 +2789,11 @@ final class FavoriteLibrary {
     /// A13: the 復原 after an automatic removal, while it is open.
     private(set) var undoOffer: FavoriteUndoOffer?
     /// Each title's lines as its detail screen last loaded them, for telling the real final episode
-    /// (A12). Memory only: they are the source's listing, not the favourite's metadata.
+    /// (A12). Memory only: they are the source's listing, not the favourite's metadata — and only the
+    /// most recent titles', since a long session opens hundreds of details.
     @ObservationIgnored private var lines = [FavoriteIdentity: [Flag]]()
+    @ObservationIgnored private var linesOrder = [FavoriteIdentity]()
+    private static let linesKept = 32
 
     /// A configuration was loaded: its favourites follow a site whose identity provably did not
     /// change (A7), and new snapshots carry its name.
@@ -2828,6 +2831,9 @@ final class FavoriteLibrary {
     /// A detail loaded: a favourite takes what it filled in (A6), and its lines are remembered.
     func detailLoaded(_ identity: FavoriteIdentity, snapshot: FavoriteSnapshot, lines: [Flag]) async {
         self.lines[identity] = lines
+        linesOrder.removeAll { $0 == identity }
+        linesOrder.append(identity)
+        if linesOrder.count > Self.linesKept { self.lines[linesOrder.removeFirst()] = nil }
         guard contains(identity) else { return }
         await FavoriteStore.shared.refresh(identity, with: snapshot)
         await reload()

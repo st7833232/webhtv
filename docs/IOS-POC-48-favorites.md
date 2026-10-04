@@ -126,7 +126,22 @@
 
 ## 6. 實作紀錄
 
-（實作後補）
+| 檔案 | 內容 |
+|---|---|
+| `ios/Sources/WebHTVCore/ConfigSource.swift` | `case imported(id:)`、`legacyImportedIdentity`、`importedFile`（static）；`ImportedConfigIdentities`（內容 SHA-256 → identity，沿用 `runtimeSHA256`） |
+| `ios/Sources/WebHTVCore/Favorites/Favorite.swift` | `FavoriteIdentity`、`FavoriteSnapshot`（detail 優先、列表補空）、`Favorite`（容錯 decode、`merging`） |
+| `ios/Sources/WebHTVCore/Favorites/FavoriteStore.swift` | actor：add／toggle／remove／refresh／restore／migrate、逐筆容錯、壞檔另存、讀取失敗不寫、schema 備份 |
+| `ios/Sources/WebHTVCore/Favorites/FavoriteBrowsing.swift` | `LibrarySection`、`FavoriteAvailability`、`FavoriteSearch` |
+| `ios/Sources/WebHTVCore/Favorites/FavoriteCompletion.swift` | `SeriesCompletion`、`FavoriteAutoRemoval`、`FavoriteUndoOffer`、`WatchHistory.favoriteIdentity` |
+| `ios/WebHTVApp/Sources/WebHTVApp.swift` | 分頁「記錄」→「片庫」（tag 1）；匯入時先登記 identity 再寫檔、啟動時依內容查 identity；`FavoriteLibrary`、`LibraryView`、`FavoritesView`、`FavoriteCard`、`FavoriteUnavailableView`、`FavoriteToggle`、`FavoriteUndoBanner`；`VodView` 收藏按鈕與 detail 後 refresh；`PlaybackSession` 完成回報（`finished`、關閉、切集）；`HistoryView` 移除連帶刪下載 |
+| `ios/Tests/WebHTVCoreTests/Favorites/*.swift`、`ContractFreezeTests.swift` | 第 7 節 |
+
+實作中的決定（第 5 節以外）：
+
+1. **near-ending 只認本次播放量到的位置**：`open` 會把同一集的舊位置帶入 record（IOS-POC-21），重開已看完的最終集、在播放器載入前就關閉時，舊位置仍是「接近結尾」。`PlaybackSession` 以 `measuredNearEnd`（本次 `persist()` 量到才設）把關，避免誤刪；核心的 `decide(record:ended:)` 仍以 record 當下位置再判一次。
+2. **toggle 在 store actor 內完成**：連點兩下是兩次切換，不會兩個 add 互相競爭（`twoQuickTogglesEndWhereTheyStarted`）。
+3. **不可用收藏的「取消收藏」**：來源不可用時無法進入詳情頁，所以說明頁提供使用者自己按的「取消收藏」（不自動刪、不確認，與手動取消一致）。
+4. **undo banner 放在 TabView 上層**：播放器可能從任何分頁開啟；banner 在 offer 到期（8 秒）時自行消失，到期後的復原不生效。
 
 ## 7. 驗證
 
@@ -134,7 +149,12 @@
 
 ## 8. 限制與待真機驗證
 
-（實作後補）
+1. **真機未驗證**：收藏按鈕的 symbol 動畫與 Reduce Motion、iOS 17／18／26 工具列可讀性（`legibleToolbarLabel`）、片庫 segmented 在導覽列的版面、海報格線兩欄、本機搜尋、最終集播完自動移出與「復原」banner 位置（tab bar 之上）、App 重啟後收藏仍在、從下載頁播放最終集的判斷。
+2. 完結判斷只讀 remarks（`Vod` 沒有 `vod_isend`／總集數欄位）；remarks 沒有明確字樣的來源一律不自動移出。
+3. 從下載頁播放、且本次啟動未開過該作品詳情頁時，沒有線路清單，只有「全N集／N集全／共N集」且集名有集數時才會自動移出。
+4. 自動移出後若下一集（例如最終集之後的花絮）接著播放，banner 在播放器底下，8 秒後到期。
+5. 修改內容後重新匯入的設定檔是新的設定，舊內容的收藏顯示「來源不可用」（不刪除）；重新匯入完全相同的檔案會回到原本的 identity。
+6. 收藏頁顯示所有設定的收藏；不是目前設定的收藏標示「來源不可用」，需切回原設定才能開啟。
 
 ## 9. Rollback
 

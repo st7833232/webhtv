@@ -15,10 +15,11 @@
      - 畫質、音軌、字幕與單集下載畫面未改動時的預設相同；
      - DRM 等無法下載的集數列在「需要處理」，重新下載時會重新解析；
      - 啟動時若站點尚未載入，最多等 30 秒，不直接判失敗。
-- 狀態：程式與 Core 測試完成（Linux 69／69，突變 4／4）。依使用者指示「不要跑ci修改後就發佈」，不另跑 macOS CI，由發布 workflow 的 IPA 建置兼作 App 編譯檢查。
+- 狀態：已發布 `0.1.59 (60)`。Core 測試 Linux 69／69，突變 4／4。依使用者指示「不要跑ci修改後就發佈」，沒有另跑 macOS CI，由發布 workflow 的 IPA 建置兼作 App 編譯檢查；第一次建置失敗，修正後成功。
 - 編號：原本編為 IOS-POC-48，push 時發現另一個 session 已用該編號（收藏與片庫，`f40c31a3`）並發布 `0.1.58 (59)`。改編為 IOS-POC-49，在 `a9d2cd56` 上重新套用，程式碼沒有衝突，`docs/current-task-state.md` 的衝突已手動合併。
 - 發布第一次 run `37195931755`（版號 commit `5a79e781`）在「Build unsigned device app」失敗：`WebHTVApp.swift:2078:29: error: the compiler is unable to type-check this expression in reasonable time`。原因是「全部下載」按鈕與確認框直接寫在詳情頁 body 裡，body 加上另一個 session 的收藏改動後超出 type checker 的時限。IOS-POC-49-1 把按鈕與確認框移到 `downloadAllButton(_:)`，body 只多一行呼叫；確認框改掛在按鈕上，不再接在 body 的 modifier 鏈上。
-- 下一步：以 `0.1.59 (60)` 重新 `workflow_dispatch`（tag 只在成功時建立，第一次 run 沒有建立）。
+- 已發布：`0.1.59 (60)`。第二次 run `37196470842` 成功，tag `ios-v0.1.59-b60` → `3f2826d9`，`source.json` `88398cc7`，IPA 34,930,073 bytes。真機未驗證。
+- 下一步：等使用者在真機確認「等待 Wi-Fi」、切換行動網路後是否開始下載，以及「全部下載」。
 
 ## 1. 使用者回報與決策
 

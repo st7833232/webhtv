@@ -4,7 +4,13 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-04：IOS-POC-50 多工下載（先讀這一節）
+## Current handoff — 2026-10-04：IOS-UI-A Cinematic Minimal + 0.1.60 (61) 發布
+
+**IOS-UI-A**（2026-10-04）：使用者選擇 A 版「Cinematic Minimal」並要求合併到 `ios-poc`、同步狀態後發布供 SideStore 實機試用。A 版只改視覺層：深黑藍電影感背景、藍色 Primary CTA、半透明 Navigation／Tab Bar、首頁與搜尋海報卡 16pt 圓角＋陰影、詳情海報加大、收藏卡一致化、片庫／下載／設定提高 surface 層次；收藏 heart 已收藏狀態保留粉紅語意。播放器、來源解析、收藏資料、觀看記錄、下載資料與播放引擎邏輯不改。A 版原試用 branch `ios-poc-ui-a-cinematic` 已落後 IOS-POC-50，因此沒有直接覆蓋；變更重套到最新 `ios-poc`。依使用者要求**不另跑 CI**，發布 workflow 的 unsigned device Release build 僅作 IPA 編譯／打包檢查。詳細紀錄：`docs/IOS-UI-A-cinematic-minimal.md`。
+
+本次 `0.1.60 (61)` 內容同時包含 **IOS-POC-50（最多 3 集同時下載）+ IOS-UI-A Cinematic Minimal**。版號已由前一個 session 提前更新到 0.1.60 / build 61；發布前不得再重複 bump。
+
+## Previous handoff — 2026-10-04：IOS-POC-50 多工下載（先讀這一節)
 
 **IOS-POC-50**（2026-10-04）：使用者要求「多工下載」，選定同時 3 集。`pump()` 最多讓 3 集同時準備或下載，依加入順序補位；開始下載前的空間檢查加上其他正在下載的集數還需要的空間。每主機連線數維持 4，所以同一來源的 HLS 總速度不會提高。Linux 71／71、突變 3／3；依使用者「不要跑ci修改後就發佈」直接發布。真機未驗證。見 `docs/IOS-POC-50-concurrent-downloads.md`。
 

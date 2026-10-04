@@ -4,9 +4,11 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-04：IOS-UI-A Cinematic Minimal + 0.1.60 (61) 發布
+## Current handoff — 2026-10-04：IOS-UI-A Cinematic Minimal + 0.1.61 (62) 發布
 
 **IOS-UI-A**（2026-10-04）：使用者選擇 A 版「Cinematic Minimal」並要求合併到 `ios-poc`、同步狀態後發布供 SideStore 實機試用。A 版只改視覺層：深黑藍電影感背景、藍色 Primary CTA、半透明 Navigation／Tab Bar、首頁與搜尋海報卡 16pt 圓角＋陰影、詳情海報加大、收藏卡一致化、片庫／下載／設定提高 surface 層次；收藏 heart 已收藏狀態保留粉紅語意。播放器、來源解析、收藏資料、觀看記錄、下載資料與播放引擎邏輯不改。A 版原試用 branch `ios-poc-ui-a-cinematic` 已落後 IOS-POC-50，因此沒有直接覆蓋；變更重套到最新 `ios-poc`。依使用者要求**不另跑 CI**，發布 workflow 的 unsigned device Release build 僅作 IPA 編譯／打包檢查。詳細紀錄：`docs/IOS-UI-A-cinematic-minimal.md`。
+
+**A 版發布目標：`0.1.61 (62)`。** `0.1.60 (61)` 已從 A 版之前的 HEAD 發布，因此 A 版不可重用該 tag；本次使用下一版號，保留 0.1.60 的 IOS-POC-50 多工下載並加入 IOS-UI-A。依使用者要求不另跑 CI，僅執行 SideStore Release workflow 的 device Release build／IPA 打包。
 
 **更正（2026-10-04 11:50Z，IOS-POC-50 session）：`0.1.60 (61)` 不含 IOS-UI-A。**
 - `0.1.60 (61)` 已由 run `37199415029` 從版號 commit `8889c9a1` 發布：tag `ios-v0.1.60-b61` → `8889c9a1`，`source.json` `6e019a09`。

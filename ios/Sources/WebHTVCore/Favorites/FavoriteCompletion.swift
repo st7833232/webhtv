@@ -145,7 +145,7 @@ public struct FavoriteUndoOffer: Equatable, Sendable, Identifiable {
 
     public let id: UUID
     public let favorite: Favorite
-    public let expiresAt: Date
+    public private(set) var expiresAt: Date
 
     public init(favorite: Favorite, offeredAt now: Date) {
         id = UUID()
@@ -154,6 +154,15 @@ public struct FavoriteUndoOffer: Equatable, Sendable, Identifiable {
     }
 
     public func isOpen(at now: Date) -> Bool { now < expiresAt }
+
+    /// The same offer once the viewer can see it, open for at least `lasting` from `now`. The player
+    /// that finished the episode may still be on screen when the favourite goes, and a window that
+    /// runs out behind it was never offered at all. Never shortens an offer.
+    public func shown(at now: Date, lasting: TimeInterval = window) -> FavoriteUndoOffer {
+        var shown = self
+        shown.expiresAt = max(expiresAt, now.addingTimeInterval(lasting))
+        return shown
+    }
 
     /// Puts the favourite back while the offer is open — its own record, so its place in the list
     /// is where it was. Only the favourites store is touched.

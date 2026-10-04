@@ -75,7 +75,7 @@
 - identity 由匯入檔內容的 SHA-256 指紋決定：`ImportedConfigIdentities` 在 `UserDefaults` 保存「指紋 → identity」。第一次匯入某份內容時產生 `imported:<UUID>`，之後相同內容（重新匯入）沿用；不同內容是新的 identity。
 - 啟動時以匯入槽目前的 bytes 查表；查不到（IOS-POC-48 之前匯入的檔）就是 legacy `"imported"`，所以既有使用者的觀看記錄、站台記憶、健康紀錄完全不受影響。
 - 匯入時先寫指紋表、再寫匯入槽：兩步之間 crash 只會留下一筆用不到的指紋，identity 永遠對應槽內真正的內容；沒有另外的「目前 identity」欄位可以跟檔案不同步。
-- 取捨：修改內容後重新匯入是新的設定，舊內容的收藏顯示「來源不可用」（不刪、不猜）。用檔名判斷「同一份」是猜測，不採用。
+- 取捨：修改內容後重新匯入是新的設定。`ConfigSource.identity` 是所有以設定區分的資料共用的鍵，所以影響不只收藏：舊內容的收藏顯示「來源不可用」，「記錄」列表（`records(for:)`）、站台記憶（IOS-POC-19）與站台健康紀錄（IOS-POC-41）也從新的 identity 開始。舊資料都不刪除，重新匯入原本的檔案就回來。IOS-POC-48 之前，重新匯入任何檔案都沿用同一個 `imported`，所以這是對匯入檔使用者可見的行為變更，與遠端來源換網址就是另一份設定（IOS-POC-10E）的規則一致。用檔名判斷「同一份」是猜測，不採用；**需要使用者確認是否接受**。
 
 ### 5.2 Model 與 Store（A1、A2、A4、A5、A6）
 
@@ -141,18 +141,47 @@
 1. **near-ending 只認本次播放量到的位置**：`open` 會把同一集的舊位置帶入 record（IOS-POC-21），重開已看完的最終集、在播放器載入前就關閉時，舊位置仍是「接近結尾」。`PlaybackSession` 以 `measuredNearEnd`（本次 `persist()` 量到才設）把關，避免誤刪；核心的 `decide(record:ended:)` 仍以 record 當下位置再判一次。
 2. **toggle 在 store actor 內完成**：連點兩下是兩次切換，不會兩個 add 互相競爭（`twoQuickTogglesEndWhereTheyStarted`）。
 3. **不可用收藏的「取消收藏」**：來源不可用時無法進入詳情頁，所以說明頁提供使用者自己按的「取消收藏」（不自動刪、不確認，與手動取消一致）。
-4. **undo banner 放在 TabView 上層**：播放器可能從任何分頁開啟；banner 在 offer 到期（8 秒）時自行消失，到期後的復原不生效。
+4. **undo banner 放在 TabView 上層，且只在播放器關閉後出現**：播放器可能從任何分頁開啟。收藏可能在播放器還開著時被移除（循環播放、從最終集結尾切回上一集），所以 `PlaybackSession` 以 `playerOpened()`／`playerClosed()` 告知；banner 出現時才以 `FavoriteUndoOffer.shown(at:lasting:)` 開始計時（8 秒，VoiceOver 開啟時 30 秒），被遮住時 task 取消但不解除 offer。banner 顯示被移除的作品名稱。
+5. **完成回報的 near-ending 必須在回報當下仍成立**（`measuredNearEnd && record.isNearEnding`）：拖到結尾又拖回、再切集失敗時，不會用掉這一集唯一的一次回報。
+6. **獨立審查**：背景 reviewer 讀 diff 後沒有發現編譯問題，提出 5 個 runtime 項目；第 4、5 點與 VoiceOver 是據此修正，重新匯入的影響寫入 5.1。
 
 ## 7. 驗證
 
-（實作後補）
+### 7.1 需求 → 測試
+
+新增 75 個測試函式（`Favorites/` 74 個，`ContractFreezeTests` 1 個；部分為參數化）。
+
+| 使用者 Phase 9 清單 | 測試 |
+|---|---|
+| 1. Favorite model／store | `FavoriteStoreTests`：`favoritingTheSameTitleTwiceKeepsOneFavorite`、`favoritesSurviveARelaunch`、`theMostRecentFavoriteComesFirst`、`removingAFavoriteRemovesOnlyThatFavorite`、`twoQuickTogglesEndWhereTheyStarted`、`anIncompleteIdentityIsNeverStored`、`aFavoriteHoldsOnlyTitleMetadata`、`aRefreshNeverMovesTheFavoritedTime`、`aSourceThatLeavesFieldsOutDoesNotEmptyTheSnapshot`、`openingADetailNeverFavoritesIt`、`oneDamagedRecordCostsNoOtherFavorite`、`aCorruptFileIsSetAsideNotOverwritten`、`aFileThatCannotBeReadIsNeverOverwritten`、`aNewerSchemaIsCopiedAsideBeforeThisBuildRewritesIt`、`aRepeatedRecordKeepsTheFirstFavoritedOne`、`restoreBringsBackTheSameRecord`、`restoreNeverReplacesAFavoriteMadeSince` |
+| 2. ConfigSource identity | `ImportedConfigIdentityTests`（6 個）、`ContractFreezeTests.theFavoriteIdentityAndTheImportedIdentityAreFrozen`、既有 `theConfigurationIdentityIsTheAddressAsWritten` |
+| 3. Site identity migration | `aReorderedStructuredExtIsStillTheSameSite`、`aSiteWhoseExtReallyChangedIsNotGuessed`、`aKeyWithSeveralCandidatesIsNotGuessed`、`aSiteThatIsGoneKeepsItsFavorite`、`migrationOnlyTouchesTheLoadedConfiguration`、`migratingOntoAnExistingFavoriteKeepsTheEarlierOne` |
+| 4. VodView favorite state | `aDetailScreenSeesOnlyItsOwnTitlesFavorite`、`aRefreshedDetailIsStillTheSameFavorite`、`theSnapshotTakesTheDetailAndFillsFromTheListItem`、`theSameTitleFromAnotherSourceIsAnotherFavorite`（同名不同來源）、`sitesSharingAKeyNeverShareAFavorite`、`playNowStaysTheFullWidthPrimaryAction`、`theFavoriteToggleAsksNothingAndRespectsReduceMotion` |
+| 5. Library navigation | `theLibraryOpensOnFavoritesThenHistory`、`theTabBarIsFiveTabsWithTheLibraryInTheMiddle`、`theLibraryShowsBothPagesAndOpensOnFavorites` |
+| 6. Local favorite search | `searchFindsNameCastDirectorGenreAndYear`（7 組）、`searchMatchesEitherScript`、`searchLooksOnlyAtTheListedFields`、`anEmptySearchListsEveryFavoriteInOrder` |
+| 7. Favorite + History | `unfavoritingKeepsTheHistoryAndTheDownloads`、`clearingTheHistoryKeepsTheFavoriteAndTheDownloads`、`anAutomaticRemovalKeepsTheWatchHistory`、`deletingWatchHistoryNeverDeletesDownloadsOrFavorites`、`theFavoritesScreensOnlyReadHistoryAndDownloads` |
+| 8. Favorite + Offline | `deletingADownloadKeepsTheFavoriteAndTheHistory`、`theWatchedAutoDeleteKeepsTheFavorite`、`anAutomaticUnfavoriteAndItsUndoTouchOnlyTheFavorite` |
+| 9. Completed-series auto-unfavorite | 連載中最後一集 `anOngoingSeriesKeepsItsFavoriteAtItsLatestEpisode`；已完結未播最後一集 `aFinishedSeriesKeepsItsFavoriteBeforeItsFinalEpisode`；最終集 near-ending `theFinalEpisodeNearItsEndRemovesAFinishedSeries`；Favorite 不存在 `noFavoriteIsANoOp`；保留 History `anAutomaticRemovalKeepsTheWatchHistory`；保留 Offline `anAutomaticUnfavoriteAndItsUndoTouchOnlyTheFavorite`；Undo `undoBringsTheFavoriteBackAsItWas`、`anExpiredOfferUndoesNothing`；電影 `aFilmKeepsItsFavoriteWhenItEnds`；無法確認完結 `aFinishThatCannotBeConfirmedKeepsTheFavorite`；另有 remarks／集數解析參數化測試、`aLaggingLineDoesNotEndAFinishedSeries`、`aMergedFinalEntryIsTheFinalEpisode`、`unnumberedEpisodesNeedTheWholeDeclaredLine`、`withoutTheListingOnlyADeclaredTotalProvesTheEnd`、`theFinalEpisodeStoppedHalfwayIsNotFinished`、`theEndOfFileOrTheViewersEndingCountsAsFinished`、`aRecordWithoutItsConfigurationIsNotGuessed` |
+| 10. Source unavailable | `aFavoriteOpensOnlyOnItsOwnConfigurationAndSite`、`aSiteWhoseExtReallyChangedIsNotGuessed`、`aSiteThatIsGoneKeepsItsFavorite` |
+| 11–12. 既有 WatchHistory／Offline 回歸 | macOS CI 全套（7.3） |
+| 13–14. Swift package tests、iOS App build | macOS CI（7.3） |
+
+### 7.2 Linux（雲端 session，Swift 6.2.3 scratch package）
+
+- Ubuntu archive 的 `swiftlang 6.2.3`＋`libswiftlang`＋`libxml2-16` 解壓到 scratchpad；`lib_Testing_Foundation.so` 以空 stub 連結。scratch package 以 symlink 連結本任務的核心檔與 `WebHTVConfig`、`SnifferRules`、`SiteSelection`、`WatchHistory`、`VodText`、`TraditionalSimplified`、`SavedSource`；`Vod`／`Flag`／`Episode` 由 `CMSClient.swift` 擷取副本，`runtimeSHA256` 以純 Swift SHA-256、`CSPSourceResolver` 以 stub 取代（皆不進 repo）。`FavoriteOwnershipTests`（需 Offline）與 `FavoriteAppWiringTests`（讀 App 原始碼）只在 macOS 執行，後者以 Python 模擬掃描確認對目前原始碼成立。
+- 結果：63 個測試全數通過（Swift 6 語言模式，核心與測試零警告）。
+- Mutation check（Rule 9）：20 條規則逐一破壞（non-empty merge、重複收藏重設 createdAt、讀取失敗當空清單、存檔丟棄讀不懂的筆、壞檔直接覆寫、migration 改用 key-only、連載＋完結字樣視為完結、無線路清單接受未知總集數、落後線路當完結、未完成也算完成、單集線路移除、連載移除、每次匯入都新 identity、legacy 未登記、搜尋含簡介、搜尋不轉簡體、restore 覆蓋新收藏、可用性忽略設定、過期仍可復原、片庫預設記錄），20 條都讓對應測試失敗。
+
+### 7.3 macOS CI（暫時驗證分支 `ci/ios-poc-48-verify`）
+
+（待 run 結果）
 
 ## 8. 限制與待真機驗證
 
 1. **真機未驗證**：收藏按鈕的 symbol 動畫與 Reduce Motion、iOS 17／18／26 工具列可讀性（`legibleToolbarLabel`）、片庫 segmented 在導覽列的版面、海報格線兩欄、本機搜尋、最終集播完自動移出與「復原」banner 位置（tab bar 之上）、App 重啟後收藏仍在、從下載頁播放最終集的判斷。
 2. 完結判斷只讀 remarks（`Vod` 沒有 `vod_isend`／總集數欄位）；remarks 沒有明確字樣的來源一律不自動移出。
 3. 從下載頁播放、且本次啟動未開過該作品詳情頁時，沒有線路清單，只有「全N集／N集全／共N集」且集名有集數時才會自動移出。
-4. 自動移出後若下一集（例如最終集之後的花絮）接著播放，banner 在播放器底下，8 秒後到期。
+4. 自動移出時若播放器沒有關閉（例如最終集之後還有花絮接著播放），banner 等到播放器關閉才出現，那時才開始計時。
 5. 修改內容後重新匯入的設定檔是新的設定，舊內容的收藏顯示「來源不可用」（不刪除）；重新匯入完全相同的檔案會回到原本的 identity。
 6. 收藏頁顯示所有設定的收藏；不是目前設定的收藏標示「來源不可用」，需切回原設定才能開啟。
 

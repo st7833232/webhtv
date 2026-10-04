@@ -193,7 +193,7 @@ private struct ConfigView: View {
                 // IOS-POC-48 A13: above the tab bar on every tab, since the player that removed the
                 // favourite may have been opened from any of them.
                 .overlay(alignment: .bottom) {
-                    if let offer = favoriteLibrary.undoOffer {
+                    if let offer = favoriteLibrary.undoOffer, !favoriteLibrary.playerOpen {
                         FavoriteUndoBanner(offer: offer)
                             .padding(.bottom, 72)
                     }
@@ -2788,6 +2788,9 @@ final class FavoriteLibrary {
     private(set) var configSourceName = ""
     /// A13: the 復原 after an automatic removal, while it is open.
     private(set) var undoOffer: FavoriteUndoOffer?
+    /// Whether the player screen is up. The 復原 banner waits until it has gone, so the offer's
+    /// window is time the viewer can actually see it.
+    private(set) var playerOpen = false
     /// Each title's lines as its detail screen last loaded them, for telling the real final episode
     /// (A12). Memory only: they are the source's listing, not the favourite's metadata — and only the
     /// most recent titles', since a long session opens hundreds of details.
@@ -2861,6 +2864,15 @@ final class FavoriteLibrary {
     func dismiss(_ offer: FavoriteUndoOffer) {
         if undoOffer?.id == offer.id { undoOffer = nil }
     }
+
+    /// The banner is on screen: the offer is open for `lasting` from now (`FavoriteUndoOffer.shown`).
+    func offerShown(_ offer: FavoriteUndoOffer, lasting: TimeInterval) {
+        guard let current = undoOffer, current.id == offer.id else { return }
+        undoOffer = current.shown(at: .now, lasting: lasting)
+    }
+
+    func playerOpened() { playerOpen = true }
+    func playerClosed() { playerOpen = false }
 }
 
 /// A9: 片庫 — the favourites and the watch history on one tab, switched by a segmented control in
@@ -3131,12 +3143,22 @@ private struct FavoriteToggle: View {
 /// A13: 已看完，已從收藏移除 · 復原 — for as long as the offer is open, then gone by itself.
 private struct FavoriteUndoBanner: View {
     let offer: FavoriteUndoOffer
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
 
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "heart.slash")
-            Text("已看完，已從收藏移除")
-                .font(.subheadline)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("已看完，已從收藏移除")
+                    .font(.subheadline)
+                // Which favourite went (HIG: describe what an undo will bring back).
+                if !offer.favorite.name.isEmpty {
+                    Text(zhTW: offer.favorite.name)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.75))
+                        .lineLimit(1)
+                }
+            }
             Spacer(minLength: 8)
             Button("復原") { Task { await favoriteLibrary.undo() } }
                 .font(.subheadline.weight(.semibold))
@@ -3147,9 +3169,13 @@ private struct FavoriteUndoBanner: View {
         .background(.black.opacity(0.82), in: Capsule())
         .padding(.horizontal, 16)
         .task(id: offer.id) {
-            let message = "已看完，已從收藏移除"
+            // From the moment it is visible; VoiceOver needs longer to reach 復原 than a glance does.
+            let lasting = voiceOver ? 30 : FavoriteUndoOffer.window
+            favoriteLibrary.offerShown(offer, lasting: lasting)
+            let message = "已看完，已從收藏移除：" + zhTW(offer.favorite.name)
             AccessibilityNotification.Announcement(message).post()
-            try? await Task.sleep(for: .seconds(max(0, offer.expiresAt.timeIntervalSinceNow)))
+            // Cancelled means hidden again, not answered: the offer stays and starts over when it is back.
+            guard (try? await Task.sleep(for: .seconds(lasting))) != nil else { return }
             favoriteLibrary.dismiss(offer)
         }
     }
@@ -4423,6 +4449,7 @@ struct EpisodeSteps: Equatable {
     func closePlayer() {
         // IOS-POC-48: closed in the final credits is finished too; the view persisted the position first.
         reportCompletion(ended: false)
+        favoriteLibrary.playerClosed()
         // A retry belongs to a player that is open; a late failure after closing must not reopen it.
         retryWithoutPrefetch = nil
         reportItem()
@@ -4474,6 +4501,7 @@ struct EpisodeSteps: Equatable {
         retryWithoutPrefetch = retry
         measuredNearEnd = false
         completionReported = false
+        favoriteLibrary.playerOpened()
         // The chosen speed belongs to the **title**, not to the app session (IOS-POC-14B). The
         // history key is site plus vod, so it is exactly the identity "the same film or series" —
         // which means a hand-picked episode carries the speed the same way an auto-advance does,
@@ -4661,6 +4689,7 @@ struct EpisodeSteps: Equatable {
     /// Not recorded: an inline vod is a page's own playlist addressed under the pseudo-site
     /// `webhome_inline`, so it has no site or vod identity the history could be keyed on.
     func open(_ vod: WebHomeBridge.InlineVod) {
+        favoriteLibrary.playerOpened()
         // A page's own playlist has no title identity the speed could belong to (IOS-POC-14B), so it
         // starts at the settings page's default (IOS-POC-29).
         chosenRate = PlaybackSpeedPreference().defaultSpeed
@@ -4700,7 +4729,7 @@ struct EpisodeSteps: Equatable {
     /// watch history calls 已看完. Once per opened item. The session only says that it happened;
     /// favourites decide what it means (`FavoriteAutoRemoval`).
     private func reportCompletion(ended: Bool) {
-        guard let record, !completionReported, ended || measuredNearEnd else { return }
+        guard let record, !completionReported, ended || (measuredNearEnd && record.isNearEnding) else { return }
         completionReported = true
         Task { @MainActor in await favoriteLibrary.episodeCompleted(record, ended: ended) }
     }

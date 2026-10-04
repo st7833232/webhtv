@@ -4,7 +4,13 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-04：IOS-POC-47 離線下載（先讀這一節）
+## Current handoff — 2026-10-04：IOS-POC-48 收藏與片庫（先讀這一節）
+
+**IOS-POC-48**（2026-10-04）：作品層級收藏，identity = `ConfigSource.identity` + `Site.id` + `Vod.id`（`FavoriteStore`，`Application Support/Favorites/favorites.json`，逐筆容錯、壞檔另存、讀取失敗不寫入）。匯入的設定檔改為每份內容各有 identity（`imported:<UUID>`，依內容 SHA-256 查表；IOS-POC-48 之前匯入的檔仍是 `imported`）。底部分頁「記錄」改為「片庫」（收藏／記錄 segmented，預設收藏）；詳情頁右上角 ♡ 收藏／♥ 已收藏；來源可確認已完結的多集影集看完真正最終集時自動移出收藏並提供 8 秒「復原」；原站台不在目前設定時保留並標示「來源不可用」。**推翻 IOS-POC-47 的規則**：刪除／清除觀看記錄不再連帶刪除下載，收藏、記錄、下載三者各自刪除。設計、查證、驗證與限制在 `docs/IOS-POC-48-favorites.md`。**真機未驗證**。尚未 push `ios-poc`、未發布。
+
+待處理：遠端暫時驗證分支 `ci/ios-poc-48-verify` 需在 GitHub 網頁刪除（與 `ci/ios-poc-45-verify`、`ci/ios-poc-47-verify` 相同，雲端 session 刪不掉）。
+
+## Previous handoff — 2026-10-04：IOS-POC-47 離線下載
 
 **IOS-POC-47**（2026-10-04）：單集下載為一份 ≤1080p 的 `OfflineAsset`（智慧 1080p／最省空間／1080p 高畫質），AVPlayer 與 MPV 共用同一份（HLS 走 loopback `OfflineMediaServer`，單檔走 `file://`）；background `URLSession`、重開接回、失敗保留 partial、唯一刪除入口 `OfflineDownloadManager.delete`、真正 EOF／正式自動下一集且播放器釋放後才自動刪除；「下載」分頁、詳情頁每集狀態與選單、管理下載、設定頁「離線下載」；從觀看記錄刪除作品時一併刪除其所有下載（使用者 2026-10-04 補充）。設計、查證、驗證與限制都在 `docs/IOS-POC-47-offline-downloads.md`。**真機未驗證**（背景下載、飛航模式播放、loopback server 在 App 暫停後恢復）。FairPlay 離線授權未實作（DRM 影片拒絕下載）。
 

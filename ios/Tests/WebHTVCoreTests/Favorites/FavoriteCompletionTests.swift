@@ -207,6 +207,25 @@ func anEpisodeNameThatProvesNoNumber(name: String) {
     #expect(await store.all() == [before])
 }
 
+/// The favourite can go while the player is still up (a looping item, a step back from the final
+/// episode's end). The 復原 the viewer then sees must still work for a whole window.
+@Test func anOfferSeenLaterIsOpenForAWholeWindowFromThen() async throws {
+    let store = await favoritedStore("undo-shown", remarks: "全12集")
+    let offer = try #require(await FavoriteAutoRemoval.apply(record: record("第12集"), ended: true,
+                                                             lines: [line(numbered(12))], store: store,
+                                                             now: FavoriteFixture.t0))
+    let seen = FavoriteFixture.t0.addingTimeInterval(600)
+    let shown = offer.shown(at: seen)
+    #expect(shown.id == offer.id)
+    #expect(shown.isOpen(at: seen.addingTimeInterval(FavoriteUndoOffer.window - 1)))
+    #expect(!shown.isOpen(at: seen.addingTimeInterval(FavoriteUndoOffer.window)))
+    // Seen again a moment later, it is not cut short; asked for a longer window, it gets it.
+    #expect(shown.shown(at: seen, lasting: 1).expiresAt == shown.expiresAt)
+    #expect(shown.shown(at: seen, lasting: 30).expiresAt == seen.addingTimeInterval(30))
+    #expect(await shown.undo(in: store, now: seen.addingTimeInterval(5)))
+    #expect(await store.all().count == 1)
+}
+
 @Test func anExpiredOfferUndoesNothing() async throws {
     let store = await favoritedStore("undo-late", remarks: "全12集")
     let offer = try #require(await FavoriteAutoRemoval.apply(record: record("第12集"), ended: true,

@@ -47,3 +47,18 @@ private func site(_ json: String) throws -> Site {
     #expect(WatchHistory.key(siteID: "k\u{0}7", vodId: "123") == "k\u{0}7@@@123")
     #expect(WatchHistory.separator == "@@@")
 }
+
+/// IOS-POC-48: a favourite is keyed on exactly these three names — configuration identity, site
+/// identity, vod id — in `favorites.json`, and an imported file's configuration identity is the
+/// legacy `imported` or `imported:` plus a UUID, looked up by content in one `UserDefaults` table.
+/// Renaming any of them orphans every favourite, and every history record of an imported file.
+@Test func theFavoriteIdentityAndTheImportedIdentityAreFrozen() throws {
+    let identity = FavoriteIdentity(configSourceID: address, siteID: "k\u{0}7", vodID: "123")
+    let object = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(identity)) as? [String: String])
+    #expect(object == ["configSourceID": address, "siteID": "k\u{0}7", "vodID": "123"])
+    #expect(identity.historyKey == WatchHistory.key(siteID: "k\u{0}7", vodId: "123"))
+    #expect(FavoriteStore.fileName == "favorites.json")
+    #expect(ImportedConfigIdentities.key == "webhtv.importedConfig.identities")
+    #expect(ImportedConfigIdentities.prefix == "imported:")
+    #expect(ConfigSource.legacyImportedIdentity == "imported")
+}

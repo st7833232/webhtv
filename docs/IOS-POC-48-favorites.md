@@ -5,7 +5,7 @@
 - 目標：作品層級收藏（identity = `ConfigSource.identity` + `Site.id` + `Vod.id`）、imported 設定的持久 identity、片庫分頁（收藏／記錄）、詳情頁收藏按鈕、已完結影集看完最終集自動取消收藏與復原、Favorite／History／Offline ownership 分離、來源不可用狀態。
 - 驗收：第 1 節 A1–A14；測試對照見第 7 節。
 - Lane：task guard `IOS-POC-48`（`standard`），base `7573e784b8c43f2995cc4d6536798775b67ee72d`（`origin/ios-poc`）。
-- 計畫狀態：設計完成（第 5 節）→ 核心與測試 → App UI → macOS CI 驗證 → commit。
+- 計畫狀態：設計、核心與測試、App UI、macOS CI 驗證（run `37190088406`）皆完成，已 commit。
 - 下一步：見文末「目前狀態」。
 
 ## 1. 目標與驗收條件
@@ -174,7 +174,20 @@
 
 ### 7.3 macOS CI（暫時驗證分支 `ci/ios-poc-48-verify`）
 
-（待 run 結果）
+雲端 session 沒有 Xcode，比照 IOS-POC-45／47：工作區改動複製到一次性分支 `ci/ios-poc-48-verify`（另一個 git worktree，`ios-poc` 的 HEAD 不動），加一個只在該分支觸發的 workflow，在 `macos-26`（Xcode 26.6、Swift 6.3.3）上跑；base `7573e784` 與本次各跑一次全套再比對失敗清單。
+
+- Run `37188633777`（`5857700`）：推送新修正時由 `cancel-in-progress` 取消，未產生結果。
+- Run `37188753774`（`4803587`）：
+  - macOS host `swift test`：本次 928 個測試、base 853 個（+75 為新增）；兩邊都是同樣 5 個 issue，「本次失敗、base 未失敗」為空；收藏相關測試全部通過。
+  - Debug（device，未簽章）：**BUILD SUCCEEDED**；Release（device，未簽章）：**BUILD SUCCEEDED**。
+  - 警告：本任務新增／修改的程式 0 個；`WebHTVApp.swift` 列出的 4 行在既有的 `deviceInfo()`（`UIDevice.current`）與 `evaluateJavaScript`，base 同樣存在。
+  - iOS Simulator：收藏測試沒有失敗；本次多出 3 個 base 這輪沒失敗的測試，都在本任務未觸及的模組：`AdBlockListTests.blocksTheAdSubresourcesWithoutTouchingThePageOrOverMatching`、`MediaSnifferTests.overlappingSniffsCancelUnlessTheyWaitTheirTurn`（WKWebView／本機 socket），`SourceClientTests.theProbeReadsOnlyTheHeadOfABodyThatNeverEnds`（5.57 s > 5 s 時間門檻）。IOS-POC-47 也記錄過這三類在 CI 模擬器上的不穩定。
+- Run `37190088406`（`ae5d4c9`，含 reviewer 修正；`ios/` 與本任務 commit 逐檔相同）：
+  - macOS host `swift test`：本次 929 個測試、base 853 個（+76）；兩邊同樣 5 個既有 issue，「本次失敗、base 未失敗」為空；收藏相關測試全部通過。
+  - Debug（device）：**BUILD SUCCEEDED**；Release（device）：**BUILD SUCCEEDED**。
+  - 警告：本任務程式 0 個（同上，只有既有的 `deviceInfo()`／`evaluateJavaScript`）。
+  - iOS Simulator：收藏測試沒有失敗；「本次失敗、base 未失敗」只有 `SourceClientTests.theProbeReadsOnlyTheHeadOfABodyThatNeverEnds`（5.06 s > 5 s 時間門檻，run 2 為 5.57 s，IOS-POC-47 run 1 在 host 也失敗過 6.5 s）。本任務未改 `SourceClient`；run 2 多出的 AdBlock／MediaSniffer 兩項在 run 3 沒有再出現，屬既有的不穩定測試，未修改（不在本任務範圍）。
+- 暫時分支 `ci/ios-poc-48-verify` 需在 GitHub 網頁刪除（雲端 session 無法刪除遠端分支）。
 
 ## 8. 限制與待真機驗證
 
@@ -196,5 +209,5 @@
 
 ## 目前狀態
 
-- 2026-10-04：設計完成，開始實作核心（`ios/Sources/WebHTVCore/Favorites/`）。
-- 下一步：完成核心與測試，以 Linux Swift 6.2.3 scratch package 編譯與執行。
+- 2026-10-04：實作與驗證完成（第 7 節），以 task guard `IOS-POC-48` commit 到本機 `ios-poc`；尚未 push、未發布。
+- 下一步：使用者決定是否 push `ios-poc` 並確認 5.1 的匯入檔 identity 取捨；之後依第 8 節第 1 項做真機驗證。

@@ -6,7 +6,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current handoff — 2026-10-04：IOS-POC-48 收藏與片庫（先讀這一節）
 
-**IOS-POC-48**（2026-10-04）：作品層級收藏，identity = `ConfigSource.identity` + `Site.id` + `Vod.id`（`FavoriteStore`，`Application Support/Favorites/favorites.json`，逐筆容錯、壞檔另存、讀取失敗不寫入）。匯入的設定檔改為每份內容各有 identity（`imported:<UUID>`，依內容 SHA-256 查表；IOS-POC-48 之前匯入的檔仍是 `imported`）。底部分頁「記錄」改為「片庫」（收藏／記錄 segmented，預設收藏）；詳情頁右上角 ♡ 收藏／♥ 已收藏；來源可確認已完結的多集影集看完真正最終集時自動移出收藏並提供 8 秒「復原」；原站台不在目前設定時保留並標示「來源不可用」。**推翻 IOS-POC-47 的規則**：刪除／清除觀看記錄不再連帶刪除下載，收藏、記錄、下載三者各自刪除。設計、查證、驗證與限制在 `docs/IOS-POC-48-favorites.md`。**真機未驗證**。尚未 push `ios-poc`、未發布。
+**IOS-POC-48**（2026-10-04）：作品層級收藏，identity = `ConfigSource.identity` + `Site.id` + `Vod.id`（`FavoriteStore`，`Application Support/Favorites/favorites.json`，逐筆容錯、壞檔另存、讀取失敗不寫入）。匯入的設定檔改為每份內容各有 identity（`imported:<UUID>`，依內容 SHA-256 查表；IOS-POC-48 之前匯入的檔仍是 `imported`）。底部分頁「記錄」改為「片庫」（收藏／記錄 segmented，預設收藏）；詳情頁右上角 ♡ 收藏／♥ 已收藏；來源可確認已完結的多集影集看完真正最終集時自動移出收藏並提供 8 秒「復原」；原站台不在目前設定時保留並標示「來源不可用」。**推翻 IOS-POC-47 的規則**：刪除／清除觀看記錄不再連帶刪除下載，收藏、記錄、下載三者各自刪除。設計、查證、驗證與限制在 `docs/IOS-POC-48-favorites.md`。驗證：Linux Swift 6.2.3 收藏核心 64／64、20 條 mutation 全被抓到；macOS CI run `37190088406`：host 929 個測試與 base 失敗清單相同、Debug／Release device **BUILD SUCCEEDED**、Simulator 收藏測試全過。**真機未驗證**。尚未 push `ios-poc`、未發布；匯入檔「修改後重新匯入是新設定」的取捨待使用者確認（文件 5.1）。
 
 待處理：遠端暫時驗證分支 `ci/ios-poc-48-verify` 需在 GitHub 網頁刪除（與 `ci/ios-poc-45-verify`、`ci/ios-poc-47-verify` 相同，雲端 session 刪不掉）。
 

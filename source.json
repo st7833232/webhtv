@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.64",
+          "date": "2026-10-04",
+          "localizedDescription": "WebHTV 0.1.64 (65)：首頁子分類與類型、地區、年代、排序篩選改為預設收合，可手動展開／收合；切換分類重新收合，已選條件在收合時保留。維持既有來源首頁、分類、搜尋與播放行為。展開操作仍需 SideStore 真機驗收。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.64-b65/WebHTV-0.1.64-65.ipa",
+          "size": 35082545,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.63",
           "date": "2026-10-04",
           "localizedDescription": "WebHTV 0.1.63 (64)（A 版真機回報修正）。修正底部內容與回頂端按鈕遮擋、恢復原生返回導覽；片庫改為記錄優先與記錄／收藏順序。新增深色／淺色主題、搜尋收鍵盤、首頁重點回頂端與片庫／設定重點返回一層；空白搜尋恢復 Featured，避免舊搜尋回應覆蓋片單。播放器與資料邏輯保留，手勢及畫面仍需 SideStore 真機驗收。",

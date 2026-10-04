@@ -900,9 +900,8 @@ private struct CMSView: View {
     /// `key` so it can be handed straight to the source as `extend`.
     @State private var filterRows = [String: [CMSFilter]]()
     @State private var chosenFilters = [String: String]()
-    /// Parent categories whose child row the user has folded away, by group id. Empty means every
-    /// child row is shown, which is how it behaved before.
-    @State private var collapsedGroups = Set<String>()
+    /// Child categories and filter rows start folded, independently of category selection.
+    @State private var subcategoriesExpanded = false
     /// Whether the grid is scrolled to the very top, so the Top button can stay out of the way
     /// until it is useful.
     @State private var atTop = true
@@ -938,10 +937,15 @@ private struct CMSView: View {
                     if !groups.isEmpty {
                         VStack(spacing: 4) {
                             categoryRow(parentChips)
-                            if showsChildRow, let children = activeGroup?.children, !children.isEmpty {
-                                categoryRow(ForEach(children) { chip(zhTW($0.name), id: $0.id) })
+                            if !searching, !(activeGroup?.children.isEmpty ?? true) || !activeFilterRows.isEmpty {
+                                subcategoryDisclosure
+                                if subcategoriesExpanded {
+                                    if let children = activeGroup?.children, !children.isEmpty {
+                                        categoryRow(ForEach(children) { chip(zhTW($0.name), id: $0.id) })
+                                    }
+                                    ForEach(activeFilterRows) { row in filterRow(row) }
+                                }
                             }
-                            ForEach(activeFilterRows) { row in filterRow(row) }
                         }
                     }
                     if !searching, let featured = items.first {
@@ -1136,10 +1140,29 @@ private struct CMSView: View {
         .buttonStyle(.plain)
     }
 
-    /// The child row is shown unless this group was folded away.
-    private var showsChildRow: Bool {
-        guard let group = activeGroup else { return false }
-        return !collapsedGroups.contains(group.id)
+    /// Folding is presentation-only: the selected category and filter values remain in use.
+    private var subcategoryDisclosure: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) { subcategoriesExpanded.toggle() }
+        } label: {
+            HStack(spacing: 8) {
+                Label("子分類與篩選", systemImage: "slider.horizontal.3")
+                Spacer(minLength: 8)
+                if !chosenFilters.isEmpty {
+                    Text("已選 \(chosenFilters.count) 項").foregroundStyle(appAccent)
+                }
+                Text(subcategoriesExpanded ? "收合" : "展開")
+                Image(systemName: subcategoriesExpanded ? "chevron.up" : "chevron.down")
+                    .font(.caption2.weight(.semibold))
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 20)
+        .accessibilityValue(subcategoriesExpanded ? "已展開" : "已收合")
     }
 
     @ViewBuilder private func topButton(_ proxy: ScrollViewProxy) -> some View {
@@ -1161,32 +1184,18 @@ private struct CMSView: View {
         }
     }
 
-    /// A parent with children is also a disclosure control: tapping the one already listed folds
-    /// its child row away, and tapping a different one switches to it and unfolds it.
+    /// Category selection and disclosure are separate controls, including sources with filters
+    /// but no child categories.
     private func parentChip(_ group: CategoryGroup) -> some View {
         let isActive = activeGroup?.id == group.id
         let isHighlighted = !searching && isActive
-        let hasChildren = !group.children.isEmpty
-        let isCollapsed = collapsedGroups.contains(group.id)
         return Button {
             searching = false
-            if isActive && hasChildren {
-                if isCollapsed { collapsedGroups.remove(group.id) } else { collapsedGroups.insert(group.id) }
-                return
-            }
-            collapsedGroups.remove(group.id)
             let target = group.children.first?.id ?? group.parent.id
             selectCategory(target)
             Task { await load(category: target) }
         } label: {
-            HStack(spacing: 4) {
-                Text(zhTW: group.parent.name)
-                if hasChildren {
-                    // Points down when the children are hidden, up when they are showing.
-                    Image(systemName: isActive && !isCollapsed ? "chevron.up" : "chevron.down")
-                        .font(.caption2.bold())
-                }
-            }
+            Text(zhTW: group.parent.name)
             .font(.subheadline.weight(isHighlighted ? .bold : .regular))
             .foregroundStyle(isHighlighted ? Color.primary : Color.primary.opacity(0.55))
             .padding(.horizontal, 5)
@@ -1214,10 +1223,10 @@ private struct CMSView: View {
         guard selectedCategory != id else { return }
         chosenFilters.removeAll()
         selectedCategory = id
+        subcategoriesExpanded = false
     }
 
-    /// Plain chip for the 全部 entry and the child row. A parent is `parentChip`, which also folds
-    /// its children away.
+    /// Plain chip for the child row. Expansion is controlled by `subcategoryDisclosure`.
     private func chip(_ title: String, id: String?) -> some View {
         let isActive = !searching && selectedCategory == id
         return Button(title) {

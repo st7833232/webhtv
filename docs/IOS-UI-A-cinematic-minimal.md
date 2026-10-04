@@ -121,3 +121,16 @@ The first A trial commit lived on `ios-poc-ui-a-cinematic` from an older base. W
 ## Verification / release policy
 
 The user explicitly requested no separate CI run. Do not start the macOS verification workflow. The existing SideStore release workflow's unsigned Release device build is the only compile check required for this trial release. Real-device visual acceptance remains with the user after SideStore installation.
+
+## A4 — 2026-10-04：子分類與篩選預設收合
+
+- 基準：fetch 的 `origin/ios-poc` `7b6fc1d89b6bdb552a03e714ae0b5d5bd8c9183c`，獨立 `ios-ui-a4-filter-disclosure`，無 protected dirty paths。
+- 使用者兩張真機畫面：金牌首頁未選分類；薦片標亮電影並直接展示類型／地區／年代／排序。
+- 原因：CMSView.load 對 type-4／CSPSpider home 以 firstListableCategory 標亮第一分類，其他來源維持自己的首頁片單（selectedCategory=nil）。SourceClient.home 的 spider 分支只在 home.list 為空時 fallback 第一分類。這是現有來源／UI 路徑差異；此次保留原本首頁／分類載入規則。
+- 原收合機制只處理真正 child categories，activeFilterRows 無條件展開；因此沒有 child categories 的來源也無法收起篩選。
+- CMSView 現改為單一 `subcategoriesExpanded=false`，獨立「子分類與篩選」入口同時控制 children 與 filter rows。切換分類重新收合；收合／展開只改 UI state、不重新發 request、不清除篩選。收合仍顯示已選篩選數。
+- 保留 active underline、category target IDs、filter key/value、來源 API、搜尋、分頁與全部播放器／收藏／下載 domain；無 Core／engine 修改。
+- 驗證：Swift tree-sitter baseline／edited 各 0 error，scoped diff whitespace 通過；獨立 read-only review 無 Critical／Important，Ponytail 最終 diff：Lean already. Ship. 只透過既有 SideStore Release 作 device build，不另跑測試 CI。Linux Work 沒有 iOS Simulator，未做實際 SwiftUI rendering，操作／動態字級／VoiceOver／深淺主題仍需真機驗收。
+- GitHub 最新 Release 為 0.1.63 (64)，新目標 0.1.64 (65)，尚未發布完成。
+
+Recovery anchor: implementation, syntax and final review complete; next action: atomic commit and integrate latest ios-poc, then verify Release IPA and source.json.

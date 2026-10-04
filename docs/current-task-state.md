@@ -4,7 +4,13 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-04：IOS-UI-A3 真機回報修正（0.1.63／64 已發布）
+## Current handoff — 2026-10-04：IOS-UI-A4 子分類收合（實作中）
+
+基準為 fetch 最新 `origin/ios-poc` `7b6fc1d89b6bdb552a03e714ae0b5d5bd8c9183c`，獨立 branch `ios-ui-a4-filter-disclosure`，工作區乾淨。使用者問不同來源自動選分類差異，並要求子分類可收合／預設收合。首頁 CMSView 新增獨立「子分類與篩選」入口，同時收起真正子分類與類型／地區／年代／排序。切換分類重新收合，收合保留選擇，控制不觸發 API。原首頁自動選取規則保留，未改 backend／Core／player domain。詳見 `docs/IOS-UI-A-cinematic-minimal.md` A4。
+
+最新已發布仍為 0.1.63 (64)；本輪目標 0.1.64 (65)，tag 不存在已核對。Swift baseline／edited 語法各 0 error，diff whitespace 通過；獨立 review 無 Critical／Important，Ponytail：Lean already. Ship. Release device build 尚待完成，沒有真機／Simulator rendering。下一步：atomic commit，發布前再次 fetch 安全整合，再由既有 SideStore workflow 發 IPA／source.json。
+
+## Previous handoff — 2026-10-04：IOS-UI-A3 真機回報修正（0.1.63／64 已發布）
 
 本輪從再次 fetch 的 `origin/ios-poc` `c3cc8c5600b4bb70368fd1ea161d2dc16190f964` 開始，獨立 branch `ios-ui-a-device-fixes`，無 protected dirty paths。使用者回報 0.1.62 真機底部遮擋、返回手勢、鍵盤、片庫順序、缺主題與空白搜尋。詳見同一份 `docs/IOS-UI-A-cinematic-minimal.md` A3。
 

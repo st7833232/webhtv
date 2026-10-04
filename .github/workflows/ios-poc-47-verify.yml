@@ -13,12 +13,20 @@ concurrency:
   group: ios-poc-47-verify
   cancel-in-progress: true
 
+env:
+  BASE: f2f7fac407043e5c55a0a6abcd80361f7ea6e20e
+
 jobs:
   verify:
     runs-on: macos-26
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Base worktree
+        run: git worktree add ../base "$BASE"
 
       - name: Toolchain
         run: xcodebuild -version && swift --version
@@ -30,6 +38,11 @@ jobs:
           swift test --package-path ios 2>&1 | tee core-tests.log | grep -E '✘|error:|Test run with' | tail -n 150
           echo "== offline suites"
           grep -E 'Suite Offline.*(passed|failed)|Test .*Offline' core-tests.log | grep -E 'Suite|✘' | sort -u | tail -n 40 || true
+
+      - name: Base, the same pre-existing suites (macOS host)
+        continue-on-error: true
+        run: |
+          (cd ../base && swift test --package-path ios --filter 'MediaSnifferTests|SourceClientTests' 2>&1) | grep -E '✘ Test .* failed|Test run with' | sed 's/ after [0-9.]* seconds.*//' | sort -u | tail -n 40
 
       - name: Set up host Python for the native Python packages
         id: host-python
@@ -70,13 +83,19 @@ jobs:
           d=json.load(sys.stdin)["devices"]
           print(next(x["udid"] for k,v in sorted(d.items(), reverse=True) if "iOS" in k for x in v if x["name"].startswith("iPhone")))')
           echo "simulator $udid"
+          (cd ../base/ios && xcodebuild -scheme WebHTVCore -destination "id=$udid" -derivedDataPath ../../webhtv/build/CoreSimBase test > ../../webhtv/core-sim-tests-base.log 2>&1) || true
           (cd ios && xcodebuild -scheme WebHTVCore -destination "id=$udid" -derivedDataPath ../build/CoreSim test > ../core-sim-tests.log 2>&1) || true
-          grep -E '✘ Test .* failed|Test run with|TEST SUCCEEDED|TEST FAILED' core-sim-tests.log | sed 's/ after [0-9.]* seconds.*//' | sort -u | tail -n 60
+          for f in core-sim-tests-base.log core-sim-tests.log; do
+            echo "== $f"
+            grep -E '✘ Test .* failed|Test run with|TEST SUCCEEDED|TEST FAILED' "$f" | sed 's/ after [0-9.]* seconds.*//' | sed 's/ with [0-9]* issues*\.//' | sort -u | tail -n 40
+          done
+          echo "== offline on the simulator"
+          grep -E 'Suite Offline' core-sim-tests.log | sed 's/ after [0-9.]* seconds.*//' | sort -u || true
 
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-poc-47-logs
+          name: ios-poc-47-logs-2
           path: "*.log"
           retention-days: 3

@@ -221,8 +221,9 @@ public final class OfflineMediaServer: @unchecked Sendable {
             return
         }
         let reader = Reader(handle)
+        let offset = range.lowerBound
         connection.send(content: headerData, completion: .contentProcessed { [weak self] error in
-            guard error == nil, let self, reader.seek(to: range.lowerBound) else { reader.close(); connection.cancel(); return }
+            guard error == nil, let self, reader.seek(to: offset) else { reader.close(); connection.cancel(); return }
             self.stream(reader, remaining: length, on: connection)
         })
     }

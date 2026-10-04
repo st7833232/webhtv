@@ -156,13 +156,13 @@ public actor OfflineDownloadManager {
             switch asset.state {
             case .preparing:
                 // Preparing is network work in the app's own process: nothing kept it going.
-                try? store.update(asset.id, now: deps.now()) { $0.state = .queued }
+                _ = try? store.update(asset.id, now: deps.now()) { $0.state = .queued }
             case .downloading:
                 await reconnect(asset)
             case .completed:
                 if let package = asset.package,
                    !FileManager.default.fileExists(atPath: layout.folder(for: asset.id).appendingPathComponent(package.entryPath).path) {
-                    try? store.update(asset.id, now: deps.now()) {
+                    _ = try? store.update(asset.id, now: deps.now()) {
                         $0.state = .failed
                         $0.failure = OfflineFailure(.integrity, detail: "檔案遺失")
                     }
@@ -192,7 +192,7 @@ public actor OfflineDownloadManager {
     /// A download the record says is running: whatever the session no longer has is sent again.
     private func reconnect(_ asset: OfflineAsset) async {
         guard let plan = loadPlan(asset.id) else {
-            try? store.update(asset.id, now: deps.now()) {
+            _ = try? store.update(asset.id, now: deps.now()) {
                 $0.state = .failed
                 $0.failure = OfflineFailure(.interrupted)
                 $0.generation += 1
@@ -329,20 +329,20 @@ public actor OfflineDownloadManager {
         }
         let looksLikePlaylist = url.pathExtension.lowercased() == "m3u8" || url.absoluteString.lowercased().contains(".m3u8")
         if !looksLikePlaylist { request.setValue("bytes=0-1023", forHTTPHeaderField: "Range") }
-        let response = try await fetch(request)
+        let response = try await fetch(request, looksLikePlaylist ? OfflineHTTP.playlistLimit : OfflineHTTP.probeLimit)
         guard (200...299).contains(response.status) else { throw OfflineFetchError.http(response.status) }
         let head = String(decoding: response.data.prefix(16), as: UTF8.self)
         if head.hasPrefix("#EXTM3U") || head.hasPrefix("\u{FEFF}#EXTM3U") {
-            let text: String
-            if looksLikePlaylist || response.status == 200 {
-                text = String(decoding: response.data, as: UTF8.self)
-            } else {
-                var whole = URLRequest(url: url)
+            var whole = response
+            if !looksLikePlaylist && (response.status == 206 || response.truncated) {
+                var full = URLRequest(url: url)
                 for (name, value) in OfflineRequestPolicy.headers(headers, for: url, origin: url) {
-                    whole.setValue(value, forHTTPHeaderField: name)
+                    full.setValue(value, forHTTPHeaderField: name)
                 }
-                text = String(decoding: try await fetch(whole).data, as: UTF8.self)
+                whole = try await fetch(full, OfflineHTTP.playlistLimit)
             }
+            guard !whole.truncated else { throw OfflineFetchError.notMedia }
+            let text = String(decoding: whole.data, as: UTF8.self)
             return .playlist(text.replacingOccurrences(of: "\u{FEFF}", with: ""), base: response.url ?? url)
         }
         if OfflineStorage.looksLikeHTMLText(response.data) { throw OfflineFetchError.notMedia }
@@ -376,9 +376,9 @@ public actor OfflineDownloadManager {
         for (name, value) in OfflineRequestPolicy.headers(headers, for: url, origin: origin) {
             request.setValue(value, forHTTPHeaderField: name)
         }
-        let response = try await fetch(request)
+        let response = try await fetch(request, OfflineHTTP.playlistLimit)
         guard (200...299).contains(response.status) else { throw OfflineFetchError.http(response.status) }
-        guard response.data.count <= OfflineHTTP.playlistLimit,
+        guard !response.truncated,
               case .media(let media) = try HLSPlaylist.parse(String(decoding: response.data, as: UTF8.self),
                                                              base: response.url ?? url)
         else { throw OfflineFetchError.notMedia }
@@ -807,7 +807,7 @@ public actor OfflineDownloadManager {
         done[id] = nil
         removeStaging(for: id)
         let actual = store.size(of: id)
-        try? store.update(id, now: deps.now()) {
+        _ = try? store.update(id, now: deps.now()) {
             $0.state = .completed
             $0.failure = nil
             $0.actualBytes = actual
@@ -902,7 +902,7 @@ public actor OfflineDownloadManager {
         for id in Set(ids) {
             if store.asset(id) != nil {
                 // Recorded first, so a crash mid-delete is finished at the next launch.
-                try? store.update(id, now: deps.now()) {
+                _ = try? store.update(id, now: deps.now()) {
                     $0.state = .deleting
                     $0.generation += 1
                 }
@@ -957,11 +957,6 @@ public actor OfflineDownloadManager {
         publish(force: true)
     }
 
-    public func setAllowsCellular(_ allowed: Bool, for id: String) {
-        _ = try? store.update(id, now: deps.now()) { $0.allowsCellular = allowed }
-        publish(force: true)
-    }
-
     // MARK: - Lookups
 
     public func asset(_ id: String) -> OfflineAsset? { store.asset(id) }
@@ -988,7 +983,7 @@ public actor OfflineDownloadManager {
         trailingPublish = Task {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
-            await self.publishTrailing()
+            self.publishTrailing()
         }
     }
 

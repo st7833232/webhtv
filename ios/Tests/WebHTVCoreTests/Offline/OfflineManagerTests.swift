@@ -259,6 +259,17 @@ struct OfflineManagerTests {
         #expect(restarted.first?.resumeData == nil)
     }
 
+    // A server that ignores Range answers with the whole file: only the probe's worth is read.
+    @Test func theProbeNeverReadsAWholeFileIntoMemory() async throws {
+        let file = URL(string: "https://cdn.example.com/big.mp4")!
+        let body = Data([0, 0, 0, 0x20]) + Data(repeating: 7, count: OfflineHTTP.probeLimit * 4)
+        let harness = OfflineHarness(network: FakeNetwork([file.absoluteString: .init(data: body, status: 200,
+                                                                                      headers: ["content-length": "\(body.count)"])]))
+        let options = try await harness.manager.options(for: Fixture.target(file))
+        #expect(options.kind == .progressive)
+        #expect(options.option(for: .smart)?.estimate == OfflineSizeEstimate(bytes: Int64(body.count), basis: .exact))
+    }
+
     // A retry after the addresses expired resolves the episode again.
     @Test func retryAfterAnExpiredAddressResolvesAgain() async throws {
         var network = Fixture.simpleNetwork()

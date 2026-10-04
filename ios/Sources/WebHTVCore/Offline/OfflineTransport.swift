@@ -123,29 +123,65 @@ public enum OfflineRequestPolicy {
     }
 }
 
-/// Fetches a playlist or probes a progressive file in the foreground. Injected so the manager can
-/// be tested without a network.
-public typealias OfflineFetch = @Sendable (URLRequest) async throws -> (data: Data, status: Int, url: URL?, headers: [String: String])
+/// One foreground answer: at most the `limit` bytes asked for, and whether the body went on past it.
+public struct OfflineHTTPResponse: Sendable {
+    public var data: Data
+    public var status: Int
+    public var url: URL?
+    /// Lowercased names.
+    public var headers: [String: String]
+    public var truncated: Bool
+
+    public init(data: Data, status: Int, url: URL?, headers: [String: String], truncated: Bool = false) {
+        self.data = data
+        self.status = status
+        self.url = url
+        self.headers = headers
+        self.truncated = truncated
+    }
+}
+
+/// Fetches a playlist or probes a progressive file in the foreground, reading at most `limit`
+/// bytes: a server that ignores `Range` on a two-gigabyte file must not put it in memory. Injected
+/// so the manager can be tested without a network.
+public typealias OfflineFetch = @Sendable (_ request: URLRequest, _ limit: Int) async throws -> OfflineHTTPResponse
 
 public enum OfflineHTTP {
     /// Playlists are small; anything larger is not one.
     public static let playlistLimit = 8 * 1024 * 1024
+    /// Enough of a file to tell a playlist, a web page and media apart.
+    public static let probeLimit = 64 * 1024
 
     /// URLSession with redirects checked the way a credentialed transfer's are.
     public static func fetcher(origin: URL, originalHeaders: [String: String]) -> OfflineFetch {
-        { request in
+        { request, limit in
             let delegate = RedirectPolicy(origin: origin, headers: originalHeaders)
             let configuration = URLSessionConfiguration.ephemeral
             configuration.timeoutIntervalForRequest = 20
             let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
-            defer { session.finishTasksAndInvalidate() }
-            let (data, response) = try await session.data(for: request)
+            defer { session.invalidateAndCancel() }
+            var data = Data()
+            var truncated = false
+            let response: URLResponse
+            #if canImport(Darwin)
+            let (bytes, answer) = try await session.bytes(for: request)
+            response = answer
+            for try await byte in bytes {
+                guard data.count < limit else { truncated = true; break }
+                data.append(byte)
+            }
+            bytes.task.cancel()
+            #else
+            (data, response) = try await session.data(for: request)
+            if data.count > limit { data = data.prefix(limit); truncated = true }
+            #endif
             let http = response as? HTTPURLResponse
             var headers = [String: String]()
             for (key, value) in http?.allHeaderFields ?? [:] {
                 if let key = key as? String, let value = value as? String { headers[key.lowercased()] = value }
             }
-            return (data, http?.statusCode ?? 200, response.url, headers)
+            return OfflineHTTPResponse(data: data, status: http?.statusCode ?? 200, url: response.url,
+                                       headers: headers, truncated: truncated)
         }
     }
 

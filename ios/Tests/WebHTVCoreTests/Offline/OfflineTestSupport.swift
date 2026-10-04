@@ -77,11 +77,12 @@ struct FakeNetwork: Sendable {
 
     init(_ responses: [String: Response] = [:]) { self.responses = responses }
 
-    func fetch(_ request: URLRequest) throws -> (data: Data, status: Int, url: URL?, headers: [String: String]) {
+    func fetch(_ request: URLRequest, limit: Int) throws -> OfflineHTTPResponse {
         guard let url = request.url, let response = responses[url.absoluteString] else {
             throw URLError(.cannotFindHost)
         }
-        return (response.data, response.status, url, response.headers)
+        return OfflineHTTPResponse(data: response.data.prefix(limit), status: response.status, url: url,
+                                   headers: response.headers, truncated: response.data.count > limit)
     }
 }
 
@@ -127,7 +128,7 @@ struct OfflineHarness {
         }, retryDelay: .zero)
         manager = OfflineDownloadManager(.init(
             layout: layout, transport: transport, capacity: { capacity.get() },
-            fetcher: { _, _ in { request in log.append(request); return try network.fetch(request) } },
+            fetcher: { _, _ in { request, limit in log.append(request); return try network.fetch(request, limit: limit) } },
             subtitles: subtitles, retryDelay: .zero))
     }
 

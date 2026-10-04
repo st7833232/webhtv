@@ -117,7 +117,7 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
           BUILD: ${{ steps.meta.outputs.build }}
           TAG: ${{ steps.meta.outputs.tag }}
-          RELEASE_NOTES: ${{ inputs.release_notes || 'WebHTV 0.1.62 (63)（Cinematic Minimal 結構重構；真機未驗收）。首頁新增 Featured、薄搜尋與來源入口；作品詳情、片庫、搜尋重新排版；下載與設定保留原生管理介面；底部改為薄型固定導覽列。保留既有播放、收藏、觀看記錄與下載行為。' }}
+          RELEASE_NOTES: ${{ inputs.release_notes || 'WebHTV 0.1.63 (64)（A 版真機回報修正）。修正底部內容與回頂端按鈕遮擋、恢復原生返回導覽；片庫改為記錄優先與記錄／收藏順序。新增深色／淺色主題、搜尋收鍵盤、首頁重點回頂端與片庫／設定重點返回一層；空白搜尋恢復 Featured，避免舊搜尋回應覆蓋片單。播放器與資料邏輯保留，手勢及畫面仍需 SideStore 真機驗收。' }}
         run: |
           set -euo pipefail
           mkdir -p package/Payload dist
@@ -145,7 +145,7 @@ jobs:
           ASSET: ${{ steps.meta.outputs.asset }}
           VERSION: ${{ steps.meta.outputs.version }}
           BUILD: ${{ steps.meta.outputs.build }}
-          RELEASE_NOTES: ${{ inputs.release_notes || 'WebHTV 0.1.62 (63)（Cinematic Minimal 結構重構；真機未驗收）。首頁新增 Featured、薄搜尋與來源入口；作品詳情、片庫、搜尋重新排版；下載與設定保留原生管理介面；底部改為薄型固定導覽列。保留既有播放、收藏、觀看記錄與下載行為。' }}
+          RELEASE_NOTES: ${{ inputs.release_notes || 'WebHTV 0.1.63 (64)（A 版真機回報修正）。修正底部內容與回頂端按鈕遮擋、恢復原生返回導覽；片庫改為記錄優先與記錄／收藏順序。新增深色／淺色主題、搜尋收鍵盤、首頁重點回頂端與片庫／設定重點返回一層；空白搜尋恢復 Featured，避免舊搜尋回應覆蓋片單。播放器與資料邏輯保留，手勢及畫面仍需 SideStore 真機驗收。' }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
@@ -174,7 +174,7 @@ jobs:
           BUILD: ${{ steps.meta.outputs.build }}
           TAG: ${{ steps.meta.outputs.tag }}
           ASSET: ${{ steps.meta.outputs.asset }}
-          RELEASE_NOTES: ${{ inputs.release_notes || 'WebHTV 0.1.62 (63)（Cinematic Minimal 結構重構；真機未驗收）。首頁新增 Featured、薄搜尋與來源入口；作品詳情、片庫、搜尋重新排版；下載與設定保留原生管理介面；底部改為薄型固定導覽列。保留既有播放、收藏、觀看記錄與下載行為。' }}
+          RELEASE_NOTES: ${{ inputs.release_notes || 'WebHTV 0.1.63 (64)（A 版真機回報修正）。修正底部內容與回頂端按鈕遮擋、恢復原生返回導覽；片庫改為記錄優先與記錄／收藏順序。新增深色／淺色主題、搜尋收鍵盤、首頁重點回頂端與片庫／設定重點返回一層；空白搜尋恢復 Featured，避免舊搜尋回應覆蓋片單。播放器與資料邏輯保留，手勢及畫面仍需 SideStore 真機驗收。' }}
         run: |
           set -euo pipefail
           git fetch origin ios-poc

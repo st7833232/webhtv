@@ -1,7 +1,11 @@
 # IOS-POC-11：SideStore 發布流程
 
 
-## Current release — 2026-10-04：0.1.62 (63) / IOS-UI-A2
+## Current release preparation — 2026-10-04：0.1.63 (64) / IOS-UI-A3
+
+沿本 session 已授權的既有 SideStore workflow 發布真機 UI 修正；未另外執行測試 CI。最新 GitHub Release 實際為 0.1.62 (63)，下一版 0.1.63 (64)，新 tag 尚不存在。修正底部遮擋／原生返回、鍵盤／空白搜尋、片庫記錄優先、重點分頁動作及深／淺主題；播放 engine、source 和資料 ownership 不改。發布尚未完成，run／IPA／source.json 實際證據待記錄。Linux 無 Xcode／Simulator，將以既有 release device build 驗證 compilation，行為／視覺仍待真機。
+
+## Previous release — 2026-10-04：0.1.62 (63) / IOS-UI-A2
 
 已發布 `0.1.62 (63)`：2026-10-04 20:45（Asia/Taipei）。Release run [37202892439](https://github.com/st7833232/webhtv/actions/runs/37202892439) success，device Release build、IPA / SideStore schema、public Release URL byte comparison、source publish 全部 success。tag `ios-v0.1.62-b63` 指向 IPA 程式 commit `c361c637f9f2214370e7170c45be4dce6d0a0475`；workflow source commit `d7a9e418c9a28d80c6891ec5697286fc83f57485`。Release asset `WebHTV-0.1.62-63.ipa` uploaded，35,038,242 bytes，SHA-256 `355b690c71e525ed481bf223cefff3c33e87992e2befaf9ad23f21571d7bb35b`。source.json 第一筆 0.1.62，downloadURL／size 與 Release 相同，bundle `com.webhtv.ios.poc`／source identifier `com.webhtv.sidestore.source` 保持不變。
 

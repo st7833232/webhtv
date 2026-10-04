@@ -13,11 +13,27 @@ import WebHTVCore
 import WebKit
 
 // IOS-UI-A: Cinematic Minimal visual system. Playback, source, favourite and download logic stay unchanged.
-private let appBackground = Color(red: 0.018, green: 0.026, blue: 0.045)
-private let appSurface = Color(red: 0.040, green: 0.058, blue: 0.086)
-private let appRaisedSurface = Color(red: 0.060, green: 0.082, blue: 0.116)
-private let appAccent = Color(red: 0.105, green: 0.515, blue: 1.000)
-private let appStroke = Color.white.opacity(0.10)
+private let appBackground = Color(uiColor: UIColor { traits in
+    traits.userInterfaceStyle == .light ? .systemGroupedBackground : UIColor(red: 0.018, green: 0.026, blue: 0.045, alpha: 1)
+})
+private let appSurface = Color(uiColor: UIColor { traits in
+    traits.userInterfaceStyle == .light ? .secondarySystemGroupedBackground : UIColor(red: 0.040, green: 0.058, blue: 0.086, alpha: 1)
+})
+private let appRaisedSurface = Color(uiColor: UIColor { traits in
+    traits.userInterfaceStyle == .light ? .tertiarySystemGroupedBackground : UIColor(red: 0.060, green: 0.082, blue: 0.116, alpha: 1)
+})
+private let appAccent = Color(uiColor: UIColor { traits in
+    traits.userInterfaceStyle == .light ? UIColor(red: 0, green: 0.36, blue: 0.78, alpha: 1) : UIColor(red: 0.105, green: 0.515, blue: 1, alpha: 1)
+})
+private let appStroke = Color(uiColor: .separator).opacity(0.45)
+private let appAppearanceKey = "appAppearance"
+
+private enum AppAppearance: String, CaseIterable, Identifiable {
+    case dark, light
+    var id: String { rawValue }
+    var title: String { self == .dark ? "深色" : "淺色" }
+    var scheme: ColorScheme { self == .dark ? .dark : .light }
+}
 private let selectedSiteKey = "selectedSiteKey"
 /// IOS-POC-19: `[ConfigSource.identity: SiteSelection.token]`, the site each source was left on.
 private let siteBySourceKey = "selectedSiteBySource"
@@ -26,6 +42,7 @@ private let configUpdatedAtKey = "configUpdatedAt"
 
 @main
 struct WebHTVApp: App {
+    @AppStorage(appAppearanceKey) private var appearance = AppAppearance.dark
     /// IOS-POC-47: the download session's background events.
     @UIApplicationDelegateAdaptor(OfflineAppDelegate.self) private var offlineDelegate
 
@@ -90,7 +107,7 @@ struct WebHTVApp: App {
     var body: some Scene {
         WindowGroup {
             ConfigView()
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(appearance.scheme)
                 .tint(appAccent)
         }
     }
@@ -101,6 +118,9 @@ private struct ConfigView: View {
     @State private var selectedSiteID: Site.ID?
     @State private var selectedTab = 0
     @State private var keyboardVisible = false
+    @State private var homeTopRequest = 0
+    @State private var libraryNavigation = TabReturnActions()
+    @State private var settingsNavigation = TabReturnActions()
     @State private var error: String?
     @State private var importing = false
     /// The remote-URL prompt, which the empty state needs as much as the settings page does.
@@ -145,8 +165,9 @@ private struct ConfigView: View {
                     .appNavigationBar()
                 }
             } else {
+                VStack(spacing: 0) {
                 TabView(selection: $selectedTab) {
-                    HomeView(sites: sites, selectedSiteID: pickedSite, source: source)
+                    HomeView(sites: sites, selectedSiteID: pickedSite, source: source, topRequest: homeTopRequest)
                         .toolbar(.hidden, for: .tabBar)
                         .tag(0)
                         .tabItem { Label("首頁", systemImage: "play.rectangle.fill") }
@@ -163,6 +184,7 @@ private struct ConfigView: View {
                     NavigationStack {
                         LibraryView(sites: sites, source: source)
                     }
+                    .environment(\.tabReturnActions, libraryNavigation)
                     .tag(1)
                     .toolbar(.hidden, for: .tabBar)
                     .tabItem { Label("片庫", systemImage: "rectangle.stack.fill") }
@@ -197,18 +219,21 @@ private struct ConfigView: View {
                             onForget: { entry in forget(entry) }
                         )
                     }
+                    .environment(\.tabReturnActions, settingsNavigation)
                     .tag(2)
                     .toolbar(.hidden, for: .tabBar)
                     .tabItem { Label("設定", systemImage: "gearshape.fill") }
                 }
                 .toolbar(.hidden, for: .tabBar)
-                .safeAreaInset(edge: .bottom, spacing: 0) {
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // A sibling reserves actual height even when the native TabView does not pass an
+                // outer safeAreaInset through to its navigation/scroll containers (iOS 27).
                     VStack(spacing: 0) {
                         // Reserve real space above the bar so Undo stays reachable at large text sizes.
                         if let offer = favoriteLibrary.undoOffer, !favoriteLibrary.playerOpen {
                             FavoriteUndoBanner(offer: offer).padding(.vertical, 8)
                         }
-                        if !keyboardVisible { CinematicTabBar(selection: $selectedTab) }
+                        if !keyboardVisible { CinematicTabBar(selection: selectedTab, onSelect: selectTab) }
                     }
                 }
                 .appWallpaper()
@@ -258,6 +283,18 @@ private struct ConfigView: View {
             Button("確定", role: .cancel) {}
         } message: {
             Text(error ?? "未知錯誤")
+        }
+    }
+
+    private func selectTab(_ tab: Int) {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        guard selectedTab == tab else { selectedTab = tab; return }
+        switch tab {
+        case 0:
+            homeTopRequest += 1
+        case 1: libraryNavigation.popOneLevel()
+        case 2: settingsNavigation.popOneLevel()
+        default: break
         }
     }
 
@@ -570,8 +607,65 @@ private struct ConfigView: View {
 
 // MARK: - Cinematic Minimal presentation (no domain/data ownership)
 
+private struct CinematicWallpaper: View {
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        ZStack {
+            appBackground
+            if scheme == .dark {
+                LinearGradient(colors: [Color(red: 0.022, green: 0.038, blue: 0.070), appBackground, .black],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                RadialGradient(colors: [appAccent.opacity(0.13), .clear], center: .topTrailing,
+                               startRadius: 0, endRadius: 430)
+                RadialGradient(colors: [Color.indigo.opacity(0.08), .clear], center: .bottomLeading,
+                               startRadius: 0, endRadius: 360)
+            } else {
+                LinearGradient(colors: [appAccent.opacity(0.035), .clear],
+                               startPoint: .topTrailing, endPoint: .bottomLeading)
+            }
+        }
+        .ignoresSafeArea()
+    }
+}
+
+/// The top visible page supplies its own public SwiftUI dismiss; no path, model or UIKit
+/// navigation delegate is owned here. Underlying pages cannot clear a newer page's action.
+@MainActor
+private final class TabReturnActions {
+    private var targets: [(id: UUID, dismiss: () -> Void)] = []
+    func register(_ id: UUID, dismiss: @escaping () -> Void) {
+        unregister(id)
+        targets.append((id, dismiss))
+    }
+    func unregister(_ id: UUID) { targets.removeAll { $0.id == id } }
+    func popOneLevel() { targets.last?.dismiss() }
+}
+
+private struct TabReturnActionsKey: EnvironmentKey {
+    static let defaultValue: TabReturnActions? = nil
+}
+
+private extension EnvironmentValues {
+    var tabReturnActions: TabReturnActions? {
+        get { self[TabReturnActionsKey.self] }
+        set { self[TabReturnActionsKey.self] = newValue }
+    }
+}
+
+private struct TabReturnTarget: ViewModifier {
+    @Environment(\.tabReturnActions) private var actions
+    @Environment(\.dismiss) private var dismiss
+    @State private var id = UUID()
+    func body(content: Content) -> some View {
+        content
+            .onAppear { actions?.register(id, dismiss: { dismiss() }) }
+            .onDisappear { actions?.unregister(id) }
+    }
+}
+
 private struct CinematicTabBar: View {
-    @Binding var selection: Int
+    let selection: Int
+    let onSelect: (Int) -> Void
     @Environment(\.dynamicTypeSize) private var textSize
     private let tabs: [(tag: Int, title: String, icon: String)] = [
         (0, "首頁", "house.fill"), (3, "搜尋", "magnifyingglass"),
@@ -582,12 +676,12 @@ private struct CinematicTabBar: View {
     var body: some View {
         HStack(spacing: 0) {
             ForEach(tabs, id: \.tag) { tab in
-                Button { selection = tab.tag } label: {
+                Button { onSelect(tab.tag) } label: {
                     VStack(spacing: 4) {
                         Image(systemName: tab.icon).font(.system(size: 19, weight: .medium))
                         Text(tab.title).font(.caption2.weight(selection == tab.tag ? .semibold : .regular))
                     }
-                    .foregroundStyle(selection == tab.tag ? appAccent : .white.opacity(0.60))
+                    .foregroundStyle(selection == tab.tag ? appAccent : .primary.opacity(0.60))
                     .frame(maxWidth: .infinity, minHeight: textSize.isAccessibilitySize ? 64 : 50)
                     .contentShape(Rectangle())
                 }
@@ -625,6 +719,7 @@ private struct CinematicSearchField: View {
             if !text.isEmpty {
                 Button {
                     text = ""
+                    focused = false
                     onClear?()
                 } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -632,17 +727,30 @@ private struct CinematicSearchField: View {
                 }
                 .accessibilityLabel("清除搜尋")
             }
+            if focused {
+                Button { focused = false } label: {
+                    Image(systemName: "keyboard.chevron.compact.down")
+                        .foregroundStyle(.secondary).frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("收起鍵盤")
+            }
             Button { focused = false; onSubmit() } label: {
                 Image(systemName: "arrow.right").font(.subheadline.weight(.semibold))
                     .frame(width: 44, height: 44)
             }
-            .disabled(text.isEmpty)
             .accessibilityLabel("搜尋")
         }
         .buttonStyle(.plain)
         .padding(.leading, 14)
         .background(appSurface, in: RoundedRectangle(cornerRadius: 10))
         .overlay { RoundedRectangle(cornerRadius: 10).stroke(appStroke, lineWidth: 0.5) }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("完成") { focused = false }
+            }
+        }
+        .onDisappear { focused = false }
     }
 }
 
@@ -701,7 +809,7 @@ private struct CinematicChoice: View {
     var body: some View {
         Button(action: action) {
             Text(title).font(.subheadline.weight(selected ? .semibold : .regular))
-                .foregroundStyle(selected ? .white : .white.opacity(0.65))
+                .foregroundStyle(selected ? .primary : .primary.opacity(0.65))
                 .padding(.horizontal, 14)
                 .frame(minHeight: 44)
                 .background(selected ? appAccent.opacity(0.20) : appSurface,
@@ -719,6 +827,8 @@ private struct HomeView: View {
     /// Needed only so a rule-engine spider can resolve a relative `ext` such as
     /// `./json/农民影视.json` against the configuration's own directory.
     let source: ConfigSource
+
+    var topRequest = 0
 
     @State private var picking = false
     @AppStorage(siteHealthSortKey) private var healthSort = true
@@ -768,7 +878,7 @@ private struct HomeView: View {
 
     var body: some View {
         NavigationStack {
-            CMSView(site: selectedSite, source: source, onPickSource: { picking = true })
+            CMSView(site: selectedSite, source: source, onPickSource: { picking = true }, topRequest: topRequest)
                 .sheet(isPresented: $picking) { sourcePicker }
         }
         // Keep the established source-switch identity: detail navigation and listing state belong
@@ -782,6 +892,7 @@ private struct CMSView: View {
     let source: ConfigSource
     var initialQuery: String?
     var onPickSource: (() -> Void)?
+    var topRequest = 0
     @State private var items = [Vod]()
     @State private var groups = [CategoryGroup]()
     @State private var selectedCategory: String?
@@ -803,6 +914,8 @@ private struct CMSView: View {
     @State private var canLoadMore = true
     /// IOS-POC-33: where a search's 載入更多 is, per keyword form. Nil for a category or the home list.
     @State private var searchCursor: DualScriptSearch.Cursor?
+    /// Clearing a submitted search must not be overwritten by that search's late answer.
+    @State private var listingGeneration = 0
     @State private var loadingMore = false
     @State private var loading = false
     @State private var error: String?
@@ -816,8 +929,7 @@ private struct CMSView: View {
                     Color.clear.frame(height: 0).id(Self.topAnchor)
                     homeHeader
                     CinematicSearchField(text: $query, prompt: "搜尋此來源的影片", onSubmit: {
-                        searching = true
-                        Task { await load(search: query) }
+                        submitSearch()
                     }, onClear: {
                         searching = false
                         Task { await load(category: selectedCategory) }
@@ -846,8 +958,12 @@ private struct CMSView: View {
                     if loadingMore { ProgressView().frame(maxWidth: .infinity).padding(.bottom, 16) }
                 }
                 .padding(.bottom, 24)
+                .dismissKeyboardOnBackgroundTap()
             }
-            .scrollDismissesKeyboard(.interactively)
+            .scrollDismissesKeyboard(.immediately)
+            .onChange(of: topRequest) {
+                withAnimation { proxy.scrollTo(Self.topAnchor, anchor: .top) }
+            }
             .overlay(alignment: .bottomTrailing) { topButton(proxy) }
             .refreshable {
                 if searching, !query.isEmpty { await load(search: query) }
@@ -856,12 +972,28 @@ private struct CMSView: View {
         }
         .appWallpaper()
         .toolbar(.hidden, for: .navigationBar)
+        .onChange(of: query) { _, text in
+            if searching && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                searching = false
+                Task { await load(category: selectedCategory) }
+            }
+        }
         .task {
             guard items.isEmpty else { return }
             guard let initialQuery, !initialQuery.isEmpty else { return await load() }
             query = initialQuery
             searching = true
             await load(search: initialQuery)
+        }
+    }
+
+    private func submitSearch() {
+        let keyword = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        query = keyword
+        searching = !keyword.isEmpty
+        Task {
+            if keyword.isEmpty { await load(category: selectedCategory) }
+            else { await load(search: keyword) }
         }
     }
 
@@ -874,7 +1006,7 @@ private struct CMSView: View {
                     Text(zhTW: site.name.displayName).font(.caption.weight(.medium)).lineLimit(1)
                     if onPickSource != nil { Image(systemName: "chevron.down").font(.caption2) }
                 }
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(.primary.opacity(0.72))
                 .frame(maxWidth: 170, alignment: .trailing)
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
@@ -895,7 +1027,7 @@ private struct CMSView: View {
                 CinematicHeroArt(picture: vod.picture).frame(height: 260)
                     .overlay(alignment: .bottomLeading) {
                         Text("FEATURED").font(.caption2.weight(.bold)).tracking(2)
-                            .foregroundStyle(.white.opacity(0.75)).padding(.horizontal, 20).padding(.bottom, 8)
+                            .foregroundStyle(.primary.opacity(0.75)).padding(.horizontal, 20).padding(.bottom, 8)
                     }
                 VStack(alignment: .leading, spacing: 9) {
                     Text(zhTW: vod.name).font(.title.weight(.bold)).lineLimit(2)
@@ -912,7 +1044,7 @@ private struct CMSView: View {
                 }
                 .padding(.horizontal, 20)
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -974,7 +1106,7 @@ private struct CMSView: View {
             HStack(spacing: 8) {
                 Text(zhTW: row.displayName)
                     .font(.caption).bold()
-                    .foregroundStyle(.white.opacity(0.75))
+                    .foregroundStyle(.primary.opacity(0.75))
                     .frame(minWidth: 34, alignment: .leading)
                 ForEach(row.options) { option in
                     filterChip(row: row.key, option: option)
@@ -996,7 +1128,7 @@ private struct CMSView: View {
         } label: {
             Text(zhTW: option.name)
                 .font(.footnote)
-                .foregroundStyle(isActive ? appAccent : .white.opacity(0.60))
+                .foregroundStyle(isActive ? appAccent : .primary.opacity(0.60))
                 .padding(.horizontal, 11)
                 .frame(minHeight: 44)
                 .background(isActive ? appAccent.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
@@ -1017,10 +1149,10 @@ private struct CMSView: View {
             } label: {
                 Image(systemName: "chevron.up")
                     .font(.headline.bold())
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .frame(width: 44, height: 44)
                     .background(appSurface.opacity(0.9), in: Circle())
-                    .overlay(Circle().stroke(.white.opacity(0.25), lineWidth: 1))
+                    .overlay(Circle().stroke(appStroke, lineWidth: 1))
             }
             .buttonStyle(.plain)
             .padding(.trailing, 16)
@@ -1056,7 +1188,7 @@ private struct CMSView: View {
                 }
             }
             .font(.subheadline.weight(isHighlighted ? .bold : .regular))
-            .foregroundStyle(isHighlighted ? .white : .white.opacity(0.55))
+            .foregroundStyle(isHighlighted ? .primary : .primary.opacity(0.55))
             .padding(.horizontal, 5)
             .frame(minHeight: 44)
             .overlay(alignment: .bottom) {
@@ -1095,7 +1227,7 @@ private struct CMSView: View {
         }
         .buttonStyle(.plain)
         .font(.subheadline.weight(isActive ? .bold : .regular))
-        .foregroundStyle(isActive ? appAccent : .white.opacity(0.60))
+        .foregroundStyle(isActive ? appAccent : .primary.opacity(0.60))
         .padding(.horizontal, 8)
         .frame(minHeight: 44)
         .accessibilityAddTraits(isActive ? .isSelected : [])
@@ -1103,8 +1235,9 @@ private struct CMSView: View {
 
     private func loadMore() async {
         guard canLoadMore, !loadingMore, !loading else { return }
+        let generation = listingGeneration
         loadingMore = true
-        defer { loadingMore = false }
+        defer { if generation == listingGeneration { loadingMore = false } }
         // IOS-POC-33: search results page each keyword form of the keyword they were found with, not
         // the text now in the field.
         if searching, let cursor = searchCursor {
@@ -1115,12 +1248,13 @@ private struct CMSView: View {
                     try await client.search(keyword, page: page).list
                 }
                 // Another keyword, or a listing, came on screen meanwhile: this page belongs to the old one.
-                guard searchCursor == cursor else { return }
+                guard generation == listingGeneration, searchCursor == cursor else { return }
                 // Onto what is on screen now, which a refresh of the same keyword may have replaced.
                 items = items.merging(newTitlesFrom: Array(next.vods.dropFirst(shown.count)))
                 searchCursor = next.cursor
                 canLoadMore = !next.cursor.isFinished
             } catch {
+                guard generation == listingGeneration else { return }
                 canLoadMore = false
             }
             return
@@ -1128,11 +1262,13 @@ private struct CMSView: View {
         do {
             let next = page + 1
             let response = try await listing(page: next)
+            guard generation == listingGeneration else { return }
             let merged = items.merging(newTitlesFrom: response.list)
             guard merged.count > items.count else { canLoadMore = false; return }
             items = merged
             page = next
         } catch {
+            guard generation == listingGeneration else { return }
             // Keep what is already on screen and stop rather than retrying a failing page on every scroll.
             canLoadMore = false
         }
@@ -1149,6 +1285,8 @@ private struct CMSView: View {
     }
 
     private func load(search: String? = nil, category: String? = nil) async {
+        listingGeneration += 1
+        let generation = listingGeneration
         let started = ContinuousClock.now
         let searched = !(search ?? "").isEmpty
         loading = true
@@ -1156,11 +1294,13 @@ private struct CMSView: View {
         page = 1
         canLoadMore = true
         searchCursor = nil
-        defer { loading = false }
+        loadingMore = false
+        defer { if generation == listingGeneration { loading = false } }
         do {
             let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
             let response: CMSResponse
             var titles: [Vod]?
+            var cursor: DualScriptSearch.Cursor?
             if let search, !search.isEmpty {
                 // IOS-POC-33: the Simplified form (IOS-POC-20), then the keyword as typed when it
                 // differs, merged. The first answer's response supplies everything but the titles.
@@ -1169,12 +1309,14 @@ private struct CMSView: View {
                     search: { keyword in try await client.search(keyword) })
                 response = answer.page
                 titles = answer.vods
-                searchCursor = answer.cursor
+                cursor = answer.cursor
             } else if let category {
                 response = try await client.category(id: category, extend: chosenFilters)
             } else {
                 response = try await client.home()
             }
+            guard generation == listingGeneration else { return }
+            searchCursor = cursor
             items = titles ?? response.list
             // IOS-POC-41A: a spider home whose first category could not be fetched keeps its
             // categories and says why under them, instead of 「沒有內容」.
@@ -1197,6 +1339,7 @@ private struct CMSView: View {
                 selectedCategory = response.firstListableCategory?.id
             }
         } catch {
+            guard generation == listingGeneration else { return }
             self.error = error.localizedDescription
             if !isCancellation(error) {
                 recordHealth(searched ? .search(count: 0, milliseconds: elapsedMilliseconds(since: started)) : .browse,
@@ -1219,7 +1362,7 @@ private struct VodCard: View {
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(.primary)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
@@ -1309,8 +1452,9 @@ private struct AggregateSearchView: View {
                     }
                     .padding(.bottom, 24)
                 }
-                .scrollDismissesKeyboard(.interactively)
+                .scrollDismissesKeyboard(.immediately)
             }
+            .dismissKeyboardOnBackgroundTap()
             .appWallpaper()
             .toolbar(.hidden, for: .navigationBar)
         }
@@ -1376,7 +1520,7 @@ private struct AggregateSearchView: View {
             if searching { Button("停止") { stop() }.fontWeight(.semibold) }
         }
         .font(.caption)
-        .foregroundStyle(.white)
+        .foregroundStyle(.primary)
         .padding(.horizontal, 20)
         .padding(.top, 4)
     }
@@ -1539,6 +1683,7 @@ private struct SubtitleSourceSettingsView: View {
             }
         }
         .navigationTitle("線上字幕來源")
+        .appNavigationBar()
     }
 }
 
@@ -1602,6 +1747,7 @@ private struct SettingsView: View {
     @State private var renameText = ""
     @AppStorage(siteHealthSortKey) private var healthSort = true
     @State private var healthCleared = false
+    @AppStorage(appAppearanceKey) private var appearance = AppAppearance.dark
     /// IOS-POC-17: `globalDefaultEngine`. Mirrored here only so the checkmark redraws.
     @State private var defaultEngine = PlaybackSession.shared.globalDefaultEngine
     /// IOS-POC-25: Android's 智慧去廣. Mirrored here only so the switch redraws.
@@ -1619,6 +1765,12 @@ private struct SettingsView: View {
     var body: some View {
         List {
             Group {
+            Section("外觀") {
+                Picker("主題", selection: $appearance) {
+                    ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+            }
             // IOS-POC-17. Where a new playback starts; the player's own bar can switch one session
             // without touching this.
             //
@@ -2163,7 +2315,6 @@ private struct VodView: View {
     /// full grid, so a title with four lines and eighty episodes meant scrolling past three
     /// hundred buttons to reach the bottom one.
     @State private var selectedFlag: String?
-    @Environment(\.dismiss) private var dismiss
     @State private var showsPoster = false
     @State private var synopsisExpanded = false
     /// IOS-POC-32 D: the machine translation of a Japanese title and synopsis, and whether the
@@ -2223,9 +2374,11 @@ private struct VodView: View {
             }
         }
         .appWallpaper()
-        .toolbar(.hidden, for: .navigationBar)
-        .navigationBarBackButtonHidden()
-        .safeAreaInset(edge: .top, spacing: 0) { detailNavigation }
+        .appNavigationBar()
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { detailFavorite }
+        }
         .sheet(isPresented: $showsPoster) {
             NavigationStack {
                 VodPoster(picture: posterPicture).padding(20).appWallpaper()
@@ -2271,22 +2424,12 @@ private struct VodView: View {
 
     private var posterPicture: String { summary.picture.isEmpty ? (detail?.picture ?? "") : summary.picture }
 
-    private var detailNavigation: some View {
-        HStack {
-            Button { dismiss() } label: {
-                Image(systemName: "chevron.left").font(.body.weight(.semibold))
-                    .foregroundStyle(.white).frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain).accessibilityLabel("返回")
-            Spacer()
-            FavoriteToggle(isFavorite: favoriteLibrary.contains(favoriteIdentity)) {
-                let identity = favoriteIdentity, snapshot = favoriteSnapshot
-                Task { await favoriteLibrary.toggle(identity, snapshot: snapshot) }
-            }
-            .disabled(!favoriteIdentity.isComplete)
+    private var detailFavorite: some View {
+        FavoriteToggle(isFavorite: favoriteLibrary.contains(favoriteIdentity)) {
+            let identity = favoriteIdentity, snapshot = favoriteSnapshot
+            Task { await favoriteLibrary.toggle(identity, snapshot: snapshot) }
         }
-        .padding(.horizontal, 12)
-        .background(appBackground)
+        .disabled(!favoriteIdentity.isComplete)
     }
 
     private func detailHeader(_ detail: Vod) -> some View {
@@ -2381,7 +2524,7 @@ private struct VodView: View {
                     Text(zhTW(episode.name)).font(.subheadline.weight(lastWatched ? .bold : .medium)).lineLimit(2)
                     OfflineEpisodeStatus(identity: download)
                 }
-                .foregroundStyle(lastWatched ? appAccent : .white)
+                .foregroundStyle(lastWatched ? appAccent : .primary)
                 .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
                 .padding(.leading, 12)
                 .contentShape(Rectangle())
@@ -3107,18 +3250,18 @@ final class FavoriteLibrary {
     func playerClosed() { playerOpen = false }
 }
 
-/// 片庫 — two stores, one content segment. Opens on 收藏; neither store is copied or merged.
+/// 片庫 — opens on 記錄. Display order only; neither store is copied or merged.
 private struct LibraryView: View {
     let sites: [Site]
     let source: ConfigSource
-    @State private var section = LibrarySection.initial
+    @State private var section = LibrarySection.history
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("片庫").font(.largeTitle.weight(.bold))
                 .padding(.horizontal, 20).padding(.top, 12)
             HStack(spacing: 8) {
-                ForEach(LibrarySection.allCases) { item in
+                ForEach([LibrarySection.history, .favorites]) { item in
                     CinematicChoice(title: item.title, selected: section == item) { section = item }
                 }
                 Spacer()
@@ -3169,9 +3312,10 @@ private struct FavoritesView: View {
                     }
                     .padding(.horizontal, 20).padding(.bottom, 24)
                 }
-                .scrollDismissesKeyboard(.interactively)
+                .scrollDismissesKeyboard(.immediately)
             }
         }
+        .dismissKeyboardOnBackgroundTap()
         .appWallpaper()
         .task {
             await favoriteLibrary.reload()
@@ -3223,6 +3367,7 @@ private struct FavoriteCard: View {
                 .overlay(alignment: .topLeading) {
                     if !available {
                         Text("來源不可用").font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
                             .padding(6).background(.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 4))
                             .padding(6)
                     }
@@ -7505,6 +7650,7 @@ private struct PlayerView: View {
                     .ignoresSafeArea()
             }
         }
+        .preferredColorScheme(.dark)
         .overlay {
             // IOS-POC-45: an online subtitle under AVPlayer, drawn here because AVPlayer cannot
             // side-load one into a streamed item; mpv draws its own. Never takes a touch.
@@ -7893,32 +8039,15 @@ private extension View {
     /// lost to backgrounds SwiftUI re-applies on its next layout pass. **Do not reach into UIKit for
     /// this.**
     func appWallpaper() -> some View {
+        background { CinematicWallpaper() }
+    }
+
+    /// Only the background participates: TextField/links/buttons retain their own hit targets.
+    func dismissKeyboardOnBackgroundTap() -> some View {
         background {
-            ZStack {
-                appBackground
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.022, green: 0.038, blue: 0.070),
-                        appBackground,
-                        Color.black
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                RadialGradient(
-                    colors: [appAccent.opacity(0.13), .clear],
-                    center: .topTrailing,
-                    startRadius: 0,
-                    endRadius: 430
-                )
-                RadialGradient(
-                    colors: [Color.indigo.opacity(0.08), .clear],
-                    center: .bottomLeading,
-                    startRadius: 0,
-                    endRadius: 360
-                )
+            Color.clear.contentShape(Rectangle()).onTapGesture {
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             }
-            .ignoresSafeArea()
         }
     }
 
@@ -7926,7 +8055,7 @@ private extension View {
         toolbar(.visible, for: .navigationBar)
             .toolbarBackground(appBackground, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .modifier(TabReturnTarget())
     }
 
     /// IOS-POC-46: a toolbar item's own label (the home screen's source name), legible over the

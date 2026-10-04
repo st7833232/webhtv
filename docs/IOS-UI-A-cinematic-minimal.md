@@ -1,5 +1,38 @@
 # IOS-UI-A — Cinematic Minimal
 
+## A3 — 0.1.62 真機回報修正（2026-10-04）
+
+基準：重新 fetch 的 `origin/ios-poc`，`c3cc8c5600b4bb70368fd1ea161d2dc16190f964`。使用者提供實際畫面及八項操作問題；沿用同一份 A 版任務文件。範圍僅 View／主題偏好、發布 metadata 與交接文件；播放器、來源、收藏／歷史、下載的 domain ownership 與 identity 不變。
+
+| 真機問題／要求 | 程式／layout 定位（runtime 待真機驗證） | 修正與驗收 |
+| --- | --- | --- |
+| 底部無法完整滑到；回頂端按鈕被蓋住 | safeAreaInset 位於 TabView 外層；截圖顯示 scroll 內容延伸到 bar 後方，推測 inset 沒有可靠傳到內層 | TabView 與自訂 bar 改成 VStack 兄弟，內容框實際縮短；末列與浮動按鈕須完整露出 |
+| 多層右滑返回失效 | VodView 隱藏原生 navigation bar／back button，使用自訂 dismiss header | 恢復原生返回與 toolbar heart，讓系統管理互動返回；不替換 gesture delegate |
+| 片庫預設／順序 | UI 直接使用 core LibrarySection.initial／allCases（收藏優先） | 只在 UI 改成記錄優先、順序記錄／收藏；不改 store 或 core enum |
+| 搜尋 focus／鍵盤收不起來 | 搜尋框只在 submit 放 focus；空白時 submit 被 disabled | 可見收鍵盤按鈕、keyboard 完成、空白背景 dismissal、scroll immediate dismissal；清除／離開也解除 focus |
+| 缺主題設定 | WindowGroup 強制 dark，內容與 surface 部分寫死 white | 原生設定新增深色／淺色，AppStorage 持久保存，預設深色；semantic labels／動態 surface；播放器維持純黑 |
+| 重點分頁行為 | 按鈕僅重設相同 selection，沒有事件 | 重點首頁送 ScrollViewReader 回頂端事件；重點片庫／設定呼叫目前最上層 SwiftUI dismiss，一次只回一層 |
+| 空白搜尋使 Hero 消失 | onSubmit 無條件 searching=true，load 卻把空字串當 browse | 提交先 trim；空白走返回來源片單且 searching=false；非空才 search |
+
+設計選擇：保留 A 版與原生 TabView 的各分頁生命週期。相較不修（持續遮擋），或全改 value routing／重建各 stack（擴大導航 scope），採狹義 UI 修正：固定底部 layout、系統 back、每個 native 頁面註冊其公開 SwiftUI dismiss。主題採公開 AppStorage／preferredColorScheme／動態 UIKit 色彩；不新增依賴，不更動 engine、網路、ABI、來源或資料模型。Apple 官方文件：preferredColorScheme、EnvironmentValues.dismiss、AppStorage、scrollDismissesKeyboard（2026-10-04，原始官方來源；實際文件擷取記錄在 scratch）。沒有 upstream 合併／效能／binary／研究論文問題，相關證據類別不適用。
+
+執行計畫（直接執行授權沿用本 session）：
+- [x] 修正 ConfigView bottom layout、重點 tab 事件與原生返回。
+- [x] 修正搜尋 focus／空白提交、片庫順序與深淺主題。
+- [x] 一次必要 Swift syntax／domain 保留比對、final Ponytail／read-only review；不另跑測試 CI。
+- [ ] 再 fetch 安全整合，依最新 Releases 決定新版本，沿既有 SideStore workflow 建置與發布。
+- [ ] 核對公開 IPA／source.json，寫回實際 commit／run／asset 證據。
+
+限制：Linux 無 Simulator／SwiftUI rendering；使用者截圖是失敗重現證據，程式檢查與 Release device build 不能取代 SideStore 手勢／focus／layout／淺色真機驗收。回退：在最新 ios-poc revert 本次 presentation commit，發布更高版本；不移動舊 tag／清除資料。
+
+官方證據 URLs：[preferredColorScheme](https://developer.apple.com/documentation/swiftui/view/preferredcolorscheme(_:))、[dismiss](https://developer.apple.com/documentation/swiftui/environmentvalues/dismiss)、[AppStorage](https://developer.apple.com/documentation/swiftui/appstorage)、[scrollDismissesKeyboard](https://developer.apple.com/documentation/swiftui/view/scrolldismisseskeyboard(_:))。實際 Markdown 全文已擷取／閱讀；dismiss 必須在目的頁自己的 environment 取得，故以每頁 ViewModifier 註冊與撤銷 action，不操作 UIKit delegate 或遷移 navigation identity。
+
+程式證據：tree-sitter baseline／edited 均 0 syntax error；12 protected data／engine 宣告 byte-identical；PlayerView 僅增加 presentation 的 preferredColorScheme(.dark)，protected methods 全部未變。CMS load／loadMore 只有必要 UI generation guard，source client／API／資料 identity 不變。Review 修正：淺色的 unavailable badge 明確 white-on-black、FEATURED semantic label；SubtitleSourceSettingsView 加上原生 nav 與 dismiss 註冊。Home 重點只送 scroll event，不額外 pop；Library／Settings 才 pop 一層。
+
+Final read-only review：所有四項 finding 已修正（Home 不額外 pop、badge／FEATURED 淺色對比、字幕設定 dismiss 註冊）；無剩餘 Critical／Important。Ponytail：Lean already. Ship. 不能由靜態檢查證明 UIKit／SwiftUI lifecycle timing、背景點擊或手勢像素行為，保留真機驗收。
+
+Recovery anchor：IOS-UI-A3 guard active，branch ios-ui-a-device-fixes，clean start，無 protected dirty paths。0.1.62 (63) 仍為實際最新 Release，新 tag 0.1.63 (64) 不存在。下一步：最後 fetch／原子整合並發布；尚未發布。
+
 ## A2 structure redesign — 2026-10-04 (current task)
 
 User explicitly authorized complete UI implementation and SideStore publication without intermediate approval or separate test CI. Fetched baseline: `1bf5d7ade62b7ba14e9f60b5bbfed7585004e67c`. Previous sections below describe the first theme trial, not this redesign's completion or release state.

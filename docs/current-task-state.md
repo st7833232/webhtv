@@ -4,7 +4,17 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-04：IOS-UI-A2 真正結構重構（0.1.62／63 已發布）
+## Current handoff — 2026-10-04：IOS-UI-A3 真機回報修正（發布準備）
+
+本輪從再次 fetch 的 `origin/ios-poc` `c3cc8c5600b4bb70368fd1ea161d2dc16190f964` 開始，獨立 branch `ios-ui-a-device-fixes`，無 protected dirty paths。使用者回報 0.1.62 真機底部遮擋、返回手勢、鍵盤、片庫順序、缺主題與空白搜尋。詳見同一份 `docs/IOS-UI-A-cinematic-minimal.md` A3。
+
+已實作：TabView／底部 bar 改成 VStack 兄弟以保留實際高度；詳情恢復原生 navigation/back 與 toolbar heart；片庫 UI 預設／順序為記錄／收藏；搜尋框收鍵盤按鈕與完成、空白背景和拖曳 dismissal；設定持久保存深／淺主題，semantic content labels／adaptive surfaces，播放器仍黑色；重點首頁送回頂端事件，重點片庫／設定由最上層公開 SwiftUI dismiss 回一層（包含線上字幕設定）；空白搜尋恢復 browse/Hero，UI request generation 排除舊回應。未更動 Core／backend／spider／engine／下載隊列。
+
+程式驗證：完整 Swift tree-sitter baseline／edited 各 0 error；12 個 protected data／engine 宣告 byte-identical，PlayerView 只有 preferredColorScheme(.dark) presentation modifier；既有 protected engine／store／player methods 未變。Code/layout 檢查不等於 device rendering。獨立 review finding 已修正（Home 不額外 pop、light-mode badge／FEATURED、字幕設定返回註冊）；無剩餘 Critical／Important，Ponytail：Lean already. Ship. 未另跑測試 CI。
+
+已依 GitHub 最新 Releases 核對 0.1.62 (63) 為最新，`ios-v0.1.63-b64` 不存在；本輪新目標 0.1.63 (64)。下一步：final review 後再 fetch、安全原子整合並沿既有 SideStore Release workflow 發布；未聲稱發布成功。SideStore 尚需驗收完整末列／回頂端可見、iOS 27 原生邊緣返回、多層重點 tab、鍵盤／安全區、主題與設定持久性，以及既有播放／下載／收藏復原操作。
+
+## Previous handoff — 2026-10-04：IOS-UI-A2 真正結構重構（0.1.62／63 已發布）
 
 使用者要求依 A. Cinematic Minimal 渲染圖與 SideStore 真機現況真正重排 UI，保留全部 domain identity／ownership／行为，完成後直接發新版；不另跑測試 CI。本次從 fetch 的 `origin/ios-poc` `1bf5d7ade62b7ba14e9f60b5bbfed7585004e67c` 開始，發布前再次 fetch，遠端沒有前進，沒有覆蓋其他 session 的功能。詳見 `docs/IOS-UI-A-cinematic-minimal.md` A2 區段。
 

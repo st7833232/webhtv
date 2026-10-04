@@ -28,7 +28,7 @@ Implementation plan (inline, user authorized):
 - [x] Detail header/CTA/episode presentation extracted into small subviews; preserve all actions and metadata.
 - [x] Library Grid/List and explicit segment/search; aggregate search presentation; native download/settings surfaces.
 - [x] Review scope, domain invariance, syntax if available; fetch latest ios-poc and safely integrate; choose new version from actual Releases/tags/source, commit atomically.
-- [ ] Publish via existing SideStore workflow; verify device build, IPA/schema/public-byte validation, Release asset and source.json; synchronize actual evidence.
+- [x] Publish via existing SideStore workflow; verify device build, IPA/schema/public-byte validation, Release asset and source.json; synchronize actual evidence.
 
 Review focus: keyboard/safe areas, long source names and switching, empty/error/paging/search, favorite unavailable/undo, long metadata and episode download hit targets.
 
@@ -36,7 +36,13 @@ Environment: Linux Work has no swift/xcodebuild/iOS Simulator/iPhone. Code/layou
 
 Rollback: revert the task presentation change on latest ios-poc and publish a higher version; never move existing tags, overwrite concurrent work or migrate domain data.
 
-Recovery: branch `ios-ui-a-restructure`, worktree `/workspace/scratch/59247bee57e7/webhtv-ui-a`, clean start, no protected dirty paths, guard IOS-UI-A2. Implementation and read-only review complete; Swift parse 0 errors, 13 protected declarations byte-identical, existing domain methods unchanged. Reviewer: no Critical/Important or material complexity findings. Latest ios-poc re-fetched unchanged; new release target 0.1.62 (63), tag absence verified. Next action: commit and push authorized release, then check IPA/source publication. Latest Release verified on entry is 0.1.61 (62); resolve again before publishing.
+Recovery: branch `ios-ui-a-restructure`, worktree `/workspace/scratch/59247bee57e7/webhtv-ui-a`, clean start, no protected dirty paths, guard IOS-UI-A2. Implementation and read-only review complete; Swift parse 0 errors, 13 protected declarations byte-identical, existing domain methods unchanged. Reviewer: no Critical/Important or material complexity findings. Latest ios-poc re-fetched unchanged; new release target 0.1.62 (63), tag absence verified. Published: program commit c361c637f9f2214370e7170c45be4dce6d0a0475, source commit d7a9e418c9a28d80c6891ec5697286fc83f57485; Release run 37202892439 success. Next action: SideStore device acceptance only. Latest Release verified on entry is 0.1.61 (62); resolve again before publishing.
+
+### A2 publication evidence
+
+已發布 `0.1.62 (63)`：2026-10-04 20:45（Asia/Taipei）。Release run [37202892439](https://github.com/st7833232/webhtv/actions/runs/37202892439) success，device Release build、IPA / SideStore schema、public Release URL byte comparison、source publish 全部 success。tag `ios-v0.1.62-b63` 指向 IPA 程式 commit `c361c637f9f2214370e7170c45be4dce6d0a0475`；workflow source commit `d7a9e418c9a28d80c6891ec5697286fc83f57485`。Release asset `WebHTV-0.1.62-63.ipa` uploaded，35,038,242 bytes，SHA-256 `355b690c71e525ed481bf223cefff3c33e87992e2befaf9ad23f21571d7bb35b`。source.json 第一筆 0.1.62，downloadURL／size 與 Release 相同，bundle `com.webhtv.ios.poc`／source identifier `com.webhtv.sidestore.source` 保持不變。
+
+Only code/layout/static review and actual Release compilation/packaging are verified. No Simulator/real-device rendering or behavioral acceptance occurred in this Work session. Do not claim 1:1 to the design board.
 
 ---
 

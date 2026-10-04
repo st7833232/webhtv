@@ -4,7 +4,7 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-04：IOS-UI-A2 真正結構重構（發布中）
+## Current handoff — 2026-10-04：IOS-UI-A2 真正結構重構（0.1.62／63 已發布）
 
 使用者要求依 A. Cinematic Minimal 渲染圖與 SideStore 真機現況真正重排 UI，保留全部 domain identity／ownership／行为，完成後直接發新版；不另跑測試 CI。本次從 fetch 的 `origin/ios-poc` `1bf5d7ade62b7ba14e9f60b5bbfed7585004e67c` 開始，發布前再次 fetch，遠端沒有前進，沒有覆蓋其他 session 的功能。詳見 `docs/IOS-UI-A-cinematic-minimal.md` A2 區段。
 
@@ -14,9 +14,11 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - 全站搜尋：薄搜尋、原 submit／停止／進度／來源篩選／分頁；下載／設定：原生管理 List、深色 row surface、section spacing 與佇列／錯誤／已下載數量。
 - 五分頁標籤仍為 0／3／1／4／2，保留 TabView 與各 NavigationStack；隱藏原生 glass tab bar，以安全區內固定薄型 bar 取代，收藏復原提示保留。
 
-驗證：Swift tree-sitter 完整檔案 0 syntax error（不是 Xcode type check）；13 個 player／資料管理宣告與基準 byte-identical，既有 ConfigView/CMS/Search/Vod domain 方法未改；git diff --check 通過；獨立 code review 無 Critical／Important finding，Ponytail 無可刪除的實質複雜度。Linux Work 無 Xcode／iOS Simulator／真機，**尚未有真實 SwiftUI rendering、不能宣稱 1:1**。依授權只用 SideStore Release workflow 做 device Release build／IPA 驗證。
+驗證：Swift tree-sitter 完整檔案 0 syntax error（不是 Xcode type check）；13 個 player／資料管理宣告與基準 byte-identical，既有 ConfigView/CMS/Search/Vod domain 方法未改；git diff --check 通過；獨立 code review 無 Critical／Important finding，Ponytail 無可刪除的實質複雜度。Linux Work 無 Xcode／iOS Simulator／真機，**尚未有真實 SwiftUI rendering、不能宣稱 1:1**。依授權只用 SideStore Release workflow 做 device Release build／IPA 驗證，實際編譯與包裝均已通過，未另跑測試 CI。
 
-GitHub 最新 Release、remote Xcode 版號及 source.json 已核對為 `0.1.61 (62)`，新目標 `0.1.62 (63)`，tag `ios-v0.1.62-b63` 未存在。**此時尚未發布完成；下一步：提交、push ios-poc，等既有 workflow 產生 IPA 與更新 source.json。** 真機驗收：iOS 27 bar／keyboard／safe areas、返回手勢、長來源名稱／大字體、artwork crop、片庫、收藏復原與下載操作；AVPlayer／MPV／PiP 需安裝後 smoke test。
+GitHub 最新 Release、remote Xcode 版號及 source.json 已核對為 `0.1.61 (62)`，新目標 `0.1.62 (63)`，tag `ios-v0.1.62-b63` 未存在。已發布 `0.1.62 (63)`：2026-10-04 20:45（Asia/Taipei）。Release run [37202892439](https://github.com/st7833232/webhtv/actions/runs/37202892439) success，device Release build、IPA / SideStore schema、public Release URL byte comparison、source publish 全部 success。tag `ios-v0.1.62-b63` 指向 IPA 程式 commit `c361c637f9f2214370e7170c45be4dce6d0a0475`；workflow source commit `d7a9e418c9a28d80c6891ec5697286fc83f57485`。Release asset `WebHTV-0.1.62-63.ipa` uploaded，35,038,242 bytes，SHA-256 `355b690c71e525ed481bf223cefff3c33e87992e2befaf9ad23f21571d7bb35b`。source.json 第一筆 0.1.62，downloadURL／size 與 Release 相同，bundle `com.webhtv.ios.poc`／source identifier `com.webhtv.sidestore.source` 保持不變。 **開發／發布已完成，下一步只有 SideStore 真機驗收。** 真機驗收：iOS 27 bar／keyboard／safe areas、返回手勢、長來源名稱／大字體、artwork crop、片庫、收藏復原與下載操作；AVPlayer／MPV／PiP 需安裝後 smoke test。
+
+發布傳輸：本機 git push 缺寫入憑證，改用已連結 GitHub Git API 原子提交並非強制移動 ios-poc。API commit `c361c637` 的 tree `d7a635276d9d855a64857ba6289429c296aab74a` 與已檢查本機 commit `5b01680b` 完全相同；再次確認遠端仍為 baseline 後才以 force=false 更新。發布後只同步這三份任務／設計／發布文件。
 
 ## Previous handoff — 2026-10-04：IOS-UI-A 第一版 theme trial（已被 A2 重構取代）
 

@@ -1,5 +1,21 @@
 # IOS-POC-11：SideStore 發布流程
 
+
+## Current release — 2026-10-04：0.1.62 (63) / IOS-UI-A2
+
+已發布 `0.1.62 (63)`：2026-10-04 20:45（Asia/Taipei）。Release run [37202892439](https://github.com/st7833232/webhtv/actions/runs/37202892439) success，device Release build、IPA / SideStore schema、public Release URL byte comparison、source publish 全部 success。tag `ios-v0.1.62-b63` 指向 IPA 程式 commit `c361c637f9f2214370e7170c45be4dce6d0a0475`；workflow source commit `d7a9e418c9a28d80c6891ec5697286fc83f57485`。Release asset `WebHTV-0.1.62-63.ipa` uploaded，35,038,242 bytes，SHA-256 `355b690c71e525ed481bf223cefff3c33e87992e2befaf9ad23f21571d7bb35b`。source.json 第一筆 0.1.62，downloadURL／size 與 Release 相同，bundle `com.webhtv.ios.poc`／source identifier `com.webhtv.sidestore.source` 保持不變。
+
+- 使用者明確授權 UI 真正重構、同步文件後透過既有 SideStore workflow 發布；沒有另外測試 CI。
+- 舊版 0.1.61 (62) 已實際發布，因此使用未存在的新 tag／版號 0.1.62 (63)，未移動或覆蓋既有 tag。
+- 真正重排首頁 Featured／來源／搜尋／分類、詳情 artwork／播放／線路／集數／下載、片庫與全站搜尋；下載／設定維持原生 List，bottom navigation 改為固定薄型 bar。播放器與 domain 行為不改。對照文件：`docs/IOS-UI-A-cinematic-minimal.md` A2。
+- 程式語法與不變式／獨立 review 經過檢查；本機沒有 Xcode，編譯證據來自此 run 的 unsigned device Release build。workflow 完成 IPA metadata/schema 檢查及發布檔 byte comparison；本 session 未另外下載 IPA 或取得真機畫面，不能宣稱 1:1。
+- Source URL：`https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/source.json`。
+- IPA URL：`https://github.com/st7833232/webhtv/releases/download/ios-v0.1.62-b63/WebHTV-0.1.62-63.ipa`。
+- 尚待 SideStore 真機驗收：iOS 27 safe area／鍵盤／返回手勢／長字體與海報裁切、來源切換／全站搜尋、收藏完結取消與復原／觀看記錄，以及單集／全部／多工／行動網路下載、AVPlayer／MPV／PiP。
+- 下一步：真機驗收；若要回復 UI，revert presentation commit 並發布更高版號，不移動已發布 tag。
+
+以下為原流程與歷史發布紀錄；舊段落的「最新版」只代表該次發布當時。
+
 ## 目標與範圍
 
 - 使用者已核准在 `ios-poc` 建立自動 IPA、GitHub Release 與 SideStore source。

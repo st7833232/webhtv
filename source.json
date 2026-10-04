@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.62",
+          "date": "2026-10-04",
+          "localizedDescription": "WebHTV 0.1.62 (63)（Cinematic Minimal 結構重構；真機未驗收）。首頁新增 Featured、薄搜尋與來源入口；作品詳情、片庫、搜尋重新排版；下載與設定保留原生管理介面；底部改為薄型固定導覽列。保留既有播放、收藏、觀看記錄與下載行為。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.62-b63/WebHTV-0.1.62-63.ipa",
+          "size": 35038242,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.61",
           "date": "2026-10-04",
           "localizedDescription": "WebHTV 0.1.61 (62)（A 版 Cinematic Minimal；含最多 3 集多工下載；真機未驗收）",

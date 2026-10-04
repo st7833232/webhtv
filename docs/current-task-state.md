@@ -4,17 +4,23 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-04：IOS-UI-A Cinematic Minimal + 0.1.61 (62) 發布
+## Current handoff — 2026-10-04：IOS-UI-A2 真正結構重構（發布中）
 
-**IOS-UI-A**（2026-10-04）：使用者選擇 A 版「Cinematic Minimal」並要求合併到 `ios-poc`、同步狀態後發布供 SideStore 實機試用。A 版只改視覺層：深黑藍電影感背景、藍色 Primary CTA、半透明 Navigation／Tab Bar、首頁與搜尋海報卡 16pt 圓角＋陰影、詳情海報加大、收藏卡一致化、片庫／下載／設定提高 surface 層次；收藏 heart 已收藏狀態保留粉紅語意。播放器、來源解析、收藏資料、觀看記錄、下載資料與播放引擎邏輯不改。A 版原試用 branch `ios-poc-ui-a-cinematic` 已落後 IOS-POC-50，因此沒有直接覆蓋；變更重套到最新 `ios-poc`。依使用者要求**不另跑 CI**，發布 workflow 的 unsigned device Release build 僅作 IPA 編譯／打包檢查。詳細紀錄：`docs/IOS-UI-A-cinematic-minimal.md`。
+使用者要求依 A. Cinematic Minimal 渲染圖與 SideStore 真機現況真正重排 UI，保留全部 domain identity／ownership／行为，完成後直接發新版；不另跑測試 CI。本次從 fetch 的 `origin/ios-poc` `1bf5d7ade62b7ba14e9f60b5bbfed7585004e67c` 開始，發布前再次 fetch，遠端沒有前進，沒有覆蓋其他 session 的功能。詳見 `docs/IOS-UI-A-cinematic-minimal.md` A2 區段。
 
-**A 版發布目標：`0.1.61 (62)`。** `0.1.60 (61)` 已從 A 版之前的 HEAD 發布，因此 A 版不可重用該 tag；本次使用下一版號，保留 0.1.60 的 IOS-POC-50 多工下載並加入 IOS-UI-A。依使用者要求不另跑 CI，僅執行 SideStore Release workflow 的 device Release build／IPA 打包。
+- 首頁：品牌與小型來源入口、自訂薄搜尋、分類 underline、實際來源 Featured、來源片單與海報下方 typography；沒有虛構熱門排行或更新日期。
+- 詳情：沉浸式 artwork、header heart／返回、主要播放 CTA、完整 metadata、線路／集數、全部下載與獨立 44pt 單集下載觸控區；可檢視完整海報。
+- 片庫：內容內收藏／記錄切換、薄搜尋、收藏海報 Grid；觀看記錄保留 List、續看進度與原刪除／清除行為。
+- 全站搜尋：薄搜尋、原 submit／停止／進度／來源篩選／分頁；下載／設定：原生管理 List、深色 row surface、section spacing 與佇列／錯誤／已下載數量。
+- 五分頁標籤仍為 0／3／1／4／2，保留 TabView 與各 NavigationStack；隱藏原生 glass tab bar，以安全區內固定薄型 bar 取代，收藏復原提示保留。
 
-**更正（2026-10-04 11:50Z，IOS-POC-50 session）：`0.1.60 (61)` 不含 IOS-UI-A。**
-- `0.1.60 (61)` 已由 run `37199415029` 從版號 commit `8889c9a1` 發布：tag `ios-v0.1.60-b61` → `8889c9a1`，`source.json` `6e019a09`。
-- 內容只有 IOS-POC-50（最多 3 集同時下載）。
-- IOS-UI-A（`d759a346`）是在這次發布的 workflow 推回 `source.json` 之前才 push，**尚未包含在任何已發布版本中**。
-- 要讓 IOS-UI-A 上架，下一次發布必須是 `0.1.61 (62)` 或更新的版號；不可重用 0.1.60／61，因為 tag 已存在。
+驗證：Swift tree-sitter 完整檔案 0 syntax error（不是 Xcode type check）；13 個 player／資料管理宣告與基準 byte-identical，既有 ConfigView/CMS/Search/Vod domain 方法未改；git diff --check 通過；獨立 code review 無 Critical／Important finding，Ponytail 無可刪除的實質複雜度。Linux Work 無 Xcode／iOS Simulator／真機，**尚未有真實 SwiftUI rendering、不能宣稱 1:1**。依授權只用 SideStore Release workflow 做 device Release build／IPA 驗證。
+
+GitHub 最新 Release、remote Xcode 版號及 source.json 已核對為 `0.1.61 (62)`，新目標 `0.1.62 (63)`，tag `ios-v0.1.62-b63` 未存在。**此時尚未發布完成；下一步：提交、push ios-poc，等既有 workflow 產生 IPA 與更新 source.json。** 真機驗收：iOS 27 bar／keyboard／safe areas、返回手勢、長來源名稱／大字體、artwork crop、片庫、收藏復原與下載操作；AVPlayer／MPV／PiP 需安裝後 smoke test。
+
+## Previous handoff — 2026-10-04：IOS-UI-A 第一版 theme trial（已被 A2 重構取代）
+
+第一版僅背景／色彩／圆角／material 視覺 patch。已確認 `0.1.61 (62)` 發布成功：run `37199969137`，tag `ios-v0.1.61-b62` → `9d81a75eea4aab49b925b1fe138d0309d104ba24`；source update commit `1bf5d7ade62b7ba14e9f60b5bbfed7585004e67c`，IPA 34,956,830 bytes。使用者真機回報結構與目標落差；因此本次執行 A2。
 
 ## Previous handoff — 2026-10-04：IOS-POC-50 多工下載（先讀這一節)
 

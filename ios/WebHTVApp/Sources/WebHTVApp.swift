@@ -100,6 +100,7 @@ private struct ConfigView: View {
     @State private var sites = [Site]()
     @State private var selectedSiteID: Site.ID?
     @State private var selectedTab = 0
+    @State private var keyboardVisible = false
     @State private var error: String?
     @State private var importing = false
     /// The remote-URL prompt, which the empty state needs as much as the settings page does.
@@ -146,12 +147,14 @@ private struct ConfigView: View {
             } else {
                 TabView(selection: $selectedTab) {
                     HomeView(sites: sites, selectedSiteID: pickedSite, source: source)
+                        .toolbar(.hidden, for: .tabBar)
                         .tag(0)
                         .tabItem { Label("首頁", systemImage: "play.rectangle.fill") }
 
                     // IOS-POC-20. Tag 3 rather than renumbering: the other tabs keep the tags code
                     // already switches to.
                     AggregateSearchView(sites: sites, source: source)
+                        .toolbar(.hidden, for: .tabBar)
                         .tag(3)
                         .tabItem { Label("搜尋", systemImage: "magnifyingglass") }
 
@@ -161,6 +164,7 @@ private struct ConfigView: View {
                         LibraryView(sites: sites, source: source)
                     }
                     .tag(1)
+                    .toolbar(.hidden, for: .tabBar)
                     .tabItem { Label("片庫", systemImage: "rectangle.stack.fill") }
 
                     // IOS-POC-47. Tag 4: the other tabs keep the tags code already switches to.
@@ -168,6 +172,7 @@ private struct ConfigView: View {
                         OfflineDownloadsView()
                     }
                     .tag(4)
+                    .toolbar(.hidden, for: .tabBar)
                     .tabItem { Label("下載", systemImage: "arrow.down.circle") }
 
                     NavigationStack {
@@ -193,22 +198,29 @@ private struct ConfigView: View {
                         )
                     }
                     .tag(2)
+                    .toolbar(.hidden, for: .tabBar)
                     .tabItem { Label("設定", systemImage: "gearshape.fill") }
                 }
-                .toolbarBackground(.ultraThinMaterial, for: .tabBar)
-                .toolbarBackground(.visible, for: .tabBar)
-                .appWallpaper()
-                // IOS-POC-48 A13: above the tab bar on every tab, since the player that removed the
-                // favourite may have been opened from any of them.
-                .overlay(alignment: .bottom) {
-                    if let offer = favoriteLibrary.undoOffer, !favoriteLibrary.playerOpen {
-                        FavoriteUndoBanner(offer: offer)
-                            .padding(.bottom, 72)
+                .toolbar(.hidden, for: .tabBar)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    VStack(spacing: 0) {
+                        // Reserve real space above the bar so Undo stays reachable at large text sizes.
+                        if let offer = favoriteLibrary.undoOffer, !favoriteLibrary.playerOpen {
+                            FavoriteUndoBanner(offer: offer).padding(.vertical, 8)
+                        }
+                        if !keyboardVisible { CinematicTabBar(selection: $selectedTab) }
                     }
                 }
+                .appWallpaper()
             }
         }
         .appWallpaper()
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            keyboardVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardVisible = false
+        }
         // IOS-POC-47: a retried download resolves its episode against the configuration loaded now.
         .onChange(of: sites.map(\.id), initial: true) { OfflineAppContext.shared.sites = sites }
         .onChange(of: source, initial: true) { OfflineAppContext.shared.source = source }
@@ -556,6 +568,151 @@ private struct ConfigView: View {
     }
 }
 
+// MARK: - Cinematic Minimal presentation (no domain/data ownership)
+
+private struct CinematicTabBar: View {
+    @Binding var selection: Int
+    @Environment(\.dynamicTypeSize) private var textSize
+    private let tabs: [(tag: Int, title: String, icon: String)] = [
+        (0, "首頁", "house.fill"), (3, "搜尋", "magnifyingglass"),
+        (1, "片庫", "rectangle.stack.fill"), (4, "下載", "arrow.down.circle"),
+        (2, "設定", "gearshape")
+    ]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(tabs, id: \.tag) { tab in
+                Button { selection = tab.tag } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: tab.icon).font(.system(size: 19, weight: .medium))
+                        Text(tab.title).font(.caption2.weight(selection == tab.tag ? .semibold : .regular))
+                    }
+                    .foregroundStyle(selection == tab.tag ? appAccent : .white.opacity(0.60))
+                    .frame(maxWidth: .infinity, minHeight: textSize.isAccessibilitySize ? 64 : 50)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(tab.title)
+                .accessibilityAddTraits(selection == tab.tag ? .isSelected : [])
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 5)
+        .background(appBackground.ignoresSafeArea(edges: .bottom))
+        .overlay(alignment: .top) { Rectangle().fill(appStroke).frame(height: 0.5) }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+private struct CinematicSearchField: View {
+    @Binding var text: String
+    let prompt: String
+    let onSubmit: () -> Void
+    var onClear: (() -> Void)?
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+            TextField(prompt, text: $text)
+                .font(.subheadline)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .focused($focused)
+                .onSubmit { focused = false; onSubmit() }
+                .accessibilityLabel(prompt)
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                    onClear?()
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("清除搜尋")
+            }
+            Button { focused = false; onSubmit() } label: {
+                Image(systemName: "arrow.right").font(.subheadline.weight(.semibold))
+                    .frame(width: 44, height: 44)
+            }
+            .disabled(text.isEmpty)
+            .accessibilityLabel("搜尋")
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, 14)
+        .background(appSurface, in: RoundedRectangle(cornerRadius: 10))
+        .overlay { RoundedRectangle(cornerRadius: 10).stroke(appStroke, lineWidth: 0.5) }
+    }
+}
+
+/// Ratio belongs to the container, not the downloaded image's intrinsic size.
+private struct CinematicPosterArt: View {
+    let picture: String
+    var body: some View {
+        Color.clear.aspectRatio(2 / 3, contentMode: .fit)
+            .overlay {
+                AsyncImage(url: URL(string: picture)) { phase in
+                    if case .success(let image) = phase { image.resizable().scaledToFill() }
+                    else { appSurface.overlay { Image(systemName: "film").foregroundStyle(.secondary) } }
+                }
+            }
+            .clipped()
+            .clipShape(.rect(cornerRadius: 8))
+            .accessibilityHidden(true)
+    }
+}
+
+private struct CinematicHeroArt: View {
+    let picture: String
+    var body: some View {
+        Rectangle().fill(appSurface)
+            .overlay {
+                AsyncImage(url: URL(string: picture)) { phase in
+                    if case .success(let image) = phase { image.resizable().scaledToFill() }
+                    else { Image(systemName: "film").font(.largeTitle).foregroundStyle(.secondary) }
+                }
+            }
+            .clipped()
+            .overlay {
+                LinearGradient(colors: [.black.opacity(0.06), .clear, appBackground],
+                               startPoint: .top, endPoint: .bottom)
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+private struct CinematicSectionHeading: View {
+    let title: String
+    var subtitle = ""
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.title3.weight(.bold))
+            if !subtitle.isEmpty { Text(subtitle).font(.caption).foregroundStyle(.secondary) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct CinematicChoice: View {
+    let title: String
+    let selected: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Text(title).font(.subheadline.weight(selected ? .semibold : .regular))
+                .foregroundStyle(selected ? .white : .white.opacity(0.65))
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
+                .background(selected ? appAccent.opacity(0.20) : appSurface,
+                            in: RoundedRectangle(cornerRadius: 8))
+                .overlay { RoundedRectangle(cornerRadius: 8).stroke(selected ? appAccent : .clear, lineWidth: 1) }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
 private struct HomeView: View {
     let sites: [Site]
     @Binding var selectedSiteID: Site.ID?
@@ -611,39 +768,11 @@ private struct HomeView: View {
 
     var body: some View {
         NavigationStack {
-            CMSView(site: selectedSite, source: source)
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        // A sheet rather than a `Menu`: a menu is a `UIMenu` and cannot be scrolled
-                        // to an item, so with 67 sources it always opened at the first one and the
-                        // source in use was somewhere off screen.
-                        Button {
-                            picking = true
-                        } label: {
-                            HStack(spacing: 8) {
-                                Text(zhTW: selectedSite.name.displayName).font(.headline)
-                                Image(systemName: "chevron.down").font(.caption2)
-                            }
-                            .lineLimit(1)
-                            .legibleToolbarLabel()
-                            .frame(minHeight: 44)
-                        }
-                        .accessibilityLabel("切換內容來源，目前為 \(zhTW(selectedSite.name))")
-                    }
-                }
+            CMSView(site: selectedSite, source: source, onPickSource: { picking = true })
                 .sheet(isPresented: $picking) { sourcePicker }
         }
-        // The identity sits on the whole `NavigationStack`, not on `CMSView` inside it, and that is
-        // what lets the search field keep hiding on scroll.
-        //
-        // The field's hidden state belongs to the navigation bar rather than to the grid, and a bar
-        // that outlives the switch keeps the collapse it learned from the listing the user just
-        // scrolled — so the field was simply gone, and only an over-scroll brought it back. Three
-        // ways of making that bar change its mind were measured at IOS-POC-8F and **none worked**:
-        // hoisting `.searchable` above the grid's `.id`, resetting the listing in place so the
-        // scroll view was never replaced, and scrolling the old listing to the top before swapping
-        // it. Rebuilding the stack sidesteps all of it, because a new stack is a new navigation bar
-        // with nothing to remember. Do not repeat those three.
+        // Keep the established source-switch identity: detail navigation and listing state belong
+        // to the selected source. The new in-content search has no system drawer collapse state.
         .id(selectedSite.id)
     }
 }
@@ -652,6 +781,7 @@ private struct CMSView: View {
     let site: Site
     let source: ConfigSource
     var initialQuery: String?
+    var onPickSource: (() -> Void)?
     @State private var items = [Vod]()
     @State private var groups = [CategoryGroup]()
     @State private var selectedCategory: String?
@@ -677,72 +807,55 @@ private struct CMSView: View {
     @State private var loading = false
     @State private var error: String?
 
-    private let columns = [GridItem(.adaptive(minimum: 148, maximum: 228), spacing: 14)]
+    private let columns = [GridItem(.adaptive(minimum: 104, maximum: 180), spacing: 12)]
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                // Just an anchor for `scrollTo`. Whether we are at the top is decided by the
-                // first grid cell below, because `LazyVGrid` really does load and unload its cells
-                // — a plain ScrollView does not, which is why a marker's own onDisappear never fires.
-                Color.clear
-                    .frame(height: 0)
-                    .id(Self.topAnchor)
-
-                // The category and filter rows scroll away with the grid rather than pinning to
-                // the top: they cost four rows of height on a phone, and the Top button below is
-                // what brings them back.
-                if !groups.isEmpty {
-                    categoryRow(parentChips)
-                    if showsChildRow, let children = activeGroup?.children, !children.isEmpty {
-                        categoryRow(ForEach(children) { chip(zhTW($0.name), id: $0.id) })
-                    }
-                    // Filter rows belong to a category, so they only appear once one is listed, and
-                    // only for a source whose API publishes them at all.
-                    ForEach(activeFilterRows) { row in
-                        filterRow(row)
-                    }
-                    // Under the rows, never over them: a filter combination that answers nothing
-                    // (港台綜藝 + 中國大陸) must leave every chip reachable to change it. IOS-POC-38.1.
-                    if items.isEmpty { emptyState.padding(.top, 48) }
-                }
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(items) { vod in
-                        NavigationLink {
-                            VodView(site: site, summary: vod, source: source)
-                        } label: {
-                            VodCard(vod: vod)
+                VStack(alignment: .leading, spacing: 20) {
+                    Color.clear.frame(height: 0).id(Self.topAnchor)
+                    homeHeader
+                    CinematicSearchField(text: $query, prompt: "搜尋此來源的影片", onSubmit: {
+                        searching = true
+                        Task { await load(search: query) }
+                    }, onClear: {
+                        searching = false
+                        Task { await load(category: selectedCategory) }
+                    })
+                    .padding(.horizontal, 20)
+                    if !groups.isEmpty {
+                        VStack(spacing: 4) {
+                            categoryRow(parentChips)
+                            if showsChildRow, let children = activeGroup?.children, !children.isEmpty {
+                                categoryRow(ForEach(children) { chip(zhTW($0.name), id: $0.id) })
+                            }
+                            ForEach(activeFilterRows) { row in filterRow(row) }
                         }
-                        .buttonStyle(.plain)
-                        .onAppear {
-                            if vod.id == items.first?.id { atTop = true }
-                            if vod.id == items.last?.id { Task { await loadMore() } }
-                        }
-                        .onDisappear { if vod.id == items.first?.id { atTop = false } }
                     }
+                    if !searching, let featured = items.first {
+                        featuredCard(featured)
+                    }
+                    if !items.isEmpty {
+                        CinematicSectionHeading(title: searching ? "搜尋結果" : "來源片單",
+                                                subtitle: "\(zhTW(site.name.displayName)) · 已載入 \(items.count) 部")
+                            .padding(.horizontal, 20)
+                        posterGrid
+                    } else {
+                        emptyState.frame(maxWidth: .infinity).padding(.vertical, 48)
+                    }
+                    if loadingMore { ProgressView().frame(maxWidth: .infinity).padding(.bottom, 16) }
                 }
-                .padding(12)
-                if loadingMore { ProgressView().padding(.bottom, 16) }
+                .padding(.bottom, 24)
             }
+            .scrollDismissesKeyboard(.interactively)
             .overlay(alignment: .bottomTrailing) { topButton(proxy) }
-            // Refetches whatever is on screen — the search results while searching, otherwise the
-            // listed category, or the home listing when none is picked. `loadMore`'s paging state
-            // is reset by `load` itself, so a refresh also drops back to page one.
             .refreshable {
                 if searching, !query.isEmpty { await load(search: query) }
                 else { await load(category: selectedCategory) }
             }
         }
         .appWallpaper()
-        // Centred on the screen only while there are no category rows for it to cover — the first
-        // load of a source, or one that publishes none. IOS-POC-38.1.
-        .overlay { if groups.isEmpty, items.isEmpty { emptyState } }
-        .navigationBarTitleDisplayMode(.inline)
-        // Plain `.searchable`, so the field hides on scroll the way it always did. What keeps it
-        // from disappearing across a source switch is the `.id` on `HomeView`'s `NavigationStack`,
-        // not anything here (IOS-POC-8F).
-        .searchable(text: $query, prompt: "搜尋影片")
-        .onSubmit(of: .search) { searching = true; Task { await load(search: query) } }
+        .toolbar(.hidden, for: .navigationBar)
         .task {
             guard items.isEmpty else { return }
             guard let initialQuery, !initialQuery.isEmpty else { return await load() }
@@ -750,11 +863,76 @@ private struct CMSView: View {
             searching = true
             await load(search: initialQuery)
         }
-        // Dropping this to give the bar a material behind the pinned search field was tried at
-        // IOS-POC-8E and changed nothing on screen: iOS 26 draws this bar as per-control glass, not
-        // as a full-width background, so there is no material to opt into. Scrolling content shows
-        // through the search field either way. Do not repeat it.
-        .appNavigationBar()
+    }
+
+    private var homeHeader: some View {
+        HStack(spacing: 16) {
+            Text("WebHTV").font(.title2.weight(.bold)).tracking(-0.6).layoutPriority(1)
+            Spacer(minLength: 12)
+            Button { onPickSource?() } label: {
+                HStack(spacing: 5) {
+                    Text(zhTW: site.name.displayName).font(.caption.weight(.medium)).lineLimit(1)
+                    if onPickSource != nil { Image(systemName: "chevron.down").font(.caption2) }
+                }
+                .foregroundStyle(.white.opacity(0.72))
+                .frame(maxWidth: 170, alignment: .trailing)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(onPickSource == nil)
+            .accessibilityLabel("切換內容來源，目前為 \(zhTW(site.name))")
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 4)
+    }
+
+    private func featuredCard(_ vod: Vod) -> some View {
+        NavigationLink {
+            VodView(site: site, summary: vod, source: source)
+        } label: {
+            VStack(alignment: .leading, spacing: 12) {
+                CinematicHeroArt(picture: vod.picture).frame(height: 260)
+                    .overlay(alignment: .bottomLeading) {
+                        Text("FEATURED").font(.caption2.weight(.bold)).tracking(2)
+                            .foregroundStyle(.white.opacity(0.75)).padding(.horizontal, 20).padding(.bottom, 8)
+                    }
+                VStack(alignment: .leading, spacing: 9) {
+                    Text(zhTW: vod.name).font(.title.weight(.bold)).lineLimit(2)
+                    let facts = [vod.year, vod.remarks].filter { !$0.isEmpty }.map { zhTW($0) }
+                    if !facts.isEmpty {
+                        Text(verbatim: facts.joined(separator: " · "))
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                    Label("查看作品", systemImage: "play.rectangle")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(appAccent, in: RoundedRectangle(cornerRadius: 8))
+                }
+                .padding(.horizontal, 20)
+            }
+            .foregroundStyle(.white)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onAppear { atTop = true; if items.count == 1 { Task { await loadMore() } } }
+        .onDisappear { atTop = false }
+    }
+
+    private var posterGrid: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
+            ForEach(items) { vod in
+                NavigationLink { VodView(site: site, summary: vod, source: source) } label: { VodCard(vod: vod) }
+                    .buttonStyle(.plain)
+                    .onAppear {
+                        if vod.id == items.first?.id { atTop = true }
+                        if vod.id == items.last?.id { Task { await loadMore() } }
+                    }
+                    .onDisappear { if vod.id == items.first?.id { atTop = false } }
+            }
+        }
+        .padding(.horizontal, 20)
     }
 
     @ViewBuilder private var emptyState: some View {
@@ -818,10 +996,10 @@ private struct CMSView: View {
         } label: {
             Text(zhTW: option.name)
                 .font(.footnote)
-                .foregroundStyle(isActive ? appSurface : .white)
+                .foregroundStyle(isActive ? appAccent : .white.opacity(0.60))
                 .padding(.horizontal, 11)
-                .padding(.vertical, 5)
-                .background(isActive ? .white : appSurface.opacity(0.85), in: Capsule())
+                .frame(minHeight: 44)
+                .background(isActive ? appAccent.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
     }
@@ -855,6 +1033,7 @@ private struct CMSView: View {
     /// its child row away, and tapping a different one switches to it and unfolds it.
     private func parentChip(_ group: CategoryGroup) -> some View {
         let isActive = activeGroup?.id == group.id
+        let isHighlighted = !searching && isActive
         let hasChildren = !group.children.isEmpty
         let isCollapsed = collapsedGroups.contains(group.id)
         return Button {
@@ -876,20 +1055,22 @@ private struct CMSView: View {
                         .font(.caption2.bold())
                 }
             }
-            .font(.subheadline.weight(isActive ? .bold : .regular))
-            .foregroundStyle(isActive ? appSurface : .white)
-            .padding(.horizontal, 13)
-            .padding(.vertical, 7)
-            .background(isActive ? .white : appSurface.opacity(0.85), in: Capsule())
+            .font(.subheadline.weight(isHighlighted ? .bold : .regular))
+            .foregroundStyle(isHighlighted ? .white : .white.opacity(0.55))
+            .padding(.horizontal, 5)
+            .frame(minHeight: 44)
+            .overlay(alignment: .bottom) {
+                if isHighlighted { Rectangle().fill(appAccent).frame(height: 2) }
+            }
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isHighlighted ? .isSelected : [])
     }
 
     private func categoryRow<Content: View>(_ content: Content) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) { content }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+            HStack(spacing: 16) { content }
+                .padding(.horizontal, 20)
         }
     }
 
@@ -914,10 +1095,10 @@ private struct CMSView: View {
         }
         .buttonStyle(.plain)
         .font(.subheadline.weight(isActive ? .bold : .regular))
-        .foregroundStyle(isActive ? appSurface : .white)
-        .padding(.horizontal, 13)
-        .padding(.vertical, 7)
-        .background(isActive ? .white : appSurface.opacity(0.85), in: Capsule())
+        .foregroundStyle(isActive ? appAccent : .white.opacity(0.60))
+        .padding(.horizontal, 8)
+        .frame(minHeight: 44)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
     private func loadMore() async {
@@ -1027,56 +1208,19 @@ private struct CMSView: View {
 
 private struct VodCard: View {
     let vod: Vod
-
     var body: some View {
-        // The empty container fixes the cell to one poster ratio and the artwork fills it as an
-        // overlay, so a landscape image is cropped instead of stretching its cell past the column.
-        Color.clear
-            .aspectRatio(2 / 3, contentMode: .fit)
-            .overlay {
-                AsyncImage(url: URL(string: vod.picture)) { phase in
-                    switch phase {
-                    case .success(let image): image.resizable().scaledToFill()
-                    default:
-                        ZStack {
-                            appSurface
-                            Image(systemName: "film").font(.largeTitle).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-            .clipped()
-        .overlay(alignment: .bottom) {
-            LinearGradient(colors: [.clear, .black.opacity(0.88)], startPoint: .top, endPoint: .bottom)
-                .frame(height: 86)
-                .overlay(alignment: .bottomLeading) {
-                    Text(zhTW: vod.name)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                        .padding(10)
-                }
-        }
-        .overlay(alignment: .topTrailing) {
-            if !vod.remarks.isEmpty {
-                Text(zhTW: vod.remarks)
-                    .font(.caption2.weight(.semibold))
-                    .lineLimit(1)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 5)
-                    .background(.black.opacity(0.72), in: Capsule())
-                    .padding(8)
+        VStack(alignment: .leading, spacing: 7) {
+            CinematicPosterArt(picture: vod.picture)
+            Text(zhTW: vod.name).font(.subheadline.weight(.semibold)).lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            let facts = [vod.year, vod.remarks].filter { !$0.isEmpty }.map { zhTW($0) }
+            if !facts.isEmpty {
+                Text(verbatim: facts.joined(separator: " · "))
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
         }
-        .overlay {
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(appStroke, lineWidth: 0.7)
-        }
-        .clipShape(.rect(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.34), radius: 12, y: 7)
-        // IOS-POC-28: clipping hides the overflow of a filled poster but does not stop it taking
-        // touches, so a wide artwork reached into the card beside it and a tap there opened this
-        // title. The tappable area is the card's own shape.
-        .contentShape(.rect(cornerRadius: 16))
+        .foregroundStyle(.white)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
 }
@@ -1110,7 +1254,7 @@ private struct AggregateSearchView: View {
     /// The chip in use: a site's position in the searched list, or nil for 全部.
     @State private var selected: Int?
 
-    private let columns = [GridItem(.adaptive(minimum: 140, maximum: 220), spacing: 12)]
+    private let columns = [GridItem(.adaptive(minimum: 104, maximum: 180), spacing: 12)]
 
     private struct SiteHits {
         let index: Int
@@ -1130,39 +1274,45 @@ private struct AggregateSearchView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                if !groups.isEmpty { chipRow }
-                if searching || answered > 0 { progressRow }
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(hits) { hit in
-                        NavigationLink {
-                            VodView(site: hit.site, summary: hit.vod, source: source)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                VodCard(vod: hit.vod)
-                                Text(zhTW: hit.site.name.displayName)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("搜尋").font(.largeTitle.weight(.bold))
+                    Text("在所有內容來源尋找作品").font(.subheadline).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 20).padding(.top, 12)
+                CinematicSearchField(text: $query, prompt: "搜尋所有站台", onSubmit: { submit() })
+                    .padding(.horizontal, 20)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        if !groups.isEmpty { chipRow }
+                        if searching || answered > 0 { progressRow }
+                        if hits.isEmpty { emptyState.padding(.top, 48) }
+                        LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
+                            ForEach(hits) { hit in
+                                NavigationLink {
+                                    VodView(site: hit.site, summary: hit.vod, source: source)
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        VodCard(vod: hit.vod)
+                                        Text(zhTW: hit.site.name.displayName)
+                                            .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .onAppear {
+                                    if let selected, hit.id == hits.last?.id { Task { await loadMore(selected) } }
+                                }
                             }
                         }
-                        .buttonStyle(.plain)
-                        .onAppear {
-                            // Only a site's own chip pages, as on Android: 全部 shows first pages only.
-                            if let selected, hit.id == hits.last?.id { Task { await loadMore(selected) } }
-                        }
+                        .padding(.horizontal, 20)
+                        if selectedGroup?.loadingMore == true { ProgressView().frame(maxWidth: .infinity) }
                     }
+                    .padding(.bottom, 24)
                 }
-                .padding(12)
-                if selectedGroup?.loadingMore == true { ProgressView().padding(.bottom, 16) }
+                .scrollDismissesKeyboard(.interactively)
             }
             .appWallpaper()
-            .overlay { emptyState }
-            .navigationTitle("全站台搜尋")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜尋所有站台")
-            .onSubmit(of: .search) { submit() }
-            .appNavigationBar()
+            .toolbar(.hidden, for: .navigationBar)
         }
         .task {
             guard keyword.isEmpty, let initialQuery, !initialQuery.isEmpty else { return }
@@ -1170,8 +1320,6 @@ private struct AggregateSearchView: View {
             submit()
         }
         .onDisappear { if isSheet { stop() } }
-        // Results belong to the configuration they came from: a site of another one must not be paged
-        // or opened through this one's resolver and watch history.
         .onChange(of: source) {
             stop()
             clear()
@@ -1216,13 +1364,7 @@ private struct AggregateSearchView: View {
 
     private func chip(_ title: String, index: Int?) -> some View {
         let isActive = selected == index
-        return Button(title) { selected = index }
-            .buttonStyle(.plain)
-            .font(.subheadline.weight(isActive ? .bold : .regular))
-            .foregroundStyle(isActive ? appSurface : .white)
-            .padding(.horizontal, 13)
-            .padding(.vertical, 7)
-            .background(isActive ? .white : appSurface.opacity(0.85), in: Capsule())
+        return CinematicChoice(title: title, selected: isActive) { selected = index }
     }
 
     private var progressRow: some View {
@@ -1235,7 +1377,7 @@ private struct AggregateSearchView: View {
         }
         .font(.caption)
         .foregroundStyle(.white)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 20)
         .padding(.top, 4)
     }
 
@@ -1476,6 +1618,7 @@ private struct SettingsView: View {
 
     var body: some View {
         List {
+            Group {
             // IOS-POC-17. Where a new playback starts; the player's own bar can switch one session
             // without touching this.
             //
@@ -1618,6 +1761,8 @@ private struct SettingsView: View {
 
             savedSection
             sourceSection
+            }
+            .listRowBackground(appSurface)
         }
         .alert("重新命名", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("名稱", text: $renameText)
@@ -1629,9 +1774,10 @@ private struct SettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .appWallpaper()
-        .listRowBackground(appRaisedSurface.opacity(0.72))
+        .listStyle(.insetGrouped)
+        .listSectionSpacing(20)
         .navigationTitle("設定")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
         .appNavigationBar()
     }
 }
@@ -2017,6 +2163,8 @@ private struct VodView: View {
     /// full grid, so a title with four lines and eighty episodes meant scrolling past three
     /// hundred buttons to reach the bottom one.
     @State private var selectedFlag: String?
+    @Environment(\.dismiss) private var dismiss
+    @State private var showsPoster = false
     @State private var synopsisExpanded = false
     /// IOS-POC-32 D: the machine translation of a Japanese title and synopsis, and whether the
     /// original is on show instead. Display only, like every other header string.
@@ -2058,156 +2206,32 @@ private struct VodView: View {
         ScrollView {
             if let detail {
                 VStack(alignment: .leading, spacing: 24) {
-                    // IOS-POC-32: the poster sits above the title and is shown whole. Beside the
-                    // title it was sized to 112×168, and a wider image ran past that box, to the
-                    // screen edge and under the text.
-                    VStack(alignment: .leading, spacing: 16) {
-                        // IOS-POC-32 B: the list item's values stay (the header must not change
-                        // under the user); the detail fills whatever it lacked, as a title opened
-                        // from history carries only its id, name and poster.
-                        VodPoster(picture: summary.picture.isEmpty ? detail.picture : summary.picture)
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(verbatim: translated(\.title) ?? zhTW(displayName)).font(.title2.weight(.bold))
-                            if translationMode != .off {
-                                if #available(iOS 18.0, *) {
-                                    JapaneseTranslationBar(
-                                        texts: JapaneseTranslation.texts(title: displayName,
-                                                                         synopsis: metadata(\.content, in: detail)),
-                                        mode: translationMode, translation: $translation,
-                                        showsOriginal: $showsOriginal)
-                                }
-                            }
-                            let remarks = summary.remarks.isEmpty ? detail.remarks : summary.remarks
-                            if !remarks.isEmpty {
-                                Text(zhTW: remarks).foregroundStyle(.secondary)
-                            }
-                            let facts = factsLine(detail)
-                            if !facts.isEmpty {
-                                Text(zhTW: facts).font(.subheadline).foregroundStyle(.secondary)
-                            }
-                            Text(zhTW: site.name.displayName)
-                                .font(.caption.weight(.semibold))
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 5)
-                                .background(appSurface, in: Capsule())
-                        }
+                    detailHeader(detail)
+                    VStack(alignment: .leading, spacing: 24) {
+                        primaryPlayButton(detail)
+                        metadataRows(detail)
+                        if let flag = currentFlag(in: detail.flags) { episodeSection(detail, flag: flag) }
                     }
-
-                    metadataRows(detail)
-
-                    if let flag = currentFlag(in: detail.flags) {
-                        let blocks = episodeBlocks(of: flag)
-                        // Clamped: a stale index survives a reload that returned fewer episodes.
-                        let chunk = min(episodeChunk[flag.name] ?? defaultChunk(for: flag), blocks.count - 1)
-                        VStack(alignment: .leading, spacing: 12) {
-                            // IOS-POC-35: the watched line's episode from where it stopped, or the
-                            // first line's first episode when nothing was watched.
-                            Button {
-                                Task { await playNow(detail.flags) }
-                            } label: {
-                                Label("立即播放", systemImage: "play.fill")
-                                    .font(.headline)
-                                    // IOS-UI-A: blue cinematic primary CTA, with a high-contrast white label.
-                                    .foregroundStyle(.white)
-                                    .frame(maxWidth: .infinity, minHeight: 44)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(resolving || Flag.playNow(in: detail.flags, watchedFlag: nil,
-                                                                watchedURL: nil, watchedName: nil,
-                                                                spider: site.isSpiderShape) == nil)
-                            // The lines, in one row at the top. With only one there is nothing to
-                            // choose, so it stays the plain heading it has always been — the same
-                            // rule the block chips below already follow.
-                            if detail.flags.count > 1 {
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 8) {
-                                        ForEach(detail.flags, id: \.name) { line in
-                                            Button(zhTW(line.name)) { selectedFlag = line.name }
-                                                .buttonStyle(.bordered)
-                                                .tint(line.name == flag.name ? .accentColor : nil)
-                                                .fontWeight(line.name == flag.name ? .bold : nil)
-                                                .frame(minHeight: 44)
-                                        }
-                                    }
-                                }
-                            } else {
-                                Text(zhTW: flag.name).font(.headline)
-                            }
-                            // A few hundred buttons in one grid is unnavigable. Offer the 100-episode
-                            // blocks the numbering already follows, and only when there is more than one.
-                            if blocks.count > 1 {
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 8) {
-                                        ForEach(Array(blocks.indices), id: \.self) { index in
-                                            Button(blockLabel(flag, blocks[index])) {
-                                                episodeChunk[flag.name] = index
-                                            }
-                                            .buttonStyle(.bordered)
-                                            .tint(index == chunk ? .accentColor : nil)
-                                            .fontWeight(index == chunk ? .bold : nil)
-                                            .frame(minHeight: 44)
-                                        }
-                                    }
-                                }
-                            }
-                            // IOS-POC-49 全部下載: from where the viewer left off to the end of the line.
-                            downloadAllButton(flag)
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 10)], spacing: 10) {
-                                ForEach(Array(flag.episodes.enumerated())[blocks[max(0, chunk)]], id: \.offset) { index, episode in
-                                    let lastWatched = watched?.vodFlag == flag.name
-                                        && watched?.episodeUrl == episode.url
-                                    let download = offlineIdentity(episode, flag: flag.name)
-                                    Button {
-                                        Task { await play(episode, flag: flag.name) }
-                                    } label: {
-                                        // IOS-POC-47: the download's state under the name, when there is one.
-                                        VStack(spacing: 1) {
-                                            Text(zhTW(episode.name))
-                                            OfflineEpisodeStatus(identity: download)
-                                        }
-                                    }
-                                    .buttonStyle(.bordered)
-                                    // Marks where the viewer left off. Android puts the same cue on
-                                    // the episode its History points at.
-                                    .tint(lastWatched ? .accentColor : nil)
-                                    .fontWeight(lastWatched ? .bold : nil)
-                                    .frame(minHeight: 44)
-                                    // IOS-POC-47: download, and whatever the download's state allows.
-                                    .overlay(alignment: .topTrailing) {
-                                        OfflineEpisodeMenu(
-                                            identity: download,
-                                            onDownload: { Task { await prepareDownload(episode, flag: flag.name, index: index) } },
-                                            onPlay: { Task { await play(episode, flag: flag.name) } })
-                                            .offset(x: 8, y: -8)
-                                    }
-                                    .disabled(!episode.isPlayable(spider: site.isSpiderShape) || resolving)
-                                }
-                            }
-                            OfflineTitleLink(historyKey: historyKey, title: displayName)
-                        }
-                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 28)
                 }
-                .padding(16)
             } else if let error {
                 ContentUnavailableView("詳情載入失敗", systemImage: "exclamationmark.triangle", description: Text(error))
                     .padding(.top, 80)
             } else {
-                ProgressView("載入詳情")
-                    .padding(.top, 80)
+                ProgressView("載入詳情").frame(maxWidth: .infinity).padding(.top, 80)
             }
         }
         .appWallpaper()
-        .navigationTitle(translated(\.title) ?? zhTW(displayName))
-        .navigationBarTitleDisplayMode(.inline)
-        .appNavigationBar()
-        // IOS-POC-48 A8: the secondary action sits in the bar; 立即播放 stays the full-width primary.
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                FavoriteToggle(isFavorite: favoriteLibrary.contains(favoriteIdentity)) {
-                    let identity = favoriteIdentity, snapshot = favoriteSnapshot
-                    Task { await favoriteLibrary.toggle(identity, snapshot: snapshot) }
-                }
-                .disabled(!favoriteIdentity.isComplete)
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden()
+        .safeAreaInset(edge: .top, spacing: 0) { detailNavigation }
+        .sheet(isPresented: $showsPoster) {
+            NavigationStack {
+                VodPoster(picture: posterPicture).padding(20).appWallpaper()
+                    .navigationTitle("作品海報").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { Button("完成") { showsPoster = false } }
+                    .appNavigationBar()
             }
         }
         .task {
@@ -2243,6 +2267,133 @@ private struct VodView: View {
             Text(downloadError ?? "")
         }
         .sheet(item: $downloadDraft) { OfflineDownloadSheet(draft: $0) }
+    }
+
+    private var posterPicture: String { summary.picture.isEmpty ? (detail?.picture ?? "") : summary.picture }
+
+    private var detailNavigation: some View {
+        HStack {
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.left").font(.body.weight(.semibold))
+                    .foregroundStyle(.white).frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain).accessibilityLabel("返回")
+            Spacer()
+            FavoriteToggle(isFavorite: favoriteLibrary.contains(favoriteIdentity)) {
+                let identity = favoriteIdentity, snapshot = favoriteSnapshot
+                Task { await favoriteLibrary.toggle(identity, snapshot: snapshot) }
+            }
+            .disabled(!favoriteIdentity.isComplete)
+        }
+        .padding(.horizontal, 12)
+        .background(appBackground)
+    }
+
+    private func detailHeader(_ detail: Vod) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Button { showsPoster = true } label: {
+                CinematicHeroArt(picture: posterPicture).frame(height: 310)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).accessibilityLabel("檢視完整作品海報")
+            VStack(alignment: .leading, spacing: 10) {
+                Text(verbatim: translated(\.title) ?? zhTW(displayName))
+                    .font(.largeTitle.weight(.bold)).fixedSize(horizontal: false, vertical: true)
+                if translationMode != .off {
+                    if #available(iOS 18.0, *) {
+                        JapaneseTranslationBar(texts: JapaneseTranslation.texts(title: displayName,
+                                                   synopsis: metadata(\.content, in: detail)),
+                                               mode: translationMode, translation: $translation,
+                                               showsOriginal: $showsOriginal)
+                    }
+                }
+                let facts = factsLine(detail)
+                if !facts.isEmpty { Text(zhTW: facts).font(.subheadline).foregroundStyle(.secondary) }
+                let remarks = summary.remarks.isEmpty ? detail.remarks : summary.remarks
+                if !remarks.isEmpty { Text(zhTW: remarks).font(.caption.weight(.medium)).foregroundStyle(.secondary) }
+                Text(zhTW: site.name.displayName).font(.caption.weight(.semibold))
+                    .foregroundStyle(appAccent)
+            }
+            .padding(.horizontal, 20)
+        }
+    }
+
+    private func primaryPlayButton(_ detail: Vod) -> some View {
+        Button { Task { await playNow(detail.flags) } } label: {
+            HStack(spacing: 9) {
+                if resolving { ProgressView().tint(.white) }
+                else { Image(systemName: "play.fill") }
+                Text(resolving ? "準備播放…" : "立即播放").font(.headline)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .background(appAccent, in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .disabled(resolving || Flag.playNow(in: detail.flags, watchedFlag: nil, watchedURL: nil,
+                                          watchedName: nil, spider: site.isSpiderShape) == nil)
+    }
+
+    private func episodeSection(_ detail: Vod, flag: Flag) -> some View {
+        let blocks = episodeBlocks(of: flag)
+        let chunk = min(episodeChunk[flag.name] ?? defaultChunk(for: flag), blocks.count - 1)
+        return VStack(alignment: .leading, spacing: 16) {
+            Divider().overlay(appStroke)
+            CinematicSectionHeading(title: "線路與集數", subtitle: "\(zhTW(flag.name)) · \(flag.episodes.count) 集")
+            if detail.flags.count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(detail.flags, id: \.name) { line in
+                            CinematicChoice(title: zhTW(line.name), selected: line.name == flag.name) {
+                                selectedFlag = line.name
+                            }
+                        }
+                    }
+                }
+            }
+            if blocks.count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(blocks.indices), id: \.self) { index in
+                            CinematicChoice(title: blockLabel(flag, blocks[index]), selected: index == chunk) {
+                                episodeChunk[flag.name] = index
+                            }
+                        }
+                    }
+                }
+            }
+            downloadAllButton(flag)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 136), spacing: 10)], spacing: 10) {
+                ForEach(Array(flag.episodes.enumerated())[blocks[max(0, chunk)]], id: \.offset) { index, episode in
+                    episodeCell(episode, index: index, flag: flag.name)
+                }
+            }
+            OfflineTitleLink(historyKey: historyKey, title: displayName)
+        }
+    }
+
+    private func episodeCell(_ episode: Episode, index: Int, flag: String) -> some View {
+        let lastWatched = watched?.vodFlag == flag && watched?.episodeUrl == episode.url
+        let download = offlineIdentity(episode, flag: flag)
+        return HStack(spacing: 0) {
+            Button { Task { await play(episode, flag: flag) } } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(zhTW(episode.name)).font(.subheadline.weight(lastWatched ? .bold : .medium)).lineLimit(2)
+                    OfflineEpisodeStatus(identity: download)
+                }
+                .foregroundStyle(lastWatched ? appAccent : .white)
+                .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
+                .padding(.leading, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            OfflineEpisodeMenu(identity: download,
+                               onDownload: { Task { await prepareDownload(episode, flag: flag, index: index) } },
+                               onPlay: { Task { await play(episode, flag: flag) } })
+        }
+        .background(lastWatched ? appAccent.opacity(0.13) : appSurface, in: RoundedRectangle(cornerRadius: 8))
+        .overlay { RoundedRectangle(cornerRadius: 8).stroke(lastWatched ? appAccent.opacity(0.6) : .clear, lineWidth: 1) }
+        .disabled(!episode.isPlayable(spider: site.isSpiderShape) || resolving)
     }
 
     private var historyKey: String { WatchHistory.key(siteID: site.id, vodId: summary.id) }
@@ -2771,16 +2922,18 @@ private struct HistoryView: View {
             }
         }
         .appWallpaper()
-        .navigationTitle("觀看記錄")
-        .navigationBarTitleDisplayMode(.inline)
-        .appNavigationBar()
-        .toolbar {
+        .safeAreaInset(edge: .top, spacing: 0) {
             if !records.isEmpty {
-                Button("清除") {
-                    records = []
-                    // IOS-POC-30: this source's list only; another source's history stays.
-                    Task { await WatchHistoryStore.shared.clear(for: source.identity) }
+                HStack {
+                    Text("最近觀看").font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Button("清除記錄") {
+                        records = []
+                        Task { await WatchHistoryStore.shared.clear(for: source.identity) }
+                    }
+                    .font(.caption).frame(minHeight: 44)
                 }
+                .padding(.horizontal, 20).background(appBackground)
             }
         }
         // .task runs again whenever the tab is re-entered, which is what keeps the list current
@@ -2819,7 +2972,7 @@ private struct HistoryView: View {
                 default: appSurface.overlay { Image(systemName: "film").foregroundStyle(.secondary) }
                 }
             }
-            .frame(width: 48, height: 72)
+            .frame(width: 56, height: 84)
             .clipShape(.rect(cornerRadius: 6))
 
             VStack(alignment: .leading, spacing: 4) {
@@ -2829,9 +2982,14 @@ private struct HistoryView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Text(progress(of: record)).font(.caption2).foregroundStyle(.secondary)
+                Text(progress(of: record)).font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                if record.duration > 0 {
+                    ProgressView(value: min(max(record.position / record.duration, 0), 1)).tint(appAccent)
+                        .accessibilityLabel("觀看進度")
+                }
             }
         }
+        .padding(.vertical, 8)
     }
 
     private func progress(of record: WatchHistory) -> String {
@@ -2949,34 +3107,37 @@ final class FavoriteLibrary {
     func playerClosed() { playerOpen = false }
 }
 
-/// A9: 片庫 — the favourites and the watch history on one tab, switched by a segmented control in
-/// the bar. Two stores; only the screens share the tab. Opens on 收藏.
+/// 片庫 — two stores, one content segment. Opens on 收藏; neither store is copied or merged.
 private struct LibraryView: View {
     let sites: [Site]
     let source: ConfigSource
     @State private var section = LibrarySection.initial
 
     var body: some View {
-        Group {
-            switch section {
-            case .favorites: FavoritesView(sites: sites, source: source)
-            case .history: HistoryView(sites: sites, source: source)
-            }
-        }
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Picker("片庫", selection: $section) {
-                    ForEach(LibrarySection.allCases) { Text($0.title).tag($0) }
+        VStack(alignment: .leading, spacing: 16) {
+            Text("片庫").font(.largeTitle.weight(.bold))
+                .padding(.horizontal, 20).padding(.top, 12)
+            HStack(spacing: 8) {
+                ForEach(LibrarySection.allCases) { item in
+                    CinematicChoice(title: item.title, selected: section == item) { section = item }
                 }
-                .pickerStyle(.segmented)
-                .fixedSize()
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            Group {
+                switch section {
+                case .favorites: FavoritesView(sites: sites, source: source)
+                case .history: HistoryView(sites: sites, source: source)
+                }
             }
         }
+        .appWallpaper()
+        .toolbar(.hidden, for: .navigationBar)
     }
 }
 
 /// A10: the favourites, most recently favourited first, as 2:3 posters — two columns on an iPhone,
-/// as the home grid. What the watch history and the downloads know is shown beside each one and
+/// What the watch history and the downloads know is shown beside each one and
 /// never written into it.
 private struct FavoritesView: View {
     let sites: [Site]
@@ -2990,30 +3151,28 @@ private struct FavoritesView: View {
 
     var body: some View {
         let shown = FavoriteSearch.filter(favoriteLibrary.favorites, query: query)
-        Group {
+        VStack(alignment: .leading, spacing: 16) {
+            CinematicSearchField(text: $query, prompt: "搜尋收藏的作品", onSubmit: {})
+                .padding(.horizontal, 20)
+            Text("\(shown.count) 部收藏").font(.caption).foregroundStyle(.secondary)
+                .padding(.horizontal, 20)
             if favoriteLibrary.favorites.isEmpty {
                 ContentUnavailableView("還沒有收藏", systemImage: "heart",
                                        description: Text("在作品詳情頁右上角點「收藏」，作品就會出現在這裡。"))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if shown.isEmpty {
-                ContentUnavailableView.search(text: query)
+                ContentUnavailableView.search(text: query).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVGrid(columns: columns, spacing: 16) {
-                        ForEach(shown) { favorite in
-                            cell(for: favorite)
-                        }
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
+                        ForEach(shown) { favorite in cell(for: favorite) }
                     }
-                    .padding(12)
+                    .padding(.horizontal, 20).padding(.bottom, 24)
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
         }
         .appWallpaper()
-        .navigationTitle("收藏")
-        .navigationBarTitleDisplayMode(.inline)
-        .appNavigationBar()
-        // The snapshots on this device only: no source is asked (A10).
-        .searchable(text: $query, prompt: "搜尋收藏")
-        // Runs again whenever the page reappears, so progress after a viewing is current.
         .task {
             await favoriteLibrary.reload()
             let records = await WatchHistoryStore.shared.records()
@@ -3060,39 +3219,16 @@ private struct FavoriteCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            // The same 2:3 cell as the home grid's `VodCard`: the artwork fills it and is cropped.
-            Color.clear
-                .aspectRatio(2 / 3, contentMode: .fit)
-                .overlay {
-                    AsyncImage(url: URL(string: favorite.picture)) { phase in
-                        switch phase {
-                        case .success(let image): image.resizable().scaledToFill()
-                        default:
-                            ZStack {
-                                appSurface
-                                Image(systemName: "film").font(.largeTitle).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-                .clipped()
+            CinematicPosterArt(picture: favorite.picture)
                 .overlay(alignment: .topLeading) {
                     if !available {
-                        Text("來源不可用")
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 5)
-                            .background(.black.opacity(0.72), in: Capsule())
-                            .padding(8)
+                        Text("來源不可用").font(.caption2.weight(.semibold))
+                            .padding(6).background(.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 4))
+                            .padding(6)
                     }
                 }
-                .overlay {
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(appStroke, lineWidth: 0.7)
-                }
-                .clipShape(.rect(cornerRadius: 16))
-                .shadow(color: .black.opacity(0.30), radius: 10, y: 6)
-                .padding(.bottom, 6)
+                .opacity(available ? 1 : 0.65)
+                .padding(.bottom, 3)
             Text(zhTW: favorite.name)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(2)
@@ -3206,12 +3342,13 @@ private struct FavoriteToggle: View {
                     .foregroundStyle(isFavorite ? Color.pink : .primary)
                     .contentTransition(.symbolEffect(.replace))
                     .symbolEffect(.bounce, value: bounces)
-                Text(isFavorite ? "已收藏" : "收藏")
             }
-            .font(.subheadline.weight(.semibold))
-            .legibleToolbarLabel()
+            .font(.title3.weight(.medium))
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
             .animation(reduceMotion ? nil : .snappy, value: isFavorite)
         }
+        .buttonStyle(.plain)
         .onChange(of: isFavorite) { _, now in
             if now && !reduceMotion { bounces += 1 }
         }
@@ -3587,8 +3724,8 @@ private struct OfflineEpisodeMenu: View {
                            onDelete: { deletion = asset.map { OfflineDeletion([$0], title: "刪除這一集的下載") } })
         } label: {
             OfflineStateIcon(asset: asset)
-                .font(.caption)
-                .frame(width: 26, height: 26)
+                .font(.subheadline)
+                .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
         .accessibilityLabel(Text(asset.map { "下載：\(OfflineText.status($0))" } ?? "下載"))
@@ -3834,6 +3971,7 @@ private struct OfflineAssetRow: View {
             }
             .accessibilityLabel(Text("更多動作"))
         }
+        .padding(.vertical, 6)
         .contentShape(Rectangle())
         .onTapGesture { if asset.state == .completed { onPlay() } }
         // 左滑 → 刪除, confirmed first: deleting gigabytes is not something an undo can take back.
@@ -3878,47 +4016,55 @@ private struct OfflineDownloadsView: View {
         let attention = assets.filter(\.state.needsAttention)
         let done = assets.filter { $0.state == .completed }
             .sorted { ($0.title.vodName, $0.identity.flag, $0.title.episodeIndex) < ($1.title.vodName, $1.identity.flag, $1.title.episodeIndex) }
-        Group {
-            if assets.isEmpty && snapshot.unreadable.isEmpty {
-                ContentUnavailableView("沒有下載內容", systemImage: "arrow.down.circle",
-                                       description: Text("在影片詳情頁點選集數右上角的下載圖示。"))
-            } else {
-                List {
+        List {
+            Group {
+                Section {
+                    LabeledContent("離線內容", value: OfflineByteFormat.string(snapshot.usageBytes))
+                    LabeledContent("裝置可用", value: OfflineText.bytes(available))
+                } header: {
+                    Text("儲存空間")
+                } footer: {
+                    Text("最多同時下載 \(OfflineDownloadManager.concurrentDownloads) 集，其餘依序排隊。")
+                }
+                if assets.isEmpty && snapshot.unreadable.isEmpty {
                     Section {
-                        LabeledContent("離線內容", value: OfflineByteFormat.string(snapshot.usageBytes))
-                        LabeledContent("裝置可用", value: OfflineText.bytes(available))
+                        ContentUnavailableView("沒有下載內容", systemImage: "arrow.down.circle",
+                                               description: Text("在作品詳情頁下載單集，或使用「全部下載」。"))
                     }
-                    if !running.isEmpty {
-                        Section("正在下載") {
-                            ForEach(running) { OfflineAssetRow(asset: $0, onPlay: {}) }
-                        }
+                }
+                if !running.isEmpty {
+                    Section("下載佇列（\(running.count)）") {
+                        ForEach(running) { OfflineAssetRow(asset: $0, onPlay: {}) }
                     }
-                    if !attention.isEmpty || !snapshot.unreadable.isEmpty {
-                        Section("需要處理") {
-                            ForEach(attention) { OfflineAssetRow(asset: $0, onPlay: {}) }
-                            ForEach(snapshot.unreadable, id: \.self) { folder in
-                                HStack {
-                                    Image(systemName: "questionmark.folder").foregroundStyle(.orange)
-                                    Text("無法讀取的下載").font(.subheadline)
-                                    Spacer()
-                                    Button("刪除", role: .destructive) { deletion = OfflineDeletion(unreadable: folder) }
-                                }
+                }
+                if !attention.isEmpty || !snapshot.unreadable.isEmpty {
+                    Section("需要處理（\(attention.count + snapshot.unreadable.count)）") {
+                        ForEach(attention) { OfflineAssetRow(asset: $0, onPlay: {}) }
+                        ForEach(snapshot.unreadable, id: \.self) { folder in
+                            HStack {
+                                Image(systemName: "questionmark.folder").foregroundStyle(.orange)
+                                Text("無法讀取的下載").font(.subheadline)
+                                Spacer()
+                                Button("刪除", role: .destructive) { deletion = OfflineDeletion(unreadable: folder) }
+                                    .frame(minHeight: 44)
                             }
                         }
                     }
-                    if !done.isEmpty {
-                        Section("已下載") {
-                            ForEach(done) { asset in OfflineAssetRow(asset: asset, onPlay: { playing = asset }) }
-                        }
+                }
+                if !done.isEmpty {
+                    Section("已下載（\(done.count)）") {
+                        ForEach(done) { asset in OfflineAssetRow(asset: asset, onPlay: { playing = asset }) }
                     }
                 }
-                .scrollContentBackground(.hidden)
-                .listRowBackground(appRaisedSurface.opacity(0.82))
             }
+            .listRowBackground(appSurface)
         }
+        .scrollContentBackground(.hidden)
+        .listStyle(.insetGrouped)
+        .listSectionSpacing(20)
         .appWallpaper()
-        .navigationTitle("下載內容")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("下載")
+        .navigationBarTitleDisplayMode(.large)
         .appNavigationBar()
         .offlineDeleteConfirmation($deletion)
         .modifier(OfflinePlaybackPresenter(asset: $playing))
@@ -3947,7 +4093,9 @@ private struct OfflineTitleDownloadsView: View {
                                                   set: { if $0 { selected.insert(asset.id) } else { selected.remove(asset.id) } }),
                                 onPlay: { playing = asset })
             }
+            .listRowBackground(appSurface)
         }
+        .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .appWallpaper()
         .navigationTitle(zhTW(title))
@@ -3987,7 +4135,7 @@ private struct OfflineTitleDownloadsView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .background(.ultraThinMaterial)
+                .background(appSurface)
             }
         }
         .offlineDeleteConfirmation($deletion)
@@ -7775,8 +7923,10 @@ private extension View {
     }
 
     func appNavigationBar() -> some View {
-        toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        toolbar(.visible, for: .navigationBar)
+            .toolbarBackground(appBackground, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
     }
 
     /// IOS-POC-46: a toolbar item's own label (the home screen's source name), legible over the

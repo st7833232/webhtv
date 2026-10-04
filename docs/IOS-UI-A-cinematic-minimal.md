@@ -1,5 +1,47 @@
 # IOS-UI-A — Cinematic Minimal
 
+## A2 structure redesign — 2026-10-04 (current task)
+
+User explicitly authorized complete UI implementation and SideStore publication without intermediate approval or separate test CI. Fetched baseline: `1bf5d7ade62b7ba14e9f60b5bbfed7585004e67c`. Previous sections below describe the first theme trial, not this redesign's completion or release state.
+
+References inspected: `WebHTV 五款 iOS 介面設計比較板.png`, column A, and SideStore screenshot `E21AEE54-6530-4DF3-BF44-3C43556B1FA9.jpeg`. The screenshot establishes Home's current pixels only; other pages are inventoried from actual source.
+
+| Page | Current → A target | Views |
+|---|---|---|
+| Home | Large glass source / search drawer / uninterrupted posters → brand, small source control, custom thin search, category underline, Featured and source content sections, titles below 2:3 artwork | HomeView, CMSView, VodCard |
+| Detail | Standalone poster / stacked metadata / distant CTA → immersive art header, quiet back/heart, title/facts/source, primary play CTA, complete metadata, grouped lines/episodes/downloads | VodView presentation subviews |
+| Library | Toolbar segment and search → in-content heading/收藏/記錄, thin search, shared poster grid; history remains native continuation List | LibraryView, FavoritesView, FavoriteCard, HistoryView |
+| Search | Native always-open drawer → explicit thin search, existing submit/stop/progress/source filters/grid/paging | AggregateSearchView |
+| Downloads | Plain usage and state List → native dark management List, summary and counted state sections | OfflineDownloadsView, OfflineAssetRow, title management |
+| Settings | Many native sections, inconsistent surface → inset-grouped dark rows, clearer spacing/headings, every existing option retained | SettingsView |
+| Bottom bar | Oversized floating glass → full-width plain thin bar, safe-area reservation, original tags 0/3/1/4/2 | ConfigView, CinematicTabBar |
+| Player | Pure black internal playback → preserve | No engine/session/control changes |
+
+Design: content cinematic, tools native. Featured uses the actual first source item; source lists retain order. No invented ranking/update time/capability, no new recommendation backend. Thin TextField submits the existing search only; typing causes no request. Keep TabView and child NavigationStacks for state, hide the system tab bar through public toolbar visibility and reserve the new bar via safeAreaInset; no UIKit traversal or global legacy UI flag. Poster crop is decorative; details retain access to the whole poster. Dynamic Type/VoiceOver and 44pt touch targets are required. Dark default remains; new theme settings are outside scope.
+
+All source identity/health/configuration, metadata/translation, favorites/completion/undo, history and deletion ownership, download queue/bulk/single/cellular behavior, AVPlayer/MPV/track/subtitle/speed/skip/PiP behavior remain unchanged. Only presentation code, version/release metadata and task docs are in scope.
+
+Best-practice decision: no change cannot meet the target; material-only trial is contradicted by the real screenshot; choose narrow SwiftUI layout redesign. Local ConfigView owns tabs/source; VodView owns playback hooks; FavoriteLibrary, WatchHistoryStore and OfflineDownloads.manager remain data owners. Apple safeAreaInset/toolbar visibility docs were queried on 2026-10-04 (https://developer.apple.com/documentation/swiftui/view/toolbar(_:for:) and https://developer.apple.com/documentation/swiftui/view/safeareainset(edge:alignment:spacing:content:)-6gwby). No upstream/dependency/ABI change, so upstream commit/revert/benchmark/paper research is inapplicable. No claim of best-practice certification or device rendering is made.
+
+Implementation plan (inline, user authorized):
+- [x] Display primitives and thin fixed bar; Home source header/custom search/categories/Featured/content sections.
+- [x] Detail header/CTA/episode presentation extracted into small subviews; preserve all actions and metadata.
+- [x] Library Grid/List and explicit segment/search; aggregate search presentation; native download/settings surfaces.
+- [x] Review scope, domain invariance, syntax if available; fetch latest ios-poc and safely integrate; choose new version from actual Releases/tags/source, commit atomically.
+- [ ] Publish via existing SideStore workflow; verify device build, IPA/schema/public-byte validation, Release asset and source.json; synchronize actual evidence.
+
+Review focus: keyboard/safe areas, long source names and switching, empty/error/paging/search, favorite unavailable/undo, long metadata and episode download hit targets.
+
+Environment: Linux Work has no swift/xcodebuild/iOS Simulator/iPhone. Code/layout inspection is distinct from the release workflow's actual device compilation. Do not claim SwiftUI screenshots or 1:1; SideStore must verify iOS 27 layout, keyboard, Dynamic Type, artwork, source switching, library, downloads and both engines/PiP.
+
+Rollback: revert the task presentation change on latest ios-poc and publish a higher version; never move existing tags, overwrite concurrent work or migrate domain data.
+
+Recovery: branch `ios-ui-a-restructure`, worktree `/workspace/scratch/59247bee57e7/webhtv-ui-a`, clean start, no protected dirty paths, guard IOS-UI-A2. Implementation and read-only review complete; Swift parse 0 errors, 13 protected declarations byte-identical, existing domain methods unchanged. Reviewer: no Critical/Important or material complexity findings. Latest ios-poc re-fetched unchanged; new release target 0.1.62 (63), tag absence verified. Next action: commit and push authorized release, then check IPA/source publication. Latest Release verified on entry is 0.1.61 (62); resolve again before publishing.
+
+---
+
+## Historical first theme trial
+
 Date: 2026-10-04
 Branch: `ios-poc`
 Release target: `0.1.60 (61)`

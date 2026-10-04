@@ -117,7 +117,7 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
           BUILD: ${{ steps.meta.outputs.build }}
           TAG: ${{ steps.meta.outputs.tag }}
-          RELEASE_NOTES: ${{ inputs.release_notes || 'WebHTV 0.1.61 (62)（A 版 Cinematic Minimal；含最多 3 集多工下載；真機未驗收）' }}
+          RELEASE_NOTES: ${{ inputs.release_notes || 'WebHTV 0.1.62 (63)（Cinematic Minimal 結構重構；真機未驗收）。首頁新增 Featured、薄搜尋與來源入口；作品詳情、片庫、搜尋重新排版；下載與設定保留原生管理介面；底部改為薄型固定導覽列。保留既有播放、收藏、觀看記錄與下載行為。' }}
         run: |
           set -euo pipefail
           mkdir -p package/Payload dist
@@ -145,7 +145,7 @@ jobs:
           ASSET: ${{ steps.meta.outputs.asset }}
           VERSION: ${{ steps.meta.outputs.version }}
           BUILD: ${{ steps.meta.outputs.build }}
-          RELEASE_NOTES: ${{ inputs.release_notes || 'WebHTV 0.1.61 (62)（A 版 Cinematic Minimal；含最多 3 集多工下載；真機未驗收）' }}
+          RELEASE_NOTES: ${{ inputs.release_notes || 'WebHTV 0.1.62 (63)（Cinematic Minimal 結構重構；真機未驗收）。首頁新增 Featured、薄搜尋與來源入口；作品詳情、片庫、搜尋重新排版；下載與設定保留原生管理介面；底部改為薄型固定導覽列。保留既有播放、收藏、觀看記錄與下載行為。' }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
@@ -174,7 +174,7 @@ jobs:
           BUILD: ${{ steps.meta.outputs.build }}
           TAG: ${{ steps.meta.outputs.tag }}
           ASSET: ${{ steps.meta.outputs.asset }}
-          RELEASE_NOTES: ${{ inputs.release_notes || 'WebHTV 0.1.61 (62)（A 版 Cinematic Minimal；含最多 3 集多工下載；真機未驗收）' }}
+          RELEASE_NOTES: ${{ inputs.release_notes || 'WebHTV 0.1.62 (63)（Cinematic Minimal 結構重構；真機未驗收）。首頁新增 Featured、薄搜尋與來源入口；作品詳情、片庫、搜尋重新排版；下載與設定保留原生管理介面；底部改為薄型固定導覽列。保留既有播放、收藏、觀看記錄與下載行為。' }}
         run: |
           set -euo pipefail
           git fetch origin ios-poc

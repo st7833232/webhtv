@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.63",
+          "date": "2026-10-04",
+          "localizedDescription": "WebHTV 0.1.63 (64)（A 版真機回報修正）。修正底部內容與回頂端按鈕遮擋、恢復原生返回導覽；片庫改為記錄優先與記錄／收藏順序。新增深色／淺色主題、搜尋收鍵盤、首頁重點回頂端與片庫／設定重點返回一層；空白搜尋恢復 Featured，避免舊搜尋回應覆蓋片單。播放器與資料邏輯保留，手勢及畫面仍需 SideStore 真機驗收。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.63-b64/WebHTV-0.1.63-64.ipa",
+          "size": 35076199,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.62",
           "date": "2026-10-04",
           "localizedDescription": "WebHTV 0.1.62 (63)（Cinematic Minimal 結構重構；真機未驗收）。首頁新增 Featured、薄搜尋與來源入口；作品詳情、片庫、搜尋重新排版；下載與設定保留原生管理介面；底部改為薄型固定導覽列。保留既有播放、收藏、觀看記錄與下載行為。",

@@ -1,6 +1,7 @@
 import AVKit
 import AudioToolbox
 import CoreMedia
+import Network
 import Observation
 import os
 import SwiftUI
@@ -52,6 +53,8 @@ struct WebHTVApp: App {
             await offlineLibrary.connect(OfflineDownloads.manager)
             await OfflineDownloads.manager.setResolver { asset in await OfflineAppContext.resolve(asset) }
             await OfflineDownloads.manager.start()
+            // IOS-POC-49: a download queued under an earlier 行動網路 setting follows today's.
+            await OfflineDownloads.manager.setAllowsCellular(OfflineDownloadPreferences().allowsCellular)
         }
         // Says out loud whether PiP can arm at all. The simulator does not implement it, so an
         // absent PiP button there is the platform rather than a defect — and without this line
@@ -1557,13 +1560,17 @@ private struct SettingsView: View {
                 Toggle("看完後自動刪除", isOn: $offlineAutoDelete)
                     .onChange(of: offlineAutoDelete) { _, on in OfflineDownloadPreferences().autoDeleteAfterWatching = on }
                 Toggle("允許使用行動網路下載", isOn: $offlineCellular)
-                    .onChange(of: offlineCellular) { _, on in OfflineDownloadPreferences().allowsCellular = on }
+                    .onChange(of: offlineCellular) { _, on in
+                        OfflineDownloadPreferences().allowsCellular = on
+                        // IOS-POC-49: downloads already queued or running follow the change too.
+                        Task { await OfflineDownloads.manager.setAllowsCellular(OfflineDownloadPreferences().allowsCellular) }
+                    }
                 Toggle("下載 60fps 高幀率版本", isOn: $offlineHighFrameRate)
                     .onChange(of: offlineHighFrameRate) { _, on in OfflineDownloadPreferences().prefersHighFrameRate = on }
             } header: {
                 Text("離線下載")
             } footer: {
-                Text("離線畫質最高 1080p。「智慧 1080p」優先 HEVC、SDR 與合理的低位元率；「最省空間」最高 720p。看完後自動刪除只在真正播放到結尾（或片尾自動跳下一集）後才刪除。行動網路與高幀率設定套用到之後開始的下載。")
+                Text("離線畫質最高 1080p。「智慧 1080p」優先 HEVC、SDR 與合理的低位元率；「最省空間」最高 720p。看完後自動刪除只在真正播放到結尾（或片尾自動跳下一集）後才刪除。行動網路設定立即套用到所有未完成的下載；高幀率設定套用到之後開始的下載。")
             }
 
             // IOS-POC-45C
@@ -1988,6 +1995,8 @@ private struct VodView: View {
     /// IOS-POC-47: the download sheet's episode, once its stream has been read.
     @State private var downloadDraft: OfflineDownloadDraft?
     @State private var downloadError: String?
+    /// IOS-POC-49: 全部下載's episodes, while its confirmation is up.
+    @State private var downloadAll: OfflineDownloadAllPlan?
     /// What was watched last, if anything. Marks the episode in the grid (R4) and supplies the
     /// remembered quality playback starts on (R6).
     @State private var watched: WatchHistory?
@@ -2131,6 +2140,14 @@ private struct VodView: View {
                                     }
                                 }
                             }
+                            // IOS-POC-49 全部下載: from where the viewer left off to the end of the line.
+                            let remaining = downloadAllEpisodes(flag)
+                            Button("全部下載", systemImage: "arrow.down.circle") {
+                                downloadAll = OfflineDownloadAllPlan(flag: flag.name, episodes: remaining)
+                            }
+                            .buttonStyle(.bordered)
+                            .frame(minHeight: 44)
+                            .disabled(remaining.isEmpty || resolving)
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 10)], spacing: 10) {
                                 ForEach(Array(flag.episodes.enumerated())[blocks[max(0, chunk)]], id: \.offset) { index, episode in
                                     let lastWatched = watched?.vodFlag == flag.name
@@ -2222,6 +2239,14 @@ private struct VodView: View {
             Text(downloadError ?? "")
         }
         .sheet(item: $downloadDraft) { OfflineDownloadSheet(draft: $0) }
+        .confirmationDialog(downloadAll.map { "下載 \($0.episodes.count) 集？" } ?? "",
+                            isPresented: Binding(get: { downloadAll != nil }, set: { if !$0 { downloadAll = nil } }),
+                            titleVisibility: .visible, presenting: downloadAll) { plan in
+            Button("全部下載") { Task { await queueDownloadAll(plan) } }
+            Button("取消", role: .cancel) {}
+        } message: { plan in
+            Text("從「\(zhTW(plan.episodes.first?.episode.name ?? ""))」起尚未下載的 \(plan.episodes.count) 集，畫質「\(OfflineDownloadPreferences().mode.label)」，依序下載。")
+        }
     }
 
     private var historyKey: String { WatchHistory.key(siteID: site.id, vodId: summary.id) }
@@ -2251,6 +2276,39 @@ private struct VodView: View {
         guard let asset = await OfflineDownloads.manager.completedAsset(for: offlineIdentity(episode, flag: flag))
         else { return nil }
         return await OfflineDownloads.playbackSource(for: asset)
+    }
+
+    /// IOS-POC-49 全部下載: from where the viewer left off to the end of `flag`, without the episodes
+    /// that already have a download in any state.
+    private func downloadAllEpisodes(_ flag: Flag) -> [(index: Int, episode: Episode)] {
+        OfflineBulkSelection.downloadAll(flag, watchedFlag: watched?.vodFlag, watchedURL: watched?.episodeUrl,
+                                         watchedName: watched?.vodRemarks, spider: site.isSpiderShape) {
+            offlineLibrary.asset(for: offlineIdentity($0, flag: flag.name)) != nil
+        }
+    }
+
+    /// Queues each episode with the settings' quality; each is resolved and its options picked when
+    /// its turn comes, as the sheet would have preselected them.
+    private func queueDownloadAll(_ plan: OfflineDownloadAllPlan) async {
+        let preferences = OfflineDownloadPreferences()
+        var queued = 0
+        for (index, episode) in plan.episodes {
+            let result = await OfflineDownloads.manager.enqueueAutomatic(
+                identity: offlineIdentity(episode, flag: plan.flag),
+                title: OfflineTitleInfo(siteKey: site.key, siteName: site.name, sourceID: source.identity,
+                                        vodId: summary.id, vodName: summary.name, vodPic: summary.picture,
+                                        episodeName: episode.name, episodeIndex: index),
+                mode: preferences.mode, allowHighFrameRate: preferences.prefersHighFrameRate,
+                preferredSubtitleLanguage: Locale.preferredLanguages.first,
+                autoDeleteAfterWatching: preferences.autoDeleteAfterWatching, allowsCellular: preferences.allowsCellular)
+            switch result {
+            case .created: queued += 1
+            case .existing: break
+            case .refused(let failure):
+                downloadError = queued == 0 ? failure.message : "已加入 \(queued) 集，其餘未加入：\(failure.message)"
+                return
+            }
+        }
     }
 
     /// 下載: resolves the episode the way a play does, reads what its stream offers, then opens the
@@ -3183,6 +3241,12 @@ private struct FavoriteUndoBanner: View {
 
 // MARK: - IOS-POC-47: offline downloads
 
+/// IOS-POC-49 全部下載: the line and the episodes its confirmation lists.
+private struct OfflineDownloadAllPlan {
+    let flag: String
+    let episodes: [(index: Int, episode: Episode)]
+}
+
 /// The downloads screens' snapshot, kept current by `OfflineDownloadManager` from launch on.
 @MainActor let offlineLibrary = OfflineLibrary()
 
@@ -3194,8 +3258,35 @@ private struct FavoriteUndoBanner: View {
     var source = ConfigSource.importedFile
 
     nonisolated static func resolve(_ asset: OfflineAsset) async -> PlaybackTarget? {
+        // IOS-POC-49: a launch prepares the next queued download before `ConfigView` has loaded the
+        // sites. Wait for them (up to 30 s) rather than fail the download as unresolvable.
+        var waited = 0
+        while waited < 60, await MainActor.run(body: { shared.sites.isEmpty }) {
+            try? await Task.sleep(for: .milliseconds(500))
+            waited += 1
+        }
         let (sites, source) = await MainActor.run { (shared.sites, shared.source) }
         return await OfflineEpisodeResolver.target(for: asset, sites: sites, source: source)
+    }
+}
+
+/// IOS-POC-49: whether the only route right now is cellular, so a Wi-Fi-only download reads
+/// 等待 Wi-Fi rather than a 0% that looks stuck.
+@MainActor @Observable final class OfflineNetwork {
+    static let shared = OfflineNetwork()
+    private(set) var cellularOnly = false
+    private let monitor = OfflineNetwork.startMonitor()
+
+    /// Built off the main actor, so the handler iOS calls on the monitor's queue is not main-actor code.
+    private nonisolated static func startMonitor() -> NWPathMonitor {
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { path in
+            let cellularOnly = path.status == .satisfied && path.usesInterfaceType(.cellular)
+                && !path.usesInterfaceType(.wifi) && !path.usesInterfaceType(.wiredEthernet)
+            Task { @MainActor in OfflineNetwork.shared.cellularOnly = cellularOnly }
+        }
+        monitor.start(queue: DispatchQueue(label: "com.webhtv.ios.poc.offline-network"))
+        return monitor
     }
 }
 
@@ -3232,7 +3323,10 @@ final class OfflineAppDelegate: NSObject, UIApplicationDelegate {
         switch asset.state {
         case .queued: return "等待下載"
         case .preparing: return "準備中"
-        case .downloading: return "\(Int((asset.progress.fraction * 100).rounded(.down)))%"
+        case .downloading:
+            // IOS-POC-49: on a cellular-only route a Wi-Fi-only download is waiting, not stuck.
+            if !asset.allowsCellular && OfflineNetwork.shared.cellularOnly { return "等待 Wi-Fi" }
+            return "\(Int((asset.progress.fraction * 100).rounded(.down)))%"
         case .paused: return "已暫停"
         case .failed: return "下載失敗"
         case .completed: return bytes(asset.actualBytes)

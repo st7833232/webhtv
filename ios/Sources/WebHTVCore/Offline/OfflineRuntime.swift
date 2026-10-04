@@ -84,6 +84,9 @@ public final class URLSessionOfflineTransport: NSObject, OfflineTransport, URLSe
         foregroundConfiguration.httpMaximumConnectionsPerHost = 4
         foregroundConfiguration.urlCache = nil
         foregroundConfiguration.timeoutIntervalForRequest = 30
+        // IOS-POC-49: a Wi-Fi-only download on a cellular-only route waits, as the background
+        // session's do, instead of failing with "not connected".
+        foregroundConfiguration.waitsForConnectivity = true
         foreground = URLSession(configuration: foregroundConfiguration, delegate: self, delegateQueue: queue)
     }
 

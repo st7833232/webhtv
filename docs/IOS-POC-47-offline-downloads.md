@@ -227,7 +227,7 @@ Application Support/OfflineMedia/<asset-id>/
 4. 帶 Cookie／Authorization 的來源只在 App 執行時下載（安全取捨，第 9 節）。
 5. 從詳情頁下載時，播放器未開啟，無法得知「目前播放使用中的音軌」，預設使用來源 DEFAULT rendition（可在 sheet 改）。
 6. H.264 → HEVC 重新編碼（Phase 2）未實作。
-7. 行動網路設定只套用到之後開始的下載；已在下載中的項目要暫停再繼續才會套用新設定。連到手機分享的 Wi-Fi 熱點時 iOS 視為 Wi-Fi，關閉行動網路也會下載（實際用的是分享端的行動數據）；「低數據模式」的 Wi-Fi 沒有另外限制。
+7. 行動網路設定原本只在加入下載時記錄，之後切換不會套用到已加入的項目（原文寫「暫停再繼續就會套用」是錯的，`resume()` 不會更新）。IOS-POC-49 已改為即時套用到所有未完成的下載，見 `docs/IOS-POC-49-offline-cellular-download-all.md`。連到手機分享的 Wi-Fi 熱點時 iOS 視為 Wi-Fi，關閉行動網路也會下載（實際用的是分享端的行動數據）；「低數據模式」的 Wi-Fi 沒有另外限制。
 8. 重開 App 時，若某個 segment 已由系統下載完、事件還在佇列中尚未搬入資產資料夾，接回流程可能再送一次同一個 segment；結果是重複下載（覆寫同一路徑），不影響正確性。
 9. background session 的大量 segment task：Apple 建議較少、較大的傳輸（E4）；一集約 300–1000 個 segment，在前景一次送出，實際背景表現需真機觀察。
 

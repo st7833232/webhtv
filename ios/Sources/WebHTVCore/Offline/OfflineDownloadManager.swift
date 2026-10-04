@@ -276,6 +276,31 @@ public actor OfflineDownloadManager {
     public func enqueue(identity: OfflineIdentity, title: OfflineTitleInfo, target: PlaybackTarget,
                         choice: OfflineDownloadChoice, estimate: OfflineSizeEstimate,
                         autoDeleteAfterWatching: Bool, allowsCellular: Bool) -> OfflineEnqueueResult {
+        let sidecars = OfflineOptionsBuilder.sidecars(target.subtitles).filter { choice.subtitleIDs.contains($0.id) }
+        let request = OfflineDownloadRequest(mediaURL: target.url, headers: target.headers, choice: choice, sidecars: sidecars)
+        return queue(identity: identity, title: title, request: request, estimate: estimate,
+                     autoDeleteAfterWatching: autoDeleteAfterWatching, allowsCellular: allowsCellular)
+    }
+
+    /// IOS-POC-49 全部下載: queues an episode nobody opened the sheet for. Its address is resolved
+    /// when its turn comes — a long queue would otherwise outlive signed addresses — and preparing
+    /// then picks what the sheet would have preselected for `mode`.
+    public func enqueueAutomatic(identity: OfflineIdentity, title: OfflineTitleInfo, mode: OfflineQualityMode,
+                                 allowHighFrameRate: Bool, preferredSubtitleLanguage: String?,
+                                 autoDeleteAfterWatching: Bool, allowsCellular: Bool) -> OfflineEnqueueResult {
+        // Never fetched: `needsFreshSource` replaces it before anything is read.
+        let unresolved = URL(string: "about:blank")!
+        let request = OfflineDownloadRequest(
+            mediaURL: unresolved, headers: [:], choice: OfflineDownloadChoice(mode: mode, allowHighFrameRate: allowHighFrameRate),
+            sidecars: [], needsFreshSource: true,
+            automatic: OfflineAutomaticChoice(preferredSubtitleLanguage: preferredSubtitleLanguage))
+        return queue(identity: identity, title: title, request: request, estimate: .unknown,
+                     autoDeleteAfterWatching: autoDeleteAfterWatching, allowsCellular: allowsCellular)
+    }
+
+    private func queue(identity: OfflineIdentity, title: OfflineTitleInfo, request: OfflineDownloadRequest,
+                       estimate: OfflineSizeEstimate, autoDeleteAfterWatching: Bool, allowsCellular: Bool) -> OfflineEnqueueResult {
+        let choice = request.choice
         if let existing = store.asset(for: identity) { return .existing(existing) }
         guard OfflineStorage.hasRoom(estimate: estimate.bytes, available: deps.capacity()) else {
             OfflineLog.notice("[offline] refused: insufficient storage estimate=\(estimate.bytes ?? -1)")
@@ -285,8 +310,6 @@ public actor OfflineDownloadManager {
                                  autoDeleteAfterWatching: autoDeleteAfterWatching, allowsCellular: allowsCellular,
                                  now: deps.now())
         asset.estimate = estimate
-        let sidecars = OfflineOptionsBuilder.sidecars(target.subtitles).filter { choice.subtitleIDs.contains($0.id) }
-        let request = OfflineDownloadRequest(mediaURL: target.url, headers: target.headers, choice: choice, sidecars: sidecars)
         do {
             try store.save(asset)
             try store.saveRequest(request, for: asset.id)
@@ -471,6 +494,37 @@ public actor OfflineDownloadManager {
             guard isCurrent(id, generation, .preparing) else { return }
             request.mediaURL = target.url
             request.headers = target.headers
+            if let automatic = request.automatic {
+                // The sheet's own reading of the stream and its preselection, so 全部下載 makes
+                // the package a 下載 with the sheet untouched would have made.
+                let options: OfflineDownloadOptions
+                do {
+                    options = try await self.options(for: target,
+                                                     preferredSubtitleLanguage: automatic.preferredSubtitleLanguage,
+                                                     allowHighFrameRate: request.choice.allowHighFrameRate)
+                } catch {
+                    guard isCurrent(id, generation, .preparing) else { return }
+                    fail(id, Self.failure(for: error))
+                    return
+                }
+                guard isCurrent(id, generation, .preparing) else { return }
+                if let refusal = options.refusal {
+                    fail(id, refusal)
+                    return
+                }
+                guard let option = options.option(for: request.choice.mode) ?? options.option(for: .smart)
+                        ?? options.modes.values.first else {
+                    fail(id, OfflinePackageError.empty.failure)
+                    return
+                }
+                request.choice = OfflineDownloadChoice(mode: request.choice.mode,
+                                                       allowHighFrameRate: request.choice.allowHighFrameRate,
+                                                       variant: option.variant, audioID: option.defaultAudioID,
+                                                       subtitleIDs: option.defaultSubtitleIDs)
+                request.sidecars = OfflineOptionsBuilder.sidecars(target.subtitles)
+                    .filter { request.choice.subtitleIDs.contains($0.id) }
+                request.automatic = nil
+            }
             request.needsFreshSource = false
             try? store.saveRequest(request, for: id)
         }
@@ -876,6 +930,28 @@ public actor OfflineDownloadManager {
             await self.cancelTransfers(id, previousGeneration: previous)
             await self.pump()
         }
+    }
+
+    /// IOS-POC-49: 允許使用行動網路下載 for every download not finished yet, not only the ones
+    /// queued after the change. A request's cellular rule is fixed when it is made — and resume data
+    /// carries the request it came from — so a running download sends its unfinished pieces again
+    /// under the new rule, and a single file's resume data is dropped: it starts over rather than
+    /// keep the old rule.
+    public func setAllowsCellular(_ allowed: Bool) async {
+        for asset in store.all() where asset.state != .completed && asset.state != .deleting && asset.allowsCellular != allowed {
+            let running = asset.state == .downloading
+            guard (try? store.update(asset.id, now: deps.now(), {
+                $0.allowsCellular = allowed
+                if running { $0.generation += 1 }
+            })) != nil else { continue }
+            OfflineLog.notice("[offline] \(OfflineLog.short(asset.id)) cellular=\(allowed) state=\(asset.state.rawValue)")
+            if running { _ = await deps.transport.cancel(assetID: asset.id, producingResumeData: false) }
+            try? FileManager.default.removeItem(at: layout.folder(for: asset.id).appendingPathComponent("partial"))
+            if running, let current = store.asset(asset.id), current.state == .downloading, let plan = loadPlan(asset.id) {
+                await submitMissing(current.id, plan: plan)
+            }
+        }
+        publish(force: true)
     }
 
     private func cancelTransfers(_ id: String, previousGeneration: Int) async {

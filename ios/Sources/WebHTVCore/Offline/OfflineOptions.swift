@@ -98,14 +98,28 @@ public struct OfflineDownloadRequest: Codable, Equatable, Sendable {
     public var sidecars: [OfflineSidecarRequest]
     /// The last attempt failed because the addresses stopped working: resolve the episode again.
     public var needsFreshSource: Bool
+    /// IOS-POC-49 全部下載: nobody saw the sheet, so preparing picks what it would have preselected.
+    /// Nil once picked: a retry keeps the same picks, as it does for the sheet's.
+    public var automatic: OfflineAutomaticChoice?
 
     public init(mediaURL: URL, headers: [String: String], choice: OfflineDownloadChoice,
-                sidecars: [OfflineSidecarRequest], needsFreshSource: Bool = false) {
+                sidecars: [OfflineSidecarRequest], needsFreshSource: Bool = false,
+                automatic: OfflineAutomaticChoice? = nil) {
         self.mediaURL = mediaURL
         self.headers = headers
         self.choice = choice
         self.sidecars = sidecars
         self.needsFreshSource = needsFreshSource
+        self.automatic = automatic
+    }
+}
+
+/// What the sheet's preselection depends on besides the stream: the subtitle language it prefers.
+public struct OfflineAutomaticChoice: Codable, Equatable, Sendable {
+    public var preferredSubtitleLanguage: String?
+
+    public init(preferredSubtitleLanguage: String?) {
+        self.preferredSubtitleLanguage = preferredSubtitleLanguage
     }
 }
 
@@ -211,5 +225,20 @@ public enum OfflineBulkSelection {
     /// What a selection would free, for 「已選 3 項 · 1.69 GB」: measured bytes where known.
     public static func bytes(_ assets: [OfflineAsset]) -> Int64 {
         assets.reduce(0) { $0 + ($1.displayBytes ?? 0) }
+    }
+
+    /// IOS-POC-49 全部下載: the line's playable episodes from where the viewer left off — that
+    /// episode included — to the end, leaving out every episode that already has a download in any
+    /// state. Where they left off is found as 立即播放 finds it: by address on the watched line, by
+    /// name on another; nothing found means the whole line. Indices are positions in `flag.episodes`.
+    public static func downloadAll(_ flag: Flag, watchedFlag: String?, watchedURL: String?, watchedName: String?,
+                                   spider: Bool, hasDownload: (Episode) -> Bool) -> [(index: Int, episode: Episode)] {
+        let playable = flag.episodes.enumerated().filter { $0.element.isPlayable(spider: spider) }
+        let byURL = watchedFlag == flag.name ? watchedURL.flatMap { url in playable.first { $0.element.url == url } } : nil
+        let byName = watchedName.flatMap { name in
+            name.isEmpty ? nil : playable.first { $0.element.name.caseInsensitiveCompare(name) == .orderedSame }
+        }
+        let start = (byURL ?? byName)?.offset ?? 0
+        return playable.filter { $0.offset >= start && !hasDownload($0.element) }.map { ($0.offset, $0.element) }
     }
 }

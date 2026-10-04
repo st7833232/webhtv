@@ -4,7 +4,11 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-04：IOS-POC-48 收藏與片庫（先讀這一節）
+## Current handoff — 2026-10-04：IOS-POC-49 行動網路設定與全部下載（先讀這一節）
+
+**IOS-POC-49**（2026-10-04）：使用者回報 5G 下載停在 0%。原因是行動網路設定只在加入下載時記錄。改為切換設定與每次啟動都即時套用到所有未完成的下載：下載中的項目重新送出未完成片段，單檔續傳資料作廢。只有行動網路時顯示「等待 Wi-Fi」，前景 session 改為等待連線。新增「全部下載」：從觀看進度那一集（含）起本線路尚未下載的集數，用設定的預設畫質，每集輪到時才解析，選擇與單集畫面預設相同。Linux 69／69、突變 4／4；依使用者指示不跑 CI，直接發布。原本也編為 IOS-POC-48，push 時發現另一個 session 已用該編號（收藏與片庫）並發布 `0.1.58 (59)`，改編 IOS-POC-49，在其上重新套用。真機未驗證。見 `docs/IOS-POC-49-offline-cellular-download-all.md`。IOS-POC-47 審查確認的 40 項問題尚未處理（使用者未決定）。
+
+## Previous handoff — 2026-10-04：IOS-POC-48 收藏與片庫
 
 **IOS-POC-48**（2026-10-04）：作品層級收藏，identity = `ConfigSource.identity` + `Site.id` + `Vod.id`（`FavoriteStore`，`Application Support/Favorites/favorites.json`，逐筆容錯、壞檔另存、讀取失敗不寫入）。匯入的設定檔改為每份內容各有 identity（`imported:<UUID>`，依內容 SHA-256 查表；IOS-POC-48 之前匯入的檔仍是 `imported`）。底部分頁「記錄」改為「片庫」（收藏／記錄 segmented，預設收藏）；詳情頁右上角 ♡ 收藏／♥ 已收藏；來源可確認已完結的多集影集看完真正最終集時自動移出收藏並提供 8 秒「復原」；原站台不在目前設定時保留並標示「來源不可用」。**推翻 IOS-POC-47 的規則**：刪除／清除觀看記錄不再連帶刪除下載，收藏、記錄、下載三者各自刪除。設計、查證、驗證與限制在 `docs/IOS-POC-48-favorites.md`。驗證：Linux Swift 6.2.3 收藏核心 64／64、20 條 mutation 全被抓到；macOS CI run `37190088406`：host 929 個測試與 base 失敗清單相同、Debug／Release device **BUILD SUCCEEDED**、Simulator 收藏測試全過。**真機未驗證**。commit `f40c31a3` 已 push `ios-poc`；匯入檔「修改後重新匯入是新設定」維持（使用者回覆不使用匯入檔）。
 

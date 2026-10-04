@@ -19,6 +19,10 @@ on:
   push:
     tags:
       - "ios-v*-b*"
+    branches:
+      - "ios-poc"
+    paths:
+      - ".github/ios-release-trigger"
 
 permissions:
   contents: write

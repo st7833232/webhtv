@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.61",
+          "date": "2026-10-04",
+          "localizedDescription": "WebHTV 0.1.61 (62)（A 版 Cinematic Minimal；含最多 3 集多工下載；真機未驗收）",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.61-b62/WebHTV-0.1.61-62.ipa",
+          "size": 34956830,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.60",
           "date": "2026-10-04",
           "localizedDescription": "WebHTV 0.1.60 (61)（多工下載；真機未驗收）\n\n新增\n- 多工下載：最多同時下載 3 集，其餘排隊，完成一集就依加入順序補上下一集。「全部下載」也一樣。\n- 開始下載前的空間檢查會把其他正在下載的集數還需要的空間一起算進去。\n\n說明\n- 單一檔案的影片、來自不同來源的集數會明顯變快；同一個來源的 HLS 影片本來就是多連線下載，總速度主要受網路頻寬限制，主要改善是集與集之間不再有準備空檔。\n\n已知限制\n- 尚未在任何真機驗證。",

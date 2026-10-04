@@ -148,11 +148,13 @@ private struct ConfigView: View {
                         .tag(3)
                         .tabItem { Label("搜尋", systemImage: "magnifyingglass") }
 
+                    // IOS-POC-48: 片庫 — 收藏 and 記錄 on one tab, in the place 記錄 had, rather than a
+                    // sixth tab (HIG: avoid overflow tabs). Tag 1 is still this place.
                     NavigationStack {
-                        HistoryView(sites: sites, source: source)
+                        LibraryView(sites: sites, source: source)
                     }
                     .tag(1)
-                    .tabItem { Label("記錄", systemImage: "clock.arrow.circlepath") }
+                    .tabItem { Label("片庫", systemImage: "rectangle.stack.fill") }
 
                     // IOS-POC-47. Tag 4: the other tabs keep the tags code already switches to.
                     NavigationStack {
@@ -188,12 +190,24 @@ private struct ConfigView: View {
                 }
                 .toolbarBackground(.hidden, for: .tabBar)
                 .appWallpaper()
+                // IOS-POC-48 A13: above the tab bar on every tab, since the player that removed the
+                // favourite may have been opened from any of them.
+                .overlay(alignment: .bottom) {
+                    if let offer = favoriteLibrary.undoOffer, !favoriteLibrary.playerOpen {
+                        FavoriteUndoBanner(offer: offer)
+                            .padding(.bottom, 72)
+                    }
+                }
             }
         }
         .appWallpaper()
         // IOS-POC-47: a retried download resolves its episode against the configuration loaded now.
         .onChange(of: sites.map(\.id), initial: true) { OfflineAppContext.shared.sites = sites }
         .onChange(of: source, initial: true) { OfflineAppContext.shared.source = source }
+        // IOS-POC-48: favourites learn which configuration is loaded, under which name.
+        .onChange(of: sites.map(\.id), initial: true) { adoptFavoriteContext() }
+        .onChange(of: source) { adoptFavoriteContext() }
+        .onChange(of: saved) { adoptFavoriteContext() }
         .task {
             restore()
             await WatchHistoryStore.shared.migrateSiteIdentities(in: sites)
@@ -235,7 +249,12 @@ private struct ConfigView: View {
         defer { url.stopAccessingSecurityScopedResource() }
         do {
             let data = try Data(contentsOf: url)
-            try adopt(data, config: try ConfigLoader.validate(data), from: .importedFile)
+            let config = try ConfigLoader.validate(data)
+            // IOS-POC-48: this content's own identity, recorded before it replaces the file imported
+            // now — so whatever stops between the two, the file on disk keeps the identity it has.
+            let previous = try? Data(contentsOf: configURL(for: .importedFile))
+            let identity = ImportedConfigIdentities().register(data, replacing: previous)
+            try adopt(data, config: config, from: .imported(id: identity))
             selectedTab = 0
         } catch {
             self.error = error.localizedDescription
@@ -438,6 +457,17 @@ private struct ConfigView: View {
         UserDefaults.standard.dictionary(forKey: siteBySourceKey) as? [String: String] ?? [:]
     }
 
+    /// IOS-POC-48: the configuration favourites are made under now, its name for the snapshot (the
+    /// saved name the settings page shows), and its sites for the conservative site migration.
+    private func adoptFavoriteContext() {
+        let name: String
+        switch source {
+        case .imported: name = "本機匯入檔案"
+        case .remote(let url): name = saved.source(id: url.absoluteString)?.displayName ?? url.host ?? url.absoluteString
+        }
+        favoriteLibrary.adopt(source: source, sourceName: name, sites: sites)
+    }
+
     private func restore() {
         if let url = try? savedSourcesURL(), let data = try? Data(contentsOf: url),
            let list = try? JSONDecoder().decode(SavedSourceList.self, from: data) {
@@ -467,9 +497,16 @@ private struct ConfigView: View {
             migrateLegacyCache(to: restored)
             let url = try configURL(for: restored)
             guard FileManager.default.fileExists(atPath: url.path) else { return }
+            let data = try Data(contentsOf: url)
+            // IOS-POC-48: an imported file is the configuration its bytes were given when imported;
+            // the one imported before IOS-POC-48 stays `imported`.
+            if case .imported = restored {
+                restored = .imported(id: ImportedConfigIdentities().identity(of: data))
+                source = restored
+            }
             // Read the local value, not the `@State` just written: a spider's relative `ext` is
             // resolved against it, and resolving against the wrong base silently breaks those sites.
-            let restoredConfig = try ConfigLoader.validate(Data(contentsOf: url))
+            let restoredConfig = try ConfigLoader.validate(data)
             let loaded = restoredConfig.drivableSites(resolvedBy: CSPSourceResolver(source: restored))
             sites = loaded
             adoptAdBlocking(from: restoredConfig)
@@ -489,7 +526,7 @@ private struct ConfigView: View {
         let directory = try FileManager.default.url(
             for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         switch source {
-        case .importedFile:
+        case .imported:
             return directory.appendingPathComponent("wang-movie.json")
         case .remote(let url):
             return directory.appendingPathComponent(SavedSource(name: "", url: url).cacheFileName)
@@ -1649,7 +1686,7 @@ private extension SettingsView {
 
     var sourceLabel: String {
         switch source {
-        case .importedFile: "本機匯入檔案"
+        case .imported: "本機匯入檔案"
         case .remote(let url): url.absoluteString
         }
     }
@@ -1984,6 +2021,11 @@ private struct VodView: View {
             detail = try await client.detail(id: summary.id)
             recordHealth(.detail(milliseconds: elapsedMilliseconds(since: started)), succeeded: detail != nil,
                          site: site, source: source)
+            // IOS-POC-48: a favourite's snapshot takes what this detail filled in (A6), and its lines
+            // are kept in memory for telling the real final episode (A12).
+            if let detail {
+                await favoriteLibrary.detailLoaded(favoriteIdentity, snapshot: favoriteSnapshot, lines: detail.flags)
+            }
         } catch {
             self.error = error.localizedDescription
             if !isCancellation(error) {
@@ -2137,6 +2179,16 @@ private struct VodView: View {
         .navigationTitle(translated(\.title) ?? zhTW(displayName))
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBar()
+        // IOS-POC-48 A8: the secondary action sits in the bar; 立即播放 stays the full-width primary.
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                FavoriteToggle(isFavorite: favoriteLibrary.contains(favoriteIdentity)) {
+                    let identity = favoriteIdentity, snapshot = favoriteSnapshot
+                    Task { await favoriteLibrary.toggle(identity, snapshot: snapshot) }
+                }
+                .disabled(!favoriteIdentity.isComplete)
+            }
+        }
         .task {
             translationMode = JapaneseTranslationPreference().mode
             await WatchHistoryStore.shared.migrateSiteIdentities(in: [site])
@@ -2173,6 +2225,18 @@ private struct VodView: View {
     }
 
     private var historyKey: String { WatchHistory.key(siteID: site.id, vodId: summary.id) }
+
+    // MARK: IOS-POC-48 — favourite
+
+    /// This screen's title as a favourite: the configuration loaded, the whole `Site.id` (keys
+    /// repeat in this configuration), the list item's vod id — never an episode or an address.
+    private var favoriteIdentity: FavoriteIdentity { FavoriteIdentity(source: source, site: site, vodID: summary.id) }
+
+    /// What this screen knows about the title now: the detail once it has loaded, the list item before.
+    private var favoriteSnapshot: FavoriteSnapshot {
+        FavoriteSnapshot(summary: summary, detail: detail, siteName: site.name,
+                         configSourceName: favoriteLibrary.configSourceName)
+    }
 
     // MARK: IOS-POC-47 — downloads
 
@@ -2599,17 +2663,6 @@ private struct HistoryView: View {
     let source: ConfigSource
     @State private var records = [WatchHistory]()
     @State private var loaded = false
-    /// IOS-POC-47: a removal that would also delete downloads, waiting for the viewer's yes.
-    @State private var removal: HistoryRemoval?
-
-    /// Records leaving the list, and every download of those titles — a series' whole line-up —
-    /// which go with them (the user's rule, 2026-10-04). The 60-day prune deletes no download.
-    struct HistoryRemoval: Identifiable {
-        let id = UUID()
-        let records: [WatchHistory]
-        let clearsAll: Bool
-        let downloads: [OfflineAsset]
-    }
 
     var body: some View {
         Group {
@@ -2624,14 +2677,19 @@ private struct HistoryView: View {
                     ForEach(records) { record in
                         row(for: record)
                     }
+                    // IOS-POC-48 A11: the watch history only. A title's downloads are the downloads
+                    // tab's to delete and its favourite the favourites'; IOS-POC-47 deleted the
+                    // downloads here too, which the user has since ruled out.
                     .onDelete { offsets in
                         let removing = offsets.map { records[$0] }
-                        let downloads = removing.flatMap { offlineLibrary.assets(forHistoryKey: $0.key) }
-                        guard downloads.isEmpty else {
-                            removal = HistoryRemoval(records: removing, clearsAll: false, downloads: downloads)
-                            return
+                        records.remove(atOffsets: offsets)
+                        // IOS-POC-30: off this source's list only, like 清除.
+                        let sourceID = source.identity
+                        Task {
+                            for record in removing {
+                                await WatchHistoryStore.shared.remove(key: record.key, for: sourceID)
+                            }
                         }
-                        remove(removing, clearsAll: false, downloads: [])
                     }
                     .listRowBackground(appSurface)
                 }
@@ -2645,26 +2703,11 @@ private struct HistoryView: View {
         .toolbar {
             if !records.isEmpty {
                 Button("清除") {
-                    let downloads = records.flatMap { offlineLibrary.assets(forHistoryKey: $0.key) }
-                    guard downloads.isEmpty else {
-                        removal = HistoryRemoval(records: records, clearsAll: true, downloads: downloads)
-                        return
-                    }
-                    remove(records, clearsAll: true, downloads: [])
+                    records = []
+                    // IOS-POC-30: this source's list only; another source's history stays.
+                    Task { await WatchHistoryStore.shared.clear(for: source.identity) }
                 }
             }
-        }
-        .confirmationDialog(
-            "同時刪除 \(removal?.downloads.count ?? 0) 個離線下載（\(OfflineByteFormat.string(OfflineBulkSelection.bytes(removal?.downloads ?? []))))",
-            isPresented: Binding(get: { removal != nil }, set: { if !$0 { removal = nil } }),
-            titleVisibility: .visible, presenting: removal
-        ) { pending in
-            Button("刪除記錄與下載", role: .destructive) {
-                remove(pending.records, clearsAll: pending.clearsAll, downloads: pending.downloads)
-            }
-            Button("取消", role: .cancel) {}
-        } message: { _ in
-            Text("從記錄刪除的作品，已下載的集數會一併從這支手機刪除，無法復原。")
         }
         // .task runs again whenever the tab is re-entered, which is what keeps the list current
         // after a viewing without any notification plumbing.
@@ -2672,26 +2715,6 @@ private struct HistoryView: View {
             await WatchHistoryStore.shared.migrateSiteIdentities(in: sites)
             records = await WatchHistoryStore.shared.records(for: source.identity)
             loaded = true
-        }
-    }
-
-    /// The rows leave the list now; the history and the downloads follow.
-    private func remove(_ removing: [WatchHistory], clearsAll: Bool, downloads: [OfflineAsset]) {
-        let keys = Set(removing.map(\.key))
-        records.removeAll { keys.contains($0.key) }
-        let sourceID = source.identity
-        Task {
-            if clearsAll {
-                // IOS-POC-30: this source's list only; another source's history stays.
-                await WatchHistoryStore.shared.clear(for: sourceID)
-            } else {
-                // IOS-POC-30: off this source's list only, like 清除.
-                for record in removing {
-                    await WatchHistoryStore.shared.remove(key: record.key, for: sourceID)
-                }
-            }
-            // IOS-POC-47: through the one delete, like every other.
-            if !downloads.isEmpty { await OfflineDownloads.manager.delete(downloads.map(\.id)) }
         }
     }
 
@@ -2748,6 +2771,413 @@ private struct HistoryView: View {
         let minutes = total / 60, seconds = total % 60
         if minutes < 60 { return String(format: "%d:%02d", minutes, seconds) }
         return String(format: "%d:%02d:%02d", minutes / 60, minutes % 60, seconds)
+    }
+}
+
+// MARK: - IOS-POC-48: favourites and the 片庫 tab
+
+/// The favourites screens' snapshot of `FavoriteStore`, and the configuration favourites are made
+/// under now. Owns no data of its own: every change goes through the store and is read back.
+@MainActor let favoriteLibrary = FavoriteLibrary()
+
+@MainActor @Observable
+final class FavoriteLibrary {
+    /// Every favourite, the most recently favourited first.
+    private(set) var favorites = [Favorite]()
+    /// The loaded configuration's name, as a new snapshot records it.
+    private(set) var configSourceName = ""
+    /// A13: the 復原 after an automatic removal, while it is open.
+    private(set) var undoOffer: FavoriteUndoOffer?
+    /// Whether the player screen is up. The 復原 banner waits until it has gone, so the offer's
+    /// window is time the viewer can actually see it.
+    private(set) var playerOpen = false
+    /// Each title's lines as its detail screen last loaded them, for telling the real final episode
+    /// (A12). Memory only: they are the source's listing, not the favourite's metadata — and only the
+    /// most recent titles', since a long session opens hundreds of details.
+    @ObservationIgnored private var lines = [FavoriteIdentity: [Flag]]()
+    @ObservationIgnored private var linesOrder = [FavoriteIdentity]()
+    private static let linesKept = 32
+
+    /// A configuration was loaded: its favourites follow a site whose identity provably did not
+    /// change (A7), and new snapshots carry its name.
+    func adopt(source: ConfigSource, sourceName: String, sites: [Site]) {
+        configSourceName = sourceName
+        let configSourceID = source.identity
+        Task {
+            if !sites.isEmpty {
+                await FavoriteStore.shared.migrateSiteIdentities(in: sites, configSourceID: configSourceID)
+            }
+            await reload()
+        }
+    }
+
+    func reload() async {
+        favorites = await FavoriteStore.shared.all()
+    }
+
+    func contains(_ identity: FavoriteIdentity) -> Bool {
+        favorites.contains { $0.identity == identity }
+    }
+
+    /// A8: the detail screen's heart. One call into the store, so two quick taps are two toggles.
+    func toggle(_ identity: FavoriteIdentity, snapshot: FavoriteSnapshot) async {
+        await FavoriteStore.shared.toggle(identity, snapshot: snapshot)
+        await reload()
+    }
+
+    /// The unavailable sheet's 取消收藏: the viewer's own choice, the favourite only.
+    func remove(_ identity: FavoriteIdentity) async {
+        await FavoriteStore.shared.remove(identity)
+        await reload()
+    }
+
+    /// A detail loaded: a favourite takes what it filled in (A6), and its lines are remembered.
+    func detailLoaded(_ identity: FavoriteIdentity, snapshot: FavoriteSnapshot, lines: [Flag]) async {
+        self.lines[identity] = lines
+        linesOrder.removeAll { $0 == identity }
+        linesOrder.append(identity)
+        if linesOrder.count > Self.linesKept { self.lines[linesOrder.removeFirst()] = nil }
+        guard contains(identity) else { return }
+        await FavoriteStore.shared.refresh(identity, with: snapshot)
+        await reload()
+    }
+
+    /// A12: the session finished an episode. A finished series' final episode removes its favourite —
+    /// and only the favourite — and offers 復原.
+    func episodeCompleted(_ record: WatchHistory, ended: Bool) async {
+        let known = record.favoriteIdentity.flatMap { lines[$0] }
+        guard let offer = await FavoriteAutoRemoval.apply(record: record, ended: ended, lines: known,
+                                                          store: .shared) else { return }
+        PlaybackSession.log.notice("[favorite] \(record.vodName, privacy: .public) finished at \(record.vodRemarks, privacy: .public) — removed, undo offered")
+        undoOffer = offer
+        await reload()
+    }
+
+    /// A13: puts back exactly the favourite that went. Nothing else is touched.
+    func undo() async {
+        guard let offer = undoOffer else { return }
+        undoOffer = nil
+        _ = await offer.undo(in: .shared)
+        await reload()
+    }
+
+    func dismiss(_ offer: FavoriteUndoOffer) {
+        if undoOffer?.id == offer.id { undoOffer = nil }
+    }
+
+    /// The banner is on screen: the offer is open for `lasting` from now (`FavoriteUndoOffer.shown`).
+    func offerShown(_ offer: FavoriteUndoOffer, lasting: TimeInterval) {
+        guard let current = undoOffer, current.id == offer.id else { return }
+        undoOffer = current.shown(at: .now, lasting: lasting)
+    }
+
+    func playerOpened() { playerOpen = true }
+    func playerClosed() { playerOpen = false }
+}
+
+/// A9: 片庫 — the favourites and the watch history on one tab, switched by a segmented control in
+/// the bar. Two stores; only the screens share the tab. Opens on 收藏.
+private struct LibraryView: View {
+    let sites: [Site]
+    let source: ConfigSource
+    @State private var section = LibrarySection.initial
+
+    var body: some View {
+        Group {
+            switch section {
+            case .favorites: FavoritesView(sites: sites, source: source)
+            case .history: HistoryView(sites: sites, source: source)
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("片庫", selection: $section) {
+                    ForEach(LibrarySection.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .fixedSize()
+            }
+        }
+    }
+}
+
+/// A10: the favourites, most recently favourited first, as 2:3 posters — two columns on an iPhone,
+/// as the home grid. What the watch history and the downloads know is shown beside each one and
+/// never written into it.
+private struct FavoritesView: View {
+    let sites: [Site]
+    let source: ConfigSource
+    @State private var query = ""
+    /// The watch history by title, read whenever the page appears.
+    @State private var watched = [String: WatchHistory]()
+    @State private var unavailable: Favorite?
+
+    private let columns = [GridItem(.adaptive(minimum: 140, maximum: 220), spacing: 12)]
+
+    var body: some View {
+        let shown = FavoriteSearch.filter(favoriteLibrary.favorites, query: query)
+        Group {
+            if favoriteLibrary.favorites.isEmpty {
+                ContentUnavailableView("還沒有收藏", systemImage: "heart",
+                                       description: Text("在作品詳情頁右上角點「收藏」，作品就會出現在這裡。"))
+            } else if shown.isEmpty {
+                ContentUnavailableView.search(text: query)
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: 16) {
+                        ForEach(shown) { favorite in
+                            cell(for: favorite)
+                        }
+                    }
+                    .padding(12)
+                }
+            }
+        }
+        .appWallpaper()
+        .navigationTitle("收藏")
+        .navigationBarTitleDisplayMode(.inline)
+        .appNavigationBar()
+        // The snapshots on this device only: no source is asked (A10).
+        .searchable(text: $query, prompt: "搜尋收藏")
+        // Runs again whenever the page reappears, so progress after a viewing is current.
+        .task {
+            await favoriteLibrary.reload()
+            let records = await WatchHistoryStore.shared.records()
+            watched = Dictionary(records.map { ($0.key, $0) }, uniquingKeysWith: { newest, _ in newest })
+        }
+        .sheet(item: $unavailable) { FavoriteUnavailableView(favorite: $0) }
+    }
+
+    @ViewBuilder
+    private func cell(for favorite: Favorite) -> some View {
+        let availability = FavoriteAvailability(favorite.identity, configSourceID: source.identity, sites: sites)
+        let card = FavoriteCard(favorite: favorite, watched: watched[favorite.identity.historyKey],
+                                downloaded: downloadedEpisodes(of: favorite), available: availability.isAvailable)
+        if case .available(let siteID) = availability, let site = sites.first(where: { $0.id == siteID }) {
+            NavigationLink {
+                // The id, name and poster only, as the history list opens a title: the detail
+                // fills in the rest, fresh from the source.
+                VodView(site: site, summary: Vod(id: favorite.identity.vodID, name: favorite.name,
+                                                 picture: favorite.picture),
+                        source: source)
+            } label: {
+                card
+            }
+            .buttonStyle(.plain)
+        } else {
+            // A14: never remapped to a same-named title or a site sharing the key.
+            Button { unavailable = favorite } label: { card }
+                .buttonStyle(.plain)
+        }
+    }
+
+    private func downloadedEpisodes(of favorite: Favorite) -> Int {
+        offlineLibrary.assets(forHistoryKey: favorite.identity.historyKey).filter { $0.state == .completed }.count
+    }
+}
+
+/// One favourite: poster and title always; year and source when known; then what the watch history
+/// and the downloads say about it — read here, stored nowhere.
+private struct FavoriteCard: View {
+    let favorite: Favorite
+    let watched: WatchHistory?
+    let downloaded: Int
+    let available: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // The same 2:3 cell as the home grid's `VodCard`: the artwork fills it and is cropped.
+            Color.clear
+                .aspectRatio(2 / 3, contentMode: .fit)
+                .overlay {
+                    AsyncImage(url: URL(string: favorite.picture)) { phase in
+                        switch phase {
+                        case .success(let image): image.resizable().scaledToFill()
+                        default:
+                            ZStack {
+                                appSurface
+                                Image(systemName: "film").font(.largeTitle).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .clipped()
+                .overlay(alignment: .topLeading) {
+                    if !available {
+                        Text("來源不可用")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 5)
+                            .background(.black.opacity(0.72), in: Capsule())
+                            .padding(8)
+                    }
+                }
+                .clipShape(.rect(cornerRadius: 10))
+                .padding(.bottom, 4)
+            Text(zhTW: favorite.name)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(2)
+            let facts = [favorite.year, zhTW(favorite.siteName.displayName)].filter { !$0.isEmpty }
+            if !facts.isEmpty {
+                Text(verbatim: facts.joined(separator: " · "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            if let watched {
+                progress(watched)
+            }
+            if downloaded > 0 {
+                Text("已下載 \(downloaded) 集")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        // IOS-POC-28: the tappable area is the card's own shape.
+        .contentShape(.rect)
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private func progress(_ record: WatchHistory) -> some View {
+        let episode = zhTW(record.vodRemarks)
+        if record.isNearEnding {
+            Text(verbatim: episode.isEmpty ? "已看完" : "\(episode) 已看完")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        } else {
+            Text(verbatim: episode.isEmpty ? "看過" : "看到 \(episode)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            if record.duration > 0 {
+                ProgressView(value: min(max(record.position / record.duration, 0), 1))
+                    .tint(appAccent)
+                    .accessibilityLabel(Text("觀看進度"))
+            }
+        }
+    }
+}
+
+/// A14: a favourite whose site is not in the loaded configuration. Shown from its snapshot, kept,
+/// and never matched to anything else; removing it is the viewer's own choice.
+private struct FavoriteUnavailableView: View {
+    let favorite: Favorite
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    VodPoster(picture: favorite.picture)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(zhTW: favorite.name).font(.title3.weight(.bold))
+                        let facts = [favorite.year, zhTW(favorite.siteName.displayName)].filter { !$0.isEmpty }
+                        if !facts.isEmpty {
+                            Text(verbatim: facts.joined(separator: " · ")).font(.subheadline).foregroundStyle(.secondary)
+                        }
+                    }
+                    Label("來源不可用", systemImage: "exclamationmark.triangle").font(.headline)
+                    Text("目前設定中找不到原始來源，此收藏仍會保留。")
+                    VStack(alignment: .leading, spacing: 8) {
+                        if !favorite.configSourceName.isEmpty {
+                            LabeledContent("原始設定", value: favorite.configSourceName)
+                        }
+                        if !favorite.siteName.isEmpty {
+                            LabeledContent("原始來源", value: zhTW(favorite.siteName.displayName))
+                        }
+                    }
+                    .font(.subheadline)
+                    Button("取消收藏", role: .destructive) {
+                        let identity = favorite.identity
+                        Task {
+                            await favoriteLibrary.remove(identity)
+                            dismiss()
+                        }
+                    }
+                    .frame(minHeight: 44)
+                }
+                .padding(16)
+            }
+            .appWallpaper()
+            .navigationTitle("來源不可用")
+            .navigationBarTitleDisplayMode(.inline)
+            .appNavigationBar()
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("關閉") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+/// A8: ♡ 收藏 / ♥ 已收藏. No alert and no confirmation; the outline or the fill is the answer. The
+/// symbol swaps in place and bounces once on favouriting, and does neither with Reduce Motion on.
+private struct FavoriteToggle: View {
+    let isFavorite: Bool
+    let action: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var bounces = 0
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: isFavorite ? "heart.fill" : "heart")
+                    .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.bounce, value: bounces)
+                Text(isFavorite ? "已收藏" : "收藏")
+            }
+            .font(.subheadline.weight(.semibold))
+            .legibleToolbarLabel()
+            .animation(reduceMotion ? nil : .snappy, value: isFavorite)
+        }
+        .onChange(of: isFavorite) { _, now in
+            if now && !reduceMotion { bounces += 1 }
+        }
+        .accessibilityLabel(Text(isFavorite ? "已收藏" : "收藏"))
+        .accessibilityAddTraits(isFavorite ? .isSelected : [])
+    }
+}
+
+/// A13: 已看完，已從收藏移除 · 復原 — for as long as the offer is open, then gone by itself.
+private struct FavoriteUndoBanner: View {
+    let offer: FavoriteUndoOffer
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "heart.slash")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("已看完，已從收藏移除")
+                    .font(.subheadline)
+                // Which favourite went (HIG: describe what an undo will bring back).
+                if !offer.favorite.name.isEmpty {
+                    Text(zhTW: offer.favorite.name)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.75))
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 8)
+            Button("復原") { Task { await favoriteLibrary.undo() } }
+                .font(.subheadline.weight(.semibold))
+                .frame(minHeight: 44)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 16)
+        .background(.black.opacity(0.82), in: Capsule())
+        .padding(.horizontal, 16)
+        .task(id: offer.id) {
+            // From the moment it is visible; VoiceOver needs longer to reach 復原 than a glance does.
+            let lasting = voiceOver ? 30 : FavoriteUndoOffer.window
+            favoriteLibrary.offerShown(offer, lasting: lasting)
+            let message = "已看完，已從收藏移除：" + zhTW(offer.favorite.name)
+            AccessibilityNotification.Announcement(message).post()
+            // Cancelled means hidden again, not answered: the offer stays and starts over when it is back.
+            guard (try? await Task.sleep(for: .seconds(lasting))) != nil else { return }
+            favoriteLibrary.dismiss(offer)
+        }
     }
 }
 
@@ -3556,6 +3986,7 @@ struct EpisodeSteps: Equatable {
         steppingEpisode = true
         Task { @MainActor in
             await persist()
+            reportCompletion(ended: false)
             let started = await episodeStepper(forward)
             steppingEpisode = false
             if !started { onNotice?(forward ? "下一集無法播放" : "上一集無法播放") }
@@ -3577,6 +4008,11 @@ struct EpisodeSteps: Equatable {
     private var endingReached = false
     /// IOS-POC-36: the viewer's ending and the real end of one item hand over once between them.
     private var endGate = PlaybackEndGate()
+    /// IOS-POC-48: this item was measured near its end by this playback's own `persist()` — not a
+    /// position carried over from an earlier viewing of the same episode — and its completion has
+    /// been reported. Both reset with every `open`.
+    private var measuredNearEnd = false
+    private var completionReported = false
     private var sampler: Task<Void, Never>?
     /// The playback speed the viewer chose, carried across an episode change **of the same title**
     /// (IOS-POC-14A, narrowed at the user's request in IOS-POC-14B).
@@ -4011,6 +4447,9 @@ struct EpisodeSteps: Equatable {
     }
     /// The player screen closed: the session override ends.
     func closePlayer() {
+        // IOS-POC-48: closed in the final credits is finished too; the view persisted the position first.
+        reportCompletion(ended: false)
+        favoriteLibrary.playerClosed()
         // A retry belongs to a player that is open; a late failure after closing must not reopen it.
         retryWithoutPrefetch = nil
         reportItem()
@@ -4060,6 +4499,9 @@ struct EpisodeSteps: Equatable {
         self.quality = quality
         offlineSource = offline
         retryWithoutPrefetch = retry
+        measuredNearEnd = false
+        completionReported = false
+        favoriteLibrary.playerOpened()
         // The chosen speed belongs to the **title**, not to the app session (IOS-POC-14B). The
         // history key is site plus vod, so it is exactly the identity "the same film or series" —
         // which means a hand-picked episode carries the speed the same way an auto-advance does,
@@ -4247,6 +4689,7 @@ struct EpisodeSteps: Equatable {
     /// Not recorded: an inline vod is a page's own playlist addressed under the pseudo-site
     /// `webhome_inline`, so it has no site or vod identity the history could be keyed on.
     func open(_ vod: WebHomeBridge.InlineVod) {
+        favoriteLibrary.playerOpened()
         // A page's own playlist has no title identity the speed could belong to (IOS-POC-14B), so it
         // starts at the settings page's default (IOS-POC-29).
         chosenRate = PlaybackSpeedPreference().defaultSpeed
@@ -4277,7 +4720,18 @@ struct EpisodeSteps: Equatable {
         record.position = position
         record.duration = Self.milliseconds(engine.duration)
         self.record = record
+        if record.isNearEnding { measuredNearEnd = true }
         await WatchHistoryStore.shared.save(record)
+    }
+
+    /// IOS-POC-48 A12: an episode of a titled playback was completed — the real end (`finished`:
+    /// the engine's end of file or the viewer's ending), or left near its end, which is what the
+    /// watch history calls 已看完. Once per opened item. The session only says that it happened;
+    /// favourites decide what it means (`FavoriteAutoRemoval`).
+    private func reportCompletion(ended: Bool) {
+        guard let record, !completionReported, ended || (measuredNearEnd && record.isNearEnding) else { return }
+        completionReported = true
+        Task { @MainActor in await favoriteLibrary.episodeCompleted(record, ended: ended) }
     }
 
     /// The one timer this playback has. IOS-POC-15 rides it rather than adding a second.
@@ -4722,6 +5176,7 @@ struct EpisodeSteps: Equatable {
             Self.log.notice("[playback] \(self.itemTitle, privacy: .public) \(reason, privacy: .public) ignored: already moving on")
             return
         }
+        reportCompletion(ended: true)
         if outcome == .replay { control("replay"); return }
         // IOS-POC-47: the real end of a downloaded episode — the engine's end of file, or the formal
         // auto-next at the viewer's ending. Seeks, stops, errors and switches never come here.

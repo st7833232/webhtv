@@ -23,7 +23,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 同步時發現、尚未處理（都是程式修改，等使用者決定）：
 1. ~~`.github/workflows/ios-sidestore-release.yml` 的一次性 push 觸發（`f103ab5b`，原訂 0.1.61 後移除）還在，預設 release notes 是 0.1.64 的文字。~~ 已移除並還原預設 notes（`IOS-RELEASE-TRIGGER-REMOVE`，2026-10-05）；發布只用 `workflow_dispatch`。
 2. ~~IOS-POC-46 的 `legibleToolbarLabel()` 自 IOS-UI-A2 起沒有呼叫者，是死碼。~~ 已刪除（IOS-POC-46-2，2026-10-05）。
-3. 「IOS-POC-47 審查確認的 40 項問題」在 repo 裡只有數量（本文件與 `docs/IOS-POC-49-offline-cellular-download-all.md`），問題清單沒有寫進任何文件，`docs/IOS-POC-47-offline-downloads.md` 也沒有審查結果。清單只存在當時的雲端 session，無法從 repo 補回；要處理這 40 項，需先從那個 session 取回清單，或重新審查。
+3. ~~「IOS-POC-47 審查確認的 40 項問題」在 repo 裡只有數量（本文件與 `docs/IOS-POC-49-offline-cellular-download-all.md`），問題清單沒有寫進任何文件，`docs/IOS-POC-47-offline-downloads.md` 也沒有審查結果。~~ 已處理（IOS-POC-52，2026-10-05）：40 項清單、每項處置（修 36、部分 3、不修 1）、對應 commit 與驗證結果寫在 `docs/IOS-POC-47-offline-downloads.md` 第 15 節；處理過程見 `docs/IOS-POC-52-offline-review-fixes.md`。
 
 ## Previous handoff — 2026-10-04：IOS-UI-A4 子分類收合（0.1.64／65 已發布）
 
@@ -1632,7 +1632,7 @@ Paste this into a new session:
 >
 > 目前狀態（2026-10-05 更新）：最新發布是 WebHTV `0.1.65 (66)`（tag `ios-v0.1.65-b66`，含 IOS-POC-51 下載容量預估）。`0.1.57`～`0.1.64` 依序加入 IOS-POC-47 離線下載、48 收藏與片庫、49 行動網路與全部下載、50 多工下載、IOS-UI-A～A4 Cinematic Minimal 介面；各版內容見 `docs/IOS-POC-11-sidestore-release.md`，全部真機都未驗證。更早：`0.1.56 (57)`（tag `ios-v0.1.56-b57`，含 IOS-POC-46／46-1）；前一版 `0.1.55 (56)`（tag `ios-v0.1.55-b56`，含 IOS-POC-45I）；再前一版 `0.1.54 (55)`（tag `ios-v0.1.54-b55`，含 IOS-POC-45C-1／45D／45E／45F／45G／45H）；再前一版 `0.1.53 (54)`（tag `ios-v0.1.53-b54`，含 IOS-POC-45A／45B／45C）；再前一版 `0.1.52 (53)`（tag `ios-v0.1.52-b53`，含 IOS-POC-45 線上字幕）；再前一版 `0.1.51 (52)`（tag `ios-v0.1.51-b52`，含 IOS-POC-44A／44B／44C）；兩版真機都未驗證；更早的 `0.1.50 (51)`（tag `ios-v0.1.50-b51`）；IOS-POC-42（XYQHiker 直接播放、播放端擷取、中文搜尋鍵）隨 `0.1.49 (50)`、IOS-POC-43A（檢查來源的嗅探排隊）隨 `0.1.50 (51)` 發布，兩版真機都未驗證，由我另外用 SideStore 測，不擋新任務。
 >
-> 未決、等我決定：IOS-POC-47 審查確認的 40 項問題（清單不在 repo）。（IOS-POC-46 死碼已刪除；一次性 push 觸發已移除，發布只用 `workflow_dispatch` 並要填 release notes。）
+> 未決、等我決定：IOS-POC-47 審查的 40 項已由 IOS-POC-52 處理完（清單與處置見 `docs/IOS-POC-47-offline-downloads.md` 第 15 節）；只做了一部分的 F11（背景執行時間）、F12（換埠時重建播放項目）、F35（探測實際解析度）是否另開任務，等我決定。（IOS-POC-46 死碼已刪除；一次性 push 觸發已移除，發布只用 `workflow_dispatch` 並要填 release notes。）
 >
 > 下一步（IOS-POC-44 仍可續做）：IOS-POC-44（`docs/IOS-POC-44-csp-portable-sites.md`：23 站活 18、死 5，分段 44A～44G）的 44A（`WeiguanDJ`＋`HemaDJ`）、44B（`QimaoDJ`＋`HaokanDJ`）、44C（`Jpys`＋`Jys`）已完成並隨 `0.1.51 (52)` 發布。等我核准 44D（`Feiyu`＋`MiaoWu`，只寫 JS、不動 Swift）或指定其他段；核准後照該文件第 7、8 節與第 11～13 節的做法實作與驗收，結果記回同一份文件。沒有我的核准不改程式；沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13。
 >

@@ -316,4 +316,5 @@
 
 ## 下一步
 
-- 依使用者指示把 40 項清單寫進 `docs/IOS-POC-47-offline-downloads.md`，更新 `docs/current-task-state.md` 與 `docs/IOS-POC-49-offline-cellular-download-all.md`，接著發布。IOS-POC-53 已完成，見 `docs/IOS-POC-53-storage-cleanup-reset.md`。
+- 40 項清單、處置、commit 與驗證已寫進 `docs/IOS-POC-47-offline-downloads.md` 第 15 節，`docs/current-task-state.md` 與 `docs/IOS-POC-49-offline-cellular-download-all.md` 已同步更新。
+- 接著發布（含 IOS-POC-53）。IOS-POC-53 已完成，見 `docs/IOS-POC-53-storage-cleanup-reset.md`。

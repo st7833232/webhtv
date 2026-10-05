@@ -139,7 +139,7 @@ struct OfflineSizeEstimateTests {
     // A running download shows the size its segments are coming to, and keeps it over a relaunch.
     @Test func aRunningDownloadProjectsItsSizeFromWhatArrived() async throws {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (asset, requests) = await harness.startSimpleDownload()
+        let (asset, requests) = try await harness.startSimpleDownload()
         #expect(await harness.manager.asset(asset.id)?.progress.projectedBytes == nil)
 
         await harness.transport.finish(requests[0].tag, body: Fixture.segment(1880))

@@ -12,7 +12,7 @@ struct OfflineCellularAndBulkTests {
     // again under the new rule; the finished one is not fetched twice.
     @Test func turningCellularOnReachesADownloadAlreadyRunning() async throws {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (asset, requests) = await harness.startSimpleDownload()
+        let (asset, requests) = try await harness.startSimpleDownload()
         #expect(requests.count == 4 && requests.allSatisfy { !$0.allowsCellular })
         await harness.transport.finish(requests[0].tag, body: Fixture.segment())
         await harness.transport.clearSubmitted()
@@ -30,7 +30,7 @@ struct OfflineCellularAndBulkTests {
     // The app applies the setting at every launch: when nothing changed, nothing restarts.
     @Test func applyingTheSameCellularSettingRestartsNothing() async throws {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (asset, requests) = await harness.startSimpleDownload()
+        let (asset, requests) = try await harness.startSimpleDownload()
         await harness.transport.clearSubmitted()
 
         await harness.manager.setAllowsCellular(false)

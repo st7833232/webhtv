@@ -78,16 +78,24 @@ struct OfflineSelectionTests {
         #expect(chosen(playlist, .high)?.height == 720)
     }
 
-    // 6. HDR costs space and needs an HDR screen to look right: SDR first.
+    // 6. HDR costs space and needs an HDR screen to look right: SDR first, in every mode.
+    // IOS-POC-52 (F24): the SDR copy is the dearer one and in the codec ranked lower, so neither
+    // the codec rule nor the bitrate rule could be what picked it.
     @Test func smartPrefersSDROverHDR() throws {
         let playlist = try master([
-            Fixture.variant(1920, 1080, codecs: "dvh1.05.06", bandwidth: 6_000_000, range: "PQ", uri: "dv.m3u8"),
-            Fixture.variant(1920, 1080, codecs: "hvc1.2.4.L123.B0", bandwidth: 6_000_000, range: "PQ", uri: "hdr10.m3u8"),
-            Fixture.variant(1920, 1080, codecs: "hvc1.1.6.L120.90", bandwidth: 4_000_000, range: "SDR", uri: "sdr.m3u8"),
+            Fixture.variant(1920, 1080, codecs: "dvh1.05.06", bandwidth: 3_500_000, range: "PQ", uri: "dv.m3u8"),
+            Fixture.variant(1920, 1080, codecs: "hvc1.2.4.L123.B0", bandwidth: 4_000_000, range: "PQ", uri: "hdr10.m3u8"),
+            Fixture.variant(1920, 1080, codecs: "avc1.640028", bandwidth: 5_000_000, range: "SDR", uri: "sdr.m3u8"),
+            Fixture.variant(1280, 720, codecs: "hvc1.2.4.L93.B0", bandwidth: 2_000_000, range: "PQ", uri: "hdr720.m3u8"),
+            Fixture.variant(1280, 720, codecs: "avc1.64001f", bandwidth: 2_500_000, range: "SDR", uri: "sdr720.m3u8"),
         ])
-        let choice = try #require(OfflineMediaSelector.chooseVideo(from: playlist, mode: .smart))
-        #expect(choice.variant.dynamicRange == .sdr)
-        #expect(!choice.hdrOnly)
+        for mode in OfflineQualityMode.allCases {
+            let choice = try #require(OfflineMediaSelector.chooseVideo(from: playlist, mode: mode))
+            #expect(choice.variant.dynamicRange == .sdr, "\(mode)")
+            #expect(!choice.hdrOnly)
+        }
+        #expect(chosen(playlist, .high)?.uri.lastPathComponent == "sdr.m3u8")
+        #expect(chosen(playlist, .saver)?.uri.lastPathComponent == "sdr720.m3u8")
     }
 
     @Test func hdrIsChosenOnlyWhenNothingElseFitsAndSaysSo() throws {
@@ -99,13 +107,20 @@ struct OfflineSelectionTests {
     }
 
     // Rule 5: 60 fps doubles the size for the same resolution; only on request.
+    // IOS-POC-52 (F24): the 60 fps copy is in the codec ranked first and, for 1080p 高畫質, the
+    // dearer one, so only the frame-rate rule keeps it out by default.
     @Test func standardFrameRateUnlessHighFrameRateIsAskedFor() throws {
         let playlist = try master([
             Fixture.variant(1920, 1080, codecs: "hvc1.1.6.L120.90", bandwidth: 8_000_000, fps: 59.94, uri: "60.m3u8"),
-            Fixture.variant(1920, 1080, codecs: "hvc1.1.6.L120.90", bandwidth: 4_000_000, fps: 23.976, uri: "24.m3u8"),
+            Fixture.variant(1920, 1080, codecs: "avc1.640028", bandwidth: 6_000_000, fps: 23.976, uri: "24.m3u8"),
+            Fixture.variant(1280, 720, codecs: "hvc1.1.6.L93.90", bandwidth: 4_000_000, fps: 60, uri: "60-720.m3u8"),
+            Fixture.variant(1280, 720, codecs: "avc1.64001f", bandwidth: 3_000_000, fps: 30, uri: "30-720.m3u8"),
         ])
         #expect(chosen(playlist, .smart)?.uri.lastPathComponent == "24.m3u8")
+        #expect(chosen(playlist, .high)?.uri.lastPathComponent == "24.m3u8")
+        #expect(chosen(playlist, .saver)?.uri.lastPathComponent == "30-720.m3u8")
         #expect(chosen(playlist, .smart, highFPS: true)?.uri.lastPathComponent == "60.m3u8")
+        #expect(chosen(playlist, .saver, highFPS: true)?.uri.lastPathComponent == "60-720.m3u8")
     }
 
     @Test func portrait1080pCountsAs1080pAndPortrait1440pDoesNot() throws {

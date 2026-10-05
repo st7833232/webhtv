@@ -11,7 +11,7 @@ struct OfflineManagerTests {
     // 10, 36. AVPlayer and MPV are handed the same asset at the same address.
     @Test func bothEnginesResolveTheSameAssetAndAddress() async throws {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (asset, _) = await harness.startSimpleDownload()
+        let (asset, _) = try await harness.startSimpleDownload()
         let done = try #require(await harness.completeAll(asset.id))
         let server = URL(string: "http://127.0.0.1:5555/token/")!
         let source = try #require(OfflinePlaybackResolver.source(for: done, layout: harness.layout, serverBase: server))
@@ -25,7 +25,7 @@ struct OfflineManagerTests {
     // 11, 12. Another engine, another quality or a freshly signed address is still the same episode.
     @Test func theSameEpisodeIsNeverDownloadedTwice() async throws {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (asset, _) = await harness.startSimpleDownload()
+        let (asset, _) = try await harness.startSimpleDownload()
         let resigned = Fixture.target(URL(string: "https://cdn.example.com/show/ep1/master.m3u8?sig=NEW")!)
         let again = await harness.manager.enqueue(identity: Fixture.identity(), title: Fixture.title(), target: resigned,
                                                   choice: OfflineDownloadChoice(mode: .high), estimate: .unknown,
@@ -57,7 +57,7 @@ struct OfflineManagerTests {
     // 30, 39. A completed package plays with no remote address, and its size is measured, not estimated.
     @Test func aCompletedDownloadIsMeasuredAndLocal() async throws {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (asset, requests) = await harness.startSimpleDownload()
+        let (asset, requests) = try await harness.startSimpleDownload()
         #expect(requests.count == 4)
         #expect(requests.allSatisfy { $0.url.absoluteString.contains("/1080/") })
         let done = try #require(await harness.completeAll(asset.id))
@@ -80,7 +80,7 @@ struct OfflineManagerTests {
     // 31. A segment that never arrives keeps the download from ever reading as complete.
     @Test func aMissingSegmentIsNeverCalledComplete() async throws {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (asset, requests) = await harness.startSimpleDownload()
+        let (asset, requests) = try await harness.startSimpleDownload()
         for request in requests.dropLast() { await harness.transport.finish(request.tag, body: Fixture.segment()) }
         // The last one comes back as an error page: not media, not complete.
         await harness.transport.finish(requests.last!.tag, body: Data("<html>expired</html>".utf8))
@@ -94,7 +94,7 @@ struct OfflineManagerTests {
     // 13, 19, 20. Deleting a running download cancels its transfers and takes its whole folder.
     @Test func aDownloadingAssetCanBeDeleted() async throws {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (asset, requests) = await harness.startSimpleDownload()
+        let (asset, requests) = try await harness.startSimpleDownload()
         await harness.transport.finish(requests[0].tag, body: Fixture.segment())
         let result = await harness.manager.delete([asset.id])
         #expect(result.deleted == 1)
@@ -107,7 +107,7 @@ struct OfflineManagerTests {
     // A transfer finishing after the delete cannot bring the asset back.
     @Test func aLateCallbackDoesNotReviveADeletedAsset() async throws {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (asset, requests) = await harness.startSimpleDownload()
+        let (asset, requests) = try await harness.startSimpleDownload()
         await harness.manager.delete([asset.id])
         await harness.transport.finish(requests[1].tag, body: Fixture.segment())
         await harness.transport.fail(requests[2].tag, OfflineTransferFailure(.network("late")))
@@ -118,10 +118,10 @@ struct OfflineManagerTests {
     // A transfer started before a pause reports under the old generation and changes nothing.
     @Test func aTransferFromBeforeAPauseChangesNothing() async throws {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (asset, requests) = await harness.startSimpleDownload()
+        let (asset, requests) = try await harness.startSimpleDownload()
         await harness.manager.pause(asset.id)
         await harness.manager.resume(asset.id)
-        _ = await harness.waitFor(asset.id, .downloading)
+        _ = try #require(await harness.waitFor(asset.id, .downloading))
         await harness.transport.finish(requests[0].tag, body: Fixture.segment())
         let current = try #require(await harness.manager.asset(asset.id))
         #expect(current.progress.completedUnits == 0)
@@ -131,7 +131,7 @@ struct OfflineManagerTests {
     // 14. Paused, then deleted.
     @Test func aPausedAssetCanBeDeleted() async throws {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (asset, _) = await harness.startSimpleDownload()
+        let (asset, _) = try await harness.startSimpleDownload()
         await harness.manager.pause(asset.id)
         #expect(await harness.manager.asset(asset.id)?.state == .paused)
         #expect(await harness.manager.delete([asset.id]).deleted == 1)
@@ -141,7 +141,7 @@ struct OfflineManagerTests {
     // 15, 29. A failed download keeps its 500 MB until the viewer decides — and deleting frees it all.
     @Test func aFailedAssetWithPartialFilesCanBeDeletedAndFreesTheSpace() async throws {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (asset, requests) = await harness.startSimpleDownload()
+        let (asset, requests) = try await harness.startSimpleDownload()
         for request in requests.prefix(2) { await harness.transport.finish(request.tag, body: Fixture.segment(64_000)) }
         await harness.transport.fail(requests[2].tag, OfflineTransferFailure(.http(403)))
         let failed = try #require(await harness.waitFor(asset.id, .failed))
@@ -158,7 +158,7 @@ struct OfflineManagerTests {
     // 16. Completed, then deleted.
     @Test func aCompletedAssetCanBeDeleted() async throws {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (asset, _) = await harness.startSimpleDownload()
+        let (asset, _) = try await harness.startSimpleDownload()
         _ = await harness.completeAll(asset.id)
         let before = await harness.manager.snapshot().usageBytes
         #expect(await harness.manager.delete([asset.id]).deleted == 1)
@@ -177,7 +177,7 @@ struct OfflineManagerTests {
         let harness = OfflineHarness(network: network)
         var ids = [String]()
         for (episode, url) in [("ep1", Fixture.master), ("ep2", second), ("ep3", third)] {
-            let (asset, _) = await harness.startSimpleDownload(identity: Fixture.identity(episode), target: Fixture.target(url))
+            let (asset, _) = try await harness.startSimpleDownload(identity: Fixture.identity(episode), target: Fixture.target(url))
             _ = await harness.completeAll(asset.id)
             ids.append(asset.id)
         }
@@ -211,7 +211,7 @@ struct OfflineManagerTests {
     // 17. A retry keeps every segment already here and asks only for the rest.
     @Test func retryKeepsFinishedSegments() async throws {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (asset, requests) = await harness.startSimpleDownload()
+        let (asset, requests) = try await harness.startSimpleDownload()
         for request in requests.prefix(2) { await harness.transport.finish(request.tag, body: Fixture.segment()) }
         await harness.transport.fail(requests[2].tag, OfflineTransferFailure(.http(500)))
         await harness.transport.fail(requests[2].tag, OfflineTransferFailure(.http(500)))
@@ -268,6 +268,12 @@ struct OfflineManagerTests {
         let options = try await harness.manager.options(for: Fixture.target(file))
         #expect(options.kind == .progressive)
         #expect(options.option(for: .smart)?.estimate == OfflineSizeEstimate(bytes: Int64(body.count), basis: .exact))
+        // IOS-POC-52 (F36): the fake cuts any body at the limit it is given, so what keeps the file
+        // out of memory is what the probe asks for: one small ranged read, never the whole body.
+        // (`OfflineHTTP.fetcher`'s own streaming cutoff is Darwin-only and not exercised here.)
+        #expect(harness.log.all.count == 1)
+        #expect(harness.log.all.first?.value(forHTTPHeaderField: "Range") == "bytes=0-1023")
+        #expect(harness.log.limits == [OfflineHTTP.probeLimit])
     }
 
     // A retry after the addresses expired resolves the episode again.
@@ -277,7 +283,7 @@ struct OfflineManagerTests {
         network.responses[fresh.absoluteString] = network.responses[Fixture.master.absoluteString]
         let harness = OfflineHarness(network: network)
         await harness.manager.setResolver { _ in Fixture.target(fresh) }
-        let (asset, requests) = await harness.startSimpleDownload()
+        let (asset, requests) = try await harness.startSimpleDownload()
         await harness.transport.fail(requests[0].tag, OfflineTransferFailure(.http(403)))
         _ = try #require(await harness.waitFor(asset.id, .failed))
         await harness.manager.resume(asset.id)
@@ -299,7 +305,7 @@ struct OfflineManagerTests {
         #expect(await tight.manager.snapshot().assets.isEmpty)
 
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (asset, requests) = await harness.startSimpleDownload()
+        let (asset, requests) = try await harness.startSimpleDownload()
         await harness.transport.finish(requests[0].tag, body: Fixture.segment())
         harness.capacity.set(50_000_000)
         await harness.transport.finish(requests[1].tag, body: Fixture.segment())
@@ -313,7 +319,7 @@ struct OfflineManagerTests {
 
     private func completed(autoDelete: Bool) async throws -> (OfflineHarness, OfflineAsset) {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (asset, _) = await harness.startSimpleDownload(autoDelete: autoDelete)
+        let (asset, _) = try await harness.startSimpleDownload(autoDelete: autoDelete)
         return (harness, try #require(await harness.completeAll(asset.id)))
     }
 
@@ -414,7 +420,7 @@ struct OfflineManagerTests {
     // A record says "downloading" but the session lost the transfers: they are sent again.
     @Test func aRelaunchResubmitsWhatTheSessionNoLongerHas() async throws {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (asset, requests) = await harness.startSimpleDownload()
+        let (asset, requests) = try await harness.startSimpleDownload()
         await harness.transport.finish(requests[0].tag, body: Fixture.segment())
         await harness.transport.setActive([requests[1].tag])
         await harness.transport.clearSubmitted()
@@ -488,13 +494,27 @@ struct OfflineManagerTests {
     }
 
     // 40. Offline playback writes the same watch-history record online playback would.
-    @Test func offlineTitleInfoKeepsTheWatchHistoryIdentity() {
-        let identity = Fixture.identity()
+    // IOS-POC-52 (F40): the identity and the history record the app uses are built by these two
+    // helpers. Offline playback must write the record online playback writes — same key, same
+    // listing address — or it starts a second history entry and 刪除記錄 cannot find the downloads.
+    @Test func offlineTitleInfoKeepsTheWatchHistoryIdentity() async throws {
+        let identity = OfflineIdentity(siteID: "site\u{0}{}", vodId: "vod1", flag: "線路①",
+                                       episodeURL: "https://source.example.com/ep1")
+        #expect(identity.historyKey == WatchHistory.key(siteID: "site\u{0}{}", vodId: "vod1"))
+        #expect(identity == Fixture.identity())
+
+        // Downloaded from a signed address; the record keeps the listing's.
+        let harness = OfflineHarness(network: Fixture.simpleNetwork())
+        let (asset, _) = try await harness.startSimpleDownload(identity: identity)
+        let record = asset.historyRecord(quality: "1080p")
         let title = Fixture.title()
-        let record = WatchHistory(key: identity.historyKey, siteKey: title.siteKey, siteName: title.siteName,
-                                  sourceID: title.sourceID, vodId: title.vodId, vodName: title.vodName,
-                                  vodFlag: identity.flag, vodRemarks: title.episodeName, episodeUrl: identity.episodeURL)
-        #expect(record.key == WatchHistory.key(siteID: "site\u{0}{}", vodId: "vod1"))
+        #expect(record.key == identity.historyKey)
+        #expect(record.episodeUrl == "https://source.example.com/ep1")
+        #expect(record.episodeUrl != Fixture.master.absoluteString)
+        #expect(record.vodFlag == "線路①")
+        #expect(record.vodRemarks == title.episodeName)
+        #expect(record.siteKey == title.siteKey && record.sourceID == title.sourceID && record.vodId == title.vodId)
+        #expect(record.quality == "1080p")
         #expect(record.startPosition(resuming: true) == 0)
     }
 }

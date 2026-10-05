@@ -2591,7 +2591,7 @@ private struct VodView: View {
     /// One episode's download identity: the title, the line and the episode as the listing names
     /// it — never the resolved, signed address, so a refreshed signature is still the same download.
     private func offlineIdentity(_ episode: Episode, flag: String) -> OfflineIdentity {
-        OfflineIdentity(historyKey: historyKey, flag: flag, episodeURL: episode.url)
+        OfflineIdentity(siteID: site.id, vodId: summary.id, flag: flag, episodeURL: episode.url)
     }
 
     /// A finished download of this episode, ready to play; nil means "resolve it online".
@@ -3837,10 +3837,7 @@ final class OfflineAppDelegate: NSObject, UIApplicationDelegate {
 /// same title in the same place (`VodView.record(for:flag:)`).
 @MainActor enum OfflinePlayer {
     static func record(_ asset: OfflineAsset, quality: String) -> WatchHistory {
-        WatchHistory(key: asset.identity.historyKey, siteKey: asset.title.siteKey, siteName: asset.title.siteName,
-                     sourceID: asset.title.sourceID, vodId: asset.title.vodId, vodName: asset.title.vodName,
-                     vodPic: asset.title.vodPic, vodFlag: asset.identity.flag, vodRemarks: asset.title.episodeName,
-                     episodeUrl: asset.identity.episodeURL, quality: quality)
+        asset.historyRecord(quality: quality)
     }
 
     /// Opens a completed download in the shared session; false when it cannot be played now.

@@ -118,9 +118,9 @@ struct StorageMaintenanceTests {
     // download's addresses, a staged body nothing will claim — never a download.
     @Test func offlineLeftoversNeverIncludeADownload() async throws {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (running, requests) = await harness.startSimpleDownload(identity: Fixture.identity("ep1"))
+        let (running, requests) = try await harness.startSimpleDownload(identity: Fixture.identity("ep1"))
         try #require(requests.count == 4)
-        let (done, _) = await harness.startSimpleDownload(identity: Fixture.identity("ep2"))
+        let (done, _) = try await harness.startSimpleDownload(identity: Fixture.identity("ep2"))
         #expect(await harness.completeAll(done.id)?.state == .completed)
         let root = harness.layout.root
         let orphan = root.appendingPathComponent(UUID().uuidString)
@@ -146,7 +146,7 @@ struct StorageMaintenanceTests {
 
     @Test func resetDeletesEveryDownloadThroughTheDeletePath() async throws {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
-        let (running, _) = await harness.startSimpleDownload(identity: Fixture.identity("ep1"))
+        let (running, _) = try await harness.startSimpleDownload(identity: Fixture.identity("ep1"))
         let result = await harness.manager.deleteEverything()
         #expect(result.deleted == 1)
         #expect(!harness.folderExists(running.id))

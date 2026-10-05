@@ -2,6 +2,7 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+import Testing
 @testable import WebHTVCore
 
 /// IOS-POC-47 test doubles: a transport that only records, a network made of fixtures, and a
@@ -107,12 +108,15 @@ struct FakeNetwork: Sendable {
     }
 }
 
-/// Records which requests the network saw, with their headers.
+/// Records which requests the network saw, with their headers and (IOS-POC-52 F36) how many bytes
+/// each was allowed to read.
 final class RequestLog: @unchecked Sendable {
     private let lock = NSLock()
     private var requests = [URLRequest]()
-    func append(_ request: URLRequest) { lock.lock(); requests.append(request); lock.unlock() }
+    private var allowed = [Int]()
+    func append(_ request: URLRequest, limit: Int) { lock.lock(); requests.append(request); allowed.append(limit); lock.unlock() }
     var all: [URLRequest] { lock.lock(); defer { lock.unlock() }; return requests }
+    var limits: [Int] { lock.lock(); defer { lock.unlock() }; return allowed }
 }
 
 final class Capacity: @unchecked Sendable {
@@ -140,9 +144,9 @@ struct OfflineHarness {
         self.capacity = capacity
         let log = RequestLog()
         self.log = log
-        let subtitles = SubtitleDownloadService(fetch: { request, _ in
+        let subtitles = SubtitleDownloadService(fetch: { request, limit in
             if let subtitleGate { await subtitleGate.wait() }
-            log.append(request)
+            log.append(request, limit: limit)
             guard let url = request.url, let text = subtitleFiles[url.absoluteString] else {
                 return SubtitleHTTPResponse(status: 404, mimeType: "text/plain", data: Data(), url: request.url)
             }
@@ -150,7 +154,7 @@ struct OfflineHarness {
         }, retryDelay: .zero)
         manager = OfflineDownloadManager(.init(
             layout: layout, transport: transport, capacity: { capacity.get() },
-            fetcher: { _, _ in { request, limit in log.append(request); return try network.fetch(request, limit: limit) } },
+            fetcher: { _, _ in { request, limit in log.append(request, limit: limit); return try network.fetch(request, limit: limit) } },
             subtitles: subtitles, retryDelay: .zero))
     }
 
@@ -166,23 +170,32 @@ struct OfflineHarness {
         OfflineHarness(network: network, capacity: capacity.get(), layout: layout, transport: transport)
     }
 
-    func waitFor(_ id: String, _ state: OfflineAssetState, timeout: Duration = .seconds(5)) async -> OfflineAsset? {
+    /// IOS-POC-52 (F37): a wait that runs out fails the test where it was called and answers nil,
+    /// rather than handing back whatever state the asset was left in.
+    func waitFor(_ id: String, _ state: OfflineAssetState, timeout: Duration = .seconds(5),
+                 sourceLocation: SourceLocation = #_sourceLocation) async -> OfflineAsset? {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             if let asset = await manager.asset(id), asset.state == state { return asset }
             try? await Task.sleep(for: .milliseconds(5))
         }
-        return await manager.asset(id)
+        let last = await manager.asset(id)
+        Issue.record("\(id) never became \(state); it is \(last.map { "\($0.state)" } ?? "gone")", sourceLocation: sourceLocation)
+        return nil
     }
 
-    func waitForSubmissions(_ count: Int, assetID: String? = nil, timeout: Duration = .seconds(5)) async -> [OfflineTransferRequest] {
+    /// IOS-POC-52 (F37): fewer than `count` in time fails the test where it was called.
+    func waitForSubmissions(_ count: Int, assetID: String? = nil, timeout: Duration = .seconds(5),
+                            sourceLocation: SourceLocation = #_sourceLocation) async -> [OfflineTransferRequest] {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             let submitted = await transport.submitted.filter { assetID == nil || $0.tag.assetID == assetID }
             if submitted.count >= count { return submitted }
             try? await Task.sleep(for: .milliseconds(5))
         }
-        return await transport.submitted.filter { assetID == nil || $0.tag.assetID == assetID }
+        let submitted = await transport.submitted.filter { assetID == nil || $0.tag.assetID == assetID }
+        Issue.record("\(submitted.count) of \(count) transfers submitted", sourceLocation: sourceLocation)
+        return submitted
     }
 
     func folderExists(_ id: String) -> Bool {
@@ -252,16 +265,24 @@ enum Fixture {
 
 extension OfflineHarness {
     /// Queues the simple fixture and drives it to `downloading`; answers the asset and its requests.
+    /// IOS-POC-52 (F37): throws instead of answering fewer than four transfers, which a caller
+    /// indexing them would trap on, taking the whole test run down with it.
     func startSimpleDownload(identity: OfflineIdentity = Fixture.identity(), autoDelete: Bool = true,
-                             target: PlaybackTarget = Fixture.target()) async -> (OfflineAsset, [OfflineTransferRequest]) {
+                             target: PlaybackTarget = Fixture.target(),
+                             sourceLocation: SourceLocation = #_sourceLocation) async throws -> (OfflineAsset, [OfflineTransferRequest]) {
         await manager.start()
         let result = await manager.enqueue(identity: identity, title: Fixture.title(), target: target,
                                            choice: OfflineDownloadChoice(mode: .smart),
                                            estimate: OfflineSizeEstimate(bytes: 1_000_000, basis: .averageBandwidth),
                                            autoDeleteAfterWatching: autoDelete, allowsCellular: false)
-        guard case .created(let asset) = result else { fatalError("not created: \(result)") }
-        _ = await waitFor(asset.id, .downloading)
-        return (asset, await waitForSubmissions(4, assetID: asset.id))
+        guard case .created(let asset) = result else {
+            Issue.record("not created: \(result)", sourceLocation: sourceLocation)
+            throw HarnessFailure()
+        }
+        _ = try #require(await waitFor(asset.id, .downloading, sourceLocation: sourceLocation), sourceLocation: sourceLocation)
+        let requests = await waitForSubmissions(4, assetID: asset.id, sourceLocation: sourceLocation)
+        try #require(requests.count == 4, sourceLocation: sourceLocation)
+        return (asset, requests)
     }
 
     /// Finishes every outstanding transfer with segment bytes and waits for `completed`.
@@ -270,6 +291,8 @@ extension OfflineHarness {
         return await waitFor(id, .completed)
     }
 }
+
+struct HarnessFailure: Error {}
 
 /// Holds whoever waits until it is opened.
 actor Gate {

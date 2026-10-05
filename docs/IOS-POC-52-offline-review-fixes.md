@@ -16,7 +16,7 @@
 | 3 | 下載流程、背景與傳輸 | F3、F4、F10、F11、F14、F18、F19、F29、F30、F34、F39（F26 已在批次 2） | 完成 |
 | 4 | 自動刪除與播放 | F1、F12、F13、F23 | 完成 |
 | 5 | 安全與介面 | F22、F21、F31、F32、F33、F35 | 完成 |
-| 6 | 測試缺口與發布 | F24、F25、F36–F38、F40 | 待處理 |
+| 6 | 測試缺口與發布 | F24、F25、F36–F38、F40 | 完成（發布另記） |
 
 ## 2. 各項處理
 
@@ -249,6 +249,46 @@
   - 原因：需要媒體探測（Apple 平台上讀 AVAsset 的影像軌，或自行解析 MP4／MKV／TS 檔頭），屬於新功能且風險較高，本批不做。目前這類來源可能下載到超過 1080p 的版本，表單已明確告知。
 - 測試：`aLoneUndeclaredVersionIsToldApartFromAPickedOne`（單一檔案、沒有 master 的播放清單為 true；有解析度的 master、兩個未標示解析度的 master、拒絕下載的情況為 false）。
 
+### F37（低）等待用的輔助函式逾時不會失敗
+- 原因：`waitFor` 逾時時回傳當下的紀錄而不是失敗，呼叫端又常丟棄結果；`waitForSubmissions` 少於預期時回傳較短的陣列，呼叫端用 `requests[2]` 取值會讓整個測試程序崩潰。
+- 修正：
+  - `waitFor` 逾時時在呼叫位置記錄 Issue，並回傳 nil。
+  - `waitForSubmissions` 數量不足時在呼叫位置記錄 Issue。
+  - `startSimpleDownload` 改為 `throws`，送出的傳輸不是 4 個時以 `#require` 失敗，不再讓索引崩潰；所有呼叫端改為 `try await`（含 `StorageMaintenanceTests`）。
+  - `aTransferFromBeforeAPauseChangesNothing` 改為 `try #require` 等到「下載中」。
+- 驗證：改完後原有測試全部仍通過，沒有測試依賴逾時回傳值。突變「resume 不重新排程」會讓 `aTransferFromBeforeAPauseChangesNothing` 等測試失敗。
+- 順帶發現：批次 5 的 F32 測試原本寫成 `waitFor(...) != nil`，因此必定成立；已在批次 5 改正。
+
+### F24（低）SDR 優先、24／30 fps 優先的選片測試因錯誤的理由通過
+- 修正：`smartPrefersSDROverHDR`、`standardFrameRateUnlessHighFrameRateIsAskedFor` 改用「被偏好的版本反而較貴、編碼排序也較後」的組合（SDR H.264 比 HDR HEVC 貴；24 fps H.264 對 60 fps HEVC），並檢查三種模式（含 720p 的最省空間）。測試名稱不變，因為 IOS-POC-47 文件引用這些名稱。
+- 驗證：拿掉 SDR 規則、或讓幀率規則只在要求高幀率時才生效，兩個測試都會失敗。
+
+### F25（低）當機復原與安全網沒有能失敗的測試
+- 新增：
+  - `launchFinishesADeleteACrashInterrupted`：留下 `.deleting` 紀錄後重開，資料夾與紀錄都被刪除。
+  - `aPackageMissingAFileWhenTheLastUnitLandsFailsVerification`：第一個片段完成後刪掉它的檔案，其餘完成後必須以「檔案完整性」失敗，不能標成完成。
+  - `aDownloadQueuedWithoutAnEstimateIsRefusedWhenItsPackageDoesNotFit`：沒有預估大小時加入佇列，準備時算出的大小放不下，必須以「空間不足」失敗，而且一個傳輸都沒有送出。
+- 驗證：三個對應的突變（重開時忽略 `.deleting`、略過驗證、拿掉準備時的空間檢查）都會讓對應測試失敗。
+
+### F36（低）probe 不會整個讀進記憶體的測試不會失敗
+- 修正：測試用的網路紀錄每個請求允許讀取的上限；`theProbeNeverReadsAWholeFileIntoMemory` 檢查只有一個請求、帶 `Range: bytes=0-1023`、上限是 `OfflineHTTP.probeLimit`。
+- 驗證：probe 改用播放清單上限、或拿掉 Range，測試都會失敗。
+- 未測：`OfflineHTTP.fetcher` 本身的串流截斷只在 Darwin 編譯，Linux 測不到。
+
+### F38（低）行動網路預設值與傳遞、刪除記錄的範圍沒有測試
+- 新增：
+  - `cellularIsOffUntilAllowedAndReachesEveryTransfer`：用獨立的 `UserDefaults(suiteName:)`，預設關閉、設定後保存；關閉時所有傳輸與交給 iOS 的 `URLRequest.allowsCellularAccess` 都是 false，開啟時都是 true。
+  - `aTitlesDownloadsIncludeEveryStateButDeleting`：`OfflineLibrary.assets(forHistoryKey:)` 包含除了刪除中以外的所有狀態，不含其他作品，並依集數排序。
+- 驗證：預設改為開啟、`URLRequest` 固定允許行動網路、清單只留已完成，三個突變都會失敗。
+
+### F40（低）離線觀看記錄的測試只測到測試資料本身
+- 修正：
+  - Core 新增 `OfflineIdentity(siteID:vodId:flag:episodeURL:)` 與 `OfflineAsset.historyRecord(quality:)`。
+  - App 的 `VodView.offlineIdentity` 與 `OfflinePlayer.record` 改呼叫這兩個 helper，行為不變（`historyKey` 原本就是 `WatchHistory.key(siteID: site.id, vodId: summary.id)`）。
+  - `offlineTitleInfoKeepsTheWatchHistoryIdentity` 改為測這兩個 helper：key 來自 `Site.id`；從簽章網址下載後，記錄的 `episodeUrl` 仍是列表上的網址。
+- 驗證：helper 的 key 參數對調、記錄的線路欄位寫錯，兩個突變都會失敗。
+- 未驗證：線上播放的 `VodView.record(for:flag:)` 仍在 App 端，沒有共用這個 helper；兩者一致靠閱讀程式碼確認。
+
 ## 3. 驗證紀錄
 
 - 批次 1：Linux `swift test` 84／84，Offline 原始檔沒有新的警告。
@@ -266,10 +306,14 @@
   - 突變 5／5 被對應的測試抓到：F22（轉址照原樣送出）、F21（不改記模式）、F32 兩處（不擋、全部擋）、F35（不比對版本）。
   - 「全部擋」的突變第一次沒有被抓到：`waitFor` 逾時仍回傳該筆紀錄而不是 nil，測試寫成 `!= nil` 必定成立。改為比對狀態後即被抓到。`waitFor` 本身的問題屬於第 6 批的 F37。
   - App 端（F21 表單、F31、F32 接線、F35 文字）只能靠發布建置編譯，沒有在真機執行。
+- 批次 6：
+  - Linux 131／131。
+  - 突變 13／13 被抓到：F24 兩處、F25 三處、F36 兩處、F37、F38 三處、F40 兩處。
+  - 「拿掉準備時的空間檢查」先被既有的 `runningDownloadsKeepTheSpaceTheyStillNeed` 抓到；另外單獨確認新的 F25 測試在同一突變下也會失敗。
 - 同步：開始批次 3 時，遠端已被其他 session 推進到 `f39c7d86`。批次 3 的改動先 stash，用 `git pull --no-rebase` 合併（merge commit `1c31013f`，沒有衝突），再放回改動。
   - 原本的 task guard session 尚未 commit，手動把它的狀態標為 abandoned。
   - 新 session 以 `--adopt-dirty` 收進這些改動。
 
 ## 下一步
 
-- 批次 6（測試缺口：F24、F25、F36–F38、F40），接著依使用者指示把 40 項清單寫進 `docs/IOS-POC-47-offline-downloads.md` 並發布。IOS-POC-53 已完成，見 `docs/IOS-POC-53-storage-cleanup-reset.md`。
+- 依使用者指示把 40 項清單寫進 `docs/IOS-POC-47-offline-downloads.md`，更新 `docs/current-task-state.md` 與 `docs/IOS-POC-49-offline-cellular-download-all.md`，接著發布。IOS-POC-53 已完成，見 `docs/IOS-POC-53-storage-cleanup-reset.md`。

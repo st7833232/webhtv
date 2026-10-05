@@ -531,3 +531,25 @@ public enum OfflineByteFormat {
         return "\(Int(value)) B"
     }
 }
+
+// IOS-POC-52 (F40): the one place the download identity and the offline watch-history record are
+// built, so neither can drift from the record online playback writes (`VodView.record(for:flag:)`).
+public extension OfflineIdentity {
+    /// One episode's download: the title's history key — from `Site.id`, not the site key, which
+    /// four sites of one configuration share — the line, and the episode as the listing names it,
+    /// never the resolved, signed address, so a refreshed signature is still the same download.
+    init(siteID: String, vodId: String, flag: String, episodeURL: String) {
+        self.init(historyKey: WatchHistory.key(siteID: siteID, vodId: vodId), flag: flag, episodeURL: episodeURL)
+    }
+}
+
+public extension OfflineAsset {
+    /// The record offline playback writes: the same title, line and episode, under the same key, as
+    /// online playback's — so it resumes the same progress and 刪除記錄 finds the downloads.
+    func historyRecord(quality: String) -> WatchHistory {
+        WatchHistory(key: identity.historyKey, siteKey: title.siteKey, siteName: title.siteName,
+                     sourceID: title.sourceID, vodId: title.vodId, vodName: title.vodName,
+                     vodPic: title.vodPic, vodFlag: identity.flag, vodRemarks: title.episodeName,
+                     episodeUrl: identity.episodeURL, quality: quality)
+    }
+}

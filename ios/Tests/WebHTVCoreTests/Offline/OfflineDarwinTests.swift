@@ -50,6 +50,29 @@ struct OfflineDarwinTests {
         #expect(!exact.truncated)
     }
 
+    /// F35 (IOS-POC-52-12): AVFoundation reads a remote MP4's movie header, with the source's headers
+    /// and by byte range, and a saved fMP4 init section from disk. Something that is not video is nil.
+    @Test func theVideoProbeReadsAnMP4AndAnInitSection() async throws {
+        let server = try await LoopbackHTTPServer.start()
+        let wide = try #require(await OfflineVideoProbe.info(server.url("/wide.mp4"), headers: ["Referer": "https://site.example/"]))
+        #expect(wide.width == 2560)
+        #expect(wide.height == 1440)
+        #expect(wide.codec == .h264)
+        #expect(wide.dynamicRange == .sdr)
+        #expect(server.wideRequests.allSatisfy { $0["referer"] == "https://site.example/" })
+        #expect(server.wideRequests.contains { $0["range"] != nil }, "read by byte range")
+
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("init-\(UUID().uuidString).mp4")
+        try ProbeFixture.initSection.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let section = try #require(await OfflineVideoProbe.info(file, headers: [:]))
+        #expect(section.width == 1280)
+        #expect(section.height == 720)
+        #expect(section.codec == .hevc)
+
+        #expect(await OfflineVideoProbe.info(server.url("/end"), headers: [:]) == nil)
+    }
+
     /// F11 (IOS-POC-52-9): iOS hears the wake's events are handled before the next download's
     /// preparing is waited for, and the app's background task goes only after that.
     @Test func aWakeTellsTheSystemBeforeItSettles() async {
@@ -63,7 +86,8 @@ struct OfflineDarwinTests {
 
 /// HTTP/1.1 on 127.0.0.1 for the tests above. `/redirect/<host>` answers 302 to
 /// `http://<host>:<port>/end`; `/end` records the headers it was sent; `/big` streams `bigSize`
-/// bytes whatever the request asks; `/exact` sends exactly `OfflineHTTP.probeLimit` bytes.
+/// bytes whatever the request asks; `/exact` sends exactly `OfflineHTTP.probeLimit` bytes;
+/// `/wide.mp4` serves `ProbeFixture.wide` with byte ranges.
 private final class LoopbackHTTPServer: @unchecked Sendable {
     static let bigSize = 256 * 1024 * 1024
     private static let chunk = Data(repeating: 0x47, count: 64 * 1024)
@@ -72,6 +96,9 @@ private final class LoopbackHTTPServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "loopback-http-server")
     private let lock = NSLock()
     private var ended = [[String: String]]()
+    private var wide = [[String: String]]()
+    /// The headers each `/wide.mp4` request carried.
+    var wideRequests: [[String: String]] { lock.withLock { wide } }
     private var bigSent = 0
     private var bigClosed = false
     private var started = false
@@ -156,6 +183,18 @@ private final class LoopbackHTTPServer: @unchecked Sendable {
         case "/end":
             lock.withLock { ended.append(headers) }
             send(connection, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n" + close, body: Data("ok".utf8))
+        case "/wide.mp4":
+            lock.withLock { wide.append(headers) }
+            let body = ProbeFixture.wide
+            if let asked = headers["range"], let range = OfflineMediaServer.byteRange(asked, size: Int64(body.count)) {
+                let part = body[Int(range.lowerBound)...Int(range.upperBound)]
+                send(connection, "HTTP/1.1 206 Partial Content\r\nContent-Type: video/mp4\r\nAccept-Ranges: bytes\r\n"
+                     + "Content-Range: bytes \(range.lowerBound)-\(range.upperBound)/\(body.count)\r\nContent-Length: \(part.count)\r\n" + close,
+                     body: Data(part))
+            } else {
+                send(connection, "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nAccept-Ranges: bytes\r\nContent-Length: \(body.count)\r\n" + close,
+                     body: body)
+            }
         case "/exact":
             send(connection, "HTTP/1.1 200 OK\r\nContent-Length: \(OfflineHTTP.probeLimit)\r\n" + close,
                  body: Data(repeating: 0x47, count: OfflineHTTP.probeLimit))
@@ -183,5 +222,89 @@ private final class LoopbackHTTPServer: @unchecked Sendable {
         lock.withLock { bigSent = sent; bigClosed = true }
         connection.cancel()
     }
+}
+
+/// IOS-POC-52-12: made with ffmpeg 9.0.2 — one black 2560×1440 H.264 frame, `-movflags +faststart`
+/// (2,247 bytes), and the init section of a 1280×720 HEVC (`hvc1`) fMP4 HLS (3,223 bytes).
+private enum ProbeFixture {
+    static let wide = Data(base64Encoded: """
+AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAMXbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAACgAAQAAAQAA
+AAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAA
+AkJ0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAACgAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAA
+AAAAAAAAAAAAAABAAAAACgAAAAWgAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAAoAAAAAAABAAAAAAG6bWRpYQAAACBtZGhk
+AAAAAAAAAAAAAAAAAAAyAAAAAgBVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABZW1p
+bmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAASVzdGJsAAAAwXN0c2QA
+AAAAAAAAAQAAALFhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAACgAFoABIAAAASAAAAAAAAAABFExhdmM2My4xLjEwMiBsaWJ4
+MjY0AAAAAAAAAAAAAAAAGP//AAAAN2F2Y0MBZAAy/+EAGmdkADKs2UAoALWwEQAAAwABAAADADIPGDGWAQAGaOvjyyLA/fj4AAAA
+ABBwYXNwAAAAAQAAAAEAAAAUYnRydAAAAAAABEwAAAAAAAAAABhzdHRzAAAAAAAAAAEAAAABAAACAAAAABxzdHNjAAAAAAAAAAEA
+AAABAAAAAQAAAAEAAAAUc3RzegAAAAAAAAWAAAAAAQAAABRzdGNvAAAAAAAAAAEAAANHAAAAYXVkdGEAAABZbWV0YQAAAAAAAAAh
+aGRscgAAAAAAAAAAbWRpcmFwcGwAAAAAAAAAAAAAAAAsaWxzdAAAACSpdG9vAAAAHGRhdGEAAAABAAAAAExhdmY2My4xLjEwMgAA
+AAhmcmVlAAAFiG1kYXQAAAKvBgX//6vcRem95tlIt5Ys2CDZI+7veDI2NCAtIGNvcmUgMTY1IHIzMjIyIGIzNTYwNWEgLSBILjI2
+NC9NUEVHLTQgQVZDIGNvZGVjIC0gQ29weWxlZnQgMjAwMy0yMDI1IC0gaHR0cDovL3d3dy52aWRlb2xhbi5vcmcveDI2NC5odG1s
+IC0gb3B0aW9uczogY2FiYWM9MSByZWY9MyBkZWJsb2NrPTE6MDowIGFuYWx5c2U9MHgzOjB4MTEzIG1lPWhleCBzdWJtZT03IHBz
+eT0xIHBzeV9yZD0xLjAwOjAuMDAgbWl4ZWRfcmVmPTEgbWVfcmFuZ2U9MTYgY2hyb21hX21lPTEgdHJlbGxpcz0xIDh4OGRjdD0x
+IGNxbT0wIGRlYWR6b25lPTIxLDExIGZhc3RfcHNraXA9MSBjaHJvbWFfcXBfb2Zmc2V0PS0yIHRocmVhZHM9MTUgbG9va2FoZWFk
+X3RocmVhZHM9MiBzbGljZWRfdGhyZWFkcz0wIG5yPTAgZGVjaW1hdGU9MSBpbnRlcmxhY2VkPTAgYmx1cmF5X2NvbXBhdD0wIGNv
+bnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz0zIGJfcHlyYW1pZD0yIGJfYWRhcHQ9MSBiX2JpYXM9MCBkaXJlY3Q9MSB3ZWlnaHRi
+PTEgb3Blbl9nb3A9MCB3ZWlnaHRwPTIga2V5aW50PTI1MCBrZXlpbnRfbWluPTI1IHNjZW5lY3V0PTQwIGludHJhX3JlZnJlc2g9
+MCByY19sb29rYWhlYWQ9NDAgcmM9Y3JmIG1idHJlZT0xIGNyZj0yMy4wIHFjb21wPTAuNjAgcXBtaW49MCBxcG1heD02OSBxcHN0
+ZXA9NCBpcF9yYXRpbz0xLjQwIGFxPTE6MS4wMACAAAACyWWIhAAr//72c3wKa22wlS4Fdvdmo+XQkuX7EGD60AAAAwAAAwAAAwAA
+AwAAAwAVdmYQdGv0ySuoAAADAAADAAADAD3AAAADAAPgAAADAABugAAAAwATMAAAAwAD6AAAAwAAyQAAAwAAOIAAAAMAD+AAAAMA
+BMgAAAMAAhoAAAMAAQEAAAMAAGKAAAADADsAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMA
+AAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMA
+AAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMA
+AAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMA
+AAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMA
+AAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMA
+AAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMA
+AAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAABNR
+
+""", options: .ignoreUnknownCharacters)!
+    static let initSection = Data(base64Encoded: """
+AAAAHGZ0eXBpc281AAACAGlzbzVpc282bXA0MQAADHttb292AAAAbG12aGQAAAAAAAAAAAAAAAAAAAPoAAAAAAABAAABAAAAAAAA
+AAAAAAAAAQAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAALfnRy
+YWsAAABcdGtoZAAAAAMAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAEAAAAAAAAA
+AAAAAAAAAEAAAAAFAAAAAtAAAAAAADBlZHRzAAAAKGVsc3QAAAAAAAAAAgAAAFD/////AAEAAAAAAAAAAAQAAAEAAAAACuptZGlh
+AAAAIG1kaGQAAAAAAAAAAAAAAAAAADIAAAAAAFXEAAAAAAAtaGRscgAAAAAAAAAAdmlkZQAAAAAAAAAAAAAAAFZpZGVvSGFuZGxl
+cgAAAAqVbWluZgAAABR2bWhkAAAAAQAAAAAAAAAAAAAAJGRpbmYAAAAcZHJlZgAAAAAAAAABAAAADHVybCAAAAABAAAKVXN0YmwA
+AAoJc3RzZAAAAAAAAAABAAAJ+Wh2YzEAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAFAALQAEgAAABIAAAAAAAAAAEUTGF2YzYzLjEu
+MTAyIGxpYngyNjUAAAAAAAAAAAAAAAAY//8AAAmJaHZjQwEBYAAAAJAAAAAAAF3wAPz9+PgAAA8EoAABABhAAQwB//8BYAAAAwCQ
+AAADAAADAF2VmAmhAAEAK0IBAQFgAAADAJAAAAMAAAMAXaACgIAtFllZpJMrwFoCAAADAAIAAAMAMhCiAAEAB0QBwXK0YkAnAAEJ
+DE4BBf///////////wcsot4JtRdH27tVpP5/wvxOeDI2NSAoYnVpbGQgMjE3KSAtIDQuMysxLWU5Yjg4MTI6W01hYyBPUyBYXVtj
+bGFuZyAyMS4wLjBdWzY0IGJpdF0gOGJpdCsxMGJpdCsxMmJpdCAtIEguMjY1L0hFVkMgY29kZWMgLSBDb3B5cmlnaHQgMjAxMy0y
+MDE4IChjKSBNdWx0aWNvcmV3YXJlLCBJbmMgLSBodHRwOi8veDI2NS5vcmcgLSBvcHRpb25zOiBjcHVpZD05OCBmcmFtZS10aHJl
+YWRzPTMgd3BwIG5vLXBtb2RlIG5vLXBtZSBuby1wc25yIG5vLXNzaW0gbG9nLWxldmVsPTAgYml0ZGVwdGg9OCBpbnB1dC1jc3A9
+MSBmcHM9MjUvMSBpbnB1dC1yZXM9MTI4MHg3MjAgaW50ZXJsYWNlPTAgdG90YWwtZnJhbWVzPTAgbGV2ZWwtaWRjPTAgaGlnaC10
+aWVyPTEgdWhkLWJkPTAgcmVmPTMgbm8tYWxsb3ctbm9uLWNvbmZvcm1hbmNlIG5vLXJlcGVhdC1oZWFkZXJzIGFubmV4YiBuby1h
+dWQgbm8tZW9iIG5vLWVvcyBuby1ocmQgaW5mbyBoYXNoPTAgdGVtcG9yYWwtbGF5ZXJzPTAgb3Blbi1nb3AgbWluLWtleWludD0y
+NSBrZXlpbnQ9MjUwIGdvcC1sb29rYWhlYWQ9MCBiZnJhbWVzPTQgYi1hZGFwdD0yIGItcHlyYW1pZCBiZnJhbWUtYmlhcz0wIHJj
+LWxvb2thaGVhZD0yMCBsb29rYWhlYWQtc2xpY2VzPTQgc2NlbmVjdXQ9NDAgbm8taGlzdC1zY2VuZWN1dCByYWRsPTAgbm8tc3Bs
+aWNlIG5vLWludHJhLXJlZnJlc2ggY3R1PTY0IG1pbi1jdS1zaXplPTggbm8tcmVjdCBuby1hbXAgbWF4LXR1LXNpemU9MzIgdHUt
+aW50ZXItZGVwdGg9MSB0dS1pbnRyYS1kZXB0aD0xIGxpbWl0LXR1PTAgcmRvcS1sZXZlbD0wIGR5bmFtaWMtcmQ9MC4wMCBuby1z
+c2ltLXJkIHNpZ25oaWRlIG5vLXRza2lwIG5yLWludHJhPTAgbnItaW50ZXI9MCBuby1jb25zdHJhaW5lZC1pbnRyYSBzdHJvbmct
+aW50cmEtc21vb3RoaW5nIG1heC1tZXJnZT0zIGxpbWl0LXJlZnM9MSBuby1saW1pdC1tb2RlcyBtZT0xIHN1Ym1lPTIgbWVyYW5n
+ZT01NyB0ZW1wb3JhbC1tdnAgbm8tZnJhbWUtZHVwIG5vLWhtZSB3ZWlnaHRwIG5vLXdlaWdodGIgbm8tYW5hbHl6ZS1zcmMtcGlj
+cyBkZWJsb2NrPTA6MCBzYW8gbm8tc2FvLW5vbi1kZWJsb2NrIHJkPTMgc2VsZWN0aXZlLXNhbz00IGVhcmx5LXNraXAgcnNraXAg
+bm8tZmFzdC1pbnRyYSBuby10c2tpcC1mYXN0IG5vLWN1LWxvc3NsZXNzIGItaW50cmEgbm8tc3BsaXRyZC1za2lwIHJkcGVuYWx0
+eT0wIHBzeS1yZD0yLjAwIHBzeS1yZG9xPTAuMDAgbm8tcmQtcmVmaW5lIG5vLWxvc3NsZXNzIGNicXBvZmZzPTAgY3JxcG9mZnM9
+MCByYz1jcmYgY3JmPTI4LjAgcWNvbXA9MC42MCBxcHN0ZXA9NCBzdGF0cy13cml0ZT0wIHN0YXRzLXJlYWQ9MCBpcHJhdGlvPTEu
+NDAgcGJyYXRpbz0xLjMwIGFxLW1vZGU9MiBhcS1zdHJlbmd0aD0xLjAwIGN1dHJlZSB6b25lLWNvdW50PTAgbm8tc3RyaWN0LWNi
+ciBxZy1zaXplPTMyIG5vLXJjLWdyYWluIHFwbWF4PTY5IHFwbWluPTAgbm8tY29uc3QtdmJ2IHNhcj0xIG92ZXJzY2FuPTAgdmlk
+ZW9mb3JtYXQ9NSByYW5nZT0wIGNvbG9ycHJpbT0yIHRyYW5zZmVyPTIgY29sb3JtYXRyaXg9MiBjaHJvbWFsb2M9MCBkaXNwbGF5
+LXdpbmRvdz0wIGNsbD0wLDAgbWluLWx1bWE9MCBtYXgtbHVtYT0yNTUgbG9nMi1tYXgtcG9jLWxzYj04IHZ1aS10aW1pbmctaW5m
+byB2dWktaHJkLWluZm8gc2xpY2VzPTEgbm8tb3B0LXFwLXBwcyBuby1vcHQtcmVmLWxpc3QtbGVuZ3RoLXBwcyBuby1tdWx0aS1w
+YXNzLW9wdC1ycHMgc2NlbmVjdXQtYmlhcz0wLjA1IG5vLW9wdC1jdS1kZWx0YS1xcCBuby1hcS1tb3Rpb24gbm8taGRyMTAgbm8t
+aGRyMTAtb3B0IG5vLWRoZHIxMC1vcHQgbm8taWRyLXJlY292ZXJ5LXNlaSBhbmFseXNpcy1yZXVzZS1sZXZlbD0wIGFuYWx5c2lz
+LXNhdmUtcmV1c2UtbGV2ZWw9MCBhbmFseXNpcy1sb2FkLXJldXNlLWxldmVsPTAgc2NhbGUtZmFjdG9yPTAgcmVmaW5lLWludHJh
+PTAgcmVmaW5lLWludGVyPTAgcmVmaW5lLW12PTEgcmVmaW5lLWN0dS1kaXN0b3J0aW9uPTAgbm8tbGltaXQtc2FvIGN0dS1pbmZv
+PTAgbm8tbG93cGFzcy1kY3QgcmVmaW5lLWFuYWx5c2lzLXR5cGU9MCBjb3B5LXBpYz0xIG1heC1hdXNpemUtZmFjdG9yPTEuMCBu
+by1keW5hbWljLXJlZmluZSBuby1zaW5nbGUtc2VpIG5vLWhldmMtYXEgbm8tc3Z0IG5vLWZpZWxkIHFwLWFkYXB0YXRpb24tcmFu
+Z2U9MS4wMCBzY2VuZWN1dC1hd2FyZS1xcD0wY29uZm9ybWFuY2Utd2luZG93LW9mZnNldHMgcmlnaHQ9MCBib3R0b209MCBkZWNv
+ZGVyLW1heC1yYXRlPTAgbm8tdmJ2LWxpdmUtbXVsdGktcGFzcyBuby1tY3N0ZiBuby1zYnJjIG5vLWZyYW1lLXJjgAAAAApmaWVs
+AQAAAAAQcGFzcAAAAAEAAAABAAAAEHN0dHMAAAAAAAAAAAAAABBzdHNjAAAAAAAAAAAAAAAUc3RzegAAAAAAAAAAAAAAAAAAABBz
+dGNvAAAAAAAAAAAAAAAobXZleAAAACB0cmV4AAAAAAAAAAEAAAABAAAAAAAAAAAAAAAAAAAAYXVkdGEAAABZbWV0YQAAAAAAAAAh
+aGRscgAAAAAAAAAAbWRpcmFwcGwAAAAAAAAAAAAAAAAsaWxzdAAAACSpdG9vAAAAHGRhdGEAAAABAAAAAExhdmY2My4xLjEwMg==
+
+""", options: .ignoreUnknownCharacters)!
 }
 #endif

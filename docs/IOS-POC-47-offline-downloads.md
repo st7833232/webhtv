@@ -297,7 +297,7 @@ Application Support/OfflineMedia/<asset-id>/
 | F32 | 低 | App 在背景被喚醒、設定尚未載入時，需要重新解析的下載失敗 | 修：設定載入前留在排隊中；移除 IOS-POC-49 的 30 秒等待 | `743a1d42` | `aDownloadThatMustResolveWaitsQueuedUntilTheConfigurationIsLoaded` |
 | F33 | 低 | 每集的下載選單點擊範圍只有 26×26 pt | 不修：`c361c637`（IOS-UI-A）已改為與集數按鈕並排的獨立 44×44 pt 元件 | — | 閱讀目前程式碼確認 |
 | F34 | 低 | 啟動時沒有清掉 `playlists/`、`partial/` 裡的寫入暫存檔 | 修 | `73eb8149` | `launchRemovesInterruptedWritesInSubfolders` |
-| F35 | 低 | 單一檔案與沒有 master 的播放清單不受 1080p 上限，表單文字不正確 | 部分：表單改為說明「只有一種版本、無法確認解析度、可能超過 1080p」。未做：探測實際解析度並拒絕超過 1080p、在紀錄中保存解析度與編碼（需要媒體探測，屬新功能） | `743a1d42` | `aLoneUndeclaredVersionIsToldApartFromAPickedOne` |
+| F35 | 低 | 單一檔案與沒有 master 的播放清單不受 1080p 上限，表單文字不正確 | 修（依使用者 2026-10-05 的決定，改為探測並顯示、不拒絕）：表單說明只有一種版本（`743a1d42`）；MP4／MOV 與 fMP4 init section 用 AVFoundation 探測，表單顯示、紀錄寫入解析度與編碼，超過 1080p 仍照下載並註明；TS／MKV／FLV 維持「無法確認」（IOS-POC-52-12） | `743a1d42`、IOS-POC-52-12 | `aLoneUndeclaredVersionIsToldApartFromAPickedOne`、`aLoneFileShowsAndRecordsItsProbedVideo`、`aMediaPlaylistIsProbedThroughItsInitSectionOnly`、`theVideoProbeReadsAnMP4AndAnInitSection`（macOS 與 iOS 26 模擬器） |
 | F36 | 低 | probe 不會整個讀進記憶體的測試不會失敗 | 修：測試檢查 Range 與讀取上限 | `8b5ba5e4` | 2 個突變會失敗；`OfflineHTTP.fetcher` 的串流截斷只在 Darwin，未測；IOS-POC-52-7 補上 macOS 測試 `theFetcherStopsReadingAtTheLimit` |
 | F37 | 低 | 等待用的輔助函式逾時不會失敗，取值不足時讓整個測試程序崩潰 | 修：逾時在呼叫位置失敗；`startSimpleDownload` 改為 throws | `8b5ba5e4` | 突變（resume 不重新排程）會失敗 |
 | F38 | 低 | 行動網路預設值與傳遞、刪除記錄的範圍沒有測試 | 修：補 2 項測試 | `8b5ba5e4` | `cellularIsOffUntilAllowedAndReachesEveryTransfer`、`aTitlesDownloadsIncludeEveryStateButDeleting`；3 個突變會失敗 |
@@ -314,5 +314,5 @@ Application Support/OfflineMedia/<asset-id>/
 
 - 2026-10-04：實作與驗證完成（第 11 節），commit `4b7a00b6`；隨 `0.1.57 (58)` 發布（IOS-POC-11 第五十八次發布，tag `ios-v0.1.57-b58` → `f8dcc555`）。
 - 2026-10-05：審查確認的 40 項全部處理完畢（第 15 節）：修 36 項、部分 3 項（F11、F12、F35）、不修 1 項（F33，已由 IOS-UI-A 解決）。commit `44d9ee59`、`445ee765`、`73eb8149`、`183334aa`、`743a1d42`、`8b5ba5e4`。
-- 2026-10-05 後續：IOS-POC-52-7 在 macOS 補驗證並新增 F22、F36 的 Darwin 測試；IOS-POC-52-9 補完 F11。目前是修 37 項、部分 2 項（F12、F35，方案在 `docs/IOS-POC-52-offline-review-fixes.md` 第 4 節，待核准）、不修 1 項。之後 IOS-POC-52-11 補完 F12：修 38 項、部分 1 項（F35，已核准「探測並顯示、不拒絕」）、不修 1 項。
+- 2026-10-05 後續：IOS-POC-52-7 在 macOS 補驗證並新增 F22、F36 的 Darwin 測試；IOS-POC-52-9 補完 F11。目前是修 37 項、部分 2 項（F12、F35，方案在 `docs/IOS-POC-52-offline-review-fixes.md` 第 4 節，待核准）、不修 1 項。之後 IOS-POC-52-11 補完 F12：修 38 項、部分 1 項（F35，已核准「探測並顯示、不拒絕」）、不修 1 項。IOS-POC-52-12 補完 F35：**修 39 項、不修 1 項（F33）**。
 - 下一步：使用者在真機驗證第 12 節第 1 項與第 15.3 節第 1 項。

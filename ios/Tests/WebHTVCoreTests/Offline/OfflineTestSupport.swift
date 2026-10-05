@@ -135,7 +135,8 @@ struct OfflineHarness {
     let log: RequestLog
 
     init(network: FakeNetwork = FakeNetwork(), capacity: Int64? = 50_000_000_000, layout: OfflineStorageLayout? = nil,
-         transport: FakeTransport? = nil, subtitleFiles: [String: String] = [:], subtitleGate: Gate? = nil) {
+         transport: FakeTransport? = nil, subtitleFiles: [String: String] = [:], subtitleGate: Gate? = nil,
+         videoProbe: @escaping @Sendable (URL, [String: String]) async -> OfflineVideoInfo? = { _, _ in nil }) {
         let layout = layout ?? Self.scratchLayout()
         self.layout = layout
         let transport = transport ?? FakeTransport(staging: layout.stagingDirectory)
@@ -155,7 +156,7 @@ struct OfflineHarness {
         manager = OfflineDownloadManager(.init(
             layout: layout, transport: transport, capacity: { capacity.get() },
             fetcher: { _, _ in { request, limit in log.append(request, limit: limit); return try network.fetch(request, limit: limit) } },
-            subtitles: subtitles, retryDelay: .zero))
+            subtitles: subtitles, retryDelay: .zero, videoProbe: videoProbe))
     }
 
     static func scratchLayout() -> OfflineStorageLayout {

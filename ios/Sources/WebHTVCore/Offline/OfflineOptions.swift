@@ -45,7 +45,7 @@ public struct OfflineSubtitleOption: Codable, Equatable, Hashable, Sendable, Ide
 
 /// What one quality mode would download.
 public struct OfflineModeOption: Equatable, Sendable {
-    public let video: OfflineVideoInfo?
+    public var video: OfflineVideoInfo?
     public let variant: OfflineVariantKey?
     public let estimate: OfflineSizeEstimate
     public let hdrOnly: Bool

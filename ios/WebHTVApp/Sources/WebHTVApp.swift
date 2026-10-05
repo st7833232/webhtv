@@ -4248,8 +4248,11 @@ private struct OfflineDownloadSheet: View {
     }
 
     @ViewBuilder private func qualitySection(_ option: OfflineModeOption) -> some View {
-        // IOS-POC-52 (F35): a lone version of unknown size is downloaded as it is.
+        // IOS-POC-52 (F35): a lone version is downloaded as it is; its real size is shown when the
+        // probe could read it, and is never a reason to refuse it.
         let single = draft.options.singleUndeclaredVersion
+        let probed = single ? option.video.flatMap { $0.width > 0 ? $0 : nil } : nil
+        let above1080p = probed.map { max($0.width, $0.height) > 1920 || min($0.width, $0.height) > 1080 } ?? false
         Section {
             if draft.options.kind == .hls {
                 Picker("畫質", selection: $mode) {
@@ -4265,14 +4268,20 @@ private struct OfflineDownloadSheet: View {
                 Text("這部影片只提供 HDR 版本。").font(.footnote).foregroundStyle(.secondary)
             }
             if option.resolutionUnknown, draft.options.kind == .hls {
-                Text(single ? "來源只有一種版本，也沒有標示解析度。" : "來源沒有標示解析度，依位元率挑選不超過 1080p 的版本。")
+                Text(single ? (probed == nil ? "來源只有一種版本，也沒有標示解析度。" : "來源只有一種版本。")
+                            : "來源沒有標示解析度，依位元率挑選不超過 1080p 的版本。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         } header: {
             Text("畫質")
         } footer: {
-            Text(single ? "來源只有一種版本，會照原樣下載；無法確認解析度，可能超過 1080p。"
-                        : "離線畫質最高 1080p，不會下載 1440p 或 4K。")
+            if !single {
+                Text("離線畫質最高 1080p，不會下載 1440p 或 4K。")
+            } else if probed == nil {
+                Text("來源只有一種版本，會照原樣下載；無法確認解析度，可能超過 1080p。")
+            } else {
+                Text(above1080p ? "來源只有這一種版本，會照原樣下載，超過 1080p。" : "來源只有這一種版本，會照原樣下載。")
+            }
         }
     }
 

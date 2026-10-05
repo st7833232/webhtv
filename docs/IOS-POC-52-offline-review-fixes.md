@@ -569,12 +569,49 @@
 
 **Rollback**：revert 該 commit。`OfflineAsset.video` 本來就是 optional 欄位，已寫入的紀錄在舊版本仍可讀，不需要遷移資料。
 
+#### 4.3.1 實作紀錄（IOS-POC-52-12，2026-10-05）
+
+使用者決定（2026-10-05）：「若沒有多解析度那就下載唯一的解析度」，並選擇「探測並顯示，不拒絕」。因此**不拒絕**任何單一版本，也不需要決定旋轉的規則與未知時的政策。header 沿用播放的 key（使用者沒有反對建議）。
+
+- Core：
+  - `OfflineVideoCodec(codecs:)`：從 `HLSVariant.codec` 抽出來，CODECS 名稱與 FourCC 共用同一份對照。
+  - `OfflineModeOption.video` 改為 `var`。
+  - `Dependencies.videoProbe`：預設回傳 nil，測試可以注入假的探測器。
+  - `withVideo`：把探測結果套到每個模式。
+  - `probedInitSection`：
+    - 依 `OfflineRequestPolicy` 帶 header，用 `OfflineHTTP.fetcher` 下載第一個 `EXT-X-MAP`，上限 1 MB，支援 byte range；
+    - 寫入暫存檔後探測，結束時刪除暫存檔。
+- `options(for:)`：單一檔案與媒體清單都會探測；`build()` 再探測一次寫進紀錄。重新探測約多 100 KB，已用 `ponytail:` 註解標記，日後需要時可改成把結果帶進 request。
+- Darwin `OfflineVideoProbe.info`（`OfflineRuntime.swift`）：
+  - `AVURLAsset` 讀第一條影像軌的 `naturalSize`、`preferredTransform`（直立片會轉向）、`formatDescriptions`（FourCC → 編碼；轉換函數 PQ／HLG → HDR10／HLG；`dv*` → Dolby Vision）、`nominalFrameRate`。
+  - 10 秒內沒結果就 `cancelLoading()`，回傳 nil。
+  - `OfflineDownloads.manager` 接上這個探測器。
+- 突變檢查時刪掉 `map.key == nil` 條件：加密的 init section 探測器本來就讀不出來，結果一樣是 nil，這個條件只省下一次幾 KB 的下載，而且沒有測試覆蓋。
+- App 表單：
+  - 單一版本且探測到時，「影片」欄顯示實際的 `summary`，說明改為「來源只有一種版本。」；
+  - footer 是「來源只有這一種版本，會照原樣下載。」，超過 1080p 時加上「，超過 1080p」；
+  - 探測不到時維持原本的文字。
+- 測試：
+  - `aLoneFileShowsAndRecordsItsProbedVideo`：不拒絕、每個模式都有探測結果、header 有傳給探測器、紀錄的 `video` 正確；
+  - `aMediaPlaylistIsProbedThroughItsInitSectionOnly`：fMP4 讀 init section 暫存檔，紀錄正確；TS 清單不會被探測；
+  - Darwin `theVideoProbeReadsAnMP4AndAnInitSection`：本機伺服器以 byte range 提供 2560×1440 H.264 MP4，header 有送到、請求帶 Range；1280×720 HEVC 的 init section 從本機檔案讀取；不是影片時回傳 nil。fixture 用 ffmpeg 9.0.2 產生後內嵌（2,247 與 3,223 bytes）。
+- 驗證：
+  - macOS 完整 `swift test` **1007／1007**；
+  - **iOS 26.0 模擬器**（iPhone 17）的 `OfflineDarwinTests` 與 `OfflineReviewFixTests` 54／54，包含 AVFoundation 實際探測；
+  - 本機 Xcode Release iphoneos 建置 **BUILD SUCCEEDED**，warning 不變；
+  - 突變：檔案探測沒套到選項、紀錄沒寫入、探測忽略編碼，3／3 都被抓到。
+- Ponytail：Lean already. Ship.（突變檢查時已刪掉一個沒有作用的條件。）
+- 未驗證（需真機）：
+  - 真實站台的 MP4 單檔與 fMP4 媒體清單，表單和下載列是否顯示正確的解析度；
+  - 需要 Referer 或 Cookie 的來源，探測是否成功；
+  - 探測讓表單多等的時間。
+
 ## 下一步
 
 - 未決、等使用者決定：F11（背景執行時間）、F12（換埠時重建播放項目）、F35（探測實際解析度）只做了一部分，未做的部分是否另開任務（同 `docs/current-task-state.md` 最上方交接）。
 - F11 已於 IOS-POC-52-9 實作（見 4.1.1），尚未發布。
 - F12 已於 IOS-POC-52-11 實作（見 4.2.1），尚未發布。
-- 使用者已核准、待實作：F35（AVFoundation 只探測 MP4／MOV 與 fMP4 init segment；另有旋轉、未知時政策、header 三個決定）。
+- F35 已於 IOS-POC-52-12 實作（見 4.3.1，探測並顯示、不拒絕），尚未發布。
 - F29 傳輸層的空窗已於 IOS-POC-52-10 修正（見 3.1）。
 - 未決、等使用者決定（IOS-POC-52-7 發現，見 3.1）：`FavoriteAppWiringTests` 2 個過時的期望值；`MediaSnifferTests` 3 個穩定失敗（IOS-POC-45I）。
 

@@ -1,5 +1,8 @@
 import Foundation
 import Observation
+#if canImport(AVFoundation)
+import AVFoundation
+#endif
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -344,6 +347,51 @@ public enum OfflineEpisodeResolver {
     }
 }
 
+/// IOS-POC-52 (F35): a lone version's real video, read with AVFoundation — an MP4 or MOV where it
+/// lies (only its movie header, by byte range), or a saved fMP4 init section. iOS opens no MKV, FLV
+/// or bare MPEG-TS file; those, a failure, or no answer within 10 s give nil.
+public enum OfflineVideoProbe {
+    public static func info(_ media: URL, headers: [String: String]) async -> OfflineVideoInfo? {
+        // The header option playback uses (`PlaybackSession.asset`): outside Apple's public headers,
+        // and what every player on the platform uses for this.
+        let asset = headers.isEmpty ? AVURLAsset(url: media)
+            : AVURLAsset(url: media, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+        return await withTaskGroup(of: OfflineVideoInfo?.self) { group in
+            group.addTask { (try? await read(asset)) ?? nil }
+            group.addTask { try? await Task.sleep(for: .seconds(10)); return nil }
+            let first = await group.next() ?? nil
+            asset.cancelLoading()
+            group.cancelAll()
+            return first
+        }
+    }
+
+    static func read(_ asset: AVURLAsset) async throws -> OfflineVideoInfo? {
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else { return nil }
+        let (size, transform, formats, rate) = try await track.load(.naturalSize, .preferredTransform,
+                                                                    .formatDescriptions, .nominalFrameRate)
+        guard let format = formats.first else { return nil }
+        // A portrait phone video is stored landscape and turned by its transform.
+        let shown = size.applying(transform)
+        let subtype = CMFormatDescriptionGetMediaSubType(format)
+        let fourCC = String(decoding: [24, 16, 8, 0].map { UInt8((subtype >> $0) & 0xFF) }, as: UTF8.self)
+        let transfer = CMFormatDescriptionGetExtension(format, extensionKey: kCMFormatDescriptionExtension_TransferFunction) as? String
+        let range: OfflineDynamicRange
+        if fourCC.hasPrefix("dv") {
+            range = .dolbyVision
+        } else if transfer == kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ as String {
+            range = .hdr10
+        } else if transfer == kCMFormatDescriptionTransferFunction_ITU_R_2100_HLG as String {
+            range = .hlg
+        } else {
+            range = .sdr
+        }
+        return OfflineVideoInfo(width: Int(abs(shown.width).rounded()), height: Int(abs(shown.height).rounded()),
+                                codec: OfflineVideoCodec(codecs: [fourCC]), dynamicRange: range,
+                                frameRate: rate > 0 ? Double(rate) : nil)
+    }
+}
+
 /// The app's one set of offline objects.
 public enum OfflineDownloads {
     public static let layout = OfflineStorageLayout.standard()
@@ -352,7 +400,8 @@ public enum OfflineDownloads {
         layout: layout, transport: transport,
         capacity: { OfflineStorage.availableCapacity(at: layout.root.deletingLastPathComponent()) },
         fetcher: { origin, headers in OfflineHTTP.fetcher(origin: origin, originalHeaders: headers) },
-        subtitles: SubtitleDownloadService(fetch: SubtitleHTTP.fetcher(session: OfflineHTTP.subtitleSession))))
+        subtitles: SubtitleDownloadService(fetch: SubtitleHTTP.fetcher(session: OfflineHTTP.subtitleSession)),
+        videoProbe: OfflineVideoProbe.info))
     #if canImport(Network)
     public static let server = OfflineMediaServer(root: layout.root)
     #endif

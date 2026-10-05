@@ -36,7 +36,9 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
   - IOS-POC-48-1（`e57ad4d1`）：`FavoriteAppWiringTests` 對齊 IOS-UI-A。
   - IOS-POC-5G-1（`388799af`）：嗅探的 `src` hook 改掛在 `HTMLMediaElement`；測試頁宣告 charset。
   - IOS-POC-52-11：F12 換 port 時以新網址重載（4.2.1）。
-  - 下一步：F35「探測並顯示、不拒絕」（MP4／MOV、fMP4 init segment；header 沿用播放的 key），完成後問使用者 release notes，再用 workflow_dispatch 發布 0.1.67 (68)。
+  - IOS-POC-52-12：F35 探測並顯示、不拒絕（4.3.1）。macOS 完整 `swift test` 1007／1007；iOS 26 模擬器 54／54。
+  - 40 項：修 39、不修 1（F33）。
+  - 下一步：問使用者 release notes，再用 workflow_dispatch 發布 0.1.67 (68)（版號 commit 前先確認）。
 - 文件同步（2026-10-05 第二次，`DOCS-SYNC-2026-10-05-B`，`f39c7d86..7c280667`）：README 補上「儲存空間」頁，並依 F1、F13、F21 更新「最省空間」與「看完後自動刪除」；IOS-POC-11 recovery anchor 改為 67 版、最新 `0.1.66 (67)`；IOS-POC-52 文件補記「沒有 Ponytail 紀錄」，並寫入 F11／F12／F35 未決。IOS-POC-52 的 Ponytail 是否補跑，等使用者決定。
 
 ## Previous handoff — 2026-10-05：IOS-POC-51 用實際片段大小預估下載容量

@@ -944,6 +944,59 @@ struct OfflineReviewFixTests {
         #expect(listed.map(\.title.episodeIndex) == listed.map(\.title.episodeIndex).sorted())
     }
 
+    // F35 (IOS-POC-52-12): a lone version's probed video is shown on every mode and recorded, and its
+    // size never refuses it — the user's rule: there is no other version, so this one is downloaded.
+    @Test func aLoneFileShowsAndRecordsItsProbedVideo() async throws {
+        let file = URL(string: "https://cdn.example.com/movie.mp4")!
+        let wide = OfflineVideoInfo(width: 2560, height: 1440, codec: .h264, dynamicRange: .sdr)
+        let asked = Asked()
+        let harness = OfflineHarness(
+            network: FakeNetwork([file.absoluteString: .init(data: Data(repeating: 0, count: 1024), status: 206)]),
+            videoProbe: { url, headers in asked.add(url, headers); return wide })
+        await harness.manager.start()
+        let target = Fixture.target(file, headers: ["Referer": "https://site.example/"])
+        let options = try await harness.manager.options(for: target)
+        #expect(options.refusal == nil, "above 1080p, and still offered")
+        #expect(options.singleUndeclaredVersion)
+        #expect(OfflineQualityMode.allCases.allSatisfy { options.option(for: $0)?.video == wide })
+        #expect(asked.first?.0 == file)
+        #expect(asked.first?.1["Referer"] == "https://site.example/")
+
+        guard case .created(let asset) = await harness.manager.enqueue(
+            identity: Fixture.identity("movie"), title: Fixture.title(), target: target,
+            choice: OfflineDownloadChoice(mode: .smart), estimate: .unknown, autoDeleteAfterWatching: false,
+            allowsCellular: false) else { Issue.record("not created"); return }
+        _ = await harness.waitForSubmissions(1)
+        #expect(await harness.manager.asset(asset.id)?.video == wide, "the record says what was downloaded")
+    }
+
+    @Test func aMediaPlaylistIsProbedThroughItsInitSectionOnly() async throws {
+        let playlist = URL(string: "https://cdn.example.com/show/v.m3u8")!
+        let hevc = OfflineVideoInfo(width: 1280, height: 720, codec: .hevc, dynamicRange: .sdr)
+        let section = Data("init-section".utf8)
+        let harness = OfflineHarness(network: FakeNetwork([
+            playlist.absoluteString: .text(Fixture.media(2, ext: "m4s", extra: [#"#EXT-X-MAP:URI="init.mp4""#])),
+            "https://cdn.example.com/show/init.mp4": .init(data: section)
+        ]), videoProbe: { url, _ in url.isFileURL && (try? Data(contentsOf: url)) == section ? hevc : nil })
+        await harness.manager.start()
+        let options = try await harness.manager.options(for: Fixture.target(playlist))
+        #expect(OfflineQualityMode.allCases.allSatisfy { options.option(for: $0)?.video == hevc })
+        guard case .created(let asset) = await harness.manager.enqueue(
+            identity: Fixture.identity("hls"), title: Fixture.title(), target: Fixture.target(playlist),
+            choice: OfflineDownloadChoice(mode: .smart), estimate: .unknown, autoDeleteAfterWatching: false,
+            allowsCellular: false) else { Issue.record("not created"); return }
+        _ = await harness.waitForSubmissions(1)
+        #expect(await harness.manager.asset(asset.id)?.video == hevc)
+
+        // MPEG-TS has no init section: nothing is probed, and nothing changes.
+        let ts = OfflineHarness(network: FakeNetwork([playlist.absoluteString: .text(Fixture.media(2))]),
+                                videoProbe: { _, _ in Issue.record("a TS playlist was probed"); return hevc })
+        await ts.manager.start()
+        let unknown = try await ts.manager.options(for: Fixture.target(playlist))
+        #expect(unknown.singleUndeclaredVersion)
+        #expect(unknown.option(for: .smart)?.video != hevc)
+    }
+
     // F12 (IOS-POC-52-11): only the loopback server's port can change; anything else is not moved.
     @Test func aSourceIsRebasedOnlyWhenItsServerMovedPort() {
         func source(_ address: String) -> OfflinePlaybackSource {
@@ -989,6 +1042,14 @@ struct OfflineReviewFixTests {
         // No task (`.invalid`): nothing to end, and nothing breaks.
         OfflineWakeTask.begin { _ in nil }.finish()
     }
+}
+
+/// What the video probe was asked.
+private final class Asked: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = [(URL, [String: String])]()
+    func add(_ url: URL, _ headers: [String: String]) { lock.withLock { calls.append((url, headers)) } }
+    var first: (URL, [String: String])? { lock.withLock { calls.first } }
 }
 
 /// Counts the ends of one wake task.

@@ -77,12 +77,17 @@ public actor OfflineDownloadManager {
         public var subtitles: SubtitleDownloadService
         public var retryDelay: Duration
         public var now: @Sendable () -> Date
+        /// IOS-POC-52 (F35): a lone version's real video — a file's address with its headers, or an
+        /// init section saved to disk — or nil when it cannot be read. Shown and recorded, never used
+        /// to refuse the download. AVFoundation on the device (`OfflineVideoProbe`).
+        public var videoProbe: @Sendable (_ media: URL, _ headers: [String: String]) async -> OfflineVideoInfo?
 
         public init(layout: OfflineStorageLayout, transport: any OfflineTransport,
                     capacity: @escaping @Sendable () -> Int64?,
                     fetcher: @escaping @Sendable (URL, [String: String]) -> OfflineFetch,
                     subtitles: SubtitleDownloadService, retryDelay: Duration = .seconds(2),
-                    now: @escaping @Sendable () -> Date = { .now }) {
+                    now: @escaping @Sendable () -> Date = { .now },
+                    videoProbe: @escaping @Sendable (URL, [String: String]) async -> OfflineVideoInfo? = { _, _ in nil }) {
             self.layout = layout
             self.transport = transport
             self.capacity = capacity
@@ -90,6 +95,7 @@ public actor OfflineDownloadManager {
             self.subtitles = subtitles
             self.retryDelay = retryDelay
             self.now = now
+            self.videoProbe = videoProbe
         }
     }
 
@@ -289,8 +295,9 @@ public actor OfflineDownloadManager {
         let fetch = deps.fetcher(target.url, target.headers)
         switch try await probe(target.url, headers: target.headers, fetch: fetch) {
         case .progressive(let size, _):
-            return OfflineOptionsBuilder.progressive(size: size, sidecars: sidecars,
-                                                     preferredSubtitleLanguage: preferredSubtitleLanguage)
+            return Self.withVideo(OfflineOptionsBuilder.progressive(size: size, sidecars: sidecars,
+                                                                    preferredSubtitleLanguage: preferredSubtitleLanguage),
+                                  await deps.videoProbe(target.url, target.headers))
         case .playlist(let text, let base):
             switch try HLSPlaylist.parse(text, base: base) {
             case .media(let media):
@@ -306,7 +313,8 @@ public actor OfflineDownloadManager {
                     master: master, duration: media.duration, sidecars: sidecars, allowHighFrameRate: allowHighFrameRate,
                     preferredAudioLanguage: preferredAudioLanguage, preferredAudioName: preferredAudioName,
                     preferredSubtitleLanguage: preferredSubtitleLanguage)
-                return Self.withExactSize(options, media: media)
+                return Self.withVideo(Self.withExactSize(options, media: media),
+                                      await probedInitSection(media, fetch: fetch, headers: target.headers, origin: target.url))
             case .master(let master):
                 if master.sessionKeys.contains(where: \.isDRM) {
                     return OfflineOptionsBuilder.refused(OfflineFailure(.drmProtected), compatibility: .avPlayerOnly)
@@ -326,6 +334,35 @@ public actor OfflineDownloadManager {
                     preferredSubtitleLanguage: preferredSubtitleLanguage)
             }
         }
+    }
+
+    /// IOS-POC-52 (F35): what a probe found, on every mode — a lone version is the same in all.
+    static func withVideo(_ options: OfflineDownloadOptions, _ video: OfflineVideoInfo?) -> OfflineDownloadOptions {
+        guard let video else { return options }
+        return OfflineDownloadOptions(kind: options.kind, durationSeconds: options.durationSeconds,
+                                      modes: options.modes.mapValues { var option = $0; option.video = video; return option },
+                                      refusal: options.refusal, compatibility: options.compatibility)
+    }
+
+    /// IOS-POC-52 (F35): a media playlist's video, read from its fMP4 init section (a few KB) saved to
+    /// disk. MPEG-TS segments have no init section, and the probe cannot read an encrypted one: both
+    /// stay unknown, as they were.
+    private func probedInitSection(_ media: HLSMediaPlaylist, fetch: OfflineFetch, headers: [String: String],
+                                   origin: URL) async -> OfflineVideoInfo? {
+        guard let map = media.segments.first?.map else { return nil }
+        var request = URLRequest(url: map.uri)
+        for (name, value) in OfflineRequestPolicy.headers(headers, for: map.uri, origin: origin) {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        if let range = map.byteRange {
+            request.setValue("bytes=\(range.offset)-\(range.offset + range.length - 1)", forHTTPHeaderField: "Range")
+        }
+        guard let response = try? await fetch(request, OfflineHTTP.probeLimit * 16), (200...299).contains(response.status),
+              !response.truncated else { return nil }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("init-\(UUID().uuidString).mp4")
+        guard (try? response.data.write(to: file)) != nil else { return nil }
+        defer { try? FileManager.default.removeItem(at: file) }
+        return await deps.videoProbe(file, [:])
     }
 
     /// A media playlist whose segments all carry byte ranges knows its exact size.
@@ -588,8 +625,11 @@ public actor OfflineDownloadManager {
                                            relativePath: "media/video.\(ext)", role: .progressive)
             let plan = OfflinePackagePlan(units: [unit], playlists: [:], package: .progressive(relativePath: unit.relativePath),
                                           origin: request.mediaURL, headers: request.headers, sidecars: request.sidecars)
-            return Prepared(plan: plan, video: nil, audio: nil, subtitles: [],
-                            estimate: size.map { OfflineSizeEstimate(bytes: $0, basis: .exact) } ?? .unknown, duration: nil)
+            // ponytail: probed again here rather than carried from the sheet, ~100 KB more per
+            // download; carry it in the request if that ever matters.
+            return Prepared(plan: plan, video: await deps.videoProbe(request.mediaURL, request.headers), audio: nil,
+                            subtitles: [], estimate: size.map { OfflineSizeEstimate(bytes: $0, basis: .exact) } ?? .unknown,
+                            duration: nil)
         case .playlist(let text, let base):
             switch try HLSPlaylist.parse(text, base: base) {
             case .media(let media):
@@ -602,7 +642,8 @@ public actor OfflineDownloadManager {
                     ? OfflineSizeEstimate(bytes: media.segments.reduce(0) { $0 + ($1.byteRange?.length ?? 0) }, basis: .exact)
                     : await sampledEstimate(video: media, audio: nil, fetch: fetch, headers: request.headers,
                                             origin: request.mediaURL) ?? .unknown
-                return Prepared(plan: plan, video: nil, audio: nil, subtitles: [], estimate: estimate, duration: media.duration)
+                let video = await probedInitSection(media, fetch: fetch, headers: request.headers, origin: request.mediaURL)
+                return Prepared(plan: plan, video: video, audio: nil, subtitles: [], estimate: estimate, duration: media.duration)
             case .master(let master):
                 let choice = request.choice
                 let variant = choice.variant.flatMap { key in master.variants.first(where: key.matches) }

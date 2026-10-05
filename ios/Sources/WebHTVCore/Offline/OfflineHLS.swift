@@ -374,17 +374,26 @@ public enum HLSPlaylist: Sendable, Equatable {
 
 // MARK: - What a variant is
 
-public extension HLSVariant {
-    var codec: OfflineVideoCodec {
+public extension OfflineVideoCodec {
+    /// From CODECS' RFC 6381 names, or a sample description's FourCC (IOS-POC-52 F35).
+    init(codecs: [String]) {
         let lowered = codecs.map { $0.lowercased() }
         if lowered.contains(where: { $0.hasPrefix("dvh1") || $0.hasPrefix("dvhe") || $0.hasPrefix("hvc1") || $0.hasPrefix("hev1") }) {
-            return .hevc
+            self = .hevc
+        } else if lowered.contains(where: { $0.hasPrefix("avc1") || $0.hasPrefix("avc3") }) {
+            self = .h264
+        } else if lowered.contains(where: { $0.hasPrefix("av01") }) {
+            self = .av1
+        } else if lowered.contains(where: { $0.hasPrefix("vp09") || $0.hasPrefix("vp9") }) {
+            self = .vp9
+        } else {
+            self = .unknown
         }
-        if lowered.contains(where: { $0.hasPrefix("avc1") || $0.hasPrefix("avc3") }) { return .h264 }
-        if lowered.contains(where: { $0.hasPrefix("av01") }) { return .av1 }
-        if lowered.contains(where: { $0.hasPrefix("vp09") || $0.hasPrefix("vp9") }) { return .vp9 }
-        return .unknown
     }
+}
+
+public extension HLSVariant {
+    var codec: OfflineVideoCodec { OfflineVideoCodec(codecs: codecs) }
 
     var dynamicRange: OfflineDynamicRange {
         if codecs.contains(where: { $0.lowercased().hasPrefix("dvh1") || $0.lowercased().hasPrefix("dvhe") }) {

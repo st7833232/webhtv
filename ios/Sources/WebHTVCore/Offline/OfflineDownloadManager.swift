@@ -103,6 +103,8 @@ public actor OfflineDownloadManager {
     private var resolver: (@Sendable (OfflineAsset) async -> PlaybackTarget?)?
     private var plans = [String: OfflinePackagePlan]()
     private var done = [String: Set<Int>]()
+    /// IOS-POC-51: each finished unit's size, for projecting the package's size as it arrives.
+    private var sizes = [String: [Int: Int64]]()
     private var attempts = [OfflineTransferTag: Int]()
     private var usage: Int64 = 0
     private var lastPublish = Date.distantPast
@@ -405,6 +407,77 @@ public actor OfflineDownloadManager {
         }
     }
 
+    // MARK: - Measured size (IOS-POC-51)
+
+    /// The size a download with `choice` will have, read the way preparing reads it: for the sheet,
+    /// so the number shown before 下載 is the one the space check then uses. Nothing is stored.
+    public func sizeEstimate(for target: PlaybackTarget, choice: OfflineDownloadChoice) async -> OfflineSizeEstimate? {
+        let request = OfflineDownloadRequest(mediaURL: target.url, headers: target.headers, choice: choice, sidecars: [])
+        guard let estimate = try? await build(request).estimate, estimate.bytes != nil else { return nil }
+        return estimate
+    }
+
+    /// How many segments of a playlist a measurement reads the size of.
+    static let sampledSegments = 5
+
+    /// The package's size from the real sizes of a few segments of each playlist it downloads, at
+    /// the bytes per second they came to, over the whole duration. A source's BANDWIDTH can be far
+    /// from what it serves: one declared under half. Nil when a playlist gave no sizes.
+    private func sampledEstimate(video: HLSMediaPlaylist, audio: HLSMediaPlaylist?, fetch: @escaping OfflineFetch,
+                                 headers: [String: String], origin: URL) async -> OfflineSizeEstimate? {
+        guard video.duration > 0,
+              let videoRate = await Self.sampledRate(video, fetch: fetch, headers: headers, origin: origin) else { return nil }
+        var rate = videoRate
+        if let audio {
+            guard let audioRate = await Self.sampledRate(audio, fetch: fetch, headers: headers, origin: origin) else { return nil }
+            rate += audioRate
+        }
+        return OfflineSizeEstimate(bytes: Int64(rate * video.duration), basis: .sampled)
+    }
+
+    /// Bytes per second of `media`, from the segments at the middle of `sampledSegments` equal
+    /// stretches of it — not the first few, which are often the opening — read at the same time.
+    static func sampledRate(_ media: HLSMediaPlaylist, fetch: @escaping OfflineFetch, headers: [String: String],
+                            origin: URL) async -> Double? {
+        let segments = media.segments.filter { $0.duration > 0 && !$0.isGap }
+        guard !segments.isEmpty else { return nil }
+        let count = min(sampledSegments, segments.count)
+        let picks: [HLSSegment] = (0..<count).map { (slot: Int) -> HLSSegment in
+            let middle: Int = (2 * slot + 1) * segments.count / (2 * count)
+            return segments[middle]
+        }
+        let measured = await withTaskGroup(of: (bytes: Int64, seconds: Double)?.self) { group in
+            for segment in picks {
+                group.addTask {
+                    guard let size = await segmentSize(segment, fetch: fetch, headers: headers, origin: origin) else { return nil }
+                    return (size, segment.duration)
+                }
+            }
+            return await group.reduce(into: [(bytes: Int64, seconds: Double)]()) { if let value = $1 { $0.append(value) } }
+        }
+        let bytes = measured.reduce(Int64(0)) { $0 + $1.bytes }
+        let seconds = measured.reduce(0.0) { $0 + $1.seconds }
+        guard bytes > 0, seconds > 0 else { return nil }
+        return Double(bytes) / seconds
+    }
+
+    /// One segment's size: its byte range, or the total a one-byte request's Content-Range names —
+    /// the segment itself is not downloaded. Headers follow the same per-host rule as the download.
+    static func segmentSize(_ segment: HLSSegment, fetch: OfflineFetch, headers: [String: String], origin: URL) async -> Int64? {
+        if let range = segment.byteRange { return range.length }
+        var request = URLRequest(url: segment.uri)
+        for (name, value) in OfflineRequestPolicy.headers(headers, for: segment.uri, origin: origin) {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        guard let response = try? await fetch(request, 1), (200...299).contains(response.status) else { return nil }
+        if let range = response.headers["content-range"], let total = range.split(separator: "/").last, let value = Int64(total) {
+            return value
+        }
+        if response.status == 200, let length = response.headers["content-length"].flatMap({ Int64($0) }) { return length }
+        return nil
+    }
+
     private func mediaPlaylist(_ url: URL, fetch: OfflineFetch, headers: [String: String], origin: URL) async throws -> HLSMediaPlaylist {
         var request = URLRequest(url: url)
         for (name, value) in OfflineRequestPolicy.headers(headers, for: url, origin: origin) {
@@ -449,7 +522,8 @@ public actor OfflineDownloadManager {
                 let exact = media.segments.allSatisfy { $0.byteRange != nil }
                 let estimate = exact
                     ? OfflineSizeEstimate(bytes: media.segments.reduce(0) { $0 + ($1.byteRange?.length ?? 0) }, basis: .exact)
-                    : OfflineSizeEstimate.unknown
+                    : await sampledEstimate(video: media, audio: nil, fetch: fetch, headers: request.headers,
+                                            origin: request.mediaURL) ?? .unknown
                 return Prepared(plan: plan, video: nil, audio: nil, subtitles: [], estimate: estimate, duration: media.duration)
             case .master(let master):
                 let choice = request.choice
@@ -486,7 +560,9 @@ public actor OfflineDownloadManager {
                 return Prepared(plan: plan, video: variant.info,
                                 audio: wantedAudio.map { OfflineOptionsBuilder.audioOption($0).info },
                                 subtitles: subtitleInfo,
-                                estimate: OfflineMediaSelector.estimate(variant, duration: video.duration),
+                                estimate: await sampledEstimate(video: video, audio: audio?.playlist, fetch: fetch,
+                                                                headers: request.headers, origin: request.mediaURL)
+                                    ?? OfflineMediaSelector.estimate(variant, duration: video.duration),
                                 duration: video.duration)
             }
         }
@@ -597,7 +673,8 @@ public actor OfflineDownloadManager {
     /// find room for themselves in the same free space (IOS-POC-50).
     private func reservedBytes(excluding id: String) -> Int64 {
         store.all().filter { $0.id != id && $0.state == .downloading }.reduce(0) { total, asset in
-            guard let bytes = asset.estimate.bytes else { return total }
+            // IOS-POC-51: what has arrived so far projects the size better than the estimate.
+            guard let bytes = asset.progress.projectedBytes ?? asset.estimate.bytes else { return total }
             return total + max(bytes - OfflineStorage.allocatedSize(of: layout.folder(for: asset.id)), 0)
         }
     }
@@ -670,19 +747,23 @@ public actor OfflineDownloadManager {
         let generation = asset.generation
         let manager = FileManager.default
         var finished = Set<Int>()
+        var unitSizes = [Int: Int64]()
         var bytes: Int64 = 0
         for unit in plan.units {
             let file = finalURL(id, unit)
             if let size = (try? manager.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.int64Value, size > 0 {
                 finished.insert(unit.index)
+                unitSizes[unit.index] = size
                 bytes += size
             }
         }
         done[id] = finished
+        sizes[id] = unitSizes
         store.updateInMemory(id) {
             $0.progress.completedUnits = finished.count
             $0.progress.totalUnits = plan.units.count
             $0.progress.receivedBytes = bytes
+            $0.progress.projectedBytes = plan.projectedBytes(finished: unitSizes)
         }
         let active = await deps.transport.activeTags()
         guard isCurrent(id, generation, .downloading) else { return }
@@ -776,9 +857,14 @@ public actor OfflineDownloadManager {
         var finished = done[tag.assetID] ?? []
         finished.insert(unit.index)
         done[tag.assetID] = finished
+        var unitSizes = sizes[tag.assetID] ?? [:]
+        unitSizes[unit.index] = size
+        sizes[tag.assetID] = unitSizes
+        let projected = loadPlan(tag.assetID)?.projectedBytes(finished: unitSizes)
         store.updateInMemory(tag.assetID) {
             $0.progress.completedUnits = finished.count
             if unit.role == .progressive { $0.progress.receivedBytes = size } else { $0.progress.receivedBytes += size }
+            $0.progress.projectedBytes = projected
         }
         unitsSinceFlush += 1
         if unitsSinceFlush >= 25 {
@@ -881,6 +967,7 @@ public actor OfflineDownloadManager {
         store.removeDownloadSecrets(for: id)
         plans[id] = nil
         done[id] = nil
+        sizes[id] = nil
         removeStaging(for: id)
         let actual = store.size(of: id)
         _ = try? store.update(id, now: deps.now()) {
@@ -1011,6 +1098,7 @@ public actor OfflineDownloadManager {
             _ = await deps.transport.cancel(assetID: id, producingResumeData: false)
             plans[id] = nil
             done[id] = nil
+            sizes[id] = nil
             removeStaging(for: id)
             let released = store.removeFolder(id)
             if store.asset(id) == nil && store.unreadable[id] == nil {

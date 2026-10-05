@@ -3627,8 +3627,16 @@ final class OfflineAppDelegate: NSObject, UIApplicationDelegate {
         case .exact: return OfflineByteFormat.string(bytes)
         case .averageBandwidth: return "約 " + OfflineByteFormat.string(bytes)
         case .peakBandwidth: return "最多約 " + OfflineByteFormat.string(bytes)
+        case .sampled: return "約 " + OfflineByteFormat.string(bytes)
         case .unknown: return "無法預估"
         }
+    }
+
+    /// What a running download will come to: projected from the segments already here once enough
+    /// have arrived (IOS-POC-51), else the estimate made before it started.
+    static func expected(_ asset: OfflineAsset) -> String {
+        if let projected = asset.progress.projectedBytes { return "約 " + OfflineByteFormat.string(projected) }
+        return estimate(asset.estimate)
     }
 
     /// One line under an episode: 「742 MB」「68%」「已暫停」「下載失敗」.
@@ -3951,9 +3959,24 @@ private struct OfflineDownloadSheet: View {
     @State private var submitting = false
     @State private var message: String?
     @State private var prepared = false
+    /// IOS-POC-51: the size measured from real segments, for the mode and audio named by `key`.
+    @State private var measured: (key: String, estimate: OfflineSizeEstimate?)?
 
     private var option: OfflineModeOption? {
         draft.options.option(for: mode) ?? draft.options.option(for: .smart) ?? draft.options.modes.values.first
+    }
+
+    /// What a measurement depends on: the mode picks the video, the audio its own playlist.
+    private var measureKey: String { "\(mode.rawValue)|\(audioID ?? "")" }
+
+    private var measuring: Bool {
+        draft.options.kind == .hls && draft.options.refusal == nil && measured?.key != measureKey
+    }
+
+    /// The measured size once it is in, else the one the playlist declares.
+    private func estimate(for option: OfflineModeOption) -> OfflineSizeEstimate {
+        if let measured, measured.key == measureKey, let estimate = measured.estimate { return estimate }
+        return option.estimate
     }
 
     var body: some View {
@@ -3972,13 +3995,13 @@ private struct OfflineDownloadSheet: View {
                     if !option.audio.isEmpty { audioSection(option) }
                     if !option.subtitles.isEmpty { subtitleSection(option) }
                     Section {
-                        LabeledContent("預估容量", value: OfflineText.estimate(option.estimate))
+                        sizeRow(option)
                         LabeledContent("可用空間", value: OfflineText.bytes(available))
                         Toggle("看完後自動刪除", isOn: $autoDelete)
                     } footer: {
-                        Text(OfflineDownloadPreferences().allowsCellular
+                        Text(sizeNote(option) + (OfflineDownloadPreferences().allowsCellular
                              ? "會使用行動網路下載。離開 App 或鎖定螢幕時，iOS 會在允許時繼續下載。"
-                             : "只在 Wi-Fi 下載（可在「設定」開啟行動網路）。離開 App 或鎖定螢幕時，iOS 會在允許時繼續下載。")
+                             : "只在 Wi-Fi 下載（可在「設定」開啟行動網路）。離開 App 或鎖定螢幕時，iOS 會在允許時繼續下載。"))
                     }
                     if let message {
                         Section { Text(message).foregroundStyle(.orange) }
@@ -4002,8 +4025,41 @@ private struct OfflineDownloadSheet: View {
                 applyDefaults()
             }
             .onChange(of: mode) { applyDefaults() }
+            .task(id: measureKey) { await measure() }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    /// 預估容量, with a spinner while the real segments are being measured (IOS-POC-51).
+    private func sizeRow(_ option: OfflineModeOption) -> some View {
+        LabeledContent("預估容量") {
+            HStack(spacing: 6) {
+                if measuring { ProgressView().controlSize(.small) }
+                Text(OfflineText.estimate(estimate(for: option)))
+            }
+        }
+    }
+
+    /// Where the number comes from, so a declared one is not mistaken for a measured one.
+    private func sizeNote(_ option: OfflineModeOption) -> String {
+        if measuring { return "正在讀取實際片段大小。" }
+        switch estimate(for: option).basis {
+        case .sampled: return "預估容量依實際片段大小推算。"
+        case .averageBandwidth, .peakBandwidth: return "預估容量依來源宣告的位元率，可能與實際不同。"
+        case .exact, .unknown: return ""
+        }
+    }
+
+    /// IOS-POC-51: reads a few real segments of what this mode and audio would download — the same
+    /// reading preparing does — so the size shown is the one the space check then uses.
+    private func measure() async {
+        guard draft.options.kind == .hls, draft.options.refusal == nil, let option else { return }
+        let key = measureKey
+        let choice = OfflineDownloadChoice(mode: mode, allowHighFrameRate: OfflineDownloadPreferences().prefersHighFrameRate,
+                                           variant: option.variant, audioID: audioID)
+        let estimate = await OfflineDownloads.manager.sizeEstimate(for: draft.target, choice: choice)
+        guard !Task.isCancelled else { return }
+        measured = (key, estimate)
     }
 
     @ViewBuilder private func qualitySection(_ option: OfflineModeOption) -> some View {
@@ -4071,14 +4127,14 @@ private struct OfflineDownloadSheet: View {
                                            variant: option.variant, audioID: audioID, subtitleIDs: Array(subtitleIDs))
         let result = await OfflineDownloads.manager.enqueue(
             identity: draft.identity, title: draft.title, target: draft.target, choice: choice,
-            estimate: option.estimate, autoDeleteAfterWatching: autoDelete, allowsCellular: preferences.allowsCellular)
+            estimate: estimate(for: option), autoDeleteAfterWatching: autoDelete, allowsCellular: preferences.allowsCellular)
         switch result {
         case .created, .existing:
             dismiss()
         case .refused(let failure):
             available = OfflineText.available
             message = failure.kind == .insufficientStorage
-                ? "可用空間不足：開始下載前需要至少 \(OfflineByteFormat.string(OfflineStorage.requiredBytes(estimate: option.estimate.bytes))) 可用空間。"
+                ? "可用空間不足：開始下載前需要至少 \(OfflineByteFormat.string(OfflineStorage.requiredBytes(estimate: estimate(for: option).bytes))) 可用空間。"
                 : failure.message
         }
     }
@@ -4143,7 +4199,7 @@ private struct OfflineAssetRow: View {
         switch asset.state {
         case .downloading:
             ProgressView(value: asset.progress.fraction)
-            Text("\(OfflineText.status(asset)) · 已下載 \(OfflineText.bytes(asset.progress.receivedBytes)) / \(OfflineText.estimate(asset.estimate))")
+            Text("\(OfflineText.status(asset)) · 已下載 \(OfflineText.bytes(asset.progress.receivedBytes)) / \(OfflineText.expected(asset))")
                 .font(.caption).foregroundStyle(.secondary).monospacedDigit()
         case .failed:
             Text("\(asset.failure?.message ?? "下載失敗") · 已下載 \(OfflineText.bytes(asset.displayBytes ?? 0))")

@@ -12,13 +12,18 @@ public struct OfflineDownloadUnit: Codable, Hashable, Sendable {
     /// Inside the asset's folder.
     public let relativePath: String
     public let role: Role
+    /// IOS-POC-51: a segment's EXTINF duration, for projecting the package's size from the
+    /// segments already here. Nil for keys and init sections, and in plans saved before.
+    public let seconds: Double?
 
-    public init(index: Int, remoteURL: URL, byteRange: HLSByteRange?, relativePath: String, role: Role) {
+    public init(index: Int, remoteURL: URL, byteRange: HLSByteRange?, relativePath: String, role: Role,
+                seconds: Double? = nil) {
         self.index = index
         self.remoteURL = remoteURL
         self.byteRange = byteRange
         self.relativePath = relativePath
         self.role = role
+        self.seconds = seconds
     }
 }
 
@@ -51,6 +56,41 @@ public struct OfflinePackagePlan: Codable, Equatable, Sendable {
     /// downloaded files can be kept when a retry re-resolves the episode and gets fresh addresses.
     public var timelineFingerprint: [String] {
         units.map { "\($0.role.rawValue)|\($0.relativePath)|\($0.byteRange.map { "\($0.length)" } ?? "-")" }
+    }
+
+    /// IOS-POC-51: how much of the main track must be here before a projection replaces the
+    /// estimate made from a few sampled segments.
+    public static let projectionStart = 0.1
+
+    /// The whole package's size projected from the files already here (`sizes`, by unit index):
+    /// each timed track — the folder its segments are in: video, audio, subtitles — at the bytes per
+    /// second its finished segments came to, over that track's whole duration, plus the untimed
+    /// files already here. A track with nothing finished yet adds nothing. Nil until the longest
+    /// track is `projectionStart` done; a plan saved before segments carried durations never projects.
+    public func projectedBytes(finished sizes: [Int: Int64]) -> Int64? {
+        var tracks = [String: (seconds: Double, doneSeconds: Double, doneBytes: Int64)]()
+        var untimed: Int64 = 0
+        for unit in units {
+            let size = sizes[unit.index]
+            guard let seconds = unit.seconds, seconds > 0 else {
+                untimed += size ?? 0
+                continue
+            }
+            let name = String(unit.relativePath.split(separator: "/").first ?? "")
+            var track = tracks[name] ?? (0, 0, 0)
+            track.seconds += seconds
+            if let size {
+                track.doneSeconds += seconds
+                track.doneBytes += size
+            }
+            tracks[name] = track
+        }
+        guard let main = tracks.values.max(by: { $0.seconds < $1.seconds }),
+              main.doneSeconds >= main.seconds * Self.projectionStart else { return nil }
+        let timed = tracks.values.reduce(0.0) { total, track in
+            track.doneSeconds > 0 ? total + Double(track.doneBytes) / track.doneSeconds * track.seconds : total
+        }
+        return Int64(timed) + untimed
     }
 }
 
@@ -185,12 +225,12 @@ public enum OfflinePackageBuilder {
         var keyCount = 0
         var mapCount = 0
 
-        mutating func add(_ url: URL, range: HLSByteRange?, role: OfflineDownloadUnit.Role,
+        mutating func add(_ url: URL, range: HLSByteRange?, role: OfflineDownloadUnit.Role, seconds: Double? = nil,
                           path: () -> String) -> String {
             let resource = url.absoluteString + "|" + (range.map { "\($0.offset)-\($0.length)" } ?? "")
             if let existing = byResource[resource] { return units[existing].relativePath }
             let unit = OfflineDownloadUnit(index: units.count, remoteURL: url, byteRange: range,
-                                           relativePath: path(), role: role)
+                                           relativePath: path(), role: role, seconds: seconds)
             byResource[resource] = unit.index
             units.append(unit)
             return unit.relativePath
@@ -264,7 +304,7 @@ public enum OfflinePackageBuilder {
             counter += 1
             let sequence = counter
             let ext = segmentExtension(segment.uri, hasMap: segment.map != nil, role: role)
-            let local = table.add(segment.uri, range: segment.byteRange, role: role) {
+            let local = table.add(segment.uri, range: segment.byteRange, role: role, seconds: segment.duration) {
                 "\(prefix)\(String(format: "%05d", sequence)).\(ext)"
             }
             lines.append("../" + local)

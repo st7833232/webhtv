@@ -4,7 +4,15 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-04：IOS-UI-A4 子分類收合（0.1.64／65 已發布）
+## Current handoff — 2026-10-05：IOS-POC-51 用實際片段大小預估下載容量（先讀這一節）
+
+**IOS-POC-51**（2026-10-05）：使用者回報預估約 300 MB、實際 700 多 MB，並選擇方案 A。
+- 開始下載前抽樣 5 個片段，每個只讀 1 byte，用 `Content-Range` 取得大小，以實際大小推算整集；下載畫面與空間檢查用同一個數字。量不到時退回宣告值並標明。
+- 下載中，最長的軌道滿一成後，依各軌道已完成片段推算（`progress.projectedBytes`），並行預留也改用這個數字。
+- Linux 80／80、突變 6／6；依使用者「不要跑ci修改後就發佈」直接發布。真機未驗證。
+- 見 `docs/IOS-POC-51-sampled-size-estimate.md`。
+
+## Previous handoff — 2026-10-04：IOS-UI-A4 子分類收合（0.1.64／65 已發布）
 
 基準為 fetch 最新 `origin/ios-poc` `7b6fc1d89b6bdb552a03e714ae0b5d5bd8c9183c`，獨立 branch `ios-ui-a4-filter-disclosure`，工作區乾淨。使用者問不同來源自動選分類差異，並要求子分類可收合／預設收合。首頁 CMSView 新增獨立「子分類與篩選」入口，同時收起真正子分類與類型／地區／年代／排序。切換分類重新收合，收合保留選擇，控制不觸發 API。原首頁自動選取規則保留，未改 backend／Core／player domain。詳見 `docs/IOS-UI-A-cinematic-minimal.md` A4。
 

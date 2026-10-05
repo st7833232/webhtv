@@ -287,6 +287,9 @@ public struct OfflineSizeEstimate: Codable, Equatable, Sendable {
         case averageBandwidth
         /// HLS `BANDWIDTH` (a peak) × duration: an upper bound.
         case peakBandwidth
+        /// IOS-POC-51: the real sizes of some of the stream's segments, over the whole duration —
+        /// what the source serves rather than what its playlist declares.
+        case sampled
         case unknown
     }
 
@@ -310,12 +313,17 @@ public struct OfflineProgress: Codable, Equatable, Sendable {
     public var receivedBytes: Int64
     /// The progressive file's own progress (bytes written / expected), which units cannot show.
     public var expectedBytes: Int64?
+    /// IOS-POC-51: the whole package's size as projected from the segments already here
+    /// (`OfflinePackagePlan.projectedBytes`); nil until enough have arrived.
+    public var projectedBytes: Int64?
 
-    public init(completedUnits: Int = 0, totalUnits: Int = 0, receivedBytes: Int64 = 0, expectedBytes: Int64? = nil) {
+    public init(completedUnits: Int = 0, totalUnits: Int = 0, receivedBytes: Int64 = 0, expectedBytes: Int64? = nil,
+                projectedBytes: Int64? = nil) {
         self.completedUnits = completedUnits
         self.totalUnits = totalUnits
         self.receivedBytes = receivedBytes
         self.expectedBytes = expectedBytes
+        self.projectedBytes = projectedBytes
     }
 
     /// 0…1. A single progressive file reports by bytes; a package by files.

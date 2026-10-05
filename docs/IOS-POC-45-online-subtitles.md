@@ -617,3 +617,4 @@ revert 本 commit。ABI 1.1 尚未出貨前可整列移除；出貨後依規則�
 - Ponytail：本 runtime skill 清單沒有 Ponytail，依 repo 規則記為 unavailable / skipped。
 - Task guard：本 runtime 只有 GitHub connector、沒有 repository shell/worktree，無法執行 `.codex/scripts/task_guard.sh`；以從乾淨遠端 HEAD 建立隔離 branch、單一原子 tree commit、只改上述 scoped paths 代替，未觸碰 `ios-poc`。
 - Rollback：刪除 task branch，或合併後 `git revert` 本功能 commit；沒有資料遷移與永久快取。
+- 2026-10-05 後續（IOS-POC-5G-1）：本節的 3 個 `MediaSnifferTests` 第一次在 macOS 執行就失敗。兩個是測試頁沒有宣告 charset（已改測試）；另一個揭露了 2026-09-17 就存在的 `src` hook 問題，hook 改掛在 `HTMLMediaElement` 上。修正後 17／17，詳見 `docs/IOS-POC-5G-media-sniffer.md`。

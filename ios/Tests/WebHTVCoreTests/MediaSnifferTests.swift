@@ -9,8 +9,10 @@ import Testing
 @MainActor
 private func sniff(_ html: String, timeout: Duration = .seconds(6)) async -> URL? {
     // A data: URL gives the page an origin the hook can resolve relative URLs against.
+    // The charset is stated: without it WebKit guesses from the system language, and a zh-TW Mac
+    // read the UTF-8 track labels as Big5 (IOS-POC-5G-1).
     let encoded = Data(html.utf8).base64EncodedString()
-    guard let page = URL(string: "data:text/html;base64,\(encoded)") else { return nil }
+    guard let page = URL(string: "data:text/html;charset=utf-8;base64,\(encoded)") else { return nil }
     return await MediaSniffer().sniff(page: page, timeout: timeout)
 }
 
@@ -18,7 +20,7 @@ private func sniff(_ html: String, timeout: Duration = .seconds(6)) async -> URL
 private func sniffResult(_ html: String, timeout: Duration = .seconds(6),
                          grace: Duration = .milliseconds(250)) async -> MediaSniffResult? {
     let encoded = Data(html.utf8).base64EncodedString()
-    guard let page = URL(string: "data:text/html;base64,\(encoded)") else { return nil }
+    guard let page = URL(string: "data:text/html;charset=utf-8;base64,\(encoded)") else { return nil }
     return await MediaSniffer().sniffWithSubtitles(page: page, timeout: timeout, subtitleGrace: grace)
 }
 
@@ -167,7 +169,7 @@ private func sniffResult(_ html: String, timeout: Duration = .seconds(6),
         // The stream is requested late, so the second sniff starts while the first still waits.
         let html = "<html><body><script>setTimeout(function () { var x = new XMLHttpRequest(); "
             + "x.open('GET', 'https://cdn.example.com/\(n)/index.m3u8'); }, 300);</script></body></html>"
-        return URL(string: "data:text/html;base64,\(Data(html.utf8).base64EncodedString())")!
+        return URL(string: "data:text/html;charset=utf-8;base64,\(Data(html.utf8).base64EncodedString())")!
     }
     func stream(_ n: Int) -> String { "https://cdn.example.com/\(n)/index.m3u8" }
     let sniffer = MediaSniffer()

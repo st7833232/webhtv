@@ -132,6 +132,18 @@ awaits it, so the four recording containers became `@MainActor final class` and 
 synchronously; the `Task { }` bridge is gone and the write now finishes before `handle` returns.
 Four consecutive full-suite runs showed only the pre-existing 88看球 failure.
 
+## IOS-POC-5G-1 — the `src` setter hook never applied to video or audio (2026-10-05)
+
+- 發現：IOS-POC-52-7 第一次在 macOS 跑完整測試，IOS-POC-45I 的 `capturesASubtitleRequestedJustAfterTheMediaURL` 穩定失敗（逾時，沒有抓到 media URL）。
+- 原因：hook 用 `Object.getOwnPropertyDescriptor(type.prototype, 'src')` 掛在 `HTMLVideoElement`、`HTMLAudioElement`、`HTMLSourceElement` 上。依 WebIDL，attribute 只放在宣告它的 interface 的 prototype 上；video 與 audio 的 `src` 宣告在 `HTMLMediaElement`，所以這兩個的描述子是 undefined，`forEach` 直接略過。從 `14e1255a`（2026-09-17）就是這樣。已放進 DOM 的元素之前都是由 MutationObserver 抓到；對還沒放進 DOM 的 `<video>`／`<audio>` 設定 `src`，從來抓不到。
+- 修正：hook 清單改成 `HTMLMediaElement`、`HTMLSourceElement`（`HTMLTrackElement` 原本就另外處理）。
+- 同一批測試另有兩個失敗，是測試本身的問題：測試頁的 data URL 沒有宣告 charset，WebKit 依系統語系猜編碼，繁中語系的 Mac 把 UTF-8 的 track label 當成 Big5，變成亂碼。三處 data URL 都改成 `data:text/html;charset=utf-8;base64,`。
+- 驗證（macOS 27，使用者 2026-10-05 核准「測試和程式都修」）：
+  - 只修 charset 時，`MediaSnifferTests` 仍有 1 個失敗；加上 hook 修正後 17／17；
+  - `MediaSniffer|SnifferRules|PlaybackNetworkPolicy|SourceSubtitle` 共 100 個測試全部通過。
+  - 未驗證：真實站台的抓取結果有沒有改變。抓得更早可能先抓到不是正片的網址，但每個網址仍要先通過既有的 `isCandidate`。
+- Ponytail：Lean already. Ship.
+
 ## Files
 
 | file | change |

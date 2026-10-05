@@ -552,7 +552,10 @@ public final class MediaSniffer {
             };
           }
 
-          ['HTMLVideoElement', 'HTMLAudioElement', 'HTMLSourceElement'].forEach(function (name) {
+          // `src` is declared on HTMLMediaElement, not on HTMLVideoElement or HTMLAudioElement
+          // (WebIDL puts an attribute on the prototype of the interface that declares it), so
+          // that is where a video's or audio's `src` setter is hooked (IOS-POC-5G-1).
+          ['HTMLMediaElement', 'HTMLSourceElement'].forEach(function (name) {
             var type = window[name];
             if (!type) return;
             var descriptor = Object.getOwnPropertyDescriptor(type.prototype, 'src');

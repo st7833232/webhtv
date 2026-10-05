@@ -28,6 +28,21 @@ public struct OfflineTransferTag: Hashable, Codable, Sendable, CustomStringConve
     }
 }
 
+/// IOS-POC-52 (F11): a finished body waiting in staging, named `<tag>.<status>.<uuid>.part` — what
+/// the manager needs to take it up when the app ended before handling it.
+public enum OfflineStagedBody {
+    public static func name(tag: OfflineTransferTag, status: Int) -> String {
+        "\(tag.description).\(status).\(UUID().uuidString).part"
+    }
+
+    /// The tag and status a staged file's name carries; a name from before IOS-POC-52 has no status.
+    public static func parse(_ name: String) -> (tag: OfflineTransferTag, status: Int?)? {
+        let parts = name.components(separatedBy: ".")
+        guard let tag = OfflineTransferTag(description: parts.first) else { return nil }
+        return (tag, parts.count >= 4 ? Int(parts[1]) : nil)
+    }
+}
+
 public struct OfflineTransferRequest: Sendable, Equatable {
     public let tag: OfflineTransferTag
     public let url: URL
@@ -77,6 +92,9 @@ public enum OfflineTransferEvent: Sendable {
 public struct OfflineTransferFailure: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
         case network(String)
+        /// IOS-POC-52 (F10): the connection, not the request — a timeout while queued, a lost or
+        /// absent connection. Retried more often than other failures.
+        case connectivity(String)
         case http(Int)
         case cancelled
         case noSpace
@@ -94,12 +112,21 @@ public struct OfflineTransferFailure: Sendable, Equatable {
 /// Moves bytes. The real one is a background `URLSession` (`URLSessionOfflineTransport`); tests use
 /// a fake. It knows nothing about assets beyond the tag.
 public protocol OfflineTransport: Sendable {
-    /// Where finished transfers are reported.
-    func attach(_ sink: @escaping @Sendable (OfflineTransferTag, OfflineTransferEvent) async -> Void) async
+    /// Where finished transfers are reported. `settle` is awaited before the transport tells iOS a
+    /// background wake is done (IOS-POC-52 F11), so what those events started can finish first.
+    func attach(_ sink: @escaping @Sendable (OfflineTransferTag, OfflineTransferEvent) async -> Void,
+                settle: @escaping @Sendable () async -> Void) async
     func submit(_ requests: [OfflineTransferRequest]) async
-    /// Cancels every transfer of an asset. With `producingResumeData`, answers what a resumable
-    /// transfer left to continue from.
+    /// Cancels every transfer of an asset — including any a `submit` still running creates
+    /// afterwards (IOS-POC-52 F29). With `producingResumeData`, answers what a resumable transfer
+    /// left to continue from.
     func cancel(assetID: String, producingResumeData: Bool) async -> [OfflineTransferTag: Data]
+    /// IOS-POC-52 (F3): cancels these transfers only, without resume data: stale ones whose asset
+    /// is gone, stopped or a generation ahead.
+    func cancel(tags: Set<OfflineTransferTag>) async
+    /// IOS-POC-52 (F18): gives up resume data and the partial file it points at, which the system
+    /// otherwise keeps in the app's container.
+    func discardResumeData(_ data: Data) async
     /// Transfers still alive, including the ones a background session reconnected after a relaunch.
     func activeTags() async -> Set<OfflineTransferTag>
 }

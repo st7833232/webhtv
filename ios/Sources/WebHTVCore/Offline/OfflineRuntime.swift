@@ -53,8 +53,16 @@ public final class URLSessionOfflineTransport: NSObject, OfflineTransport, URLSe
     private let lock = NSLock()
     private var background: URLSession!
     private var foreground: URLSession!
-    private let events: AsyncStream<(OfflineTransferTag, OfflineTransferEvent)>
-    private let continuation: AsyncStream<(OfflineTransferTag, OfflineTransferEvent)>.Continuation
+    /// One report, or the mark that the background session has delivered everything it held.
+    private enum Item: Sendable {
+        case event(OfflineTransferTag, OfflineTransferEvent)
+        case drained(Completion)
+    }
+    private let events: AsyncStream<Item>
+    private let continuation: AsyncStream<Item>.Continuation
+    /// IOS-POC-52 (F29): how many times each asset's transfers were cancelled. A `submit` that
+    /// started before a cancel creates nothing more for that asset.
+    private var cancellations = [String: Int]()
     private var consumer: Task<Void, Never>?
     private var redirects = [Int: (headers: [String: String], origin: URL)]()
     private var finishedTasks = Set<String>()
@@ -69,7 +77,7 @@ public final class URLSessionOfflineTransport: NSObject, OfflineTransport, URLSe
 
     public init(staging: URL) {
         self.staging = staging
-        (events, continuation) = AsyncStream.makeStream(of: (OfflineTransferTag, OfflineTransferEvent).self)
+        (events, continuation) = AsyncStream.makeStream(of: Item.self)
         super.init()
         let queue = OperationQueue()
         queue.maxConcurrentOperationCount = 1
@@ -97,31 +105,42 @@ public final class URLSessionOfflineTransport: NSObject, OfflineTransport, URLSe
         lock.withLock { backgroundCompletion = completion }
     }
 
-    public func attach(_ sink: @escaping @Sendable (OfflineTransferTag, OfflineTransferEvent) async -> Void) async {
+    public func attach(_ sink: @escaping @Sendable (OfflineTransferTag, OfflineTransferEvent) async -> Void,
+                       settle: @escaping @Sendable () async -> Void) async {
         let events = events
         lock.withLock {
             guard consumer == nil else { return }
             consumer = Task {
-                for await (tag, event) in events { await sink(tag, event) }
+                for await item in events {
+                    switch item {
+                    case .event(let tag, let event):
+                        await sink(tag, event)
+                    case .drained(let completion):
+                        // IOS-POC-52 (F11): every event before this one has been handled, and what
+                        // they started has had its chance to finish, before iOS hears we are done.
+                        await settle()
+                        DispatchQueue.main.async { completion.call() }
+                    }
+                }
             }
         }
     }
 
     public func submit(_ requests: [OfflineTransferRequest]) async {
+        let started = lock.withLock { cancellations }
         for request in requests {
             let session = request.credentialed ? foreground! : background!
-            let task: URLSessionDownloadTask
-            if let resume = request.resumeData {
-                task = session.downloadTask(withResumeData: resume)
-            } else {
-                task = session.downloadTask(with: request.urlRequest)
+            // Created under the lock, so a cancel either comes first and stops it, or comes after
+            // and finds it among the session's tasks.
+            let task: URLSessionDownloadTask? = lock.withLock {
+                guard cancellations[request.tag.assetID] == started[request.tag.assetID] else { return nil }
+                let task = request.resumeData.map { session.downloadTask(withResumeData: $0) }
+                    ?? session.downloadTask(with: request.urlRequest)
+                task.taskDescription = request.tag.description
+                if request.credentialed { redirects[task.taskIdentifier] = (request.headers, request.origin) }
+                return task
             }
-            task.taskDescription = request.tag.description
-            if request.credentialed {
-                let identifier = task.taskIdentifier
-                lock.withLock { redirects[identifier] = (request.headers, request.origin) }
-            }
-            task.resume()
+            task?.resume()
         }
     }
 
@@ -132,6 +151,7 @@ public final class URLSessionOfflineTransport: NSObject, OfflineTransport, URLSe
     }
 
     public func cancel(assetID: String, producingResumeData: Bool) async -> [OfflineTransferTag: Data] {
+        lock.withLock { cancellations[assetID, default: 0] += 1 }
         var collected = [OfflineTransferTag: Data]()
         for task in await allTasks() {
             guard let tag = OfflineTransferTag(description: task.taskDescription), tag.assetID == assetID else { continue }
@@ -142,6 +162,18 @@ public final class URLSessionOfflineTransport: NSObject, OfflineTransport, URLSe
             }
         }
         return collected
+    }
+
+    public func cancel(tags: Set<OfflineTransferTag>) async {
+        for task in await allTasks() {
+            if let tag = OfflineTransferTag(description: task.taskDescription), tags.contains(tag) { task.cancel() }
+        }
+    }
+
+    public func discardResumeData(_ data: Data) async {
+        // A task made from the resume data and cancelled without asking for new resume data:
+        // the session removes the partial file it pointed at.
+        background.downloadTask(withResumeData: data).cancel()
     }
 
     public func activeTags() async -> Set<OfflineTransferTag> {
@@ -161,17 +193,19 @@ public final class URLSessionOfflineTransport: NSObject, OfflineTransport, URLSe
         lock.withLock { _ = finishedTasks.insert(taskKey) }
         let status = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 200
         guard (200...299).contains(status) else {
-            continuation.yield((tag, .failed(OfflineTransferFailure(.http(status)))))
+            continuation.yield(.event(tag, .failed(OfflineTransferFailure(.http(status)))))
             return
         }
-        // The file is gone once this method returns: it is moved now, synchronously (Apple).
-        let target = staging.appendingPathComponent("\(tag.description).\(UUID().uuidString).part")
+        // The file is gone once this method returns: it is moved now, synchronously (Apple). Its
+        // name keeps the tag and the status, so a body the app never got to handle is taken up at
+        // the next launch (IOS-POC-52 F11, `OfflineStagedBody`).
+        let target = staging.appendingPathComponent(OfflineStagedBody.name(tag: tag, status: status))
         do {
             try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
             try FileManager.default.moveItem(at: location, to: target)
-            continuation.yield((tag, .finished(file: target, status: status)))
+            continuation.yield(.event(tag, .finished(file: target, status: status)))
         } catch {
-            continuation.yield((tag, .failed(OfflineTransferFailure(OfflineStorage.isOutOfSpace(error) ? .noSpace : .network("move")))))
+            continuation.yield(.event(tag, .failed(OfflineTransferFailure(OfflineStorage.isOutOfSpace(error) ? .noSpace : .network("move")))))
         }
     }
 
@@ -185,7 +219,7 @@ public final class URLSessionOfflineTransport: NSObject, OfflineTransport, URLSe
         }
         guard !finished, let tag = OfflineTransferTag(description: task.taskDescription) else { return }
         guard let error else {
-            continuation.yield((tag, .failed(OfflineTransferFailure(.network("no body")))))
+            continuation.yield(.event(tag, .failed(OfflineTransferFailure(.network("no body")))))
             return
         }
         let nsError = error as NSError
@@ -195,10 +229,12 @@ public final class URLSessionOfflineTransport: NSObject, OfflineTransport, URLSe
             kind = .cancelled
         } else if OfflineStorage.isOutOfSpace(error) {
             kind = .noSpace
+        } else if nsError.domain == NSURLErrorDomain, Self.connectivityCodes.contains(nsError.code) {
+            kind = .connectivity("NSURLError \(nsError.code)")
         } else {
             kind = .network("NSURLError \(nsError.code)")
         }
-        continuation.yield((tag, .failed(OfflineTransferFailure(kind, resumeData: resume))))
+        continuation.yield(.event(tag, .failed(OfflineTransferFailure(kind, resumeData: resume))))
     }
 
     public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
@@ -214,8 +250,8 @@ public final class URLSessionOfflineTransport: NSObject, OfflineTransport, URLSe
             return due
         }
         guard due else { return }
-        continuation.yield((tag, .progress(written: totalBytesWritten,
-                                           expected: totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : nil)))
+        continuation.yield(.event(tag, .progress(written: totalBytesWritten,
+                                                 expected: totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : nil)))
     }
 
     /// Only the default session asks (a background one follows redirects by itself): headers meant
@@ -233,8 +269,15 @@ public final class URLSessionOfflineTransport: NSObject, OfflineTransport, URLSe
             return backgroundCompletion
         }
         guard let completion else { return }
-        DispatchQueue.main.async { completion.call() }
+        // IOS-POC-52 (F11): through the stream, behind the events it delivered — calling it here
+        // let iOS suspend the app before the manager had handled them.
+        continuation.yield(.drained(completion))
     }
+
+    /// Timeout, lost connection, no connection, cellular not allowed, roaming off.
+    static let connectivityCodes: Set<Int> = [NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost,
+                                              NSURLErrorNotConnectedToInternet, NSURLErrorDataNotAllowed,
+                                              NSURLErrorInternationalRoamingOff]
 }
 
 /// Resolves a download's episode again — fresh addresses for a retry whose old ones expired —

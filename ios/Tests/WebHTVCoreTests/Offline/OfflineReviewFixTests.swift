@@ -371,19 +371,260 @@ struct OfflineReviewFixTests {
         try? await Task.sleep(for: .milliseconds(50))
         #expect(await harness.manager.asset(asset.id)?.state == .paused)
     }
-}
 
-/// Holds whoever waits until it is opened.
-actor Gate {
-    private var opened = false
-    private var waiting = [CheckedContinuation<Void, Never>]()
-    func wait() async {
-        if opened { return }
-        await withCheckedContinuation { waiting.append($0) }
+    // MARK: Batch 3 — transfers and background
+
+    // F3: a pause while the submit was still creating transfers; what it created afterwards stops.
+    @Test func aPauseDuringASubmitStopsWhatTheSubmitCreatedAfterIt() async throws {
+        let gate = Gate()
+        let harness = OfflineHarness(network: Fixture.simpleNetwork())
+        await harness.transport.holdSubmits(gate)
+        await harness.manager.start()
+        guard case .created(let asset) = await harness.manager.enqueue(
+            identity: Fixture.identity(), title: Fixture.title(), target: Fixture.target(),
+            choice: OfflineDownloadChoice(mode: .smart), estimate: .unknown, autoDeleteAfterWatching: false,
+            allowsCellular: false) else { Issue.record("not created"); return }
+        #expect(await harness.waitFor(asset.id, .downloading)?.state == .downloading)
+
+        await harness.manager.pause(asset.id)
+        await gate.open()
+
+        #expect(await waitUntil { await harness.transport.submitted.count == 4 })
+        let created = Set(await harness.transport.submitted.map(\.tag))
+        #expect(await waitUntil { await harness.transport.cancelledTags.isSuperset(of: created) })
+        #expect(await harness.transport.activeTags().isEmpty)
     }
-    func open() {
-        opened = true
-        waiting.forEach { $0.resume() }
-        waiting = []
+
+    // F3: at launch, transfers for a deleted asset or an older generation are cancelled; the
+    // current ones are left alone.
+    @Test func launchCancelsStaleTransfersOnly() async throws {
+        let harness = OfflineHarness(network: Fixture.simpleNetwork())
+        let (asset, requests) = await harness.startSimpleDownload()
+        try #require(requests.count == 4)
+        let current = Set(requests.map(\.tag))
+        let old = OfflineTransferTag(assetID: asset.id, generation: requests[0].tag.generation - 1, unit: 0)
+        let orphan = OfflineTransferTag(assetID: UUID().uuidString, generation: 0, unit: 0)
+        await harness.transport.setActive(current.union([old, orphan]))
+
+        let relaunched = harness.relaunched(network: Fixture.simpleNetwork())
+        await relaunched.manager.start()
+
+        #expect(await relaunched.transport.cancelledTags == [old, orphan])
+        #expect(await relaunched.transport.activeTags() == current)
+    }
+
+    // F4: the system cancelled a current transfer (a force quit); the relaunch sends it again, so
+    // the cancellation must not send it a second time.
+    @Test func aCancelledCurrentTransferIsNotRetried() async throws {
+        let harness = OfflineHarness(network: Fixture.simpleNetwork())
+        let (asset, requests) = await harness.startSimpleDownload()
+        try #require(requests.count == 4)
+        await harness.transport.clearSubmitted()
+
+        await harness.transport.fail(requests[0].tag, OfflineTransferFailure(.cancelled))
+        try? await Task.sleep(for: .milliseconds(50))
+
+        #expect(await harness.transport.submitted.isEmpty)
+        #expect(await harness.manager.asset(asset.id)?.state == .downloading)
+    }
+
+    // F4: a late failure for a unit already sent again is not retried on top of it.
+    @Test func aFailureForAUnitAlreadyInFlightIsNotRetried() async throws {
+        let harness = OfflineHarness(network: Fixture.simpleNetwork())
+        let (_, requests) = await harness.startSimpleDownload()
+        try #require(requests.count == 4)
+        await harness.transport.clearSubmitted()
+
+        // The tag is still in flight (sent again by a relaunch) when the old failure arrives.
+        await harness.manager.handle(requests[0].tag, .failed(OfflineTransferFailure(.network("late"))))
+
+        #expect(await harness.transport.submitted.isEmpty)
+    }
+
+    // F10: credentialed units go through a window of six; each one done lets the next one in.
+    @Test func credentialedUnitsAreSentThroughAWindow() async throws {
+        var network = Fixture.simpleNetwork()
+        network.responses[Self.base.absoluteString + "1080/index.m3u8"] = .text(Fixture.media(10))
+        let harness = OfflineHarness(network: network)
+        await harness.manager.start()
+        guard case .created(let asset) = await harness.manager.enqueue(
+            identity: Fixture.identity(), title: Fixture.title(), target: Fixture.target(headers: ["Cookie": "sid=1"]),
+            choice: OfflineDownloadChoice(mode: .smart), estimate: .unknown, autoDeleteAfterWatching: false,
+            allowsCellular: false) else { Issue.record("not created"); return }
+        let first = await harness.waitForSubmissions(OfflineDownloadManager.credentialedWindow, assetID: asset.id)
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(await harness.transport.submitted.count == OfflineDownloadManager.credentialedWindow)
+        #expect(first.allSatisfy { $0.credentialed })
+
+        await harness.transport.finish(first[0].tag, body: Fixture.segment())
+        #expect(await harness.waitForSubmissions(OfflineDownloadManager.credentialedWindow + 1).count
+                == OfflineDownloadManager.credentialedWindow + 1)
+    }
+
+    // F10: a connection problem is retried more often than a failed request.
+    @Test func connectivityFailuresHaveTheirOwnBudget() async throws {
+        let harness = OfflineHarness(network: Fixture.simpleNetwork())
+        let (asset, requests) = await harness.startSimpleDownload()
+        try #require(requests.count == 4)
+        for _ in 0...OfflineDownloadManager.transferRetries {
+            await harness.transport.fail(requests[0].tag, OfflineTransferFailure(.connectivity("NSURLError -1005")))
+            #expect(await waitUntil { await harness.transport.activeTags().contains(requests[0].tag) })
+        }
+        #expect(await harness.manager.asset(asset.id)?.state == .downloading)
+
+        for _ in 0...OfflineDownloadManager.transferRetries {
+            await harness.transport.fail(requests[1].tag, OfflineTransferFailure(.network("NSURLError -1011")))
+        }
+        #expect(await harness.waitFor(asset.id, .failed)?.state == .failed)
+    }
+
+    // F11: a body the session delivered but the app never handled is taken up at the next launch,
+    // not downloaded again.
+    @Test func aStagedBodyIsTakenUpAtLaunch() async throws {
+        let harness = OfflineHarness(network: Fixture.simpleNetwork())
+        let (asset, requests) = await harness.startSimpleDownload()
+        try #require(requests.count == 4)
+        try FileManager.default.createDirectory(at: harness.layout.stagingDirectory, withIntermediateDirectories: true)
+        try Fixture.segment().write(to: harness.layout.stagingDirectory
+            .appendingPathComponent(OfflineStagedBody.name(tag: requests[0].tag, status: 200)))
+        // The app ended: the session holds nothing any more.
+        await harness.transport.setActive([])
+        await harness.transport.clearSubmitted()
+
+        let relaunched = harness.relaunched(network: Fixture.simpleNetwork())
+        await relaunched.manager.start()
+
+        let resent = await relaunched.waitForSubmissions(3, assetID: asset.id)
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(Set(await relaunched.transport.submitted.map(\.tag.unit)) == Set(resent.map(\.tag.unit)))
+        #expect(!resent.contains { $0.tag.unit == requests[0].tag.unit })
+        #expect(await relaunched.manager.asset(asset.id)?.progress.completedUnits == 1)
+    }
+
+    // F11: the transport is given a settle step, which returns once nothing is preparing.
+    @Test func theTransportWaitsForPreparingToSettle() async throws {
+        let harness = OfflineHarness(network: Fixture.simpleNetwork())
+        await harness.manager.start()
+        let settle = try #require(await harness.transport.settle)
+        await settle()
+    }
+
+    // F14: a single file checks the space as it arrives, against the rest of it once its size is known.
+    @Test func aSingleFileStopsWhenTheRestNoLongerFits() async throws {
+        let file = URL(string: "https://cdn.example.com/movie.mp4")!
+        let harness = OfflineHarness(network: FakeNetwork([file.absoluteString: .init(data: Data(repeating: 0, count: 1024), status: 206)]),
+                                     capacity: 1_000_000_000)
+        await harness.manager.start()
+        guard case .created(let asset) = await harness.manager.enqueue(
+            identity: Fixture.identity("movie"), title: Fixture.title(), target: Fixture.target(file),
+            choice: OfflineDownloadChoice(mode: .smart), estimate: .unknown, autoDeleteAfterWatching: false,
+            allowsCellular: false) else { Issue.record("not created"); return }
+        let first = await harness.waitForSubmissions(1)
+        try #require(first.count == 1)
+        #expect(await harness.manager.asset(asset.id)?.estimate == .unknown)
+
+        // The server now says it is 2 GB: the 1 GB free cannot hold the rest.
+        await harness.manager.handle(first[0].tag, .progress(written: 10_000_000, expected: 2_000_000_000))
+
+        let failed = try #require(await harness.waitFor(asset.id, .failed))
+        #expect(failed.failure?.kind == .insufficientStorage)
+    }
+
+    // F18: deleting gives up the saved resume data, so the system removes its partial file; an HLS
+    // pause asks for no resume data at all.
+    @Test func deletingGivesUpResumeDataAndSegmentsMakeNone() async throws {
+        let file = URL(string: "https://cdn.example.com/movie.mp4")!
+        let harness = OfflineHarness(network: FakeNetwork([file.absoluteString: .init(data: Data(repeating: 0, count: 1024), status: 206,
+                                                                                      headers: ["content-range": "bytes 0-1023/50000000"])]))
+        await harness.manager.start()
+        guard case .created(let movie) = await harness.manager.enqueue(
+            identity: Fixture.identity("movie"), title: Fixture.title(), target: Fixture.target(file),
+            choice: OfflineDownloadChoice(mode: .smart), estimate: .unknown, autoDeleteAfterWatching: false,
+            allowsCellular: false) else { Issue.record("not created"); return }
+        _ = await harness.waitForSubmissions(1)
+        await harness.transport.setResumeData(Data("partial".utf8), for: movie.id)
+        await harness.manager.pause(movie.id)
+        #expect(await harness.transport.resumeDataRequested.last == true)
+
+        await harness.manager.delete([movie.id])
+        #expect(await harness.transport.discarded == [Data("partial".utf8)])
+
+        let hls = OfflineHarness(network: Fixture.simpleNetwork())
+        let (asset, _) = await hls.startSimpleDownload()
+        await hls.manager.pause(asset.id)
+        #expect(await hls.transport.resumeDataRequested.last == false)
+    }
+
+    // F19: resume data that a resumed transfer could not use, and that brought no new resume data,
+    // is dropped: the next attempt starts over instead of failing the same way for ever.
+    @Test func resumeDataThatFailedIsNotSentAgain() async throws {
+        let file = URL(string: "https://cdn.example.com/movie.mp4")!
+        let harness = OfflineHarness(network: FakeNetwork([file.absoluteString: .init(data: Data(repeating: 0, count: 1024), status: 206,
+                                                                                      headers: ["content-range": "bytes 0-1023/50000000"])]))
+        await harness.manager.start()
+        guard case .created = await harness.manager.enqueue(
+            identity: Fixture.identity("movie"), title: Fixture.title(), target: Fixture.target(file),
+            choice: OfflineDownloadChoice(mode: .smart), estimate: .unknown, autoDeleteAfterWatching: false,
+            allowsCellular: false) else { Issue.record("not created"); return }
+        let first = await harness.waitForSubmissions(1)
+        try #require(first.count == 1)
+        await harness.transport.clearSubmitted()
+        await harness.transport.fail(first[0].tag, OfflineTransferFailure(.network("lost"), resumeData: Data("resume".utf8)))
+        let resumed = await harness.waitForSubmissions(1)
+        #expect(resumed.first?.resumeData == Data("resume".utf8))
+
+        // The resumed transfer fails and brings no new resume data.
+        await harness.transport.clearSubmitted()
+        await harness.transport.fail(first[0].tag, OfflineTransferFailure(.network("cannot resume")))
+        let restarted = await harness.waitForSubmissions(1)
+        #expect(restarted.first?.resumeData == nil)
+    }
+
+    // F30: the 下載 tab's total counts what downloads have received so far, also after a pause.
+    @Test func usageCountsWhatUnfinishedDownloadsHold() async throws {
+        let harness = OfflineHarness(network: Fixture.simpleNetwork())
+        let (asset, requests) = await harness.startSimpleDownload()
+        try #require(requests.count == 4)
+        await harness.transport.finish(requests[0].tag, body: Fixture.segment(1880))
+        #expect(await harness.manager.snapshot().usageBytes == 1880)
+        await harness.manager.pause(asset.id)
+        #expect(await harness.manager.snapshot().usageBytes == 1880)
+    }
+
+    // F34: leftovers of an interrupted write one folder down go at launch too.
+    @Test func launchRemovesInterruptedWritesInSubfolders() throws {
+        let folder = OfflineHarness.scratchLayout().root.appendingPathComponent("asset")
+        for sub in ["playlists", "partial"] {
+            try FileManager.default.createDirectory(at: folder.appendingPathComponent(sub), withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: folder.appendingPathComponent(sub).appendingPathComponent(".index.m3u8.tmp-1234"))
+        }
+        try Data("keep".utf8).write(to: folder.appendingPathComponent("playlists/index.m3u8"))
+        #expect(OfflineStorage.removeStaleTemporaries(in: folder) == 2)
+        #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("playlists/index.m3u8").path))
+    }
+
+    // F39: deleted while its subtitle was on its way: saving the subtitle must not leave a folder
+    // with no record behind.
+    @Test func deletingWhilePreparingLeavesNoFolder() async throws {
+        let gate = Gate()
+        let subtitleURL = "https://subs.example.com/zh.srt"
+        let harness = OfflineHarness(network: Fixture.simpleNetwork(),
+                                     subtitleFiles: [subtitleURL: "1\n00:00:01,000 --> 00:00:02,000\n你好\n"], subtitleGate: gate)
+        await harness.manager.start()
+        guard case .created(let asset) = await harness.manager.enqueue(
+            identity: Fixture.identity(), title: Fixture.title(),
+            target: Fixture.target(subtitles: [SourceSubtitle(url: subtitleURL, name: "繁中", language: "zh-TW")]),
+            choice: OfflineDownloadChoice(mode: .smart, subtitleIDs: ["sidecar|0"]), estimate: .unknown,
+            autoDeleteAfterWatching: false, allowsCellular: false) else { Issue.record("not created"); return }
+        #expect(await harness.waitFor(asset.id, .preparing)?.state == .preparing)
+        try? await Task.sleep(for: .milliseconds(20))
+
+        await harness.manager.delete([asset.id])
+        await gate.open()
+
+        #expect(await waitUntil { !harness.folderExists(asset.id) })
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(!harness.folderExists(asset.id))
+        #expect(await harness.transport.submitted.isEmpty)
     }
 }

@@ -11,6 +11,12 @@ actor FakeTransport: OfflineTransport {
     private var sink: (@Sendable (OfflineTransferTag, OfflineTransferEvent) async -> Void)?
     private(set) var submitted = [OfflineTransferRequest]()
     private(set) var cancelled = [String]()
+    /// IOS-POC-52: tags cancelled one by one, resume data given up, and whether each cancel asked
+    /// for resume data.
+    private(set) var cancelledTags = Set<OfflineTransferTag>()
+    private(set) var discarded = [Data]()
+    private(set) var resumeDataRequested = [Bool]()
+    private(set) var settle: (@Sendable () async -> Void)?
     private var active = Set<OfflineTransferTag>()
     let staging: URL
     /// What a cancel with resume data hands back, per asset.
@@ -18,22 +24,37 @@ actor FakeTransport: OfflineTransport {
 
     init(staging: URL) { self.staging = staging }
 
-    func attach(_ sink: @escaping @Sendable (OfflineTransferTag, OfflineTransferEvent) async -> Void) async {
+    func attach(_ sink: @escaping @Sendable (OfflineTransferTag, OfflineTransferEvent) async -> Void,
+                settle: @escaping @Sendable () async -> Void) async {
         self.sink = sink
+        self.settle = settle
     }
 
+    /// IOS-POC-52: holds every submit until opened — a submit still running when the viewer acts.
+    private var submitGate: Gate?
+    func holdSubmits(_ gate: Gate?) { submitGate = gate }
+
     func submit(_ requests: [OfflineTransferRequest]) async {
+        if let submitGate { await submitGate.wait() }
         submitted += requests
         for request in requests { active.insert(request.tag) }
     }
 
     func cancel(assetID: String, producingResumeData: Bool) async -> [OfflineTransferTag: Data] {
         cancelled.append(assetID)
+        resumeDataRequested.append(producingResumeData)
         let tags = active.filter { $0.assetID == assetID }
         active.subtract(tags)
         guard producingResumeData, let data = resumeData[assetID] else { return [:] }
         return Dictionary(uniqueKeysWithValues: tags.map { ($0, data) })
     }
+
+    func cancel(tags: Set<OfflineTransferTag>) async {
+        cancelledTags.formUnion(tags)
+        active.subtract(tags)
+    }
+
+    func discardResumeData(_ data: Data) async { discarded.append(data) }
 
     func activeTags() async -> Set<OfflineTransferTag> { active }
 
@@ -45,7 +66,7 @@ actor FakeTransport: OfflineTransport {
     func finish(_ tag: OfflineTransferTag, body: Data, status: Int = 200) async {
         active.remove(tag)
         try? FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
-        let file = staging.appendingPathComponent("\(tag.description).\(UUID().uuidString).part")
+        let file = staging.appendingPathComponent(OfflineStagedBody.name(tag: tag, status: status))
         try? body.write(to: file)
         await sink?(tag, .finished(file: file, status: status))
     }
@@ -110,7 +131,7 @@ struct OfflineHarness {
     let log: RequestLog
 
     init(network: FakeNetwork = FakeNetwork(), capacity: Int64? = 50_000_000_000, layout: OfflineStorageLayout? = nil,
-         transport: FakeTransport? = nil, subtitleFiles: [String: String] = [:]) {
+         transport: FakeTransport? = nil, subtitleFiles: [String: String] = [:], subtitleGate: Gate? = nil) {
         let layout = layout ?? Self.scratchLayout()
         self.layout = layout
         let transport = transport ?? FakeTransport(staging: layout.stagingDirectory)
@@ -120,6 +141,7 @@ struct OfflineHarness {
         let log = RequestLog()
         self.log = log
         let subtitles = SubtitleDownloadService(fetch: { request, _ in
+            if let subtitleGate { await subtitleGate.wait() }
             log.append(request)
             guard let url = request.url, let text = subtitleFiles[url.absoluteString] else {
                 return SubtitleHTTPResponse(status: 404, mimeType: "text/plain", data: Data(), url: request.url)
@@ -246,5 +268,20 @@ extension OfflineHarness {
     func completeAll(_ id: String) async -> OfflineAsset? {
         await transport.finishAll(where: { $0.tag.assetID == id }) { _ in Fixture.segment() }
         return await waitFor(id, .completed)
+    }
+}
+
+/// Holds whoever waits until it is opened.
+actor Gate {
+    private var opened = false
+    private var waiting = [CheckedContinuation<Void, Never>]()
+    func wait() async {
+        if opened { return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+    func open() {
+        opened = true
+        waiting.forEach { $0.resume() }
+        waiting = []
     }
 }

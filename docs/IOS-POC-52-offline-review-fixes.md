@@ -13,7 +13,7 @@
 |---|---|---|---|
 | 1 | 當機與卡死 | F2、F15 | 完成 |
 | 2 | 資料錯誤與遺失 | F5–F9、F16、F17、F20、F27、F28（含 F26） | 完成 |
-| 3 | 下載流程、背景與傳輸 | F3、F4、F10、F11、F14、F18、F19、F26、F29、F30、F34、F39 | 待處理 |
+| 3 | 下載流程、背景與傳輸 | F3、F4、F10、F11、F14、F18、F19、F29、F30、F34、F39（F26 已在批次 2） | 完成 |
 | 4 | 自動刪除與播放 | F1、F12、F13、F23 | 待處理 |
 | 5 | 安全與介面 | F22、F21、F31、F32、F33、F35 | 待處理 |
 | 6 | 測試缺口與發布 | F24、F25、F36–F38、F40 | 待處理 |
@@ -107,6 +107,72 @@
 - 修正：在畫面大小篩選之後、解析度比較之前，先排除 AV1 和 VP9，除非沒有其他版本可選。
 - 測試：`av1AndVP9AreChosenOnlyWhenNothingElseFits`（三種模式都選 720p H.264；只有 AV1 時才選 AV1）。
 
+### F3、F29（中、低）送出途中被暫停或刪除，後續建立的傳輸沒人取消
+- 修正：
+  - 傳輸層 `URLSessionOfflineTransport` 以每個下載的取消計數保護送出：建立任務前在鎖內檢查，取消先遞增計數再列出任務，所以送出途中被取消時，後續任務不會建立。
+  - 新增 `cancel(tags:)`，只取消指定的傳輸。
+  - manager 每次送出後再檢查一次 generation，不符時取消剛送出的那批（`cancelIfStale`）。
+  - 啟動時取消資產已不存在、不在下載中，或 generation 不符的傳輸。
+- 測試：
+  - `aPauseDuringASubmitStopsWhatTheSubmitCreatedAfterIt`：讓送出停在半路，期間暫停，放行後剛建立的傳輸全被取消。
+  - `launchCancelsStaleTransfersOnly`
+  - F29 在傳輸層，只有 Darwin 才能編譯，沒有單元測試。
+
+### F4（中）強制關閉後剩下的每個片段下載兩次
+- 修正：
+  - 屬於目前 generation 的 `.cancelled` 只有系統會產生（強制關閉），改為不重試，由重開後的 `submitMissing` 負責重新送出。
+  - 重試前若該片段已在磁碟上，或仍在傳輸中，就跳過。
+- 測試：
+  - `aCancelledCurrentTransferIsNotRetried`
+  - `aFailureForAUnitAlreadyInFlightIsNotRetried`
+
+### F10（中）需要憑證的傳輸全部排進預設 session 而逾時
+- 修正：
+  - 需要憑證的片段一次最多 6 個在傳輸中，每完成一個補一個（`credentialedWindow`、`feedCredentialed`）。
+  - 逾時、連線中斷、沒有網路、不允許行動網路、漫遊關閉，改歸類為 `.connectivity`，重試上限 10 次；其他失敗維持 2 次。
+  - App 回到前景（`didBecomeActive`）時呼叫 `resubmitRunning()`，把 App 暫停期間中斷的傳輸重新送出。
+- 測試：
+  - `credentialedUnitsAreSentThroughAWindow`
+  - `connectivityFailuresHaveTheirOwnBudget`
+
+### F11（中）背景 session 的完成通知太早
+- 修正：
+  - `urlSessionDidFinishEvents` 不再直接呼叫系統的 completion handler，而是在事件串流尾端放入一個標記。前面的事件都處理完、`settle()` 等待準備中的下載最多 20 秒之後，才呼叫 completion handler。
+  - `finalize` 之後的 `pump` 改為不等待，下一集的準備不會卡住其他下載的事件。
+  - 暫存檔名改為 `<tag>.<status>.<uuid>.part`（`OfflineStagedBody`）。啟動時，對應目前 generation 的暫存檔由 `accept` 直接接手，不再重新下載。
+- 未做：沒有另外向 UIApplication 申請背景執行時間。這部分在 App 端，雲端 session 無法編譯驗證，且 `settle` 已限制在 20 秒內。
+- 測試：
+  - `aStagedBodyIsTakenUpAtLaunch`
+  - `theTransportWaitsForPreparingToSettle`
+
+### F14（中）單一檔案下載途中不檢查空間
+- 修正：每次收到單一檔案的進度事件（最多每秒兩次）時檢查可用空間：低於 200 MB，或伺服器已告知總長但剩餘部分加保留空間放不下，就以空間不足停止，續傳資料會保留。
+- 測試：`aSingleFileStopsWhenTheRestNoLongerFits`（大小未知時開始，進度回報 2 GB、可用 1 GB，下載停止）。
+
+### F18（中）刪除暫停或失敗的單一檔案下載不會釋放空間
+- 修正：
+  - 新增 `discardResumeData`：用續傳資料建立任務後立即取消，讓系統刪除對應的部分檔案。
+  - 刪除、切換行動網路設定、時間軸改變、重新解析時，都改用 `discardResumeFiles`。
+  - HLS 暫停或失敗時不再要求續傳資料，因為片段的續傳資料只會留下部分檔案。
+- 未驗證：系統是否真的刪除部分檔案，需要真機確認。
+- 測試：`deletingGivesUpResumeDataAndSegmentsMakeNone`
+
+### F19（中）失效的續傳資料一直被重送
+- 修正：單一檔案的傳輸失敗且沒有帶回新的續傳資料時，刪除舊的續傳資料，下次從頭開始。
+- 測試：`resumeDataThatFailedIsNotSentAgain`。這次用真實流程：帶續傳資料的傳輸失敗且沒有新資料，下一次送出就不帶續傳資料，不再靠手動刪檔模擬。
+
+### F30（低）「離線內容」總量在下載中或失敗後不更新
+- 修正：總量改為即時計算：已完成的下載用量測到的實際大小，未完成的用已收到的 bytes（單一檔案的部分資料在系統暫存檔裡，也計入），再加上無法讀取的資料夾大小。
+- 測試：`usageCountsWhatUnfinishedDownloadsHold`
+
+### F34（低）啟動時沒有清掉子資料夾裡的寫入暫存檔
+- 修正：`removeStaleTemporaries` 也掃 `playlists/` 和 `partial/`。
+- 測試：`launchRemovesInterruptedWritesInSubfolders`
+
+### F39（低）準備中刪除時，外掛字幕又把資料夾建回來
+- 修正：外掛字幕下載完時，如果該下載已經沒有紀錄，就刪除它重建的資料夾。
+- 測試：`deletingWhilePreparingLeavesNoFolder`（讓字幕下載停在半路，期間刪除）。
+
 ## 3. 驗證紀錄
 
 - 批次 1：Linux `swift test` 84／84，Offline 原始檔沒有新的警告。
@@ -114,7 +180,14 @@
   - Linux 97／97，沒有新的警告。
   - 突變 9／9 被對應的測試抓到：F8、F9、F16、F17、F20、F26、F7、F28、F27。
   - F17 第一次的突變只拿掉一半條件，因 origin 改變仍會刪除而沒有被抓到；改成整段拿掉後即被抓到。
+- 批次 3：
+  - Linux 111／111。
+  - 突變 14／14 被對應的測試抓到：F3 兩處、F4 兩處、F10 兩處、F11、F14、F18 兩處、F19、F30、F34、F39。
+  - F4 第一次的突變寫錯，造成編譯錯誤；改正後被抓到。
+- 同步：開始批次 3 時，遠端已被其他 session 推進到 `f39c7d86`。批次 3 的改動先 stash，用 `git pull --no-rebase` 合併（merge commit `1c31013f`，沒有衝突），再放回改動。
+  - 原本的 task guard session 尚未 commit，手動把它的狀態標為 abandoned。
+  - 新 session 以 `--adopt-dirty` 收進這些改動。
 
 ## 下一步
 
-- 批次 3（下載流程、背景與傳輸）。
+- IOS-POC-53（設定頁「清除無效檔案」與「初始化」，使用者 2026-10-05 中途加入），之後是批次 4。

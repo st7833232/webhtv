@@ -76,6 +76,11 @@ struct WebHTVApp: App {
             await OfflineDownloads.manager.start()
             // IOS-POC-49: a download queued under an earlier 行動網路 setting follows today's.
             await OfflineDownloads.manager.setAllowsCellular(OfflineDownloadPreferences().allowsCellular)
+            // IOS-POC-52 (F10): back in the foreground, what a suspension cost a download is sent again.
+            _ = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
+                                                       queue: .main) { _ in
+                Task { await OfflineDownloads.manager.resubmitRunning() }
+            }
         }
         // Says out loud whether PiP can arm at all. The simulator does not implement it, so an
         // absent PiP button there is the platform rather than a defect — and without this line

@@ -95,6 +95,11 @@ public actor OfflineDownloadManager {
 
     /// A transfer that failed is tried again this many times before the download is failed.
     static let transferRetries = 2
+    /// IOS-POC-52 (F10): the same for a connectivity failure — the connection, not the request.
+    static let connectivityRetries = 10
+    /// IOS-POC-52 (F10): credentialed units in flight at once. Their session queues the rest behind
+    /// four connections, and a queued request's 30 s timer is already running.
+    static let credentialedWindow = 6
 
     public let layout: OfflineStorageLayout
     let store: OfflineAssetStore
@@ -107,7 +112,11 @@ public actor OfflineDownloadManager {
     /// IOS-POC-51: each finished unit's size, for projecting the package's size as it arrives.
     private var sizes = [String: [Int: Int64]]()
     private var attempts = [OfflineTransferTag: Int]()
-    private var usage: Int64 = 0
+    /// What the folders no record could be read for occupy, measured at launch and after a delete.
+    private var unreadableUsage: Int64 = 0
+    /// IOS-POC-52 (F10): credentialed units waiting for room in the window, and those in flight.
+    private var waitingCredentialed = [String: [OfflineDownloadUnit]]()
+    private var credentialedInFlight = [String: Set<Int>]()
     private var lastPublish = Date.distantPast
     private var trailingPublish: Task<Void, Never>?
     private var unitsSinceFlush = 0
@@ -134,7 +143,8 @@ public actor OfflineDownloadManager {
 
     public func snapshot() -> OfflineSnapshot {
         sequence += 1
-        return OfflineSnapshot(assets: store.all(), unreadable: store.unreadable.keys.sorted(), usageBytes: usage,
+        let assets = store.all()
+        return OfflineSnapshot(assets: assets, unreadable: store.unreadable.keys.sorted(), usageBytes: usage(of: assets),
                                sequence: sequence)
     }
 
@@ -148,12 +158,24 @@ public actor OfflineDownloadManager {
         let report = store.load()
         OfflineLog.notice("[offline] launch loaded=\(report.loaded) migrated=\(report.migrated) unreadable=\(report.unreadable.count) orphans=\(report.removedOrphans) temporaries=\(report.removedTemporaries)")
         cleanTemporary()
-        await deps.transport.attach { [weak self] tag, event in await self?.handle(tag, event) }
+        await deps.transport.attach({ [weak self] tag, event in await self?.handle(tag, event) },
+                                    settle: { [weak self] in await self?.settle() })
 
         // A delete or an auto-delete a crash interrupted is finished now: no player holds anything
         // this early in a launch.
         let pending = store.all().filter { $0.state == .deleting || $0.pendingAutoDelete }.map(\.id)
         if !pending.isEmpty { _ = await deleteNow(pending, reason: "launch") }
+
+        // IOS-POC-52 (F3): transfers left running for an asset that is gone, stopped or a
+        // generation on would download for nothing until they end.
+        let stale = await deps.transport.activeTags().filter { tag in
+            guard let asset = store.asset(tag.assetID) else { return true }
+            return asset.state != .downloading || asset.generation != tag.generation
+        }
+        if !stale.isEmpty {
+            OfflineLog.notice("[offline] launch cancelled stale transfers=\(stale.count)")
+            await deps.transport.cancel(tags: stale)
+        }
 
         for asset in store.all() {
             switch asset.state {
@@ -161,6 +183,7 @@ public actor OfflineDownloadManager {
                 // Preparing is network work in the app's own process: nothing kept it going.
                 _ = store.update(asset.id, now: deps.now()) { $0.state = .queued }
             case .downloading:
+                await adoptStaged(asset)
                 await reconnect(asset)
             case .completed:
                 if let package = asset.package,
@@ -174,9 +197,40 @@ public actor OfflineDownloadManager {
                 break
             }
         }
-        usage = store.usage()
+        measureUnreadable()
         publish(force: true)
         await pump()
+    }
+
+    /// IOS-POC-52 (F11): bodies the session delivered but the app never handled — it was suspended
+    /// or ended first — are taken up instead of downloaded again.
+    private func adoptStaged(_ asset: OfflineAsset) async {
+        guard let plan = loadPlan(asset.id) else { return }
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: layout.stagingDirectory.path)) ?? []
+        for name in names {
+            guard isCurrent(asset.id, asset.generation, .downloading), let staged = OfflineStagedBody.parse(name),
+                  staged.tag.assetID == asset.id, staged.tag.generation == asset.generation, let status = staged.status,
+                  plan.units.indices.contains(staged.tag.unit) else { continue }
+            await accept(layout.stagingDirectory.appendingPathComponent(name), status: status,
+                         unit: plan.units[staged.tag.unit], tag: staged.tag)
+        }
+    }
+
+    /// IOS-POC-52 (F11): what a background wake started — the next download's preparing — gets up
+    /// to 20 s to finish before the transport tells iOS the wake is done.
+    func settle() async {
+        let deadline = ContinuousClock.now + .seconds(20)
+        while store.all().contains(where: { $0.state == .preparing }), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+    }
+
+    /// IOS-POC-52 (F10): back in the foreground, everything a download lost while the app was
+    /// suspended — a credentialed transfer stops with the app — is sent again.
+    public func resubmitRunning() async {
+        for asset in store.all() where asset.state == .downloading {
+            if let plan = loadPlan(asset.id) { await submitMissing(asset.id, plan: plan) }
+        }
     }
 
     /// Only this feature's staging files go, and only the ones no current transfer will claim.
@@ -648,6 +702,7 @@ public actor OfflineDownloadManager {
         // timeline; otherwise the package starts over rather than mixing two copies. With no
         // readable earlier plan nothing says what the files are, so they go too (IOS-POC-52 F16).
         if previous.map({ !$0.sameTimeline(as: prepared.plan) }) ?? true {
+            await discardResumeFiles(id)
             for folder in ["media", "audio", "subtitles", "keys", "playlists", "partial"] {
                 try? FileManager.default.removeItem(at: layout.folder(for: id).appendingPathComponent(folder))
             }
@@ -657,7 +712,7 @@ public actor OfflineDownloadManager {
         } else if reResolved || previous?.origin != prepared.plan.origin || previous?.headers != prepared.plan.headers {
             // IOS-POC-52 (F17): resume data replays the request it came from — the old address and
             // its Cookie. A new address or new headers start the single file over.
-            try? FileManager.default.removeItem(at: layout.folder(for: id).appendingPathComponent("partial"))
+            await discardResumeFiles(id)
         }
         // IOS-POC-52 (F2): no room is found out before anything more is written.
         guard hasRoom(for: prepared.estimate, id: id) else {
@@ -673,7 +728,12 @@ public actor OfflineDownloadManager {
         plans[id] = prepared.plan
 
         let sidecars = await downloadSidecars(prepared.plan, id: id)
-        guard isCurrent(id, generation, .preparing) else { return }
+        guard isCurrent(id, generation, .preparing) else {
+            // IOS-POC-52 (F39): deleted while a subtitle was on its way — saving it made the
+            // folder again, with no record to delete it by.
+            if store.asset(id) == nil { store.removeFolder(id) }
+            return
+        }
 
         // Checked again with nothing awaited between it and `downloading`, so two downloads
         // preparing at once cannot both count the same free space.
@@ -818,12 +878,44 @@ public actor OfflineDownloadManager {
             await finalize(id, generation: generation)
             return
         }
-        let requests = missing.map { request(for: $0, asset: asset, plan: plan) }
+        // IOS-POC-52 (F10): credentialed units go through a window; the rest wait their turn.
+        let credentialed = missing.filter { isCredentialed($0, plan: plan) }
+        let flying = inFlight.filter { plan.units.indices.contains($0) && isCredentialed(plan.units[$0], plan: plan) }
+        let room = max(Self.credentialedWindow - flying.count, 0)
+        let held = Array(credentialed.dropFirst(room))
+        let heldIndices = Set(held.map(\.index))
+        waitingCredentialed[id] = held
+        credentialedInFlight[id] = flying.union(credentialed.prefix(room).map(\.index))
+        let requests = missing.filter { !heldIndices.contains($0.index) }.map { request(for: $0, asset: asset, plan: plan) }
         if !requests.isEmpty {
-            OfflineLog.notice("[offline] \(OfflineLog.short(id)) submit=\(requests.count) done=\(finished.count)/\(plan.units.count) inflight=\(inFlight.count)")
+            OfflineLog.notice("[offline] \(OfflineLog.short(id)) submit=\(requests.count) held=\(held.count) done=\(finished.count)/\(plan.units.count) inflight=\(inFlight.count)")
             await deps.transport.submit(requests)
+            await cancelIfStale(requests.map(\.tag), id: id, generation: generation)
         }
         publish(force: true)
+    }
+
+    /// IOS-POC-52 (F3): a pause, a delete or a failure that landed while a submit was running leaves
+    /// what the submit created after it; those transfers stop now.
+    private func cancelIfStale(_ tags: [OfflineTransferTag], id: String, generation: Int) async {
+        guard !isCurrent(id, generation, .downloading) else { return }
+        await deps.transport.cancel(tags: Set(tags))
+    }
+
+    private func isCredentialed(_ unit: OfflineDownloadUnit, plan: OfflinePackagePlan) -> Bool {
+        OfflineRequestPolicy.isCredentialed(OfflineRequestPolicy.headers(plan.headers, for: unit.remoteURL, origin: plan.origin))
+    }
+
+    /// A credentialed unit is done (or gone): the next one waiting takes its place in the window.
+    private func feedCredentialed(_ id: String, after unit: Int) async {
+        guard credentialedInFlight[id]?.remove(unit) != nil, var waiting = waitingCredentialed[id], !waiting.isEmpty,
+              let asset = store.asset(id), asset.state == .downloading, let plan = loadPlan(id) else { return }
+        let next = waiting.removeFirst()
+        waitingCredentialed[id] = waiting
+        credentialedInFlight[id, default: []].insert(next.index)
+        let generation = asset.generation
+        await deps.transport.submit([request(for: next, asset: asset, plan: plan)])
+        await cancelIfStale([OfflineTransferTag(assetID: id, generation: generation, unit: next.index)], id: id, generation: generation)
     }
 
     private func request(for unit: OfflineDownloadUnit, asset: OfflineAsset, plan: OfflinePackagePlan) -> OfflineTransferRequest {
@@ -852,6 +944,17 @@ public actor OfflineDownloadManager {
             store.updateInMemory(asset.id) {
                 $0.progress.receivedBytes = written
                 $0.progress.expectedBytes = expected ?? $0.estimate.bytes
+            }
+            // IOS-POC-52 (F14): a single file is one unit, so the check after each unit would come
+            // only once it is all here. Its space is checked as it arrives — and against the rest of
+            // it once the server has said how big it is.
+            if let free = deps.capacity() {
+                let rest = expected.map { max($0 - written, 0) }
+                if free < OfflineStorage.minimumFreeWhileDownloading
+                    || rest.map({ !OfflineStorage.hasRoom(estimate: $0, available: free) }) == true {
+                    fail(asset.id, OfflineFailure(.insufficientStorage))
+                    return
+                }
             }
             publish(force: false)
         case .finished(let file, let status):
@@ -919,6 +1022,7 @@ public actor OfflineDownloadManager {
             if unit.role == .progressive { $0.progress.receivedBytes = size } else { $0.progress.receivedBytes += size }
             $0.progress.projectedBytes = projected
         }
+        await feedCredentialed(tag.assetID, after: unit.index)
         unitsSinceFlush += 1
         if unitsSinceFlush >= 25 {
             unitsSinceFlush = 0
@@ -952,8 +1056,15 @@ public actor OfflineDownloadManager {
     }
 
     private func transferFailed(_ tag: OfflineTransferTag, unit: OfflineDownloadUnit, failure: OfflineTransferFailure) async {
-        if let data = failure.resumeData, unit.role == .progressive {
-            saveResumeData(data, assetID: tag.assetID, unit: unit.index)
+        if unit.role == .progressive {
+            if let data = failure.resumeData {
+                saveResumeData(data, assetID: tag.assetID, unit: unit.index)
+            } else {
+                // IOS-POC-52 (F19): a transfer that ended without new resume data leaves the old one
+                // stale — its partial file purged, or the server's validator changed. Sent again,
+                // it would fail the same way for ever; the next attempt starts over.
+                await discardResumeFiles(tag.assetID)
+            }
         }
         switch failure.kind {
         case .noSpace:
@@ -962,16 +1073,23 @@ public actor OfflineDownloadManager {
         case .http(let status) where [401, 403, 404, 410].contains(status):
             fail(tag.assetID, OfflineFailure.forHTTP(status))
             return
-        case .http, .network, .cancelled:
+        case .cancelled:
+            // IOS-POC-52 (F4): only the system cancels a current transfer — a force quit. The
+            // relaunch's submitMissing sends it again; retrying here too fetched every remaining
+            // unit twice.
+            return
+        case .http, .network, .connectivity:
             break
         }
         let count = (attempts[tag] ?? 0) + 1
         attempts[tag] = count
-        guard count <= Self.transferRetries else {
+        let budget: Int
+        if case .connectivity = failure.kind { budget = Self.connectivityRetries } else { budget = Self.transferRetries }
+        guard count <= budget else {
             attempts[tag] = nil
             switch failure.kind {
             case .http(let status): fail(tag.assetID, OfflineFailure.forHTTP(status))
-            case .network(let detail): fail(tag.assetID, OfflineFailure(.network, detail: detail))
+            case .network(let detail), .connectivity(let detail): fail(tag.assetID, OfflineFailure(.network, detail: detail))
             default: fail(tag.assetID, OfflineFailure(.network))
             }
             return
@@ -979,8 +1097,23 @@ public actor OfflineDownloadManager {
         try? await Task.sleep(for: deps.retryDelay)
         guard let asset = store.asset(tag.assetID), asset.generation == tag.generation, asset.state == .downloading,
               let plan = loadPlan(tag.assetID) else { return }
+        // IOS-POC-52 (F4): not when the unit is already here or already on its way again.
+        if done[tag.assetID]?.contains(unit.index) == true { return }
+        if await deps.transport.activeTags().contains(tag) { return }
         OfflineLog.notice("[offline] \(OfflineLog.short(tag.assetID)) retry unit=\(unit.index) attempt=\(count)")
         await deps.transport.submit([request(for: unit, asset: asset, plan: plan)])
+        await cancelIfStale([tag], id: tag.assetID, generation: tag.generation)
+    }
+
+    /// IOS-POC-52 (F18): saved resume data goes with the partial file the system keeps for it.
+    private func discardResumeFiles(_ id: String) async {
+        let partial = layout.folder(for: id).appendingPathComponent("partial")
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: partial.path)) ?? []
+        for name in names where name.hasSuffix(".resume") {
+            let file = partial.appendingPathComponent(name)
+            if let data = try? Data(contentsOf: file) { await deps.transport.discardResumeData(data) }
+            try? FileManager.default.removeItem(at: file)
+        }
     }
 
     private func saveResumeData(_ data: Data, assetID: String, unit: Int) {
@@ -1035,9 +1168,16 @@ public actor OfflineDownloadManager {
         let actual = store.size(of: id)
         _ = store.update(id, now: deps.now()) { $0.actualBytes = actual }
         OfflineLog.notice("[offline] \(OfflineLog.short(id)) completed bytes=\(actual) units=\(plan.units.count)")
-        usage = store.usage()
+        forgetWindow(id)
         publish(force: true)
-        await pump()
+        // IOS-POC-52 (F11): not awaited — the next download's preparing must not hold up the
+        // events of the others, nor the end of a background wake.
+        Task { await self.pump() }
+    }
+
+    private func forgetWindow(_ id: String) {
+        waitingCredentialed[id] = nil
+        credentialedInFlight[id] = nil
     }
 
     private func removeStaging(for id: String) {
@@ -1055,6 +1195,7 @@ public actor OfflineDownloadManager {
               let paused = store.update(id, now: deps.now(), { $0.state = .paused; $0.generation += 1 })
         else { return }
         OfflineLog.notice("[offline] \(OfflineLog.short(id)) paused")
+        forgetWindow(id)
         publish(force: true)
         await cancelTransfers(id, previousGeneration: paused.generation - 1)
         await pump()
@@ -1089,6 +1230,7 @@ public actor OfflineDownloadManager {
                   $0.generation += 1
               }) else { return }
         OfflineLog.notice("[offline] \(OfflineLog.short(id)) failed kind=\(failure.kind.rawValue) status=\(failure.httpStatus ?? 0) done=\(failed.progress.completedUnits)/\(failed.progress.totalUnits)")
+        forgetWindow(id)
         publish(force: true)
         let previous = failed.generation - 1
         Task {
@@ -1111,7 +1253,7 @@ public actor OfflineDownloadManager {
             })) != nil else { continue }
             OfflineLog.notice("[offline] \(OfflineLog.short(asset.id)) cellular=\(allowed) state=\(asset.state.rawValue)")
             if running { _ = await deps.transport.cancel(assetID: asset.id, producingResumeData: false) }
-            try? FileManager.default.removeItem(at: layout.folder(for: asset.id).appendingPathComponent("partial"))
+            await discardResumeFiles(asset.id)
             if running, let current = store.asset(asset.id), current.state == .downloading, let plan = loadPlan(asset.id) {
                 await submitMissing(current.id, plan: plan)
             }
@@ -1120,7 +1262,10 @@ public actor OfflineDownloadManager {
     }
 
     private func cancelTransfers(_ id: String, previousGeneration: Int) async {
-        let resume = await deps.transport.cancel(assetID: id, producingResumeData: true)
+        // IOS-POC-52 (F18): only a single file is worth resuming; a segment's resume data would
+        // only leave its partial file behind.
+        let progressive = loadPlan(id)?.units.contains { $0.role == .progressive } ?? false
+        let resume = await deps.transport.cancel(assetID: id, producingResumeData: progressive)
         guard store.asset(id) != nil else { return }
         for (tag, data) in resume where tag.generation == previousGeneration {
             if let plan = loadPlan(id), plan.units.indices.contains(tag.unit), plan.units[tag.unit].role == .progressive {
@@ -1152,6 +1297,8 @@ public actor OfflineDownloadManager {
             }
             publish(force: true)
             _ = await deps.transport.cancel(assetID: id, producingResumeData: false)
+            await discardResumeFiles(id)
+            forgetWindow(id)
             plans[id] = nil
             done[id] = nil
             sizes[id] = nil
@@ -1163,7 +1310,7 @@ public actor OfflineDownloadManager {
             }
             OfflineLog.notice("[offline] \(OfflineLog.short(id)) deleted reason=\(reason) released=\(released)")
         }
-        usage = store.usage()
+        measureUnreadable()
         publish(force: true)
         await pump()
         return result
@@ -1210,6 +1357,20 @@ public actor OfflineDownloadManager {
     }
 
     // MARK: - Publishing
+
+    /// IOS-POC-52 (F30): what offline content occupies now — each finished package as measured,
+    /// what every unfinished one has received (a single file's bytes sit in the system's own
+    /// temporary file until it completes), and the unreadable folders — not a figure frozen at the
+    /// last completion or delete.
+    private func usage(of assets: [OfflineAsset]) -> Int64 {
+        assets.reduce(unreadableUsage) { total, asset in
+            total + (asset.state == .completed ? (asset.actualBytes ?? 0) : asset.progress.receivedBytes)
+        }
+    }
+
+    private func measureUnreadable() {
+        unreadableUsage = store.unreadable.keys.reduce(0) { $0 + store.size(of: $1) }
+    }
 
     private func publish(force: Bool) {
         guard let observer else { return }

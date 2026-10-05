@@ -153,10 +153,14 @@ public enum OfflineStorage {
     /// Removes the half-written temporaries `writeAtomically` may leave in a folder, and nothing else.
     @discardableResult
     public static func removeStaleTemporaries(in folder: URL, fileManager: FileManager = .default) -> Int {
-        guard let entries = try? fileManager.contentsOfDirectory(atPath: folder.path) else { return 0 }
         var removed = 0
-        for name in entries where name.hasPrefix(".") && name.contains(OfflineStorageLayout.temporaryMarker) {
-            if (try? fileManager.removeItem(at: folder.appendingPathComponent(name))) != nil { removed += 1 }
+        // IOS-POC-52 (F34): the package playlists and resume data are written the same way, one
+        // folder down.
+        for directory in [folder, folder.appendingPathComponent("playlists"), folder.appendingPathComponent("partial")] {
+            guard let entries = try? fileManager.contentsOfDirectory(atPath: directory.path) else { continue }
+            for name in entries where name.hasPrefix(".") && name.contains(OfflineStorageLayout.temporaryMarker) {
+                if (try? fileManager.removeItem(at: directory.appendingPathComponent(name))) != nil { removed += 1 }
+            }
         }
         return removed
     }

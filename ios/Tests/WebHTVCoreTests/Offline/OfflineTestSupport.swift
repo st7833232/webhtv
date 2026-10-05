@@ -275,6 +275,7 @@ extension OfflineHarness {
 actor Gate {
     private var opened = false
     private var waiting = [CheckedContinuation<Void, Never>]()
+    var isOpen: Bool { opened }
     func wait() async {
         if opened { return }
         await withCheckedContinuation { waiting.append($0) }

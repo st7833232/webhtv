@@ -303,7 +303,7 @@ public enum OfflineDownloads {
         layout: layout, transport: transport,
         capacity: { OfflineStorage.availableCapacity(at: layout.root.deletingLastPathComponent()) },
         fetcher: { origin, headers in OfflineHTTP.fetcher(origin: origin, originalHeaders: headers) },
-        subtitles: SubtitleDownloadService()))
+        subtitles: SubtitleDownloadService(fetch: SubtitleHTTP.fetcher(session: OfflineHTTP.subtitleSession))))
     #if canImport(Network)
     public static let server = OfflineMediaServer(root: layout.root)
     #endif

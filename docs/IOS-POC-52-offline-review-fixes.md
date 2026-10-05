@@ -15,7 +15,7 @@
 | 2 | 資料錯誤與遺失 | F5–F9、F16、F17、F20、F27、F28（含 F26） | 完成 |
 | 3 | 下載流程、背景與傳輸 | F3、F4、F10、F11、F14、F18、F19、F29、F30、F34、F39（F26 已在批次 2） | 完成 |
 | 4 | 自動刪除與播放 | F1、F12、F13、F23 | 完成 |
-| 5 | 安全與介面 | F22、F21、F31、F32、F33、F35 | 待處理 |
+| 5 | 安全與介面 | F22、F21、F31、F32、F33、F35 | 完成 |
 | 6 | 測試缺口與發布 | F24、F25、F36–F38、F40 | 待處理 |
 
 ## 2. 各項處理
@@ -204,6 +204,51 @@
   - `theSettingTurnedOffStopsEveryAutoDelete`
   - `aCrashArmedAutoDeleteWaitsForTheSettingAtLaunch`
 
+### F22（低）離線外掛字幕轉址時帶著 Cookie／Authorization 送往其他主機
+- 原因：外掛字幕經 `SubtitleHTTP.fetcher()` 用 `URLSession.webHTV` 下載，沒有轉址 delegate。URLSession 會把原請求的 header 複製到轉址後的請求，所以與影片同源而帶了憑證的字幕，被 302 到其他主機時，憑證也一起送出。
+- 修正：
+  - 新增 `OfflineHTTP.subtitleSession`：沿用 `URLSession.webHTV` 的設定，加上 `SubtitleRedirectPolicy`。
+  - 轉址時以「請求第一次送往的網址」為基準套用 `OfflineHTTP.redirect`。來源的 Cookie、Authorization 只會送往影片自己的 origin，所以需要保護的憑證存在時，該網址就是影片的 origin。
+  - 跨主機、或 https 降為 http 時移除憑證，保留 User-Agent、Referer；字幕請求自己的 `Accept` 不動。
+  - `OfflineDownloads.manager` 的字幕服務改用這個 session。線上字幕的路徑沒有改（不在本項範圍）。
+- 測試：`offlineSubtitleRedirectsKeepTheSourceCredentialsOnItsOrigin`（跨主機移除、同源保留、降為 http 移除）。
+- 未驗證：`OfflineDownloads` 的接線只在 Darwin 編譯，Linux 測不到；依靠發布建置編譯。
+
+### F21（低）選「最省空間」但來源沒有 720p 以下版本時，默默下載 1080p 卻記成最省空間
+- 使用者決定（2026-10-05）：這種情況照常下載 1080p，1080p 是上限，預設也是 1080p。
+- 修正：
+  - 表單：沒有 720p 以下版本時，照常退回「智慧 1080p」的版本，並顯示「此影片沒有 720p 以下的版本，將以「智慧 1080p」下載。」；送出與量測都用實際採用的模式。
+  - 全部下載：同樣退回，下載紀錄與 request 改記實際採用的模式。
+  - 退回用的是智慧 1080p 的挑法：1080p 中位元率最低但合理、HEVC 優先，不是 1080p 高畫質。
+- 測試：`downloadAllInSaverModeWithoutA720pVersionRecordsTheModeItUsed`。表單部分沒有單元測試。
+
+### F31（低）下載中的項目換區時，刪除確認視窗被關掉
+- 修正：刪除確認改由 `OfflineDownloadsView`、`OfflineTitleDownloadsView` 持有，`OfflineAssetRow` 只回呼 `onDelete`。項目從「下載佇列」移到「已下載」或「需要處理」時，確認視窗不會跟著舊的列消失。
+- 測試：純 SwiftUI，沒有單元測試；需要真機驗證。
+
+### F32（低）App 在背景被喚醒時，需要重新解析的下載因設定還沒載入而失敗
+- 原因：iOS 為了完成的背景傳輸喚醒 App 時，可能不會建立 `ConfigView`，站點清單一直是空的。IOS-POC-49 的 30 秒等待之後仍會判定「無法重新取得來源」。
+- 修正：
+  - `setResolver(_:ready:)` 新增 `ready`，回答 App 是否已載入設定；`pump` 在還沒載入時，跳過需要重新解析的排隊項目（`needsFreshSource` 或沒有 request），讓它們留在排隊中。已有網址的下載不受影響。
+  - App 端 `OfflineAppContext.markLoaded`：`ConfigView` 讀完已存設定與快取的 spider pack 後呼叫，接著 `resolverBecameReady()` 重新排程。
+  - 「是否就緒」由 manager 每次向 App 讀取，而不是由 App 推送 true／false，避免啟動流程與 `ConfigView` 兩邊的先後競態。
+  - 移除 IOS-POC-49 的 30 秒等待。
+- 測試：`aDownloadThatMustResolveWaitsQueuedUntilTheConfigurationIsLoaded`。
+
+### F33（低）每集的下載選單點擊範圍只有 26×26 pt
+- 處置：不另修。`c361c637`（IOS-UI-A）重做版面時，選單已改為與集數按鈕並排的獨立 44×44 pt 元件（有 `contentShape` 和無障礙標籤），不再壓在集數按鈕角落；VoiceOver 可以單獨選到它。
+- 驗證：閱讀目前程式碼確認（`OfflineEpisodeMenu` 與它在集數列的位置）。
+
+### F35（低）單一檔案與沒有 master 的播放清單不受 1080p 上限，表單文字也不正確
+- 修正（部分）：
+  - Core 新增 `OfflineDownloadOptions.singleUndeclaredVersion`：只有一個版本且沒有標示解析度。
+  - 這類來源的表單不再說「依位元率挑選不超過 1080p 的版本」，改說「來源只有一種版本，也沒有標示解析度。」；註腳改為「來源只有一種版本，會照原樣下載；無法確認解析度，可能超過 1080p。」
+- 未做：
+  - 讀取檔頭或第一個片段來確認解析度、超過 1080p 就拒絕；
+  - 把解析度與編碼存進紀錄，讓已完成的列顯示。
+  - 原因：需要媒體探測（Apple 平台上讀 AVAsset 的影像軌，或自行解析 MP4／MKV／TS 檔頭），屬於新功能且風險較高，本批不做。目前這類來源可能下載到超過 1080p 的版本，表單已明確告知。
+- 測試：`aLoneUndeclaredVersionIsToldApartFromAPickedOne`（單一檔案、沒有 master 的播放清單為 true；有解析度的 master、兩個未標示解析度的 master、拒絕下載的情況為 false）。
+
 ## 3. 驗證紀錄
 
 - 批次 1：Linux `swift test` 84／84，Offline 原始檔沒有新的警告。
@@ -216,10 +261,15 @@
   - 突變 14／14 被對應的測試抓到：F3 兩處、F4 兩處、F10 兩處、F11、F14、F18 兩處、F19、F30、F34、F39。
   - F4 第一次的突變寫錯，造成編譯錯誤；改正後被抓到。
 - 批次 4：Linux 122／122；突變 5／5 被對應的測試抓到（F1、F12、F23、F13 兩處）。
+- 批次 5：
+  - Linux 126／126。Linux 臨時套件為了 `URLSession.webHTV` 加了一個不進版控的 shim。
+  - 突變 5／5 被對應的測試抓到：F22（轉址照原樣送出）、F21（不改記模式）、F32 兩處（不擋、全部擋）、F35（不比對版本）。
+  - 「全部擋」的突變第一次沒有被抓到：`waitFor` 逾時仍回傳該筆紀錄而不是 nil，測試寫成 `!= nil` 必定成立。改為比對狀態後即被抓到。`waitFor` 本身的問題屬於第 6 批的 F37。
+  - App 端（F21 表單、F31、F32 接線、F35 文字）只能靠發布建置編譯，沒有在真機執行。
 - 同步：開始批次 3 時，遠端已被其他 session 推進到 `f39c7d86`。批次 3 的改動先 stash，用 `git pull --no-rebase` 合併（merge commit `1c31013f`，沒有衝突），再放回改動。
   - 原本的 task guard session 尚未 commit，手動把它的狀態標為 abandoned。
   - 新 session 以 `--adopt-dirty` 收進這些改動。
 
 ## 下一步
 
-- 批次 5（安全與介面）。IOS-POC-53 已完成，見 `docs/IOS-POC-53-storage-cleanup-reset.md`。
+- 批次 6（測試缺口：F24、F25、F36–F38、F40），接著依使用者指示把 40 項清單寫進 `docs/IOS-POC-47-offline-downloads.md` 並發布。IOS-POC-53 已完成，見 `docs/IOS-POC-53-storage-cleanup-reset.md`。

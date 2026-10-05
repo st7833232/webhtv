@@ -72,7 +72,9 @@ struct WebHTVApp: App {
         // transfers the background session kept going — before any screen asks about them.
         Task { @MainActor in
             await offlineLibrary.connect(OfflineDownloads.manager)
-            await OfflineDownloads.manager.setResolver { asset in await OfflineAppContext.resolve(asset) }
+            // IOS-POC-52 (F32): a retry that must resolve its episode waits for the configuration.
+            await OfflineDownloads.manager.setResolver({ asset in await OfflineAppContext.resolve(asset) },
+                                                       ready: { await MainActor.run { OfflineAppContext.shared.loaded } })
             // IOS-POC-52 (F13): before the launch finishes an auto-delete a crash interrupted.
             await OfflineDownloads.manager.setAutoDeleteEnabled(OfflineDownloadPreferences().autoDeleteAfterWatching)
             await OfflineDownloads.manager.start()
@@ -266,6 +268,8 @@ private struct ConfigView: View {
             // The cached pack is adopted before anything is fetched, so an offline launch runs on
             // the last known good scripts rather than waiting for the network.
             await adoptCachedSpiderPack()
+            // IOS-POC-52 (F32): the saved configuration is in; queued retries may resolve now.
+            OfflineAppContext.shared.markLoaded(sites: sites, source: source)
             // Every launch re-fetches a remote configuration, so the app opens on the current one
             // rather than on whatever happened to be cached.
             await refreshRemote(quiet: true)
@@ -3726,15 +3730,21 @@ private struct StorageMaintenanceView: View {
     static let shared = OfflineAppContext()
     var sites = [Site]()
     var source = ConfigSource.importedFile
+    /// IOS-POC-52 (F32): `ConfigView` has loaded the saved configuration and the cached spider
+    /// pack. Until then a download that must resolve its episode stays queued; a launch iOS makes
+    /// in the background for a finished transfer may never render `ConfigView` at all. This
+    /// replaces IOS-POC-49's 30 s wait, which then failed the download as unresolvable.
+    private(set) var loaded = false
+
+    func markLoaded(sites: [Site], source: ConfigSource) {
+        self.sites = sites
+        self.source = source
+        guard !loaded else { return }
+        loaded = true
+        Task { await OfflineDownloads.manager.resolverBecameReady() }
+    }
 
     nonisolated static func resolve(_ asset: OfflineAsset) async -> PlaybackTarget? {
-        // IOS-POC-49: a launch prepares the next queued download before `ConfigView` has loaded the
-        // sites. Wait for them (up to 30 s) rather than fail the download as unresolvable.
-        var waited = 0
-        while waited < 60, await MainActor.run(body: { shared.sites.isEmpty }) {
-            try? await Task.sleep(for: .milliseconds(500))
-            waited += 1
-        }
         let (sites, source) = await MainActor.run { (shared.sites, shared.source) }
         return await OfflineEpisodeResolver.target(for: asset, sites: sites, source: source)
     }
@@ -4119,9 +4129,15 @@ private struct OfflineDownloadSheet: View {
     /// IOS-POC-51: the size measured from real segments, for the mode and audio named by `key`.
     @State private var measured: (key: String, estimate: OfflineSizeEstimate?)?
 
-    private var option: OfflineModeOption? {
-        draft.options.option(for: mode) ?? draft.options.option(for: .smart) ?? draft.options.modes.values.first
+    /// IOS-POC-52 (F21): the mode that supplies the version — the picked one, or 智慧 1080p when
+    /// 最省空間 has nothing (every version above 720p). The fallback is said on the sheet and the
+    /// download is recorded under it, never under the picked mode's label.
+    private var suppliedMode: OfflineQualityMode? {
+        let order: [OfflineQualityMode] = [mode, .smart] + OfflineQualityMode.allCases
+        return order.first { draft.options.option(for: $0) != nil }
     }
+
+    private var option: OfflineModeOption? { suppliedMode.flatMap { draft.options.option(for: $0) } }
 
     /// What a measurement depends on: the mode picks the video, the audio its own playlist.
     private var measureKey: String { "\(mode.rawValue)|\(audioID ?? "")" }
@@ -4212,7 +4228,8 @@ private struct OfflineDownloadSheet: View {
     private func measure() async {
         guard draft.options.kind == .hls, draft.options.refusal == nil, let option else { return }
         let key = measureKey
-        let choice = OfflineDownloadChoice(mode: mode, allowHighFrameRate: OfflineDownloadPreferences().prefersHighFrameRate,
+        let choice = OfflineDownloadChoice(mode: suppliedMode ?? mode,
+                                           allowHighFrameRate: OfflineDownloadPreferences().prefersHighFrameRate,
                                            variant: option.variant, audioID: audioID)
         let estimate = await OfflineDownloads.manager.sizeEstimate(for: draft.target, choice: choice)
         guard !Task.isCancelled else { return }
@@ -4220,23 +4237,31 @@ private struct OfflineDownloadSheet: View {
     }
 
     @ViewBuilder private func qualitySection(_ option: OfflineModeOption) -> some View {
+        // IOS-POC-52 (F35): a lone version of unknown size is downloaded as it is.
+        let single = draft.options.singleUndeclaredVersion
         Section {
             if draft.options.kind == .hls {
                 Picker("畫質", selection: $mode) {
                     ForEach(OfflineQualityMode.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
             }
+            if let suppliedMode, suppliedMode != mode {
+                Text("此影片沒有 \(mode.maximumShortSide)p 以下的版本，將以「\(suppliedMode.label)」下載。")
+                    .font(.footnote).foregroundStyle(.orange)
+            }
             LabeledContent("影片", value: option.video.map(\.summary) ?? "單一檔案（來源只有一種畫質）")
             if option.hdrOnly {
                 Text("這部影片只提供 HDR 版本。").font(.footnote).foregroundStyle(.secondary)
             }
             if option.resolutionUnknown, draft.options.kind == .hls {
-                Text("來源沒有標示解析度，依位元率挑選不超過 1080p 的版本。").font(.footnote).foregroundStyle(.secondary)
+                Text(single ? "來源只有一種版本，也沒有標示解析度。" : "來源沒有標示解析度，依位元率挑選不超過 1080p 的版本。")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
         } header: {
             Text("畫質")
         } footer: {
-            Text("離線畫質最高 1080p，不會下載 1440p 或 4K。")
+            Text(single ? "來源只有一種版本，會照原樣下載；無法確認解析度，可能超過 1080p。"
+                        : "離線畫質最高 1080p，不會下載 1440p 或 4K。")
         }
     }
 
@@ -4280,7 +4305,7 @@ private struct OfflineDownloadSheet: View {
         submitting = true
         defer { submitting = false }
         let preferences = OfflineDownloadPreferences()
-        let choice = OfflineDownloadChoice(mode: mode, allowHighFrameRate: preferences.prefersHighFrameRate,
+        let choice = OfflineDownloadChoice(mode: suppliedMode ?? mode, allowHighFrameRate: preferences.prefersHighFrameRate,
                                            variant: option.variant, audioID: audioID, subtitleIDs: Array(subtitleIDs))
         let result = await OfflineDownloads.manager.enqueue(
             identity: draft.identity, title: draft.title, target: draft.target, choice: choice,
@@ -4305,7 +4330,9 @@ private struct OfflineAssetRow: View {
     /// 管理下載's checkmark; nil elsewhere.
     var selected: Binding<Bool>?
     let onPlay: () -> Void
-    @State private var deletion: OfflineDeletion?
+    /// IOS-POC-52 (F31): the list owns the confirmation. A row is rebuilt when its download moves
+    /// to another section, and a dialog the row owned would go with it, unconfirmed.
+    let onDelete: (OfflineDeletion) -> Void
     @State private var info: OfflineAsset?
 
     var body: some View {
@@ -4332,7 +4359,7 @@ private struct OfflineAssetRow: View {
             Spacer(minLength: 4)
             Menu {
                 OfflineActions(asset: asset, onDownload: {}, onPlay: onPlay, onInfo: { info = asset },
-                               onDelete: { deletion = OfflineDeletion([asset], title: "刪除這一集的下載") })
+                               onDelete: { onDelete(OfflineDeletion([asset], title: "刪除這一集的下載")) })
             } label: {
                 Image(systemName: "ellipsis.circle").font(.title3).frame(width: 44, height: 44).contentShape(Rectangle())
             }
@@ -4344,11 +4371,10 @@ private struct OfflineAssetRow: View {
         // 左滑 → 刪除, confirmed first: deleting gigabytes is not something an undo can take back.
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button("刪除", systemImage: "trash") {
-                deletion = OfflineDeletion([asset], title: "刪除這一集的下載")
+                onDelete(OfflineDeletion([asset], title: "刪除這一集的下載"))
             }
             .tint(.red)
         }
-        .offlineDeleteConfirmation($deletion)
         .sheet(item: $info) { OfflineAssetInfoView(asset: $0) }
     }
 
@@ -4401,12 +4427,12 @@ private struct OfflineDownloadsView: View {
                 }
                 if !running.isEmpty {
                     Section("下載佇列（\(running.count)）") {
-                        ForEach(running) { OfflineAssetRow(asset: $0, onPlay: {}) }
+                        ForEach(running) { OfflineAssetRow(asset: $0, onPlay: {}, onDelete: { deletion = $0 }) }
                     }
                 }
                 if !attention.isEmpty || !snapshot.unreadable.isEmpty {
                     Section("需要處理（\(attention.count + snapshot.unreadable.count)）") {
-                        ForEach(attention) { OfflineAssetRow(asset: $0, onPlay: {}) }
+                        ForEach(attention) { OfflineAssetRow(asset: $0, onPlay: {}, onDelete: { deletion = $0 }) }
                         ForEach(snapshot.unreadable, id: \.self) { folder in
                             HStack {
                                 Image(systemName: "questionmark.folder").foregroundStyle(.orange)
@@ -4420,7 +4446,9 @@ private struct OfflineDownloadsView: View {
                 }
                 if !done.isEmpty {
                     Section("已下載（\(done.count)）") {
-                        ForEach(done) { asset in OfflineAssetRow(asset: asset, onPlay: { playing = asset }) }
+                        ForEach(done) { asset in
+                            OfflineAssetRow(asset: asset, onPlay: { playing = asset }, onDelete: { deletion = $0 })
+                        }
                     }
                 }
             }
@@ -4458,7 +4486,7 @@ private struct OfflineTitleDownloadsView: View {
                 OfflineAssetRow(asset: asset, showsTitle: false,
                                 selected: Binding(get: { selected.contains(asset.id) },
                                                   set: { if $0 { selected.insert(asset.id) } else { selected.remove(asset.id) } }),
-                                onPlay: { playing = asset })
+                                onPlay: { playing = asset }, onDelete: { deletion = $0 })
             }
             .listRowBackground(appSurface)
         }

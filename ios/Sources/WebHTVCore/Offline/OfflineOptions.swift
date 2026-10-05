@@ -68,6 +68,13 @@ public struct OfflineDownloadOptions: Equatable, Sendable {
     public let compatibility: OfflinePlaybackCompatibility
 
     public func option(for mode: OfflineQualityMode) -> OfflineModeOption? { modes[mode] }
+
+    /// IOS-POC-52 (F35): one version whose resolution nobody declared — a single file, or a media
+    /// playlist with no master. Nothing is picked by bitrate, and the 1080p cap cannot be checked.
+    public var singleUndeclaredVersion: Bool {
+        guard let first = modes.values.first else { return false }
+        return modes.values.allSatisfy { $0.resolutionUnknown && $0.variant == first.variant }
+    }
 }
 
 /// The viewer's picks, kept with the download so preparing (again) makes the same package.

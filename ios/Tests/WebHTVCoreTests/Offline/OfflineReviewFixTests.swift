@@ -704,4 +704,138 @@ struct OfflineReviewFixTests {
         #expect(relaunched.folderExists(asset.id))
         #expect(await relaunched.manager.asset(asset.id)?.pendingAutoDelete == false)
     }
+
+    // MARK: Batch 5 — security and the sheet
+
+    // F22: a sidecar subtitle sent with the source's Cookie and Authorization (same origin as the
+    // stream) is redirected elsewhere. URLSession copies the fields onto the redirect; they must
+    // reach only the stream's own origin, as every other offline request's do.
+    @Test func offlineSubtitleRedirectsKeepTheSourceCredentialsOnItsOrigin() throws {
+        var original = URLRequest(url: URL(string: "https://cdn.a.com/sub/1.srt")!)
+        let sent = ["Cookie": "auth=1", "Authorization": "Bearer t", "User-Agent": "UA", "Referer": "https://site.example/",
+                    "Accept": "text/plain"]
+        for (name, value) in sent { original.setValue(value, forHTTPHeaderField: name) }
+        let session = OfflineHTTP.subtitleSession
+        let policy = try #require(session.delegate as? OfflineHTTP.SubtitleRedirectPolicy)
+        let task = session.dataTask(with: original)
+        defer { task.cancel() }
+        func redirect(to address: String) throws -> URLRequest {
+            var carried = original
+            carried.url = URL(string: address)
+            let response = try #require(HTTPURLResponse(url: original.url!, statusCode: 302, httpVersion: nil,
+                                                        headerFields: ["Location": address]))
+            var answer: URLRequest?
+            policy.urlSession(session, task: task, willPerformHTTPRedirection: response, newRequest: carried) { answer = $0 }
+            return try #require(answer)
+        }
+
+        let elsewhere = try redirect(to: "https://storage.other.net/x.srt")
+        #expect(elsewhere.value(forHTTPHeaderField: "Cookie") == nil)
+        #expect(elsewhere.value(forHTTPHeaderField: "Authorization") == nil)
+        #expect(elsewhere.value(forHTTPHeaderField: "User-Agent") == "UA")
+        #expect(elsewhere.value(forHTTPHeaderField: "Referer") == "https://site.example/")
+        #expect(elsewhere.value(forHTTPHeaderField: "Accept") == "text/plain")
+
+        let sameOrigin = try redirect(to: "https://cdn.a.com/sub/2.srt")
+        #expect(sameOrigin.value(forHTTPHeaderField: "Cookie") == "auth=1")
+        #expect(sameOrigin.value(forHTTPHeaderField: "Authorization") == "Bearer t")
+
+        let downgraded = try redirect(to: "http://cdn.a.com/sub/1.srt")
+        #expect(downgraded.value(forHTTPHeaderField: "Cookie") == nil)
+        #expect(downgraded.value(forHTTPHeaderField: "Authorization") == nil)
+    }
+
+    // F21: 全部下載 in 最省空間 on a stream whose versions are all above 720p still downloads (the
+    // sheet's fallback), but the record says the mode that supplied the version, not 最省空間.
+    @Test func downloadAllInSaverModeWithoutA720pVersionRecordsTheModeItUsed() async throws {
+        let base = "https://cdn.example.com/show/ep1/"
+        let harness = OfflineHarness(network: FakeNetwork([
+            Fixture.master.absoluteString: .text(Fixture.masterText([
+                Fixture.variant(1920, 1080, bandwidth: 4_000_000, average: 2_500_000, uri: "1080/index.m3u8"),
+            ])),
+            base + "1080/index.m3u8": .text(Fixture.media(4)),
+        ]))
+        let options = try await harness.manager.options(for: Fixture.target())
+        #expect(options.option(for: .saver) == nil)
+        #expect(options.option(for: .smart) != nil)
+        await harness.manager.setResolver { _ in Fixture.target() }
+        await harness.manager.start()
+
+        let result = await harness.manager.enqueueAutomatic(
+            identity: Fixture.identity(), title: Fixture.title(), mode: .saver, allowHighFrameRate: false,
+            preferredSubtitleLanguage: nil, autoDeleteAfterWatching: true, allowsCellular: false)
+        guard case .created(let queued) = result else {
+            Issue.record("not queued: \(result)")
+            return
+        }
+        let downloading = try #require(await harness.waitFor(queued.id, .downloading))
+
+        #expect(downloading.state == .downloading)
+        #expect(downloading.video?.height == 1080)
+        #expect(downloading.mode == .smart)
+        #expect(OfflineAssetStore(layout: harness.layout).request(for: queued.id)?.choice.mode == .smart)
+    }
+
+    // F32: a launch prepares queued downloads before the app has loaded its configuration (iOS
+    // may relaunch it in the background for a finished transfer, with no screen to load it). A
+    // retry that must resolve its episode waits queued instead of failing as unresolvable; one
+    // that already has its addresses is not held back.
+    @Test func aDownloadThatMustResolveWaitsQueuedUntilTheConfigurationIsLoaded() async throws {
+        let harness = OfflineHarness(network: Fixture.simpleNetwork())
+        let loaded = Gate()
+        let resolved = Resolutions()
+        await harness.manager.setResolver({ asset in
+            resolved.append(asset.identity.episodeURL)
+            return Fixture.target()
+        }, ready: { await loaded.isOpen })
+        await harness.manager.start()
+
+        let automatic = await harness.manager.enqueueAutomatic(
+            identity: Fixture.identity("ep2"), title: Fixture.title("ep2"), mode: .smart, allowHighFrameRate: false,
+            preferredSubtitleLanguage: nil, autoDeleteAfterWatching: true, allowsCellular: false)
+        guard case .created(let waiting) = automatic else {
+            Issue.record("not queued: \(automatic)")
+            return
+        }
+        let (plain, _) = await harness.startSimpleDownload(identity: Fixture.identity("ep1"))
+        #expect(await harness.waitFor(plain.id, .downloading)?.state == .downloading)
+
+        #expect(await harness.manager.asset(waiting.id)?.state == .queued)
+        #expect(resolved.all.isEmpty)
+
+        await loaded.open()
+        await harness.manager.resolverBecameReady()
+        #expect(await harness.waitFor(waiting.id, .downloading)?.state == .downloading)
+        #expect(resolved.all == [Fixture.identity("ep2").episodeURL])
+    }
+
+    // F35: a single file or a media playlist with no master is one version of unknown size; a
+    // master offers versions to pick from by resolution.
+    @Test func aLoneUndeclaredVersionIsToldApartFromAPickedOne() async throws {
+        let progressive = OfflineOptionsBuilder.progressive(size: 1_000, sidecars: [], preferredSubtitleLanguage: nil)
+        #expect(progressive.singleUndeclaredVersion)
+
+        let media = URL(string: "https://cdn.example.com/show/ep1/index.m3u8")!
+        let bare = OfflineHarness(network: FakeNetwork([media.absoluteString: .text(Fixture.media(4))]))
+        #expect(try await bare.manager.options(for: Fixture.target(media)).singleUndeclaredVersion)
+
+        let master = OfflineHarness(network: Fixture.simpleNetwork())
+        #expect(try await master.manager.options(for: Fixture.target()).singleUndeclaredVersion == false)
+
+        // Undeclared too, but more than one: 最省空間 and 智慧 1080p pick different ones by bitrate.
+        let base = "https://cdn.example.com/show/ep1/"
+        let undeclared = OfflineHarness(network: FakeNetwork([
+            Fixture.master.absoluteString: .text(Fixture.masterText([
+                Fixture.variant(nil, nil, bandwidth: 800_000, uri: "low/index.m3u8"),
+                Fixture.variant(nil, nil, bandwidth: 3_000_000, uri: "high/index.m3u8"),
+            ])),
+            base + "low/index.m3u8": .text(Fixture.media(4)),
+            base + "high/index.m3u8": .text(Fixture.media(4)),
+        ]))
+        let picked = try await undeclared.manager.options(for: Fixture.target())
+        #expect(picked.option(for: .saver)?.resolutionUnknown == true)
+        #expect(picked.singleUndeclaredVersion == false)
+        #expect(OfflineOptionsBuilder.refused(OfflineFailure(.drmProtected), compatibility: .avPlayerOnly)
+            .singleUndeclaredVersion == false)
+    }
 }

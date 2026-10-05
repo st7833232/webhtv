@@ -107,6 +107,8 @@ public actor OfflineDownloadManager {
     private var started = false
     private var observer: (@Sendable (OfflineSnapshot) -> Void)?
     private var resolver: (@Sendable (OfflineAsset) async -> PlaybackTarget?)?
+    /// IOS-POC-52 (F32): whether the resolver can answer yet.
+    private var resolverReady: @Sendable () async -> Bool = { true }
     private var plans = [String: OfflinePackagePlan]()
     private var done = [String: Set<Int>]()
     /// IOS-POC-51: each finished unit's size, for projecting the package's size as it arrives.
@@ -140,8 +142,20 @@ public actor OfflineDownloadManager {
 
     /// Resolves an episode again for a retry whose addresses expired. The app supplies it: only the
     /// app knows the loaded configuration and its sites.
-    public func setResolver(_ resolver: @escaping @Sendable (OfflineAsset) async -> PlaybackTarget?) {
+    ///
+    /// IOS-POC-52 (F32): `ready` answers whether the app has loaded its configuration. Until it has
+    /// — a launch iOS makes in the background for a finished transfer renders no screen to load
+    /// it — a download that must resolve its episode again stays queued instead of failing as
+    /// unresolvable. Call `resolverBecameReady()` when that changes.
+    public func setResolver(_ resolver: @escaping @Sendable (OfflineAsset) async -> PlaybackTarget?,
+                            ready: @escaping @Sendable () async -> Bool = { true }) {
         self.resolver = resolver
+        resolverReady = ready
+    }
+
+    /// IOS-POC-52 (F32): the configuration is loaded; downloads waiting for it can start.
+    public func resolverBecameReady() async {
+        await pump()
     }
 
     public func snapshot() -> OfflineSnapshot {
@@ -393,10 +407,13 @@ public actor OfflineDownloadManager {
     /// is marked preparing before anything is awaited, so a pump that runs meanwhile counts it.
     func pump() async {
         guard started else { return }
+        let canResolve = await resolverReady()
         store.flushUnwritten()
         let all = store.all()
         let running = all.filter { $0.state == .preparing || $0.state == .downloading }.count
-        let next = all.filter { $0.state == .queued }.sorted { $0.createdAt < $1.createdAt }
+        // IOS-POC-52 (F32): one that must resolve its episode waits while the resolver cannot.
+        let next = all.filter { $0.state == .queued && (canResolve || store.request(for: $0.id)?.needsFreshSource == false) }
+            .sorted { $0.createdAt < $1.createdAt }
             .prefix(max(Self.concurrentDownloads - running, 0))
         let starting = next.compactMap { asset in
             store.update(asset.id, now: deps.now(), { $0.state = .preparing; $0.failure = nil })
@@ -675,12 +692,17 @@ public actor OfflineDownloadManager {
                     fail(id, refusal)
                     return
                 }
-                guard let option = options.option(for: request.choice.mode) ?? options.option(for: .smart)
-                        ?? options.modes.values.first else {
+                // IOS-POC-52 (F21): a mode the stream has nothing for (最省空間 with every version
+                // above 720p) falls back as before, but the download is recorded under the mode
+                // that supplied it, never another mode's version under the asked one's label.
+                let order: [OfflineQualityMode] = [request.choice.mode, .smart] + OfflineQualityMode.allCases
+                guard let mode = order.first(where: { options.option(for: $0) != nil }),
+                      let option = options.option(for: mode) else {
                     fail(id, OfflinePackageError.empty.failure)
                     return
                 }
-                request.choice = OfflineDownloadChoice(mode: request.choice.mode,
+                if mode != request.choice.mode { store.update(id, now: deps.now()) { $0.mode = mode } }
+                request.choice = OfflineDownloadChoice(mode: mode,
                                                        allowHighFrameRate: request.choice.allowHighFrameRate,
                                                        variant: option.variant, audioID: option.defaultAudioID,
                                                        subtitleIDs: option.defaultSubtitleIDs)

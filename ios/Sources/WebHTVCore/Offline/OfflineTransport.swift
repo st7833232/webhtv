@@ -227,6 +227,28 @@ public enum OfflineHTTP {
         }
     }
 
+    /// IOS-POC-52 (F22): the session the offline sidecar subtitles are fetched on. URLSession copies
+    /// a request's header fields onto its redirect; this one removes what the new address may not
+    /// have. One session serves every download, so the rule is judged against the address the
+    /// request first went to: a source's Cookie or Authorization is only ever sent to the stream's
+    /// own origin, so whenever there is one to protect, that address is the origin.
+    public static let subtitleSession: URLSession = {
+        URLSession(configuration: URLSession.webHTV.configuration, delegate: SubtitleRedirectPolicy(), delegateQueue: nil)
+    }()
+
+    final class SubtitleRedirectPolicy: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+            guard let original = task.originalRequest, let origin = original.url else {
+                completionHandler(nil)
+                return
+            }
+            // `Accept` is the subtitle request's own, not the source's: left as URLSession carries it.
+            let sent = (original.allHTTPHeaderFields ?? [:]).filter { !SourceSubtitleProvider.dropped.contains($0.key.lowercased()) }
+            completionHandler(OfflineHTTP.redirect(request, headers: sent, origin: origin))
+        }
+    }
+
     /// A redirect keeps only the headers its new address may have; the ones it may not are
     /// removed, not just left unset.
     static func redirect(_ request: URLRequest, headers: [String: String], origin: URL) -> URLRequest {

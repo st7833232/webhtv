@@ -1,11 +1,11 @@
 # IOS-POC-11：SideStore 發布流程
 
 
-## Current release — 2026-10-05：0.1.67 (68) / IOS-POC-52-9～12、IOS-POC-5G-1
+## Current release — 2026-10-05：0.1.68 (69) / IOS-POC-54
 
-**目前最新版是 `0.1.67 (68)`**（F11 背景喚醒、F29、F12 換 port 重載、F35 探測並顯示解析度、網頁嗅探 `src` hook）。完整紀錄在下方「第六十八次發布」：run `37270610119` success，tag `ios-v0.1.67-b68` → `e7520cd4`，`source.json` `285ce262`，`WebHTV-0.1.67-68.ipa` 35,225,914 bytes。真機未驗收。
+**目前最新版是 `0.1.68 (69)`**（爬蟲共用工具第一批，`js.host` 1.2／host API 2 上線）。完整紀錄在下方「第六十九次發布」：run `37293789964` success，tag `ios-v0.1.68-b69` → `67b78e7a`，`source.json` `79bfd2c6`，`WebHTV-0.1.68-69.ipa` 35,225,586 bytes。真機未驗收。
 
-前一版 `0.1.66 (67)`（IOS-POC-52 批次 1～6、IOS-POC-53）見「第六十七次發布」。
+前一版 `0.1.67 (68)`（F11、F29、F12、F35、網頁嗅探 `src` hook）見「第六十八次發布」；使用者回報該版的 UI、下載、播放與收藏已在真機驗收完成（2026-10-05）。
 
 發布紀錄有兩種寫法：本節到「0.1.61 (62)」是 IOS-UI-A session 寫在檔頭的段落（`0.1.61 (62)`～`0.1.64 (65)` 沒有「第 N 次發布」段落，對應第六十二～六十五次）；其餘版本是下方依序編號的「第 N 次發布」段落。
 
@@ -86,7 +86,7 @@
 
 ## Recovery anchor
 
-- 狀態：完成，且已發過**六十八個**版本，最新是 `0.1.67 (68)`（2026-10-05 更新；見檔頭「Current release」與各次發布；`0.1.5 (6)` 沒有獨立段落，記在 `docs/current-task-state.md`）。
+- 狀態：完成，且已發過**六十九個**版本，最新是 `0.1.68 (69)`（2026-10-05 更新；見檔頭「Current release」與各次發布；`0.1.5 (6)` 沒有獨立段落，記在 `docs/current-task-state.md`）。
 - 一次性的 push 觸發（`f103ab5b`）已於 2026-10-05 移除，發布回到 `workflow_dispatch`；見檔頭「0.1.61 (62)」一節的「待清理」。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
@@ -949,9 +949,44 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第六十八次發布：`0.1.67 (68)`（2026-10-05，**已發布**）
+## 第六十九次發布：`0.1.68 (69)`（2026-10-05，**已發布**）
 
-**目前最新版是 `0.1.67 (68)`。** 前面六十七版都已被取代。
+**目前最新版是 `0.1.68 (69)`。** 前面六十八版都已被取代。
+
+- 授權：使用者 2026-10-05 指示「發布新版讓 js.host 1.2 上線」。依規則只用 `workflow_dispatch` 並填 release notes。版號 `0.1.68`，build `69`。
+- 內容：`0.1.67 (68)` 的全部，加上 IOS-POC-54（`625a3f2e`）：`host.isVideoFormat`、`host.firstURL` 與 3 個來源改用 `host.result`；`js.host` 1.2、`SpiderPackStore.hostApiVersion`／`HOST_API` 2。見 `docs/IOS-POC-54-spider-shared-helpers.md`。
+- 發布序列：
+  1. 發布前 fetch，origin 是 `625a3f2e`；origin 上沒有 `ios-v0.1.68*`／`ios-v0.1.69*` tag，最新 Release 是 `0.1.67 (68)`。版號 commit `67b78e7a`（Task-Guard `IOS-RELEASE-0.1.68-b69`），push `625a3f2e..67b78e7a`。
+  2. 以 `gh workflow run` 觸發 `workflow_dispatch`：ref `ios-poc`，version `0.1.68`、build `69`，並填 release notes。run [`37293789964`](https://github.com/st7833232/webhtv/actions/runs/37293789964) 成功（10:00:48Z → 10:08:23Z），全部 steps success（device Release build、IPA／schema、建立 Release、公開 URL 比對、source publish）。
+  3. workflow 建立 tag `ios-v0.1.68-b69`（target `67b78e7a`），並推回 `source.json`（`79bfd2c6`，共六十九筆，第一筆 `0.1.68`，size 35,225,586，downloadURL 與 Release 相同；bundle `com.webhtv.ios.poc`、source identifier `com.webhtv.sidestore.source` 未改）。
+
+  **沒有手動建 tag。**
+- 產物：
+  - GitHub Release `WebHTV 0.1.68 (69)`：不是 draft，也不是 prerelease，2026-10-05 10:08:10Z 發布。
+  - `WebHTV-0.1.68-69.ipa`：**35,225,586 bytes**。digest SHA-256 為 `34a3ca262b7e15205070bbbad7d525f92d9d14f5dfa1c4dcd6acc187375108af`。
+  - IPA 未在本機下載核對。
+- 發布前驗證（本機 macOS 27、Xcode 27，見 IOS-POC-54 第 4 節）：13 個 port 的新舊版差分比較 13／13 逐字相同；`swift test --filter` 爬蟲／ABI／pack 9 個檔 128／128；本機 Release iphoneos 建置成功。沒有跑完整 `swift test` 或另跑測試 CI；本次 run 的 device Release build（CI Xcode）成功。
+- 影響：這版起 App 的 host API 是 2。用 `HOST_API = 2` 產生的相容套件，在 `0.1.67 (68)` 以前的 App 會被整包拒絕並提示需要較新的 App。
+- **真機尚未驗收。**
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.68 (69)（內建來源共用工具整理；真機未驗收）
+
+變更
+- 內建來源共用的影片格式判斷與鏡像網址解析整合為同一套工具；各來源的請求、播放網址與結果不變。
+- 來源相容套件的介面升為第 2 版：之後發布的相容套件需要這一版或更新的 App，舊版 App 會直接提示需要更新，不會載入後才出錯。
+
+已知限制
+- 尚未在任何真機驗證。
+```
+
+- 回復方式：revert `625a3f2e` 並以更高版號重新發布；保留所有既有 tag 與 Release。
+
+## 第六十八次發布：`0.1.67 (68)`（2026-10-05，**已發布**，已被 `0.1.68 (69)` 取代）
+
+`0.1.67 (68)` 曾是最新版。使用者回報此版的 UI、下載、播放與收藏已在真機驗收完成（2026-10-05）。
 
 - 授權：使用者 2026-10-05 選擇「等 F12／F35 做完一起發」，完成後確認 release notes（「照這份發布」）。依規則只用 `workflow_dispatch` 並填 release notes。版號 `0.1.67`，build `68`。
 - 內容：`0.1.66 (67)` 的全部，加上：

@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.68",
+          "date": "2026-10-05",
+          "localizedDescription": "WebHTV 0.1.68 (69)（內建來源共用工具整理；真機未驗收）\n\n變更\n- 內建來源共用的影片格式判斷與鏡像網址解析整合為同一套工具；各來源的請求、播放網址與結果不變。\n- 來源相容套件的介面升為第 2 版：之後發布的相容套件需要這一版或更新的 App，舊版 App 會直接提示需要更新，不會載入後才出錯。\n\n已知限制\n- 尚未在任何真機驗證。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.68-b69/WebHTV-0.1.68-69.ipa",
+          "size": 35225586,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.67",
           "date": "2026-10-05",
           "localizedDescription": "WebHTV 0.1.67 (68)（離線下載與網頁嗅探修正；真機未驗收）\n\n修正\n- 背景下載時，App 被系統喚醒、處理完下載事件就立刻回報系統；下一集的準備改在申請到的背景時間內進行，減少處理到一半被暫停。\n- 下載送出到一半被暫停或刪除時，不會再漏掉剛建立的傳輸。\n- 離線播放中的集數，在 App 回到前景或從鎖定畫面播放時，如果本機播放服務換了連接埠，會自動以新位址重新載入，位置與音軌、字幕不變。\n- 網頁播放頁的影片嗅探：頁面對還沒放上頁面的影片元件設定網址時，現在也抓得到。\n\n新增\n- 只有一種版本的影片（MP4／MOV 單檔、fMP4 播放清單）下載前會讀取實際解析度與編碼，顯示在下載畫面並記在下載紀錄；超過 1080p 會註明，仍照原樣下載。\n\n已知限制\n- 尚未在任何真機驗證。\n- MPEG-TS、MKV、FLV 單檔仍無法在下載前確認解析度。",

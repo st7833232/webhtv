@@ -313,8 +313,11 @@
 - 同步：開始批次 3 時，遠端已被其他 session 推進到 `f39c7d86`。批次 3 的改動先 stash，用 `git pull --no-rebase` 合併（merge commit `1c31013f`，沒有衝突），再放回改動。
   - 原本的 task guard session 尚未 commit，手動把它的狀態標為 abandoned。
   - 新 session 以 `--adopt-dirty` 收進這些改動。
+- Ponytail：本文件與 6 批 commit 都沒有記錄（2026-10-05 文件同步時補記）。同一 session 的 IOS-POC-53 記為 `unavailable / skipped`，所以當時的 runtime 可能沒有 Ponytail，但本任務沒有留下紀錄，不能據此認定。目前本機環境有 Ponytail，可以對 `db9618bd..8b5ba5e4` 中 IOS-POC-52 的程式 diff 補跑。
 
 ## 下一步
+
+- 未決、等使用者決定：F11（背景執行時間）、F12（換埠時重建播放項目）、F35（探測實際解析度）只做了一部分，未做的部分是否另開任務（同 `docs/current-task-state.md` 最上方交接）。
 
 - 40 項清單、處置、commit 與驗證已寫進 `docs/IOS-POC-47-offline-downloads.md` 第 15 節，`docs/current-task-state.md` 與 `docs/IOS-POC-49-offline-cellular-download-all.md` 已同步更新。
 - 已隨 `0.1.66 (67)` 發布（含 IOS-POC-53；run `37258480859`，tag `ios-v0.1.66-b67`），見 `docs/IOS-POC-11-sidestore-release.md` 第六十七次發布。真機未驗證。IOS-POC-53 已完成，見 `docs/IOS-POC-53-storage-cleanup-reset.md`。

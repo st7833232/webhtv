@@ -86,7 +86,7 @@
 
 ## Recovery anchor
 
-- 狀態：完成，且已發過**六十六個**版本，最新是 `0.1.65 (66)`（2026-10-05 更新；見檔頭「Current release」與各次發布；`0.1.5 (6)` 沒有獨立段落，記在 `docs/current-task-state.md`）。
+- 狀態：完成，且已發過**六十七個**版本，最新是 `0.1.66 (67)`（2026-10-05 更新；見檔頭「Current release」與各次發布；`0.1.5 (6)` 沒有獨立段落，記在 `docs/current-task-state.md`）。
 - 一次性的 push 觸發（`f103ab5b`）已於 2026-10-05 移除，發布回到 `workflow_dispatch`；見檔頭「0.1.61 (62)」一節的「待清理」。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。

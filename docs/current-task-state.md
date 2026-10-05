@@ -15,6 +15,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 - **`0.1.66 (67)` 已發布**（2026-10-05；run `37258480859` success，tag `ios-v0.1.66-b67` → `d99036be`，`source.json` `03e8b49d`，IPA 35,199,091 bytes），**目前最新版是 `0.1.66 (67)`**。真機未驗證。
 - 未決、等使用者決定：F11（背景執行時間）、F12（換埠時重建播放項目）、F35（探測實際解析度）未做的部分是否另開任務。
+- 文件同步（2026-10-05 第二次，`DOCS-SYNC-2026-10-05-B`，`f39c7d86..7c280667`）：README 補上「儲存空間」頁，並依 F1、F13、F21 更新「最省空間」與「看完後自動刪除」；IOS-POC-11 recovery anchor 改為 67 版、最新 `0.1.66 (67)`；IOS-POC-52 文件補記「沒有 Ponytail 紀錄」，並寫入 F11／F12／F35 未決。IOS-POC-52 的 Ponytail 是否補跑，等使用者決定。
 
 ## Previous handoff — 2026-10-05：IOS-POC-51 用實際片段大小預估下載容量
 

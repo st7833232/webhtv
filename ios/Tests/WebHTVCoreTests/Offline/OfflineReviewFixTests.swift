@@ -83,4 +83,307 @@ struct OfflineReviewFixTests {
         let written = try JSONDecoder.offline.decode(OfflineAsset.self, from: Data(contentsOf: metadata))
         #expect(written.state == .failed)
     }
+
+    // MARK: F8 — a clear init section declared before the key
+
+    private func media(_ text: String) throws -> HLSMediaPlaylist {
+        guard case .media(let media) = try HLSPlaylist.parse(text, base: Self.base) else { throw HLSPlaylist.ParseError.notAPlaylist }
+        return media
+    }
+
+    private func localPlaylist(_ text: String) throws -> String {
+        let plan = try OfflinePackageBuilder.build(.init(master: nil, variant: nil, video: try media(text), audio: nil, subtitles: []),
+                                                   origin: Self.base, headers: [:])
+        return try #require(plan.playlists[OfflinePackageBuilder.videoPlaylist])
+    }
+
+    private func tags(_ playlist: String) -> [String] {
+        playlist.split(separator: "\n").map(String.init).filter { $0.hasPrefix("#EXT-X-KEY") || $0.hasPrefix("#EXT-X-MAP") }
+            .map { $0.hasPrefix("#EXT-X-MAP") ? "MAP" : ($0.contains("METHOD=NONE") ? "NONE" : "KEY") }
+    }
+
+    // A key applies only to init sections declared after it (RFC 8216 §4.3.2.4): the local copy
+    // must keep the clear init section outside the key, or both engines decrypt it into garbage.
+    @Test func aMapDeclaredBeforeTheKeyStaysClear() throws {
+        let local = try localPlaylist("""
+        #EXTM3U
+        #EXT-X-TARGETDURATION:6
+        #EXT-X-MAP:URI="init.mp4"
+        #EXT-X-KEY:METHOD=AES-128,URI="k.key",IV=0x01
+        #EXTINF:6,
+        s0.m4s
+        #EXTINF:6,
+        s1.m4s
+        #EXT-X-ENDLIST
+        """)
+        #expect(tags(local) == ["MAP", "KEY"])
+    }
+
+    @Test func aMapDeclaredAfterTheKeyStaysEncrypted() throws {
+        let local = try localPlaylist("""
+        #EXTM3U
+        #EXT-X-TARGETDURATION:6
+        #EXT-X-KEY:METHOD=AES-128,URI="k.key",IV=0x01
+        #EXT-X-MAP:URI="init.mp4"
+        #EXTINF:6,
+        s0.m4s
+        #EXT-X-ENDLIST
+        """)
+        #expect(tags(local) == ["KEY", "MAP"])
+    }
+
+    // A MAP and a KEY changing at the same segment: the new init section under the old (no) key.
+    @Test func aMapAndAKeyChangingTogetherKeepTheirOrder() throws {
+        let local = try localPlaylist("""
+        #EXTM3U
+        #EXT-X-TARGETDURATION:6
+        #EXT-X-MAP:URI="init1.mp4"
+        #EXTINF:6,
+        s0.m4s
+        #EXT-X-MAP:URI="init2.mp4"
+        #EXT-X-KEY:METHOD=AES-128,URI="k.key",IV=0x01
+        #EXTINF:6,
+        s1.m4s
+        #EXT-X-ENDLIST
+        """)
+        #expect(tags(local) == ["MAP", "MAP", "KEY"])
+    }
+
+    // MARK: F27 — a byte-order mark
+
+    @Test func everyPlaylistMayStartWithAByteOrderMark() async throws {
+        let text = "\u{FEFF}#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\ns0.ts\n#EXT-X-ENDLIST\n"
+        #expect(throws: Never.self) { try HLSPlaylist.parse(text, base: Self.base) }
+        var network = Fixture.simpleNetwork()
+        network.responses[Self.base.absoluteString + "1080/index.m3u8"] = .text("\u{FEFF}" + Fixture.media(4))
+        let harness = OfflineHarness(network: network)
+        let (asset, _) = await harness.startSimpleDownload()
+        #expect(await harness.manager.asset(asset.id)?.state == .downloading)
+    }
+
+    // MARK: F28 — AV1 or VP9 that one engine cannot play
+
+    @Test func av1AndVP9AreChosenOnlyWhenNothingElseFits() throws {
+        func master(_ lines: [String]) throws -> HLSMasterPlaylist {
+            guard case .master(let master) = try HLSPlaylist.parse(Fixture.masterText(lines), base: Self.base) else {
+                throw HLSPlaylist.ParseError.notAPlaylist
+            }
+            return master
+        }
+        let mixed = try master([
+            Fixture.variant(1920, 1080, codecs: "av01.0.08M.08,mp4a.40.2", bandwidth: 3_000_000, uri: "av1.m3u8"),
+            Fixture.variant(1920, 1080, codecs: "vp09.00.40.08,mp4a.40.2", bandwidth: 3_000_000, uri: "vp9.m3u8"),
+            Fixture.variant(1280, 720, codecs: "avc1.64001f,mp4a.40.2", bandwidth: 2_500_000, uri: "h264.m3u8"),
+        ])
+        for mode in OfflineQualityMode.allCases {
+            #expect(OfflineMediaSelector.chooseVideo(from: mixed, mode: mode)?.variant.uri.lastPathComponent == "h264.m3u8")
+        }
+        let onlyAV1 = try master([Fixture.variant(1920, 1080, codecs: "av01.0.08M.08", bandwidth: 3_000_000, uri: "av1.m3u8")])
+        #expect(OfflineMediaSelector.chooseVideo(from: onlyAV1, mode: .smart)?.variant.uri.lastPathComponent == "av1.m3u8")
+    }
+
+    // MARK: F7 — a key server's error page as the key
+
+    static func encryptedNetwork() -> FakeNetwork {
+        var network = Fixture.simpleNetwork()
+        network.responses[base.absoluteString + "1080/index.m3u8"] = .text(
+            Fixture.media(4, extra: ["#EXT-X-KEY:METHOD=AES-128,URI=\"k.key\""]))
+        return network
+    }
+
+    @Test func aKeyThatIsNotSixteenBytesFailsTheDownload() async throws {
+        let harness = OfflineHarness(network: Self.encryptedNetwork())
+        await harness.manager.start()
+        guard case .created(let asset) = await harness.manager.enqueue(
+            identity: Fixture.identity(), title: Fixture.title(), target: Fixture.target(),
+            choice: OfflineDownloadChoice(mode: .smart), estimate: .unknown, autoDeleteAfterWatching: false,
+            allowsCellular: false) else { Issue.record("not created"); return }
+        let requests = await harness.waitForSubmissions(5, assetID: asset.id)
+        let key = try #require(requests.first { $0.url.lastPathComponent == "k.key" })
+
+        await harness.transport.finish(key.tag, body: Data("<html><body>token expired</body></html>".utf8))
+
+        let failed = try #require(await harness.waitFor(asset.id, .failed))
+        #expect(failed.state == .failed && failed.failure?.kind == .expiredSource)
+        #expect(!FileManager.default.fileExists(atPath: harness.layout.folder(for: asset.id).appendingPathComponent("keys/k1.key").path))
+    }
+
+    @Test func theVerifierRefusesAKeyOfTheWrongSize() throws {
+        let root = OfflineHarness.scratchLayout().root.appendingPathComponent("pkg")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("keys"), withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 39).write(to: root.appendingPathComponent("keys/k1.key"))
+        let plan = OfflinePackagePlan(units: [OfflineDownloadUnit(index: 0, remoteURL: URL(string: "https://k.example/k")!, byteRange: nil,
+                                                                  relativePath: "keys/k1.key", role: .key)],
+                                      playlists: [:], package: .hls(entryPath: "playlists/index.m3u8"), origin: Self.base, headers: [:])
+        #expect(OfflinePackageVerifier.problems(plan: plan, root: root).contains { $0.hasPrefix("key #0") })
+        try Data(repeating: 1, count: 16).write(to: root.appendingPathComponent("keys/k1.key"))
+        #expect(OfflinePackageVerifier.problems(plan: plan, root: root).isEmpty)
+    }
+
+    // MARK: Retry and re-resolve (F6, F9, F16, F17, F20, F26)
+
+    private func waitUntil(_ condition: @escaping () async -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < deadline {
+            if await condition() { return true }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return await condition()
+    }
+
+    // F6: a completed download whose files went missing has no request left; 重新下載 resolves the
+    // episode again instead of failing as interrupted for ever.
+    @Test func aCompletedDownloadWithMissingFilesCanBeDownloadedAgain() async throws {
+        let harness = OfflineHarness(network: Fixture.simpleNetwork())
+        let resolved = Resolutions()
+        await harness.manager.setResolver { asset in resolved.append(asset.identity.episodeURL); return Fixture.target() }
+        let (asset, _) = await harness.startSimpleDownload()
+        #expect(await harness.completeAll(asset.id)?.state == .completed)
+        try FileManager.default.removeItem(at: harness.layout.folder(for: asset.id).appendingPathComponent("playlists"))
+
+        let relaunched = harness.relaunched(network: Fixture.simpleNetwork())
+        await relaunched.manager.setResolver { asset in resolved.append(asset.identity.episodeURL); return Fixture.target() }
+        await relaunched.manager.start()
+        #expect(await relaunched.manager.asset(asset.id)?.failure?.kind == .integrity)
+        await relaunched.transport.clearSubmitted()
+        await relaunched.manager.resume(asset.id)
+
+        #expect(await relaunched.waitFor(asset.id, .downloading)?.state == .downloading)
+        #expect(resolved.all.count == 1)
+        #expect(await relaunched.waitForSubmissions(4, assetID: asset.id).count == 4)
+    }
+
+    // F9: the source re-encoded the episode — same number of segments, other durations. Files from
+    // the first encode must not be mixed into the second.
+    @Test func aReResolveWithOtherDurationsStartsTheFilesOver() async throws {
+        let fresh = URL(string: Self.base.absoluteString + "master.m3u8?sig=fresh")!
+        var network = Fixture.simpleNetwork()
+        network.responses[fresh.absoluteString] = network.responses[Fixture.master.absoluteString]
+        let harness = OfflineHarness(network: network)
+        await harness.manager.setResolver { _ in Fixture.target(fresh) }
+        let (asset, requests) = await harness.startSimpleDownload()
+        try #require(requests.count == 4)
+        await harness.transport.finish(requests[0].tag, body: Fixture.segment())
+        await harness.transport.finish(requests[1].tag, body: Fixture.segment())
+        await harness.transport.fail(requests[2].tag, OfflineTransferFailure(.http(403)))
+        #expect(await harness.waitFor(asset.id, .failed)?.state == .failed)
+
+        var reEncoded = network
+        reEncoded.responses[Self.base.absoluteString + "1080/index.m3u8"] = .text(Fixture.media(4, duration: 5))
+        let relaunched = harness.relaunched(network: reEncoded)
+        await relaunched.manager.setResolver { _ in Fixture.target(fresh) }
+        await relaunched.manager.start()
+        await relaunched.transport.clearSubmitted()
+        await relaunched.manager.resume(asset.id)
+
+        #expect(await relaunched.waitForSubmissions(4, assetID: asset.id).count == 4)
+    }
+
+    // F16: the earlier plan cannot be read — nothing says what the files on disk are, so they go.
+    @Test func anUnreadablePlanDiscardsTheFilesItDescribed() async throws {
+        let harness = OfflineHarness(network: Fixture.simpleNetwork())
+        let (asset, requests) = await harness.startSimpleDownload()
+        try #require(requests.count == 4)
+        await harness.transport.finish(requests[0].tag, body: Fixture.segment())
+        try Data("{not json".utf8).write(to: harness.layout.planFile(for: asset.id))
+
+        let relaunched = harness.relaunched(network: Fixture.simpleNetwork())
+        await relaunched.manager.start()
+        #expect(await relaunched.manager.asset(asset.id)?.state == .failed)
+        await relaunched.transport.clearSubmitted()
+        await relaunched.manager.resume(asset.id)
+
+        #expect(await relaunched.waitForSubmissions(4, assetID: asset.id).count == 4)
+    }
+
+    // F17: resume data replays the old address and its Cookie; after a re-resolve it must go.
+    @Test func aReResolvedSingleFileDoesNotResumeTheOldRequest() async throws {
+        let file = URL(string: "https://cdn.example.com/movie.mp4?sig=old")!
+        let fresh = URL(string: "https://cdn.example.com/movie.mp4?sig=new")!
+        let answer = FakeNetwork.Response(data: Data(repeating: 0, count: 1024), status: 206,
+                                          headers: ["content-range": "bytes 0-1023/50000000"])
+        let harness = OfflineHarness(network: FakeNetwork([file.absoluteString: answer, fresh.absoluteString: answer]))
+        await harness.manager.setResolver { _ in Fixture.target(fresh) }
+        await harness.manager.start()
+        guard case .created(let asset) = await harness.manager.enqueue(
+            identity: Fixture.identity("movie"), title: Fixture.title(), target: Fixture.target(file, headers: ["Cookie": "sid=1"]),
+            choice: OfflineDownloadChoice(mode: .smart), estimate: .unknown, autoDeleteAfterWatching: false,
+            allowsCellular: false) else { Issue.record("not created"); return }
+        let first = await harness.waitForSubmissions(1)
+        try #require(first.count == 1)
+        // The connection dropped earlier with resume data; the next answer was a 403.
+        await harness.transport.fail(first[0].tag, OfflineTransferFailure(.http(403), resumeData: Data("old request".utf8)))
+        #expect(await harness.waitFor(asset.id, .failed)?.state == .failed)
+        #expect(await waitUntil { FileManager.default.fileExists(atPath: harness.layout.resumeDataFile(for: asset.id, unit: 0).path) })
+
+        await harness.transport.clearSubmitted()
+        await harness.manager.resume(asset.id)
+        let retried = await harness.waitForSubmissions(1)
+        #expect(retried.first?.url == fresh)
+        #expect(retried.first?.resumeData == nil)
+    }
+
+    // F20: the chosen subtitle was saved by the first attempt; a retry whose subtitle address no
+    // longer answers keeps it.
+    @Test func aSavedSubtitleSurvivesARetryThatCannotFetchItAgain() async throws {
+        let subtitleURL = "https://subs.example.com/zh.srt"
+        let fresh = URL(string: Self.base.absoluteString + "master.m3u8?sig=fresh")!
+        var network = Fixture.simpleNetwork()
+        network.responses[fresh.absoluteString] = network.responses[Fixture.master.absoluteString]
+        let harness = OfflineHarness(network: network, subtitleFiles: [subtitleURL: "1\n00:00:01,000 --> 00:00:02,000\n你好\n"])
+        // The re-resolved subtitle lives at an address the subtitle server no longer answers.
+        await harness.manager.setResolver { _ in
+            Fixture.target(fresh, subtitles: [SourceSubtitle(url: "https://subs.example.com/zh.srt?expired", name: "繁中", language: "zh-TW")])
+        }
+        await harness.manager.start()
+        guard case .created(let asset) = await harness.manager.enqueue(
+            identity: Fixture.identity(), title: Fixture.title(),
+            target: Fixture.target(subtitles: [SourceSubtitle(url: subtitleURL, name: "繁中", language: "zh-TW")]),
+            choice: OfflineDownloadChoice(mode: .smart, subtitleIDs: ["sidecar|0"]), estimate: .unknown,
+            autoDeleteAfterWatching: false, allowsCellular: false) else { Issue.record("not created"); return }
+        let requests = await harness.waitForSubmissions(4, assetID: asset.id)
+        #expect(await harness.manager.asset(asset.id)?.subtitles.map(\.name) == ["繁中"])
+        try #require(requests.count == 4)
+        await harness.transport.fail(requests[0].tag, OfflineTransferFailure(.http(403)))
+        #expect(await harness.waitFor(asset.id, .failed)?.state == .failed)
+
+        await harness.manager.resume(asset.id)
+        #expect(await harness.waitFor(asset.id, .downloading)?.state == .downloading)
+        #expect(await harness.manager.asset(asset.id)?.subtitles.map(\.name) == ["繁中"])
+    }
+
+    // F26: the viewer paused while the episode was being resolved; the late answer that it
+    // cannot be resolved changes nothing.
+    @Test func aLateResolverFailureDoesNotOverrideAPause() async throws {
+        let gate = Gate()
+        let harness = OfflineHarness(network: Fixture.simpleNetwork())
+        await harness.manager.setResolver { _ in await gate.wait(); return nil }
+        let (asset, requests) = await harness.startSimpleDownload()
+        try #require(requests.count == 4)
+        await harness.transport.fail(requests[0].tag, OfflineTransferFailure(.http(403)))
+        #expect(await harness.waitFor(asset.id, .failed)?.state == .failed)
+        Task { await harness.manager.resume(asset.id) }
+        #expect(await harness.waitFor(asset.id, .preparing)?.state == .preparing)
+
+        await harness.manager.pause(asset.id)
+        await gate.open()
+
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(await harness.manager.asset(asset.id)?.state == .paused)
+    }
+}
+
+/// Holds whoever waits until it is opened.
+actor Gate {
+    private var opened = false
+    private var waiting = [CheckedContinuation<Void, Never>]()
+    func wait() async {
+        if opened { return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+    func open() {
+        opened = true
+        waiting.forEach { $0.resume() }
+        waiting = []
+    }
 }

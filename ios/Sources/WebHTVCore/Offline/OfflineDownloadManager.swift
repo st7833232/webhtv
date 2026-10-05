@@ -571,18 +571,33 @@ public actor OfflineDownloadManager {
     }
 
     private func prepare(_ id: String, generation: Int) async {
-        guard var request = store.request(for: id) else {
-            fail(id, OfflineFailure(.interrupted))
-            return
-        }
+        guard let asset = store.asset(id) else { return }
+        // IOS-POC-52 (F6): a download whose request is gone — a completed one whose files went
+        // missing, or one interrupted between completing and cleaning up — starts over from the
+        // episode, as 全部下載 does, in the mode it was downloaded in.
+        var request = store.request(for: id) ?? OfflineDownloadRequest(
+            mediaURL: URL(string: "about:blank")!, headers: [:],
+            choice: OfflineDownloadChoice(mode: asset.mode, allowHighFrameRate: (asset.video?.frameRate ?? 0) > 31),
+            sidecars: [], needsFreshSource: true,
+            automatic: OfflineAutomaticChoice(preferredSubtitleLanguage: asset.subtitles.first?.language))
+        let reResolved = request.needsFreshSource
         if request.needsFreshSource {
-            guard let asset = store.asset(id), let resolver, let target = await resolver(asset) else {
+            guard let resolver, let target = await resolver(asset) else {
+                // IOS-POC-52 (F26): an abandoned resolution must not fail a newer attempt or a pause.
+                guard isCurrent(id, generation, .preparing) else { return }
                 fail(id, OfflineFailure(.expiredSource, detail: "無法重新取得來源"))
                 return
             }
             guard isCurrent(id, generation, .preparing) else { return }
             request.mediaURL = target.url
             request.headers = target.headers
+            // IOS-POC-52 (F20): the chosen subtitle files at their fresh addresses.
+            let fresh = OfflineOptionsBuilder.sidecars(target.subtitles)
+            request.sidecars = request.sidecars.map { chosen in
+                fresh.first { $0.name == chosen.name && $0.language == chosen.language }
+                    .map { OfflineSidecarRequest(id: chosen.id, url: $0.url, name: chosen.name, language: chosen.language,
+                                                 format: $0.format) } ?? chosen
+            }
             if let automatic = request.automatic {
                 // The sheet's own reading of the stream and its preselection, so 全部下載 makes
                 // the package a 下載 with the sheet untouched would have made.
@@ -630,12 +645,19 @@ public actor OfflineDownloadManager {
         guard isCurrent(id, generation, .preparing) else { return }
 
         // Files already here are kept only when the new plan names the same files for the same
-        // timeline; otherwise the package starts over rather than mixing two copies.
-        if let previous, previous.timelineFingerprint != prepared.plan.timelineFingerprint {
+        // timeline; otherwise the package starts over rather than mixing two copies. With no
+        // readable earlier plan nothing says what the files are, so they go too (IOS-POC-52 F16).
+        if previous.map({ !$0.sameTimeline(as: prepared.plan) }) ?? true {
             for folder in ["media", "audio", "subtitles", "keys", "playlists", "partial"] {
                 try? FileManager.default.removeItem(at: layout.folder(for: id).appendingPathComponent(folder))
             }
-            OfflineLog.notice("[offline] \(OfflineLog.short(id)) timeline changed: partial files discarded")
+            if previous != nil {
+                OfflineLog.notice("[offline] \(OfflineLog.short(id)) timeline changed: partial files discarded")
+            }
+        } else if reResolved || previous?.origin != prepared.plan.origin || previous?.headers != prepared.plan.headers {
+            // IOS-POC-52 (F17): resume data replays the request it came from — the old address and
+            // its Cookie. A new address or new headers start the single file over.
+            try? FileManager.default.removeItem(at: layout.folder(for: id).appendingPathComponent("partial"))
         }
         // IOS-POC-52 (F2): no room is found out before anything more is written.
         guard hasRoom(for: prepared.estimate, id: id) else {
@@ -697,11 +719,21 @@ public actor OfflineDownloadManager {
     private func downloadSidecars(_ plan: OfflinePackagePlan, id: String) async -> [OfflineSubtitleInfo] {
         guard !plan.sidecars.isEmpty else { return [] }
         let folder = layout.folder(for: id)
+        // IOS-POC-52 (F20): a subtitle an earlier attempt already saved is kept, not fetched again,
+        // so an address that has expired since cannot take it out of the download.
+        let saved = (store.asset(id)?.subtitles ?? []).filter {
+            $0.kind == .sidecar && !$0.relativePath.isEmpty
+                && FileManager.default.fileExists(atPath: folder.appendingPathComponent($0.relativePath).path)
+        }
         let cache = SubtitleSessionCache(root: folder.appendingPathComponent("subtitles", isDirectory: true),
                                          id: UUID(uuidString: "00000000-0000-0000-0000-000000000047") ?? UUID())
         let provider = SourceSubtitleProvider(headers: plan.headers, mediaURL: plan.origin)
         var kept = [OfflineSubtitleInfo]()
         for sidecar in plan.sidecars {
+            if let earlier = saved.first(where: { $0.id == sidecar.id }) {
+                kept.append(earlier)
+                continue
+            }
             let source = SourceSubtitle(url: sidecar.url.absoluteString, name: sidecar.name,
                                         language: sidecar.language ?? "", format: sidecar.format)
             let track = SourceSubtitles.track(for: source, url: sidecar.url)
@@ -847,6 +879,14 @@ public actor OfflineDownloadManager {
             body = sliced
         }
         let size = (try? manager.attributesOfItem(atPath: body.path)[.size] as? NSNumber)?.int64Value ?? 0
+        if unit.role == .key && size != OfflinePackageVerifier.keyBytes {
+            // IOS-POC-52 (F7): an AES-128 key is 16 bytes. Anything else is how a key server
+            // refuses an expired token or a missing Referer, and a package that cannot decrypt
+            // must never be called complete.
+            if body != file { try? manager.removeItem(at: body) }
+            fail(tag.assetID, OfflineFailure(.expiredSource, detail: "金鑰無效"))
+            return
+        }
         let wrongSize = unit.byteRange.map { size != $0.length } ?? (size == 0)
         if wrongSize || (unit.role != .key && unit.role != .subtitleSegment && OfflineStorage.looksLikeHTML(body)) {
             if body != file { try? manager.removeItem(at: body) }
@@ -977,19 +1017,23 @@ public actor OfflineDownloadManager {
             fail(id, OfflineFailure(.integrity, detail: "缺少 \(problems.count) 個檔案"))
             return
         }
+        // IOS-POC-52 (F5): completed is written first. A kill between this and the cleanup
+        // below leaves a playable package with leftover addresses, never a finished download
+        // with no plan and no request that no retry can recover.
+        _ = store.update(id, now: deps.now()) {
+            $0.state = .completed
+            $0.failure = nil
+            $0.actualBytes = store.size(of: id)
+            $0.progress.completedUnits = plan.units.count
+            $0.progress.totalUnits = plan.units.count
+        }
         store.removeDownloadSecrets(for: id)
         plans[id] = nil
         done[id] = nil
         sizes[id] = nil
         removeStaging(for: id)
         let actual = store.size(of: id)
-        _ = store.update(id, now: deps.now()) {
-            $0.state = .completed
-            $0.failure = nil
-            $0.actualBytes = actual
-            $0.progress.completedUnits = plan.units.count
-            $0.progress.totalUnits = plan.units.count
-        }
+        _ = store.update(id, now: deps.now()) { $0.actualBytes = actual }
         OfflineLog.notice("[offline] \(OfflineLog.short(id)) completed bytes=\(actual) units=\(plan.units.count)")
         usage = store.usage()
         publish(force: true)
@@ -1021,9 +1065,8 @@ public actor OfflineDownloadManager {
     /// again first.
     public func resume(_ id: String) async {
         guard let asset = store.asset(id), asset.state == .paused || asset.state == .failed else { return }
-        if var request = store.request(for: id),
-           asset.failure?.kind == .expiredSource || store.plan(for: id) == nil && asset.failure?.kind == .integrity {
-            request.needsFreshSource = asset.failure?.kind == .expiredSource
+        if var request = store.request(for: id), asset.failure?.kind == .expiredSource {
+            request.needsFreshSource = true
             try? store.saveRequest(request, for: id)
         }
         guard (store.update(id, now: deps.now(), {

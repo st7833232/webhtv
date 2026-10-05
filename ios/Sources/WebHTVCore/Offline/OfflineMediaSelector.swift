@@ -11,6 +11,7 @@ import Foundation
 /// 3. The tallest resolution left.
 /// 4. At 24/25/30 fps rather than 50/60 — the other way round when the viewer asked for high frame rates.
 /// 5. HEVC, then H.264, then anything else (AV1 and VP9 decode in hardware on too few iPhones).
+///    Since IOS-POC-52 AV1 and VP9 are left out before rule 2 unless nothing else fits the box.
 /// 6. Among what is left — same resolution, codec and range: 智慧 1080p takes the lowest bitrate
 ///    that is still reasonable for the picture (`reasonableFloor`), 最省空間 the lowest, 1080p 高畫質
 ///    the highest. "1080p" never means "the highest bitrate labelled 1080p".
@@ -73,6 +74,10 @@ public enum OfflineMediaSelector {
         // 1. The box.
         var pool = declared.filter { fits($0, mode: mode) }
         guard !pool.isEmpty else { return nil }
+        // IOS-POC-52 (F28): AV1 and VP9 only when nothing else fits — before the resolution step,
+        // or a 1080p AV1 copy would win over a 720p H.264 one that both engines can play.
+        let playable = pool.filter { codecRank($0.codec) < codecRank(.av1) }
+        if !playable.isEmpty { pool = playable }
         // 2. SDR first.
         let sdr = pool.filter { $0.dynamicRange == .sdr }
         let hdrOnly = sdr.isEmpty

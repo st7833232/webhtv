@@ -54,8 +54,20 @@ public struct OfflinePackagePlan: Codable, Equatable, Sendable {
 
     /// A fingerprint of the media timeline: the same count, durations and ranges means already
     /// downloaded files can be kept when a retry re-resolves the episode and gets fresh addresses.
-    public var timelineFingerprint: [String] {
-        units.map { "\($0.role.rawValue)|\($0.relativePath)|\($0.byteRange.map { "\($0.length)" } ?? "-")" }
+    /// Whether files made for `other` may stand in this plan: the same files for the same timeline.
+    /// Each unit's role, local name and byte range, and since IOS-POC-52 (F9, F16) its duration and
+    /// the remote file's name (without the query a signature changes): another encode or another
+    /// rendition with the same number of segments no longer matches. A plan saved before units
+    /// carried durations matches on the rest.
+    public func sameTimeline(as other: OfflinePackagePlan) -> Bool {
+        guard units.count == other.units.count else { return false }
+        return zip(units, other.units).allSatisfy { mine, theirs in
+            guard mine.role == theirs.role, mine.relativePath == theirs.relativePath,
+                  mine.byteRange?.length == theirs.byteRange?.length,
+                  mine.remoteURL.lastPathComponent == theirs.remoteURL.lastPathComponent else { return false }
+            guard let a = mine.seconds, let b = theirs.seconds else { return true }
+            return abs(a - b) < 0.001
+        }
     }
 
     /// IOS-POC-51: how much of the main track must be here before a projection replaces the
@@ -273,30 +285,36 @@ public enum OfflinePackageBuilder {
         var currentMap: HLSMap?
         var pendingDiscontinuity = false
         var counter = 0
+        func switchKey(to key: HLSKey?) {
+            guard key != currentKey else { return }
+            currentKey = key
+            if let key, let uri = key.uri {
+                table.keyCount += 1
+                let count = table.keyCount
+                let local = table.add(uri, range: nil, role: .key) { "keys/k\(count).key" }
+                var attributes = "METHOD=AES-128,URI=" + quoted("../" + local)
+                if let iv = key.iv { attributes += ",IV=\(iv)" }
+                lines.append("#EXT-X-KEY:" + attributes)
+            } else {
+                lines.append("#EXT-X-KEY:METHOD=NONE")
+            }
+        }
         for segment in playlist.segments {
             // A gap has no media to fetch. It is left out and the timeline marks the jump, which
             // both engines follow; the EXT-X-GAP tag itself is not understood by FFmpeg.
             if segment.isGap { pendingDiscontinuity = true; continue }
-            if segment.key != currentKey {
-                currentKey = segment.key
-                if let key = segment.key, let uri = key.uri {
-                    table.keyCount += 1
-                    let count = table.keyCount
-                    let local = table.add(uri, range: nil, role: .key) { "keys/k\(count).key" }
-                    var attributes = "METHOD=AES-128,URI=" + quoted("../" + local)
-                    if let iv = key.iv { attributes += ",IV=\(iv)" }
-                    lines.append("#EXT-X-KEY:" + attributes)
-                } else {
-                    lines.append("#EXT-X-KEY:METHOD=NONE")
-                }
-            }
             if let map = segment.map, map != currentMap {
+                // IOS-POC-52 (F8): a key applies only to init sections declared after it, and both
+                // engines decrypt an init section with the key in effect at its MAP. The MAP goes
+                // out under the key it was declared under; the segment's own key follows.
+                switchKey(to: map.key)
                 currentMap = map
                 table.mapCount += 1
                 let count = table.mapCount
                 let local = table.add(map.uri, range: map.byteRange, role: .initSection) { "\(prefix)-init\(count).mp4" }
                 lines.append("#EXT-X-MAP:URI=" + quoted("../" + local))
             }
+            switchKey(to: segment.key)
             if segment.discontinuity || pendingDiscontinuity { lines.append("#EXT-X-DISCONTINUITY") }
             pendingDiscontinuity = false
             if let date = segment.programDateTime { lines.append("#EXT-X-PROGRAM-DATE-TIME:\(date)") }
@@ -364,6 +382,9 @@ public enum OfflinePackageBuilder {
 /// Checks a finished package before it may be called complete: every file a playlist names is
 /// inside the asset and on disk, nothing names the network, and every unit arrived whole.
 public enum OfflinePackageVerifier {
+    /// The size of an AES-128 key (RFC 8216 §5.2): the only encryption a download keeps.
+    public static let keyBytes: Int64 = 16
+
     public static func problems(plan: OfflinePackagePlan, root: URL,
                                 fileManager: FileManager = .default) -> [String] {
         var problems = [String]()
@@ -376,6 +397,10 @@ public enum OfflinePackageVerifier {
             }
             if let range = unit.byteRange, size != range.length {
                 problems.append("size \(unit.role.rawValue) #\(unit.index) \(size)≠\(range.length)")
+            }
+            // IOS-POC-52 (F7): an AES-128 key is 16 bytes; anything else is a server's error page.
+            if unit.role == .key, size != OfflinePackageVerifier.keyBytes {
+                problems.append("key #\(unit.index) \(size) bytes")
             }
         }
         for (path, _) in plan.playlists {

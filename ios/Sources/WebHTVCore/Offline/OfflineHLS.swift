@@ -86,6 +86,9 @@ public struct HLSKey: Codable, Hashable, Sendable {
 public struct HLSMap: Codable, Hashable, Sendable {
     public let uri: URL
     public let byteRange: HLSByteRange?
+    /// IOS-POC-52 (F8): the key in effect where the MAP was declared — the one its init section is
+    /// encrypted with, which may be none even when its segments are (RFC 8216 §4.3.2.4).
+    public var key: HLSKey? = nil
 }
 
 public struct HLSSegment: Codable, Hashable, Sendable {
@@ -195,6 +198,8 @@ public enum HLSPlaylist: Sendable, Equatable {
     /// Reads a playlist fetched from `base`. Relative URIs are resolved against it (RFC 3986), the
     /// way both engines resolve them.
     public static func parse(_ text: String, base: URL) throws -> HLSPlaylist {
+        // IOS-POC-52 (F27): a byte-order mark before #EXTM3U, as PHP-made playlists often have.
+        let text = text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text
         let lines = text.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
@@ -337,7 +342,7 @@ public enum HLSPlaylist: Sendable, Equatable {
                         guard let parsedRange = byteRange(Substring(text), uri: uri, previous: nil) else { throw ParseError.badNumber }
                         range = parsedRange
                     }
-                    map = HLSMap(uri: uri, byteRange: range)
+                    map = HLSMap(uri: uri, byteRange: range, key: currentKey)
                 }
             } else if let date = value(line, "#EXT-X-PROGRAM-DATE-TIME") {
                 dateTime = String(date)

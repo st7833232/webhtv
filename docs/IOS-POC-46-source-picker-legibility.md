@@ -5,7 +5,7 @@
 ## Recovery anchor
 
 - 狀態：**已發布、已被 IOS-UI-A2 取代。** 修正隨 `0.1.56 (57)` 發布（tag `ios-v0.1.56-b57` → `22e9cf6b`）。IOS-UI-A2（`c361c637`，`0.1.62 (63)`）重做首頁頂部，移除了兩個呼叫點，`legibleToolbarLabel()` 現在沒有任何呼叫者。
-- 未決：`ios/WebHTVApp/Sources/WebHTVApp.swift` 的 `legibleToolbarLabel()` 是死碼，可刪。刪除是程式修改，等使用者決定。
+- 死碼已刪除（IOS-POC-46-2，2026-10-05，使用者「刪掉死碼」）：`legibleToolbarLabel()` 從 `ios/WebHTVApp/Sources/WebHTVApp.swift` 的 `private extension View` 移除，見第 6 節。
 - 下一步：無。原本待真機確認的項目已因 A2 不適用；A2 之後的首頁頂部可讀性屬於 IOS-UI-A 的真機驗收。
 
 ## 1. 回報與成因（2026-10-03）
@@ -36,4 +36,12 @@
 
 ## 5. Rollback
 
-不需要：程式行為已由 IOS-UI-A2 取代。若要刪除死碼，另開任務刪除 `legibleToolbarLabel()`，靠 device build 確認沒有其他呼叫者。
+不需要：程式行為已由 IOS-UI-A2 取代。死碼已在 IOS-POC-46-2 刪除；若要找回，revert 該 commit 即可。
+
+## 6. IOS-POC-46-2：刪除死碼（2026-10-05）
+
+- 依據：`grep -rn -E 'legibleToolbarLabel|toolbarLabelColor' ios webhome-devkit` 只找到定義本身；IOS-UI-A2（`c361c637`）移除了來源按鈕與收藏按鈕兩個呼叫點。
+- 修改：從 `private extension View` 刪除 `legibleToolbarLabel()` 與它的註解，共 16 行；extension 的其他成員（`appWallpaper`、`dismissKeyboardOnBackgroundTap`、`appNavigationBar`）不變。沒有行為改變。
+- 已驗證：刪除後再 grep，沒有任何引用；`swiftc -parse` 確認整份檔案語法正確。
+- 未驗證：沒有跑 Xcode type check 或 device build。刪除的是沒有呼叫者的 `private` 方法，不會影響型別檢查；下次發布時 workflow 的 device Release build 會再確認。
+- Ponytail（`ponytail:ponytail-review`，最終 diff）：Lean already. Ship.（diff 只有 16 行刪除，沒有可再刪的部分。）

@@ -313,11 +313,41 @@
 - 同步：開始批次 3 時，遠端已被其他 session 推進到 `f39c7d86`。批次 3 的改動先 stash，用 `git pull --no-rebase` 合併（merge commit `1c31013f`，沒有衝突），再放回改動。
   - 原本的 task guard session 尚未 commit，手動把它的狀態標為 abandoned。
   - 新 session 以 `--adopt-dirty` 收進這些改動。
+
+### 3.1 macOS 驗證（IOS-POC-52-7，2026-10-05，本機）
+
+環境：macOS 27.0、Xcode 27.0（27A266a）、Swift 6.4，基準 `2a887925`。只改測試檔，正式程式碼沒有改動。
+
+- **`swift test` 第一次在 macOS 編譯失敗**，兩個都是 IOS-POC-52 測試留下的問題。雲端 Linux 的 131／131 用的是臨時套件，沒有包含這兩個檔案，所以沒抓到：
+  1. `Favorites/FavoriteOwnershipTests.swift:37` 少了 `try`：第 6 批（`8b5ba5e4`）把 `startSimpleDownload` 改成 throws，這個呼叫點沒跟著改。
+  2. `AggregateSearchTests.swift` 的 `private actor Gate`，與第 2、3 批在 `Offline/OfflineTestSupport.swift` 新增的 internal `actor Gate` 重複宣告（invalid redeclaration）。兩者行為相同（等待時不理會取消），刪除 `AggregateSearchTests` 的那份，改用共用的。
+- **修正後完整 `swift test`**：998 個測試，993 通過、5 失敗。
+  - 指定確認的 `OfflineReviewFixTests`、`OfflineManagerTests`、`OfflineSelectionTests`、`StorageMaintenanceTests` 全部通過，`OfflineMediaServerTests` 也通過。
+  - 5 個失敗都與 IOS-POC-52／53 無關，本次沒有修：
+    - `FavoriteAppWiringTests` 2 個：直接比對 App 原始碼字串（`LibrarySection.initial`、`.pickerStyle(.segmented)`、`Label("立即播放", …)`），IOS-UI-A2／A3 重寫片庫與詳情頁後就過時了。
+    - `MediaSnifferTests` 3 個（IOS-POC-45I 的 WKWebView 字幕嗅探）：重跑一次結果相同，是穩定失敗。其中兩個的字幕名稱變成亂碼（「繁體中文」變成「蝜��銝剜�」）；`capturesASubtitleRequestedJustAfterTheMediaURL` 則找不到 media URL。同檔其他 WKWebView 測試都通過。45I 之前只在 Linux 跑過（Linux 不編譯這些測試），這是第一次在 Darwin 上執行。
+- **本機 Xcode 建置**：`xcodebuild -scheme WebHTVApp -configuration Release -sdk iphoneos -destination generic/platform=iOS`（不簽章，參數與 release workflow 相同）**BUILD SUCCEEDED**，1 分 22 秒。47 個 warning 都不在 `Offline/`、`StorageMaintenance` 或這次改動的行（抽查 `WebHTVApp.swift` 的兩處，blame 是 2026-09-16 的舊碼）。本機是 Xcode 27，CI 是 Xcode 26.6；CI 版本的編譯證據是 `0.1.66 (67)` 的 release run `37258480859`。
+- **Darwin-only 路徑**：
+  - **F22**（`OfflineDownloads.manager` 的字幕服務）：程式確認 `OfflineRuntime.swift` 的 manager 用 `SubtitleDownloadService(fetch: SubtitleHTTP.fetcher(session: OfflineHTTP.subtitleSession))`。新測試 `offlineSubtitleRedirectsKeepTheSourceCredentialsOnItsOrigin` 用本機 HTTP 伺服器實際轉址（`127.0.0.1` → `localhost` 視為跨主機），走的就是這個 fetcher：跨主機時 Cookie 與 Authorization 被拿掉、User-Agent 與 Referer 保留；同源時兩者都保留。
+    - 平台事實：不套 policy 的 URLSession（ephemeral）在 macOS 27 上，跨主機轉址會**自己**拿掉 Authorization，但手動設定的 Cookie 照樣帶到另一個主機；同源轉址也會掉 Authorization，是 policy 把它補回去的。iOS 17／18 的行為未驗證，所以 policy 兩個都處理是必要的。
+  - **F36**（`OfflineHTTP.fetcher` 的串流截斷）：新測試 `theFetcherStopsReadingAtTheLimit`，伺服器不理 Range、送出 256 MB。fetcher 只保留 `probeLimit`（64 KB）、標記 `truncated`，伺服器在連線關閉前送出的量不到總量的四分之一；剛好 64 KB 時不標記截斷。
+  - **F29**（`URLSessionOfflineTransport` 的取消計數）：沒有寫測試。要確定性地重現「submit 進行中被取消」，必須在正式程式加注入點；而且建立 transport 必定會建立固定 identifier 的 background session，不適合在測試程序裡建立。改用 scratchpad 小程式在 macOS 27 的 default session 實測兩個前提：
+    - 剛建立、還沒 `resume()` 的 task **不會**出現在 `allTasks`，等 300 ms 也不會；resume 之後才會出現。
+    - 先 `cancel()` 再 `resume()` 不會重新開始（狀態 completed，錯誤 -999）。
+    - 推論：`submit` 在鎖內建立 task、出鎖後才 `resume()`。`cancel(assetID:)` 若剛好在這兩步之間遞增計數並列出 tasks，就會漏掉這個 task，之後它照樣被 resume。程式註解「cancel 在後的話會在 session 的 tasks 裡找到它」不成立。實際上，manager 的 `cancelIfStale`（F3）在 submit 結束後，會取消已被暫停或刪除的那批（這時 task 都已 resume，找得到），所以使用者層面由 F3 補住。最小修正是把 `task?.resume()` 移進同一個 `lock.withLock`（resume 不會同步呼叫 delegate，不會死結），並改正註解。這是正式程式修改，**等使用者決定**。background session 的 `allTasks` 行為未實測。
+- **突變**（暫時修改正式程式後用 `git checkout` 還原）2／2 被抓到：
+  - `subtitleSession` 拿掉 `SubtitleRedirectPolicy` → F22 測試失敗（跨主機帶出 Cookie、同源掉 Authorization）。
+  - fetcher 超過上限後不停止讀取（`break` 改成 `continue`）→ F36 測試失敗（伺服器送完 268,435,456 bytes）。
+- 新增測試檔：`ios/Tests/WebHTVCoreTests/Offline/OfflineDarwinTests.swift`（`#if canImport(Network)`，Linux 不編譯）。修改後再跑 `OfflineDarwinTests` 2／2 通過。
+- 未驗證：真機、iOS 模擬器、background session 的實際行為（喚醒、續傳、取消）。
+- Ponytail（`ponytail:ponytail-review`，本次測試 diff）：一項 yagni（`url(_:host:)` 沒用到的 `host` 參數），已套用；其餘 Lean already。
+
 - Ponytail：本文件與 6 批 commit 都沒有記錄（2026-10-05 文件同步時補記）。同一 session 的 IOS-POC-53 記為 `unavailable / skipped`，所以當時的 runtime 可能沒有 Ponytail，但本任務沒有留下紀錄，不能據此認定。目前本機環境有 Ponytail，可以對 `db9618bd..8b5ba5e4` 中 IOS-POC-52 的程式 diff 補跑。
 
 ## 下一步
 
 - 未決、等使用者決定：F11（背景執行時間）、F12（換埠時重建播放項目）、F35（探測實際解析度）只做了一部分，未做的部分是否另開任務（同 `docs/current-task-state.md` 最上方交接）。
+- 未決、等使用者決定（IOS-POC-52-7 發現，見 3.1）：F29 傳輸層的空窗（把 `resume()` 移進鎖內）；`FavoriteAppWiringTests` 2 個過時的期望值；`MediaSnifferTests` 3 個穩定失敗（IOS-POC-45I）。
 
 - 40 項清單、處置、commit 與驗證已寫進 `docs/IOS-POC-47-offline-downloads.md` 第 15 節，`docs/current-task-state.md` 與 `docs/IOS-POC-49-offline-cellular-download-all.md` 已同步更新。
 - 已隨 `0.1.66 (67)` 發布（含 IOS-POC-53；run `37258480859`，tag `ios-v0.1.66-b67`），見 `docs/IOS-POC-11-sidestore-release.md` 第六十七次發布。真機未驗證。IOS-POC-53 已完成，見 `docs/IOS-POC-53-storage-cleanup-reset.md`。

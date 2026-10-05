@@ -34,7 +34,7 @@ private func owners(_ name: String, remarks: String = "全2集", autoDelete: Boo
     let history = WatchHistoryStore(directory: FavoriteFixture.directory("\(name)-history"))
     await history.save(watched())
     let offline = OfflineHarness(network: Fixture.simpleNetwork())
-    let (asset, _) = await offline.startSimpleDownload(autoDelete: autoDelete)
+    let (asset, _) = try await offline.startSimpleDownload(autoDelete: autoDelete)
     let completed = try #require(await offline.completeAll(asset.id))
     #expect(Fixture.identity().historyKey == identity.historyKey, "the fixture's download must be this title's")
     return Owners(favorites: favorites, history: history, offline: offline, asset: completed)

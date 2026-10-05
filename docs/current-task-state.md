@@ -15,6 +15,13 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 - **`0.1.66 (67)` 已發布**（2026-10-05；run `37258480859` success，tag `ios-v0.1.66-b67` → `d99036be`，`source.json` `03e8b49d`，IPA 35,199,091 bytes），**目前最新版是 `0.1.66 (67)`**。真機未驗證。
 - 未決、等使用者決定：F11（背景執行時間）、F12（換埠時重建播放項目）、F35（探測實際解析度）未做的部分是否另開任務。
+- **IOS-POC-52-7 macOS 驗證**（2026-10-05，本機 macOS 27／Xcode 27）：
+  - `swift test` 原本編不過（IOS-POC-52 測試漏 `try`、`Gate` 重複宣告），只改測試修好。之後 998 個測試中 993 通過，4 個指定的 suite 全過。
+  - 5 個失敗與 52／53 無關：`FavoriteAppWiringTests` 2 個（被 UI-A 改過時）、`MediaSnifferTests` 3 個（45I，穩定失敗）。
+  - 本機 Xcode Release 建置成功。
+  - 新增 `OfflineDarwinTests`（F22、F36，突變 2／2）。
+  - F29 實測發現傳輸層有空窗（未 resume 的 task 不在 `allTasks`），由 F3 的 `cancelIfStale` 補住，修正等使用者決定。
+  - 詳見 `docs/IOS-POC-52-offline-review-fixes.md` 3.1。真機未驗證。
 - 文件同步（2026-10-05 第二次，`DOCS-SYNC-2026-10-05-B`，`f39c7d86..7c280667`）：README 補上「儲存空間」頁，並依 F1、F13、F21 更新「最省空間」與「看完後自動刪除」；IOS-POC-11 recovery anchor 改為 67 版、最新 `0.1.66 (67)`；IOS-POC-52 文件補記「沒有 Ponytail 紀錄」，並寫入 F11／F12／F35 未決。IOS-POC-52 的 Ponytail 是否補跑，等使用者決定。
 
 ## Previous handoff — 2026-10-05：IOS-POC-51 用實際片段大小預估下載容量

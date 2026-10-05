@@ -124,7 +124,7 @@ var spider = (function () {
       } : undefined);
     },
 
-    isVideoFormat: function (url) { return /\.(m3u8|mp4|mkv|flv)(\?|$)/i.test(String(url)); },
+    isVideoFormat: host.isVideoFormat,
     manualVideoCheck: function () { return false; },
     destroy: function () {
       store = 'https://api-store.qmplaylet.com';

@@ -103,7 +103,7 @@ var spider = (function () {
       return host.result.play(bestQuality(video.clarityUrl), false, { 'User-Agent': UA });
     },
 
-    isVideoFormat: function (url) { return /\.(m3u8|mp4|mkv|flv)(\?|$)/i.test(String(url)); },
+    isVideoFormat: host.isVideoFormat,
     manualVideoCheck: function () { return false; },
     destroy: function () {}
   };

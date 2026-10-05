@@ -4,7 +4,18 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-05：IOS-POC-52 修正離線下載審查的 40 項、IOS-POC-53 儲存空間（先讀這一節）
+## Current handoff — 2026-10-05：IOS-POC-54 爬蟲共用工具第一批（先讀這一節）
+
+**真機驗收（使用者回報，2026-10-05）**：使用者回報已在真機完成現有版本 `0.1.67 (68)` 的 UI、下載、播放與收藏驗收。這是使用者自己回報的結果，本 session 沒有在真機或 Simulator 上執行。下一節「真機未驗收」的狀態以這段為準。
+
+**IOS-POC-54**（2026-10-05，基準 `617e9ca5`）：使用者要求第一批「內部可重複使用的爬蟲工具」，只做 JS。詳見 `docs/IOS-POC-54-spider-shared-helpers.md`。
+- 抽出：`host.isVideoFormat(url)`，取代 11 個 port 逐字相同的 `isVideoFormat`，以及 AppGet `playerContent` 的同一個判斷；`host.firstURL(text)`，取代 AppGet、AppQi 讀 `ext.site` 鏡像清單的迴圈。另外 App3Q、AppGet、AppQi 刪掉和 `host.result` 投影相同的 `vodList`，直接改用既有 builder。
+- 沒有抽的（理由在任務文件第 2 節）：`"url"` 正則（欄位優先順序與 `\/` 還原的範圍不同）、App 家族的集數編碼與篩選列（屬於 adapter 規則）、`ext` 解析與其他單一運算式。
+- **ABI**：改 host.js 等於改 `js.host`，所以升到 1.2，`SpiderPackStore.hostApiVersion`／`scripts/spider_pack.py` `HOST_API` 都是 2，並新增凍結 fingerprint 列。之後產生的 pack 在 `0.1.67 (68)`（1.1）上會被整包拒絕，要等下一版 IPA。這次沒有發布，也沒有產生 pack。
+- 驗證：13 個 port 的新舊版差分比較 13／13 逐字相同（327 個請求；突變 4／4 抓到）；`swift test --filter` 爬蟲／ABI／pack 9 個檔 128／128；本機 Xcode Release device 建置成功。Ponytail 1 項已套用。沒有跑完整 `swift test`、測試 CI、即時 golden、真機。
+- 下一步：無待辦。Python 共用工具等有實際需求再做。
+
+## Previous handoff — 2026-10-05：IOS-POC-52 修正離線下載審查的 40 項、IOS-POC-53 儲存空間
 
 **IOS-POC-52**（2026-10-05）：使用者指示「修那40項問題」。分 6 批處理，修 36 項、部分 3 項（F11、F12、F35）、不修 1 項（F33，已由 IOS-UI-A 解決）。
 - 40 項清單、處置、commit 與驗證：`docs/IOS-POC-47-offline-downloads.md` 第 15 節；處理過程：`docs/IOS-POC-52-offline-review-fixes.md`。
@@ -38,8 +49,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
   - IOS-POC-52-11：F12 換 port 時以新網址重載（4.2.1）。
   - IOS-POC-52-12：F35 探測並顯示、不拒絕（4.3.1）。macOS 完整 `swift test` 1007／1007；iOS 26 模擬器 54／54。
   - 40 項：修 39、不修 1（F33）。
-  - **`0.1.67 (68)` 已發布**（2026-10-05；run `37270610119` success，tag `ios-v0.1.67-b68` → `e7520cd4`，`source.json` `285ce262`，IPA 35,225,914 bytes）。**目前最新版是 `0.1.67 (68)`**，真機未驗收。
-  - 下一步：使用者在真機驗收。重點是背景下載多集（Console 的 `offline-wake`）、單一版本的解析度顯示、網頁嗅探站台。
+  - **`0.1.67 (68)` 已發布**（2026-10-05；run `37270610119` success，tag `ios-v0.1.67-b68` → `e7520cd4`，`source.json` `285ce262`，IPA 35,225,914 bytes）。**目前最新版是 `0.1.67 (68)`**。真機驗收：使用者回報 UI、下載、播放、收藏已完成（2026-10-05）。
+  - ~~下一步：使用者在真機驗收。~~ 使用者已回報完成。原本列的重點是背景下載多集（Console 的 `offline-wake`）、單一版本的解析度顯示、網頁嗅探站台。
 - 文件同步（2026-10-05 第二次，`DOCS-SYNC-2026-10-05-B`，`f39c7d86..7c280667`）：README 補上「儲存空間」頁，並依 F1、F13、F21 更新「最省空間」與「看完後自動刪除」；IOS-POC-11 recovery anchor 改為 67 版、最新 `0.1.66 (67)`；IOS-POC-52 文件補記「沒有 Ponytail 紀錄」，並寫入 F11／F12／F35 未決。IOS-POC-52 的 Ponytail 是否補跑，等使用者決定。
 
 ## Previous handoff — 2026-10-05：IOS-POC-51 用實際片段大小預估下載容量

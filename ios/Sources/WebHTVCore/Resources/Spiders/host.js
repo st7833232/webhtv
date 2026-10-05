@@ -424,6 +424,15 @@ var host = (function () {
       .replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim();
   }
 
+  /** The `csp_*` ports' `isVideoFormat`: a direct media file by its extension. */
+  function isVideoFormat(url) { return /\.(m3u8|mp4|mkv|flv)(\?|$)/i.test(String(url)); }
+
+  /** The first line of a mirror-list text file that is an http(s) address, trimmed; '' if none. */
+  function firstURL(text) {
+    return String(text || '').split('\n').map(function (line) { return line.trim(); })
+      .filter(function (line) { return /^https?:\/\//.test(line); })[0] || '';
+  }
+
   // ---- CatVod result builders ------------------------------------------
   // Keeps every spider from hand-rolling the same JSON, and keeps the shape the app already parses.
   function vod(item) {
@@ -470,6 +479,7 @@ var host = (function () {
     local: local, now: now, timestamp: timestamp, random: random, match: match,
     parse: parse, select: select, text: textOf, pdfh: pdfh, pdfa: pdfa, pd: pd, urljoin: urljoin,
     cut: cut, cut1: cut1, stripTags: stripTags, parseJSON: parseJSON,
+    isVideoFormat: isVideoFormat, firstURL: firstURL,
     result: result
   };
 })();

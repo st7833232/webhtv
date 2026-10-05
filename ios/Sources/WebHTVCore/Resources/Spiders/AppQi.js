@@ -58,12 +58,6 @@ var spider = (function () {
     return reply.envelope.code === 1;
   }
 
-  function vodList(array) {
-    return (array || []).map(function (v) {
-      return { vod_id: v.vod_id, vod_name: v.vod_name, vod_pic: v.vod_pic, vod_remarks: v.vod_remarks };
-    });
-  }
-
   // The original hides these three (note it does *not* hide AppGet's 正版QQ群).
   var HIDDEN = ['伦理', '福利', '小影院'];
   var FILTER_KEYS = ['class', 'area', 'lang', 'year', 'sort'];
@@ -84,13 +78,7 @@ var spider = (function () {
       // `site` is a text file of candidate hosts, one per line. The original HEADs each line and
       // takes the first that answers 200/301/302; every configured file holds exactly one URL, so
       // taking the first well-formed line costs one request less and picks the same host.
-      if (!cfg.url && ext.site) {
-        var lines = (host.get(ext.site, { timeout: 15000 }).body || '').split('\n');
-        for (var i = 0; i < lines.length; i++) {
-          var line = lines[i].trim();
-          if (/^https?:\/\//.test(line)) { cfg.url = line; break; }
-        }
-      }
+      if (!cfg.url && ext.site) cfg.url = host.firstURL(host.get(ext.site, { timeout: 15000 }).body);
       cfg.url = String(cfg.url).replace(/\/+$/, '');
       return '';
     },
@@ -118,7 +106,7 @@ var spider = (function () {
         });
         if (rows.length) filters[id] = rows;
       });
-      return host.result.home(classes, vodList(data.recommend_list), filters);
+      return host.result.home(classes, data.recommend_list || [], filters);
     },
 
     categoryContent: function (tid, page, filter, extend) {
@@ -129,7 +117,7 @@ var spider = (function () {
       if (extend && extend.by) body.sort = extend.by;
       body.page = String(page || '1');
       var data = api('/qijiappapi.index/typeFilterVodList?page=' + body.page, JSON.stringify(body)).data;
-      return host.result.page(vodList(data.recommend_list), body.page);
+      return host.result.page(data.recommend_list, body.page);
     },
 
     detailContent: function (ids) {
@@ -170,7 +158,7 @@ var spider = (function () {
       var res = api(path, body);
       // 1001 is the newer build asking for the slider before it will answer.
       if (res.envelope.code === 1001 && solveSlider()) res = api(path, body);
-      return host.result.list(vodList(res.data.search_list));
+      return host.result.list(res.data.search_list);
     },
 
     playerContent: function (flag, id, vipFlags) {
@@ -228,7 +216,7 @@ var spider = (function () {
       return host.result.play(target, true, play);
     },
 
-    isVideoFormat: function (url) { return /\.(m3u8|mp4|mkv|flv)(\?|$)/i.test(String(url)); },
+    isVideoFormat: host.isVideoFormat,
     manualVideoCheck: function () { return false; },
     destroy: function () { cfg.url = ''; cfg.key = ''; cfg.iv = ''; }
   };

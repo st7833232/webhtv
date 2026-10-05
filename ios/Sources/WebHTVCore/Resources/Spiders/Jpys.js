@@ -124,7 +124,7 @@ var spider = (function () {
       return host.result.play(url, false, { 'User-Agent': PLAYER_UA, 'Origin': base, 'Referer': base });
     },
 
-    isVideoFormat: function (url) { return /\.(m3u8|mp4|mkv|flv)(\?|$)/i.test(String(url)); },
+    isVideoFormat: host.isVideoFormat,
     manualVideoCheck: function () { return false; },
     destroy: function () { base = DEFAULT; }
   };

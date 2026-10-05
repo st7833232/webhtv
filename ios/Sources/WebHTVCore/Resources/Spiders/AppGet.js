@@ -35,13 +35,6 @@ var spider = (function () {
     try { return JSON.parse(plain); } catch (e) { return {}; }
   }
 
-  /** `parseVodList`: the four fields every listing returns. */
-  function vodList(array) {
-    return (array || []).map(function (v) {
-      return { vod_id: v.vod_id, vod_name: v.vod_name, vod_pic: v.vod_pic, vod_remarks: v.vod_remarks };
-    });
-  }
-
   // The original hides these categories; keeping the filter keeps the class list identical.
   var HIDDEN = ['正版QQ群', '伦理', '福利', '小影院'];
 
@@ -62,14 +55,7 @@ var spider = (function () {
       cfg.token = ext.token || '';
       cfg.url = ext.url || '';
       // `site` points at a text file listing candidate hosts, one per line; take the first that works.
-      if (!cfg.url && ext.site) {
-        var body = host.get(ext.site, { timeout: 15000 }).body || '';
-        var lines = body.split('\n');
-        for (var i = 0; i < lines.length; i++) {
-          var line = lines[i].trim();
-          if (/^https?:\/\//.test(line)) { cfg.url = line; break; }
-        }
-      }
+      if (!cfg.url && ext.site) cfg.url = host.firstURL(host.get(ext.site, { timeout: 15000 }).body);
       cfg.url = String(cfg.url).replace(/\/+$/, '');
       return '';
     },
@@ -101,7 +87,7 @@ var spider = (function () {
         });
         if (rows.length) filters[id] = rows;
       });
-      return host.result.home(classes, vodList(data.recommend_list), filters);
+      return host.result.home(classes, data.recommend_list || [], filters);
     },
 
     categoryContent: function (tid, page, filter, extend) {
@@ -112,7 +98,7 @@ var spider = (function () {
       });
       if (extend && extend.by) body.sort = extend.by;
       var data = api('/getappapi.index/typeFilterVodList?page=' + body.page, JSON.stringify(body));
-      return host.result.page(vodList(data.recommend_list), body.page);
+      return host.result.page(data.recommend_list, body.page);
     },
 
     detailContent: function (ids) {
@@ -154,7 +140,7 @@ var spider = (function () {
     searchContent: function (key, quick, page) {
       var data = api('/getappapi.index/searchList',
                      JSON.stringify({ type_id: 0, keywords: String(key), page: parseInt(page || 1, 10) }));
-      return host.result.list(vodList(data.search_list));
+      return host.result.list(data.search_list);
     },
 
     playerContent: function (flag, id, vipFlags) {
@@ -163,7 +149,7 @@ var spider = (function () {
       var headers = { 'User-Agent': cfg.ua };
 
       // Already a playable file: hand it straight over, as the original does.
-      if (/\.(m3u8|mp4|mkv|flv)(\?|$)/i.test(target)) return host.result.play(target, false, headers);
+      if (host.isVideoFormat(target)) return host.result.play(target, false, headers);
 
       // A parse endpoint that answers with {"url": ...}.
       if (/^https?:\/\//.test(target)) {
@@ -193,7 +179,7 @@ var spider = (function () {
       return host.result.play(target, true, headers);
     },
 
-    isVideoFormat: function (url) { return /\.(m3u8|mp4|mkv|flv)(\?|$)/i.test(String(url)); },
+    isVideoFormat: host.isVideoFormat,
     manualVideoCheck: function () { return false; },
     destroy: function () { cfg = { url: '', key: '', iv: '', ua: 'okhttp/3.14.9', version: '', deviceId: '', token: '' }; }
   };

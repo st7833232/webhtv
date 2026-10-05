@@ -16,7 +16,7 @@ This tool never decompiles, executes or unpacks a JAR. It reads bytes and comput
 import argparse, hashlib, json, os, pathlib, shutil, sys, urllib.request
 
 SCHEMA = 1
-HOST_API = 1
+HOST_API = 2
 # host.js and the two bridges are the runtime's own SDK, not compatibility logic: they are what
 # `minHostApi` describes, so they ship with the app and are deliberately not packable. Same set as
 # `RuntimeABI.nativeScripts` in the app, which a test keeps equal (IOS-POC-12).

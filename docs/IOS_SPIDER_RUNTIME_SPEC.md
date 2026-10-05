@@ -88,7 +88,7 @@ There must never be two JS runtimes. Native half in `Spider/Host/*.swift`, JavaS
 | Encoding | `host.enc/dec`, `host.base64.encode/decode` | done |
 | Crypto | AES and DES, CBC and ECB, PKCS7, base64 or hex input; MD5, SHA1, SHA256; HMAC | done |
 | Crypto, IV-prefixed | `host.aesEncryptIV` / `aesDecryptIV` — AES-CBC carrying a fresh random IV in front of the ciphertext, `base64(iv‖ct)`, and inflating a zlib plaintext the way `java.util.zip.Inflater` does. `csp_App99` speaks only this dialect (IOS-POC-5L) | done |
-| Utility | `host.match`, `now`, `timestamp`, `random`, `urljoin` | done |
+| Utility | `host.match`, `now`, `timestamp`, `random`, `urljoin`; `host.isVideoFormat` (the `csp_*` ports' extension check) and `host.firstURL` (first http line of a mirror list), IOS-POC-54, `js.host` 1.2 | done |
 | Storage | `host.local.get/set/del` | done |
 | Text slicing | `host.cut` / `cut1` — XBPQ's `前綴&&後綴` with `[包含:]` `[不包含:]` `[替换:a>>b]`, plus `host.stripTags` | done |
 | Hiker rule syntax | `&&` first-match descent, `\|\|` attribute fallback, `,N` index, `:has()`, `!prefix` stripping | done |
@@ -102,7 +102,7 @@ may replace or add spider scripts at runtime. Resolution order is **verified pac
 not supported**, `host.js` and the two bridges (`drpy-bridge.js`, `js-spider.js`) are deliberately
 not packable because they are the SDK `minHostApi` describes, and a pack can never add a native
 primitive, touch entitlements, ATS or signing, or cross the `Spider` ABI.
-`SpiderPackStore.hostApiVersion` (currently **1**) is the gate, and older apps refuse a script that
+`SpiderPackStore.hostApiVersion` (currently **2**, since IOS-POC-54) is the gate, and older apps refuse a script that
 needs a newer host instead of failing mid-call. **Since IOS-POC-12 it is not bumped by hand**: it is
 `RuntimeABI.Surface.jsHost.version.minor` (`ios/Sources/WebHTVCore/RuntimeABI.swift`). When
 `CatVodHost` gains a primitive, raise `js.host`'s minor there, add the new row to the `frozen`

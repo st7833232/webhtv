@@ -55,7 +55,9 @@ public enum RuntimeABI {
             case .catvodResult: Version(1, 1)
             // Minor 1 is `SpiderPackStore.hostApiVersion` 1, so a schema-1 compatibility pack's
             // `minHostApi` n means `js.host` {1, n} with no translation table.
-            case .jsHost: Version(1, 1)
+            // 1.2 (IOS-POC-54): `host.isVideoFormat` and `host.firstURL`, which the ported spiders
+            // had each carried a copy of — additions only.
+            case .jsHost: Version(1, 2)
             // 1.1 (IOS-POC-37) adds pycryptodome, lxml, bs4 and pyquery, a working
             // `Spider.html()`, and `init`'s return value ignored as on Android — additions only.
             // 1.2 (IOS-POC-37.1): `getCache`/`setCache` use the calling spider's own site key and
@@ -105,6 +107,7 @@ public enum RuntimeABI {
         "md5", "sha1", "sha256", "hmac", "local", "now", "timestamp", "random", "match",
         "parse", "select", "text", "pdfh", "pdfa", "pd", "urljoin",
         "cut", "cut1", "stripTags", "parseJSON", "result",
+        "isVideoFormat", "firstURL",
     ]
 
     static let pythonPackages = [

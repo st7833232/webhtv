@@ -216,7 +216,7 @@ var spider = (function () {
       return host.result.play(url, vip, { 'User-Agent': UA });
     },
 
-    isVideoFormat: function (url) { return /\.(m3u8|mp4|mkv|flv)(\?|$)/i.test(String(url)); },
+    isVideoFormat: host.isVideoFormat,
     manualVideoCheck: function () { return false; },
     destroy: function () { cfg = { url: '', img: '', filters: null, ext: '' }; }
   };

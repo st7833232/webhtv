@@ -116,7 +116,7 @@ installed, `SpiderRegistry.active()` is byte-for-byte `SpiderRegistry.bundled()`
 
 ## Host API version gate
 
-`SpiderPackStore.hostApiVersion` is `1` today and goes up whenever `CatVodHost` gains a primitive a
+`SpiderPackStore.hostApiVersion` is `2` today (IOS-POC-54) and goes up whenever `CatVodHost` gains a primitive a
 script could depend on — RSA, `proxy`, a WebView primitive. **Since IOS-POC-12 it is derived, not edited**:
 it is `RuntimeABI.Surface.jsHost.version.minor`, so the bump is `js.host`'s minor in
 `ios/Sources/WebHTVCore/RuntimeABI.swift`, plus a new row in the `frozen` fingerprint table of

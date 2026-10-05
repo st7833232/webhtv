@@ -324,6 +324,30 @@ private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScri
     #expect(out["stripped"] as? String == "hello & world")
 }
 
+@Test func sharesTheMirrorListAndVideoChecksThePortsUsed() async throws {
+    // IOS-POC-54: `AppGet`/`AppQi` read a mirror list and eleven ports shared one extension check;
+    // both now live in host.js, and these are the cases the ports' copies handled.
+    let spider = try runtime("""
+    module.exports = {
+      init: function () { return ''; },
+      homeContent: function () {
+        return {
+          mirror: host.firstURL('# hosts\\n  \\n  https://a.invalid/ \\nhttps://b.invalid'),
+          none: host.firstURL('ftp://x\\nnothing'),
+          empty: host.firstURL(undefined),
+          video: ['https://a/b.m3u8', 'b.MP4?x=1', 'c.flv', 'd.ts', 'e.mp4x', ''].map(host.isVideoFormat)
+        };
+      }
+    };
+    """)
+    let out = try #require(try JSONSerialization.jsonObject(
+        with: Data(try await spider.homeContent(filter: true).utf8)) as? [String: Any])
+    #expect(out["mirror"] as? String == "https://a.invalid/")
+    #expect(out["none"] as? String == "")
+    #expect(out["empty"] as? String == "")
+    #expect(out["video"] as? [Bool] == [true, true, true, false, false, false])
+}
+
 @Test func followsHikerRuleSyntaxIncludingFirstMatchDescent() async throws {
     let spider = try runtime("""
     module.exports = {

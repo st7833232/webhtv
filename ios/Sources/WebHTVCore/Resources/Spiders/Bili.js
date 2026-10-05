@@ -179,7 +179,7 @@ var spider = (function () {
                               true, headers());
     },
 
-    isVideoFormat: function (url) { return /\.(m3u8|mp4|mkv|flv)(\?|$)/i.test(String(url)); },
+    isVideoFormat: host.isVideoFormat,
     manualVideoCheck: function () { return false; },
     destroy: function () { cfg = { cookie: DEFAULT_COOKIE, json: '' }; }
   };

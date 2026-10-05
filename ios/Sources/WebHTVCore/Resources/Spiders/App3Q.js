@@ -53,12 +53,6 @@ var spider = (function () {
     return res.json || {};
   }
 
-  function vodList(array) {
-    return (array || []).map(function (v) {
-      return { vod_id: v.vod_id, vod_name: v.vod_name, vod_pic: v.vod_pic, vod_remarks: v.vod_remarks };
-    });
-  }
-
   return {
     init: function (extend) {
       var ext = null;
@@ -88,13 +82,13 @@ var spider = (function () {
       var classes = (data.categories || []).map(function (c) {
         return { type_id: c.type_name, type_name: c.type_name };
       });
-      return host.result.home(classes, vodList(data.recommend));
+      return host.result.home(classes, data.recommend || []);
     },
 
     categoryContent: function (tid, page) {
       var data = api('/api.php/app/filter/vod?type_name=' + host.enc(tid)
                      + '&page=' + (page || '1') + '&sort=hits');
-      return host.result.page(vodList(data.data), page || '1');
+      return host.result.page(data.data, page || '1');
     },
 
     detailContent: function (ids) {
@@ -132,7 +126,7 @@ var spider = (function () {
     searchContent: function (key, quick, page) {
       var data = api('/api.php/app/search/index?wd=' + host.enc(key)
                      + '&page=' + (page || '1') + '&limit=15');
-      return host.result.list(vodList(data.data));
+      return host.result.list(data.data);
     },
 
     playerContent: function (flag, id, vipFlags) {
@@ -152,7 +146,7 @@ var spider = (function () {
       return host.result.play(target, true, play);
     },
 
-    isVideoFormat: function (url) { return /\.(m3u8|mp4|mkv|flv)(\?|$)/i.test(String(url)); },
+    isVideoFormat: host.isVideoFormat,
     manualVideoCheck: function () { return false; },
     destroy: function () { cfg.time = ''; cfg.nonce = ''; }
   };

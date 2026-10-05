@@ -113,8 +113,9 @@ private func globalDocument(_ edit: (inout [String: Any]) -> Void = { _ in }) ->
 }
 
 @Test func aNewerMinorOrAnotherMajorIsRefusedAsNeedingANewerApp() {
-    let minor = rejection { try validateConfig(document(requires { $0["abi"] = ["js.host": ["major": 1, "minMinor": 2], "catvod.result": ["major": 1, "minMinor": 0]] })) }
-    #expect(minor == .abiTooNew(surface: "js.host", requiredMinor: 2, installed: 1))
+    let installed = RuntimeABI.Surface.jsHost.version.minor
+    let minor = rejection { try validateConfig(document(requires { $0["abi"] = ["js.host": ["major": 1, "minMinor": installed + 1], "catvod.result": ["major": 1, "minMinor": 0]] })) }
+    #expect(minor == .abiTooNew(surface: "js.host", requiredMinor: installed + 1, installed: installed))
     #expect(minor?.requiresNewerApp == true)
 
     let major = rejection { try validateConfig(document(requires { $0["abi"] = ["js.host": ["major": 2, "minMinor": 0], "catvod.result": ["major": 1, "minMinor": 0]] })) }

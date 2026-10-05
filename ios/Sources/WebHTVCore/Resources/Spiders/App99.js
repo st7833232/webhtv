@@ -204,7 +204,7 @@ var spider = (function () {
       return host.result.play(target, true, play);
     },
 
-    isVideoFormat: function (url) { return /\.(m3u8|mp4|mkv|flv)(\?|$)/i.test(String(url)); },
+    isVideoFormat: host.isVideoFormat,
     manualVideoCheck: function () { return false; },
     destroy: function () {
       cfg = { url: '', appkey: '', uuid: '', ua: '', version: '', token: '' };

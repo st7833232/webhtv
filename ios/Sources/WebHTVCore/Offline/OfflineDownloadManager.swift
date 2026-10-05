@@ -65,7 +65,8 @@ enum OfflineLog {
 /// arrives late — a segment finishing after the viewer deleted the episode — is recognised and
 /// dropped. A deleted asset has no record to update, so nothing can bring it back.
 ///
-/// One asset downloads at a time; the rest wait as `queued`.
+/// At most `concurrentDownloads` assets prepare or download at once (IOS-POC-50); the rest wait
+/// as `queued`.
 public actor OfflineDownloadManager {
     public struct Dependencies: Sendable {
         public var layout: OfflineStorageLayout
@@ -158,13 +159,13 @@ public actor OfflineDownloadManager {
             switch asset.state {
             case .preparing:
                 // Preparing is network work in the app's own process: nothing kept it going.
-                _ = try? store.update(asset.id, now: deps.now()) { $0.state = .queued }
+                _ = store.update(asset.id, now: deps.now()) { $0.state = .queued }
             case .downloading:
                 await reconnect(asset)
             case .completed:
                 if let package = asset.package,
                    !FileManager.default.fileExists(atPath: layout.folder(for: asset.id).appendingPathComponent(package.entryPath).path) {
-                    _ = try? store.update(asset.id, now: deps.now()) {
+                    _ = store.update(asset.id, now: deps.now()) {
                         $0.state = .failed
                         $0.failure = OfflineFailure(.integrity, detail: "檔案遺失")
                     }
@@ -194,7 +195,7 @@ public actor OfflineDownloadManager {
     /// A download the record says is running: whatever the session no longer has is sent again.
     private func reconnect(_ asset: OfflineAsset) async {
         guard let plan = loadPlan(asset.id) else {
-            _ = try? store.update(asset.id, now: deps.now()) {
+            _ = store.update(asset.id, now: deps.now()) {
                 $0.state = .failed
                 $0.failure = OfflineFailure(.interrupted)
                 $0.generation += 1
@@ -333,12 +334,13 @@ public actor OfflineDownloadManager {
     /// is marked preparing before anything is awaited, so a pump that runs meanwhile counts it.
     func pump() async {
         guard started else { return }
+        store.flushUnwritten()
         let all = store.all()
         let running = all.filter { $0.state == .preparing || $0.state == .downloading }.count
         let next = all.filter { $0.state == .queued }.sorted { $0.createdAt < $1.createdAt }
             .prefix(max(Self.concurrentDownloads - running, 0))
         let starting = next.compactMap { asset in
-            try? store.update(asset.id, now: deps.now(), { $0.state = .preparing; $0.failure = nil })
+            store.update(asset.id, now: deps.now(), { $0.state = .preparing; $0.failure = nil })
         }
         guard !starting.isEmpty else { return }
         publish(force: true)
@@ -432,7 +434,7 @@ public actor OfflineDownloadManager {
             guard let audioRate = await Self.sampledRate(audio, fetch: fetch, headers: headers, origin: origin) else { return nil }
             rate += audioRate
         }
-        return OfflineSizeEstimate(bytes: Int64(rate * video.duration), basis: .sampled)
+        return OfflineSizeEstimate.bytes(rate * video.duration).map { OfflineSizeEstimate(bytes: $0, basis: .sampled) }
     }
 
     /// Bytes per second of `media`, from the segments at the middle of `sampledSegments` equal
@@ -635,6 +637,11 @@ public actor OfflineDownloadManager {
             }
             OfflineLog.notice("[offline] \(OfflineLog.short(id)) timeline changed: partial files discarded")
         }
+        // IOS-POC-52 (F2): no room is found out before anything more is written.
+        guard hasRoom(for: prepared.estimate, id: id) else {
+            fail(id, OfflineFailure(.insufficientStorage))
+            return
+        }
         do {
             try store.savePlan(prepared.plan, for: id)
         } catch {
@@ -646,15 +653,13 @@ public actor OfflineDownloadManager {
         let sidecars = await downloadSidecars(prepared.plan, id: id)
         guard isCurrent(id, generation, .preparing) else { return }
 
-        let downloaded = OfflineStorage.allocatedSize(of: layout.folder(for: id))
-        let remaining = prepared.estimate.bytes.map { max($0 - downloaded, 0) }
-        // IOS-POC-50: the downloads already running need their share of the same free space.
-        guard OfflineStorage.hasRoom(estimate: (remaining ?? 0) + reservedBytes(excluding: id),
-                                     available: deps.capacity()) else {
+        // Checked again with nothing awaited between it and `downloading`, so two downloads
+        // preparing at once cannot both count the same free space.
+        guard hasRoom(for: prepared.estimate, id: id) else {
             fail(id, OfflineFailure(.insufficientStorage))
             return
         }
-        guard let updated = try? store.update(id, now: deps.now(), {
+        guard let updated = store.update(id, now: deps.now(), {
             $0.video = prepared.video
             $0.audio = prepared.audio
             $0.subtitles = prepared.subtitles + sidecars
@@ -667,6 +672,14 @@ public actor OfflineDownloadManager {
         OfflineLog.notice("[offline] \(OfflineLog.short(id)) downloading units=\(prepared.plan.units.count) video=\(prepared.video?.summary ?? "file") estimate=\(prepared.estimate.bytes ?? -1)")
         publish(force: true)
         await submitMissing(updated.id, plan: prepared.plan)
+    }
+
+    /// Whether the rest of this download fits beside what the running ones still need
+    /// (IOS-POC-50).
+    private func hasRoom(for estimate: OfflineSizeEstimate, id: String) -> Bool {
+        let downloaded = OfflineStorage.allocatedSize(of: layout.folder(for: id))
+        let remaining = estimate.bytes.map { max($0 - downloaded, 0) }
+        return OfflineStorage.hasRoom(estimate: (remaining ?? 0) + reservedBytes(excluding: id), available: deps.capacity())
     }
 
     /// What the other running downloads still need by their estimates, so two of them cannot each
@@ -869,7 +882,7 @@ public actor OfflineDownloadManager {
         unitsSinceFlush += 1
         if unitsSinceFlush >= 25 {
             unitsSinceFlush = 0
-            try? store.flush(tag.assetID)
+            store.flush(tag.assetID)
         }
         // The disk filling up stops the download cleanly, with everything so far kept.
         if let free = deps.capacity(), free < OfflineStorage.minimumFreeWhileDownloading {
@@ -970,7 +983,7 @@ public actor OfflineDownloadManager {
         sizes[id] = nil
         removeStaging(for: id)
         let actual = store.size(of: id)
-        _ = try? store.update(id, now: deps.now()) {
+        _ = store.update(id, now: deps.now()) {
             $0.state = .completed
             $0.failure = nil
             $0.actualBytes = actual
@@ -995,7 +1008,7 @@ public actor OfflineDownloadManager {
     /// Stops a download where it is. A progressive file keeps what it received as resume data.
     public func pause(_ id: String) async {
         guard let asset = store.asset(id), asset.state.isActive,
-              let paused = try? store.update(id, now: deps.now(), { $0.state = .paused; $0.generation += 1 })
+              let paused = store.update(id, now: deps.now(), { $0.state = .paused; $0.generation += 1 })
         else { return }
         OfflineLog.notice("[offline] \(OfflineLog.short(id)) paused")
         publish(force: true)
@@ -1013,7 +1026,7 @@ public actor OfflineDownloadManager {
             request.needsFreshSource = asset.failure?.kind == .expiredSource
             try? store.saveRequest(request, for: id)
         }
-        guard (try? store.update(id, now: deps.now(), {
+        guard (store.update(id, now: deps.now(), {
             $0.state = .queued
             $0.failure = nil
             $0.generation += 1
@@ -1027,7 +1040,7 @@ public actor OfflineDownloadManager {
     /// free them. It is never hidden or deleted by itself.
     private func fail(_ id: String, _ failure: OfflineFailure) {
         guard let asset = store.asset(id), asset.state != .completed, asset.state != .deleting,
-              let failed = try? store.update(id, now: deps.now(), {
+              let failed = store.update(id, now: deps.now(), {
                   $0.state = .failed
                   $0.failure = failure
                   $0.generation += 1
@@ -1049,7 +1062,7 @@ public actor OfflineDownloadManager {
     public func setAllowsCellular(_ allowed: Bool) async {
         for asset in store.all() where asset.state != .completed && asset.state != .deleting && asset.allowsCellular != allowed {
             let running = asset.state == .downloading
-            guard (try? store.update(asset.id, now: deps.now(), {
+            guard (store.update(asset.id, now: deps.now(), {
                 $0.allowsCellular = allowed
                 if running { $0.generation += 1 }
             })) != nil else { continue }
@@ -1087,7 +1100,7 @@ public actor OfflineDownloadManager {
         for id in Set(ids) {
             if store.asset(id) != nil {
                 // Recorded first, so a crash mid-delete is finished at the next launch.
-                _ = try? store.update(id, now: deps.now()) {
+                _ = store.update(id, now: deps.now()) {
                     $0.state = .deleting
                     $0.generation += 1
                 }
@@ -1120,7 +1133,7 @@ public actor OfflineDownloadManager {
     /// deleted here: the player may still hold the file.
     public func playbackEnded(_ id: String) {
         guard let asset = store.asset(id), asset.state == .completed,
-              (try? store.update(id, now: deps.now(), {
+              (store.update(id, now: deps.now(), {
                   $0.watched = true
                   if $0.autoDeleteAfterWatching { $0.pendingAutoDelete = true }
               })) != nil else { return }
@@ -1136,7 +1149,7 @@ public actor OfflineDownloadManager {
     }
 
     public func setAutoDelete(_ enabled: Bool, for id: String) {
-        _ = try? store.update(id, now: deps.now()) {
+        _ = store.update(id, now: deps.now()) {
             $0.autoDeleteAfterWatching = enabled
             if !enabled { $0.pendingAutoDelete = false }
         }

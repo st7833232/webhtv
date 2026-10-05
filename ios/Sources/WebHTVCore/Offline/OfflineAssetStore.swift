@@ -26,6 +26,8 @@ public final class OfflineAssetStore {
     private var assets = [String: OfflineAsset]()
     /// Folder name → why it was not read. Kept, never removed automatically.
     public private(set) var unreadable = [String: String]()
+    /// IOS-POC-52 (F2): records changed in memory whose write failed (a full disk).
+    public private(set) var unwritten = Set<String>()
     private let fileManager = FileManager.default
 
     public init(layout: OfflineStorageLayout) {
@@ -100,14 +102,36 @@ public final class OfflineAssetStore {
 
     /// Changes one record in place and writes it. Nil when there is no such asset — a late
     /// callback for an asset already deleted changes nothing and creates nothing.
+    ///
+    /// IOS-POC-52 (F2): the change stands even when the write fails, as it does on a full disk. A
+    /// state the disk cannot record must still move — a download left `downloading` with no
+    /// transfer, or `preparing`, would stop the queue — so the record is kept as `unwritten` and
+    /// goes to disk with its next write or `flushUnwritten()`. Until then the disk keeps the
+    /// previous record, which a relaunch reconciles as it does after a crash.
     @discardableResult
-    public func update(_ id: String, now: Date = .now, _ change: (inout OfflineAsset) -> Void) throws -> OfflineAsset? {
+    public func update(_ id: String, now: Date = .now, _ change: (inout OfflineAsset) -> Void) -> OfflineAsset? {
         guard var asset = assets[id] else { return nil }
         change(&asset)
         asset.updatedAt = now
-        try write(asset)
         assets[id] = asset
+        persist(asset)
         return asset
+    }
+
+    /// Writes again every record whose last write failed.
+    public func flushUnwritten() {
+        for id in unwritten {
+            if let asset = assets[id] { persist(asset) } else { unwritten.remove(id) }
+        }
+    }
+
+    private func persist(_ asset: OfflineAsset) {
+        do {
+            try write(asset)
+            unwritten.remove(asset.id)
+        } catch {
+            unwritten.insert(asset.id)
+        }
     }
 
     /// The in-memory record only: progress between writes, which the files on disk can rebuild.
@@ -119,9 +143,9 @@ public final class OfflineAssetStore {
         return asset
     }
 
-    public func flush(_ id: String) throws {
+    public func flush(_ id: String) {
         guard let asset = assets[id] else { return }
-        try write(asset)
+        persist(asset)
     }
 
     private func write(_ asset: OfflineAsset) throws {
@@ -169,6 +193,7 @@ public final class OfflineAssetStore {
         if gone {
             assets[id] = nil
             unreadable[id] = nil
+            unwritten.remove(id)
         }
         return gone ? released : 0
     }

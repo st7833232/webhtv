@@ -168,7 +168,29 @@ public enum HLSPlaylist: Sendable, Equatable {
 
     public enum ParseError: Error, Equatable {
         case notAPlaylist
+        /// IOS-POC-52 (F15): a duration or byte range that is not a usable number.
+        case badNumber
     }
+
+    /// A number a playlist gives, only when it is finite, not negative and at most `limit`
+    /// (IOS-POC-52, F15). `inf`, `nan`, `1e20` and thirty-digit values are what a broken source
+    /// sends; turning them into an integer, or multiplying them by a duration, would trap.
+    static func number<S: StringProtocol>(_ text: S, limit: Double) -> Double? {
+        guard let value = Double(text.trimmingCharacters(in: .whitespaces)), value.isFinite, value >= 0, value <= limit
+        else { return nil }
+        return value
+    }
+
+    static func integer<S: StringProtocol>(_ text: S, limit: Double) -> Int? { number(text, limit: limit).map { Int($0) } }
+
+    /// The limits: a day for a duration, 100 Gb/s for a bitrate, 100,000 pixels a side, 10 TB for
+    /// a byte range, 1,000 fps.
+    static let secondsLimit = 86_400.0
+    static let bitrateLimit = 100_000_000_000.0
+    static let pixelsLimit = 100_000.0
+    static let bytesLimit = 10_000_000_000_000.0
+    static let frameRateLimit = 1_000.0
+    static let counterLimit = 1_000_000_000_000_000.0
 
     /// Reads a playlist fetched from `base`. Relative URIs are resolved against it (RFC 3986), the
     /// way both engines resolve them.
@@ -178,7 +200,7 @@ public enum HLSPlaylist: Sendable, Equatable {
             .filter { !$0.isEmpty }
         guard let first = lines.first, first.hasPrefix("#EXTM3U") else { throw ParseError.notAPlaylist }
         let isMaster = lines.contains { $0.hasPrefix("#EXT-X-STREAM-INF") }
-        return isMaster ? .master(master(lines, base: base)) : .media(media(lines, base: base))
+        return isMaster ? .master(master(lines, base: base)) : .media(try media(lines, base: base))
     }
 
     static func resolve(_ raw: String, base: URL) -> URL? {
@@ -206,7 +228,7 @@ public enum HLSPlaylist: Sendable, Equatable {
         var pending: [String: String]?
         for line in lines {
             if let version = value(line, "#EXT-X-VERSION") {
-                playlist.version = Int(version)
+                playlist.version = integer(version, limit: 100)
             } else if line.hasPrefix("#EXT-X-INDEPENDENT-SEGMENTS") {
                 playlist.independentSegments = true
             } else if let attributes = value(line, "#EXT-X-STREAM-INF") {
@@ -228,12 +250,12 @@ public enum HLSPlaylist: Sendable, Equatable {
                 guard let uri = resolve(line, base: base) else { continue }
                 let resolution = attributes["RESOLUTION"].flatMap(Self.resolution)
                 playlist.variants.append(HLSVariant(
-                    uri: uri, bandwidth: Int(attributes["BANDWIDTH"] ?? "") ?? 0,
-                    averageBandwidth: attributes["AVERAGE-BANDWIDTH"].flatMap { Int($0) },
+                    uri: uri, bandwidth: integer(attributes["BANDWIDTH"] ?? "", limit: bitrateLimit) ?? 0,
+                    averageBandwidth: attributes["AVERAGE-BANDWIDTH"].flatMap { integer($0, limit: bitrateLimit) },
                     width: resolution?.0, height: resolution?.1,
                     codecs: (attributes["CODECS"] ?? "").split(separator: ",")
                         .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty },
-                    frameRate: attributes["FRAME-RATE"].flatMap { Double($0) },
+                    frameRate: attributes["FRAME-RATE"].flatMap { number($0, limit: frameRateLimit) },
                     videoRange: attributes["VIDEO-RANGE"]?.uppercased(),
                     audioGroup: attributes["AUDIO"], subtitlesGroup: attributes["SUBTITLES"],
                     closedCaptions: attributes["CLOSED-CAPTIONS"], attributes: attributes))
@@ -244,7 +266,8 @@ public enum HLSPlaylist: Sendable, Equatable {
 
     static func resolution(_ text: String) -> (Int, Int)? {
         let parts = text.lowercased().split(separator: "x")
-        guard parts.count == 2, let width = Int(parts[0]), let height = Int(parts[1]) else { return nil }
+        guard parts.count == 2, let width = integer(parts[0], limit: pixelsLimit),
+              let height = integer(parts[1], limit: pixelsLimit), width > 0, height > 0 else { return nil }
         return (width, height)
     }
 
@@ -252,15 +275,18 @@ public enum HLSPlaylist: Sendable, Equatable {
     /// (RFC 8216 §4.3.2.2); with no such range it starts at zero.
     private static func byteRange(_ text: Substring, uri: URL?, previous: (URL, HLSByteRange)?) -> HLSByteRange? {
         let parts = text.split(separator: "@")
-        guard let length = Int64(parts.first ?? "") , length > 0 else { return nil }
-        if parts.count > 1, let offset = Int64(parts[1]) { return HLSByteRange(length: length, offset: offset) }
+        guard let length = number(parts.first ?? "", limit: bytesLimit).map({ Int64($0) }), length > 0 else { return nil }
+        if parts.count > 1 {
+            guard let offset = number(parts[1], limit: bytesLimit).map({ Int64($0) }) else { return nil }
+            return HLSByteRange(length: length, offset: offset)
+        }
         if let previous, let uri, previous.0 == uri {
             return HLSByteRange(length: length, offset: previous.1.offset + previous.1.length)
         }
         return HLSByteRange(length: length, offset: 0)
     }
 
-    private static func media(_ lines: [String], base: URL) -> HLSMediaPlaylist {
+    private static func media(_ lines: [String], base: URL) throws -> HLSMediaPlaylist {
         var playlist = HLSMediaPlaylist(version: nil, targetDuration: 0, mediaSequence: 0, discontinuitySequence: nil,
                                         playlistType: nil, hasEndList: false, independentSegments: false,
                                         segments: [])
@@ -275,13 +301,14 @@ public enum HLSPlaylist: Sendable, Equatable {
         var previousRange: (URL, HLSByteRange)?
         for line in lines {
             if let version = value(line, "#EXT-X-VERSION") {
-                playlist.version = Int(version)
+                playlist.version = integer(version, limit: 100)
             } else if let target = value(line, "#EXT-X-TARGETDURATION") {
-                playlist.targetDuration = Int(Double(target) ?? 0)
+                guard let seconds = number(target, limit: secondsLimit) else { throw ParseError.badNumber }
+                playlist.targetDuration = Int(seconds)
             } else if let sequence = value(line, "#EXT-X-MEDIA-SEQUENCE") {
-                playlist.mediaSequence = Int(sequence) ?? 0
+                playlist.mediaSequence = integer(sequence, limit: counterLimit) ?? 0
             } else if let sequence = value(line, "#EXT-X-DISCONTINUITY-SEQUENCE") {
-                playlist.discontinuitySequence = Int(sequence)
+                playlist.discontinuitySequence = integer(sequence, limit: counterLimit)
             } else if let type = value(line, "#EXT-X-PLAYLIST-TYPE") {
                 playlist.playlistType = type.uppercased()
             } else if line.hasPrefix("#EXT-X-ENDLIST") {
@@ -290,7 +317,10 @@ public enum HLSPlaylist: Sendable, Equatable {
                 playlist.independentSegments = true
             } else if let info = value(line, "#EXTINF") {
                 let comma = info.firstIndex(of: ",")
-                duration = Double(info[..<(comma ?? info.endIndex)].trimmingCharacters(in: .whitespaces))
+                guard let seconds = number(info[..<(comma ?? info.endIndex)], limit: secondsLimit) else {
+                    throw ParseError.badNumber
+                }
+                duration = seconds
                 title = comma.map { String(info[info.index(after: $0)...]) } ?? ""
             } else if let range = value(line, "#EXT-X-BYTERANGE") {
                 rangeText = range
@@ -302,7 +332,11 @@ public enum HLSPlaylist: Sendable, Equatable {
             } else if let attributes = value(line, "#EXT-X-MAP") {
                 let parsed = HLSAttributes.parse(attributes)
                 if let uri = parsed["URI"].flatMap({ resolve($0, base: base) }) {
-                    let range = parsed["BYTERANGE"].flatMap { byteRange(Substring($0), uri: uri, previous: nil) }
+                    var range: HLSByteRange?
+                    if let text = parsed["BYTERANGE"] {
+                        guard let parsedRange = byteRange(Substring(text), uri: uri, previous: nil) else { throw ParseError.badNumber }
+                        range = parsedRange
+                    }
                     map = HLSMap(uri: uri, byteRange: range)
                 }
             } else if let date = value(line, "#EXT-X-PROGRAM-DATE-TIME") {
@@ -311,7 +345,12 @@ public enum HLSPlaylist: Sendable, Equatable {
                 gap = true
             } else if !line.hasPrefix("#") {
                 guard let uri = resolve(line, base: base) else { continue }
-                let range = rangeText.flatMap { byteRange($0, uri: uri, previous: previousRange) }
+                var range: HLSByteRange?
+                if let rangeText {
+                    // A range that is not a number would fetch the whole resource as this segment.
+                    guard let parsed = byteRange(rangeText, uri: uri, previous: previousRange) else { throw ParseError.badNumber }
+                    range = parsed
+                }
                 previousRange = range.map { (uri, $0) }
                 playlist.segments.append(HLSSegment(
                     uri: uri, duration: duration ?? 0, title: title, byteRange: range,

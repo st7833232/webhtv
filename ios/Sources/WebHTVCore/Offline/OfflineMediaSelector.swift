@@ -185,10 +185,12 @@ public enum OfflineMediaSelector {
     /// second time.
     public static func estimate(_ variant: HLSVariant, duration: Double) -> OfflineSizeEstimate {
         guard duration > 0 else { return .unknown }
-        if let average = variant.averageBandwidth, average > 0 {
-            return OfflineSizeEstimate(bytes: Int64(Double(average) * duration / 8), basis: .averageBandwidth)
+        if let average = variant.averageBandwidth, average > 0,
+           let bytes = OfflineSizeEstimate.bytes(Double(average) * duration / 8) {
+            return OfflineSizeEstimate(bytes: bytes, basis: .averageBandwidth)
         }
-        guard variant.bandwidth > 0 else { return .unknown }
-        return OfflineSizeEstimate(bytes: Int64(Double(variant.bandwidth) * duration / 8), basis: .peakBandwidth)
+        guard variant.bandwidth > 0, let bytes = OfflineSizeEstimate.bytes(Double(variant.bandwidth) * duration / 8)
+        else { return .unknown }
+        return OfflineSizeEstimate(bytes: bytes, basis: .peakBandwidth)
     }
 }

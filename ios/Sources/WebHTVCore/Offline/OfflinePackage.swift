@@ -90,7 +90,7 @@ public struct OfflinePackagePlan: Codable, Equatable, Sendable {
         let timed = tracks.values.reduce(0.0) { total, track in
             track.doneSeconds > 0 ? total + Double(track.doneBytes) / track.doneSeconds * track.seconds : total
         }
-        return Int64(timed) + untimed
+        return OfflineSizeEstimate.bytes(timed).map { $0 + untimed }
     }
 }
 

@@ -302,6 +302,13 @@ public struct OfflineSizeEstimate: Codable, Equatable, Sendable {
     }
 
     public static let unknown = OfflineSizeEstimate(bytes: nil, basis: .unknown)
+
+    /// A computed size as bytes, only when it is one: finite, not negative, under a petabyte. A
+    /// product of a declared bitrate and a duration can be neither, and `Int64(_:)` would trap
+    /// (IOS-POC-52, F15).
+    public static func bytes(_ value: Double) -> Int64? {
+        value.isFinite && value >= 0 && value < 1e15 ? Int64(value) : nil
+    }
     public var isApproximate: Bool { basis != .exact }
 }
 

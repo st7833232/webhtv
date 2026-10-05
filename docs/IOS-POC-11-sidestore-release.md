@@ -1,7 +1,13 @@
 # IOS-POC-11：SideStore 發布流程
 
 
-## Current release — 2026-10-04：0.1.64 (65) / IOS-UI-A4
+## Current release — 2026-10-05：0.1.65 (66) / IOS-POC-51
+
+**目前最新版是 `0.1.65 (66)`**（IOS-POC-51 用實際片段大小預估下載容量）。完整紀錄在下方「第六十六次發布」：run `37253074248` success，tag `ios-v0.1.65-b66` → `a222d336`，`source.json` `cf255efe`，`WebHTV-0.1.65-66.ipa` 35,107,067 bytes。真機未驗收。
+
+發布紀錄有兩種寫法：本節到「0.1.61 (62)」是 IOS-UI-A session 寫在檔頭的段落（`0.1.61 (62)`～`0.1.64 (65)` 沒有「第 N 次發布」段落，對應第六十二～六十五次）；其餘版本是下方依序編號的「第 N 次發布」段落。
+
+## Previous release — 2026-10-04：0.1.64 (65) / IOS-UI-A4
 
 已發布 **0.1.64 (65)**（2026-10-04 22:33，Asia/Taipei）：成功 run [37209250026](https://github.com/st7833232/webhtv/actions/runs/37209250026)，全部 steps success（device Release build、IPA／schema validation、公開下載 byte comparison、source publish）。tag `ios-v0.1.64-b65` → IPA code commit `033d43368ff7aa629375834d9e48da0997490ca5`；source update commit `57ef2ca38e72be9ddb4380f0baea290a94e59e30`。asset `WebHTV-0.1.64-65.ipa` uploaded，35,082,545 bytes，SHA-256 `67eda949b95cf06a57a835d52f668bedd99a35558dfd6031465ad43aa0915acc`。已從 immutable source commit 核對 versions[0] 0.1.64，downloadURL／size 與 Release 相同，bundle `com.webhtv.ios.poc`／source identifier `com.webhtv.sidestore.source` 未改。
 
@@ -32,6 +38,17 @@
 - IPA URL：`https://github.com/st7833232/webhtv/releases/download/ios-v0.1.62-b63/WebHTV-0.1.62-63.ipa`。
 - 尚待 SideStore 真機驗收：iOS 27 safe area／鍵盤／返回手勢／長字體與海報裁切、來源切換／全站搜尋、收藏完結取消與復原／觀看記錄，以及單集／全部／多工／行動網路下載、AVPlayer／MPV／PiP。
 - 下一步：真機驗收；若要回復 UI，revert presentation commit 並發布更高版號，不移動已發布 tag。
+
+## Previous release — 2026-10-04：0.1.61 (62) / IOS-UI-A 第一版 theme trial（第六十二次發布）
+
+（2026-10-05 補記：原本只記在 `docs/current-task-state.md`，以下數字由 GitHub Release 與 run 重新核對。）
+
+- 內容：`0.1.60 (61)` 的全部，加上 IOS-UI-A 第一版視覺 patch（`d759a346`，只改背景、色彩、圓角、material）。這是第一個包含 IOS-UI-A 的版本；`0.1.60 (61)` 已先從 A 版之前的 HEAD 發布，所以 A 版改用 `0.1.61 (62)`（版號 commit `82d952e8`）。
+- 觸發方式：**不是** `workflow_dispatch`。`f103ab5b` 在 workflow 加了 push 觸發（`ios-poc` 上 `.github/ios-release-trigger` 有變動就發布），`0a71c760` 把預設 release notes 改成本版文字，`9d81a75e` 寫入 trigger 檔觸發。run `37199969137` success（2026-10-04 11:48:27Z → 11:55:11Z）。
+- 產物：tag `ios-v0.1.61-b62` → `9d81a75eea4aab49b925b1fe138d0309d104ba24`；`source.json` commit `1bf5d7ade62b7ba14e9f60b5bbfed7585004e67c`。GitHub Release `WebHTV 0.1.61 (62)` 不是 draft，也不是 prerelease。`WebHTV-0.1.61-62.ipa` **34,956,830 bytes**，SHA-256 `69d6d5f322727fa811a5582d28936a927139c81c6fac89ff9c46acbbf49032c5`。
+- Release notes：`WebHTV 0.1.61 (62)（A 版 Cinematic Minimal；含最多 3 集多工下載；真機未驗收）`。
+- 真機回報結構與設計稿落差，由 `0.1.62 (63)`（A2 結構重構）取代。
+- **待清理**：`f103ab5b` 的訊息寫「remove after 0.1.61 (62) publishes」，但 push 觸發還在 `.github/workflows/ios-sidestore-release.yml`。`0.1.62`～`0.1.64` 也用這個 push 觸發發布，每次在功能 commit（`c361c637`、`f916df55`、`033d4336`）裡改寫 workflow 三處預設 release notes，實際送出的 notes 都正確。目前預設值是 `0.1.64 (65)` 的文字（原本是 `Automated SideStore release.`），所以之後用 `workflow_dispatch` 而沒填 release notes 時，會送出 0.1.64 的文字。要移除 push 觸發、還原預設值，還是把它保留為正式發布路徑，等使用者決定。
 
 以下為原流程與歷史發布紀錄；舊段落的「最新版」只代表該次發布當時。
 
@@ -67,7 +84,8 @@
 
 ## Recovery anchor
 
-- 狀態：完成，且已發過**二十九個**版本，最新是 `0.1.28 (29)`（見文末各次發布；`0.1.5 (6)` 沒有獨立段落，記在 `docs/current-task-state.md`）。
+- 狀態：完成，且已發過**六十六個**版本，最新是 `0.1.65 (66)`（2026-10-05 更新；見檔頭「Current release」與各次發布；`0.1.5 (6)` 沒有獨立段落，記在 `docs/current-task-state.md`）。
+- 未決：一次性的 push 觸發（`f103ab5b`）仍在 workflow，見檔頭「0.1.61 (62)」一節的「待清理」。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
 - 發布結果：`WebHTV-0.1-1.ipa`，24,563,162 bytes，GitHub asset SHA-256 `fcbf1531d9480f678ee0fac7ec5ce49010f3de51fc11b79f0ba88372e85812ed`；IPA plist 為 `com.webhtv.ios.poc`、`0.1`、build `1`、minimum iOS `17.0`。
@@ -933,7 +951,7 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 
 **目前最新版是 `0.1.65 (66)`。** 前面六十五版都已被取代。
 
-- 第六十二至六十五次發布 `0.1.61 (62)`～`0.1.64 (65)`（IOS-UI-A 系列）由其他 session 發布。它們的紀錄在 `docs/IOS-UI-A-cinematic-minimal.md` 與 `docs/current-task-state.md`，沒有寫在本文件。
+- 第六十二至六十五次發布 `0.1.61 (62)`～`0.1.64 (65)`（IOS-UI-A 系列）由其他 session 發布，紀錄在本文件檔頭的「Previous release」各節（2026-10-05 補上 `0.1.61 (62)`），設計與驗證在 `docs/IOS-UI-A-cinematic-minimal.md`。
 - 授權：使用者回報預估約 300 MB、實際 700 多 MB，並選擇「做A」。依使用者先前「不要跑ci修改後就發佈」的指示發布。版號 `0.1.65`，build `66`。
 - 內容：`0.1.64 (65)` 的全部，加上 IOS-POC-51（`0833ca4e`）：
   - 下載前用實際片段大小推算預估容量；

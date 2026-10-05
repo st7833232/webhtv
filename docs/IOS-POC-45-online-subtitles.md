@@ -6,7 +6,24 @@
 - 範圍：task guard `IOS-POC-45`（`standard`），路徑 `ios/Sources/WebHTVCore`、`ios/Tests/WebHTVCoreTests`、`ios/WebHTVApp/Sources`、本文件、`docs/current-task-state.md`、`README.md`。不動 `project.pbxproj`、版號、release workflow、MPVKit、lock、patch。
 - 與既有計畫的關係：`docs/IOS-POC-17-dual-internal-player.md` 第十四節 P4（MPV 外掛字幕）原本「沒有指示不開始」；本任務的 MPV `sub-add` 是使用者這次明確要求的範圍，只做「掛載本機已下載的 SRT」，不做 P4 的 ASS 樣式／來源字幕網址。
 - 狀態：實作完成並 commit。macOS CI：Core 測試 714／714、Debug／Release（device）build 成功；iOS Simulator 只有與 base 相同的 9 個既有 WKWebView 測試失敗（第 9 節）。live smoke test 因網路政策未執行。
-- 唯一下一步：在能連上 Subtitle Cat 的環境與真機上驗證第 10 節列出的項目（實際頁面結構、CJK 字型、PiP、鍵盤）。
+- 子任務與發布對照（2026-10-05 補記，版本以 `git tag --contains` 核對）：
+
+  | 子任務 | 內容 | commit | 節 | 首次發布 |
+  |---|---|---|---|---|
+  | 45 | Subtitle Cat 線上字幕 | — | 1～10 | `0.1.52 (53)` |
+  | 45A | MPV 中文字幕方格（`sub-font`） | `70d5226a` | 11 | `0.1.53 (54)` |
+  | 45B | 字幕時間軸校正 | `bbcb5794` | 12 | `0.1.53 (54)` |
+  | 45C | OpenSubtitles／射手網 API，key 存鑰匙圈 | `1db1a933` | 13 | `0.1.53 (54)` |
+  | 45C-1 | 射手網狀態碼與配額錯誤不重試 | `4dc2a9d4` | 14 | `0.1.54 (55)` |
+  | 45D／45D-1 | MPV 內建 CJK 字型、字型診斷 | `f6024d0a`、`af0a791b` | 16 | `0.1.54 (55)` |
+  | 45E | 跨廣告的字幕時間軸（`SubtitleAdClock`） | `15c91637` | 15 | `0.1.54 (55)` |
+  | 45F／45F-1 | CC／SDH／強制字幕標示、空清單說明 | `f3505e2f`、`80a4c288` | 18、18.4 | `0.1.54 (55)` |
+  | 45G／45G-1 | 射手網網頁版 | `2576c564`、`1d46bc92` | 17 | `0.1.54 (55)` |
+  | 45H／45H-1 | 片源自帶字幕（`subs`） | `3532b109`、`cae4e8f8` | 19、19.7 | `0.1.54 (55)` |
+  | 45I | 網頁播放頁字幕嗅探 | `76e0d57f` | 21 | `0.1.55 (56)` |
+
+  各節依完成順序附加，所以 19.7 與 18.4 排在第 20 節（SubtitleNexus 評估）之後。全部子任務真機都未驗證。
+- 唯一下一步：在能連上 Subtitle Cat 的環境與真機上驗證第 10 節列出的項目（實際頁面結構、CJK 字型、PiP、鍵盤），以及各子任務節裡的未驗證項目。
 
 ## 1. 需求摘要
 

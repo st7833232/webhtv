@@ -944,6 +944,22 @@ struct OfflineReviewFixTests {
         #expect(listed.map(\.title.episodeIndex) == listed.map(\.title.episodeIndex).sorted())
     }
 
+    // F12 (IOS-POC-52-11): only the loopback server's port can change; anything else is not moved.
+    @Test func aSourceIsRebasedOnlyWhenItsServerMovedPort() {
+        func source(_ address: String) -> OfflinePlaybackSource {
+            OfflinePlaybackSource(assetID: "a", url: URL(string: address)!, compatibility: .bothEngines, sidecars: [],
+                                  folder: URL(fileURLWithPath: "/tmp/a"), label: "離線 1080p")
+        }
+        let served = source("http://127.0.0.1:50000/tok/a/playlists/index.m3u8")
+        let moved = served.rebased(to: URL(string: "http://127.0.0.1:50001/tok/")!)
+        #expect(moved?.url.absoluteString == "http://127.0.0.1:50001/tok/a/playlists/index.m3u8")
+        #expect(moved?.assetID == "a")
+        #expect(moved?.label == served.label)
+        #expect(served.rebased(to: URL(string: "http://127.0.0.1:50000/tok/")!) == nil, "the address still holds")
+        #expect(served.rebased(to: URL(string: "http://127.0.0.1:50001/other/")!) == nil, "another server's token")
+        #expect(source("file:///tmp/a/media/video.mp4").rebased(to: URL(string: "http://127.0.0.1:50001/tok/")!) == nil)
+    }
+
     // F11 (IOS-POC-52-9): the wake's background task ends exactly once, whichever path comes first.
     @Test func aWakeTaskEndsOnceWhicheverWayItFinishes() {
         // Settling done, then iOS's expiry, then settling again.

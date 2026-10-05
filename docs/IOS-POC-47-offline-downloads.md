@@ -274,7 +274,7 @@ Application Support/OfflineMedia/<asset-id>/
 | F9 | 中 | 重新解析後重試，保留不同編碼的舊檔 | 修：比對每段秒數與遠端檔名，不同就重新下載 | `445ee765` | `aReResolveWithOtherDurationsStartsTheFilesOver` |
 | F10 | 中 | 需要憑證的傳輸全部排進預設 session，排隊中逾時就讓整集失敗 | 修：一次最多 6 個；連線類錯誤另有 10 次額度；回到前景重送 | `73eb8149` | `credentialedUnitsAreSentThroughAWindow`、`connectivityFailuresHaveTheirOwnBudget` |
 | F11 | 中 | 背景 session 的完成通知太早，App 可能在處理途中被暫停 | 修：事件處理完立刻通知系統，下一集的準備（最多 20 秒）改在 `offline-wake` background task 下進行，task 只結束一次（IOS-POC-52-9；原本的部分修正是 `73eb8149`） | `73eb8149`、IOS-POC-52-9 | `aStagedBodyIsTakenUpAtLaunch`、`theTransportWaitsForPreparingToSettle`、`aWakeTaskEndsOnceWhicheverWayItFinishes`、`aWakeTellsTheSystemBeforeItSettles`；真機未驗證 |
-| F12 | 中 | App 暫停後本機伺服器沒有重開，暫停中的離線 HLS 無法繼續 | 部分：恢復播放前重開伺服器（優先原連接埠）；離片長還有 5 秒以上的檔尾不算看完。未做：連接埠被占用而換埠時重建播放項目（風險較高） | `183334aa` | `anEndOfFileShortOfTheDurationIsNotAWatch`；伺服器重開需真機驗證 |
+| F12 | 中 | App 暫停後本機伺服器沒有重開，暫停中的離線 HLS 無法繼續 | 修：恢復播放前重開伺服器（優先原 port）；離片長還有 5 秒以上的檔尾不算看完；port 變了時，以新網址重載已載入的離線 HLS（暫停後重載與鎖定畫面播放，IOS-POC-52-11） | `183334aa`、IOS-POC-52-11 | `anEndOfFileShortOfTheDurationIsNotAWatch`、`aReloadAtAnotherAddressMovesOnlyTheAddress`、`aSourceIsRebasedOnlyWhenItsServerMovedPort`；換 port 的情境真機無法重現 |
 | F13 | 中 | 關閉「看完後自動刪除」不影響既有下載 | 修：設定關閉時取消所有排定的自動刪除，重開時亦同 | `183334aa` | `theSettingTurnedOffStopsEveryAutoDelete`、`aCrashArmedAutoDeleteWaitsForTheSettingAtLaunch` |
 | F14 | 中 | 單一檔案下載途中不檢查空間 | 修：進度回報時檢查剩餘空間 | `73eb8149` | `aSingleFileStopsWhenTheRestNoLongerFits` |
 | F15 | 中 | 播放清單數字異常造成閃退，且每次啟動重複閃退 | 修：數字只接受有限、非負、在上限內；必要欄位不合法就拒絕整份清單 | `44d9ee59` | `brokenNumbersFailThePlaylistInsteadOfTrapping` 等 3 項 |
@@ -314,5 +314,5 @@ Application Support/OfflineMedia/<asset-id>/
 
 - 2026-10-04：實作與驗證完成（第 11 節），commit `4b7a00b6`；隨 `0.1.57 (58)` 發布（IOS-POC-11 第五十八次發布，tag `ios-v0.1.57-b58` → `f8dcc555`）。
 - 2026-10-05：審查確認的 40 項全部處理完畢（第 15 節）：修 36 項、部分 3 項（F11、F12、F35）、不修 1 項（F33，已由 IOS-UI-A 解決）。commit `44d9ee59`、`445ee765`、`73eb8149`、`183334aa`、`743a1d42`、`8b5ba5e4`。
-- 2026-10-05 後續：IOS-POC-52-7 在 macOS 補驗證並新增 F22、F36 的 Darwin 測試；IOS-POC-52-9 補完 F11。目前是修 37 項、部分 2 項（F12、F35，方案在 `docs/IOS-POC-52-offline-review-fixes.md` 第 4 節，待核准）、不修 1 項。
+- 2026-10-05 後續：IOS-POC-52-7 在 macOS 補驗證並新增 F22、F36 的 Darwin 測試；IOS-POC-52-9 補完 F11。目前是修 37 項、部分 2 項（F12、F35，方案在 `docs/IOS-POC-52-offline-review-fixes.md` 第 4 節，待核准）、不修 1 項。之後 IOS-POC-52-11 補完 F12：修 38 項、部分 1 項（F35，已核准「探測並顯示、不拒絕」）、不修 1 項。
 - 下一步：使用者在真機驗證第 12 節第 1 項與第 15.3 節第 1 項。

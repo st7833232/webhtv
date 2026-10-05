@@ -502,6 +502,27 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     #expect(!loaded.autoplay, "a reload never starts playback by itself")
 }
 
+// IOS-POC-52 (F12): a downloaded episode whose loopback server came back on another port.
+@MainActor @Test func aReloadAtAnotherAddressMovesOnlyTheAddress() throws {
+    let harness = Harness()
+    harness.router.open(request)
+    harness.router.setRate(2)
+    let moved = URL(string: "http://127.0.0.1:50001/token/asset/playlists/index.m3u8")!
+    harness.router.reload(at: 1234, autoplay: false, url: moved)
+    let loaded = try #require(harness.engine.loads.last)
+    #expect(loaded.target.url == moved)
+    #expect(loaded.target.qualities.map(\.url) == [moved, target.qualities[1].url], "only the loaded entry moves")
+    #expect(loaded.target.qualities.map(\.name) == ["1080p", "720p"])
+    #expect(loaded.target.headers == target.headers)
+    #expect(loaded.history == episode)
+    #expect(loaded.title == request.title)
+    #expect(loaded.startSeconds == 1234)
+    #expect(loaded.rate == 2)
+    #expect(!loaded.autoplay)
+    harness.router.reload(at: 1300, autoplay: true)
+    #expect(harness.engine.loads.last?.target.url == moved, "a later reload stays at the new address")
+}
+
 @MainActor @Test func aReloadNeitherSpendsNorRenewsTheFallback() throws {
     let harness = Harness()
     var shown: PlaybackFailure?

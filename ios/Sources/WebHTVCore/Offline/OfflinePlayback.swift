@@ -18,6 +18,18 @@ public struct OfflinePlaybackSource: Sendable, Equatable {
     public let folder: URL
     /// The quality menu's one entry: 「離線 1080p」.
     public let label: String
+
+    /// IOS-POC-52 (F12): this episode on a loopback server that came back on another port, or nil
+    /// when that server does not serve it (a file on disk) or its address still holds. The token is
+    /// the server's for the life of the process, so only the port can have changed.
+    public func rebased(to base: URL) -> OfflinePlaybackSource? {
+        guard url.host == base.host, url.port != base.port, url.path.hasPrefix(base.path),
+              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        parts.port = base.port
+        guard let moved = parts.url else { return nil }
+        return OfflinePlaybackSource(assetID: assetID, url: moved, compatibility: compatibility, sidecars: sidecars,
+                                     folder: folder, label: label)
+    }
 }
 
 public enum OfflinePlaybackResolver {

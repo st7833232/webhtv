@@ -5739,13 +5739,24 @@ struct EpisodeSteps: Equatable {
         // downloaded HLS episode plays from is started again before the reload asks it for anything.
         guard servesOfflineHLS else { router.reload(at: seconds, autoplay: false); return }
         Task { @MainActor in
-            _ = await OfflineDownloads.server.start()
-            self.router.reload(at: seconds, autoplay: false)
+            let moved = await self.restartOfflineServer()
+            self.router.reload(at: seconds, autoplay: false, url: moved)
         }
     }
 
     /// A downloaded HLS episode plays from the loopback server; a single file plays from disk.
     private var servesOfflineHLS: Bool { offlineSource?.url.host == "127.0.0.1" }
+
+    /// IOS-POC-52 (F12): starts the loopback server again. When it came back on another port, the
+    /// loaded item still asks the old one: the episode's address moves first — `offlineSource` is
+    /// what marks the item as this download — and the new address is answered for a reload.
+    private func restartOfflineServer() async -> URL? {
+        guard let base = await OfflineDownloads.server.start(), let moved = offlineSource?.rebased(to: base)
+        else { return nil }
+        offlineSource = moved
+        Self.log.notice("[offline] loopback server moved to port \(base.port ?? 0, privacy: .public): reloading there")
+        return moved.url
+    }
 
     /// A reloaded item picks its own default tracks. The viewer's choice goes back once the item has
     /// listed what it offers — the first listing with any tracks settles it.
@@ -5792,8 +5803,11 @@ struct EpisodeSteps: Equatable {
             // server comes back first, or every segment request is refused.
             if servesOfflineHLS {
                 Task { @MainActor in
-                    _ = await OfflineDownloads.server.start()
-                    self.engine?.play()
+                    guard let moved = await self.restartOfflineServer() else { self.engine?.play(); return }
+                    // On another port: the item is loaded again there, where it stood, playing.
+                    self.tracksToRestore = self.mediaSelection
+                    self.adSkip.engineReloaded()
+                    self.router.reload(at: self.position, autoplay: true, url: moved)
                 }
             } else {
                 engine?.play()

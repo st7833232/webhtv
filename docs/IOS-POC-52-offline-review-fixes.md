@@ -334,7 +334,7 @@
   - **F29**（`URLSessionOfflineTransport` 的取消計數）：沒有寫測試。要確定性地重現「submit 進行中被取消」，必須在正式程式加注入點；而且建立 transport 必定會建立固定 identifier 的 background session，不適合在測試程序裡建立。改用 scratchpad 小程式在 macOS 27 的 default session 實測兩個前提：
     - 剛建立、還沒 `resume()` 的 task **不會**出現在 `allTasks`，等 300 ms 也不會；resume 之後才會出現。
     - 先 `cancel()` 再 `resume()` 不會重新開始（狀態 completed，錯誤 -999）。
-    - 推論：`submit` 在鎖內建立 task、出鎖後才 `resume()`。`cancel(assetID:)` 若剛好在這兩步之間遞增計數並列出 tasks，就會漏掉這個 task，之後它照樣被 resume。程式註解「cancel 在後的話會在 session 的 tasks 裡找到它」不成立。實際上，manager 的 `cancelIfStale`（F3）在 submit 結束後，會取消已被暫停或刪除的那批（這時 task 都已 resume，找得到），所以使用者層面由 F3 補住。最小修正是把 `task?.resume()` 移進同一個 `lock.withLock`（resume 不會同步呼叫 delegate，不會死結），並改正註解。**已於 IOS-POC-52-10 修正**（使用者 2026-10-05 核准）：`submit` 在鎖內建立並 resume；沒有確定性的單元測試可分辨修正前後（submit 結束時 task 都已 resume），依據是上面的實測，Offline 133／133。background session 的 `allTasks` 行為未實測。
+    - 推論：`submit` 在鎖內建立 task、出鎖後才 `resume()`。`cancel(assetID:)` 若剛好在這兩步之間遞增計數並列出 tasks，就會漏掉這個 task，之後它照樣被 resume。程式註解「cancel 在後的話會在 session 的 tasks 裡找到它」不成立。實際上，manager 的 `cancelIfStale`（F3）在 submit 結束後，會取消已被暫停或刪除的那批（這時 task 都已 resume，找得到），所以使用者層面由 F3 補住。最小修正是把 `task?.resume()` 移進同一個 `lock.withLock`（resume 不會同步呼叫 delegate，不會死結），並改正註解。**已於 IOS-POC-52-10 修正**（使用者 2026-10-05 核准）：`submit` 在鎖內建立並 resume；沒有確定性的單元測試可分辨修正前後（submit 結束時 task 都已 resume），依據是上面的實測，Offline 133／133。Ponytail（commit 後補跑）：Lean already. Ship.background session 的 `allTasks` 行為未實測。
 - **突變**（暫時修改正式程式後用 `git checkout` 還原）2／2 被抓到：
   - `subtitleSession` 拿掉 `SubtitleRedirectPolicy` → F22 測試失敗（跨主機帶出 Cookie、同源掉 Authorization）。
   - fetcher 超過上限後不停止讀取（`break` 改成 `continue`）→ F36 測試失敗（伺服器送完 268,435,456 bytes）。
@@ -482,6 +482,26 @@
 
 **Rollback**：revert 該 commit。沒有資料格式變更。
 
+#### 4.2.1 實作紀錄（IOS-POC-52-11，2026-10-05，使用者核准「實作窄版」）
+
+- Core：
+  - `PlaybackLoadRequest.moved(to:)`：換掉網址，原本指向舊網址的畫質項目一起換，其餘欄位（位置、速度、autoplay、exactStart、header、字幕、紀錄）不變。
+  - `PlaybackRouter.reload(at:autoplay:url:)`：`url` 預設為 nil；有傳入時，先套用 `moved(to:)` 再照原本的流程重載。
+  - `OfflinePlaybackSource.rebased(to:)`：只有在同一個 host、同一個 token 路徑、而 port 不同時，才回傳換了 port 的 source；其餘回傳 nil，包括 `file://` 的單一檔案。
+- App `PlaybackSession`：
+  - 新增 `restartOfflineServer()`：重開伺服器；port 變了的話，先更新 `offlineSource`，寫一行 log，再回傳新網址。
+  - `reloadPaused` 用它回傳的網址重載；網址沒變時是 nil，行為與之前相同。
+  - 鎖定畫面的「播放」：port 變了時，在目前位置以新網址重載並播放（同時保存音軌與字幕選擇，讓去廣告機制知道引擎重載過）；沒變時照舊 `engine.play()`。
+- 測試：
+  - `aReloadAtAnotherAddressMovesOnlyTheAddress`：只有被載入的那個畫質項目換網址，其他欄位保留；之後不帶網址的重載也停留在新網址；
+  - `aSourceIsRebasedOnlyWhenItsServerMovedPort`：同 port、不同 token、`file://` 都回傳 nil。
+- 驗證（本機 macOS 27、Xcode 27）：
+  - `Offline|PlaybackEngine|OnlineSubtitleSession` 196／196；
+  - Release iphoneos 不簽章建置 **BUILD SUCCEEDED**，warning 與修改前相同；
+  - 突變 4／4 被抓到：畫質不跟著換、reload 忽略網址、`rebased` 不比對 port、`rebased` 不比對 token。
+- Ponytail：Lean already. Ship.
+- 未驗證：換 port 的情境沒辦法在真機上刻意重現，App 端只確認了編譯與程式路徑。真機上一般的暫停→背景→恢復與鎖定畫面播放，需要確認行為沒有改變。
+
 ### 4.3 F35：探測單一檔案與沒有 master 的播放清單的實際解析度
 
 **問題**：單一檔案，以及沒有 master 的 HLS 媒體清單，都不知道解析度，可能下載到超過 1080p 的檔案；紀錄上也沒有解析度與編碼。
@@ -553,7 +573,8 @@
 
 - 未決、等使用者決定：F11（背景執行時間）、F12（換埠時重建播放項目）、F35（探測實際解析度）只做了一部分，未做的部分是否另開任務（同 `docs/current-task-state.md` 最上方交接）。
 - F11 已於 IOS-POC-52-9 實作（見 4.1.1），尚未發布。
-- 未決、等使用者核准（IOS-POC-52-8，見第 4 節）：F12（沿用 reload 路徑，換 port 時換網址重載，優先度低）、F35（AVFoundation 只探測 MP4／MOV 與 fMP4 init segment；另有旋轉、未知時政策、header 三個決定）。
+- F12 已於 IOS-POC-52-11 實作（見 4.2.1），尚未發布。
+- 使用者已核准、待實作：F35（AVFoundation 只探測 MP4／MOV 與 fMP4 init segment；另有旋轉、未知時政策、header 三個決定）。
 - F29 傳輸層的空窗已於 IOS-POC-52-10 修正（見 3.1）。
 - 未決、等使用者決定（IOS-POC-52-7 發現，見 3.1）：`FavoriteAppWiringTests` 2 個過時的期望值；`MediaSnifferTests` 3 個穩定失敗（IOS-POC-45I）。
 

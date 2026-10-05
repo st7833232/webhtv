@@ -267,6 +267,16 @@ public struct PlaybackLoadRequest: Sendable, Equatable {
         .init(target: target, startSeconds: seconds, rate: rate, autoplay: autoplay,
               title: title, history: history, exactStart: exact)
     }
+
+    /// IOS-POC-52 (F12): the same request at another address — a downloaded episode whose loopback
+    /// server came back on another port. The quality entry that named the old address names the new.
+    func moved(to url: URL) -> PlaybackLoadRequest {
+        let qualities = target.qualities.map { $0.url == target.url ? PlaybackQuality(name: $0.name, url: url) : $0 }
+        let moved = PlaybackTarget(url: url, headers: target.headers, qualities: qualities, position: target.position,
+                                   defaultIndex: target.defaultIndex, subtitles: target.subtitles)
+        return .init(target: moved, startSeconds: startSeconds, rate: rate, autoplay: autoplay,
+                     title: title, history: history, exactStart: exactStart)
+    }
 }
 
 /// The states `player.status` reports, and nothing finer.
@@ -458,9 +468,11 @@ public final class PlayerRouter {
     /// IOS-POC-23: the same request again on the engine it is on, at `seconds` — what closing and
     /// reopening the player does, without closing it. Zero is a real position here (the start, or a
     /// live stream's edge), not "unknown": the caller already chose. The selection is left alone,
-    /// so this attempt's fallback is neither spent nor renewed.
-    public func reload(at seconds: Double, autoplay: Bool) {
-        guard let request else { return }
+    /// so this attempt's fallback is neither spent nor renewed. `url` replaces the address when the
+    /// one loaded no longer answers (IOS-POC-52 F12).
+    public func reload(at seconds: Double, autoplay: Bool, url: URL? = nil) {
+        guard var request else { return }
+        if let url { request = request.moved(to: url) }
         failure = nil
         // IOS-POC-26: the session passes the request's own start back for an item still preparing;
         // any other position is one the engine reached.

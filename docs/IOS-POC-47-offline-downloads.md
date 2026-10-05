@@ -291,7 +291,7 @@ Application Support/OfflineMedia/<asset-id>/
 | F26 | 低 | 暫停後，過時的解析失敗蓋掉新的狀態 | 修：解析回來後檢查 generation | `445ee765` | `aLateResolverFailureDoesNotOverrideAPause` |
 | F27 | 低 | 只有第一份播放清單接受 BOM | 修：所有播放清單都接受 | `445ee765` | `everyPlaylistMayStartWithAByteOrderMark` |
 | F28 | 低 | 智慧與高畫質模式選到只有 AV1／VP9 的 1080p，AVPlayer 無法播放 | 修：有其他編碼時不選 AV1／VP9 | `445ee765` | `av1AndVP9AreChosenOnlyWhenNothingElseFits` |
-| F29 | 低 | 取消只取消當下的任務快照，送出途中的刪除或暫停留下傳輸 | 修：傳輸層以取消計數保護送出 | `73eb8149` | 無單元測試；manager 端由 F3 的測試涵蓋。IOS-POC-52-7 實測發現：未 resume 的 task 不會出現在 `allTasks`，傳輸層有小空窗，實際由 F3 補住（修正待決定，見 IOS-POC-52 文件 3.1） |
+| F29 | 低 | 取消只取消當下的任務快照，送出途中的刪除或暫停留下傳輸 | 修：傳輸層以取消計數保護送出 | `73eb8149` | 無單元測試；manager 端由 F3 的測試涵蓋。IOS-POC-52-7 實測發現：未 resume 的 task 不會出現在 `allTasks`，傳輸層有小空窗；IOS-POC-52-10 改為在鎖內建立並 resume（見 IOS-POC-52 文件 3.1） |
 | F30 | 低 | 「離線內容」總量在下載中或失敗後不更新 | 修：即時計算 | `73eb8149` | `usageCountsWhatUnfinishedDownloadsHold` |
 | F31 | 低 | 下載中的項目換區時，刪除確認視窗被關掉 | 修：確認視窗改由列表持有 | `743a1d42` | 純 SwiftUI，無單元測試；需真機驗證 |
 | F32 | 低 | App 在背景被喚醒、設定尚未載入時，需要重新解析的下載失敗 | 修：設定載入前留在排隊中；移除 IOS-POC-49 的 30 秒等待 | `743a1d42` | `aDownloadThatMustResolveWaitsQueuedUntilTheConfigurationIsLoaded` |

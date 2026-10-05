@@ -334,7 +334,7 @@
   - **F29**（`URLSessionOfflineTransport` 的取消計數）：沒有寫測試。要確定性地重現「submit 進行中被取消」，必須在正式程式加注入點；而且建立 transport 必定會建立固定 identifier 的 background session，不適合在測試程序裡建立。改用 scratchpad 小程式在 macOS 27 的 default session 實測兩個前提：
     - 剛建立、還沒 `resume()` 的 task **不會**出現在 `allTasks`，等 300 ms 也不會；resume 之後才會出現。
     - 先 `cancel()` 再 `resume()` 不會重新開始（狀態 completed，錯誤 -999）。
-    - 推論：`submit` 在鎖內建立 task、出鎖後才 `resume()`。`cancel(assetID:)` 若剛好在這兩步之間遞增計數並列出 tasks，就會漏掉這個 task，之後它照樣被 resume。程式註解「cancel 在後的話會在 session 的 tasks 裡找到它」不成立。實際上，manager 的 `cancelIfStale`（F3）在 submit 結束後，會取消已被暫停或刪除的那批（這時 task 都已 resume，找得到），所以使用者層面由 F3 補住。最小修正是把 `task?.resume()` 移進同一個 `lock.withLock`（resume 不會同步呼叫 delegate，不會死結），並改正註解。這是正式程式修改，**等使用者決定**。background session 的 `allTasks` 行為未實測。
+    - 推論：`submit` 在鎖內建立 task、出鎖後才 `resume()`。`cancel(assetID:)` 若剛好在這兩步之間遞增計數並列出 tasks，就會漏掉這個 task，之後它照樣被 resume。程式註解「cancel 在後的話會在 session 的 tasks 裡找到它」不成立。實際上，manager 的 `cancelIfStale`（F3）在 submit 結束後，會取消已被暫停或刪除的那批（這時 task 都已 resume，找得到），所以使用者層面由 F3 補住。最小修正是把 `task?.resume()` 移進同一個 `lock.withLock`（resume 不會同步呼叫 delegate，不會死結），並改正註解。**已於 IOS-POC-52-10 修正**（使用者 2026-10-05 核准）：`submit` 在鎖內建立並 resume；沒有確定性的單元測試可分辨修正前後（submit 結束時 task 都已 resume），依據是上面的實測，Offline 133／133。background session 的 `allTasks` 行為未實測。
 - **突變**（暫時修改正式程式後用 `git checkout` 還原）2／2 被抓到：
   - `subtitleSession` 拿掉 `SubtitleRedirectPolicy` → F22 測試失敗（跨主機帶出 Cookie、同源掉 Authorization）。
   - fetcher 超過上限後不停止讀取（`break` 改成 `continue`）→ F36 測試失敗（伺服器送完 268,435,456 bytes）。
@@ -554,7 +554,8 @@
 - 未決、等使用者決定：F11（背景執行時間）、F12（換埠時重建播放項目）、F35（探測實際解析度）只做了一部分，未做的部分是否另開任務（同 `docs/current-task-state.md` 最上方交接）。
 - F11 已於 IOS-POC-52-9 實作（見 4.1.1），尚未發布。
 - 未決、等使用者核准（IOS-POC-52-8，見第 4 節）：F12（沿用 reload 路徑，換 port 時換網址重載，優先度低）、F35（AVFoundation 只探測 MP4／MOV 與 fMP4 init segment；另有旋轉、未知時政策、header 三個決定）。
-- 未決、等使用者決定（IOS-POC-52-7 發現，見 3.1）：F29 傳輸層的空窗（把 `resume()` 移進鎖內）；`FavoriteAppWiringTests` 2 個過時的期望值；`MediaSnifferTests` 3 個穩定失敗（IOS-POC-45I）。
+- F29 傳輸層的空窗已於 IOS-POC-52-10 修正（見 3.1）。
+- 未決、等使用者決定（IOS-POC-52-7 發現，見 3.1）：`FavoriteAppWiringTests` 2 個過時的期望值；`MediaSnifferTests` 3 個穩定失敗（IOS-POC-45I）。
 
 - 40 項清單、處置、commit 與驗證已寫進 `docs/IOS-POC-47-offline-downloads.md` 第 15 節，`docs/current-task-state.md` 與 `docs/IOS-POC-49-offline-cellular-download-all.md` 已同步更新。
 - 已隨 `0.1.66 (67)` 發布（含 IOS-POC-53；run `37258480859`，tag `ios-v0.1.66-b67`），見 `docs/IOS-POC-11-sidestore-release.md` 第六十七次發布。真機未驗證。IOS-POC-53 已完成，見 `docs/IOS-POC-53-storage-cleanup-reset.md`。

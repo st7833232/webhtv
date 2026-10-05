@@ -178,17 +178,18 @@ public final class URLSessionOfflineTransport: NSObject, OfflineTransport, URLSe
         let started = lock.withLock { cancellations }
         for request in requests {
             let session = request.credentialed ? foreground! : background!
-            // Created under the lock, so a cancel either comes first and stops it, or comes after
-            // and finds it among the session's tasks.
-            let task: URLSessionDownloadTask? = lock.withLock {
-                guard cancellations[request.tag.assetID] == started[request.tag.assetID] else { return nil }
+            // Created and resumed under the lock, so a cancel either comes first and stops it, or
+            // comes after and finds it among the session's tasks — which list a task only once it
+            // is resumed (IOS-POC-52-7, measured on macOS 27). `resume()` calls no delegate
+            // method on this thread, so holding the lock through it cannot deadlock.
+            lock.withLock {
+                guard cancellations[request.tag.assetID] == started[request.tag.assetID] else { return }
                 let task = request.resumeData.map { session.downloadTask(withResumeData: $0) }
                     ?? session.downloadTask(with: request.urlRequest)
                 task.taskDescription = request.tag.description
                 if request.credentialed { redirects[task.taskIdentifier] = (request.headers, request.origin) }
-                return task
+                task.resume()
             }
-            task?.resume()
         }
     }
 

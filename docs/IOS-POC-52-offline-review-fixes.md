@@ -317,4 +317,4 @@
 ## 下一步
 
 - 40 項清單、處置、commit 與驗證已寫進 `docs/IOS-POC-47-offline-downloads.md` 第 15 節，`docs/current-task-state.md` 與 `docs/IOS-POC-49-offline-cellular-download-all.md` 已同步更新。
-- 接著發布（含 IOS-POC-53）。IOS-POC-53 已完成，見 `docs/IOS-POC-53-storage-cleanup-reset.md`。
+- 已隨 `0.1.66 (67)` 發布（含 IOS-POC-53；run `37258480859`，tag `ios-v0.1.66-b67`），見 `docs/IOS-POC-11-sidestore-release.md` 第六十七次發布。真機未驗證。IOS-POC-53 已完成，見 `docs/IOS-POC-53-storage-cleanup-reset.md`。

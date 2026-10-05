@@ -14,7 +14,7 @@
 - 各版發布證據（tag、IPA 大小、SHA-256、source commit）集中在 `docs/IOS-POC-11-sidestore-release.md` 檔頭。
 - 之後 `0.1.65 (66)`（IOS-POC-51）在 A4 之上發布，沒有 UI-A 的改動。
 - 已驗證：A1～A4 都由 SideStore Release workflow 完成 unsigned device Release build、IPA／schema 驗證、公開下載比對。沒有 Simulator 或真機 rendering。
-- 未決：一次性 push 觸發（`f103ab5b`）還在 `.github/workflows/ios-sidestore-release.yml`，預設 release notes 是 0.1.64 的文字；見 IOS-POC-11 檔頭「0.1.61 (62)」一節的「待清理」。
+- A1～A4 用的一次性 push 觸發（`f103ab5b`）已於 2026-10-05 移除（`IOS-RELEASE-TRIGGER-REMOVE`），預設 release notes 還原；之後發布用 `workflow_dispatch`，見 IOS-POC-11 檔頭「0.1.61 (62)」一節。
 - 唯一下一步：SideStore 真機驗收，項目見 A2、A3、A4 各段的 Recovery anchor。
 
 ## A3 — 0.1.62 真機回報修正（2026-10-04）

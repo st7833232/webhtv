@@ -48,7 +48,7 @@
 - 產物：tag `ios-v0.1.61-b62` → `9d81a75eea4aab49b925b1fe138d0309d104ba24`；`source.json` commit `1bf5d7ade62b7ba14e9f60b5bbfed7585004e67c`。GitHub Release `WebHTV 0.1.61 (62)` 不是 draft，也不是 prerelease。`WebHTV-0.1.61-62.ipa` **34,956,830 bytes**，SHA-256 `69d6d5f322727fa811a5582d28936a927139c81c6fac89ff9c46acbbf49032c5`。
 - Release notes：`WebHTV 0.1.61 (62)（A 版 Cinematic Minimal；含最多 3 集多工下載；真機未驗收）`。
 - 真機回報結構與設計稿落差，由 `0.1.62 (63)`（A2 結構重構）取代。
-- **待清理**：`f103ab5b` 的訊息寫「remove after 0.1.61 (62) publishes」，但 push 觸發還在 `.github/workflows/ios-sidestore-release.yml`。`0.1.62`～`0.1.64` 也用這個 push 觸發發布，每次在功能 commit（`c361c637`、`f916df55`、`033d4336`）裡改寫 workflow 三處預設 release notes，實際送出的 notes 都正確。目前預設值是 `0.1.64 (65)` 的文字（原本是 `Automated SideStore release.`），所以之後用 `workflow_dispatch` 而沒填 release notes 時，會送出 0.1.64 的文字。要移除 push 觸發、還原預設值，還是把它保留為正式發布路徑，等使用者決定。
+- **待清理**：`f103ab5b` 的訊息寫「remove after 0.1.61 (62) publishes」，但 push 觸發還在 `.github/workflows/ios-sidestore-release.yml`。`0.1.62`～`0.1.64` 也用這個 push 觸發發布，每次在功能 commit（`c361c637`、`f916df55`、`033d4336`）裡改寫 workflow 三處預設 release notes，實際送出的 notes 都正確。目前預設值是 `0.1.64 (65)` 的文字（原本是 `Automated SideStore release.`），所以之後用 `workflow_dispatch` 而沒填 release notes 時，會送出 0.1.64 的文字。**已處理（2026-10-05，`IOS-RELEASE-TRIGGER-REMOVE`，使用者「移除一次性觸發」）**：刪除 `f103ab5b` 加的 `branches`／`paths` push 觸發，三處預設 release notes 還原為 `Automated SideStore release.`，並刪除 `.github/ios-release-trigger`。發布方式回到 `workflow_dispatch`（以及原本就有的 `ios-v*-b*` tag push），`on:` 區塊與 `f103ab5b` 之前完全相同。之後發布請在 `workflow_dispatch` 填 release notes。驗證：`git diff f103ab5b^ -- .github/workflows/ios-sidestore-release.yml` 為空（整份 workflow 與加觸發前 byte-identical），Ruby YAML 解析的 `on` 只剩 `workflow_dispatch` 與 tag push，`.github` 內沒有殘留引用；本機沒有 actionlint，沒有跑。Ponytail（`ponytail-review`，最終 diff）：Lean already. Ship.
 
 以下為原流程與歷史發布紀錄；舊段落的「最新版」只代表該次發布當時。
 
@@ -85,7 +85,7 @@
 ## Recovery anchor
 
 - 狀態：完成，且已發過**六十六個**版本，最新是 `0.1.65 (66)`（2026-10-05 更新；見檔頭「Current release」與各次發布；`0.1.5 (6)` 沒有獨立段落，記在 `docs/current-task-state.md`）。
-- 未決：一次性的 push 觸發（`f103ab5b`）仍在 workflow，見檔頭「0.1.61 (62)」一節的「待清理」。
+- 一次性的 push 觸發（`f103ab5b`）已於 2026-10-05 移除，發布回到 `workflow_dispatch`；見檔頭「0.1.61 (62)」一節的「待清理」。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
 - 發布結果：`WebHTV-0.1-1.ipa`，24,563,162 bytes，GitHub asset SHA-256 `fcbf1531d9480f678ee0fac7ec5ce49010f3de51fc11b79f0ba88372e85812ed`；IPA plist 為 `com.webhtv.ios.poc`、`0.1`、build `1`、minimum iOS `17.0`。

@@ -10,6 +10,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - 開始下載前抽樣 5 個片段，每個只讀 1 byte，用 `Content-Range` 取得大小，以實際大小推算整集；下載畫面與空間檢查用同一個數字。量不到時退回宣告值並標明。
 - 下載中，最長的軌道滿一成後，依各軌道已完成片段推算（`progress.projectedBytes`），並行預留也改用這個數字。
 - Linux 80／80、突變 6／6；依使用者「不要跑ci修改後就發佈」直接發布。真機未驗證。
+- **`0.1.65 (66)` 已發布**（2026-10-05；run `37253074248` success，tag `ios-v0.1.65-b66` → `a222d336`，`source.json` `cf255efe`，IPA 35,107,067 bytes），**目前最新版是 `0.1.65 (66)`**。
 - 見 `docs/IOS-POC-51-sampled-size-estimate.md`。
 
 ## Previous handoff — 2026-10-04：IOS-UI-A4 子分類收合（0.1.64／65 已發布）

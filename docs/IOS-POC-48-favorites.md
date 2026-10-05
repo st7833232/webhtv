@@ -211,3 +211,7 @@
 
 - 2026-10-04：實作與驗證完成（第 7 節），commit `f40c31a3`，已 push `ios-poc`，隨 `0.1.58 (59)` 發布（IOS-POC-11 第五十九次發布，tag `ios-v0.1.58-b59` → `412e3b51`）；5.1 的匯入檔規則維持。
 - 下一步：使用者依第 8 節第 1 項做真機驗證；遠端暫時分支 `ci/ios-poc-48-verify` 需在 GitHub 網頁刪除。
+- 2026-10-05（IOS-POC-48-1，只改測試）：IOS-POC-52-7 在 macOS 跑完整測試時，發現 `FavoriteAppWiringTests` 有 2 個測試因 IOS-UI-A2／A3 改版而過時。更新後規則不變，只換成目前的寫法：
+  - `theLibraryShowsBothPagesAndOpensOnFavorites` 改為 `theLibraryShowsBothPagesAndOpensOnHistory`：使用者 A3 真機回報後，片庫改成「記錄」優先，並以 `CinematicChoice` 取代 segmented picker；
+  - `playNowStaysTheFullWidthPrimaryAction`：立即播放改為 `appAccent` 底色的滿寬按鈕，工具列收藏改經由 `detailFavorite`。
+  - macOS `swift test --filter FavoriteAppWiring` 6／6。Ponytail：一項 shrink，已套用。

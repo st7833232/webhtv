@@ -1,11 +1,11 @@
 # IOS-POC-11：SideStore 發布流程
 
 
-## Current release — 2026-10-05：0.1.66 (67) / IOS-POC-52、IOS-POC-53
+## Current release — 2026-10-05：0.1.67 (68) / IOS-POC-52-9～12、IOS-POC-5G-1
 
-**目前最新版是 `0.1.66 (67)`**（IOS-POC-52 修正離線下載審查的 40 項問題、IOS-POC-53 設定頁「儲存空間」）。完整紀錄在下方「第六十七次發布」：run `37258480859` success，tag `ios-v0.1.66-b67` → `d99036be`，`source.json` `03e8b49d`，`WebHTV-0.1.66-67.ipa` 35,199,091 bytes。真機未驗收。
+**目前最新版是 `0.1.67 (68)`**（F11 背景喚醒、F29、F12 換 port 重載、F35 探測並顯示解析度、網頁嗅探 `src` hook）。完整紀錄在下方「第六十八次發布」：run `37270610119` success，tag `ios-v0.1.67-b68` → `e7520cd4`，`source.json` `285ce262`，`WebHTV-0.1.67-68.ipa` 35,225,914 bytes。真機未驗收。
 
-前一版 `0.1.65 (66)`（IOS-POC-51）見「第六十六次發布」。
+前一版 `0.1.66 (67)`（IOS-POC-52 批次 1～6、IOS-POC-53）見「第六十七次發布」。
 
 發布紀錄有兩種寫法：本節到「0.1.61 (62)」是 IOS-UI-A session 寫在檔頭的段落（`0.1.61 (62)`～`0.1.64 (65)` 沒有「第 N 次發布」段落，對應第六十二～六十五次）；其餘版本是下方依序編號的「第 N 次發布」段落。
 
@@ -86,7 +86,7 @@
 
 ## Recovery anchor
 
-- 狀態：完成，且已發過**六十七個**版本，最新是 `0.1.66 (67)`（2026-10-05 更新；見檔頭「Current release」與各次發布；`0.1.5 (6)` 沒有獨立段落，記在 `docs/current-task-state.md`）。
+- 狀態：完成，且已發過**六十八個**版本，最新是 `0.1.67 (68)`（2026-10-05 更新；見檔頭「Current release」與各次發布；`0.1.5 (6)` 沒有獨立段落，記在 `docs/current-task-state.md`）。
 - 一次性的 push 觸發（`f103ab5b`）已於 2026-10-05 移除，發布回到 `workflow_dispatch`；見檔頭「0.1.61 (62)」一節的「待清理」。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
@@ -949,9 +949,58 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第六十七次發布：`0.1.66 (67)`（2026-10-05，**已發布**）
+## 第六十八次發布：`0.1.67 (68)`（2026-10-05，**已發布**）
 
-**目前最新版是 `0.1.66 (67)`。** 前面六十六版都已被取代。
+**目前最新版是 `0.1.67 (68)`。** 前面六十七版都已被取代。
+
+- 授權：使用者 2026-10-05 選擇「等 F12／F35 做完一起發」，完成後確認 release notes（「照這份發布」）。依規則只用 `workflow_dispatch` 並填 release notes。版號 `0.1.67`，build `68`。
+- 內容：`0.1.66 (67)` 的全部，加上：
+  - `fd71d76b`～`2a887925`：文件同步、刪除死碼 `legibleToolbarLabel()`（`b14469b6`）、移除一次性 push 觸發（`f39c7d86`）；
+  - IOS-POC-52-7（`0c2419a2`）：macOS 測試修正與 F22／F36 的 Darwin 測試；
+  - IOS-POC-52-9（`d9da8623`）：F11，處理完事件即通知系統，settle 在 background task 下進行；
+  - IOS-POC-52-10（`d3ffd5f1`）：F29，在鎖內 resume；
+  - IOS-POC-48-1（`e57ad4d1`）：`FavoriteAppWiringTests` 對齊 IOS-UI-A（只改測試）；
+  - IOS-POC-5G-1（`388799af`）：網頁嗅探的 `src` hook 改掛在 `HTMLMediaElement`；
+  - IOS-POC-52-11（`a034df49`）：F12，換 port 時以新網址重載；
+  - IOS-POC-52-12（`6a63a368`）：F35，探測並顯示單一版本的解析度與編碼，不拒絕。
+- 發布序列：
+  1. 先 push `d9da8623..6a63a368`；版號 commit `e7520cd4`（Task-Guard `IOS-RELEASE-0.1.67-b68`），push `6a63a368..e7520cd4`。發布前確認 origin 上沒有 `ios-v0.1.67*`／`ios-v0.1.68*` tag，最新 Release 是 `0.1.66 (67)`。
+  2. 以 `gh workflow run` 觸發 `workflow_dispatch`：ref `ios-poc`，version `0.1.67`、build `68`，並填 release notes。run `37270610119` 成功（06:04:33Z → 06:12:44Z），全部 steps success。
+  3. workflow 建立 tag `ios-v0.1.67-b68`（target `e7520cd4`），並推回 `source.json`（`285ce262`，共六十八筆，第一筆 `0.1.67`，size 35,225,914，downloadURL 與 Release 相同）。
+
+  **沒有手動建 tag。**
+- 產物：
+  - GitHub Release `WebHTV 0.1.67 (68)`：不是 draft，也不是 prerelease，2026-10-05 06:12:31Z 發布。
+  - `WebHTV-0.1.67-68.ipa`：**35,225,914 bytes**。digest SHA-256 為 `ec90f6229ddf07c4cb60bf344ff0e6d71ba47125b60a0dac1362ddd327da6ab8`。
+  - IPA 未在本機下載核對。
+- 發布前驗證（本機 macOS 27、Xcode 27）：
+  - 完整 `swift test` 1007／1007；
+  - iOS 26.0 模擬器 `OfflineDarwinTests`＋`OfflineReviewFixTests` 54／54；
+  - 每一項都做過本機 Release iphoneos 建置；
+  - 各項突變檢查都已記錄在對應的任務文件。
+  - 沒有另跑 macOS CI；本次 run 的 device Release build（CI Xcode）成功。
+- **真機尚未驗收。**
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.67 (68)（離線下載與網頁嗅探修正；真機未驗收）
+
+修正
+- 背景下載時，App 被系統喚醒、處理完下載事件就立刻回報系統；下一集的準備改在申請到的背景時間內進行，減少處理到一半被暫停。
+- 下載送出到一半被暫停或刪除時，不會再漏掉剛建立的傳輸。
+- 離線播放中的集數，在 App 回到前景或從鎖定畫面播放時，如果本機播放服務換了連接埠，會自動以新位址重新載入，位置與音軌、字幕不變。
+- 網頁播放頁的影片嗅探：頁面對還沒放上頁面的影片元件設定網址時，現在也抓得到。
+
+新增
+- 只有一種版本的影片（MP4／MOV 單檔、fMP4 播放清單）下載前會讀取實際解析度與編碼，顯示在下載畫面並記在下載紀錄；超過 1080p 會註明，仍照原樣下載。
+
+已知限制
+- 尚未在任何真機驗證。
+- MPEG-TS、MKV、FLV 單檔仍無法在下載前確認解析度。
+```
+
+## 第六十七次發布：`0.1.66 (67)`（2026-10-05，**已發布**，已被 `0.1.67 (68)` 取代）
 
 - 授權：使用者 2026-10-05 指示「修那40項問題」，並要求在設定頁加入「清除無效檔案」與「初始化」。依使用者先前「不要跑ci修改後就發佈」的指示發布；依「之後發布只能用 workflow_dispatch，要記得填 release notes」填寫 release notes。版號 `0.1.66`，build `67`。
 - 內容：`0.1.65 (66)` 的全部，加上：

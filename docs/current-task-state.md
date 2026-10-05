@@ -38,7 +38,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
   - IOS-POC-52-11：F12 換 port 時以新網址重載（4.2.1）。
   - IOS-POC-52-12：F35 探測並顯示、不拒絕（4.3.1）。macOS 完整 `swift test` 1007／1007；iOS 26 模擬器 54／54。
   - 40 項：修 39、不修 1（F33）。
-  - 下一步：問使用者 release notes，再用 workflow_dispatch 發布 0.1.67 (68)（版號 commit 前先確認）。
+  - **`0.1.67 (68)` 已發布**（2026-10-05；run `37270610119` success，tag `ios-v0.1.67-b68` → `e7520cd4`，`source.json` `285ce262`，IPA 35,225,914 bytes）。**目前最新版是 `0.1.67 (68)`**，真機未驗收。
+  - 下一步：使用者在真機驗收。重點是背景下載多集（Console 的 `offline-wake`）、單一版本的解析度顯示、網頁嗅探站台。
 - 文件同步（2026-10-05 第二次，`DOCS-SYNC-2026-10-05-B`，`f39c7d86..7c280667`）：README 補上「儲存空間」頁，並依 F1、F13、F21 更新「最省空間」與「看完後自動刪除」；IOS-POC-11 recovery anchor 改為 67 版、最新 `0.1.66 (67)`；IOS-POC-52 文件補記「沒有 Ponytail 紀錄」，並寫入 F11／F12／F35 未決。IOS-POC-52 的 Ponytail 是否補跑，等使用者決定。
 
 ## Previous handoff — 2026-10-05：IOS-POC-51 用實際片段大小預估下載容量
@@ -1667,9 +1668,9 @@ Paste this into a new session:
 
 > 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -15`、`git status`，以實際 `origin/ios-poc` 為準、不要相信文件裡的 SHA。先讀 `AGENTS.md`，再讀 `docs/current-task-state.md` 最上方「Current handoff」一節（更早的交接需要時再看）。
 >
-> 目前狀態（2026-10-05 更新）：最新發布是 WebHTV `0.1.66 (67)`（tag `ios-v0.1.66-b67`，含 IOS-POC-52 離線下載 40 項修正與 IOS-POC-53 儲存空間）；前一版 `0.1.65 (66)`（tag `ios-v0.1.65-b66`，含 IOS-POC-51 下載容量預估）。`0.1.57`～`0.1.64` 依序加入 IOS-POC-47 離線下載、48 收藏與片庫、49 行動網路與全部下載、50 多工下載、IOS-UI-A～A4 Cinematic Minimal 介面；各版內容見 `docs/IOS-POC-11-sidestore-release.md`，全部真機都未驗證。更早：`0.1.56 (57)`（tag `ios-v0.1.56-b57`，含 IOS-POC-46／46-1）；前一版 `0.1.55 (56)`（tag `ios-v0.1.55-b56`，含 IOS-POC-45I）；再前一版 `0.1.54 (55)`（tag `ios-v0.1.54-b55`，含 IOS-POC-45C-1／45D／45E／45F／45G／45H）；再前一版 `0.1.53 (54)`（tag `ios-v0.1.53-b54`，含 IOS-POC-45A／45B／45C）；再前一版 `0.1.52 (53)`（tag `ios-v0.1.52-b53`，含 IOS-POC-45 線上字幕）；再前一版 `0.1.51 (52)`（tag `ios-v0.1.51-b52`，含 IOS-POC-44A／44B／44C）；兩版真機都未驗證；更早的 `0.1.50 (51)`（tag `ios-v0.1.50-b51`）；IOS-POC-42（XYQHiker 直接播放、播放端擷取、中文搜尋鍵）隨 `0.1.49 (50)`、IOS-POC-43A（檢查來源的嗅探排隊）隨 `0.1.50 (51)` 發布，兩版真機都未驗證，由我另外用 SideStore 測，不擋新任務。
+> 目前狀態（2026-10-05 更新）：最新發布是 WebHTV `0.1.67 (68)`（tag `ios-v0.1.67-b68`，含 IOS-POC-52-9～12 的 F11／F29／F12／F35、IOS-POC-5G-1 嗅探 hook）；前一版 `0.1.66 (67)`（tag `ios-v0.1.66-b67`，含 IOS-POC-52 離線下載 40 項修正與 IOS-POC-53 儲存空間）；前一版 `0.1.65 (66)`（tag `ios-v0.1.65-b66`，含 IOS-POC-51 下載容量預估）。`0.1.57`～`0.1.64` 依序加入 IOS-POC-47 離線下載、48 收藏與片庫、49 行動網路與全部下載、50 多工下載、IOS-UI-A～A4 Cinematic Minimal 介面；各版內容見 `docs/IOS-POC-11-sidestore-release.md`，全部真機都未驗證。更早：`0.1.56 (57)`（tag `ios-v0.1.56-b57`，含 IOS-POC-46／46-1）；前一版 `0.1.55 (56)`（tag `ios-v0.1.55-b56`，含 IOS-POC-45I）；再前一版 `0.1.54 (55)`（tag `ios-v0.1.54-b55`，含 IOS-POC-45C-1／45D／45E／45F／45G／45H）；再前一版 `0.1.53 (54)`（tag `ios-v0.1.53-b54`，含 IOS-POC-45A／45B／45C）；再前一版 `0.1.52 (53)`（tag `ios-v0.1.52-b53`，含 IOS-POC-45 線上字幕）；再前一版 `0.1.51 (52)`（tag `ios-v0.1.51-b52`，含 IOS-POC-44A／44B／44C）；兩版真機都未驗證；更早的 `0.1.50 (51)`（tag `ios-v0.1.50-b51`）；IOS-POC-42（XYQHiker 直接播放、播放端擷取、中文搜尋鍵）隨 `0.1.49 (50)`、IOS-POC-43A（檢查來源的嗅探排隊）隨 `0.1.50 (51)` 發布，兩版真機都未驗證，由我另外用 SideStore 測，不擋新任務。
 >
-> 未決、等我決定：IOS-POC-47 審查的 40 項已由 IOS-POC-52 處理完（清單與處置見 `docs/IOS-POC-47-offline-downloads.md` 第 15 節）；只做了一部分的 F11（背景執行時間）、F12（換埠時重建播放項目）、F35（探測實際解析度）是否另開任務，等我決定。（IOS-POC-46 死碼已刪除；一次性 push 觸發已移除，發布只用 `workflow_dispatch` 並要填 release notes。）
+> 未決、等我決定：無。IOS-POC-47 審查的 40 項已全部處理（修 39、不修 1；清單與處置見 `docs/IOS-POC-47-offline-downloads.md` 第 15 節），F11／F12／F35 已補完並隨 `0.1.67 (68)` 發布，只差真機驗收。發布只用 `workflow_dispatch`，並且要填 release notes。
 >
 > 下一步（IOS-POC-44 仍可續做）：IOS-POC-44（`docs/IOS-POC-44-csp-portable-sites.md`：23 站活 18、死 5，分段 44A～44G）的 44A（`WeiguanDJ`＋`HemaDJ`）、44B（`QimaoDJ`＋`HaokanDJ`）、44C（`Jpys`＋`Jys`）已完成並隨 `0.1.51 (52)` 發布。等我核准 44D（`Feiyu`＋`MiaoWu`，只寫 JS、不動 Swift）或指定其他段；核准後照該文件第 7、8 節與第 11～13 節的做法實作與驗收，結果記回同一份文件。沒有我的核准不改程式；沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13。
 >

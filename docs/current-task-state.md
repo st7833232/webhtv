@@ -22,6 +22,10 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
   - 新增 `OfflineDarwinTests`（F22、F36，突變 2／2）。
   - F29 實測發現傳輸層有空窗（未 resume 的 task 不在 `allTasks`），由 F3 的 `cancelIfStale` 補住，修正等使用者決定。
   - 詳見 `docs/IOS-POC-52-offline-review-fixes.md` 3.1。真機未驗證。
+- **IOS-POC-52-8 F11／F12／F35 設計提案**（2026-10-05，只有文件，**未實作，等使用者核准**）：見 `docs/IOS-POC-52-offline-review-fixes.md` 第 4 節。
+  - F11：處理完事件就呼叫 completion handler，settle 改由 background task 保護；
+  - F12：換 port 時沿用 `router.reload` 換網址重載（優先度低，真機難以重現）；
+  - F35：AVFoundation 探測 MP4／MOV 與 fMP4 init segment，TS／MKV／FLV 維持「未知＋提示」。待決定：旋轉、未知時的政策、header 的帶法。
 - 文件同步（2026-10-05 第二次，`DOCS-SYNC-2026-10-05-B`，`f39c7d86..7c280667`）：README 補上「儲存空間」頁，並依 F1、F13、F21 更新「最省空間」與「看完後自動刪除」；IOS-POC-11 recovery anchor 改為 67 版、最新 `0.1.66 (67)`；IOS-POC-52 文件補記「沒有 Ponytail 紀錄」，並寫入 F11／F12／F35 未決。IOS-POC-52 的 Ponytail 是否補跑，等使用者決定。
 
 ## Previous handoff — 2026-10-05：IOS-POC-51 用實際片段大小預估下載容量

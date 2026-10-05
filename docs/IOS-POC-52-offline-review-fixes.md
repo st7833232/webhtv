@@ -344,9 +344,186 @@
 
 - Ponytail：本文件與 6 批 commit 都沒有記錄（2026-10-05 文件同步時補記）。同一 session 的 IOS-POC-53 記為 `unavailable / skipped`，所以當時的 runtime 可能沒有 Ponytail，但本任務沒有留下紀錄，不能據此認定。目前本機環境有 Ponytail，可以對 `db9618bd..8b5ba5e4` 中 IOS-POC-52 的程式 diff 補跑。
 
+## 4. F11、F12、F35 後續設計（IOS-POC-52-8，提案，**未實作，待使用者核准**）
+
+依 AGENTS.md 第 7 節。2026-10-05 查證，三個子題各由一個子代理讀原始來源；F35 另在 iOS 26.0 模擬器與本機 loopback 伺服器上實測。來源等級：A＝Apple／FFmpeg／mpv 官方文件，B＝Apple 工程師（Quinn）或維護者的論壇文章，C＝成熟專案程式碼，D＝社群文章。存取日期都是 2026-10-05。上游播放器的 commit、論文與效能基準不適用：這三項沒有引入或更新任何依賴，也沒有改變編解碼或渲染。
+
+### 4.1 F11：背景喚醒的處理時間
+
+**問題**：iOS 為了背景下載 session 的事件喚醒 App 時，App 要把事件處理完（搬檔、寫紀錄、完成一集並重寫播放清單），再呼叫系統的 completion handler。目前的部分修正，是先等 `settle()`（下一集準備，最多 20 秒），才呼叫 completion handler（`URLSessionOfflineTransport.attach` 的 `.drained`）。
+
+**現況**：`OfflineAppDelegate`（`WebHTVApp.swift`）只保存 handler，沒有 `beginBackgroundTask`。`OfflineDownloadManager.settle()` 每 200 ms 檢查一次，最多 20 秒。
+
+**查證**
+
+| 來源 | 等級 | 結論 |
+|---|---|---|
+| developer.apple.com/documentation/foundation/downloading-files-in-the-background | A | 保存 handler，在 `urlSessionDidFinishEvents` 裡於主執行緒呼叫；背景中建立的 task 會被延後（"the task doesn't begin until the delay expires"） |
+| …/urlsessiondelegate/urlsessiondidfinishevents(forbackgroundurlsession:) | A | 可以先做內部更新再呼叫 handler；handler 要在主執行緒呼叫 |
+| …/uiapplication/beginbackgroundtask(withname:expirationhandler:)、…/extending-your-app-s-background-execution-time | A | 盡量在進入背景前就開始；每個 begin 都要有對應的 end；可能回傳 `.invalid` |
+| developer.apple.com/forums/thread/85066（Quinn，UIApplication Background Task Notes，2023-06-16 修訂） | B | 整個 App 共用約 30 秒；expiration handler 要在約 1 秒內 end；沒 end 的 task 會讓 App 被以 0x8badf00d 終止 |
+| developer.apple.com/forums/thread/74730、806116、103396（Quinn） | B | 喚醒期間由 power assertion 維持，呼叫 handler 就釋放；背景傳輸本身不需要 background task；工作中途被暫停也沒關係，只要能接續 |
+| developer.apple.com/forums/thread/14854（Quinn） | B | 背景中建立的 task 會被視為 discretionary，延遲每次喚醒加倍；建議一次送出一批 |
+| Alamofire 4.9.1 `SessionManager.swift`；Tiercel @2c025a79 `SessionManager.swift` | C | 都是事件送達後立刻呼叫 handler，都沒有用 `beginBackgroundTask`；Alamofire 5 已不支援背景 session |
+
+未查到：Apple 沒有公布喚醒的確切秒數（唯一的數字是 2018 年開發者自己量到的約 30 秒）；background task 的時間能不能疊加在喚醒時間之上，也沒有資料。
+
+**方案比較**
+
+| 方案 | 內容 | 評估 |
+|---|---|---|
+| 不改 | 繼續把 handler 延到 settle 之後 | 不符合文件的順序：等下一集的網路準備，不屬於「處理完事件」；延到 20 秒也沒有任何保證 |
+| 直接照提案 | 在現有流程外再包一層 `beginBackgroundTask` | 能多拿一點時間，但 handler 仍然延後，順序問題沒解決 |
+| **WebHTV 調整版（建議）** | handler 在送達的事件處理完後**立刻**呼叫；settle 改由 background task 保護 | 符合文件順序，也提供額外的處理時間。被暫停也安全：準備中的下載有 generation 保護，暫存檔在下次啟動時會被接手（F11 已實作的 `OfflineStagedBody`） |
+
+**建議做法（實施）**
+1. Core `URLSessionOfflineTransport`：`.drained` 時先在主執行緒呼叫 handler，再 `await settle()`，最後呼叫 App 提供的 `afterSettle` closure。
+2. App `OfflineAppDelegate`：在 `handleEventsForBackgroundURLSession` 開頭呼叫 `beginBackgroundTask(withName: "offline-wake")`，回傳 `.invalid` 時照常繼續。
+   - 用一個只會執行一次的 `end()` 結束 task。settle 完成、20 秒到期、expiration 三條路徑中，先發生的那條呼叫它。
+   - expiration handler 只呼叫 `end()`，不等待網路。
+   - 重疊的喚醒各自有自己的 task ID。
+3. 不使用 `backgroundTimeRemaining` 決定任何事。
+
+**風險**
+- 忘記 end 會導致 0x8badf00d：由只執行一次的 `end()` 加上測試涵蓋。
+- 多出來的時間沒有保證。
+- 下一集的 task 在背景送出，仍會被頻率限制延後；這一點 `beginBackgroundTask` 改變不了。在前景時預先送出更多集可以減少影響，但網址可能會過期，所以不在本項範圍。
+
+**驗收標準**
+- Core／macOS 單元測試：
+  - 呼叫順序是「事件處理完 → handler → settle → `afterSettle`」，handler 只被呼叫一次；
+  - settle 卡住時，`afterSettle` 也只會在 20 秒到期時被呼叫一次。
+- App 端 background task 的 begin／end 包成一個小型 helper，單元測試覆蓋三條結束路徑，並確認 `end()` 只執行一次。
+- 真機（未驗證項目，需使用者協助）：鎖定螢幕下載多集，Console 看到 `offline-wake` 的 begin／end 成對出現，沒有 0x8badf00d。
+
+**Rollback**：revert 該 commit 就回到目前「handler 等 settle」的行為；沒有資料格式變更。
+
+### 4.2 F12：本機伺服器換 port 時重建已載入的離線 HLS
+
+**問題**：App 暫停後，本機伺服器如果換了 port，已載入的播放項目仍然指向舊 port，所有 segment 都讀不到，要關掉再重開那一集。
+
+**現況**
+- `OfflineMediaServer.start()`：listener 還是 `.ready` 時直接沿用；否則優先用原本的 port 重開，失敗才換 port。token 在同一個程序內固定，所以變的只有 port。
+- `reloadPaused` 與鎖定畫面的「播放」，都會先 `await server.start()`，但之後仍用舊網址：`router.reload(at:autoplay:)` 沿用原本 request 的 target，「播放」則直接呼叫 `engine.play()`。
+- 安全網：離片長還有 5 秒以上的檔尾不算看完。這可以擋住 mpv 在 segment 讀不到時一路跳到檔尾的誤判。
+
+**查證**
+
+| 來源 | 等級 | 結論 |
+|---|---|---|
+| developer.apple.com/library/archive/technotes/tn2277（2011-03-30） | A | 進背景時關閉 listening socket、回前景再開；資源可能被系統收回 |
+| developer.apple.com/forums/thread/840808（Quinn，2026-08） | B | 沒註冊 Bonjour 的 `NWListener` 被暫停後**不會**失效，恢復後能繼續接受連線；播放音訊期間 App 不會被暫停 |
+| developer.apple.com/forums/thread/129452（Quinn，2020～2022） | B | 實機上 `allowLocalEndpointReuse` 無效（FB8658821）；同 port 重開會 EADDRINUSE，大約 1 分鐘後才恢復；到 2022-02 還沒修好 |
+| GCDWebServer（master，2023 封存）、KTVHTTPCache @388da9af、Swifter @1e4f51c9 | C | 進背景就停、回前景再開（預設 port 0，會換 port），或先 ping 自己、不通才重開；**都沒有**在換 port 後重建已載入的 player |
+| AVFoundation `replaceCurrentItem`、`AVPlayerItem.status`／`.failed`、`select(_:in:)`、`AVMediaSelectionOption.propertyList()`；QA1820 | A | `.failed` 的 item 不能再用；換 item 後要等 ready 再 seek；音軌／字幕選擇要透過 propertyList 對應到新的 asset |
+| mpv `DOCS/man`（input／options.rst）@c1529642 | A | `loadfile … replace` 可以帶 `start=`、`pause` 跨檔保留；`sub-add` 的外掛字幕換檔後要重新加 |
+| FFmpeg `libavformat/hls.c` @a35c8799 | C | segment 開不起來時，`seg_max_retry`（預設 0）次之後就跳過 |
+| developer.apple.com/forums/thread/113063（Apple 工程師） | B | resource loader 對 segment 只接受「redirect 到 HTTP」，所以自訂 scheme 仍需要 server |
+
+未查到：AVPlayer 在 segment 主機拒絕連線時的確切行為沒有官方文件；FB8658821 在 iOS 17～26 是否已修好不明；VLC／Telegram 的本機 server 沒有查。
+
+**發生條件（很窄）**：listener 真的失效（依 Quinn 的說法，沒有 Bonjour 時通常不會），**而且**同 port 重開失敗（最可能是上面那個 reuse bug，在約 1 分鐘內重開），或那個 port 被別的程序佔用。
+
+**方案比較**
+
+| 方案 | 內容 | 評估 |
+|---|---|---|
+| 不改 | 換 port 時讓播放失敗，使用者重開那一集 | 重開時 `OfflineDownloads.playbackSource` 會拿到新網址，所以能自行恢復；誤判看完有安全網擋著。代價是極少數情況下要手動重開 |
+| 直接照提案 | 換 port 時，對兩個引擎重建 item，並自行還原位置、播放／暫停、音軌字幕 | 沒有任何成熟函式庫這樣做；如果另寫一套，重複既有的 reload 機制 |
+| **WebHTV 調整版（建議）** | 沿用既有的 `router.reload` 路徑，只把 target 網址換成新的 base | 位置、播放意圖、音軌字幕還原（`tracksToRestore`）、外掛字幕（router 持有、mpv 載入時重新加入）都已由 reload 處理，新增的程式很少 |
+| 另一種 | 改用 BSD socket 加 `SO_REUSEADDR`，避開 reuse bug，盡量不換 port | 範圍較大（重寫 server 的 listener 層），而且 port 被佔用時仍需要 fallback。**不建議** |
+
+**建議做法（實施，優先度低）**
+1. Core `PlaybackRouter`：新增 `reload(at:autoplay:url:)`，只替換 `request.target.url`，其餘照舊。
+2. Core 新增純函式 `OfflinePlaybackSource.rebased(to:)`：舊網址的 base 換成新的 base，結構不符時回傳 nil。
+3. App `reloadPaused`：`server.start()` 回傳的 base 如果和 `offlineSource.url` 不同，就更新 `offlineSource`，以新網址 reload。
+4. App 鎖定畫面的「播放」：base 變了時改為在目前位置以新網址 reload（autoplay），否則照舊 `play()`。
+5. 換 port 時寫一行 log。
+
+**風險**
+- 這個情境幾乎無法在真機上刻意重現，App 端的接線只能靠編譯與程式檢查。
+- `load(_:)` 用 `offlineSource?.url == url` 判斷是不是離線集數，所以必須先更新 `offlineSource` 再 reload，否則會觸發「換集」的釋放與自動刪除。
+
+**驗收標準**
+- Core 單元測試：
+  - `reload(at:autoplay:url:)` 只改網址，位置、速度、autoplay、exactStart 都保留；
+  - `rebased(to:)` 只換 base，結構不符時回傳 nil。
+- App：本機 Xcode Release 建置通過。
+- 真機（未驗證項目）：一般的暫停、背景、恢復沒有變化。換 port 的情境沒辦法實測，要寫明。
+
+**Rollback**：revert 該 commit。沒有資料格式變更。
+
+### 4.3 F35：探測單一檔案與沒有 master 的播放清單的實際解析度
+
+**問題**：單一檔案，以及沒有 master 的 HLS 媒體清單，都不知道解析度，可能下載到超過 1080p 的檔案；紀錄上也沒有解析度與編碼。
+
+**現況**
+- 表單和「全部下載」都經過 `OfflineDownloadManager.options(for:)`：單一檔案走 `OfflineOptionsBuilder.progressive`，媒體清單會被包成一個沒有解析度的 variant，兩者都是 `resolutionUnknown`。
+- 紀錄本來就有 `OfflineAsset.video: OfflineVideoInfo?`（寬、高、編碼），由 `prepared.video` 寫入；`WebHTVApp.swift` 的下載列與詳情已經會顯示 `asset.video?.summary`。所以只要把探測結果放進 `prepared.video`，畫面不用改。
+- App 播放時，已經用非公開的 `AVURLAssetHTTPHeaderFieldsKey` 把 header 帶給 AVPlayer（`WebHTVApp.swift` 的 `asset(for:headers:)`）。
+
+**查證與實測**
+
+| 來源 | 等級 | 結論 |
+|---|---|---|
+| developer.apple.com/documentation/avfoundation/avurlasset-initialization-options、…/avurlassethttpuseragentkey（iOS 16+）、…/avurlassethttpcookieskey | A | 公開的 key 只有 UA 與 Cookie，**沒有** `AVURLAssetHTTPHeaderFieldsKey` |
+| developer.apple.com/forums/thread/20421（Apple 工程師，2024-10） | B | 那個 key 是 "not a supported API"，建議改用 `AVAssetResourceLoader` |
+| …/avassettrack/naturalsize（iOS 16 起改用 `load(.naturalSize)`）、…/cmvideoformatdescriptiongetpresentationdimensions | A | 尺寸與編碼的讀法；`naturalSize` 不會套用旋轉 |
+| …/avplayeritem/presentationsize | A | ready 之前可能是 0，必須真的播放 |
+| mpv `options.rst`／`input.rst`／`client.h` @c1529642 | A | `vo=null`、`frames=0`、`demux-w／h` 是容器提供的提示值（"Not always accurate"）；文件沒說明多個 core 並存是否安全 |
+| ffmpeg.org/ffmpeg-formats.html、doxygen `avformat_find_stream_info` | A | probesize 預設 5,000,000 bytes，analyzeduration 預設 5 秒 |
+| yt-dlp @51bab8a0 README、`extractor/generic.py` | C | 直連影片**不探測**，格式沒有 height；`height<=?1080` 會放行尺寸未知的來源，等同目前「未知就下載並提示」 |
+| 實測（iOS 26.0 模擬器、本機 loopback，測試片 2560×1440） | 實測 | MP4／MOV（H.264、HEVC）讀到 2560×1440 與 `avc1`／`hvc1`。moov 在檔尾時用 Range 跳到檔尾，總共約 35～90 KB；faststart 的 open-ended 請求在取消前送出約 1 MB。iOS 上 MKV、FLV、單獨的 TS 都是 -11828（打不開），但 macOS 打得開 TS，**不能用 Mac 的結果推論 iOS**。HLS 的 `.m3u8` 拿不到軌道；fMP4 的 init segment 只要 1,355 bytes 就讀到尺寸與編碼。ffprobe 對 TS 要讀約 4.7 MB |
+
+未驗證：libmpv 探測沒有實際跑；真機沒有測。
+
+**方案比較**
+
+| 方案 | 涵蓋範圍 | 成本 | 評估 |
+|---|---|---|---|
+| 不改 | 無 | 0 | 目前表單已明確提示可能超過 1080p |
+| 直接照提案 | 以 AVURLAsset 讀所有單一檔案與媒體清單 | — | iOS 打不開 TS／MKV／FLV，`.m3u8` 也讀不到軌道，涵蓋不到提案的範圍 |
+| **WebHTV 調整版（建議）** | AVFoundation 只處理 MP4／MOV／M4V，以及 fMP4 媒體清單的 init segment；其餘維持「未知＋提示」 | 每次表單或每集多一次小探測：約 35～90 KB，最多約 1 MB；設 10 秒上限 | 可以放在 Core（`canImport(AVFoundation)`），以注入方式提供，Linux 測試用假的探測器 |
+| libmpv 無頭探測 | 涵蓋所有格式 | 0.1～7 MB、0.1～1.6 秒 | 只能放在 App target；跟播放中的 mpv core 並存有風險。只有 TS／MKV 的單檔來源真的常見時，才值得另外評估 |
+
+**建議做法（實施）**
+1. Core `OfflineDownloadManager.Dependencies` 新增 `videoProbe`：輸入網址與 header，回傳 `OfflineVideoInfo?`，失敗或逾時回傳 nil。
+2. Darwin 的實作：
+   - **單一檔案**：用 `AVURLAsset` 載入第一條影像軌的 `naturalSize`、`preferredTransform` 和 `formatDescriptions`，取得 FourCC 並對應到 `OfflineVideoCodec`。header 的帶法與播放相同（同一個非公開 key；播放能用，探測就能用，不會多出新的相依）。
+   - **fMP4 媒體清單**：init segment 用既有的 `OfflineHTTP.fetcher` 下載，所以會照 `OfflineRequestPolicy` 帶 header。寫入暫存檔後，用本機檔案開 `AVURLAsset`。
+   - **TS 分段、MKV、FLV，或打不開的檔案**：回傳 nil。
+3. `options(for:)`：
+   - `.progressive` 與 `.media` 先探測。超過上限就回傳拒絕（`.unsupported`，「影片解析度 W×H 超過 1080p」）。
+   - 不超過上限時，把探測結果填進 `option.video`，`resolutionUnknown` 改為 false，表單就會顯示實際解析度。
+   - 探測結果為 nil 時，維持現在的提示。
+4. `build`：單一檔案與媒體清單的 `prepared.video` 用探測結果，紀錄就有寬、高與編碼，現有畫面會自動顯示。
+
+**待使用者決定**
+1. **旋轉**：直立片（例如 1080×1920）算不算 1080p？建議與方向無關：長邊 ≤ 1920 且短邊 ≤ 1080。注意：目前 HLS master 的判斷是寬 ≤ 1920 且高 ≤ 1080，兩者是否要一致，需要一起決定。
+2. **未知時**：維持放行並提示（等同 yt-dlp 的 `<=?`，建議），或改成嚴格拒絕。
+3. **header**：探測沿用播放已在用的非公開 key（建議，與播放一致），或者單一檔案只帶 UA／Cookie 的公開 key，代價是需要 Referer 的來源會變成「未知」。
+
+**風險**
+- 打開表單會多一次網路探測，最多 10 秒，結束前表單維持在「讀取中」。
+- 伺服器不支援 Range 時，faststart 以外的檔案可能讀更多才取消。
+- 非公開 key 在未來的 iOS 版本可能失效；那時探測會回傳 nil，回到目前的行為，播放也會一起受影響。
+
+**驗收標準**
+- Core 單元測試，使用假的探測器：
+  - 超過 1080p 被拒絕，表單與「全部下載」都是；
+  - 不超過 1080p 時，表單有解析度，紀錄的 `video` 有寬、高與編碼；
+  - 探測器回傳 nil 時，行為與現在相同；
+  - 逾時時回傳 nil。
+- macOS 測試：本機伺服器提供一個小的 MP4 fixture，加上一個 fMP4 init segment，讀回正確的尺寸與編碼。
+- iOS 模擬器：至少跑一次 Darwin 探測測試，因為 iOS 與 macOS 支援的容器不同。
+- 真機（未驗證項目）：一個超過 1080p 的 MP4 來源被拒絕；一個 1080p 以下的來源，表單和下載列都顯示解析度。
+
+**Rollback**：revert 該 commit。`OfflineAsset.video` 本來就是 optional 欄位，已寫入的紀錄在舊版本仍可讀，不需要遷移資料。
+
 ## 下一步
 
 - 未決、等使用者決定：F11（背景執行時間）、F12（換埠時重建播放項目）、F35（探測實際解析度）只做了一部分，未做的部分是否另開任務（同 `docs/current-task-state.md` 最上方交接）。
+- 未決、等使用者核准（IOS-POC-52-8，見第 4 節）：F11（handler 提前呼叫，settle 改由 background task 保護）、F12（沿用 reload 路徑，換 port 時換網址重載，優先度低）、F35（AVFoundation 只探測 MP4／MOV 與 fMP4 init segment；另有旋轉、未知時政策、header 三個決定）。
 - 未決、等使用者決定（IOS-POC-52-7 發現，見 3.1）：F29 傳輸層的空窗（把 `resume()` 移進鎖內）；`FavoriteAppWiringTests` 2 個過時的期望值；`MediaSnifferTests` 3 個穩定失敗（IOS-POC-45I）。
 
 - 40 項清單、處置、commit 與驗證已寫進 `docs/IOS-POC-47-offline-downloads.md` 第 15 節，`docs/current-task-state.md` 與 `docs/IOS-POC-49-offline-cellular-download-all.md` 已同步更新。

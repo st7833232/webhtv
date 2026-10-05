@@ -1346,6 +1346,57 @@ public actor OfflineDownloadManager {
         publish(force: true)
     }
 
+    // MARK: - Leftovers and reset (IOS-POC-53)
+
+    /// What an older build or an interrupted run left inside the offline folders: a folder with no
+    /// record, half-written files, the addresses and partial data a finished download no longer
+    /// needs, and staged bodies no current transfer will claim. Every download itself — finished,
+    /// running, paused or failed — and every unreadable folder is kept.
+    public func invalidFiles() -> [StorageCleanupItem] {
+        let fileManager = FileManager.default
+        var items = [StorageCleanupItem]()
+        func add(_ url: URL, _ reason: StorageCleanupItem.Reason) {
+            guard fileManager.fileExists(atPath: url.path) else { return }
+            items.append(StorageCleanupItem(url: url, bytes: OfflineStorage.allocatedSize(of: url), reason: reason))
+        }
+        for name in ((try? fileManager.contentsOfDirectory(atPath: layout.root.path)) ?? []).sorted() where !name.hasPrefix(".") {
+            let folder = layout.root.appendingPathComponent(name)
+            guard store.asset(name) != nil || store.unreadable[name] != nil else {
+                add(folder, .downloadLeftover)
+                continue
+            }
+            for directory in [folder, folder.appendingPathComponent("playlists"), folder.appendingPathComponent("partial")] {
+                for entry in (try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? []
+                where entry.hasPrefix(".") && entry.contains(OfflineStorageLayout.temporaryMarker) {
+                    add(directory.appendingPathComponent(entry), .interruptedWrite)
+                }
+            }
+            if store.asset(name)?.state == .completed {
+                add(layout.planFile(for: name), .downloadLeftover)
+                add(layout.requestFile(for: name), .downloadLeftover)
+                add(folder.appendingPathComponent("partial"), .downloadLeftover)
+            }
+        }
+        for name in ((try? fileManager.contentsOfDirectory(atPath: layout.stagingDirectory.path)) ?? []).sorted() {
+            if let tag = OfflineTransferTag(description: name.components(separatedBy: ".").first),
+               let asset = store.asset(tag.assetID), asset.state == .downloading, asset.generation == tag.generation { continue }
+            add(layout.stagingDirectory.appendingPathComponent(name), .downloadLeftover)
+        }
+        return items
+    }
+
+    /// Whether any download is not finished — its partial data must stay where the system keeps it.
+    public func hasUnfinishedDownloads() -> Bool {
+        store.all().contains { $0.state != .completed }
+    }
+
+    /// 初始化: every download and every unreadable folder, through the one delete path, so their
+    /// transfers stop before the files go.
+    @discardableResult
+    public func deleteEverything() async -> OfflineDeletionResult {
+        await deleteNow(store.all().map(\.id) + Array(store.unreadable.keys), reason: "reset")
+    }
+
     // MARK: - Lookups
 
     public func asset(_ id: String) -> OfflineAsset? { store.asset(id) }

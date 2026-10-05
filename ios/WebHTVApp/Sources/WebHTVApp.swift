@@ -1893,6 +1893,8 @@ private struct SettingsView: View {
             }
 
             // IOS-POC-45C
+            storageSection
+
             Section {
                 NavigationLink("線上字幕來源") { SubtitleSourceSettingsView() }
             } footer: {
@@ -1949,6 +1951,13 @@ private struct SettingsView: View {
 }
 
 private extension SettingsView {
+    /// IOS-POC-53: 清除無效檔案 and 初始化, on a page of their own.
+    var storageSection: some View {
+        Section {
+            NavigationLink("儲存空間") { StorageMaintenanceView(saved: saved, source: source) }
+        }
+    }
+
     @ViewBuilder var sourceSection: some View {
         Section {
             LabeledContent("來源", value: sourceLabel)
@@ -3563,6 +3572,143 @@ private struct FavoriteUndoBanner: View {
 private struct OfflineDownloadAllPlan {
     let flag: String
     let episodes: [(index: Int, episode: Episode)]
+}
+
+// MARK: - IOS-POC-53: 儲存空間
+
+/// 設定 › 儲存空間. 清除無效檔案 lists what older builds and interrupted runs left — never the saved
+/// sources, the watch history, favourites, settings, downloads, spider caches or web logins — and
+/// removes it once confirmed. 初始化 returns the app to how it was installed.
+private struct StorageMaintenanceView: View {
+    let saved: SavedSourceList
+    let source: ConfigSource
+    @State private var scanning = false
+    @State private var items: [StorageCleanupItem]?
+    @State private var freed: Int64?
+    @State private var confirmingCleanup = false
+    @State private var confirmingReset = false
+    @State private var confirmingResetAgain = false
+    @State private var resetting = false
+
+    private var total: Int64 { (items ?? []).reduce(0) { $0 + $1.bytes } }
+
+    var body: some View {
+        List {
+            cleanupSection
+            Section {
+                Button("初始化 WebHTV", role: .destructive) { confirmingReset = true }
+                    .disabled(resetting || scanning)
+            } header: {
+                Text("初始化")
+            } footer: {
+                Text("刪除已存來源、觀看記錄、收藏、所有離線下載、設定、網頁登入資料、線上字幕的帳號金鑰與快取，回到剛安裝的狀態。完成後 App 會關閉，重新打開即可。")
+            }
+            .listRowBackground(appSurface)
+        }
+        .scrollContentBackground(.hidden)
+        .appWallpaper()
+        .overlay { if resetting { ProgressView("初始化中…") } }
+        .confirmationDialog("刪除 \(items?.count ?? 0) 項無效檔案？", isPresented: $confirmingCleanup, titleVisibility: .visible) {
+            Button("刪除（\(OfflineByteFormat.string(total))）", role: .destructive) { Task { await cleanUp() } }
+            Button("取消", role: .cancel) {}
+        }
+        .confirmationDialog("初始化 WebHTV？", isPresented: $confirmingReset, titleVisibility: .visible) {
+            Button("繼續", role: .destructive) { confirmingResetAgain = true }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("已存來源、觀看記錄、收藏、所有離線下載與設定都會刪除。")
+        }
+        .alert("確定要初始化？", isPresented: $confirmingResetAgain) {
+            Button("初始化", role: .destructive) { Task { await reset() } }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("此動作無法復原。完成後 App 會關閉。")
+        }
+        .navigationTitle("儲存空間")
+        .navigationBarTitleDisplayMode(.inline)
+        .appNavigationBar()
+    }
+
+    private var cleanupSection: some View {
+        Section {
+            Button(scanning ? "掃描中…" : "掃描無效檔案") { Task { await scan() } }
+                .disabled(scanning || resetting)
+            if let items {
+                if items.isEmpty {
+                    Text("沒有找到無效檔案。").foregroundStyle(.secondary)
+                } else {
+                    ForEach(items) { item in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.url.lastPathComponent).font(.subheadline).lineLimit(1).truncationMode(.middle)
+                            Text("\(Self.label(item.reason)) · \(OfflineByteFormat.string(item.bytes))")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    Button("刪除這 \(items.count) 項（\(OfflineByteFormat.string(total))）", role: .destructive) {
+                        confirmingCleanup = true
+                    }
+                }
+            }
+            if let freed {
+                Text("已釋放 \(OfflineByteFormat.string(freed))。").foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("清除無效檔案")
+        } footer: {
+            Text("只清舊版本或中斷的寫入留下的檔案。已存來源、觀看記錄、收藏、設定、所有離線下載、來源快取與網頁登入資料都會保留；刪除前會列出每一項。")
+        }
+        .listRowBackground(appSurface)
+    }
+
+    static func label(_ reason: StorageCleanupItem.Reason) -> String {
+        switch reason {
+        case .removedSourceCache: return "已移除來源的設定快取"
+        case .interruptedWrite: return "中斷的寫入"
+        case .staleTemporary: return "過期的暫存檔"
+        case .downloadLeftover: return "下載殘留"
+        case .unknown: return "舊版本留下的檔案"
+        }
+    }
+
+    private func scan() async {
+        scanning = true
+        defer { scanning = false }
+        freed = nil
+        let urls = saved.sources.map(\.url) + [source.baseURL].compactMap { $0 }
+        let keep = Set(urls.map { SavedSource(name: "", url: $0).cacheFileName })
+        let offline = await OfflineDownloads.manager.invalidFiles()
+        let unfinished = await OfflineDownloads.manager.hasUnfinishedDownloads()
+        let bundle = Bundle.main.bundleIdentifier ?? ""
+        let others = await Task.detached {
+            StorageMaintenance.invalidItems(in: .standard(), keepConfigFiles: keep, bundleIdentifier: bundle,
+                                            downloadsIdle: !unfinished)
+        }.value
+        items = offline + others
+    }
+
+    private func cleanUp() async {
+        guard let chosen = items else { return }
+        let freedBytes = await Task.detached { StorageMaintenance.remove(chosen) }.value
+        items = nil
+        freed = freedBytes
+    }
+
+    /// Downloads first, through their own delete, so no transfer writes again; then the web data,
+    /// the subtitle keys, every file and the settings. Nothing kept in memory may write the old
+    /// records back, so the app ends here and the next launch starts as a fresh install does.
+    private func reset() async {
+        resetting = true
+        await OfflineDownloads.manager.deleteEverything()
+        await WKWebsiteDataStore.default().removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
+                                                      modifiedSince: .distantPast)
+        HTTPCookieStorage.shared.removeCookies(since: .distantPast)
+        URLCache.shared.removeAllCachedResponses()
+        for key in SubtitleCredentialKey.allCases { KeychainSubtitleCredentials().setValue(nil, for: key) }
+        _ = await Task.detached { StorageMaintenance.clearAll(.standard()) }.value
+        if let bundle = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: bundle) }
+        UserDefaults.standard.synchronize()
+        exit(0)
+    }
 }
 
 /// The downloads screens' snapshot, kept current by `OfflineDownloadManager` from launch on.

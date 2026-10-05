@@ -1,5 +1,22 @@
 # IOS-UI-A — Cinematic Minimal
 
+## 狀態總覽與 Recovery anchor（2026-10-05 補記）
+
+本文件各段由不同 session 依時間插入，順序是 A3、A2、第一版 theme trial、A4。對照如下：
+
+| 階段 | 內容 | 程式 commit | 版本 | Release run | 段落 |
+|---|---|---|---|---|---|
+| A1 | 第一版 theme trial：只改背景、色彩、圓角、material | `d759a346` | `0.1.61 (62)` | `37199969137` | 「Historical first theme trial」 |
+| A2 | 首頁、詳情、片庫、搜尋、下載、設定、底部列的結構重構 | `c361c637` | `0.1.62 (63)` | `37202892439` | 「A2 structure redesign」 |
+| A3 | 0.1.62 真機回報修正：底部遮擋、返回手勢、鍵盤、片庫順序、深／淺主題、空白搜尋 | `f916df55`、`353879d4`（compile 修正） | `0.1.63 (64)` | `37206772558`（`37205918063` 編譯失敗、未發布） | 「A3」 |
+| A4 | 首頁子分類與篩選預設收合 | `033d4336` | `0.1.64 (65)` | `37209250026` | 「A4」 |
+
+- 各版發布證據（tag、IPA 大小、SHA-256、source commit）集中在 `docs/IOS-POC-11-sidestore-release.md` 檔頭。
+- 之後 `0.1.65 (66)`（IOS-POC-51）在 A4 之上發布，沒有 UI-A 的改動。
+- 已驗證：A1～A4 都由 SideStore Release workflow 完成 unsigned device Release build、IPA／schema 驗證、公開下載比對。沒有 Simulator 或真機 rendering。
+- A1～A4 用的一次性 push 觸發（`f103ab5b`）已於 2026-10-05 移除（`IOS-RELEASE-TRIGGER-REMOVE`），預設 release notes 還原；之後發布用 `workflow_dispatch`，見 IOS-POC-11 檔頭「0.1.61 (62)」一節。
+- 唯一下一步：SideStore 真機驗收，項目見 A2、A3、A4 各段的 Recovery anchor。
+
 ## A3 — 0.1.62 真機回報修正（2026-10-04）
 
 基準：重新 fetch 的 `origin/ios-poc`，`c3cc8c5600b4bb70368fd1ea161d2dc16190f964`。使用者提供實際畫面及八項操作問題；沿用同一份 A 版任務文件。範圍僅 View／主題偏好、發布 metadata 與交接文件；播放器、來源、收藏／歷史、下載的 domain ownership 與 identity 不變。
@@ -43,7 +60,7 @@ Runtime 與 compile 明確區分：第二次 actual iOS device build 已通過�
 
 Recovery anchor：IOS-UI-A3 開發／發布已完成；post-publication 文件 guard IOS-UI-A3-RELEASE-STATE，branch ios-ui-a3-final-state，base source commit 257f3f77f5a7ad45a7b92d2e8f08c2e2fa060f10，無 protected dirty paths。唯一下一步：SideStore 真機驗收（末列／回頂端按鈕、edge back、多層重點 tab、背景點擊與 keyboard、淺色完整畫面／主題持久性、既有播放與下載／收藏復原）。無 Simulator／真機新 rendering，不宣稱像素或手勢已驗收。
 
-## A2 structure redesign — 2026-10-04 (current task)
+## A2 structure redesign — 2026-10-04
 
 User explicitly authorized complete UI implementation and SideStore publication without intermediate approval or separate test CI. Fetched baseline: `1bf5d7ade62b7ba14e9f60b5bbfed7585004e67c`. Previous sections below describe the first theme trial, not this redesign's completion or release state.
 
@@ -93,7 +110,7 @@ Only code/layout/static review and actual Release compilation/packaging are veri
 
 Date: 2026-10-04
 Branch: `ios-poc`
-Release target: `0.1.60 (61)`
+Release target: `0.1.60 (61)` — 實際以 `0.1.61 (62)` 發布：`0.1.60 (61)` 已先從 A 版之前的 HEAD 發布（IOS-POC-50），A 版改用 `0.1.61 (62)`（版號 commit `82d952e8`，tag `ios-v0.1.61-b62` → `9d81a75e`，run `37199969137`，IPA 34,956,830 bytes）。
 
 ## Goal
 

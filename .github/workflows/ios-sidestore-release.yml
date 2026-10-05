@@ -19,10 +19,6 @@ on:
   push:
     tags:
       - "ios-v*-b*"
-    branches:
-      - "ios-poc"
-    paths:
-      - ".github/ios-release-trigger"
 
 permissions:
   contents: write
@@ -117,7 +113,7 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
           BUILD: ${{ steps.meta.outputs.build }}
           TAG: ${{ steps.meta.outputs.tag }}
-          RELEASE_NOTES: ${{ inputs.release_notes || 'WebHTV 0.1.64 (65)：首頁子分類與類型、地區、年代、排序篩選改為預設收合，可手動展開／收合；切換分類重新收合，已選條件在收合時保留。維持既有來源首頁、分類、搜尋與播放行為。展開操作仍需 SideStore 真機驗收。' }}
+          RELEASE_NOTES: ${{ inputs.release_notes || 'Automated SideStore release.' }}
         run: |
           set -euo pipefail
           mkdir -p package/Payload dist
@@ -145,7 +141,7 @@ jobs:
           ASSET: ${{ steps.meta.outputs.asset }}
           VERSION: ${{ steps.meta.outputs.version }}
           BUILD: ${{ steps.meta.outputs.build }}
-          RELEASE_NOTES: ${{ inputs.release_notes || 'WebHTV 0.1.64 (65)：首頁子分類與類型、地區、年代、排序篩選改為預設收合，可手動展開／收合；切換分類重新收合，已選條件在收合時保留。維持既有來源首頁、分類、搜尋與播放行為。展開操作仍需 SideStore 真機驗收。' }}
+          RELEASE_NOTES: ${{ inputs.release_notes || 'Automated SideStore release.' }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
@@ -174,7 +170,7 @@ jobs:
           BUILD: ${{ steps.meta.outputs.build }}
           TAG: ${{ steps.meta.outputs.tag }}
           ASSET: ${{ steps.meta.outputs.asset }}
-          RELEASE_NOTES: ${{ inputs.release_notes || 'WebHTV 0.1.64 (65)：首頁子分類與類型、地區、年代、排序篩選改為預設收合，可手動展開／收合；切換分類重新收合，已選條件在收合時保留。維持既有來源首頁、分類、搜尋與播放行為。展開操作仍需 SideStore 真機驗收。' }}
+          RELEASE_NOTES: ${{ inputs.release_notes || 'Automated SideStore release.' }}
         run: |
           set -euo pipefail
           git fetch origin ios-poc

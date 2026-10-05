@@ -8122,22 +8122,6 @@ private extension View {
             .toolbarBackground(.visible, for: .navigationBar)
             .modifier(TabReturnTarget())
     }
-
-    /// IOS-POC-46: a toolbar item's own label (the home screen's source name), legible over the
-    /// light wallpaper, where plain white measures 1.4–1.6:1 (`wallpaper_1`'s top-left). iOS 26 puts
-    /// each item on Liquid Glass, which turns light there; the label takes the semantic colour that
-    /// flips with the glass. Before iOS 26 there is no glass, so the white label gets its own 50%
-    /// black capsule: 5.2:1 at the wallpaper's lightest point there.
-    @ViewBuilder func legibleToolbarLabel() -> some View {
-        if #available(iOS 26, *) {
-            foregroundStyle(.primary)
-        } else {
-            foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Capsule().fill(.black.opacity(0.5)))
-        }
-    }
 }
 
 private func bundledImage(_ name: String) -> Image {

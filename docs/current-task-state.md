@@ -13,6 +13,18 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - **`0.1.65 (66)` 已發布**（2026-10-05；run `37253074248` success，tag `ios-v0.1.65-b66` → `a222d336`，`source.json` `cf255efe`，IPA 35,107,067 bytes），**目前最新版是 `0.1.65 (66)`**。
 - 見 `docs/IOS-POC-51-sampled-size-estimate.md`。
 
+**文件同步（2026-10-05，`DOCS-SYNC-2026-10-05`）**：pull 下來的 `3b920791..db9618bd`（69 個 commit，IOS-POC-45A～51、IOS-UI-A～A4、`0.1.53`～`0.1.65`）逐一對過文件後補齊：
+- README 補上離線下載、片庫預設記錄、子分類預設收合、深／淺主題、45D～45I 字幕，並從「沒有的功能」移除「下載」；
+- IOS-POC-11 檔頭改為 `0.1.65 (66)`，補上 `0.1.61 (62)` 紀錄，修正 recovery anchor；
+- IOS-UI-A 文件加階段對照表；
+- IOS-POC-45 recovery anchor 加子任務與版本對照；
+- 新增 `docs/IOS-POC-46-source-picker-legibility.md`。
+
+同步時發現、尚未處理（都是程式修改，等使用者決定）：
+1. ~~`.github/workflows/ios-sidestore-release.yml` 的一次性 push 觸發（`f103ab5b`，原訂 0.1.61 後移除）還在，預設 release notes 是 0.1.64 的文字。~~ 已移除並還原預設 notes（`IOS-RELEASE-TRIGGER-REMOVE`，2026-10-05）；發布只用 `workflow_dispatch`。
+2. ~~IOS-POC-46 的 `legibleToolbarLabel()` 自 IOS-UI-A2 起沒有呼叫者，是死碼。~~ 已刪除（IOS-POC-46-2，2026-10-05）。
+3. 「IOS-POC-47 審查確認的 40 項問題」在 repo 裡只有數量（本文件與 `docs/IOS-POC-49-offline-cellular-download-all.md`），問題清單沒有寫進任何文件，`docs/IOS-POC-47-offline-downloads.md` 也沒有審查結果。清單只存在當時的雲端 session，無法從 repo 補回；要處理這 40 項，需先從那個 session 取回清單，或重新審查。
+
 ## Previous handoff — 2026-10-04：IOS-UI-A4 子分類收合（0.1.64／65 已發布）
 
 基準為 fetch 最新 `origin/ios-poc` `7b6fc1d89b6bdb552a03e714ae0b5d5bd8c9183c`，獨立 branch `ios-ui-a4-filter-disclosure`，工作區乾淨。使用者問不同來源自動選分類差異，並要求子分類可收合／預設收合。首頁 CMSView 新增獨立「子分類與篩選」入口，同時收起真正子分類與類型／地區／年代／排序。切換分類重新收合，收合保留選擇，控制不觸發 API。原首頁自動選取規則保留，未改 backend／Core／player domain。詳見 `docs/IOS-UI-A-cinematic-minimal.md` A4。
@@ -57,7 +69,7 @@ GitHub 最新 Release、remote Xcode 版號及 source.json 已核對為 `0.1.61 
 
 第一版僅背景／色彩／圆角／material 視覺 patch。已確認 `0.1.61 (62)` 發布成功：run `37199969137`，tag `ios-v0.1.61-b62` → `9d81a75eea4aab49b925b1fe138d0309d104ba24`；source update commit `1bf5d7ade62b7ba14e9f60b5bbfed7585004e67c`，IPA 34,956,830 bytes。使用者真機回報結構與目標落差；因此本次執行 A2。
 
-## Previous handoff — 2026-10-04：IOS-POC-50 多工下載（先讀這一節)
+## Previous handoff — 2026-10-04：IOS-POC-50 多工下載
 
 **IOS-POC-50**（2026-10-04）：使用者要求「多工下載」，選定同時 3 集。`pump()` 最多讓 3 集同時準備或下載，依加入順序補位；開始下載前的空間檢查加上其他正在下載的集數還需要的空間。每主機連線數維持 4，所以同一來源的 HLS 總速度不會提高。Linux 71／71、突變 3／3；依使用者「不要跑ci修改後就發佈」直接發布。真機未驗證。見 `docs/IOS-POC-50-concurrent-downloads.md`。
 
@@ -85,7 +97,7 @@ GitHub 最新 Release、remote Xcode 版號及 source.json 已核對為 `0.1.61 
 
 ## Previous handoff — 2026-10-02 晚：IOS-POC-45 線上字幕
 
-**IOS-POC-46**（2026-10-03）：iOS 26 首頁左上角的站台名稱看不見（Liquid Glass 在淺色桌布上變淺，標籤寫死白色）。iOS 26 起改用會隨玻璃翻轉的 `.primary`；iOS 17／18 白字在桌布上只有 1.4–1.6:1，改為白字加 50% 黑色膠囊（桌布最亮處 5.2:1，IOS-POC-46-1）（`legibleToolbarLabel()`）。未在任何真機或模擬器驗證；App 全域 `tint` 也是白色，其他工具列文字按鈕（例如「關閉」）在 iOS 26 淺色背景上可能有同樣問題，尚未處理。
+**IOS-POC-46**（2026-10-03）：iOS 26 首頁左上角的站台名稱看不見（Liquid Glass 在淺色桌布上變淺，標籤寫死白色）。iOS 26 起改用會隨玻璃翻轉的 `.primary`；iOS 17／18 白字在桌布上只有 1.4–1.6:1，改為白字加 50% 黑色膠囊（桌布最亮處 5.2:1，IOS-POC-46-1）（`legibleToolbarLabel()`）。未在任何真機或模擬器驗證；App 全域 `tint` 也是白色，其他工具列文字按鈕（例如「關閉」）在 iOS 26 淺色背景上可能有同樣問題，尚未處理。任務文件：`docs/IOS-POC-46-source-picker-legibility.md`（2026-10-05 補建；IOS-UI-A2 重做首頁頂部後，這個修正已被取代）。
 
 **`0.1.56 (57)` 已發布**（2026-10-03，使用者「發佈」；IOS-POC-11 第五十七次發布：含 IOS-POC-46／46-1 首頁站台名稱可讀性；版號 commit `22e9cf6b`，run `37103927388` success，tag `ios-v0.1.56-b57` → `22e9cf6b`，`source.json` `a6409ac4`，IPA 34,062,283 bytes，真機未驗證）。
 
@@ -1616,10 +1628,12 @@ release version**.
 
 Paste this into a new session:
 
-> 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -15`、`git status`，以實際 `origin/ios-poc` 為準、不要相信文件裡的 SHA。先讀 `AGENTS.md`，再讀 `docs/current-task-state.md` 最上方「Current handoff — 2026-10-02 下午」一節（更早的交接需要時再看）。
+> 接手 `st7833232/webhtv` 的 `ios-poc`（本機路徑 `/Users/chengchenchih/GIT/webhtv`），用台灣繁體中文回報，不要每一步停下來問我確認。先 `git fetch`、`git log --oneline -15`、`git status`，以實際 `origin/ios-poc` 為準、不要相信文件裡的 SHA。先讀 `AGENTS.md`，再讀 `docs/current-task-state.md` 最上方「Current handoff」一節（更早的交接需要時再看）。
 >
-> 目前狀態：最新發布是 WebHTV `0.1.56 (57)`（tag `ios-v0.1.56-b57`，含 IOS-POC-46／46-1）；前一版 `0.1.55 (56)`（tag `ios-v0.1.55-b56`，含 IOS-POC-45I）；再前一版 `0.1.54 (55)`（tag `ios-v0.1.54-b55`，含 IOS-POC-45C-1／45D／45E／45F／45G／45H）；再前一版 `0.1.53 (54)`（tag `ios-v0.1.53-b54`，含 IOS-POC-45A／45B／45C）；再前一版 `0.1.52 (53)`（tag `ios-v0.1.52-b53`，含 IOS-POC-45 線上字幕）；再前一版 `0.1.51 (52)`（tag `ios-v0.1.51-b52`，含 IOS-POC-44A／44B／44C）；兩版真機都未驗證；更早的 `0.1.50 (51)`（tag `ios-v0.1.50-b51`）；IOS-POC-42（XYQHiker 直接播放、播放端擷取、中文搜尋鍵）隨 `0.1.49 (50)`、IOS-POC-43A（檢查來源的嗅探排隊）隨 `0.1.50 (51)` 發布，兩版真機都未驗證，由我另外用 SideStore 測，不擋新任務。
+> 目前狀態（2026-10-05 更新）：最新發布是 WebHTV `0.1.65 (66)`（tag `ios-v0.1.65-b66`，含 IOS-POC-51 下載容量預估）。`0.1.57`～`0.1.64` 依序加入 IOS-POC-47 離線下載、48 收藏與片庫、49 行動網路與全部下載、50 多工下載、IOS-UI-A～A4 Cinematic Minimal 介面；各版內容見 `docs/IOS-POC-11-sidestore-release.md`，全部真機都未驗證。更早：`0.1.56 (57)`（tag `ios-v0.1.56-b57`，含 IOS-POC-46／46-1）；前一版 `0.1.55 (56)`（tag `ios-v0.1.55-b56`，含 IOS-POC-45I）；再前一版 `0.1.54 (55)`（tag `ios-v0.1.54-b55`，含 IOS-POC-45C-1／45D／45E／45F／45G／45H）；再前一版 `0.1.53 (54)`（tag `ios-v0.1.53-b54`，含 IOS-POC-45A／45B／45C）；再前一版 `0.1.52 (53)`（tag `ios-v0.1.52-b53`，含 IOS-POC-45 線上字幕）；再前一版 `0.1.51 (52)`（tag `ios-v0.1.51-b52`，含 IOS-POC-44A／44B／44C）；兩版真機都未驗證；更早的 `0.1.50 (51)`（tag `ios-v0.1.50-b51`）；IOS-POC-42（XYQHiker 直接播放、播放端擷取、中文搜尋鍵）隨 `0.1.49 (50)`、IOS-POC-43A（檢查來源的嗅探排隊）隨 `0.1.50 (51)` 發布，兩版真機都未驗證，由我另外用 SideStore 測，不擋新任務。
 >
-> 下一步：IOS-POC-44（`docs/IOS-POC-44-csp-portable-sites.md`：23 站活 18、死 5，分段 44A～44G）的 44A（`WeiguanDJ`＋`HemaDJ`）、44B（`QimaoDJ`＋`HaokanDJ`）、44C（`Jpys`＋`Jys`）已完成並隨 `0.1.51 (52)` 發布。等我核准 44D（`Feiyu`＋`MiaoWu`，只寫 JS、不動 Swift）或指定其他段；核准後照該文件第 7、8 節與第 11～13 節的做法實作與驗收，結果記回同一份文件。沒有我的核准不改程式；沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13。
+> 未決、等我決定：IOS-POC-47 審查確認的 40 項問題（清單不在 repo）。（IOS-POC-46 死碼已刪除；一次性 push 觸發已移除，發布只用 `workflow_dispatch` 並要填 release notes。）
+>
+> 下一步（IOS-POC-44 仍可續做）：IOS-POC-44（`docs/IOS-POC-44-csp-portable-sites.md`：23 站活 18、死 5，分段 44A～44G）的 44A（`WeiguanDJ`＋`HemaDJ`）、44B（`QimaoDJ`＋`HaokanDJ`）、44C（`Jpys`＋`Jys`）已完成並隨 `0.1.51 (52)` 發布。等我核准 44D（`Feiyu`＋`MiaoWu`，只寫 JS、不動 Swift）或指定其他段；核准後照該文件第 7、8 節與第 11～13 節的做法實作與驗收，結果記回同一份文件。沒有我的核准不改程式；沒有我的指示前，不開始 MPV parity P2 以後的階段，也不重新做 IOS-POC-13。
 >
 > 規則：環境有 Ponytail 就一定要對最終 diff 跑 `ponytail:ponytail-review` 並記進任務文件；功能修改用 `bash .codex/scripts/task_guard.sh start`（模式只有 quick-fix／standard／assessment／upstream），結束用 `finish --no-tag`，不要把 guard 指令接 pipe（結束碼會被吃掉）。push 只推 `ios-poc`，push 前先 `git pull --no-rebase`，不建新分支、不 merge `main`；bump 版本、tag、發布前一定要先問我，release notes 不帶站台內容（站名、設定檔名、站數、成人站）。本機 Xcode 27 比 CI 的 Xcode 26.6 新，本機建置通過不代表 CI 會過。不要直接安裝到我的 iPhone（我用 SideStore）；真機沒測到的一律寫「未驗證」。最後回報要給明確結論，不要用「可能有幫助」這種說法。

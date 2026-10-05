@@ -100,8 +100,36 @@ public struct OfflineCompletionPolicy: Sendable, Equatable {
     public private(set) var current: String?
     /// Whether it really ended in this playback.
     public private(set) var ended = false
+    /// IOS-POC-52 (F1): the viewer's last seek landed at the end — the end that follows is a skip.
+    public private(set) var seekedToEnd = false
+
+    /// IOS-POC-52 (F1): a viewer's seek landing this close to the duration makes the end of file
+    /// that follows a skip, not a watch — the scrubber's right edge, +10 s near the end, the lock
+    /// screen's scrubber.
+    public static let seekToEndWindow = 3.0
+    /// IOS-POC-52 (F12): an end of file this far before the duration is the engine giving up — a
+    /// segment it could not read skipped to the playlist's end — not the end of the episode.
+    public static let endTolerance = 5.0
 
     public init() {}
+
+    /// IOS-POC-52 (F23): what a playback's `finished(reason:)` means for a download — the engine's
+    /// end of file (`end`), or the viewer's ending reached for the next episode (`ending`).
+    /// Anything else is not an end.
+    public static func endReason(finishedBy reason: String) -> EndReason? {
+        switch reason {
+        case "end": return .endOfFile
+        case "ending": return .formalAutoNext
+        default: return nil
+        }
+    }
+
+    /// The viewer moved the playhead (the scrubber, ±10 s, the lock screen). Not a seek the app
+    /// makes itself — resuming, skipping an advert.
+    public mutating func viewerSeeked(to target: Double, duration: Double?) {
+        guard let duration, duration > 0 else { seekedToEnd = false; return }
+        seekedToEnd = target >= duration - Self.seekToEndWindow
+    }
 
     /// An item was loaded. The same asset again (a reload, an engine switch, a fallback) keeps
     /// everything; anything else releases the one before.
@@ -110,11 +138,18 @@ public struct OfflineCompletionPolicy: Sendable, Equatable {
         let previous = current
         current = assetID
         ended = false
+        seekedToEnd = false
         return previous.map { [.released($0)] } ?? []
     }
 
-    public mutating func ended(_ reason: EndReason) -> [Decision] {
+    /// The episode ended. An end of file counts only when it was played to, not reached by a seek
+    /// to the end, and only at the end (`position`, `duration` from the engine, when known).
+    public mutating func ended(_ reason: EndReason, position: Double? = nil, duration: Double? = nil) -> [Decision] {
         guard let current, !ended else { return [] }
+        if reason == .endOfFile {
+            if seekedToEnd { return [] }
+            if let position, let duration, duration > 0, duration - position > Self.endTolerance { return [] }
+        }
         ended = true
         return [.markWatched(current)]
     }

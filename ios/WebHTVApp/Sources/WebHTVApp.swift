@@ -73,6 +73,8 @@ struct WebHTVApp: App {
         Task { @MainActor in
             await offlineLibrary.connect(OfflineDownloads.manager)
             await OfflineDownloads.manager.setResolver { asset in await OfflineAppContext.resolve(asset) }
+            // IOS-POC-52 (F13): before the launch finishes an auto-delete a crash interrupted.
+            await OfflineDownloads.manager.setAutoDeleteEnabled(OfflineDownloadPreferences().autoDeleteAfterWatching)
             await OfflineDownloads.manager.start()
             // IOS-POC-49: a download queued under an earlier 行動網路 setting follows today's.
             await OfflineDownloads.manager.setAllowsCellular(OfflineDownloadPreferences().allowsCellular)
@@ -1877,7 +1879,11 @@ private struct SettingsView: View {
                 }
                 .pickerStyle(.menu)
                 Toggle("看完後自動刪除", isOn: $offlineAutoDelete)
-                    .onChange(of: offlineAutoDelete) { _, on in OfflineDownloadPreferences().autoDeleteAfterWatching = on }
+                    .onChange(of: offlineAutoDelete) { _, on in
+                        OfflineDownloadPreferences().autoDeleteAfterWatching = on
+                        // IOS-POC-52 (F13): every download follows it, not only the next ones.
+                        Task { await OfflineDownloads.manager.setAutoDeleteEnabled(on) }
+                    }
                 Toggle("允許使用行動網路下載", isOn: $offlineCellular)
                     .onChange(of: offlineCellular) { _, on in
                         OfflineDownloadPreferences().allowsCellular = on
@@ -1889,7 +1895,7 @@ private struct SettingsView: View {
             } header: {
                 Text("離線下載")
             } footer: {
-                Text("離線畫質最高 1080p。「智慧 1080p」優先 HEVC、SDR 與合理的低位元率；「最省空間」最高 720p。看完後自動刪除只在真正播放到結尾（或片尾自動跳下一集）後才刪除。行動網路設定立即套用到所有未完成的下載；高幀率設定套用到之後開始的下載。")
+                Text("離線畫質最高 1080p。「智慧 1080p」優先 HEVC、SDR 與合理的低位元率；「最省空間」最高 720p。看完後自動刪除只在真正播放到結尾（或片尾自動跳下一集）後才刪除，拖到片尾不算；關閉後所有下載都不會自動刪除，開啟時依每集下載時的選擇。行動網路設定立即套用到所有未完成的下載；高幀率設定套用到之後開始的下載。")
             }
 
             // IOS-POC-45C
@@ -5271,6 +5277,8 @@ struct EpisodeSteps: Equatable {
         guard let engine, engine.isLoaded else { return }
         let limit = engine.duration > 0 ? engine.duration : .greatestFiniteMagnitude
         let target = adSeekTarget(min(max(seconds, 0), limit))
+        // IOS-POC-52 (F1): a seek to the end is a skip; the end of file it brings is not a watch.
+        offlineCompletion.viewerSeeked(to: target, duration: engine.duration > 0 ? engine.duration : nil)
         // IOS-POC-36: where a seek was asked from and to; the engine logs where it landed.
         let from = Self.oneDecimal(engine.currentTime)
         Self.log.notice("[playback] seek requested \(Self.oneDecimal(target), privacy: .public)s from \(from, privacy: .public)s on \(engine.kind.shortName, privacy: .public)")
@@ -5688,8 +5696,17 @@ struct EpisodeSteps: Equatable {
         retryWithoutPrefetch = nil
         tracksToRestore = mediaSelection
         adSkip.engineReloaded()
-        router.reload(at: seconds, autoplay: false)
+        // IOS-POC-52 (F12): iOS closes a suspended app's listening socket; the loopback server a
+        // downloaded HLS episode plays from is started again before the reload asks it for anything.
+        guard servesOfflineHLS else { router.reload(at: seconds, autoplay: false); return }
+        Task { @MainActor in
+            _ = await OfflineDownloads.server.start()
+            self.router.reload(at: seconds, autoplay: false)
+        }
     }
+
+    /// A downloaded HLS episode plays from the loopback server; a single file plays from disk.
+    private var servesOfflineHLS: Bool { offlineSource?.url.host == "127.0.0.1" }
 
     /// A reloaded item picks its own default tracks. The viewer's choice goes back once the item has
     /// listed what it offers — the first listing with any tracks settles it.
@@ -5732,7 +5749,16 @@ struct EpisodeSteps: Equatable {
             pausedBackground.cancel()
             Self.activateAudioSession()
             router.setIntendsToPlay(true)
-            engine?.play()
+            // IOS-POC-52 (F12): the lock screen's play while the app was suspended — the loopback
+            // server comes back first, or every segment request is refused.
+            if servesOfflineHLS {
+                Task { @MainActor in
+                    _ = await OfflineDownloads.server.start()
+                    self.engine?.play()
+                }
+            } else {
+                engine?.play()
+            }
         case "pause":
             router.setIntendsToPlay(false)
             engine?.pause()
@@ -5809,8 +5835,11 @@ struct EpisodeSteps: Equatable {
         reportCompletion(ended: true)
         if outcome == .replay { control("replay"); return }
         // IOS-POC-47: the real end of a downloaded episode — the engine's end of file, or the formal
-        // auto-next at the viewer's ending. Seeks, stops, errors and switches never come here.
-        applyOffline(offlineCompletion.ended(reason == "end" ? .endOfFile : .formalAutoNext))
+        // auto-next at the viewer's ending. IOS-POC-52 (F1, F12, F23): the rule is Core's — not after
+        // a seek to the end, not short of the duration, no other reason.
+        if let end = OfflineCompletionPolicy.endReason(finishedBy: reason) {
+            applyOffline(offlineCompletion.ended(end, position: position, duration: duration > 0 ? duration : nil))
+        }
         Self.log.notice("[playback] \(self.itemTitle, privacy: .public) finished (\(reason, privacy: .public)) on \(self.engineKind.shortName, privacy: .public) at \(Int(self.position))s/\(Int(self.duration))s")
         Task { @MainActor in
             // Record the end **before** moving on, and await it. The comment here always claimed

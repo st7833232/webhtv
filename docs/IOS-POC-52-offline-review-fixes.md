@@ -14,7 +14,7 @@
 | 1 | 當機與卡死 | F2、F15 | 完成 |
 | 2 | 資料錯誤與遺失 | F5–F9、F16、F17、F20、F27、F28（含 F26） | 完成 |
 | 3 | 下載流程、背景與傳輸 | F3、F4、F10、F11、F14、F18、F19、F29、F30、F34、F39（F26 已在批次 2） | 完成 |
-| 4 | 自動刪除與播放 | F1、F12、F13、F23 | 待處理 |
+| 4 | 自動刪除與播放 | F1、F12、F13、F23 | 完成 |
 | 5 | 安全與介面 | F22、F21、F31、F32、F33、F35 | 待處理 |
 | 6 | 測試缺口與發布 | F24、F25、F36–F38、F40 | 待處理 |
 
@@ -173,6 +173,37 @@
 - 修正：外掛字幕下載完時，如果該下載已經沒有紀錄，就刪除它重建的資料夾。
 - 測試：`deletingWhilePreparingLeavesNoFolder`（讓字幕下載停在半路，期間刪除）。
 
+### F1、F23（中、低）拖到片尾被當成看完；「真正結束」的判斷沒有能失敗的測試
+- 修正：
+  - 判斷規則移到 Core 的 `OfflineCompletionPolicy`：
+    - `endReason(finishedBy:)` 只把 `end`（播放器到檔尾）和 `ending`（觀眾的片尾自動下一集）視為結束；
+    - `viewerSeeked(to:duration:)` 記錄觀眾手動拖到片尾 3 秒內的情況，之後的檔尾不算看完；
+    - 往回拖、或開始新的一集會清除這個記錄。
+  - App 的 `PlaybackSession.seek(toSeconds:)`（進度條、±10 秒、子母畫面、鎖定畫面都經過這裡）呼叫 `viewerSeeked`；App 自己做的續播與跳廣告直接呼叫引擎，不經過這裡。
+  - `finished(reason:)` 改用 `endReason` 對應。
+  - 片尾自動下一集即使是在拖進片尾之後發生，仍算看完（需求允許）。
+- 測試：
+  - `aSeekToTheEndIsNotAWatch`
+  - `theFormalAutoNextCountsEvenAfterASeekIntoTheCredits`
+  - `onlyTheEngineEndAndTheViewersEndingAreEnds`
+
+### F12（中）App 暫停後本機伺服器沒有重開
+- 修正：
+  - 恢復暫停中的離線 HLS 之前（`reloadPaused`、鎖定畫面的播放），先 `await OfflineDownloads.server.start()`；伺服器優先使用原本的連接埠，網址不變。
+  - 安全網：位置離片長還有 5 秒以上的檔尾不算看完。避免播放器讀不到片段、跳到清單結尾而被誤判為看完並刪除。
+- 未做：原連接埠被占用、伺服器換了連接埠時，已載入的網址會失效，需要重開那一集。這部分需要重建播放項目，風險較高，沒有處理。
+- 測試：`anEndOfFileShortOfTheDurationIsNotAWatch`。App 端的伺服器重開沒有單元測試，需要真機驗證。
+
+### F13（中）關閉「看完後自動刪除」不影響既有下載
+- 修正：
+  - manager 新增 `setAutoDeleteEnabled`。關閉時，所有下載都不會被排定自動刪除，已排定的取消；開啟時，各集依下載時的選擇。
+  - App 在啟動完成前、以及切換設定時呼叫。
+  - 重開時，若設定是關閉，當機留下的排定也會先取消。
+  - 設定頁註腳同步更新。
+- 測試：
+  - `theSettingTurnedOffStopsEveryAutoDelete`
+  - `aCrashArmedAutoDeleteWaitsForTheSettingAtLaunch`
+
 ## 3. 驗證紀錄
 
 - 批次 1：Linux `swift test` 84／84，Offline 原始檔沒有新的警告。
@@ -184,10 +215,11 @@
   - Linux 111／111。
   - 突變 14／14 被對應的測試抓到：F3 兩處、F4 兩處、F10 兩處、F11、F14、F18 兩處、F19、F30、F34、F39。
   - F4 第一次的突變寫錯，造成編譯錯誤；改正後被抓到。
+- 批次 4：Linux 122／122；突變 5／5 被對應的測試抓到（F1、F12、F23、F13 兩處）。
 - 同步：開始批次 3 時，遠端已被其他 session 推進到 `f39c7d86`。批次 3 的改動先 stash，用 `git pull --no-rebase` 合併（merge commit `1c31013f`，沒有衝突），再放回改動。
   - 原本的 task guard session 尚未 commit，手動把它的狀態標為 abandoned。
   - 新 session 以 `--adopt-dirty` 收進這些改動。
 
 ## 下一步
 
-- IOS-POC-53（設定頁「清除無效檔案」與「初始化」，使用者 2026-10-05 中途加入），之後是批次 4。
+- 批次 5（安全與介面）。IOS-POC-53 已完成，見 `docs/IOS-POC-53-storage-cleanup-reset.md`。

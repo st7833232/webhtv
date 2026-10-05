@@ -627,4 +627,81 @@ struct OfflineReviewFixTests {
         #expect(!harness.folderExists(asset.id))
         #expect(await harness.transport.submitted.isEmpty)
     }
+
+    // MARK: Batch 4 — what counts as watched, and the auto-delete switch
+
+    // F1: the scrubber's right edge, +10 s near the end, the lock screen: the end of file that
+    // follows is a skip. Seeking back and playing to the end is a watch again.
+    @Test func aSeekToTheEndIsNotAWatch() {
+        var policy = OfflineCompletionPolicy()
+        _ = policy.opened("a")
+        policy.viewerSeeked(to: 2_400, duration: 2_400)
+        #expect(policy.ended(.endOfFile, position: 2_400, duration: 2_400).isEmpty)
+
+        policy.viewerSeeked(to: 600, duration: 2_400)
+        #expect(policy.ended(.endOfFile, position: 2_400, duration: 2_400) == [.markWatched("a")])
+
+        // A new episode starts clean.
+        _ = policy.opened("b")
+        #expect(!policy.seekedToEnd)
+    }
+
+    // F1: the viewer's ending reached for the next episode stays a real end, as the requirement allows.
+    @Test func theFormalAutoNextCountsEvenAfterASeekIntoTheCredits() {
+        var policy = OfflineCompletionPolicy()
+        _ = policy.opened("a")
+        policy.viewerSeeked(to: 2_399, duration: 2_400)
+        #expect(policy.ended(.formalAutoNext, position: 2_300, duration: 2_400) == [.markWatched("a")])
+    }
+
+    // F12: an end of file well before the duration is the engine giving up on segments it could
+    // not read, not the end of the episode.
+    @Test func anEndOfFileShortOfTheDurationIsNotAWatch() {
+        var policy = OfflineCompletionPolicy()
+        _ = policy.opened("a")
+        #expect(policy.ended(.endOfFile, position: 1_200, duration: 2_400).isEmpty)
+        #expect(policy.ended(.endOfFile, position: 2_398, duration: 2_400) == [.markWatched("a")])
+    }
+
+    // F23: only the engine's end and the viewer's ending are ends; a stop, an error, anything else
+    // the session reports is not.
+    @Test func onlyTheEngineEndAndTheViewersEndingAreEnds() {
+        #expect(OfflineCompletionPolicy.endReason(finishedBy: "end") == .endOfFile)
+        #expect(OfflineCompletionPolicy.endReason(finishedBy: "ending") == .formalAutoNext)
+        for other in ["stop", "error", "fallback", "replay", ""] {
+            #expect(OfflineCompletionPolicy.endReason(finishedBy: other) == nil)
+        }
+    }
+
+    // F13: turned off in 設定, nothing is auto-deleted — not an episode set to be when it was
+    // downloaded, not one already armed, not one a crash left armed.
+    @Test func theSettingTurnedOffStopsEveryAutoDelete() async throws {
+        let harness = OfflineHarness(network: Fixture.simpleNetwork())
+        let (asset, _) = await harness.startSimpleDownload(autoDelete: true)
+        #expect(await harness.completeAll(asset.id)?.state == .completed)
+        await harness.manager.playbackEnded(asset.id)
+        #expect(await harness.manager.asset(asset.id)?.pendingAutoDelete == true)
+
+        await harness.manager.setAutoDeleteEnabled(false)
+        #expect(await harness.manager.asset(asset.id)?.pendingAutoDelete == false)
+        #expect(await harness.manager.playbackReleased(asset.id) == false)
+        await harness.manager.playbackEnded(asset.id)
+        #expect(await harness.manager.asset(asset.id)?.pendingAutoDelete == false)
+        #expect(await harness.manager.asset(asset.id)?.watched == true)
+        #expect(harness.folderExists(asset.id))
+    }
+
+    @Test func aCrashArmedAutoDeleteWaitsForTheSettingAtLaunch() async throws {
+        let harness = OfflineHarness(network: Fixture.simpleNetwork())
+        let (asset, _) = await harness.startSimpleDownload(autoDelete: true)
+        #expect(await harness.completeAll(asset.id)?.state == .completed)
+        await harness.manager.playbackEnded(asset.id)
+
+        let relaunched = harness.relaunched(network: Fixture.simpleNetwork())
+        await relaunched.manager.setAutoDeleteEnabled(false)
+        await relaunched.manager.start()
+
+        #expect(relaunched.folderExists(asset.id))
+        #expect(await relaunched.manager.asset(asset.id)?.pendingAutoDelete == false)
+    }
 }

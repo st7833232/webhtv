@@ -114,6 +114,9 @@ public actor OfflineDownloadManager {
     private var attempts = [OfflineTransferTag: Int]()
     /// What the folders no record could be read for occupy, measured at launch and after a delete.
     private var unreadableUsage: Int64 = 0
+    /// IOS-POC-52 (F13): 設定 › 看完後自動刪除. Off, nothing is auto-deleted, whatever a download was
+    /// set to when it was made.
+    private var autoDeleteEnabled = true
     /// IOS-POC-52 (F10): credentialed units waiting for room in the window, and those in flight.
     private var waitingCredentialed = [String: [OfflineDownloadUnit]]()
     private var credentialedInFlight = [String: Set<Int>]()
@@ -161,6 +164,8 @@ public actor OfflineDownloadManager {
         await deps.transport.attach({ [weak self] tag, event in await self?.handle(tag, event) },
                                     settle: { [weak self] in await self?.settle() })
 
+        // IOS-POC-52 (F13): with the setting off, an auto-delete armed before is not one any more.
+        if !autoDeleteEnabled { disarmAutoDeletes() }
         // A delete or an auto-delete a crash interrupted is finished now: no player holds anything
         // this early in a launch.
         let pending = store.all().filter { $0.state == .deleting || $0.pendingAutoDelete }.map(\.id)
@@ -1322,20 +1327,38 @@ public actor OfflineDownloadManager {
     /// (`OfflineCompletionPolicy`). Records it, and arms the auto-delete when it is on. Nothing is
     /// deleted here: the player may still hold the file.
     public func playbackEnded(_ id: String) {
+        let arms = autoDeleteEnabled
         guard let asset = store.asset(id), asset.state == .completed,
               (store.update(id, now: deps.now(), {
                   $0.watched = true
-                  if $0.autoDeleteAfterWatching { $0.pendingAutoDelete = true }
+                  if $0.autoDeleteAfterWatching && arms { $0.pendingAutoDelete = true }
               })) != nil else { return }
-        OfflineLog.notice("[offline] \(OfflineLog.short(id)) watched autoDelete=\(asset.autoDeleteAfterWatching ? "armed" : "off")")
+        OfflineLog.notice("[offline] \(OfflineLog.short(id)) watched autoDelete=\(asset.autoDeleteAfterWatching && arms ? "armed" : "off")")
         publish(force: true)
     }
 
     /// The player let go of the asset. Answers whether the armed auto-delete ran.
     @discardableResult
     public func playbackReleased(_ id: String) async -> Bool {
-        guard let asset = store.asset(id), asset.pendingAutoDelete, asset.autoDeleteAfterWatching else { return false }
+        guard autoDeleteEnabled, let asset = store.asset(id), asset.pendingAutoDelete, asset.autoDeleteAfterWatching
+        else { return false }
         return await deleteNow([id], reason: "watched").deleted == 1
+    }
+
+    /// IOS-POC-52 (F13): the setting applies to every download, not only to the ones made after it
+    /// changed. Turned off, the armed auto-deletes are disarmed; turned on, each download follows
+    /// its own choice again.
+    public func setAutoDeleteEnabled(_ enabled: Bool) {
+        autoDeleteEnabled = enabled
+        guard !enabled else { return }
+        disarmAutoDeletes()
+        publish(force: true)
+    }
+
+    private func disarmAutoDeletes() {
+        for asset in store.all() where asset.pendingAutoDelete {
+            _ = store.update(asset.id, now: deps.now()) { $0.pendingAutoDelete = false }
+        }
     }
 
     public func setAutoDelete(_ enabled: Bool, for id: String) {

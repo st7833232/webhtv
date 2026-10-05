@@ -943,4 +943,42 @@ struct OfflineReviewFixTests {
         #expect(Set(listed.map(\.state)) == Set(OfflineAssetState.allCases.filter { $0 != .deleting }))
         #expect(listed.map(\.title.episodeIndex) == listed.map(\.title.episodeIndex).sorted())
     }
+
+    // F11 (IOS-POC-52-9): the wake's background task ends exactly once, whichever path comes first.
+    @Test func aWakeTaskEndsOnceWhicheverWayItFinishes() {
+        // Settling done, then iOS's expiry, then settling again.
+        let settled = Ends()
+        var expire: (@Sendable () -> Void)?
+        let first = OfflineWakeTask.begin { onExpiry in expire = onExpiry; return settled.end }
+        first.finish()
+        expire?()
+        first.finish()
+        #expect(settled.count == 1)
+
+        // iOS's expiry first; settling afterwards changes nothing.
+        let expired = Ends()
+        let second = OfflineWakeTask.begin { onExpiry in expire = onExpiry; return expired.end }
+        expire?()
+        #expect(expired.count == 1)
+        second.finish()
+        #expect(expired.count == 1)
+
+        // Expired before `begin` had kept the end: it still runs, once.
+        let early = Ends()
+        let third = OfflineWakeTask.begin { onExpiry in onExpiry(); return early.end }
+        #expect(early.count == 1, "ended as soon as begin had it, not left for a later finish")
+        third.finish()
+        #expect(early.count == 1)
+
+        // No task (`.invalid`): nothing to end, and nothing breaks.
+        OfflineWakeTask.begin { _ in nil }.finish()
+    }
+}
+
+/// Counts the ends of one wake task.
+private final class Ends: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+    var count: Int { lock.withLock { calls } }
+    var end: @Sendable () -> Void { { self.lock.withLock { self.calls += 1 } } }
 }

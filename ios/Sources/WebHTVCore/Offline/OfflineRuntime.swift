@@ -36,6 +36,40 @@ public final class OfflineLibrary {
     }
 }
 
+/// IOS-POC-52 (F11): the background task a wake's settling runs under, ended exactly once —
+/// settling done (within its 20 s) or iOS's expiry, whichever comes first. A task never ended gets
+/// the app killed (0x8badf00d). The app passes UIKit's begin and end; tests pass their own.
+public final class OfflineWakeTask: @unchecked Sendable {
+    private let lock = NSLock()
+    private var end: (@Sendable () -> Void)?
+    private var finished = false
+
+    private init() {}
+
+    /// `start` begins the task with the expiry handler it is given and answers how to end it, or
+    /// nil when there is no task (`.invalid`).
+    public static func begin(_ start: (_ onExpiry: @escaping @Sendable () -> Void) -> (@Sendable () -> Void)?) -> OfflineWakeTask {
+        let task = OfflineWakeTask()
+        let end = start { task.finish() }
+        let endNow = task.lock.withLock { () -> Bool in
+            if task.finished { return true }
+            task.end = end
+            return false
+        }
+        if endNow { end?() }
+        return task
+    }
+
+    public func finish() {
+        let end = lock.withLock { () -> (@Sendable () -> Void)? in
+            finished = true
+            defer { self.end = nil }
+            return self.end
+        }
+        end?()
+    }
+}
+
 #if canImport(Darwin)
 /// The real transport: a background `URLSession`, so iOS keeps downloading after the app leaves the
 /// screen or the phone locks, and hands the finished transfers back after a relaunch.
@@ -70,9 +104,14 @@ public final class URLSessionOfflineTransport: NSObject, OfflineTransport, URLSe
     private var backgroundCompletion: Completion?
 
     /// iOS's handler is not `Sendable`; it is called once, on the main queue, as iOS asks.
+    /// `settled` is the app's, called once the wake's settling is over (IOS-POC-52 F11).
     private final class Completion: @unchecked Sendable {
         let call: () -> Void
-        init(_ call: @escaping () -> Void) { self.call = call }
+        let settled: @Sendable () -> Void
+        init(_ call: @escaping () -> Void, settled: @escaping @Sendable () -> Void) {
+            self.call = call
+            self.settled = settled
+        }
     }
 
     public init(staging: URL) {
@@ -99,10 +138,20 @@ public final class URLSessionOfflineTransport: NSObject, OfflineTransport, URLSe
     }
 
     /// `application(_:handleEventsForBackgroundURLSession:completionHandler:)`'s handler, called
-    /// once the session has delivered everything it held.
-    public func setBackgroundCompletion(_ handler: @escaping () -> Void) {
-        let completion = Completion(handler)
+    /// once the session has delivered everything it held and those events are handled;
+    /// `afterSettle` once what they started has had its chance to finish.
+    public func setBackgroundCompletion(_ handler: @escaping () -> Void, afterSettle: @escaping @Sendable () -> Void) {
+        let completion = Completion(handler, settled: afterSettle)
         lock.withLock { backgroundCompletion = completion }
+    }
+
+    /// IOS-POC-52 (F11): the end of a wake, in Apple's order. iOS hears at once that the delivered
+    /// events are handled — it is told nothing about the next download's preparing, which `settle`
+    /// then waits for under the app's background task, and `settled` lets that task go.
+    static func endWake(tellSystem: () -> Void, settle: () async -> Void, settled: () -> Void) async {
+        tellSystem()
+        await settle()
+        settled()
     }
 
     public func attach(_ sink: @escaping @Sendable (OfflineTransferTag, OfflineTransferEvent) async -> Void,
@@ -116,10 +165,9 @@ public final class URLSessionOfflineTransport: NSObject, OfflineTransport, URLSe
                     case .event(let tag, let event):
                         await sink(tag, event)
                     case .drained(let completion):
-                        // IOS-POC-52 (F11): every event before this one has been handled, and what
-                        // they started has had its chance to finish, before iOS hears we are done.
-                        await settle()
-                        DispatchQueue.main.async { completion.call() }
+                        // Every event before this one has been handled.
+                        await Self.endWake(tellSystem: { DispatchQueue.main.async { completion.call() } },
+                                           settle: settle, settled: completion.settled)
                     }
                 }
             }

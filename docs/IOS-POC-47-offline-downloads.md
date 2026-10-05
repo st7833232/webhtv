@@ -273,7 +273,7 @@ Application Support/OfflineMedia/<asset-id>/
 | F8 | 中 | 重寫播放清單時 KEY 移到 MAP 之前，未加密的 init 被當成加密 | 修：MAP 依它宣告時的 KEY 輸出 | `445ee765` | `aMapDeclaredBeforeTheKeyStaysClear` 等 3 項 |
 | F9 | 中 | 重新解析後重試，保留不同編碼的舊檔 | 修：比對每段秒數與遠端檔名，不同就重新下載 | `445ee765` | `aReResolveWithOtherDurationsStartsTheFilesOver` |
 | F10 | 中 | 需要憑證的傳輸全部排進預設 session，排隊中逾時就讓整集失敗 | 修：一次最多 6 個；連線類錯誤另有 10 次額度；回到前景重送 | `73eb8149` | `credentialedUnitsAreSentThroughAWindow`、`connectivityFailuresHaveTheirOwnBudget` |
-| F11 | 中 | 背景 session 的完成通知太早，App 可能在處理途中被暫停 | 部分：等事件處理完（含最多 20 秒的準備）才通知系統。未做：另外向 UIApplication 申請背景執行時間（App 端，雲端無法編譯驗證） | `73eb8149` | `aStagedBodyIsTakenUpAtLaunch`、`theTransportWaitsForPreparingToSettle` |
+| F11 | 中 | 背景 session 的完成通知太早，App 可能在處理途中被暫停 | 修：事件處理完立刻通知系統，下一集的準備（最多 20 秒）改在 `offline-wake` background task 下進行，task 只結束一次（IOS-POC-52-9；原本的部分修正是 `73eb8149`） | `73eb8149`、IOS-POC-52-9 | `aStagedBodyIsTakenUpAtLaunch`、`theTransportWaitsForPreparingToSettle`、`aWakeTaskEndsOnceWhicheverWayItFinishes`、`aWakeTellsTheSystemBeforeItSettles`；真機未驗證 |
 | F12 | 中 | App 暫停後本機伺服器沒有重開，暫停中的離線 HLS 無法繼續 | 部分：恢復播放前重開伺服器（優先原連接埠）；離片長還有 5 秒以上的檔尾不算看完。未做：連接埠被占用而換埠時重建播放項目（風險較高） | `183334aa` | `anEndOfFileShortOfTheDurationIsNotAWatch`；伺服器重開需真機驗證 |
 | F13 | 中 | 關閉「看完後自動刪除」不影響既有下載 | 修：設定關閉時取消所有排定的自動刪除，重開時亦同 | `183334aa` | `theSettingTurnedOffStopsEveryAutoDelete`、`aCrashArmedAutoDeleteWaitsForTheSettingAtLaunch` |
 | F14 | 中 | 單一檔案下載途中不檢查空間 | 修：進度回報時檢查剩餘空間 | `73eb8149` | `aSingleFileStopsWhenTheRestNoLongerFits` |
@@ -284,21 +284,21 @@ Application Support/OfflineMedia/<asset-id>/
 | F19 | 中 | 失效的續傳資料一直被重送 | 修：失敗且沒有新續傳資料時刪除舊的 | `73eb8149` | `resumeDataThatFailedIsNotSentAgain` |
 | F20 | 中 | 重試時抓不到外掛字幕就把它從下載中拿掉 | 修：已存的字幕保留，不重抓 | `445ee765` | `aSavedSubtitleSurvivesARetryThatCannotFetchItAgain` |
 | F21 | 低 | 選「最省空間」但沒有 720p 以下版本時默默下載 1080p，卻記成最省空間 | 修（依使用者決定照常下載 1080p）：表單告知改以「智慧 1080p」下載，紀錄寫實際採用的模式 | `743a1d42` | `downloadAllInSaverModeWithoutA720pVersionRecordsTheModeItUsed`；表單無單元測試 |
-| F22 | 低（安全） | 離線外掛字幕轉址時，Cookie／Authorization 被送往其他主機 | 修：字幕改用會在跨 origin 轉址時移除憑證的 session | `743a1d42` | `offlineSubtitleRedirectsKeepTheSourceCredentialsOnItsOrigin`；App 接線只在 Darwin 編譯 |
+| F22 | 低（安全） | 離線外掛字幕轉址時，Cookie／Authorization 被送往其他主機 | 修：字幕改用會在跨 origin 轉址時移除憑證的 session | `743a1d42` | `offlineSubtitleRedirectsKeepTheSourceCredentialsOnItsOrigin`；IOS-POC-52-7 在 macOS 以本機伺服器實際轉址驗證 manager 用的 fetcher（`OfflineDarwinTests`） |
 | F23 | 低 | 「真正結束才算看完」的測試不會失敗 | 修：判斷移到 Core 的 `OfflineCompletionPolicy` 並測它 | `183334aa` | `onlyTheEngineEndAndTheViewersEndingAreEnds` |
 | F24 | 低 | SDR 優先、24／30 fps 優先的選片測試因錯誤理由通過 | 修：改用被偏好版本較貴、編碼排序較後的組合，三種模式都檢查 | `8b5ba5e4` | 突變（拿掉 SDR 規則、幀率規則只在要求時生效）會失敗 |
 | F25 | 低 | 當機復原與安全網沒有能失敗的測試 | 修：補 3 項測試 | `8b5ba5e4` | `launchFinishesADeleteACrashInterrupted` 等 3 項；3 個突變會失敗 |
 | F26 | 低 | 暫停後，過時的解析失敗蓋掉新的狀態 | 修：解析回來後檢查 generation | `445ee765` | `aLateResolverFailureDoesNotOverrideAPause` |
 | F27 | 低 | 只有第一份播放清單接受 BOM | 修：所有播放清單都接受 | `445ee765` | `everyPlaylistMayStartWithAByteOrderMark` |
 | F28 | 低 | 智慧與高畫質模式選到只有 AV1／VP9 的 1080p，AVPlayer 無法播放 | 修：有其他編碼時不選 AV1／VP9 | `445ee765` | `av1AndVP9AreChosenOnlyWhenNothingElseFits` |
-| F29 | 低 | 取消只取消當下的任務快照，送出途中的刪除或暫停留下傳輸 | 修：傳輸層以取消計數保護送出 | `73eb8149` | 無 Linux 單元測試：`URLSessionOfflineTransport` 只在 Darwin 編譯；manager 端由 F3 的測試涵蓋 |
+| F29 | 低 | 取消只取消當下的任務快照，送出途中的刪除或暫停留下傳輸 | 修：傳輸層以取消計數保護送出 | `73eb8149` | 無單元測試；manager 端由 F3 的測試涵蓋。IOS-POC-52-7 實測發現：未 resume 的 task 不會出現在 `allTasks`，傳輸層有小空窗，實際由 F3 補住（修正待決定，見 IOS-POC-52 文件 3.1） |
 | F30 | 低 | 「離線內容」總量在下載中或失敗後不更新 | 修：即時計算 | `73eb8149` | `usageCountsWhatUnfinishedDownloadsHold` |
 | F31 | 低 | 下載中的項目換區時，刪除確認視窗被關掉 | 修：確認視窗改由列表持有 | `743a1d42` | 純 SwiftUI，無單元測試；需真機驗證 |
 | F32 | 低 | App 在背景被喚醒、設定尚未載入時，需要重新解析的下載失敗 | 修：設定載入前留在排隊中；移除 IOS-POC-49 的 30 秒等待 | `743a1d42` | `aDownloadThatMustResolveWaitsQueuedUntilTheConfigurationIsLoaded` |
 | F33 | 低 | 每集的下載選單點擊範圍只有 26×26 pt | 不修：`c361c637`（IOS-UI-A）已改為與集數按鈕並排的獨立 44×44 pt 元件 | — | 閱讀目前程式碼確認 |
 | F34 | 低 | 啟動時沒有清掉 `playlists/`、`partial/` 裡的寫入暫存檔 | 修 | `73eb8149` | `launchRemovesInterruptedWritesInSubfolders` |
 | F35 | 低 | 單一檔案與沒有 master 的播放清單不受 1080p 上限，表單文字不正確 | 部分：表單改為說明「只有一種版本、無法確認解析度、可能超過 1080p」。未做：探測實際解析度並拒絕超過 1080p、在紀錄中保存解析度與編碼（需要媒體探測，屬新功能） | `743a1d42` | `aLoneUndeclaredVersionIsToldApartFromAPickedOne` |
-| F36 | 低 | probe 不會整個讀進記憶體的測試不會失敗 | 修：測試檢查 Range 與讀取上限 | `8b5ba5e4` | 2 個突變會失敗；`OfflineHTTP.fetcher` 的串流截斷只在 Darwin，未測 |
+| F36 | 低 | probe 不會整個讀進記憶體的測試不會失敗 | 修：測試檢查 Range 與讀取上限 | `8b5ba5e4` | 2 個突變會失敗；`OfflineHTTP.fetcher` 的串流截斷只在 Darwin，未測；IOS-POC-52-7 補上 macOS 測試 `theFetcherStopsReadingAtTheLimit` |
 | F37 | 低 | 等待用的輔助函式逾時不會失敗，取值不足時讓整個測試程序崩潰 | 修：逾時在呼叫位置失敗；`startSimpleDownload` 改為 throws | `8b5ba5e4` | 突變（resume 不重新排程）會失敗 |
 | F38 | 低 | 行動網路預設值與傳遞、刪除記錄的範圍沒有測試 | 修：補 2 項測試 | `8b5ba5e4` | `cellularIsOffUntilAllowedAndReachesEveryTransfer`、`aTitlesDownloadsIncludeEveryStateButDeleting`；3 個突變會失敗 |
 | F39 | 低 | 準備中刪除時，外掛字幕把資料夾建回來 | 修：字幕完成時若紀錄已不在，刪掉重建的資料夾 | `73eb8149` | `deletingWhilePreparingLeavesNoFolder` |
@@ -314,4 +314,5 @@ Application Support/OfflineMedia/<asset-id>/
 
 - 2026-10-04：實作與驗證完成（第 11 節），commit `4b7a00b6`；隨 `0.1.57 (58)` 發布（IOS-POC-11 第五十八次發布，tag `ios-v0.1.57-b58` → `f8dcc555`）。
 - 2026-10-05：審查確認的 40 項全部處理完畢（第 15 節）：修 36 項、部分 3 項（F11、F12、F35）、不修 1 項（F33，已由 IOS-UI-A 解決）。commit `44d9ee59`、`445ee765`、`73eb8149`、`183334aa`、`743a1d42`、`8b5ba5e4`。
+- 2026-10-05 後續：IOS-POC-52-7 在 macOS 補驗證並新增 F22、F36 的 Darwin 測試；IOS-POC-52-9 補完 F11。目前是修 37 項、部分 2 項（F12、F35，方案在 `docs/IOS-POC-52-offline-review-fixes.md` 第 4 節，待核准）、不修 1 項。
 - 下一步：使用者在真機驗證第 12 節第 1 項與第 15.3 節第 1 項。

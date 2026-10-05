@@ -112,8 +112,9 @@ public struct OfflineTransferFailure: Sendable, Equatable {
 /// Moves bytes. The real one is a background `URLSession` (`URLSessionOfflineTransport`); tests use
 /// a fake. It knows nothing about assets beyond the tag.
 public protocol OfflineTransport: Sendable {
-    /// Where finished transfers are reported. `settle` is awaited before the transport tells iOS a
-    /// background wake is done (IOS-POC-52 F11), so what those events started can finish first.
+    /// Where finished transfers are reported. After a background wake's events are handled and iOS
+    /// is told so, `settle` is awaited under the app's background task (IOS-POC-52 F11), so what
+    /// those events started can finish.
     func attach(_ sink: @escaping @Sendable (OfflineTransferTag, OfflineTransferEvent) async -> Void,
                 settle: @escaping @Sendable () async -> Void) async
     func submit(_ requests: [OfflineTransferRequest]) async

@@ -236,7 +236,7 @@ public actor OfflineDownloadManager {
     }
 
     /// IOS-POC-52 (F11): what a background wake started — the next download's preparing — gets up
-    /// to 20 s to finish before the transport tells iOS the wake is done.
+    /// to 20 s to finish, under the app's background task, after iOS has heard the events are handled.
     func settle() async {
         let deadline = ContinuousClock.now + .seconds(20)
         while store.all().contains(where: { $0.state == .preparing }), ContinuousClock.now < deadline {

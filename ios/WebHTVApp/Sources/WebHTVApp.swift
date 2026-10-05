@@ -3771,7 +3771,7 @@ private struct StorageMaintenanceView: View {
 }
 
 /// iOS relaunches the app for the download session's events: creating the transport reconnects the
-/// session, and the handler tells iOS when everything it held has been delivered.
+/// session, and the handler tells iOS when everything it held has been delivered and handled.
 final class OfflineAppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
                      completionHandler: @escaping () -> Void) {
@@ -3779,7 +3779,21 @@ final class OfflineAppDelegate: NSObject, UIApplicationDelegate {
             completionHandler()
             return
         }
-        OfflineDownloads.transport.setBackgroundCompletion(completionHandler)
+        // IOS-POC-52 (F11): what the wake's events start — the next download's preparing — settles
+        // under a background task, begun as early as the wake allows and ended exactly once.
+        let wake = OfflineWakeTask.begin { onExpiry in
+            let id = application.beginBackgroundTask(withName: "offline-wake") { onExpiry() }
+            guard id != .invalid else { return nil }
+            return {
+                // The expiry handler runs on the main thread and must end the task before it returns.
+                if Thread.isMainThread {
+                    MainActor.assumeIsolated { application.endBackgroundTask(id) }
+                } else {
+                    DispatchQueue.main.async { application.endBackgroundTask(id) }
+                }
+            }
+        }
+        OfflineDownloads.transport.setBackgroundCompletion(completionHandler, afterSettle: { wake.finish() })
     }
 }
 

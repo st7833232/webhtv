@@ -49,6 +49,16 @@ struct OfflineDarwinTests {
         #expect(exact.data.count == OfflineHTTP.probeLimit)
         #expect(!exact.truncated)
     }
+
+    /// F11 (IOS-POC-52-9): iOS hears the wake's events are handled before the next download's
+    /// preparing is waited for, and the app's background task goes only after that.
+    @Test func aWakeTellsTheSystemBeforeItSettles() async {
+        var order = [String]()
+        await URLSessionOfflineTransport.endWake(tellSystem: { order.append("system") },
+                                                 settle: { order.append("settle") },
+                                                 settled: { order.append("settled") })
+        #expect(order == ["system", "settle", "settled"])
+    }
 }
 
 /// HTTP/1.1 on 127.0.0.1 for the tests above. `/redirect/<host>` answers 302 to

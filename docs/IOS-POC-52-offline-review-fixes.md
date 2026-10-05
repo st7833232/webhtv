@@ -398,6 +398,35 @@
 
 **Rollback**：revert 該 commit 就回到目前「handler 等 settle」的行為；沒有資料格式變更。
 
+#### 4.1.1 實作紀錄（IOS-POC-52-9，2026-10-05，使用者核准「實作 F11」）
+
+- Core `OfflineRuntime.swift`：
+  - 新增 `OfflineWakeTask`（跨平台）：由 App 傳入 UIKit 的 begin／end，`finish()` 只會結束一次。expiry 若在 `begin` 保存 end 之前就發生，end 會在 `begin` 時立刻執行。
+  - `URLSessionOfflineTransport.Completion` 加上 `settled`；`setBackgroundCompletion(_:afterSettle:)`。
+  - 新增 `static func endWake(tellSystem:settle:settled:)`：`.drained` 時先在主執行緒呼叫系統的 handler，再 `await settle()`，最後呼叫 `settled`。
+- App `OfflineAppDelegate`：`handleEventsForBackgroundURLSession` 一開始就 `beginBackgroundTask(withName: "offline-wake")`（`.invalid` 時不結束任何東西），把 `wake.finish()` 當作 `afterSettle` 傳入。
+  - expiry handler 在主執行緒上同步 `endBackgroundTask`；從其他執行緒結束時改 dispatch 到主執行緒。
+  - 沒有使用 `backgroundTimeRemaining`。
+- 只改註解：`OfflineTransport.attach` 與 `OfflineDownloadManager.settle` 的說明改成新的順序。
+- 測試：
+  - `aWakeTaskEndsOnceWhicheverWayItFinishes`（跨平台）：settle 先、expiry 先、begin 前就 expiry、`.invalid` 四種情況，end 都只執行一次；
+  - `aWakeTellsTheSystemBeforeItSettles`（Darwin）：順序是 system → settle → settled。
+- 驗證（本機 macOS 27、Xcode 27）：
+  - `swift test --filter Offline` 133／133；
+  - 加上 Favorites 與 StorageMaintenance 的 208 個測試，只有之前就知道的 2 個 `FavoriteAppWiringTests` 失敗；
+  - Release iphoneos 不簽章建置 **BUILD SUCCEEDED**，warning 與修改前相同。
+- 突變 3／3 被抓到：
+  - 先 settle 再通知系統；
+  - `finish()` 不清掉 end，結果結束兩次；
+  - `begin` 忽略先到的 expiry。
+
+  第三個突變第一次沒被抓到：測試後面又呼叫了 `finish()`，補跑了那次結束。改成在 `begin` 之後立刻檢查後就抓到了。
+- Ponytail：一項 yagni（`afterSettle` 的預設值 `= {}`，唯一的呼叫端一定會傳），已移除，之後 Offline 測試 133／133。其餘保留：`endWake` 是測試順序唯一的接縫；先到的 expiry 的處理是防止 0x8badf00d 的錯誤處理。
+- 未驗證（需真機）：
+  - 鎖定螢幕下載多集時，Console 看到 `offline-wake` 的 begin／end 成對出現，沒有 0x8badf00d；
+  - 背景喚醒的實際時間預算；
+  - 下一集在背景送出後被頻率限制延後的程度。
+
 ### 4.2 F12：本機伺服器換 port 時重建已載入的離線 HLS
 
 **問題**：App 暫停後，本機伺服器如果換了 port，已載入的播放項目仍然指向舊 port，所有 segment 都讀不到，要關掉再重開那一集。
@@ -523,7 +552,8 @@
 ## 下一步
 
 - 未決、等使用者決定：F11（背景執行時間）、F12（換埠時重建播放項目）、F35（探測實際解析度）只做了一部分，未做的部分是否另開任務（同 `docs/current-task-state.md` 最上方交接）。
-- 未決、等使用者核准（IOS-POC-52-8，見第 4 節）：F11（handler 提前呼叫，settle 改由 background task 保護）、F12（沿用 reload 路徑，換 port 時換網址重載，優先度低）、F35（AVFoundation 只探測 MP4／MOV 與 fMP4 init segment；另有旋轉、未知時政策、header 三個決定）。
+- F11 已於 IOS-POC-52-9 實作（見 4.1.1），尚未發布。
+- 未決、等使用者核准（IOS-POC-52-8，見第 4 節）：F12（沿用 reload 路徑，換 port 時換網址重載，優先度低）、F35（AVFoundation 只探測 MP4／MOV 與 fMP4 init segment；另有旋轉、未知時政策、header 三個決定）。
 - 未決、等使用者決定（IOS-POC-52-7 發現，見 3.1）：F29 傳輸層的空窗（把 `resume()` 移進鎖內）；`FavoriteAppWiringTests` 2 個過時的期望值；`MediaSnifferTests` 3 個穩定失敗（IOS-POC-45I）。
 
 - 40 項清單、處置、commit 與驗證已寫進 `docs/IOS-POC-47-offline-downloads.md` 第 15 節，`docs/current-task-state.md` 與 `docs/IOS-POC-49-offline-cellular-download-all.md` 已同步更新。

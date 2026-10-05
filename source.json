@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.65",
+          "date": "2026-10-05",
+          "localizedDescription": "WebHTV 0.1.65 (66)（下載容量預估修正；真機未驗收）\n\n修正\n- 下載前的預估容量改用實際片段大小推算：開啟下載畫面時會讀取幾個片段的大小（不下載片段本身），不再只依片源宣告的位元率。片源宣告偏低時，以前可能顯示「最多約 281 MB」實際卻下載 700 多 MB。\n- 下載中的「已下載 X / 約 Y」會在下載一成後改用已下載片段推算的大小。\n- 開始下載前的空間檢查與多工下載的空間預留也改用這個數字。\n- 只有媒體播放清單、原本顯示「無法預估」的片源，現在也有預估。\n- 讀不到片段大小時仍用片源宣告值，下載畫面會註明「依來源宣告的位元率，可能與實際不同」。\n\n已知限制\n- 尚未在任何真機驗證。\n- 預估仍是推算值，片段大小不均時可能有誤差；下載一成後會依實際下載的片段修正。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.65-b66/WebHTV-0.1.65-66.ipa",
+          "size": 35107067,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.64",
           "date": "2026-10-04",
           "localizedDescription": "WebHTV 0.1.64 (65)：首頁子分類與類型、地區、年代、排序篩選改為預設收合，可手動展開／收合；切換分類重新收合，已選條件在收合時保留。維持既有來源首頁、分類、搜尋與播放行為。展開操作仍需 SideStore 真機驗收。",

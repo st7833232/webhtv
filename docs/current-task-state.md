@@ -8,7 +8,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 - **最新發布：WebHTV `0.1.71 (72)`**（2026-10-06 15:42 CST）＝`0.1.70 (71)`＋IOS-POC-56（設定檔全域解析接口）。
 - 證據：run [`37430560852`](https://github.com/st7833232/webhtv/actions/runs/37430560852) 全部 success；tag `ios-v0.1.71-b72` → `ace72419`；`source.json` `63503527` 第一筆 `0.1.71`、size 35,328,221 與 Release 相同；IPA 已下載核對（SHA-256 `a145e7d3…`、0.1.71／72、24 支腳本相同、主程式含新解析程式）。完整紀錄：`docs/IOS-POC-11-sidestore-release.md`「第七十二次發布」。
-- **真機未驗收**。項目見 `docs/IOS-POC-56-global-parse.md` 第 9 節。
+- **真機驗收：使用者 2026-10-06 回報完成，沒問題**（項目見 `docs/IOS-POC-56-global-parse.md` 第 9 節）。
 - 相容包 `spider-pack/`（`2026-10-06.3`）未發布，要不要發布由使用者決定。
 
 ## Previous handoff — 2026-10-06：IOS-POC-56 設定檔全域解析接口（已隨 0.1.71 (72) 發布）

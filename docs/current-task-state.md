@@ -4,7 +4,36 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-06：IOS-POC-55 電腦端分析 JAR，自動重用相容的內建爬蟲（先讀這一節）
+## Current handoff — 2026-10-06：發布 0.1.69 (70)（六個新來源＋JAR 自動辨識第一版；先讀這一節）
+
+**最新發布：WebHTV `0.1.69 (70)`**（2026-10-06 12:05 CST）。內容＝`0.1.68 (69)`＋IOS-POC-44D/44E/44F 的六個新內建來源（`Feiyu`、`MiaoWu`、`AppYQK`、`AppYsV2` `.vod`、`GuaziTY`、`MoDu`）＋IOS-POC-55 的 JAR 自動辨識第一版。完整紀錄：`docs/IOS-POC-11-sidestore-release.md`「第七十次發布」。
+- 證據：
+  - 版號 commit `98384c2a`。run [`37411484416`](https://github.com/st7833232/webhtv/actions/runs/37411484416) 全部 steps success。
+  - tag `ios-v0.1.69-b70` → `98384c2a`；`source.json` commit `ef554012`，第一筆 `0.1.69`，size 35,261,144，與 Release asset 相同。
+  - IPA 已下載核對：SHA-256 `5f3309f5…`；Info.plist 0.1.69／70；22 支爬蟲腳本與原始碼逐位元組相同。
+- 自動辨識：目前只支援程式特徵完全相同的改名副本；真實設定 0 筆新對應，所以這版的來源清單不會因此改變。GitLab 相容包**沒有**發布，來源設定也沒改。
+- 驗證：
+  - 本機 Release device build 成功。
+  - 針對性 `swift test` 337 個，1 個失敗；完整 1019 個，2 個失敗。兩個失敗在 0.1.68 的 commit 上一樣失敗：寫死站數 167 vs 今天 169；type-4 站今天回 embed 頁。都是既有斷言或外部變動，**不是全數通過**。
+  - Simulator（iPhone 17 Pro）：新來源 `奴娜` 首頁、分類、篩選、詳情、直接 m3u8 播放都正常。同一部片的 `bsky` 線路因為 iOS 沒有全域解析接口而無法播放：這是既有缺口，已列為已知限制。
+- **真機未驗收**。SideStore 驗收清單：
+  1. SideStore 重新整理 source，看到 `0.1.69 (70)` 並更新。設定、收藏、觀看記錄、已下載內容都要還在。
+  2. 六個新來源各開首頁、分類、詳情並播一集：
+     - 飛魚：部分線路的媒體主機憑證無效，Apple 平台播不了。
+     - 喵呜动漫。
+     - 一起影视：只有标清能播。
+     - 奴娜：選 `dyttm3u8`／`lzm3u8` 等直接線路；`bsky` 線路會顯示「沒有可播放的網址」。
+     - 瓜子体育：要在有比賽時；未開賽的場次 404 是正常的。
+     - 魔都动漫：`modujx10`／`12` 的集數播不了。
+  3. 既有來源回歸：原生 CMS、既有 spider（例如 金牌、XBPQ 規則站）、Python 來源各一個，列表與播放正常。
+  4. 收藏：收藏一部新來源的片，重開 App 後還在；舊收藏不變。
+  5. 觀看記錄：新來源播放後出現在記錄，續播位置正確。
+  6. 下載：新來源的直接 m3u8 線路下載一集，離線可播。
+  7. 播放器：AVPlayer 正常、切 MPV、PiP。
+  8. 自動辨識：沒有實際對應可以測。設定頁的相容包狀態沿用既有行為：GitLab 沒有 `spiders/manifest.json`，會顯示內建腳本或更新失敗的訊息，這不是新問題。
+- 下一步：等使用者的真機回報。`spider-pack/` 要不要發布到 GitLab，由使用者另外決定。
+
+## Previous handoff — 2026-10-06：IOS-POC-55 電腦端分析 JAR，自動重用相容的內建爬蟲
 
 **IOS-POC-55**（2026-10-06，基準 `d6823b53`）：使用者要求電腦端分析 JAR，讓名稱不同、協定相同的 `csp_*` 類別自動用既有 adapter，不新增 adapter；只交付工具、App 整合與可驗證的相容包，**發布另行處理**。完整紀錄：`docs/IOS-POC-55-jar-compat-reuse.md`。
 - 工具：`scripts/audit_spider_jars.py` 新增 `baseline`／`compat`（舊的 `audit` 不變）。會下載設定實際引用的 JAR、記錄實際 SHA-256，忽略改名、但保留字面值與呼叫內容地比對 19 個 adapter 的原版基準（`scripts/spider_baselines.json`）。只有完全相同、且該站 live golden 通過，才寫進 `mappings.json`；其餘列為待分析並附原因。`spider_pack.py build --mappings` 打包、`verify` 可檢查本機目錄。

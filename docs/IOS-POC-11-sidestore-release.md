@@ -3,7 +3,7 @@
 
 ## Current release — 2026-10-06：0.1.69 (70) / IOS-POC-44D～44F＋IOS-POC-55
 
-**目前最新版是 `0.1.69 (70)`**（六個新內建來源＋JAR 自動辨識第一版）。完整紀錄在下方「第七十次發布」：run `37411484416` success，tag `ios-v0.1.69-b70` → `98384c2a`，`source.json` `ef554012`，`WebHTV-0.1.69-70.ipa` 35,261,144 bytes。真機未驗收。
+**目前最新版是 `0.1.69 (70)`**（六個新內建來源＋JAR 自動辨識第一版）。完整紀錄在下方「第七十次發布」：run `37411484416` success，tag `ios-v0.1.69-b70` → `98384c2a`，`source.json` `ef554012`，`WebHTV-0.1.69-70.ipa` 35,261,144 bytes。**使用者 2026-10-06 回報真機驗收完成。**
 
 前一版 `0.1.68 (69)`（爬蟲共用工具第一批，`js.host` 1.2／host API 2）見「第六十九次發布」。再前一版 `0.1.67 (68)`（F11、F29、F12、F35、網頁嗅探 `src` hook）見「第六十八次發布」；使用者回報該版的 UI、下載、播放與收藏已在真機驗收完成（2026-10-05）。
 
@@ -975,7 +975,7 @@ WebHTV 0.1.31 (32)（未經真機驗收）
   - Simulator（iPhone 17 Pro，Debug）：用使用者的遠端設定啟動，來源選單列出新來源；新來源 `AppYsV2` 首頁、分類、子分類與篩選、詳情、線路列表正常，直接 m3u8 線路播放畫面持續前進；原生 type-4 與既有 Python 來源列表正常。同一部片前兩條線路回「這一集沒有可播放的網址」：該線路給的是不透明 ID、`parse` 為空，原版回 `jx:1` 交給設定的全域解析接口，iOS 整個 App 都沒有這個能力（既有缺口，不是回歸），release notes 已列為已知限制。
   - 沒有跑測試 CI；本次 run 的 device Release build（CI Xcode）成功。
   - Ponytail：這次的程式變更只有版號 4 行（`project.pbxproj`），Lean already；功能程式的 Ponytail 已在 IOS-POC-44D～44F、IOS-POC-55 各自記錄。
-- **真機尚未驗收**（SideStore 驗收清單見 `docs/current-task-state.md` 最上方一節）。
+- ~~真機尚未驗收~~ **使用者 2026-10-06 回報真機驗收完成**（驗收清單是當時 `docs/current-task-state.md` 最上方一節列的八項），不再列為待辦。
 
 ### Release notes（實際送出的內容）
 

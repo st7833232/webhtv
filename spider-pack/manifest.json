@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-06.1",
+  "version": "2026-10-06.2",
   "minHostApi": 2,
   "scripts": [
     {
@@ -17,6 +17,15 @@
       "originJar": "river-fman.jar",
       "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
       "notes": "xiaosa-0807 variant parses through /app/vodParser"
+    },
+    {
+      "class": "AppDrama",
+      "path": "./scripts/AppDrama.js",
+      "sha256": "3b9f10feba7ff800a7c261f2d88e2b86684e425e629e9820b7d41229ed957015",
+      "minHostApi": 3,
+      "originJar": "river-fman.jar",
+      "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
+      "notes": "protobuf over binary HTTP; RSA PKCS#1 public-key signature"
     },
     {
       "class": "AppGet",
@@ -123,6 +132,15 @@
       "sha256": "404231482d9ce760b9371e2e9dad167555059e6e62da57311fad87ad313dd606",
       "originJar": "xiaosa-0807.jar",
       "jarSha256": "90f70a10123456a97e4d9dac8270bf9e533259c3e157a8f6b67cf1dadc3e41fc"
+    },
+    {
+      "class": "Uvod",
+      "path": "./scripts/Uvod.js",
+      "sha256": "cdaa16d32a1e8975d98efe0cf2ce18aa7d2140359eccd3db282d0e63e5110d9d",
+      "minHostApi": 3,
+      "originJar": "custom_spider.jar",
+      "jarSha256": "fd624e376b63c9a942ab27f31caf5a8163ae633490f3c47c30eb5935bb096b02",
+      "notes": "RSA PKCS#1 private-key decryption of every reply"
     },
     {
       "class": "WeiguanDJ",

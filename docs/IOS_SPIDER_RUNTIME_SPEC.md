@@ -102,7 +102,8 @@ may replace or add spider scripts at runtime. Resolution order is **verified pac
 not supported**, `host.js` and the two bridges (`drpy-bridge.js`, `js-spider.js`) are deliberately
 not packable because they are the SDK `minHostApi` describes, and a pack can never add a native
 primitive, touch entitlements, ATS or signing, or cross the `Spider` ABI.
-`SpiderPackStore.hostApiVersion` (currently **2**, since IOS-POC-54) is the gate, and older apps refuse a script that
+`SpiderPackStore.hostApiVersion` (currently **3**, since IOS-POC-44G: `host.rsaEncrypt`/`rsaDecrypt`, `host.bytes`,
+`aesEncrypt`'s hex output and `req`'s `bodyBase64`/`responseType`; 2 since IOS-POC-54) is the gate, and older apps refuse a script that
 needs a newer host instead of failing mid-call. **Since IOS-POC-12 it is not bumped by hand**: it is
 `RuntimeABI.Surface.jsHost.version.minor` (`ios/Sources/WebHTVCore/RuntimeABI.swift`). When
 `CatVodHost` gains a primitive, raise `js.host`'s minor there, add the new row to the `frozen`

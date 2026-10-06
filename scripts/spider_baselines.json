@@ -589,6 +589,344 @@
    ],
    "originJar": "river-fman.jar"
   },
+  "AppDrama": {
+   "category": "http-crypto",
+   "chain": [
+    "AppDrama"
+   ],
+   "class": "AppDrama",
+   "fingerprint": "b62ad8d04921ea9c",
+   "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
+   "members": [
+    {
+     "deep": "e1b42bfb4e6719ec",
+     "label": "field",
+     "literals": [],
+     "shallow": "e1b42bfb4e6719ec"
+    },
+    {
+     "deep": "e1b42bfb4e6719ec",
+     "label": "field",
+     "literals": [],
+     "shallow": "e1b42bfb4e6719ec"
+    },
+    {
+     "deep": "e1b42bfb4e6719ec",
+     "label": "field",
+     "literals": [],
+     "shallow": "e1b42bfb4e6719ec"
+    },
+    {
+     "deep": "e1b42bfb4e6719ec",
+     "label": "field",
+     "literals": [],
+     "shallow": "e1b42bfb4e6719ec"
+    },
+    {
+     "deep": "e1b42bfb4e6719ec",
+     "label": "field",
+     "literals": [],
+     "shallow": "e1b42bfb4e6719ec"
+    },
+    {
+     "deep": "29a0c1007a5c4eda",
+     "label": "field",
+     "literals": [],
+     "shallow": "29a0c1007a5c4eda"
+    },
+    {
+     "deep": "1e363dffb2de09bd",
+     "label": "field",
+     "literals": [],
+     "shallow": "1e363dffb2de09bd"
+    },
+    {
+     "deep": "540e6eb02dc9af2f",
+     "label": "field",
+     "literals": [],
+     "shallow": "540e6eb02dc9af2f"
+    },
+    {
+     "deep": "8f8474a9dacf8982",
+     "label": "field",
+     "literals": [],
+     "shallow": "8f8474a9dacf8982"
+    },
+    {
+     "deep": "31cd713170c9d6b2",
+     "label": "method",
+     "literals": [
+      "\"AES\"",
+      "\"AES/ECB/PKCS7Padding\""
+     ],
+     "shallow": "c40af4c6953add55"
+    },
+    {
+     "deep": "2793134ede0643b1",
+     "label": "method",
+     "literals": [
+      "\"%02x\"",
+      "\"/PKCS7Padding\"",
+      "\"AES\"",
+      "\"AES/\"",
+      "\"CBC\""
+     ],
+     "shallow": "ace66a215152779e"
+    },
+    {
+     "deep": "4c8f4af6aded70e5",
+     "label": "method",
+     "literals": [
+      "\"1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\"",
+      "\"=\""
+     ],
+     "shallow": "c8b8ea34acec8bd0"
+    },
+    {
+     "deep": "f5c2a32f8c64d2ee",
+     "label": "method",
+     "literals": [],
+     "shallow": "94246bf365a2113c"
+    },
+    {
+     "deep": "56214fc6c597b730",
+     "label": "method",
+     "literals": [
+      "\"RSA\"",
+      "\"RSA/ECB/PKCS1Padding\""
+     ],
+     "shallow": "454484743147828d"
+    },
+    {
+     "deep": "9d55f6a741b73220",
+     "label": "method",
+     "literals": [
+      "\"3019\"",
+      "\"Accept\"",
+      "\"CBC\"",
+      "\"Content-Type\"",
+      "\"ECB\"",
+      "\"User-Agent\"",
+      "\"application/x-protobuf\"",
+      "\"okhttp/3.12.1\"",
+      "\"paramsData\"",
+      "\"publicParams\"",
+      "\"random_str\"",
+      "\"sig\"",
+      "\"sig2\"",
+      "\"sig3\"",
+      "\"timestamp\"",
+      "\"vApp\""
+     ],
+     "shallow": "61e0767bcea98645"
+    },
+    {
+     "deep": "3211295e9e7dc9ec",
+     "label": "categoryContent",
+     "literals": [
+      "\"\"",
+      "\"/api/proto/v5/drama/category\"",
+      "\"21\"",
+      "\"area\"",
+      "\"class\"",
+      "\"extend_sort\"",
+      "\"lang\"",
+      "\"page\"",
+      "\"pagesize\"",
+      "\"typeId1\"",
+      "\"vodArea\"",
+      "\"vodClass\"",
+      "\"vodLang\"",
+      "\"vodOrderBy\"",
+      "\"vodYear\"",
+      "\"year\"",
+      "\"最新\""
+     ],
+     "shallow": "10e6ec771d7b73cc"
+    },
+    {
+     "deep": "0dcdfea2de48596e",
+     "label": "method",
+     "literals": [
+      "\"\"",
+      "\"%E8%81%94%E9%80%9A\"",
+      "\"-\"",
+      "\".\"",
+      "\"02%3A00%3A00%3A00%3A00%3A00\"",
+      "\"1\"",
+      "\"10000\"",
+      "\"1080x2272\"",
+      "\"2.75\"",
+      "\"397\"",
+      "\"440\"",
+      "\"CN\"",
+      "\"MT6893Z%2FCZA\"",
+      "\"_vOsCode\"",
+      "\"abid\"",
+      "\"android\"",
+      "\"androidID\"",
+      "\"android_id\"",
+      "\"appName\"",
+      "\"arm64-v8a\"",
+      "\"brand\"",
+      "\"carrier\"",
+      "\"chid\"",
+      "\"country\"",
+      "\"cpu\"",
+      "\"cpuId\"",
+      "\"density\"",
+      "\"device\"",
+      "\"dpi\"",
+      "\"facturer\"",
+      "\"lang\"",
+      "\"mac\"",
+      "\"model\"",
+      "\"net\"",
+      "\"pkg\"",
+      "\"plat\"",
+      "\"resolution\"",
+      "\"tenantId\"",
+      "\"udid\"",
+      "\"uuid\"",
+      "\"v\"",
+      "\"vApp\"",
+      "\"vName\"",
+      "\"vOs\"",
+      "\"version\"",
+      "\"young\"",
+      "\"zh\""
+     ],
+     "shallow": "c84e8b32ea1d9f5b"
+    },
+    {
+     "deep": "fe200a48a58c8946",
+     "label": "detailContent",
+     "literals": [
+      "\"\"",
+      "\"#\"",
+      "\"$\"",
+      "\"$$$\"",
+      "\"(?i).*\\\\.(mp4|m3u8|flv|mkv|avi|ts|mov|mpd|m4a|wmv)(\\\\?.*)?$\"",
+      "\"/api/proto/v5/drama/getDetail\"",
+      "\"id\"",
+      "\"playUrl\"",
+      "\"vodPlayFrom\"",
+      "\"橘汁\""
+     ],
+     "shallow": "a3eb7fdf2939b158"
+    },
+    {
+     "deep": "85918fb7a74494ee",
+     "label": "method",
+     "literals": [
+      "\"Accept\"",
+      "\"CBC\"",
+      "\"Content-Type\"",
+      "\"User-Agent\"",
+      "\"application/json\"",
+      "\"application/json; charset=utf-8\"",
+      "\"okhttp/3.12.1\"",
+      "\"paramsData\"",
+      "\"publicParams\""
+     ],
+     "shallow": "2c78efc59eff98b3"
+    },
+    {
+     "deep": "9cb9d6c32a1b8c8d",
+     "label": "method",
+     "literals": [
+      "\"&\"",
+      "\"=\"",
+      "\"ECB\""
+     ],
+     "shallow": "8c2028957c827e49"
+    },
+    {
+     "deep": "bee743c242d56730",
+     "label": "homeContent",
+     "literals": [
+      "\"/api/v3/drama/getCategory?orderBy=type_id\"",
+      "\"area\"",
+      "\"class\"",
+      "\"converUrl\"",
+      "\"data\"",
+      "\"extend_sort\"",
+      "\"id\"",
+      "\"lang\"",
+      "\"name\"",
+      "\"year\"",
+      "\"公告\""
+     ],
+     "shallow": "f2a85f6e70fb6f7e"
+    },
+    {
+     "deep": "723ecdaa2af825bc",
+     "label": "homeVideoContent",
+     "literals": [
+      "\"/api/ex/v3/security/tag/list\"",
+      "\"0\"",
+      "\"coverImage\"",
+      "\"data\"",
+      "\"id\"",
+      "\"name\"",
+      "\"path\"",
+      "\"remark\"",
+      "\"sections\"",
+      "\"vodList\""
+     ],
+     "shallow": "421ade7e50b6e39d"
+    },
+    {
+     "deep": "550283ec236a5e18",
+     "label": "init",
+     "literals": [
+      "\"\"",
+      "\"/api/v5/find/app/zone\"",
+      "\"appName\"",
+      "\"dataIv\"",
+      "\"dataKey\"",
+      "\"decrypt\"",
+      "\"domain\"",
+      "\"ed5fdsgucxumegqa\"",
+      "\"host\"",
+      "\"pkg\"",
+      "\"publicKey\"",
+      "\"site\""
+     ],
+     "shallow": "d8d102aad9cf1ab5"
+    },
+    {
+     "deep": "be9f4b99c7fe803d",
+     "label": "playerContent",
+     "literals": [
+      "\"(?i).*\\\\.(mp4|m3u8|flv|mkv|avi|ts|mov|mpd|m4a|wmv)(\\\\?.*)?$\"",
+      "\"/api/proto/v5/videoUsableUrl\""
+     ],
+     "shallow": "b82f890eefabd924"
+    },
+    {
+     "deep": "69c93af824756511",
+     "label": "searchContent",
+     "literals": [
+      "\"1\""
+     ],
+     "shallow": "c6d999f71d57d357"
+    },
+    {
+     "deep": "add022422635e025",
+     "label": "searchContent",
+     "literals": [
+      "\"/api/proto/v5/drama/search\"",
+      "\"21\"",
+      "\"page\"",
+      "\"pagesize\"",
+      "\"searchKeys\""
+     ],
+     "shallow": "854453beeda82004"
+    }
+   ],
+   "originJar": "river-fman.jar"
+  },
   "AppGet": {
    "category": "http-helper",
    "chain": [
@@ -3992,6 +4330,219 @@
     }
    ],
    "originJar": "xiaosa-0807.jar"
+  },
+  "Uvod": {
+   "category": "http-crypto",
+   "chain": [
+    "Uvod"
+   ],
+   "class": "Uvod",
+   "fingerprint": "8f6a070544f9f33b",
+   "jarSha256": "fd624e376b63c9a942ab27f31caf5a8163ae633490f3c47c30eb5935bb096b02",
+   "members": [
+    {
+     "deep": "511e33249c22d4ac",
+     "label": "field",
+     "literals": [
+      "\"https://api-h5.uvod.tv\""
+     ],
+     "shallow": "511e33249c22d4ac"
+    },
+    {
+     "deep": "3b60be30871b942b",
+     "label": "field",
+     "literals": [
+      "\"/video/latest\""
+     ],
+     "shallow": "bdb25a11e862c72f"
+    },
+    {
+     "deep": "a47b2840ce2e89de",
+     "label": "field",
+     "literals": [
+      "\"/video/list\""
+     ],
+     "shallow": "d4bb09708833dfc7"
+    },
+    {
+     "deep": "48bb7cc0136511ca",
+     "label": "field",
+     "literals": [
+      "\"/video/info\""
+     ],
+     "shallow": "3576fe11770b0e57"
+    },
+    {
+     "deep": "6502613f550ddf05",
+     "label": "field",
+     "literals": [
+      "\"/video/source\""
+     ],
+     "shallow": "97319691b3aa4138"
+    },
+    {
+     "deep": "12673f0747b12f9e",
+     "label": "method",
+     "literals": [
+      "\"\"",
+      "\"-----BEGIN PRIVATE KEY-----\"",
+      "\"-----BEGIN PRIVATE KEY-----\\nMIICdwIBADANBgkqhkiG9w0BAQEFAASCAmEwggJdAgEAAoGBAJ4FBai1Y6my4+fc\\n8AD5tyYzxgN8Q7M/PuFv+8i1Xje8ElXYVwzvYd1y/cNxwgW4RX0tDy9ya562V33x\\n6SyNr29DU6XytOeOlOkxt3gd5169K4iFaJ0l0wA4koMTcCAYVxC9B4+zzS5djYmF\\nMuRGfYgKYNH99vfY7BZjdAY68ty5AgMBAAECgYB1rbvHJj5wVF7Rf4Hk2BMDCi9+\\nzP4F8SW88Y6KrDbcPt1QvOonIea56jb9ZCxf4hkt3W6foRBwg86oZo2FtoZcpCJ+\\nrFqUM2/wyV4CuzlL0+rNNSq7bga7d7UVld4hQYOCffSMifyF5rCFNH1py/4Dvswm\\npi5qljf+dPLSlxXl2QJBAMzPJ/QPAwcf5K5nngQtbZCD3nqDFpRixXH4aUAIZcDz\\nS1RNsHrT61mEwZ/thQC2BUJTQNpGOfgh5Ecd1MnURwsCQQDFhAFfmvK7svkygoKX\\nt55ARNZy9nmme0StMOfdb4Q2UdJjfw8+zQNtKFOM7VhB7ijHcfFuGsE7UeXBe20n\\ng/XLAkEAv9SoT2hgJaQxxUk4MCF8pgddstJlq8Z3uTA7JMa4x+kZfXTm/6TOo6I8\\n2VbXZLsYYe8op0lvsoHMFvBSBljV0QJBAKhxyoYRa98dZB5qZRskciaXTlge0WJk\\nkA4vvh3/o757izRlQMgrKTfng1GVfIZFqKtnBiIDWTXQw2N9cnqXtH8CQAx+CD5t\\nl1iT0cMdjvlMg2two3SnpOjpo7gALgumIDHAmsUWhocLtcrnJI032VQSUkNnLq9z\\nEIfmHDz0TPVNHBQ=\\n-----END PRIVATE KEY-----\"",
+      "\"-----END PRIVATE KEY-----\"",
+      "\"RSA\"",
+      "\"RSA/ECB/PKCS1Padding\"",
+      "\"\\\\.\"",
+      "\"\\\\s\"",
+      "\"abcdefghijklmnop\""
+     ],
+     "shallow": "4c4c4f3be2be96a1"
+    },
+    {
+     "deep": "d09a982937e0853f",
+     "label": "method",
+     "literals": [
+      "\"\"",
+      "\"-----BEGIN PUBLIC KEY-----\"",
+      "\"-----BEGIN PUBLIC KEY-----\\nMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCeBQWotWOpsuPn3PAA+bcmM8YD\\nfEOzPz7hb/vItV43vBJV2FcM72Hdcv3DccIFuEV9LQ8vcmuetld98eksja9vQ1Ol\\n8rTnjpTpMbd4HedevSuIhWidJdMAOJKDE3AgGFcQvQePs80uXY2JhTLkRn2ICmDR\\n/fb32OwWY3QGOvLcuQIDAQAB\\n-----END PUBLIC KEY-----\"",
+      "\"-----END PUBLIC KEY-----\"",
+      "\".\"",
+      "\"AES\"",
+      "\"AES/CBC/PKCS5Padding\"",
+      "\"RSA\"",
+      "\"RSA/ECB/PKCS1Padding\"",
+      "\"\\\\s+\"",
+      "\"abcdefghijklmnop\"",
+      "\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\""
+     ],
+     "shallow": "9eb1f83d37d1eab3"
+    },
+    {
+     "deep": "776c1c2005e3fb16",
+     "label": "method",
+     "literals": [
+      "\"\"",
+      "\"&need_fragment=1&page=1&pagesize=42&sort_type=asc-\"",
+      "\"&pagesize=42&parent_category_id=\"",
+      "\"&sort_type=asc-\"",
+      "\"&video_fragment_id=\"",
+      "\"&video_id=\"",
+      "\"*/*\"",
+      "\"-\"",
+      "\"-id=\"",
+      "\"-keyword=\"",
+      "\"-page=\"",
+      "\"-parent_category_id=101-\"",
+      "\"-quality=\"",
+      "\"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\"",
+      "\"User-Agent\"",
+      "\"\\\\|\"",
+      "\"accept\"",
+      "\"application/json\"",
+      "\"content-type\"",
+      "\"https://www.uvod.tv\"",
+      "\"https://www.uvod.tv/\"",
+      "\"origin\"",
+      "\"referer\"",
+      "\"x-signature\"",
+      "\"x-timestamp\"",
+      "\"x-token\""
+     ],
+     "shallow": "6d3f23a210799f7b"
+    },
+    {
+     "deep": "75aae3ecd8d29916",
+     "label": "categoryContent",
+     "literals": [
+      "\",\\\"pagesize\\\":42,\\\"sort_field\\\":\\\"\\\",\\\"sort_type\\\":\\\"asc\\\"}\"",
+      "\"\\\",\\\"category_id\\\":null,\\\"language\\\":null,\\\"year\\\":null,\\\"region\\\":null,\\\"state\\\":null,\\\"keyword\\\":\\\"\\\",\\\"paid\\\":null,\\\"page\\\":\"",
+      "\"{\\\"parent_category_id\\\":\\\"\"",
+      "\"|\""
+     ],
+     "shallow": "df512a661cd7b208"
+    },
+    {
+     "deep": "49d2e31bb0d12ff3",
+     "label": "detailContent",
+     "literals": [
+      "\"#\"",
+      "\"$\"",
+      "\"$$$\"",
+      "\"Qile\"",
+      "\"{\\\"id\\\":\\\"%s\\\"}\"",
+      "\"|\""
+     ],
+     "shallow": "5791551bc6c53bfe"
+    },
+    {
+     "deep": "358ac054a19341cb",
+     "label": "homeContent",
+     "literals": [
+      "\"100\"",
+      "\"101\"",
+      "\"102\"",
+      "\"103\"",
+      "\"104\"",
+      "\"105\"",
+      "\"106\"",
+      "\"{\\\"parent_category_id\\\":101}\"",
+      "\"体育\"",
+      "\"动漫\"",
+      "\"电影\"",
+      "\"电视剧\"",
+      "\"粤台专区\"",
+      "\"纪录片\"",
+      "\"综艺\""
+     ],
+     "shallow": "afcf42f8871e36a4"
+    },
+    {
+     "deep": "67a256e831752481",
+     "label": "init",
+     "literals": [],
+     "shallow": "87c3b080ec2dc439"
+    },
+    {
+     "deep": "d728bb99985b8692",
+     "label": "playerContent",
+     "literals": [
+      "\" \"",
+      "\"\"",
+      "\",\"",
+      "\",\\\"quality\\\":\"",
+      "\",\\\"seek\\\":null}\"",
+      "\"1\"",
+      "\"1080p\"",
+      "\"2\"",
+      "\"3\"",
+      "\"360p\"",
+      "\"4\"",
+      "\"480p\"",
+      "\"720p\"",
+      "\"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\"",
+      "\"User-Agent\"",
+      "\"[\\\\[\\\\]]\"",
+      "\"\\\",\\\"video_fragment_id\\\":\"",
+      "\"\\\\|\"",
+      "\"https://www.uvod.tv\"",
+      "\"https://www.uvod.tv/\"",
+      "\"origin\"",
+      "\"referer\"",
+      "\"{\\\"video_id\\\":\\\"\"",
+      "\"|\""
+     ],
+     "shallow": "3b2d0d13dbd383ff"
+    },
+    {
+     "deep": "a03ee9f9241818a9",
+     "label": "searchContent",
+     "literals": [
+      "\"\\\",\\\"paid\\\":null,\\\"page\\\":1,\\\"pagesize\\\":42,\\\"sort_field\\\":\\\"\\\",\\\"sort_type\\\":\\\"asc\\\",\\\"need_fragment\\\":1}\"",
+      "\"{\\\"parent_category_id\\\":null,\\\"category_id\\\":null,\\\"language\\\":null,\\\"year\\\":null,\\\"region\\\":null,\\\"state\\\":null,\\\"keyword\\\":\\\"\"",
+      "\"|\""
+     ],
+     "shallow": "8ae28bd47de914b3"
+    }
+   ],
+   "originJar": "custom_spider.jar"
   },
   "WeiguanDJ": {
    "category": "http-crypto",

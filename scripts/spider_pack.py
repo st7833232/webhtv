@@ -18,7 +18,11 @@ This tool never decompiles, executes or unpacks a JAR. It reads bytes and comput
 import argparse, hashlib, json, os, pathlib, shutil, sys, urllib.request
 
 SCHEMA = 1
-HOST_API = 2
+HOST_API = 3
+# What every packed script needs at least (IOS-POC-54's host.isVideoFormat). A script needing more
+# carries its own `minHostApi` (IOS-POC-44G), so an older app skips just that script, says why, and
+# still takes the rest of the pack instead of refusing all of it.
+BASE_HOST_API = 2
 # host.js and the two bridges are the runtime's own SDK, not compatibility logic: they are what
 # `minHostApi` describes, so they ship with the app and are deliberately not packable. Same set as
 # `RuntimeABI.nativeScripts` in the app, which a test keeps equal (IOS-POC-12).
@@ -62,6 +66,13 @@ DEFAULT_ORIGINS = {
                  "notes": "the .vod dialect only"},
     "GuaziTY":  {"originJar": "river-fman.jar",
                  "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392"},
+    # IOS-POC-44G: the first ports that need js.host 1.3 (RSA, binary HTTP, AES hex output).
+    "AppDrama": {"originJar": "river-fman.jar",
+                 "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
+                 "minHostApi": 3, "notes": "protobuf over binary HTTP; RSA PKCS#1 public-key signature"},
+    "Uvod":     {"originJar": "custom_spider.jar",
+                 "jarSha256": "fd624e376b63c9a942ab27f31caf5a8163ae633490f3c47c30eb5935bb096b02",
+                 "minHostApi": 3, "notes": "RSA PKCS#1 private-key decryption of every reply"},
 }
 
 # What the app reads from a mapping (`SpiderPack.ClassMapping`). `evidence` is provenance only.
@@ -94,13 +105,15 @@ def build(args) -> int:
             "path": f"./scripts/{name}.js",
             "sha256": sha256_bytes(body),
         }
+        if meta.get("minHostApi", BASE_HOST_API) > BASE_HOST_API:
+            entry["minHostApi"] = meta["minHostApi"]
         for key in ("aliases", "originJar", "jarSha256", "notes"):
             if meta.get(key) is not None:
                 entry[key] = meta[key]
         entries.append(entry)
         shutil.copyfile(path, out / "scripts" / f"{name}.js")
 
-    manifest = {"schema": SCHEMA, "version": args.version, "minHostApi": HOST_API, "scripts": entries}
+    manifest = {"schema": SCHEMA, "version": args.version, "minHostApi": BASE_HOST_API, "scripts": entries}
     if args.mappings:
         mappings = json.loads(pathlib.Path(args.mappings).read_text())["mappings"]
         problems = mapping_problems(mappings, {e["class"]: e["sha256"] for e in entries})
@@ -111,7 +124,7 @@ def build(args) -> int:
             return 1
         manifest["mappings"] = mappings
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
-    print(f"{len(entries)} scripts -> {out/'manifest.json'} (version {args.version}, minHostApi {HOST_API})")
+    print(f"{len(entries)} scripts -> {out/'manifest.json'} (version {args.version}, minHostApi {BASE_HOST_API})")
     for entry in entries:
         print(f"  {entry['class']:<12} {entry['sha256'][:16]}… {entry.get('originJar', '-')}")
     for mapping in manifest.get("mappings", []):

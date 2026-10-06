@@ -39,7 +39,9 @@ private let frozen: [RuntimeABI.Surface: [RuntimeABI.Version: String]] = [
                     .init(1, 1): "584279fcf060436cfa33ee943ab76c1254b20fec1a9f036a5e2c6566543c1f21"],
     .jsHost: [.init(1, 1): "3724fb8a7f10f4c4467aadc3280d616c30a1801e319ef12d45ed4deba40d798b",
               // IOS-POC-54: `host.isVideoFormat` and `host.firstURL`.
-              .init(1, 2): "d314325a5c270d800a104edeece16a2634ccf629f4643365739a98897eab2d09"],
+              .init(1, 2): "d314325a5c270d800a104edeece16a2634ccf629f4643365739a98897eab2d09",
+              // IOS-POC-44G: `rsaEncrypt`/`rsaDecrypt`, `bytes`, AES hex output, binary `req`.
+              .init(1, 3): "a0426adcb133442b364a202158ab756045e3e7e485d42c3273bdde53b23d00b3"],
     .pythonHost: [.init(1, 0): "151b866af42baf0cde224ff3cdcf6ca501a4c6ae6dc7274f9d0c1870958769f7",
                   // IOS-POC-37: pycryptodome, lxml, bs4, pyquery; `html()`; void `init`.
                   .init(1, 1): "b93c7a05a0afe66cd35c0b3992650c582109b9b475da4e36f233a34f02b3843a",
@@ -191,7 +193,7 @@ func everySurfaceMatchesTheFingerprintItsVersionWasFrozenWith(_ surface: Runtime
 @Test func theCompatibilityPackGateIsTheJavaScriptHostMinor() throws {
     #expect(RuntimeABI.Surface.jsHost.version.major == 1)
     #expect(SpiderPackStore.hostApiVersion == RuntimeABI.Surface.jsHost.version.minor)
-    #expect(SpiderPackStore.hostApiVersion == 2)  // IOS-POC-54: js.host 1.2
+    #expect(SpiderPackStore.hostApiVersion == 3)  // IOS-POC-44G: js.host 1.3
 
     let tool = try read("scripts/spider_pack.py", in: repo)
     #expect(try matches(#"^SCHEMA = (\d+)$"#, in: tool) == [String(SpiderPack.schema)])

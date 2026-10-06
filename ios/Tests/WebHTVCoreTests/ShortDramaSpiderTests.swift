@@ -10,7 +10,7 @@ import Testing
 /// Answers by host + path (query ignored), one queued reply per call with the last one repeating,
 /// and remembers every request with its headers and body.
 final class ShortDramaSite: URLProtocol, @unchecked Sendable {
-    struct Asked { let url: URL; let headers: [String: String]; let body: String }
+    struct Asked { let url: URL; let headers: [String: String]; let body: String; var bytes = Data() }
 
     private static let lock = NSLock()
     nonisolated(unsafe) private static var replies: [String: [String]] = [:]
@@ -29,7 +29,7 @@ final class ShortDramaSite: URLProtocol, @unchecked Sendable {
         return host.hasSuffix(".invalid") || ["api.drama.9ddm.com", "freevideo.zqqds.cn", "neptune.qmplaylet.com",
             "api-store.qmplaylet.com", "api-read.qmplaylet.com", "sv.baidu.com", "www.hkybqufgh.com",
             "4kyszx.top", "doh.pub", "app.nyafun.vip", "yzy0916.n0z6fkpuk.com",
-            "api.46d5umpk.com", "www.mdzyapi.com"].contains(host)
+            "api.46d5umpk.com", "www.mdzyapi.com", "api-h5.uvod.tv"].contains(host)
     }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func stopLoading() {}
@@ -50,7 +50,7 @@ final class ShortDramaSite: URLProtocol, @unchecked Sendable {
         let key = url.host! + url.path
         let reply = Self.lock.withLock { () -> String? in
             Self.asked.append(Asked(url: url, headers: request.allHTTPHeaderFields ?? [:],
-                                    body: String(decoding: body, as: UTF8.self)))
+                                    body: String(decoding: body, as: UTF8.self), bytes: body))
             guard var queue = Self.replies[key], let first = queue.first else { return nil }
             if queue.count > 1 { queue.removeFirst(); Self.replies[key] = queue }
             return first
@@ -58,7 +58,9 @@ final class ShortDramaSite: URLProtocol, @unchecked Sendable {
         let response = HTTPURLResponse(url: url, statusCode: reply == nil ? 404 : 200, httpVersion: nil,
                                        headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data((reply ?? "").utf8))
+        // IOS-POC-44G: a reply written `base64:…` is served as those bytes, for protobuf APIs.
+        let bytes = reply.flatMap { $0.hasPrefix("base64:") ? Data(base64Encoded: String($0.dropFirst(7))) : nil }
+        client?.urlProtocol(self, didLoad: bytes ?? Data((reply ?? "").utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
 }
@@ -749,4 +751,204 @@ private func hmacSHA256(_ text: String, key: String) -> String {
     #expect(play["url"] as? String == "https://m.invalid/1/index.m3u8")
     #expect((play["header"] as? [String: String])?["User-Agent"]?.hasPrefix("Mozilla/5.0") == true)
     await modu.destroy()
+}
+
+// MARK: - IOS-POC-44G: AppDrama (protobuf, RSA-signed params) and Uvod (RSA-sealed bodies)
+
+/// proto3 wire format for fixtures: an Int is a varint, a String or Data is length-delimited.
+private func pb(_ fields: [(Int, Any)]) -> Data {
+    func varint(_ value: UInt64) -> Data {
+        var value = value, out = Data()
+        while value > 127 { out.append(UInt8(value & 127) | 128); value >>= 7 }
+        out.append(UInt8(value))
+        return out
+    }
+    var out = Data()
+    for (number, value) in fields {
+        if let int = value as? Int { out += varint(UInt64(number << 3)) + varint(UInt64(int)); continue }
+        let bytes = (value as? Data) ?? Data((value as? String ?? "").utf8)
+        out += varint(UInt64(number << 3 | 2)) + varint(UInt64(bytes.count)) + bytes
+    }
+    return out
+}
+
+/// Field number → values, read back from what a spider sent.
+private func fields(_ data: Data) -> [Int: [Any]] {
+    var out = [Int: [Any]](), bytes = [UInt8](data), i = 0
+    func read() -> UInt64 {
+        var value: UInt64 = 0, shift: UInt64 = 0
+        while i < bytes.count { let b = bytes[i]; i += 1; value |= UInt64(b & 127) << shift; shift += 7; if b & 128 == 0 { break } }
+        return value
+    }
+    while i < bytes.count {
+        let key = read(), number = Int(key >> 3)
+        if key & 7 == 0 { out[number, default: []].append(Int(read())); continue }
+        let length = Int(read())
+        out[number, default: []].append(String(decoding: bytes[i..<i + length], as: UTF8.self))
+        i += length
+    }
+    return out
+}
+
+private func reply(_ data: Data) -> String { "base64:" + pb([(1, 0), (3, data)]).base64EncodedString() }
+
+private func rsaDecrypt(_ base64: String, privateKey pem: String) -> String {
+    CryptoHost.rsa(encrypt: false, input: base64, key: pem, inputEncoding: "base64", outputEncoding: "utf8")
+}
+
+private func aes(_ text: String, key: String, iv: String = "", mode: String, encrypt: Bool, encoding: String = "base64") -> String {
+    CryptoHost.run(algorithm: "aes", encrypt: encrypt, input: text, key: key, iv: iv, mode: mode, inputEncoding: encoding)
+}
+
+@Test func appDramaSignsWithTheZoneKeyAndSpeaksProtobufBothWays() async throws {
+    let dataKey = "D2KREWRIBVNAUJJYEDL4VFHOY2Q0PQ==", dataIv = "OC1A06E197EF10CF3F6058CA7A803B5E"
+    let extPublic = "ext-key-is-not-used-once-the-zone-answers"
+    // The zone handshake hands back the real signing key in four parts.
+    let key = testPublicPEM.components(separatedBy: "\n").dropFirst().dropLast().joined()
+    let quarter = key.count / 4
+    let parts = (0..<4).map { n -> String in
+        let start = key.index(key.startIndex, offsetBy: n * quarter)
+        return String(key[start..<(n == 3 ? key.endIndex : key.index(start, offsetBy: quarter))])
+    }
+    let api = "drama.invalid"
+    ShortDramaSite.serve([
+        api + "/api/v5/find/app/zone": [reply(pb([(1, "x"), (2, parts[0]), (3, parts[1]), (4, parts[2]), (5, parts[3])]))],
+        api + "/api/v3/drama/getCategory": [#"""
+        {"data":[{"id":2,"name":"电视剧","converUrl":"{\"class\":\"古装,悬疑\",\"year\":\"2026\",\"lang\":\"\"}"},
+                 {"id":9,"name":"公告"},{"id":1,"name":"电影","converUrl":""}]}
+        """#],
+        api + "/api/proto/v5/drama/category": [reply(pb([(1, pb([(3, 12345), (5, "长安"), (2, pb([(1, "big"), (2, "https://p.invalid/s.jpg")])), (13, "更新至8集")])),
+                                                        (1, pb([(3, 7), (5, "第二部")]))]))],
+        api + "/api/proto/v5/drama/getDetail": [reply(pb([(1, "大陆"), (6, "简介"), (9, "长安"), (13, "古装"), (18, 2026), (25, "演员"), (26, "完结"),
+            (29, pb([(2, "第1集"), (4, "https://m.invalid/1.m3u8"), (9, "bsm3u8"), (10, "B超高清")])),
+            (29, pb([(2, "第2集"), (4, "https://m.invalid/2.m3u8"), (9, "bsm3u8"), (10, "B超高清")])),
+            (29, pb([(2, "第1集"), (4, "ftp-ish:opaque/1"), (9, "parse1"), (10, "")]))]))],
+        api + "/api/proto/v5/videoUsableUrl": [reply(pb([(1, "https://m.invalid/real.m3u8"), (6, pb([(1, "Referer"), (2, "https://r.invalid/")]))])),
+                                               reply(pb([(1, "zijian_RqKFMubJU86TFGYlunw16w")]))],
+        api + "/api/proto/v5/drama/search": [reply(pb([(1, pb([(3, 99), (5, "长安十二时辰")]))]))],
+    ])
+    let drama = try await spider("AppDrama", extend: """
+    {"appName":"测试","publicKey":"\(extPublic)","dataKey":"\(dataKey)","dataIv":"\(dataIv)","pkg":"com.test","host":"https://\(api)","site":"","version":"3.0.0.7","decrypt":"0"}
+    """)
+
+    let home = try json(try await drama.homeContent(filter: true))
+    #expect((home["class"] as? [[String: String]])?.map { $0["type_name"] ?? "" } == ["电视剧", "电影"], "公告 is skipped")
+    let filters = try #require((home["filters"] as? [String: [[String: Any]]])?["2"])
+    #expect(filters.map { $0["key"] as? String ?? "" } == ["class", "year"], "an empty filter is dropped")
+    #expect((filters[0]["value"] as? [[String: String]])?.map { $0["v"] ?? "" } == ["古装", "悬疑"])
+
+    let page = try json(try await drama.categoryContent(tid: "2", page: "1", filter: true, extend: ["year": "2026"]))
+    let first = try #require((page["list"] as? [[String: Any]])?.first)
+    #expect(first["vod_id"] as? String == "12345")
+    #expect(first["vod_name"] as? String == "长安")
+    #expect(first["vod_pic"] as? String == "https://p.invalid/s.jpg", "the thumbnail, as the original")
+    #expect(first["vod_remarks"] as? String == "更新至8集")
+
+    // What went over the wire for that page: protobuf in, RSA-signed public params in the header.
+    let asked = try #require(ShortDramaSite.requests(to: "/api/proto/v5/drama/category").last)
+    #expect(asked.headers["Content-Type"] == "application/x-protobuf")
+    let params = try #require(try JSONSerialization.jsonObject(with: Data((asked.headers["publicParams"] ?? "").utf8)) as? [String: String])
+    let paramsData = try #require(params["paramsData"])
+    let isHex = paramsData.allSatisfy { $0.isHexDigit }
+    #expect(isHex, "AES-CBC written as hex, as the original")
+    let device = try json(aes(paramsData, key: "ed5fdsgucxumegqa", iv: "ed5fdsgucxumegqa", mode: "CBC", encrypt: false, encoding: "hex"))
+    let stamp = String(describing: device["timestamp"] ?? ""), nonce = device["random_str"] as? String ?? ""
+    #expect(device["vApp"] as? String == "3007" && device["pkg"] as? String == "com.test")
+    #expect(rsaDecrypt(device["sig"] as? String ?? "", privateKey: testPrivatePKCS8) == stamp + nonce + "3007",
+            "signed with the key the zone returned, not the ext's")
+    #expect(((device["sig2"] as? String ?? "") + (device["sig3"] as? String ?? "")) ==
+            aes(stamp + nonce, key: dataIv, mode: "ECB", encrypt: true))
+    let secure = fields(asked.bytes)
+    let sealed = ((secure[1]?.first as? String) ?? "") + ((secure[2]?.first as? String) ?? "")
+    let query = aes(String(sealed.dropFirst(8)), key: dataKey, mode: "ECB", encrypt: false)
+    let ts = try #require(secure[4]?.first as? Int)
+    #expect(query.hasSuffix(String(ts)) && query.contains("typeId1=2") && query.contains("vodYear=2026") && query.contains("page=1"))
+    #expect(!query.contains("vodArea="), "an empty parameter is left out, as the original")
+    #expect(sealed.hasPrefix(secure[5]?.first as? String ?? "?"), "the nonce leads the sealed query")
+
+    let detail = try #require((try json(try await drama.detailContent(ids: ["12345"]))["list"] as? [[String: Any]])?.first)
+    #expect(detail["vod_play_from"] as? String == "B超高清$$$橘汁", "an unnamed source is 橘汁, as the original")
+    let lines = (detail["vod_play_url"] as? String ?? "").components(separatedBy: "$$$")
+    #expect(lines[0] == "第1集$https://m.invalid/1.m3u8#第2集$https://m.invalid/2.m3u8")
+    #expect(detail["vod_year"] as? String == "2026")
+    let opaque = String(lines[1].drop(while: { $0 != "$" }).dropFirst())
+
+    let direct = try json(try await drama.playerContent(flag: "B超高清", id: "https://m.invalid/1.m3u8", vipFlags: []))
+    #expect(direct["url"] as? String == "https://m.invalid/1.m3u8")
+    let parsed = try json(try await drama.playerContent(flag: "橘汁", id: opaque, vipFlags: []))
+    #expect(parsed["url"] as? String == "https://m.invalid/real.m3u8")
+    #expect((parsed["header"] as? [String: String])?["Referer"] == "https://r.invalid/")
+    let parseQuery = aes(String((((fields(try #require(ShortDramaSite.requests(to: "/api/proto/v5/videoUsableUrl").last).bytes)[1]?.first as? String) ?? "")
+        + ((fields(try #require(ShortDramaSite.requests(to: "/api/proto/v5/videoUsableUrl").last).bytes)[2]?.first as? String) ?? "")).dropFirst(8)),
+        key: dataKey, mode: "ECB", encrypt: false)
+    #expect(parseQuery.contains("vodPlayFrom=parse1") && parseQuery.contains("playUrl=ftp-ish:opaque/1"))
+    let unresolved = try json(try await drama.playerContent(flag: "橘汁", id: opaque, vipFlags: []))
+    #expect(unresolved["url"] as? String == "", "a parser that answers its own token is nothing to play")
+
+    let search = try json(try await drama.searchContent(key: "长安", quick: false, page: "1"))
+    #expect((search["list"] as? [[String: Any]])?.first?["vod_name"] as? String == "长安十二时辰")
+    await drama.destroy()
+}
+
+@Test func uvodSealsEveryRequestAndOpensRepliesWithItsPrivateKey() async throws {
+    let iv = "abcdefghijklmnop"
+    let script = try #require(SpiderRegistry.bundled().entry(for: "csp_Uvod")?.script)
+    let publicKey = try #require(script.range(of: #"PUBLIC_KEY = '([^']+)'"#, options: .regularExpression).map {
+        String(script[$0].dropFirst("PUBLIC_KEY = '".count).dropLast()) })
+    let privateKey = try #require(script.range(of: #"PRIVATE_KEY = '([^']+)'"#, options: .regularExpression).map {
+        String(script[$0].dropFirst("PRIVATE_KEY = '".count).dropLast()) })
+    /// A reply sealed the way the server seals one: its own key, RSA-encrypted to the site's key.
+    func sealed(_ json: String) -> String {
+        let key = "SERVERCHOSENKEY0123456789abcdefg"
+        return aes(json, key: key, iv: iv, mode: "CBC", encrypt: true) + "." +
+            CryptoHost.rsa(encrypt: true, input: key, key: publicKey, inputEncoding: "utf8", outputEncoding: "base64")
+    }
+    let api = "api-h5.uvod.tv"
+    ShortDramaSite.serve([
+        api + "/video/latest": [sealed(#"{"data":{"video_latest_list":[{"id":"7","title":"最新","pic":"https://p.invalid/7.jpg","state":"更新","last_fragment_symbol":"08"}]}}"#)],
+        api + "/video/list": [sealed(#"{"data":{"video_list":[{"id":"8","title":"列表"}]}}"#)],
+        api + "/video/info": [sealed(#"{"data":{"video":{"title":"详情","year":"2026","region":"大陆","starring":"演员","director":"导演","description":"简介","language":"国语","state":"完结"},"video_fragment_list":[{"id":"501","symbol":"01","qualities":[3,4]},{"id":"502","symbol":"02","qualities":[2]}]}}"#)],
+        api + "/video/source": [sealed(#"{"data":{"video_soruce":{"url":"https://m.invalid/1080.m3u8"}}}"#),
+                                sealed(#"{"data":{"video_soruce":{"url":"https://m.invalid/720.m3u8"}}}"#)],
+    ])
+    let uvod = try await spider("Uvod")
+
+    let home = try json(try await uvod.homeContent(filter: false))
+    #expect((home["class"] as? [[String: String]])?.first?["type_id"] == "101")
+    #expect((home["list"] as? [[String: Any]])?.first?["vod_remarks"] as? String == "更新08")
+
+    // The request opens with the private key the same way the server opens it, and is signed.
+    let latest = try #require(ShortDramaSite.requests(to: "/video/latest").last)
+    let parts = latest.body.components(separatedBy: ".")
+    let requestKey = rsaDecrypt(parts.count == 2 ? parts[1] : "", privateKey: privateKey)
+    #expect(requestKey.count == 32, "a fresh 32-character key per request")
+    #expect(aes(parts[0] + String(repeating: "=", count: (4 - parts[0].count % 4) % 4), key: requestKey, iv: iv, mode: "CBC", encrypt: false)
+            == #"{"parent_category_id":101}"#)
+    #expect(!parts[0].hasSuffix("="), "the cipher text drops its padding, as Android's NO_PADDING")
+    let stamp = latest.headers["x-timestamp"] ?? ""
+    #expect(latest.headers["x-signature"] == Insecure.MD5.hash(data: Data("-parent_category_id=101-\(stamp)".utf8))
+        .map { String(format: "%02x", $0) }.joined())
+
+    let page = try json(try await uvod.categoryContent(tid: "100", page: "2", filter: false, extend: [:]))
+    #expect((page["list"] as? [[String: Any]])?.first?["vod_name"] as? String == "列表")
+    let listed = try #require(ShortDramaSite.requests(to: "/video/list").last)
+    #expect(listed.headers["x-signature"] == Insecure.MD5.hash(data: Data(
+        "-page=2&pagesize=42&parent_category_id=100&sort_type=asc-\(listed.headers["x-timestamp"] ?? "")".utf8))
+        .map { String(format: "%02x", $0) }.joined())
+
+    let detail = try #require((try json(try await uvod.detailContent(ids: ["7"]))["list"] as? [[String: Any]])?.first)
+    #expect(detail["vod_play_url"] as? String == "01$7|501|[4, 3]#02$7|502|[2]", "qualities best first, no trailing $$$")
+    #expect(detail["vod_actor"] as? String == "演员" && detail["type_name"] as? String == "国语")
+
+    let play = try json(try await uvod.playerContent(flag: "Qile", id: "7|501|[4, 3]", vipFlags: []))
+    #expect(play["url"] as? [String] == ["1080p", "https://m.invalid/1080.m3u8", "720p", "https://m.invalid/720.m3u8"])
+    #expect((play["header"] as? [String: String])?["referer"] == "https://www.uvod.tv/")
+
+    let search = try json(try await uvod.searchContent(key: "Ab C", quick: false, page: "1"))
+    #expect((search["list"] as? [[String: Any]])?.isEmpty == false)
+    let searched = try #require(ShortDramaSite.requests(to: "/video/list").last)
+    #expect(searched.headers["x-signature"] == Insecure.MD5.hash(data: Data(
+        "-keyword=ab+c&need_fragment=1&page=1&pagesize=42&sort_type=asc-\(searched.headers["x-timestamp"] ?? "")".utf8))
+        .map { String(format: "%02x", $0) }.joined(), "Java's URLEncoder, then lower-cased, as the original")
+    await uvod.destroy()
 }

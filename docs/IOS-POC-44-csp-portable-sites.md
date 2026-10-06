@@ -5,7 +5,7 @@
 - 目標：使用者 2026-10-02「開始 IOS-POC-44 assessment」。對象是 `docs/current-task-state.md`「Current handoff — 2026-10-02 下午」列的 23 站（19 個類別）：可以移植、iOS 還沒有 port 的 `csp_*` 站。
 - 範圍：只做 assessment，**不改程式**。task guard `IOS-POC-44`（`assessment`），路徑：本文件、`docs/current-task-state.md`、`docs/CSP_PORTABILITY_MATRIX.md`。探測腳本與回應都在 session scratchpad，不 commit。
 - 結論：23 站裡 **18 站後端今天活著、5 站死了**。活著的 18 站裡 13 站只要寫 JS，不必改 Swift；3 站（AppDrama×2、Uvod）要先在 host 補 RSA 和二進位 HTTP；Douban×2 要另做 App 功能。建議與分段見第 7 節，待決定事項見第 9 節。
-- 44A（`WeiguanDJ`＋`HemaDJ`）見第 11 節；44B（`QimaoDJ`＋`HaokanDJ`）見第 12 節；44C（`Jpys`＋`Jys`）見第 13 節；44D（`Feiyu`＋`MiaoWu`）見第 14 節；44E（`AppYQK`＋`AppYsV2`）見第 15 節；44F（`GuaziTY`＋`MoDu`）見第 16 節。44A～44F 六段都已完成。44D～44F 隨 `0.1.69 (70)`（2026-10-06，tag `ios-v0.1.69-b70`）發布，真機未驗證。
+- 44A（`WeiguanDJ`＋`HemaDJ`）見第 11 節；44B（`QimaoDJ`＋`HaokanDJ`）見第 12 節；44C（`Jpys`＋`Jys`）見第 13 節；44D（`Feiyu`＋`MiaoWu`）見第 14 節；44E（`AppYQK`＋`AppYsV2`）見第 15 節；44F（`GuaziTY`＋`MoDu`）見第 16 節。44A～44F 六段都已完成。44D～44F 隨 `0.1.69 (70)`（2026-10-06，tag `ios-v0.1.69-b70`）發布，**使用者 2026-10-06 回報該版真機驗收完成**。44G（host RSA／AES hex／二進位 HTTP＋`AppDrama`、`Uvod`）見第 17 節。
 - 唯一下一步：等使用者決定下一段（第 7 節的 44G：host 補 RSA／hex／二進位 HTTP 後做 `AppDrama`＋`Uvod`，要發新版 App）；沒有核准不改程式。`QmdjAmns`／`HHkkAmns` 的 alias（第 6 節、第 9 節第 2 項）仍待使用者決定。
 
 ## 1. 問題與範圍
@@ -570,3 +570,112 @@
    - `modujx10`／`12` 上的作品預期會失敗（憑證無效，而且來源回 404）。
    - 魔都动漫和另外兩個魔都來源各自獨立顯示。
 3. 收藏、觀看記錄、下載對這兩站的行為（App 端沒有改程式；瓜子的直播串流原本就不適合下載）。
+
+## 17. 44G：host RSA、AES hex 輸出、二進位 HTTP，移植 `AppDrama`、`Uvod`（2026-10-06，Task-Guard `IOS-POC-44G`，`standard`）
+
+使用者 2026-10-06：「下一階段完成共用爬蟲 host 的 RSA 加解密、AES hex 輸出與二進位 HTTP，並移植 AppDrama、Uvod」，只交付程式、驗證與文件，**發版另行處理**。基準 `b55cf99b`。同一天使用者回報 `0.1.69 (70)` 真機驗收完成，不再列為待辦。
+
+### 17.1 原版與現況核對（13:40～13:50 CST，家用網路）
+
+- 設定實際引用的 JAR（與 IOS-POC-55 記錄相同，SHA-256 未變）：`AppDrama` 在 `river-fman.jar`（`3133519d…`），`Uvod` 在 `custom_spider.jar`（`fd624e37…`，md5 與設定宣告的 `5e53c8f9…` 相同）。兩個類別都以 jadx 完整讀過。
+- `AppDrama`：
+  - 金鑰：
+    - RSA 用 `RSA/ECB/PKCS1Padding`，公鑰來自 ext 的 `publicKey`（X.509 SubjectPublicKeyInfo base64，1024 位元），輸出 base64，資料小於一個區塊。
+    - AES 一律用 UTF-8 字串當金鑰：
+      - CBC：金鑰與 IV 都是固定字串 `ed5fdsgucxumegqa`，**輸出 hex**。
+      - ECB：金鑰是 ext 的 `dataKey`／`dataIv`（32 字元，AES-256），輸出 base64。
+  - 傳輸：分類、詳情、搜尋、播放解析、`find/app/zone` 都是 POST protobuf bytes，回應也是 protobuf bytes。首頁分類與標籤是 JSON。
+  - protobuf 欄位號從 JAR 的 `com/base/model/proto/*` 讀出：
+    - `ApiResult{code 1, msg 2, data 3}`
+    - `SecureRequest{aesEncrypt1 1, aesEncrypt2 2, aesFakestr 3, timestamp 4, randomStr 5}`
+    - `RSARequest{timestamp 1, sign 2, fake1 3, randomStr 4, fake2 5}`
+    - `RSAPublic{str1..str5 = 1..5}`
+    - `DramaBeanPage{dramaBean 1}`，`DramaBean{coverImage 2, id 3, name 5, remark 13}`，`DramaCoverImage{path 1, thumbnailPath 2}`
+    - `DramaDetailBean{area 1, intro 6, tag 13, year 18, actor 25, remark 26, videos 29}`
+    - `DramaVideoBean{title 2, path 4, source 9, sourceCn 10}`
+    - `ParsePlayUrlBean{playUrl 1, headers 6 (map)}`
+  - 現況：天堂與苹果的網域檔指向同一台 `http://122.228.193.211:18008`。橘汁的網域檔可讀，但 2026-10-02 已確認對方伺服器設定錯誤；薯条的網域檔主機連不上。
+- `Uvod`：
+  - 請求 body 是 `base64(AES-CBC(json, 隨機 32 字元金鑰, IV abcdefghijklmnop)).base64(RSA-PKCS1 公鑰加密(金鑰))`。
+  - 回應是同樣格式，但金鑰由伺服器產生，**一定要用 RSA 私鑰（PKCS#8，1024 位元）解密**。
+  - 標頭：`x-signature = md5("-參數-" + 毫秒)`、`x-timestamp`、`referer`／`origin`。
+  - 設定沒有 ext，主機固定為 `https://api-h5.uvod.tv`。今天 `/video/latest` 回 HTTP 200。
+
+### 17.2 設計（`js.host` 1.2 → 1.3，只新增）
+
+| 能力 | 介面 | 舊腳本 |
+|---|---|---|
+| RSA | `host.rsaEncrypt(text, publicKey, {input, output})`、`host.rsaDecrypt(text, privateKey, {input, output})`：PKCS#1 v1.5；金鑰收 base64 DER 或 PEM，公鑰 X.509 SPKI 或 PKCS#1，私鑰 PKCS#8 或 PKCS#1（原生先剝 ASN.1 外殼再交給 `SecKeyCreateWithData`）；**依金鑰長度自動分段**（加密每段 k−11 bytes，解密每段 k bytes）；`input`／`output` 可為 `utf8`、`base64`、`hex` | 新函式，不影響 |
+| AES hex 輸出 | `host.aesEncrypt(text, key, iv, mode, output)` 第五個參數 `'hex'` | 不傳時仍是 base64，與 1.2 相同 |
+| 二進位 HTTP | `host.req(url, {bodyBase64, responseType: 'base64'})`：送出的 bytes 由 base64 還原，不經 UTF-8；回應給 `bodyBase64`，`body` 留空 | 不帶新選項時行為不變 |
+| bytes 工具 | `host.bytes.{fromBase64, toBase64, fromUtf8, toUtf8}`：純 JS，給 protobuf 等二進位格式使用 | 新物件 |
+
+- protobuf 編解碼只有 `AppDrama` 用，放在它自己的腳本裡（其他爬蟲需要時再搬進 host）。
+- 版本：`RuntimeABI` `js.host` 1.3、新增 frozen fingerprint；`SpiderPackStore.hostApiVersion` 與 `spider_pack.py` `HOST_API` 變成 3。相容包改成整包 `minHostApi` 為 2，`AppDrama`、`Uvod` 這兩支個別標 `minHostApi: 3`：0.1.69 讀同一個相容包時會略過這兩支並說明原因，其餘腳本照常更新。
+- registry：`ported` 新增 `AppDrama`、`Uvod`；`DEFAULT_ORIGINS` 與 `scripts/spider_baselines.json` 新增兩個基準，讓 IOS-POC-55 的自動辨識可以比對它們的改名副本。
+- 不變：來源 key、原始 `ext`、每個 session 自己的 cookie jar 與 storage、收藏／記錄／下載／播放器都不動。`AppDrama` 的播放 header（解析回應的 `headers`）照 IOS-POC-5P 交給播放器。
+
+### 17.3 允收
+
+- 加密向量：RSA 用 openssl 產生的金鑰對，App 加密後由 openssl 解密，openssl 加密後由 App 解密；包含超過一個區塊的分段資料、PEM／DER／PKCS#1／PKCS#8 各格式。AES-CBC hex 與 openssl 輸出相同。二進位 HTTP 0x00～0xFF 原樣往返。
+- 舊介面：既有 host 測試不改仍通過；`aesEncrypt` 四個參數時輸出與 1.2 相同。
+- 來源：`AppDrama`（天堂、苹果）與 `Uvod` 都要實際走首頁、分類、詳情、搜尋、播放網址，並抓媒體前段 bytes。外部失效（橘汁、薯条）照實記錄，不算程式缺陷。
+- 版本保護：`minHostApi` 3 的腳本在 host 2 的 App 被略過、其餘照常；ABI 測試通過。
+- iOS Release build 成功；有 Simulator 就看實際畫面與播放。
+- 新功能的真機驗收另外列出，不和已完成的 0.1.69 驗收混在一起。
+
+### 17.4 回滾
+
+一個 commit。`git revert` 會移除兩支腳本、registry 兩行與 host 新增的部分，host 回到 1.2。已安裝的 App 不受影響，因為這次沒有發版。
+
+### 17.5 實作與驗證（2026-10-06 13:50～14:15 CST，基準 `b55cf99b`）
+
+**改動**
+- `CryptoHost.swift`：
+  - 新增 `__crypto.rsa`。PKCS#1 v1.5；先剝 X.509／PKCS#8 外殼再交給 `SecKeyCreateWithData`；依金鑰長度分段。
+  - `symmetric` 加密時，第 7 個參數可以要 hex 輸出。
+- `HTTPHost.swift`：`bodyBase64`（bytes 不經字串）、`responseType: 'base64'`（回 `bodyBase64`，`body` 留空）。
+- `host.js`：`rsaEncrypt`、`rsaDecrypt`、`bytes`（base64／UTF-8）、`aesEncrypt` 第五個參數、`req` 的兩個新選項。
+- `RuntimeABI`：`js.host` 1.3，exports 加三個，frozen fingerprint 新增一列。
+- `AppDrama.js`（新）：
+  - protobuf 編解碼放在自己的腳本裡。
+  - `init` 先讀網域檔，再做 zone 握手，失敗時改用 ext 的公鑰簽章。
+  - 解析回應不是 http(s) 網址時回空字串。這是唯一偏離原版的地方，理由見下方。
+- `Uvod.js`（新）：主機固定；請求用隨機金鑰封裝，回應用私鑰打開；簽章是 `x-signature`；每種畫質一個網址。
+- `SpiderRegistry`：新增兩行。
+- `spider_pack.py`：`HOST_API` 3；整包 `minHostApi` 2，`AppDrama`、`Uvod` 個別標 3；`DEFAULT_ORIGINS` 新增兩個。
+- 基準與相容包：`scripts/spider_baselines.json` 增為 21 個，原有 19 個指紋不變；`spider-pack/` 重建為 `2026-10-06.2`，21 支腳本、0 筆對應。
+- 測試：
+  - 新增 `SpiderHostTests` 3 個、`ShortDramaSpiderTests` 2 個。
+  - 更新四項既有斷言：registry 清單、spider 站數 44→49、`hostApiVersion` 2→3、frozen 列。
+- **範圍擴充（說明）**：`RuntimePackManifestTests` 原本拿 `js.host.rsaDecrypt` 當「App 沒有的能力」舉例，現在 App 有了。改成 `js.host.webview`，斷言語意不變。這個檔案在 guard 啟動後才加入範圍，只動測試資料。
+
+**驗證**
+
+| 項目 | 結果 |
+|---|---|
+| RSA 向量 | OpenSSL 3.6.4 產生的 1024 位元金鑰：OpenSSL 分三段加密的 288 bytes 二進位資料，App 用 PKCS#8 與 PKCS#1 私鑰都能還原；App 自己加密的結果是 384 bytes，自己也能解回；PKCS#1 公鑰 hex 進出、中文／emoji 文字往返都正確；錯誤金鑰回空字串 |
+| AES hex | 與 `openssl enc -aes-128-cbc` 輸出相同；四個參數的舊呼叫仍是同一密文的 base64 |
+| 二進位 HTTP | 0x00～0xFF 加 UTF-8 共 266 bytes 原樣往返；預設 Content-Type 是 `application/octet-stream`；文字請求不變 |
+| 對方伺服器互通（真實協定） | Uvod 伺服器解得開 App 用 RSA 封裝的金鑰並正常回應，App 也用私鑰打開伺服器的回應；AppDrama 伺服器接受 App 的 RSA 簽章與 hex 參數 |
+| 離線 adapter 測試 | `AppDrama`：zone 金鑰被採用、簽章可用私鑰驗證、`sig2`／`sig3`、`SecureRequest` 解得回查詢、protobuf 列表／詳情／播放 header／搜尋、無法解析的代號回空。`Uvod`：請求可用私鑰打開、無 padding、三種 `x-signature`、畫質排序、播放清單 |
+| 突變 | 4／4 被抓到：AppDrama 改用 ext 金鑰、Uvod 保留 padding、Python 自測兩項。另外 IOS-POC-55 的自測仍通過 |
+| live golden（首頁→分類→詳情→搜尋→播放） | 天堂、苹果（同一後端）：9 類、21 筆、2 條線、搜尋 21、`parse:0` m3u8。Uvod：7 類、42 筆、詳情、搜尋 42、`parse:0` m3u8 |
+| 媒體 bytes | 天堂：播放清單 HTTP 200 `#EXTM3U`（157,669 bytes），分段 206，開頭 `0x47`。Uvod：播放清單 200 `#EXTM3U`，分段 206，開頭 `0x47` |
+| 外部失效（不是程式缺陷） | 橘汁：首頁分類可讀，protobuf 分類回伺服器自己的訊息 `二级私钥为空,请配置`（2026-10-02 起就這樣）。薯条：網域檔主機連不上，沒有 API 網址 |
+| 來源端限制 | 天堂部分線路（`zijian…`、`vwnet…`）的解析回應是代號而不是網址，原版直接交給播放器，在 Android 上一樣播不了。iOS 改成回空字串，App 顯示「這一集沒有可播放的網址」，不再讓 AVPlayer 與 MPV 都失敗後才報 `-1002` |
+| 版本保護 | `spider-pack/manifest.json`：整包 `minHostApi` 2，`AppDrama`／`Uvod` 各為 3。0.1.69（host 2）會用既有的逐支 gate 略過這兩支並說明原因，其餘照常；這個 gate 由既有的 `skipsOneScriptThatNeedsANewerHostAndKeepsTheRest` 驗證。`spider_pack.py verify`：0 問題。新包在真實設定上安裝成功 |
+| 回歸（針對性） | 18 個測試檔、446 個測試，1 個失敗：既有的 `decodesProvidedWangMovieConfig`（寫死 167 站，今天 169 站），0.1.68 的 commit 上同樣失敗。App 列表 79 站＝30 原生＋49 spider（原 74） |
+| iOS Release device build | 成功（Xcode 27，unsigned `iphoneos`）。bundle 內 24 支腳本與原始碼相同。之後只改了 `AppDrama.js` 的播放空網址與 `host.js` 刪除未使用的兩個函式，兩者都是 JS 資源，不影響編譯 |
+| Simulator（iPhone 17 Pro，Debug，最終 JS） | 來源選單列出天堂、苹果、橘子、薯條、Uvod。天堂：首頁、篩選、詳情、線路，`4k專線2` 播放畫面持續前進；`高清藍光4K` 顯示「這一集沒有可播放的網址」。Uvod：首頁、詳情、播放（含內嵌字幕） |
+| Ponytail | 3 項已套用：刪掉 Swift 端用不到的預設編碼、金鑰候選改成一個運算式、刪掉沒有爬蟲使用的 `bytes.fromHex`／`toHex`。改完後重新凍結 fingerprint，並重跑針對性測試 |
+
+**未驗證**：真機（這次沒有發版）。新功能的 SideStore 驗收項目見 17.6。
+
+### 17.6 新功能要用 SideStore 真機確認的項目（下次發版後；和已完成的 0.1.69 驗收無關）
+
+1. 天堂、苹果：首頁分類與篩選、翻頁、搜尋、詳情的線路；直接線路與經解析的線路都能播。`高清藍光4K`／`4k專線3` 這類線路顯示「沒有可播放的網址」屬來源限制。
+2. Uvod：分類、搜尋、詳情集數、畫質選擇（1080p／720p…），播放時帶的 `referer`／`origin`。
+3. 橘子、薯條：照實會失敗。橘子的分類會顯示伺服器訊息；薯條沒有 API 網址。兩者都是外部問題，不是 App 缺陷。
+4. 收藏、觀看記錄、下載對這兩類來源的行為（App 端沒改程式）。
+5. 0.1.69 及更舊的 App 若讀到新的相容包，會略過 `AppDrama`／`Uvod` 並說明需要新版，其他來源不受影響（相容包仍未發布）。

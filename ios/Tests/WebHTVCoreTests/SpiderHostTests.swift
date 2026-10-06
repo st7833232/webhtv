@@ -597,3 +597,172 @@ private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScri
         }
     }
 }
+
+// MARK: - IOS-POC-44G: RSA, AES hex output, bytes, binary HTTP
+
+// A throwaway 1024-bit key made with OpenSSL 3.6.4 for these tests only, in every format the host
+// accepts, and a 288-byte binary message OpenSSL encrypted in 117-byte blocks (three RSA blocks).
+let testPublicPEM = """
+-----BEGIN PUBLIC KEY-----
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCT2NVcFZeDf2WlH9CeS7GCbqxI
+CrSgwCoNeDYEOxxUn8jWBEIg4VmgP5yopTsZfZpk5Wqc7ZXPr38YKX+SsV8N1uy9
+owSQrLrhAAiN/aS3nk/xFFCmNkbe5tqmUKLFaJmFRBeOqoS9M1LMAfgJyXHnbfRB
+X9vmWhI7QyBfyId7bwIDAQAB
+-----END PUBLIC KEY-----
+"""
+let testPrivatePKCS8 = """
+-----BEGIN PRIVATE KEY-----
+MIICeAIBADANBgkqhkiG9w0BAQEFAASCAmIwggJeAgEAAoGBAJPY1VwVl4N/ZaUf
+0J5LsYJurEgKtKDAKg14NgQ7HFSfyNYEQiDhWaA/nKilOxl9mmTlapztlc+vfxgp
+f5KxXw3W7L2jBJCsuuEACI39pLeeT/EUUKY2Rt7m2qZQosVomYVEF46qhL0zUswB
++AnJcedt9EFf2+ZaEjtDIF/Ih3tvAgMBAAECgYAXW6CJxdeELPJwHhClkavfwYBy
+eU6EPxflvOI71OLq87uVJGMWMsQoLySe+EvYASINYrlvRZHvl/hqZtQC5wbvOVWQ
+jLhP2Ol6UYp0Qul8TIK0Uz54eJhpByGdTgiyvBnxHLgE089PrjY3QGm6rIc0gDrH
+RlhZtHZVqbSd7i4qMQJBAMSLYRI4jPrsOBgsZsHETa5FbsGUulNKCYNmwpTdyPY1
+N/EjOCW9wkRMeTF0wvSWtAwEbiYGEaQOKRJGZ6rUu7sCQQDAkkUemMVO+XPe4/ie
+YuGOWn9oLOupmrwuOqpuIjqVx+mqv697httY5gvWxMU3zsNxYgQnM7v3VnNoU6xj
+nhHdAkEAo+mZixieeqWGIqLlD7QnFK/TLp5axht4051fqcdNUggQH4q/yLn4yfz9
+FcHK1TDZ9yu6sPteuvMUTalpy46fAQJBAIDurhaRRLHetOTMD/7Dx68PCnTOdq6k
+6k+tecSpaD42jk2Db9Ot9BiuVcjjEASQjCzS6mLw8W3l1PlJ5IcCI4UCQQCHQybz
+2hMpN/QFeeFDyHklGBnhS8OUEmhXpv22kcJZ1H198zMmM2AGH5F95i5MEyyESd9d
+SEu49bOf5naSaIFj
+-----END PRIVATE KEY-----
+"""
+let testPrivatePKCS1 = """
+-----BEGIN RSA PRIVATE KEY-----
+MIICXgIBAAKBgQCT2NVcFZeDf2WlH9CeS7GCbqxICrSgwCoNeDYEOxxUn8jWBEIg
+4VmgP5yopTsZfZpk5Wqc7ZXPr38YKX+SsV8N1uy9owSQrLrhAAiN/aS3nk/xFFCm
+Nkbe5tqmUKLFaJmFRBeOqoS9M1LMAfgJyXHnbfRBX9vmWhI7QyBfyId7bwIDAQAB
+AoGAF1ugicXXhCzycB4QpZGr38GAcnlOhD8X5bziO9Ti6vO7lSRjFjLEKC8knvhL
+2AEiDWK5b0WR75f4ambUAucG7zlVkIy4T9jpelGKdELpfEyCtFM+eHiYaQchnU4I
+srwZ8Ry4BNPPT642N0BpuqyHNIA6x0ZYWbR2Vam0ne4uKjECQQDEi2ESOIz67DgY
+LGbBxE2uRW7BlLpTSgmDZsKU3cj2NTfxIzglvcJETHkxdML0lrQMBG4mBhGkDikS
+Rmeq1Lu7AkEAwJJFHpjFTvlz3uP4nmLhjlp/aCzrqZq8LjqqbiI6lcfpqr+ve4bb
+WOYL1sTFN87DcWIEJzO791ZzaFOsY54R3QJBAKPpmYsYnnqlhiKi5Q+0JxSv0y6e
+WsYbeNOdX6nHTVIIEB+Kv8i5+Mn8/RXBytUw2fcrurD7XrrzFE2pacuOnwECQQCA
+7q4WkUSx3rTkzA/+w8evDwp0znaupOpPrXnEqWg+No5Ng2/TrfQYrlXI4xAEkIws
+0upi8PFt5dT5SeSHAiOFAkEAh0Mm89oTKTf0BXnhQ8h5JRgZ4UvDlBJoV6b9tpHC
+WdR9ffMzJjNgBh+RfeYuTBMshEnfXUhLuPWzn+Z2kmiBYw==
+-----END RSA PRIVATE KEY-----
+"""
+let testPublicPKCS1 = "MIGJAoGBAJPY1VwVl4N/ZaUf0J5LsYJurEgKtKDAKg14NgQ7HFSfyNYEQiDhWaA/nKilOxl9mmTlapztlc+vfxgpf5KxXw3W7L2jBJCsuuEACI39pLeeT/EUUKY2Rt7m2qZQosVomYVEF46qhL0zUswB+AnJcedt9EFf2+ZaEjtDIF/Ih3tvAgMBAAE="
+private let opensslCiphertext = "QsRo+WSL40bLf6bwhl4/2O1A67HuYI56wXXf7NZ1/jxFz9UCJDHCmhi0d7P8o/bPzC/UQkthmFhWtVptPXDv8nypRBnqKi4GGQ1E4vC8MHFgG3ucy0qwSKYGS9lNwOZzjyQRTQBscWfAhGv87IPKVFSUgj1yL8CRKipk3k97SPgivFWioU9obtNRpMTk48QvPUnTEeqjSDW+JDNmffoaPM+SancrB5Y8/a1cVjG9PWQ26lZwxOv5AvbzBxOPsB7OP1QPFl2r8sMZWrHc5verI0TtPscT21Q0frexW8b3J/2hcGBmggHYUYiHS/3Ldik1NLX9RDd6PzwXA7cIU6tTvU2AAHCywi1hkX5VdyFNf6UHd4ZBCuTYFdyn/Y1ygi0FzYIA7h3wOs6743uA8OkP7eq9fTZAdo2+Kkax664DGz2cDCm9XfAqTXulFBpmC81yH4j0ct+JankmyltbP5FWf/J/v3Icx2luYKbFKJRZ7fbMvsmrILkdzBqp3OFL1j2V"
+private let opensslPlainHex = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeffe7acace4ba8ce6aeb5efbc9ae4b8ade69687e8888720656d6f6a6920f09f8eac"
+
+@Test func rsaDecryptsOpenSSLBlocksAndRoundTripsEveryKeyFormat() async throws {
+    let spider = try runtime("""
+    var pub = \(jsonLiteral(testPublicPEM)), pk8 = \(jsonLiteral(testPrivatePKCS8)),
+        pk1 = \(jsonLiteral(testPrivatePKCS1)), pubDer = '\(testPublicPKCS1)';
+    module.exports = {
+      init: function () { return ''; },
+      homeContent: function () {
+        var ct = '\(opensslCiphertext)', hex = '\(opensslPlainHex)';
+        var mine = host.rsaEncrypt(hex, pub, { input: 'hex' });
+        return {
+          openssl8: host.rsaDecrypt(ct, pk8, { output: 'hex' }),
+          openssl1: host.rsaDecrypt(ct, pk1, { output: 'hex' }),
+          ownBlocks: host.bytes.fromBase64(mine).length,
+          own: host.rsaDecrypt(mine, pk8, { output: 'hex' }),
+          ownPkcs1Public: host.rsaDecrypt(host.rsaEncrypt(hex, pubDer, { input: 'hex', output: 'hex' }), pk1,
+                                          { input: 'hex', output: 'hex' }),
+          text: host.rsaDecrypt(host.rsaEncrypt('金鑰 key 🎬', pub), pk1),
+          badKey: host.rsaEncrypt('x', 'not a key'),
+          wrongKey: host.rsaDecrypt(ct, pub)
+        };
+      }
+    };
+    """)
+    let out = try #require(try JSONSerialization.jsonObject(
+        with: Data(try await spider.homeContent(filter: true).utf8)) as? [String: Any])
+    #expect(out["openssl8"] as? String == opensslPlainHex, "PKCS#8 private key, three blocks from OpenSSL")
+    #expect(out["openssl1"] as? String == opensslPlainHex, "PKCS#1 private key")
+    #expect(out["ownBlocks"] as? Int == 384, "288 bytes need three 128-byte blocks")
+    #expect(out["own"] as? String == opensslPlainHex)
+    #expect(out["ownPkcs1Public"] as? String == opensslPlainHex, "a PKCS#1 public key, hex in and out")
+    #expect(out["text"] as? String == "金鑰 key 🎬")
+    #expect(out["badKey"] as? String == "")
+    #expect(out["wrongKey"] as? String == "", "a public key cannot decrypt")
+}
+
+@Test func aesEncryptWritesHexOnlyWhenAsked() async throws {
+    let spider = try runtime("""
+    module.exports = {
+      init: function () { return ''; },
+      homeContent: function () {
+        var k = 'ed5fdsgucxumegqa', text = 'ts1700000000000ABCDEFGHIJKLMNO';
+        var hex = host.aesEncrypt(text, k, k, 'CBC', 'hex');
+        return { hex: hex, legacy: host.aesEncrypt(text, k, k, 'CBC'), back: host.aesDecrypt(hex, k, k, 'CBC', 'hex') };
+      }
+    };
+    """)
+    let out = try #require(try JSONSerialization.jsonObject(
+        with: Data(try await spider.homeContent(filter: true).utf8)) as? [String: Any])
+    // `openssl enc -aes-128-cbc -K <hex of key> -iv <hex of key>` on the same text.
+    let reference = "4cd222f7c924379acdf73cb66d70745624f82bec01750d45e248a2d95f4d9533"
+    #expect(out["hex"] as? String == reference)
+    #expect(out["legacy"] as? String == Data(hex: reference).base64EncodedString(), "four arguments stay base64")
+    #expect(out["back"] as? String == "ts1700000000000ABCDEFGHIJKLMNO")
+}
+
+/// Answers every request with the bytes it was sent, so a round trip shows what the wire carried.
+private final class EchoProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        var body = request.httpBody ?? Data()
+        if body.isEmpty, let stream = request.httpBodyStream {
+            stream.open()
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let read = stream.read(&buffer, maxLength: buffer.count)
+                if read <= 0 { break }
+                body.append(buffer, count: read)
+            }
+            stream.close()
+        }
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                       headerFields: ["Content-Type": request.value(forHTTPHeaderField: "Content-Type") ?? ""])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+@Test func binaryBodiesCrossTheBridgeByteForByte() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [EchoProtocol.self]
+    let registry = SpiderRegistry.bundled()
+    let spider = try JavaScriptSpiderRuntime(name: "echo", script: """
+    module.exports = {
+      init: function () { return ''; },
+      homeContent: function () {
+        var sent = [];
+        for (var i = 0; i < 256; i++) sent.push(i);
+        sent = sent.concat(host.bytes.fromUtf8('中文🎬'));
+        var res = host.req('https://echo.invalid/', { method: 'POST', bodyBase64: host.bytes.toBase64(sent),
+                                                       responseType: 'base64' });
+        var text = host.req('https://echo.invalid/', { method: 'POST', body: 'a=1' });
+        return { sent: host.bytes.toBase64(sent), back: host.bytes.toBase64(host.bytes.fromBase64(res.bodyBase64)),
+                 body: res.body, type: res.headers['content-type'], textBody: text.body, textB64: text.bodyBase64 || '',
+                 utf8: host.bytes.toUtf8(host.bytes.fromUtf8('中文🎬')),
+                 b64: [0, 1, 2, 3].map(function (n) { var a = []; for (var i = 0; i < n; i++) a.push(250 + i); return host.bytes.toBase64(a); }) };
+      }
+    };
+    """, prelude: registry.prelude, storage: SpiderStorage(siteKey: "echo"),
+       session: URLSession(configuration: configuration))
+    let out = try #require(try JSONSerialization.jsonObject(
+        with: Data(try await spider.homeContent(filter: true).utf8)) as? [String: Any])
+    #expect(Data(base64Encoded: out["sent"] as? String ?? "")?.count == 256 + 10)
+    #expect(out["back"] as? String == out["sent"] as? String, "every byte 0x00–0xFF survives both directions")
+    #expect(out["body"] as? String == "", "a binary reply is not also decoded as text")
+    #expect(out["type"] as? String == "application/octet-stream")
+    #expect(out["textBody"] as? String == "a=1", "a text request is unchanged")
+    #expect(out["textB64"] as? String == "")
+    #expect(out["utf8"] as? String == "中文🎬")
+    #expect(out["b64"] as? [String] == ["", "+g==", "+vs=", "+vv8"], "the same padding Foundation writes")
+}
+
+private func jsonLiteral(_ text: String) -> String {
+    String(decoding: try! JSONSerialization.data(withJSONObject: [text]), as: UTF8.self).dropFirst().dropLast().description
+}

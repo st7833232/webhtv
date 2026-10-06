@@ -15,6 +15,9 @@ var host = (function () {
       method: options.method || 'GET',
       headers: options.headers || {},
       body: typeof options.body === 'object' ? encodeForm(options.body) : (options.body || ''),
+      // IOS-POC-44G: binary in and out as base64, so no byte ever passes through a JS string.
+      bodyBase64: options.bodyBase64 || '',
+      responseType: options.responseType || '',
       timeout: options.timeout || 15000,
       redirect: options.redirect !== false
     });
@@ -47,8 +50,10 @@ var host = (function () {
     return __crypto.symmetric('aes', false, String(text), String(key), String(iv || ''),
                               mode || 'CBC', inputEncoding || 'base64');
   }
-  function aesEncrypt(text, key, iv, mode) {
-    return __crypto.symmetric('aes', true, String(text), String(key), String(iv || ''), mode || 'CBC', 'base64');
+  // `output` is base64 (the default, and all 1.2 offered) or hex.
+  function aesEncrypt(text, key, iv, mode, output) {
+    return __crypto.symmetric('aes', true, String(text), String(key), String(iv || ''), mode || 'CBC',
+                              output || 'base64');
   }
   // AES-CBC where the IV rides in front of the ciphertext: `aesEncryptIV` picks a fresh one and
   // returns base64(iv+ct), `aesDecryptIV` strips it back off. `App99` talks this dialect.
@@ -57,6 +62,57 @@ var host = (function () {
   function desDecrypt(text, key, iv, mode) {
     return __crypto.symmetric('des', false, String(text), String(key), String(iv || ''), mode || 'CBC', 'base64');
   }
+  // RSA/ECB/PKCS1Padding (IOS-POC-44G). Keys are PEM or base64 DER (X.509/PKCS#1 public,
+  // PKCS#8/PKCS#1 private); long data is split by the key's block size. `options.input` and
+  // `options.output` are utf8, base64 or hex: encryption reads utf8 and writes base64 by default,
+  // decryption reads base64 and writes utf8.
+  function rsaEncrypt(text, publicKey, options) {
+    options = options || {};
+    return __crypto.rsa(true, String(text), String(publicKey), options.input || 'utf8', options.output || 'base64');
+  }
+  function rsaDecrypt(text, privateKey, options) {
+    options = options || {};
+    return __crypto.rsa(false, String(text), String(privateKey), options.input || 'base64', options.output || 'utf8');
+  }
+
+  // ---- bytes (arrays of 0..255) ------------------------------------------
+  // For binary formats a spider assembles itself (protobuf); `req` carries them as base64.
+  var B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  var bytes = {
+    fromBase64: function (text) {
+      var clean = String(text || '').replace(/[^A-Za-z0-9+/]/g, ''), out = [], bits = 0, value = 0;
+      for (var i = 0; i < clean.length; i++) {
+        value = (value << 6) | B64.indexOf(clean.charAt(i));
+        bits += 6;
+        if (bits >= 8) { bits -= 8; out.push((value >> bits) & 255); }
+      }
+      return out;
+    },
+    toBase64: function (array) {
+      var out = '', i;
+      for (i = 0; i + 2 < array.length; i += 3) {
+        var n = (array[i] << 16) | (array[i + 1] << 8) | array[i + 2];
+        out += B64.charAt(n >> 18) + B64.charAt((n >> 12) & 63) + B64.charAt((n >> 6) & 63) + B64.charAt(n & 63);
+      }
+      if (i < array.length) {
+        var rest = (array[i] << 16) | ((array[i + 1] || 0) << 8);
+        out += B64.charAt(rest >> 18) + B64.charAt((rest >> 12) & 63) +
+          (i + 1 < array.length ? B64.charAt((rest >> 6) & 63) : '=') + '=';
+      }
+      return out;
+    },
+    fromUtf8: function (text) {
+      var out = [], s = unescape(encodeURIComponent(String(text)));
+      for (var i = 0; i < s.length; i++) out.push(s.charCodeAt(i));
+      return out;
+    },
+    toUtf8: function (array) {
+      var s = '';
+      for (var i = 0; i < array.length; i++) s += String.fromCharCode(array[i]);
+      try { return decodeURIComponent(escape(s)); } catch (e) { return s; }
+    }
+  };
+
   function md5(s) { return __crypto.digest('md5', String(s)); }
   function sha1(s) { return __crypto.digest('sha1', String(s)); }
   function sha256(s) { return __crypto.digest('sha256', String(s)); }
@@ -475,6 +531,7 @@ var host = (function () {
     enc: enc, dec: dec, base64: base64,
     aesDecrypt: aesDecrypt, aesEncrypt: aesEncrypt, desDecrypt: desDecrypt,
     aesEncryptIV: aesEncryptIV, aesDecryptIV: aesDecryptIV,
+    rsaEncrypt: rsaEncrypt, rsaDecrypt: rsaDecrypt, bytes: bytes,
     md5: md5, sha1: sha1, sha256: sha256, hmac: hmac,
     local: local, now: now, timestamp: timestamp, random: random, match: match,
     parse: parse, select: select, text: textOf, pdfh: pdfh, pdfa: pdfa, pd: pd, urljoin: urljoin,

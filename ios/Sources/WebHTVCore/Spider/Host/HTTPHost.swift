@@ -43,6 +43,16 @@ enum HTTPHost {
                 request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
             }
         }
+        // IOS-POC-44G: bytes travel as base64 across the bridge and are never a String on this side,
+        // which would replace every byte that is not valid UTF-8.
+        if let encoded = options["bodyBase64"] as? String, !encoded.isEmpty,
+           let bytes = Data(base64Encoded: encoded, options: [.ignoreUnknownCharacters]) {
+            request.httpBody = bytes
+            if request.value(forHTTPHeaderField: "Content-Type") == nil {
+                request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            }
+        }
+        let binaryResponse = (options["responseType"] as? String)?.lowercased() == "base64"
 
         let semaphore = DispatchSemaphore(value: 0)
         var result: [String: Any] = ["status": 0, "body": "", "headers": [String: String](), "cookies": "", "url": url]
@@ -63,8 +73,9 @@ enum HTTPHost {
             result["cookies"] = cookies.header(for: target)
             result["url"] = (http?.url ?? target).absoluteString
             let body = String(decoding: data ?? Data(), as: UTF8.self)
-            result["body"] = body
-            failure = SiteFailure(status: http?.statusCode ?? 0, headers: headers, body: body)
+            result["body"] = binaryResponse ? "" : body
+            if binaryResponse { result["bodyBase64"] = (data ?? Data()).base64EncodedString() }
+            failure = SiteFailure(status: http?.statusCode ?? 0, headers: headers, body: binaryResponse ? "" : body)
         }
         task.resume()
         let timedOut = semaphore.wait(timeout: .now() + request.timeoutInterval + 5) == .timedOut

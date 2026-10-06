@@ -2,6 +2,7 @@ import CommonCrypto
 import CryptoKit
 import Foundation
 import JavaScriptCore
+import Security
 
 /// `host.crypto` — the algorithms the audited spiders actually use.
 ///
@@ -37,6 +38,13 @@ enum CryptoHost {
             ivPrefixed(encrypt: encrypt, input: input, key: key)
         }
 
+        /// IOS-POC-44G: RSA PKCS#1 v1.5, split into blocks the way Java's "分段" helpers do.
+        let rsa: @convention(block) (Bool, String, String, String, String) -> String = {
+            encrypt, input, key, inputEncoding, outputEncoding in
+            CryptoHost.rsa(encrypt: encrypt, input: input, key: key,
+                           inputEncoding: inputEncoding, outputEncoding: outputEncoding)
+        }
+
         let b64encode: @convention(block) (String) -> String = { Data($0.utf8).base64EncodedString() }
         let b64decode: @convention(block) (String) -> String = {
             String(decoding: Data(base64Encoded: $0, options: [.ignoreUnknownCharacters]) ?? Data(), as: UTF8.self)
@@ -45,6 +53,7 @@ enum CryptoHost {
         let crypto = JSValue(newObjectIn: context)
         crypto?.setObject(symmetric, forKeyedSubscript: "symmetric" as NSString)
         crypto?.setObject(symmetricIV, forKeyedSubscript: "symmetricIV" as NSString)
+        crypto?.setObject(rsa, forKeyedSubscript: "rsa" as NSString)
         crypto?.setObject(digestBlock, forKeyedSubscript: "digest" as NSString)
         crypto?.setObject(hmac, forKeyedSubscript: "hmac" as NSString)
         crypto?.setObject(b64encode, forKeyedSubscript: "b64encode" as NSString)
@@ -54,6 +63,10 @@ enum CryptoHost {
 
     /// `AES/CBC/PKCS7Padding` and `AES/CBC/PKCS5Padding` are identical for a 16-byte block, which is
     /// why the decompiled helpers use the names interchangeably.
+    ///
+    /// `inputEncoding` names the ciphertext's encoding in both directions: what decryption reads, and
+    /// since IOS-POC-44G what encryption writes (`hex` for `AppDrama`'s CBC signature; anything else
+    /// is base64, which is all a 1.2 caller ever passed).
     static func run(algorithm: String, encrypt: Bool, input: String, key: String,
                     iv: String, mode: String, inputEncoding: String) -> String {
         let keyData = Data(key.utf8)
@@ -74,7 +87,94 @@ enum CryptoHost {
 
         guard let out = transform(source, key: keyData, iv: ivData, encrypt: encrypt,
                                   algorithm: cc, options: options, blockSize: blockSize) else { return "" }
-        return encrypt ? out.base64EncodedString() : String(decoding: out, as: UTF8.self)
+        if encrypt { return inputEncoding.lowercased() == "hex" ? hex(out) : out.base64EncodedString() }
+        return String(decoding: out, as: UTF8.self)
+    }
+
+    /// RSA/ECB/PKCS1Padding as Java runs it: a public key encrypts, a private key decrypts, and data
+    /// longer than one block is processed block by block (k−11 bytes in, k bytes out). `key` is a
+    /// PEM or base64 DER key — X.509 SubjectPublicKeyInfo or PKCS#1 for a public key, PKCS#8 or
+    /// PKCS#1 for a private one. Text is UTF-8 unless an encoding says `base64` or `hex`. Any failure
+    /// is "", like every other primitive here.
+    static func rsa(encrypt: Bool, input: String, key: String, inputEncoding: String,
+                    outputEncoding: String) -> String {
+        guard let der = Data(base64Encoded: key.replacingOccurrences(of: #"-----[^-]+-----|\s"#, with: "",
+                                                                     options: .regularExpression)),
+              let secKey = rsaKey(der, isPublic: encrypt),
+              let source = decode(input, inputEncoding)
+        else { return "" }
+        let size = SecKeyGetBlockSize(secKey)
+        let chunk = encrypt ? size - 11 : size
+        guard chunk > 0, encrypt || source.count % size == 0 else { return "" }
+        var out = Data()
+        var offset = 0
+        while offset < source.count {
+            let block = source.subdata(in: offset..<min(offset + chunk, source.count)) as CFData
+            let result = encrypt
+                ? SecKeyCreateEncryptedData(secKey, .rsaEncryptionPKCS1, block, nil)
+                : SecKeyCreateDecryptedData(secKey, .rsaEncryptionPKCS1, block, nil)
+            guard let result else { return "" }
+            out.append(result as Data)
+            offset += chunk
+        }
+        return encode(out, outputEncoding)
+    }
+
+    private static func decode(_ text: String, _ encoding: String) -> Data? {
+        switch encoding.lowercased() {
+        case "base64": Data(base64Encoded: text, options: [.ignoreUnknownCharacters])
+        case "hex": Data(hex: text)
+        default: Data(text.utf8)
+        }
+    }
+
+    private static func encode(_ data: Data, _ encoding: String) -> String {
+        switch encoding.lowercased() {
+        case "base64": data.base64EncodedString()
+        case "hex": hex(data)
+        default: String(decoding: data, as: UTF8.self)
+        }
+    }
+
+    /// `SecKeyCreateWithData` takes PKCS#1 only, so an X.509 or PKCS#8 wrapper comes off first: the
+    /// key is the BIT STRING (public) or OCTET STRING (private) after the algorithm identifier.
+    private static func rsaKey(_ der: Data, isPublic: Bool) -> SecKey? {
+        let attributes: [CFString: Any] = [
+            kSecAttrKeyType: kSecAttrKeyTypeRSA,
+            kSecAttrKeyClass: isPublic ? kSecAttrKeyClassPublic : kSecAttrKeyClassPrivate,
+        ]
+        return [unwrapped(der, isPublic: isPublic), der].compactMap { $0 }.lazy
+            .compactMap { SecKeyCreateWithData($0 as CFData, attributes as CFDictionary, nil) }.first
+    }
+
+    /// The PKCS#1 key inside SubjectPublicKeyInfo / PrivateKeyInfo, or nil when `der` is not one.
+    private static func unwrapped(_ der: Data, isPublic: Bool) -> Data? {
+        let bytes = [UInt8](der)
+        var index = 0
+        func header() -> (tag: UInt8, length: Int)? {
+            guard index + 2 <= bytes.count else { return nil }
+            let tag = bytes[index]
+            var length = Int(bytes[index + 1])
+            index += 2
+            if length & 0x80 != 0 {
+                let count = length & 0x7F
+                guard count <= 4, index + count <= bytes.count else { return nil }
+                length = bytes[index..<index + count].reduce(0) { $0 << 8 | Int($1) }
+                index += count
+            }
+            return (tag, length)
+        }
+        guard header()?.tag == 0x30 else { return nil }               // outer SEQUENCE
+        if !isPublic {
+            guard let version = header(), version.tag == 0x02 else { return nil }
+            index += version.length                                   // INTEGER version
+        }
+        guard let algorithm = header(), algorithm.tag == 0x30 else { return nil }
+        index += algorithm.length                                     // AlgorithmIdentifier
+        guard let wrapper = header(), wrapper.tag == (isPublic ? 0x03 : 0x04),
+              index + wrapper.length <= bytes.count else { return nil }
+        let start = isPublic ? index + 1 : index                      // BIT STRING's unused-bits byte
+        return Data(bytes[start..<index + wrapper.length])
     }
 
     /// AES-CBC/PKCS7 where the IV travels in front of the ciphertext: encryption picks a fresh IV

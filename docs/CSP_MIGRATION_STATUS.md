@@ -8,10 +8,12 @@ compatibility pack published beside the configuration replaces it at runtime, ha
 bundled copy as the fallback. What still requires an app release is a new `CatVodHost` primitive.
 See `docs/IOS-POC-5O-remote-compatibility-pack.md`.
 
-Last updated 2026-10-06: IOS-POC-44F ported `GuaziTY` and `MoDu`, IOS-POC-44E `AppYQK` and `AppYsV2` (`.vod` dialect only), IOS-POC-44D `Feiyu` and `MiaoWu` (one site each). Earlier, IOS-POC-44A ported `WeiguanDJ` and `HemaDJ`, IOS-POC-44B `QimaoDJ` and `HaokanDJ`, IOS-POC-44C `Jpys` and `Jys` (one script, one site each). Before that, port coverage was unchanged since IOS-POC-5M (`JianPian`, which
+Last updated 2026-10-06: IOS-POC-44G ported `AppDrama` and `Uvod` on js.host 1.3. Before that, IOS-POC-44F ported `GuaziTY` and `MoDu`, IOS-POC-44E `AppYQK` and `AppYsV2` (`.vod` dialect only), IOS-POC-44D `Feiyu` and `MiaoWu` (one site each). Earlier, IOS-POC-44A ported `WeiguanDJ` and `HemaDJ`, IOS-POC-44B `QimaoDJ` and `HaokanDJ`, IOS-POC-44C `Jpys` and `Jys` (one script, one site each). Before that, port coverage was unchanged since IOS-POC-5M (`JianPian`, which
 drives 薦片 despite its class being blocked; IOS-POC-5L added `AppQi`, `App99`, `App3Q` and `Bili`).
 What changed since: IOS-POC-5P gave every spider's play result its request headers, and IOS-POC-5Q
 made `Bili` report one line per quality — both noted in the `Bili` row below.
+
+**IOS-POC-44G (2026-10-06): `AppDrama` and `Uvod` are ported on js.host 1.3**, which adds RSA (PKCS#1, block-split), AES hex output and binary HTTP for any spider; 2 of 4 `AppDrama` sites and the `Uvod` site are live (`docs/IOS-POC-44-csp-portable-sites.md` §17). Not released yet.
 
 **IOS-POC-55 (2026-10-06): a renamed class no longer needs a port of its own when it is provably
 the same protocol.** `scripts/audit_spider_jars.py compat` fingerprints every configured class in the
@@ -93,6 +95,8 @@ here, all six `AppQi` hosts were dead on the day, and two of the four `App99` ho
 | `AppYQK` | 1 | B. HTTP + md5 sign | IOS-POC-44E live golden on 一起影视: 6 channels (短剧/体育 skipped as the original does) → one curated page of topics → detail with 18 lines → search with its `nextVal` cursor → `parse:0` quality list. Only `canPlay` qualities are offered: 超清 is marked `APP独享` and the web API refuses it. Many lines' media hosts have invalid certificates and cannot play on Apple platforms. |
 | `AppYsV2` | 1 | A. HTTP + JSON | IOS-POC-44E, **`.vod` dialect only** (奴娜, `www.nntv.in/api.php/v1.vod`): 10 types with class/area/lang/year/排序 filters → category 18 a page (`data.total`/`limit`) → detail with 3 lines → `parse:0` m3u8; the `jazsjzlp_1080p` line is a play page that goes to the sniffer. The other dialects (`api.php/app`, `xgapp`, `iopenyun`, `?ac=list`) are not ported. |
 | `GuaziTY` | 1 | A. HTTP + AES-CBC form POST | IOS-POC-44F live golden on 瓜子体育: 4 classes → one page of matches started within 24 h and not over → detail with its live lines → `parse:0` live m3u8 (TS segments read while the match was live). A match that has not started answers 404 until kick-off; a day without matches is an empty list, while an undecryptable reply is an error. No search, no second page (as the original). |
+| `AppDrama` | 4 | C. protobuf over binary HTTP + RSA/AES | IOS-POC-44G (js.host 1.3) live golden on 天堂 and 苹果 (one backend, `122.228.193.211:18008`): 9 classes with filters → 21 a page → detail with its lines → search 21 → `parse:0` m3u8, TS segment read. 橘汁's server answers `二级私钥为空,请配置` (its own configuration) and 薯条's domain file host is unreachable — both external, as on 2026-10-02. |
+| `Uvod` | 1 | C. RSA-sealed bodies (private-key replies) | IOS-POC-44G (js.host 1.3) live golden: 7 classes → 42 a page → detail with episodes and qualities → search 42 → `parse:0` quality list of m3u8, TS segment read. |
 | `MoDu` | 1 | A. HTTP + JSON (苹果CMS) | IOS-POC-44F live golden on 魔都动漫 (`www.mdzyapi.com`, its own key beside the type-0 and type-1 魔都 sources): 5 fixed classes → 20 a page with `pagecount` → detail → search → `parse:0` m3u8. Episodes on `modujx10`/`modujx12` have self-signed certificates and 404; `modujx11/13/17` serve. |
 | `JianPian` | 1 | A. HTTP + JSON | IOS-POC-5M live golden on 薦片 (configured as `csp_JPianAmns`): 5 classes → 15 titles → detail with **24 lines** → search 20 → `parse:0` m3u8 whose playlist fetches as media with no Referer. |
 
@@ -113,9 +117,8 @@ IOS-POC-5L; `AppDrama` is the last of the family and is blocked on RSA in the ho
 
 | class | sites | category | note |
 |---|---:|---|---|
-| `AppDrama` | 4 | C | App-API family; **needs RSA in the host** |
 | `Douban` | 2 | A | plain JSON |
-| remaining A/B/C | 5 | A–C | `Wwys`, `Hxq`, `PianKu8`, `AppSy`, `Uvod`, 1 site each |
+| remaining A/B/C | 4 | A–C | `Wwys`, `Hxq`, `PianKu8`, `AppSy`, 1 site each |
 
 Which of these were alive on 2026-10-02, what each needs from the host, and the staged order they
 are being ported in: `docs/IOS-POC-44-csp-portable-sites.md`.

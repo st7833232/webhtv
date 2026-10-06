@@ -79,6 +79,9 @@ public struct SpiderRegistry: Sendable {
         // IOS-POC-44F: an AES-CBC live-match API, and a plain 苹果CMS JSON API.
         "GuaziTY",    // http-crypto: river-fman.jar (AES-128-CBC form POSTs; live matches only)
         "MoDu",       // http-json: xiaosa-0807.jar (苹果CMS `ac=detail`)
+        // IOS-POC-44G: the first two ports on js.host 1.3 (RSA, binary HTTP, AES hex output).
+        "AppDrama",   // http-crypto: river-fman.jar (protobuf POSTs, RSA-signed public params)
+        "Uvod",       // http-crypto: custom_spider.jar (AES bodies whose key travels RSA-encrypted)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

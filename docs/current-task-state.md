@@ -4,7 +4,29 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-06：發布 0.1.69 (70)（六個新來源＋JAR 自動辨識第一版；先讀這一節）
+## Current handoff — 2026-10-06：IOS-POC-44G host RSA／AES hex／二進位 HTTP＋AppDrama、Uvod（先讀這一節）
+
+- **`0.1.69 (70)` 真機驗收：使用者 2026-10-06 回報完成**，不再列為待辦或阻塞條件（下方「發布 0.1.69」一節保留為歷史）。
+- **IOS-POC-44G**（基準 `b55cf99b`，只交付程式、驗證、文件，**發版另行處理**）。完整紀錄：`docs/IOS-POC-44-csp-portable-sites.md` 第 17 節。
+  - `js.host` 1.3，只新增、不改舊行為，其他爬蟲也能用：
+    - `host.rsaEncrypt`／`rsaDecrypt`：PKCS#1 v1.5，X.509／PKCS#1／PKCS#8，自動分段。
+    - `host.aesEncrypt` 第五個參數 `'hex'`。
+    - `host.req` 的 `bodyBase64`／`responseType: 'base64'`。
+    - `host.bytes`。
+  - 版本相關：`hostApiVersion`／`HOST_API` 3；相容包整包維持 2，新的兩支個別標 3，舊 App 會略過這兩支。
+  - 新來源：`AppDrama`（天堂、苹果可用；橘汁伺服器錯誤、薯条網域檔連不上，都是外部問題）、`Uvod`（可用）。App 列表 74 → 79 站。
+  - 基準與相容包：`spider_baselines.json` 21 個（原 19 個不變）；`spider-pack/` `2026-10-06.2`（未發布）。
+- 驗證：
+  - OpenSSL 向量、二進位往返、AES hex 都通過。
+  - 兩支 adapter 的離線測試通過，突變都被抓到。
+  - live golden 加媒體 bytes：天堂、苹果、Uvod 都通過。
+  - 針對性回歸 446 個，1 個既有失敗（寫死站數）。
+  - iOS Release build 成功。Simulator 上天堂與 Uvod 實際畫面與播放都看過。
+  - Ponytail 3 項已套用。
+  - **真機未驗收**（項目見第 17.6 節）。
+- 下一步：等使用者決定發版。
+
+## Previous handoff — 2026-10-06：發布 0.1.69 (70)（六個新來源＋JAR 自動辨識第一版；使用者已回報驗收完成）
 
 **最新發布：WebHTV `0.1.69 (70)`**（2026-10-06 12:05 CST）。內容＝`0.1.68 (69)`＋IOS-POC-44D/44E/44F 的六個新內建來源（`Feiyu`、`MiaoWu`、`AppYQK`、`AppYsV2` `.vod`、`GuaziTY`、`MoDu`）＋IOS-POC-55 的 JAR 自動辨識第一版。完整紀錄：`docs/IOS-POC-11-sidestore-release.md`「第七十次發布」。
 - 證據：
@@ -16,7 +38,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
   - 本機 Release device build 成功。
   - 針對性 `swift test` 337 個，1 個失敗；完整 1019 個，2 個失敗。兩個失敗在 0.1.68 的 commit 上一樣失敗：寫死站數 167 vs 今天 169；type-4 站今天回 embed 頁。都是既有斷言或外部變動，**不是全數通過**。
   - Simulator（iPhone 17 Pro）：新來源 `奴娜` 首頁、分類、篩選、詳情、直接 m3u8 播放都正常。同一部片的 `bsky` 線路因為 iOS 沒有全域解析接口而無法播放：這是既有缺口，已列為已知限制。
-- **真機未驗收**。SideStore 驗收清單：
+- ~~真機未驗收~~ **使用者 2026-10-06 回報真機驗收完成。** 當時的 SideStore 驗收清單（保留為紀錄）：
   1. SideStore 重新整理 source，看到 `0.1.69 (70)` 並更新。設定、收藏、觀看記錄、已下載內容都要還在。
   2. 六個新來源各開首頁、分類、詳情並播一集：
      - 飛魚：部分線路的媒體主機憑證無效，Apple 平台播不了。
@@ -31,7 +53,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
   6. 下載：新來源的直接 m3u8 線路下載一集，離線可播。
   7. 播放器：AVPlayer 正常、切 MPV、PiP。
   8. 自動辨識：沒有實際對應可以測。設定頁的相容包狀態沿用既有行為：GitLab 沒有 `spiders/manifest.json`，會顯示內建腳本或更新失敗的訊息，這不是新問題。
-- 下一步：等使用者的真機回報。`spider-pack/` 要不要發布到 GitLab，由使用者另外決定。
+- 下一步（當時）：等使用者的真機回報——已於 2026-10-06 回報完成。`spider-pack/` 要不要發布到 GitLab，由使用者另外決定。
 
 ## Previous handoff — 2026-10-06：IOS-POC-55 電腦端分析 JAR，自動重用相容的內建爬蟲
 

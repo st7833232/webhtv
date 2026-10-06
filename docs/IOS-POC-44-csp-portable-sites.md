@@ -5,8 +5,8 @@
 - 目標：使用者 2026-10-02「開始 IOS-POC-44 assessment」。對象是 `docs/current-task-state.md`「Current handoff — 2026-10-02 下午」列的 23 站（19 個類別）：可以移植、iOS 還沒有 port 的 `csp_*` 站。
 - 範圍：只做 assessment，**不改程式**。task guard `IOS-POC-44`（`assessment`），路徑：本文件、`docs/current-task-state.md`、`docs/CSP_PORTABILITY_MATRIX.md`。探測腳本與回應都在 session scratchpad，不 commit。
 - 結論：23 站裡 **18 站後端今天活著、5 站死了**。活著的 18 站裡 13 站只要寫 JS，不必改 Swift；3 站（AppDrama×2、Uvod）要先在 host 補 RSA 和二進位 HTTP；Douban×2 要另做 App 功能。建議與分段見第 7 節，待決定事項見第 9 節。
-- 44A（`WeiguanDJ`＋`HemaDJ`）見第 11 節；44B（`QimaoDJ`＋`HaokanDJ`）見第 12 節；44C（`Jpys`＋`Jys`）見第 13 節；44D（`Feiyu`＋`MiaoWu`）見第 14 節；44E（`AppYQK`＋`AppYsV2`）見第 15 節。五段都已完成。44D、44E 還沒發版，真機未驗證。
-- 唯一下一步：等使用者決定下一段（第 7 節，建議 44F：`GuaziTY`＋`MoDu`）；沒有核准不改程式。`QmdjAmns`／`HHkkAmns` 的 alias（第 6 節、第 9 節第 2 項）仍待使用者決定。
+- 44A（`WeiguanDJ`＋`HemaDJ`）見第 11 節；44B（`QimaoDJ`＋`HaokanDJ`）見第 12 節；44C（`Jpys`＋`Jys`）見第 13 節；44D（`Feiyu`＋`MiaoWu`）見第 14 節；44E（`AppYQK`＋`AppYsV2`）見第 15 節；44F（`GuaziTY`＋`MoDu`）見第 16 節。44A～44F 六段都已完成。44D～44F 還沒發版，真機未驗證。
+- 唯一下一步：等使用者決定下一段（第 7 節的 44G：host 補 RSA／hex／二進位 HTTP 後做 `AppDrama`＋`Uvod`，要發新版 App）；沒有核准不改程式。`QmdjAmns`／`HHkkAmns` 的 alias（第 6 節、第 9 節第 2 項）仍待使用者決定。
 
 ## 1. 問題與範圍
 
@@ -136,6 +136,7 @@
 - 2026-10-02 17:41：使用者「開始 44C」。實作見第 13 節。
 - 2026-10-06：使用者要求直接實作 44D（飛魚、喵呜动漫），只交付程式與文件，發版另行處理。實作見第 14 節。
 - 2026-10-06：使用者要求直接實作 44E（一起影视、奴娜），只交付程式與文件，發版另行處理。實作見第 15 節。
+- 2026-10-06：使用者要求直接實作 44F（瓜子体育、魔都动漫），只交付程式與文件，發版另行處理。實作見第 16 節。
 
 ## 11. 44A 實作紀錄（2026-10-02，Task-Guard `IOS-POC-44A`，`standard`）
 
@@ -478,3 +479,94 @@
    - 憑證無效的線路（WJ、SN、HN、SD、HH、JS、JY、XL、BD、KC、NN，MT 視作品而定）**預期會失敗**，要確認錯誤顯示是否合適。
 3. 奴娜：`dyttm3u8`、`lzm3u8` 能播；`jazsjzlp_1080p` 交給嗅探後能不能播；只有網址的集數名稱會顯示成 01、02…。
 4. 收藏、觀看記錄（線路名稱改成不含集數後的續看）、下載對這兩站的行為（App 端沒有改程式）。
+
+## 16. 44F 實作紀錄（2026-10-06，Task-Guard `IOS-POC-44F`，`standard`）
+
+- 基準：fetch 後的 `origin/ios-poc` `cd62381e`（含 44D、44E），工作區乾淨。沒有沿用第 3、4 節 2026-10-02 的存活結論，全部重新確認。
+- 設定：當天的 `wang-movie.json`（169 站，md5 `177d298c…`）。
+  - `瓜子体育`：`csp_GuaziTY`，沒有 `ext`，`style: list`；JAR 是 `river-fman.jar` `ca48f92e…`，和設定一致。
+  - `魔都动漫`：`csp_MoDu`，沒有 `ext`，`searchable: 1`；JAR 設定寫 `xiaosa-0807.jar` `4d263271…`，實際下載的是 `d8f71fc8…`。
+  - 同一份設定裡還有兩個魔都來源：type 0 的 `魔都`（`caiji.moduapi.cc`，XML）和 type 1 的 `vod_魔都`（`moduzy.com`）。三者 key 和 API 都不同，這次沒有合併，也沒有改設定。
+- 原版：以 jadx 反編譯 `GuaziTY`（127 行，以及 `merge/A/a` 的 `bo`／`an` AES helper、result builder、表單 POST）、`MoDu`（139 行），完整讀過。
+
+### 16.1 原版邏輯核對與站況（10:45～10:50 CST，家用網路，python3／curl／openssl 照原版重做）
+
+- **瓜子体育**：
+  - 每個請求都是表單 POST，`parameter` 是 base64(AES-128-CBC(JSON))，金鑰和 IV 都是固定的 UTF-8 字串；回應的 `data` 用同一組金鑰、IV 解密（原版會先拿掉 `\`）。原版的 `an()` 解密失敗時會原樣回傳密文，後面的 `new JSONArray(...)` 就會丟例外。
+  - 4 個分類各一個查詢，回應各有 38～40 場賽事。原版只保留 24 小時內開賽、而且 `m_status<2`（0 未開賽、1 進行中）的場次；當時每個分類剩 18～20 場，包括進行中的 NBA 國王 vs 湖人。
+  - 分類只有第 1 頁（其他頁原版回空字串）；沒有搜尋。
+  - 詳情：`live_line` 是直播線路（中文解說、英文解說、賽場原聲）。
+  - 媒體：進行中的比賽，m3u8 回 200、TS 分段 206（`47 40 00 10`），帶不帶原版的 `Lavf` UA／Referer 都可以。**未開賽的比賽同樣有線路，但 m3u8 回 404 `stream not found`**，開賽前本來就沒有串流，不能拿來判定來源失效。有些未開賽的場次連線路都還沒有。
+- **魔都动漫**：
+  - `www.mdzyapi.com/api.php/provide/vod` 是一般的苹果CMS JSON：`ac=detail&t=&pg=`、`ac=detail&ids=`、`/?ac=detail&pg=&wd=`。
+  - 每頁 20 筆，回 `pagecount`／`total`；`limit` 是字串 `"20"`。
+  - API 的分類清單有 30 多類（包含成人分類「里番」），原版只寫死 5 個動漫分類。
+  - 線路都是 `modum3u8`。抽查 100 部作品的第一集：`modujx17`（59）、`modujx11`（21）、`modujx13`（1）的憑證正常，回 200；`modujx10`（15）、`modujx12`（4）是自簽憑證，就算跳過憑證檢查也回 404。
+
+### 16.2 改動
+
+- 新增 `ios/Sources/WebHTVCore/Resources/Spiders/GuaziTY.js`、`MoDu.js`，`SpiderRegistry.ported` 加兩行。
+  - 沿用 `host.aesEncrypt`／`aesDecrypt`（CBC）、`host.post`（表單）、`host.get`、`host.enc`、`host.result`、`host.isVideoFormat`。
+  - 不動 host 與 Swift，`js.host` 維持 1.2。
+- 測試：
+  - `ShortDramaSpiderTests.swift`：stub 多攔截 `api.46d5umpk.com`、`www.mdzyapi.com`，並新增兩個離線測試。
+    - 瓜子：
+      - 表單的 `parameter` 和 openssl 算出的 AES-CBC 密文完全相同（nba 查詢與 `{"mid":"1"}`）。
+      - 已結束的、超過 24 小時的賽事會被排除；備註格式（`MM-dd HH:mm`，用裝置時區）與比分正確。
+      - **沒有賽事的日子回空清單；回應無法解密時丟錯**，兩者不會混淆。
+      - 第 2 頁回空；詳情的線路與集數正確；播放帶 `Lavf` UA 與 Referer；搜尋回空。
+    - 魔都：
+      - 名稱或 id 空白的作品略過；`pagecount`／`limit`（字串）／`total` 依原版的下限與預設值計算。
+      - 沒有線路名稱時用「播放」。
+      - 搜尋在 API 沒給 `pagecount` 時預設 10 頁。
+      - 播放網址去空白並帶 UA。
+  - registry 測試加兩類；`SourceClientTests` 的 spider 站數由 42 改成 44。
+- **和原版刻意不同的地方**：
+  - 共通：逾時 20 秒；不支援彈幕（魔都原版的 `addDanmaku` 要用 Android 的本機 proxy）。
+  - 瓜子：
+    - 分類結果多帶 `page:1`／`pagecount:1`（原版只回 `{list}`，但 golden 要求分類結果要有頁碼）。
+    - 不在設定裡的分類 id 回空（原版會去找不存在的 `all`，然後丟例外）。
+    - 請求本身失敗時回空清單，讓 runtime 以「站台連不上」回報。
+    - 搜尋明確回空清單（原版沒有這個方法）。
+  - 魔都：詳情多帶 `type_name`。
+
+### 16.3 驗證
+
+- **解密與解析的離線測試**：新增的 2 個測試加上 registry 測試通過。突變 4／4 都被抓到：改金鑰、拿掉 `m_status` 過濾、把「解密失敗要丟錯」改成回空、改掉 `pagecount` 的計算。
+- **runtime 端到端探測**：真的 JavaScriptCore，走 `CSPSourceResolver().session(for:)`，用設定檔原本的站台定義。10:51～10:52 執行。探測檔是臨時測試，用完就刪掉，沒有 commit。
+
+| 功能 | 瓜子体育 | 魔都动漫 |
+|---|---|---|
+| 首頁分類 | 4 個（热门、NBA、足球、篮球），篩選 `{}`（同原版） | 5 個動漫分類（同原版），沒有篩選 |
+| 分類與分頁 | 每個分類一頁：20／20／18／19 場；第 2 頁 0 筆（來源沒有） | 5 個分類的第 1、2 頁不重疊，總頁數 2～225；港台動漫第 2 頁 15 筆 |
+| 搜尋 | 原版沒有，回空 | 「斗罗」19 筆、「海贼王」7 筆 |
+| 作品 metadata | 對戰、狀態與比分（例如「第二节 比分30-48」） | 年份、類型、地區、演員、導演、簡介、備註 |
+| 線路與集數 | 1 條「 瓜子 」；直播中的場次 3 集（中文解說、英文解說、賽場原聲），未開賽的 0～1 集 | 1 條 `modum3u8`，例如 34／20／244 集 |
+| API 成功 | 4 個分類與詳情都解密成功 | 全部 200 |
+| 取得媒體網址 | 有線路的場次都是 `parse:0` m3u8 | `parse:0` m3u8 |
+| 讀到媒體 | 直播中的國王 vs 湖人：m3u8 200 → TS 206（`47 40 00 10`）；**未開賽的中甲：404 `stream not found`（正常）** | `modujx17`、`modujx11`：TS 206；`modujx12`：憑證無效，連不上（抽查時 `modujx10` 也一樣） |
+| AVFoundation 可開啟（macOS） | 直播中的那場：playable，時長是直播（無限） | `modujx17`／`modujx11` 的作品 playable；`modujx12` 失敗（憑證） |
+| 播放 header | `User-Agent: Lavf/57.83.100`＋`Referer: http://WJiZxLXA2.com/`（同原版） | 原版的 Chrome UA |
+| **iOS 實際播放（畫面）** | **未驗證** | **未驗證** |
+
+- 即時 golden（`CSP_GOLDEN_SITE`，含相容包 golden）兩站都通過（10:50）。瓜子第一次跑時卡在「分類結果要有 `page`」，補上 `page:1`／`pagecount:1` 後重跑通過：4 個分類 → 热门 20 場 → 詳情 3 條直播線路 → 搜尋 0 筆 → `parse:0` 直播 m3u8。魔都：5 個分類 → 20 筆 → 詳情 244 集 → 搜尋「我」20 筆 → `parse:0` m3u8。
+- **既有來源回歸**：`swift test --filter` 跑和 44D、44E 相同的 10 個測試檔，帶 `WANG_MOVIE_JSON`=當天設定。
+  - 168 個測試中 167 個通過。
+  - App 列表 74 站＝30 原生＋44 spider（原本 72 站）。type 0／type 1 的兩個魔都來源仍然各自在原生站裡。
+  - 唯一失敗的 `ConfigLoaderTests.decodesProvidedWangMovieConfig` 是**既有的失敗**：它寫死 167 站，當天設定是 169 站，44D 之前就已經這樣失敗，和這次無關，沒有修。
+- 沒有跑：完整 `swift test`、測試 CI、sweep、模擬器、Xcode 建置、真機。
+- Ponytail（`ponytail:ponytail-review`，對最終 diff）：沒有可刪的項目（Lean already）。
+
+### 16.4 要用 SideStore 真機確認的項目（這次沒有發版）
+
+1. 瓜子：
+   - 4 個分類在 App 裡的顯示（設定的 `style: list`）、賽事時間與比分。
+   - 比賽進行中時直播能播。
+   - 未開賽時打開線路會失敗（來源還沒有串流），要確認錯誤顯示是否合適。
+   - 沒有比賽的時段，分類會顯示空清單。
+2. 魔都：
+   - 5 個分類、翻頁、搜尋。
+   - `modujx11`／`13`／`17` 上的作品能播。
+   - `modujx10`／`12` 上的作品預期會失敗（憑證無效，而且來源回 404）。
+   - 魔都动漫和另外兩個魔都來源各自獨立顯示。
+3. 收藏、觀看記錄、下載對這兩站的行為（App 端沒有改程式；瓜子的直播串流原本就不適合下載）。

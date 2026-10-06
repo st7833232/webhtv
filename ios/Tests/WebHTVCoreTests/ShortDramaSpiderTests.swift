@@ -28,7 +28,8 @@ final class ShortDramaSite: URLProtocol, @unchecked Sendable {
         let host = request.url?.host ?? ""
         return host.hasSuffix(".invalid") || ["api.drama.9ddm.com", "freevideo.zqqds.cn", "neptune.qmplaylet.com",
             "api-store.qmplaylet.com", "api-read.qmplaylet.com", "sv.baidu.com", "www.hkybqufgh.com",
-            "4kyszx.top", "doh.pub", "app.nyafun.vip", "yzy0916.n0z6fkpuk.com"].contains(host)
+            "4kyszx.top", "doh.pub", "app.nyafun.vip", "yzy0916.n0z6fkpuk.com",
+            "api.46d5umpk.com", "www.mdzyapi.com"].contains(host)
     }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func stopLoading() {}
@@ -637,4 +638,115 @@ private func hmacSHA256(_ text: String, key: String) -> String {
     let other = try await spider("AppYsV2", extend: "https://x.invalid/api.php/app/")
     #expect((try json(try await other.homeContent(filter: true))["class"] as? [Any])?.isEmpty == true)
     await other.destroy()
+}
+
+@Test func guaziTYKeepsLiveAndUpcomingMatchesAndTellsAnEmptyDayFromABrokenReply() async throws {
+    let key = "KANGEQIU@8868!~.", iv = "0200010900030207"
+    func sealed(_ plain: String) -> String {
+        #"{"code":200,"name":"操作成功","data":""# + CryptoHost.run(algorithm: "aes", encrypt: true, input: plain, key: key,
+                                                               iv: iv, mode: "CBC", inputEncoding: "base64") + #""}"#
+    }
+    let now = Int(Date().timeIntervalSince1970)
+    func match(_ mid: Int, _ start: Int, _ status: Int, _ info: String, _ home: Int, _ away: Int) -> String {
+        #"{"mid":\#(mid),"match_time":\#(start),"m_status":\#(status),"match_status_info":"\#(info)","event_name":"NBA","#
+            + #""home":{"name":"国王","logo":"https://l.invalid/h.png","score":\#(home)},"visiting":{"name":"湖人","score":\#(away)}}"#
+    }
+    let api = "api.46d5umpk.com/gz/live/"
+    ShortDramaSite.serve([
+        api + "sports": [
+            sealed("[" + [match(1, now - 600, 1, "第二节", 28, 40), match(2, now + 3600, 0, "未开赛", 0, 0),
+                          match(3, now - 7200, 2, "完", 99, 98), match(4, now - 90_000, 1, "第四节", 1, 1)].joined(separator: ",") + "]"),
+            sealed("[]"),
+            #"{"code":200,"data":"not a cipher at all"}"#],
+        api + "detail": [sealed(#"""
+        {"mid":1,"match_status_info":"第二节","home":{"name":"国王","logo":"https://l.invalid/h.png","score":28},"visiting":{"name":"湖人","score":40},
+         "live_line":[{"name":"中文解说","m3u8":"https://live.invalid/zh.m3u8?auth_key=1"},{"name":"赛场原声","m3u8":"https://live.invalid/sd.m3u8?auth_key=2"}]}
+        """#)],
+    ])
+    let guazi = try await spider("GuaziTY")
+
+    let home = try json(try await guazi.homeContent(filter: false))
+    #expect((home["class"] as? [[String: String]])?.map { $0["type_id"] ?? "" } == ["hot", "nba", "football", "basketball"])
+
+    let page = try json(try await guazi.categoryContent(tid: "nba", page: "1", filter: false, extend: [:]))
+    let list = try #require(page["list"] as? [[String: Any]])
+    #expect(list.map { $0["vod_id"] as? String ?? "" } == ["1", "2"], "finished, and older than a day, are dropped")
+    #expect(page["pagecount"] as? Int == 1)
+    let formatter = DateFormatter()
+    formatter.dateFormat = "MM-dd HH:mm"
+    #expect(list[0]["vod_remarks"] as? String == "NBA \(formatter.string(from: Date(timeIntervalSince1970: TimeInterval(now - 600)))) 第二节 比分28-40")
+    #expect(list[1]["vod_remarks"] as? String == "NBA \(formatter.string(from: Date(timeIntervalSince1970: TimeInterval(now + 3600)))) 未开赛")
+    #expect(list[0]["vod_name"] as? String == "国王 vs 湖人")
+    // The form's `parameter` is the cipher Java's AES/CBC/PKCS5Padding gives — computed with openssl.
+    func parameter(_ asked: ShortDramaSite.Asked) -> String? {
+        URLComponents(string: "?" + asked.body)?.queryItems?.first(where: { $0.name == "parameter" })?.value
+    }
+    let asked = try #require(ShortDramaSite.requests(to: "/gz/live/sports").last)
+    #expect(parameter(asked) == "LJ6JyZxcMKdqnJ7tXLMN9LMWgliVRIP+YHbzq0tOCT810RC0vVQlohKlwvOhUkzk", "the nba query")
+    #expect(asked.headers["client-version"] == "3.0.1.1")
+
+    // A day with no match is an empty list; a reply that does not decrypt is an error, not "no matches".
+    let quiet = try json(try await guazi.categoryContent(tid: "hot", page: "1", filter: false, extend: [:]))
+    #expect((quiet["list"] as? [Any])?.isEmpty == true)
+    await #expect(throws: (any Error).self) {
+        _ = try await guazi.categoryContent(tid: "football", page: "1", filter: false, extend: [:])
+    }
+    let second = try json(try await guazi.categoryContent(tid: "nba", page: "2", filter: false, extend: [:]))
+    #expect((second["list"] as? [Any])?.isEmpty == true, "the API has no second page")
+
+    let detail = try #require((try json(try await guazi.detailContent(ids: ["1"]))["list"] as? [[String: Any]])?.first)
+    #expect(detail["vod_play_from"] as? String == " 瓜子 ")
+    #expect(detail["vod_play_url"] as? String == "中文解说$https://live.invalid/zh.m3u8?auth_key=1#赛场原声$https://live.invalid/sd.m3u8?auth_key=2")
+    #expect(detail["vod_remarks"] as? String == "第二节 比分28-40")
+    #expect(parameter(try #require(ShortDramaSite.requests(to: "/gz/live/detail").last)) == "rpOBIqfI2rVCw3Hz/cpn6Q==",
+            #"AES-CBC of {"mid":"1"}"#)
+
+    let play = try json(try await guazi.playerContent(flag: " 瓜子 ", id: "https://live.invalid/zh.m3u8?auth_key=1", vipFlags: []))
+    #expect(play["parse"] as? Int == 0)
+    #expect((play["header"] as? [String: String])?["User-Agent"] == "Lavf/57.83.100")
+    #expect((play["header"] as? [String: String])?["Referer"] == "http://WJiZxLXA2.com/")
+    #expect((try json(try await guazi.searchContent(key: "湖人", quick: false, page: "1"))["list"] as? [Any])?.isEmpty == true)
+    await guazi.destroy()
+}
+
+@Test func moDuReadsTheCMSListingsWithTheOriginalsPagingFloors() async throws {
+    let api = "www.mdzyapi.com/api.php/provide/vod"
+    ShortDramaSite.serve([
+        api: [#"""
+        {"code":1,"page":"1","pagecount":130,"limit":"20","total":2599,"list":[
+          {"vod_id":8692,"vod_name":" 吞噬星空 ","vod_pic":"https://p.invalid/1.jpg","vod_remarks":"更新至244集"},
+          {"vod_id":"","vod_name":"无编号"},{"vod_id":5,"vod_name":"  "}]}
+        """#, #"""
+        {"code":1,"list":[{"vod_id":8692,"vod_name":"吞噬星空","vod_pic":"https://p.invalid/1.jpg","vod_year":"2020","vod_area":"大陆",
+          "vod_actor":"赵乾景","vod_director":"沈乐平","vod_content":"<p>簡介</p>","vod_remarks":"更新至244集","type_name":"国产动漫",
+          "vod_play_from":"","vod_play_url":"第01集$https://m.invalid/1/index.m3u8#第02集$https://m.invalid/2/index.m3u8"}]}
+        """#, #"{"code":1,"list":[{"vod_id":7656,"vod_name":"斗罗大陆"}]}"#],
+    ])
+    let modu = try await spider("MoDu")
+
+    let home = try json(try await modu.homeContent(filter: false))
+    #expect((home["class"] as? [[String: String]])?.map { $0["type_name"] ?? "" } == ["国产动漫", "日韩动漫", "欧美动漫", "港台动漫", "动漫电影"])
+
+    let page = try json(try await modu.categoryContent(tid: "1", page: "1", filter: false, extend: [:]))
+    #expect((page["list"] as? [[String: Any]])?.map { $0["vod_name"] as? String ?? "" } == ["吞噬星空"], "trimmed; no id or no name is skipped")
+    #expect(page["pagecount"] as? Int == 130)
+    #expect(page["limit"] as? Int == 20, "a numeric string, as org.json's optInt reads it")
+    #expect(page["total"] as? Int == 2599)
+    #expect(ShortDramaSite.requests(to: "/api.php/provide/vod").last?.url.query == "ac=detail&t=1&pg=1")
+
+    let detail = try #require((try json(try await modu.detailContent(ids: ["8692"]))["list"] as? [[String: Any]])?.first)
+    #expect(detail["vod_play_from"] as? String == "播放", "an unnamed line is named 播放")
+    #expect(detail["vod_play_url"] as? String == "第01集$https://m.invalid/1/index.m3u8#第02集$https://m.invalid/2/index.m3u8")
+    #expect(detail["vod_director"] as? String == "沈乐平")
+    #expect(detail["type_name"] as? String == "国产动漫")
+
+    let search = try json(try await modu.searchContent(key: "斗罗", quick: false, page: "1"))
+    #expect((search["list"] as? [[String: Any]])?.first?["vod_id"] as? String == "7656")
+    #expect(search["pagecount"] as? Int == 10, "the original's search fallback when the API sends none")
+    #expect(ShortDramaSite.requests(to: "/api.php/provide/vod").last?.url.query?.hasPrefix("ac=detail&pg=1&wd=") == true)
+
+    let play = try json(try await modu.playerContent(flag: "modum3u8", id: " https://m.invalid/1/index.m3u8 ", vipFlags: []))
+    #expect(play["url"] as? String == "https://m.invalid/1/index.m3u8")
+    #expect((play["header"] as? [String: String])?["User-Agent"]?.hasPrefix("Mozilla/5.0") == true)
+    await modu.destroy()
 }

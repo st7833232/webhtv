@@ -4,7 +4,27 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-06：IOS-POC-44E 一起影视與奴娜 JS adapter（先讀這一節）
+## Current handoff — 2026-10-06：IOS-POC-44F 瓜子体育與魔都动漫 JS adapter（先讀這一節）
+
+**IOS-POC-44F**（2026-10-06，基準 `cd62381e`）：使用者要求直接實作 `csp_GuaziTY`、`csp_MoDu`，只交付程式與文件，**發版另行處理**。完整紀錄在 `docs/IOS-POC-44-csp-portable-sites.md` 第 16 節。
+- 改動：新增 `GuaziTY.js`、`MoDu.js`；`SpiderRegistry.ported` 加兩行；`ShortDramaSpiderTests` 加 2 個離線測試，registry 與站數（44）測試同步更新；`docs/CSP_MIGRATION_STATUS.md` 同步。host／ABI 不變（`js.host` 1.2）。
+- 瓜子体育：
+  - AES-128-CBC 的表單 POST，請求密文和 openssl 算出的一模一樣。
+  - 只列出 24 小時內、還沒結束的賽事；只有一頁，沒有搜尋（同原版）。
+  - **沒有賽事時回空清單，回應無法解密時丟錯**，兩者不會混淆。
+  - 未開賽的場次 m3u8 回 404 是正常的，不能拿來判定來源失效。
+- 魔都动漫：苹果CMS JSON，5 個動漫分類。它保留自己的 key，和另外兩個魔都來源（type 0／type 1）沒有合併，也沒有改設定。
+- 驗證（2026-10-06 10:45～10:56 CST，家用網路）：
+  - 離線測試通過，突變 4／4 都被抓到。
+  - 即時 golden（含相容包）兩站都通過。
+  - 瓜子：直播中那場的 m3u8 讀到 TS 分段，AVFoundation 判定為可開啟的直播；未開賽的場次回 404 `stream not found`。
+  - 魔都：`modujx11`、`modujx17` 上的作品讀到 TS 分段；`modujx10`、`modujx12` 是自簽憑證而且回 404。
+  - 既有來源回歸：168 個測試，167 個通過。App 列表 74 站＝30 原生＋44 spider。唯一失敗的是既有的站數測試（寫死 167，當天設定 169），44D 之前就已經這樣失敗。
+  - Ponytail：Lean already。
+- **iOS 實際播放（畫面）未驗證**：沒有跑模擬器或真機。要用 SideStore 真機確認的項目見第 16.4 節。
+- 下一步：發版另行處理。IOS-POC-44 剩下的 44G 要動 host、要發新版 App，等使用者核准。
+
+## Previous handoff — 2026-10-06：IOS-POC-44E 一起影视與奴娜 JS adapter
 
 **IOS-POC-44E**（2026-10-06，基準 `0068cd9c`）：使用者要求直接實作 `csp_AppYQK`、`csp_AppYsV2`（只做 `.vod` 方言），只交付程式與文件，**發版另行處理**。完整紀錄在 `docs/IOS-POC-44-csp-portable-sites.md` 第 15 節。
 - 改動：新增 `AppYQK.js`、`AppYsV2.js`；`SpiderRegistry.ported` 加兩行；`ShortDramaSpiderTests` 加 2 個離線測試，registry 與站數（42）測試同步更新；`docs/CSP_MIGRATION_STATUS.md` 同步。host／ABI 不變（`js.host` 1.2）。

@@ -73,6 +73,9 @@ public struct SpiderRegistry: Sendable {
         // IOS-POC-44E: an md5-signed API with per-quality play addresses, and the `.vod` dialect of AppYsV2.
         "AppYQK",     // http-crypto: xiaosa-0807.jar (md5-signed JSON POSTs; only `canPlay` qualities)
         "AppYsV2",    // http-json: river-fman.jar (the `.vod` dialect only)
+        // IOS-POC-44F: an AES-CBC live-match API, and a plain 苹果CMS JSON API.
+        "GuaziTY",    // http-crypto: river-fman.jar (AES-128-CBC form POSTs; live matches only)
+        "MoDu",       // http-json: xiaosa-0807.jar (苹果CMS `ac=detail`)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

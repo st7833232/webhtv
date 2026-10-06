@@ -124,7 +124,7 @@ import Testing
 @Test func aNativeStartIsGivenUpOnSoonerThanAnMPVStart() {
     // The viewer's request (2026-09-26): a line AVPlayer cannot open sat black for 20 s before MPV
     // took it. MPV, the compatibility engine, keeps its 20 s.
-    #expect(PlayerRouter.startupTimeout(for: .native) == 5)
+    #expect(PlayerRouter.startupTimeout(for: .native) == 10)  // IOS-POC-27A-1 (was 5)
     #expect(PlayerRouter.startupTimeout(for: .mpv) == 20)
 }
 

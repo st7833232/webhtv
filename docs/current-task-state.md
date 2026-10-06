@@ -6,6 +6,8 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 
 ## Current handoff — 2026-10-06：IOS-POC-44G host RSA／AES hex／二進位 HTTP＋AppDrama、Uvod（先讀這一節）
 
+- **IOS-POC-27A-1**（2026-10-06）：原生播放器開播等待從 5 秒放寬為 10 秒，超過才轉 MPV（`PlayerRouter.startupTimeout`）。MPV 與 AirPlay／子母畫面的 20 秒不變。測試已通過，尚未發版，真機未驗證。紀錄見 `docs/IOS-POC-27-avplayer-2x-buffer-stall-controls.md` 文末。
+
 - **`0.1.69 (70)` 真機驗收：使用者 2026-10-06 回報完成**，不再列為待辦或阻塞條件（下方「發布 0.1.69」一節保留為歷史）。
 - **IOS-POC-44G**（基準 `b55cf99b`，只交付程式、驗證、文件，**發版另行處理**）。完整紀錄：`docs/IOS-POC-44-csp-portable-sites.md` 第 17 節。
   - `js.host` 1.3，只新增、不改舊行為，其他爬蟲也能用：

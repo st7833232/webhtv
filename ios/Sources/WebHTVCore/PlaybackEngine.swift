@@ -425,11 +425,13 @@ public final class PlayerRouter {
     /// 6 s on a slow simulator network (IOS-POC-15), so a slow AVPlayer start that would have
     /// played can now go to MPV instead; the viewer chose that trade. MPV keeps 20 s: it is the
     /// compatibility engine, and its slow start is not handed to the engine less likely to play it.
+    /// IOS-POC-27A-1: **10 s for AVPlayer, at the viewer's request (2026-10-06)** — 5 s gave up on
+    /// lines AVPlayer would have started.
     /// Only time the viewer means it to play counts (`PlaybackStartupWatch`).
     ///
     /// `nonisolated`: it reads no state, and `PlayerRouter` is main-actor isolated.
     nonisolated public static func startupTimeout(for kind: PlaybackEngineKind) -> Double {
-        kind == .native ? 5 : 20
+        kind == .native ? 10 : 20
     }
 
     /// The session saw the engine not start playing within `startupTimeout(for:)`: try the other

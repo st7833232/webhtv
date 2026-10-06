@@ -272,3 +272,16 @@
 - 相關檔案：`ios/Sources/WebHTVCore/PlaybackActivity.swift`、`ios/Sources/WebHTVCore/PlaybackNetworkPolicy.swift`、`ios/Sources/WebHTVCore/PlaybackEngine.swift`、`ios/WebHTVApp/Sources/WebHTVApp.swift`、`ios/Tests/WebHTVCoreTests/PlaybackActivityTests.swift`、`ios/Tests/WebHTVCoreTests/PlaybackNetworkPolicyTests.swift`。
 - 未解：第十節。
 - 下一步（唯一）：等使用者在 `0.1.25 (26)` 或之後的版本（目前最新 `0.1.27 (28)`）上做第八節 T1～T12 並回報，逐列填入；原生開不了時畫面顯示的原因請回報原文，它決定 27C 的方向。
+
+## IOS-POC-27A-1：原生播放器開播等待放寬為 10 秒（2026-10-06）
+
+- 使用者 2026-10-06：「原本原生播放器 5 秒播不了會轉到 MPV，幫我放寬到 10 秒」。
+- 改動：`PlayerRouter.startupTimeout(for: .native)` 從 5 改成 10（`ios/Sources/WebHTVCore/PlaybackEngine.swift`）。這是唯一的定義，唯一的呼叫端 `WebHTVApp.swift` `watchStartup()` 也是透過它取值。
+- 不變：
+  - MPV 仍是 20 秒。
+  - AirPlay 或 AVKit 子母畫面時，原生仍是 20 秒（呼叫端改用 `.mpv` 的值）。
+  - 只計算觀看者想播放的時間。
+  - 每次播放最多切換一次，切換不算錯誤。
+- 驗證：`swift test --filter PlaybackActivityTests` 23／23（斷言改成 10）。沒有跑 Xcode 建置：改的是 WebHTVCore 裡的一個常數，`swift test` 已經編譯過；App target 呼叫的介面沒有變。真機未驗證。
+- Ponytail（`ponytail:ponytail-review`）：Lean already。
+- 回滾：把 10 改回 5。

@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.69",
+          "date": "2026-10-06",
+          "localizedDescription": "WebHTV 0.1.69 (70)（新增內建來源與來源自動辨識第一版；真機未驗收）\n\n變更\n- 新增多個內建來源的支援，涵蓋影視、動漫與體育直播，由 App 內建爬蟲直接驅動。\n- 來源自動辨識第一版：相容套件可以帶入經電腦端分析確認的對應，讓類別改名、但程式特徵與既有內建爬蟲完全相同的來源直接使用既有爬蟲。對應只在設定、站點、JAR 實際版本與爬蟲版本都相符時生效；JAR 更新後自動停用並說明原因。\n\n已知限制\n- 自動辨識目前只支援程式特徵完全相同的改名副本，不代表任何協定相同的來源都能辨識；目前的分析沒有產生任何新對應，所以這一版的來源清單不會因此改變。\n- 部分來源的個別線路需要設定檔的全域解析接口，iOS 尚未支援，請改選其他線路。\n- 尚未在任何真機驗證。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.69-b70/WebHTV-0.1.69-70.ipa",
+          "size": 35261144,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.68",
           "date": "2026-10-05",
           "localizedDescription": "WebHTV 0.1.68 (69)（內建來源共用工具整理；真機未驗收）\n\n變更\n- 內建來源共用的影片格式判斷與鏡像網址解析整合為同一套工具；各來源的請求、播放網址與結果不變。\n- 來源相容套件的介面升為第 2 版：之後發布的相容套件需要這一版或更新的 App，舊版 App 會直接提示需要更新，不會載入後才出錯。\n\n已知限制\n- 尚未在任何真機驗證。",

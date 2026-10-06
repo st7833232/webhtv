@@ -4,9 +4,20 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-06：IOS-POC-44G host RSA／AES hex／二進位 HTTP＋AppDrama、Uvod（先讀這一節）
+## Current handoff — 2026-10-06：發布 0.1.70 (71)（先讀這一節）
 
-- **IOS-POC-27A-1**（2026-10-06）：原生播放器開播等待從 5 秒放寬為 10 秒，超過才轉 MPV（`PlayerRouter.startupTimeout`）。MPV 與 AirPlay／子母畫面的 20 秒不變。測試已通過，尚未發版，真機未驗證。紀錄見 `docs/IOS-POC-27-avplayer-2x-buffer-stall-controls.md` 文末。
+- **最新發布：WebHTV `0.1.70 (71)`**（2026-10-06 14:26 CST）＝`0.1.69 (70)`＋IOS-POC-44G（`js.host` 1.3、`AppDrama`、`Uvod`）＋IOS-POC-27A-1（原生開播等待 10 秒）。
+- 證據：
+  - run [`37423001505`](https://github.com/st7833232/webhtv/actions/runs/37423001505) 全部 success。
+  - tag `ios-v0.1.70-b71` → `cdec4ec5`；`source.json` `329a5c9d` 第一筆 `0.1.70`、size 35,277,702 與 Release 相同。
+  - IPA 已下載核對：SHA-256 `afed3231…`、0.1.70／71、24 支腳本相同。
+  - 完整紀錄：`docs/IOS-POC-11-sidestore-release.md`「第七十一次發布」。
+- **真機未驗收**。項目見 `docs/IOS-POC-44-csp-portable-sites.md` 17.6，以及原生播放器約 10 秒才轉 MPV。
+- 相容包 `spider-pack/` 未發布，要不要發布由使用者決定。
+
+## Previous handoff — 2026-10-06：IOS-POC-44G host RSA／AES hex／二進位 HTTP＋AppDrama、Uvod（已隨 0.1.70 (71) 發布）
+
+- **IOS-POC-27A-1**（2026-10-06）：原生播放器開播等待從 5 秒放寬為 10 秒，超過才轉 MPV（`PlayerRouter.startupTimeout`）。MPV 與 AirPlay／子母畫面的 20 秒不變。測試已通過，已隨 `0.1.70 (71)` 發布，真機未驗證。紀錄見 `docs/IOS-POC-27-avplayer-2x-buffer-stall-controls.md` 文末。
 
 - **`0.1.69 (70)` 真機驗收：使用者 2026-10-06 回報完成**，不再列為待辦或阻塞條件（下方「發布 0.1.69」一節保留為歷史）。
 - **IOS-POC-44G**（基準 `b55cf99b`，只交付程式、驗證、文件，**發版另行處理**）。完整紀錄：`docs/IOS-POC-44-csp-portable-sites.md` 第 17 節。
@@ -26,7 +37,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
   - iOS Release build 成功。Simulator 上天堂與 Uvod 實際畫面與播放都看過。
   - Ponytail 3 項已套用。
   - **真機未驗收**（項目見第 17.6 節）。
-- 下一步：等使用者決定發版。
+- 下一步（當時）：等使用者決定發版——已隨 `0.1.70 (71)` 發布。
 
 ## Previous handoff — 2026-10-06：發布 0.1.69 (70)（六個新來源＋JAR 自動辨識第一版；使用者已回報驗收完成）
 

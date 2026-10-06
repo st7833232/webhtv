@@ -13,7 +13,7 @@ drives 薦片 despite its class being blocked; IOS-POC-5L added `AppQi`, `App99`
 What changed since: IOS-POC-5P gave every spider's play result its request headers, and IOS-POC-5Q
 made `Bili` report one line per quality — both noted in the `Bili` row below.
 
-**IOS-POC-44G (2026-10-06): `AppDrama` and `Uvod` are ported on js.host 1.3**, which adds RSA (PKCS#1, block-split), AES hex output and binary HTTP for any spider; 2 of 4 `AppDrama` sites and the `Uvod` site are live (`docs/IOS-POC-44-csp-portable-sites.md` §17). Not released yet.
+**IOS-POC-44G (2026-10-06): `AppDrama` and `Uvod` are ported on js.host 1.3**, which adds RSA (PKCS#1, block-split), AES hex output and binary HTTP for any spider; 2 of 4 `AppDrama` sites and the `Uvod` site are live (`docs/IOS-POC-44-csp-portable-sites.md` §17). Released in `0.1.70 (71)`.
 
 **IOS-POC-55 (2026-10-06): a renamed class no longer needs a port of its own when it is provably
 the same protocol.** `scripts/audit_spider_jars.py compat` fingerprints every configured class in the

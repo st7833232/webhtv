@@ -5,7 +5,7 @@
 - 目標：使用者 2026-10-02「開始 IOS-POC-44 assessment」。對象是 `docs/current-task-state.md`「Current handoff — 2026-10-02 下午」列的 23 站（19 個類別）：可以移植、iOS 還沒有 port 的 `csp_*` 站。
 - 範圍：只做 assessment，**不改程式**。task guard `IOS-POC-44`（`assessment`），路徑：本文件、`docs/current-task-state.md`、`docs/CSP_PORTABILITY_MATRIX.md`。探測腳本與回應都在 session scratchpad，不 commit。
 - 結論：23 站裡 **18 站後端今天活著、5 站死了**。活著的 18 站裡 13 站只要寫 JS，不必改 Swift；3 站（AppDrama×2、Uvod）要先在 host 補 RSA 和二進位 HTTP；Douban×2 要另做 App 功能。建議與分段見第 7 節，待決定事項見第 9 節。
-- 44A（`WeiguanDJ`＋`HemaDJ`）見第 11 節；44B（`QimaoDJ`＋`HaokanDJ`）見第 12 節；44C（`Jpys`＋`Jys`）見第 13 節；44D（`Feiyu`＋`MiaoWu`）見第 14 節；44E（`AppYQK`＋`AppYsV2`）見第 15 節；44F（`GuaziTY`＋`MoDu`）見第 16 節。44A～44F 六段都已完成。44D～44F 隨 `0.1.69 (70)`（2026-10-06，tag `ios-v0.1.69-b70`）發布，**使用者 2026-10-06 回報該版真機驗收完成**。44G（host RSA／AES hex／二進位 HTTP＋`AppDrama`、`Uvod`）見第 17 節。
+- 44A（`WeiguanDJ`＋`HemaDJ`）見第 11 節；44B（`QimaoDJ`＋`HaokanDJ`）見第 12 節；44C（`Jpys`＋`Jys`）見第 13 節；44D（`Feiyu`＋`MiaoWu`）見第 14 節；44E（`AppYQK`＋`AppYsV2`）見第 15 節；44F（`GuaziTY`＋`MoDu`）見第 16 節。44A～44F 六段都已完成。44D～44F 隨 `0.1.69 (70)`（2026-10-06，tag `ios-v0.1.69-b70`）發布，**使用者 2026-10-06 回報該版真機驗收完成**。44G（host RSA／AES hex／二進位 HTTP＋`AppDrama`、`Uvod`）見第 17 節，已隨 `0.1.70 (71)`（tag `ios-v0.1.70-b71`）發布，真機未驗收。
 - 唯一下一步：等使用者決定下一段（第 7 節的 44G：host 補 RSA／hex／二進位 HTTP 後做 `AppDrama`＋`Uvod`，要發新版 App）；沒有核准不改程式。`QmdjAmns`／`HHkkAmns` 的 alias（第 6 節、第 9 節第 2 項）仍待使用者決定。
 
 ## 1. 問題與範圍
@@ -672,7 +672,7 @@
 
 **未驗證**：真機（這次沒有發版）。新功能的 SideStore 驗收項目見 17.6。
 
-### 17.6 新功能要用 SideStore 真機確認的項目（下次發版後；和已完成的 0.1.69 驗收無關）
+### 17.6 新功能要用 SideStore 真機確認的項目（`0.1.70 (71)`；和已完成的 0.1.69 驗收無關）
 
 1. 天堂、苹果：首頁分類與篩選、翻頁、搜尋、詳情的線路；直接線路與經解析的線路都能播。`高清藍光4K`／`4k專線3` 這類線路顯示「沒有可播放的網址」屬來源限制。
 2. Uvod：分類、搜尋、詳情集數、畫質選擇（1080p／720p…），播放時帶的 `referer`／`origin`。

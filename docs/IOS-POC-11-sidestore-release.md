@@ -1,9 +1,11 @@
 # IOS-POC-11：SideStore 發布流程
 
 
-## Current release — 2026-10-06：0.1.69 (70) / IOS-POC-44D～44F＋IOS-POC-55
+## Current release — 2026-10-06：0.1.70 (71) / IOS-POC-44G＋IOS-POC-27A-1
 
-**目前最新版是 `0.1.69 (70)`**（六個新內建來源＋JAR 自動辨識第一版）。完整紀錄在下方「第七十次發布」：run `37411484416` success，tag `ios-v0.1.69-b70` → `98384c2a`，`source.json` `ef554012`，`WebHTV-0.1.69-70.ipa` 35,261,144 bytes。**使用者 2026-10-06 回報真機驗收完成。**
+**目前最新版是 `0.1.70 (71)`**（`js.host` 1.3：RSA／AES hex／二進位 HTTP，`AppDrama`、`Uvod`；原生播放器開播等待 10 秒）。完整紀錄在下方「第七十一次發布」：run `37423001505` success，tag `ios-v0.1.70-b71` → `cdec4ec5`，`source.json` `329a5c9d`，`WebHTV-0.1.70-71.ipa` 35,277,702 bytes。真機未驗收。
+
+前一版 `0.1.69 (70)`（六個新內建來源＋JAR 自動辨識第一版）完整紀錄在下方「第七十次發布」：run `37411484416` success，tag `ios-v0.1.69-b70` → `98384c2a`，`source.json` `ef554012`，`WebHTV-0.1.69-70.ipa` 35,261,144 bytes。**使用者 2026-10-06 回報真機驗收完成。**
 
 前一版 `0.1.68 (69)`（爬蟲共用工具第一批，`js.host` 1.2／host API 2）見「第六十九次發布」。再前一版 `0.1.67 (68)`（F11、F29、F12、F35、網頁嗅探 `src` hook）見「第六十八次發布」；使用者回報該版的 UI、下載、播放與收藏已在真機驗收完成（2026-10-05）。
 
@@ -86,7 +88,7 @@
 
 ## Recovery anchor
 
-- 狀態：完成，且已發過**七十個**版本，最新是 `0.1.69 (70)`（2026-10-06 更新；見檔頭「Current release」與各次發布；`0.1.5 (6)` 沒有獨立段落，記在 `docs/current-task-state.md`）。
+- 狀態：完成，且已發過**七十一個**版本，最新是 `0.1.70 (71)`（2026-10-06 更新；見檔頭「Current release」與各次發布；`0.1.5 (6)` 沒有獨立段落，記在 `docs/current-task-state.md`）。
 - 一次性的 push 觸發（`f103ab5b`）已於 2026-10-05 移除，發布回到 `workflow_dispatch`；見檔頭「0.1.61 (62)」一節的「待清理」。
 - 實作 commit：`7db9aadbfb2dc830cd3a7ac3eadb09b3d6b175a6`；workflow 產生的 source commit：`7d18cf4a4f4e52cca4a013aa697b24758eb00d68`；release tag：`ios-v0.1-b1`。
 - 已驗證：本機 shell／Python／JSON／workflow YAML；SideStore 官方 schema；Xcode 27.0 fresh device Release build。GitHub `macos-26` run `35696142695` 的 build、IPA/schema、Release、公開 URL byte comparison 與 source publish 全部通過。
@@ -949,9 +951,43 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第七十次發布：`0.1.69 (70)`（2026-10-06，**已發布**）
+## 第七十一次發布：`0.1.70 (71)`（2026-10-06，**已發布**）
 
-**目前最新版是 `0.1.69 (70)`。** 前面六十九版都已被取代。
+**目前最新版是 `0.1.70 (71)`。** 前面七十版都已被取代。
+
+- 授權：使用者 2026-10-06「發布新版到 SideStore」。只用 `workflow_dispatch` 並填 release notes。
+- 版號決定：發布前 fetch，origin `ios-poc` 是 `14fdc432`；GitHub 最新 Release 是 `0.1.69 (70)`，origin 上沒有 `ios-v0.1.70*`／`*-b71` tag（`ios-v0.1.7-b8` 是舊的 0.1.7）；專案版號 0.1.69／70 → `0.1.70 (71)`。
+- 內容：`0.1.69 (70)` 的全部，加上
+  - IOS-POC-44G（`8d207887`）：`js.host` 1.3（RSA PKCS#1 加解密與分段、AES hex 輸出、二進位 HTTP、`host.bytes`），`AppDrama`、`Uvod` 兩個新內建爬蟲；host API 3。見 `docs/IOS-POC-44-csp-portable-sites.md` 第 17 節。
+  - IOS-POC-27A-1（`14fdc432`）：原生播放器開播等待 5 秒改 10 秒，超過才轉 MPV。見 `docs/IOS-POC-27-avplayer-2x-buffer-stall-controls.md` 文末。
+- 發布序列：版號 commit `cdec4ec5`（Task-Guard `IOS-RELEASE-0.1.70-b71`）。`gh workflow run`（ref `ios-poc`、version `0.1.70`、build `71`、release notes）。run [`37423001505`](https://github.com/st7833232/webhtv/actions/runs/37423001505) 成功（06:18:27Z → 06:26:14Z），全部 steps success。workflow 建立 tag `ios-v0.1.70-b71`（→ `cdec4ec5`）並推回 `source.json`（`329a5c9d`，共七十一筆，第一筆 `0.1.70`，size 35,277,702，downloadURL 與 Release 相同；bundle `com.webhtv.ios.poc`、source identifier `com.webhtv.sidestore.source` 未改）。**沒有手動建 tag。**
+- 產物：GitHub Release `WebHTV 0.1.70 (71)`，不是 draft／prerelease，06:26:04Z 發布。`WebHTV-0.1.70-71.ipa` **35,277,702 bytes**，SHA-256 `afed323105e61374f8f2186f811090b8557e490d53edf4d0bd65eb8b6c1d6b63`。**IPA 已下載核對**：雜湊與 GitHub digest 相同；`Info.plist` `com.webhtv.ios.poc`、`0.1.70`、`71`、最低 iOS 17.0；24 支爬蟲腳本與原始碼逐位元組相同（含 `AppDrama`、`Uvod` 與 1.3 的 `host.js`）。
+- 發布前驗證：見 IOS-POC-44G 17.5（OpenSSL 向量、二進位往返、兩支 adapter 離線與 live golden＋媒體 bytes、針對性回歸 446 個中 1 個既有失敗、本機 Release build、Simulator 畫面與播放）與 IOS-POC-27A-1（`PlaybackActivityTests` 23／23）。沒有另跑測試 CI；本次 run 的 device Release build（CI Xcode）成功。相容包 `spider-pack/` **沒有**發布。
+- **真機尚未驗收**。驗收項目：IOS-POC-44 第 17.6 節（天堂／苹果／Uvod 的瀏覽、搜尋、播放、畫質；橘子／薯條照實失敗；收藏、記錄、下載），以及原生播放器開不了時約 10 秒才轉 MPV、能開的慢線路不再提早被轉走。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.70 (71)（內建來源加密能力擴充與新來源；原生播放器開播等待放寬；真機未驗收）
+
+變更
+- 內建來源共用工具新增 RSA 加解密、AES hex 輸出與二進位資料傳輸，讓使用這些協定的來源可以直接在 App 內執行。
+- 新增需要上述能力的內建來源支援。
+- 原生播放器開播等待由 5 秒放寬為 10 秒，超過才自動改用 MPV；MPV、AirPlay 與子母畫面維持 20 秒。
+- 線路解析回傳的不是播放網址時，直接顯示「這一集沒有可播放的網址」，不再讓兩個播放器都嘗試後才失敗。
+
+已知限制
+- 部分新來源的個別站點因對方伺服器設定或網域失效而無法使用，這是來源端的問題。
+- 部分線路需要的全域解析服務 iOS 尚未支援，請改選其他線路。
+- 來源相容套件介面升為第 3 版：之後發布的相容套件中需要新能力的腳本，舊版 App 會略過並提示需要更新，其他腳本照常使用。
+- 尚未在任何真機驗證。
+```
+
+- 回復方式：revert `8d207887` 或 `14fdc432` 並以更高版號重新發布；保留所有既有 tag 與 Release。
+
+## 第七十次發布：`0.1.69 (70)`（2026-10-06，**已發布**，已被 `0.1.70 (71)` 取代）
+
+`0.1.69 (70)` 曾是最新版。使用者 2026-10-06 回報真機驗收完成。
 
 - 授權：使用者 2026-10-06 指示「將已完成的六個新來源與 JAR 自動辨識第一版整合成可供 SideStore 安裝的新版」，發布範圍限 GitHub `ios-poc` 與既有 SideStore source；**沒有**發布 GitLab 相容包，也沒有修改來源設定。依規則只用 `workflow_dispatch` 並填 release notes。
 - 版號決定：發布前 fetch，origin `ios-poc` 是 `71b43aed`；GitHub 最新 Release 是 `0.1.68 (69)`（tag `ios-v0.1.68-b69`），origin 上沒有 `ios-v0.1.69*`／`*-b70` tag，專案版號是 0.1.68／69 → 下一個未使用版本 `0.1.69 (70)`。

@@ -284,4 +284,5 @@
   - 每次播放最多切換一次，切換不算錯誤。
 - 驗證：`swift test --filter PlaybackActivityTests` 23／23（斷言改成 10）。沒有跑 Xcode 建置：改的是 WebHTVCore 裡的一個常數，`swift test` 已經編譯過；App target 呼叫的介面沒有變。真機未驗證。
 - Ponytail（`ponytail:ponytail-review`）：Lean already。
+- 發布：隨 `0.1.70 (71)`（2026-10-06，tag `ios-v0.1.70-b71`）發布，真機未驗收。
 - 回滾：把 10 改回 5。

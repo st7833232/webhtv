@@ -1,0 +1,150 @@
+{
+  "schema": 1,
+  "version": "2026-10-06.1",
+  "minHostApi": 2,
+  "scripts": [
+    {
+      "class": "App3Q",
+      "path": "./scripts/App3Q.js",
+      "sha256": "ffa96792a529295f123f2486c965c761c527c92b4429b704f9b93dc0a12c82cc",
+      "originJar": "river-fman.jar",
+      "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392"
+    },
+    {
+      "class": "App99",
+      "path": "./scripts/App99.js",
+      "sha256": "a75daba4662110b17d308e5bb7036c2731294c78accf219fce5c2f95aa753221",
+      "originJar": "river-fman.jar",
+      "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
+      "notes": "xiaosa-0807 variant parses through /app/vodParser"
+    },
+    {
+      "class": "AppGet",
+      "path": "./scripts/AppGet.js",
+      "sha256": "b824378c5d253fef623dbc15fce9b10cf4491158371b3a3ac76e1e4a8710b753",
+      "originJar": "river-fman.jar",
+      "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392"
+    },
+    {
+      "class": "AppQi",
+      "path": "./scripts/AppQi.js",
+      "sha256": "6a46163a9a8360dbbfad317d7a9ef90f26f77bd2b004beaf244cb11cdce23ab4",
+      "originJar": "river-fman.jar",
+      "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
+      "notes": "xiaosa-0807 and 愛影 carry variants; the port covers their union"
+    },
+    {
+      "class": "AppYQK",
+      "path": "./scripts/AppYQK.js",
+      "sha256": "d4898061a6adef4542c1b292d20dcfa6d6a39ac92f9c87807dbf93939c2daa20",
+      "originJar": "xiaosa-0807.jar",
+      "jarSha256": "90f70a10123456a97e4d9dac8270bf9e533259c3e157a8f6b67cf1dadc3e41fc"
+    },
+    {
+      "class": "AppYsV2",
+      "path": "./scripts/AppYsV2.js",
+      "sha256": "370f1685c4466ec9194845e79fd49788d84330bc40c8cd1b34abf677e3944d10",
+      "originJar": "river-fman.jar",
+      "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
+      "notes": "the .vod dialect only"
+    },
+    {
+      "class": "Bili",
+      "path": "./scripts/Bili.js",
+      "sha256": "686d3c25d95afb0ee654506caf9c1508becc1a1875589507d74b5d66a312e451",
+      "originJar": "river-fman.jar",
+      "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
+      "notes": "progressive durl instead of the original's DASH proxy; AVPlayer has no DASH"
+    },
+    {
+      "class": "Feiyu",
+      "path": "./scripts/Feiyu.js",
+      "sha256": "2ac6bcdc0a9a2bb891b27db3efde5a4f9609300adbcc0dd6eef0255115a9599e",
+      "originJar": "xiaosa-0807.jar",
+      "jarSha256": "90f70a10123456a97e4d9dac8270bf9e533259c3e157a8f6b67cf1dadc3e41fc"
+    },
+    {
+      "class": "GuaziTY",
+      "path": "./scripts/GuaziTY.js",
+      "sha256": "379175d593aa9ef113582c578f5ddff06762b049bb424b9cf9296f459922aa1a",
+      "originJar": "river-fman.jar",
+      "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392"
+    },
+    {
+      "class": "HaokanDJ",
+      "path": "./scripts/HaokanDJ.js",
+      "sha256": "eb86d74e58f79c86607f586a331c126152c4c8928b80b98d01c50ac1fe37e9cb",
+      "originJar": "xiaosa-0807.jar",
+      "jarSha256": "90f70a10123456a97e4d9dac8270bf9e533259c3e157a8f6b67cf1dadc3e41fc"
+    },
+    {
+      "class": "HemaDJ",
+      "path": "./scripts/HemaDJ.js",
+      "sha256": "a9b3da31b741d77f68e028bc77f776be02d76aba0c93ad1e53e272c8b3a4b944",
+      "originJar": "xiaosa-0807.jar",
+      "jarSha256": "90f70a10123456a97e4d9dac8270bf9e533259c3e157a8f6b67cf1dadc3e41fc"
+    },
+    {
+      "class": "JianPian",
+      "path": "./scripts/JianPian.js",
+      "sha256": "5b0c0e83a005144d94ae0933f5c3e66432a39e2c4afe71ecffb4051c9d6abf59",
+      "aliases": [
+        "JPianAmns"
+      ],
+      "originJar": "river-fman.jar",
+      "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
+      "notes": "JPianAmns is a protected shim; this drives the same API"
+    },
+    {
+      "class": "Jpys",
+      "path": "./scripts/Jpys.js",
+      "sha256": "22604251f34c2b3fa113fddb15b568f60df1be3900372b973b5c984c60b32502",
+      "originJar": "river-fman.jar",
+      "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
+      "notes": "Jys is a hand-proven alias in SpiderRegistry, not a pack alias"
+    },
+    {
+      "class": "MiaoWu",
+      "path": "./scripts/MiaoWu.js",
+      "sha256": "10a6cecff16e7742fce41f18f23823b699f8084abaffcc676fd940a748f6ccd3",
+      "originJar": "xiaosa-0807.jar",
+      "jarSha256": "90f70a10123456a97e4d9dac8270bf9e533259c3e157a8f6b67cf1dadc3e41fc"
+    },
+    {
+      "class": "MoDu",
+      "path": "./scripts/MoDu.js",
+      "sha256": "37c4e6691570461544163879f9d34d5a2e369f13e0b30329f9e6690a38f407c2",
+      "originJar": "xiaosa-0807.jar",
+      "jarSha256": "90f70a10123456a97e4d9dac8270bf9e533259c3e157a8f6b67cf1dadc3e41fc"
+    },
+    {
+      "class": "QimaoDJ",
+      "path": "./scripts/QimaoDJ.js",
+      "sha256": "404231482d9ce760b9371e2e9dad167555059e6e62da57311fad87ad313dd606",
+      "originJar": "xiaosa-0807.jar",
+      "jarSha256": "90f70a10123456a97e4d9dac8270bf9e533259c3e157a8f6b67cf1dadc3e41fc"
+    },
+    {
+      "class": "WeiguanDJ",
+      "path": "./scripts/WeiguanDJ.js",
+      "sha256": "55535d6ae2625de2fb63bbeafa9f115535ec39ad1a233a0070c7b018dcbe3863",
+      "originJar": "xiaosa-0807.jar",
+      "jarSha256": "90f70a10123456a97e4d9dac8270bf9e533259c3e157a8f6b67cf1dadc3e41fc"
+    },
+    {
+      "class": "XBPQ",
+      "path": "./scripts/XBPQ.js",
+      "sha256": "66e7f59df554bacdb710af01f293933e38829fd29c0058474b0fb1d62b6ab219",
+      "originJar": "xyqxbpq.jar",
+      "jarSha256": "7b732f2289236619b791d9c5a0d862d42c9bf3e5bb6123a6982736329bbe9e16"
+    },
+    {
+      "class": "XYQHiker",
+      "path": "./scripts/XYQHiker.js",
+      "sha256": "f2381ac533f70c3e11cf65f5dd9868d3d2dda16d10f72b9eacce35d57e04e91f",
+      "originJar": "xyqxbpq.jar",
+      "jarSha256": "7b732f2289236619b791d9c5a0d862d42c9bf3e5bb6123a6982736329bbe9e16"
+    }
+  ],
+  "mappings": []
+}

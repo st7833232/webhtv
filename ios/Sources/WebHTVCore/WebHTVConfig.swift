@@ -14,12 +14,19 @@ public struct WebHTVConfig: Decodable, Sendable {
     public let rules: [SnifferRule]
 
     enum CodingKeys: String, CodingKey {
-        case sites, ads, rules
+        case sites, ads, rules, spider
     }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        sites = try values.decode([Site].self, forKey: .sites)
+        // FongMi's `Site.objectFrom(element, spider)`: a site without its own `jar` runs on the
+        // configuration's `spider` JAR. Only IOS-POC-55's class mappings read it.
+        let spider = ((try? values.decodeIfPresent(String.self, forKey: .spider)) ?? nil) ?? ""
+        sites = try values.decode([Site].self, forKey: .sites).map { site in
+            var site = site
+            if site.jar.isEmpty { site.jar = spider }
+            return site
+        }
         ads = (try? values.decodeIfPresent([String].self, forKey: .ads)) as? [String] ?? []
         rules = ((try? values.decodeIfPresent([SnifferRule].self, forKey: .rules)) ?? nil) ?? []
     }
@@ -71,9 +78,12 @@ public struct Site: Decodable, Identifiable, Sendable {
     let hasStructuredExtIdentity: Bool
     /// CatVod's `searchable`, absent on most sites. See `isSearchable`.
     public let searchable: Int?
+    /// The JAR a `csp_*` class is loaded from on Android, `;md5;` suffix and all: the site's own
+    /// `jar`, else the configuration's `spider` (filled in by `WebHTVConfig`). Not part of `id`.
+    public internal(set) var jar: String
 
     enum CodingKeys: String, CodingKey {
-        case key, name, type, api, ext, searchable
+        case key, name, type, api, ext, searchable, jar
     }
 
     /// Whether a search across every site asks this one (IOS-POC-20). Android's rule exactly: only
@@ -155,6 +165,7 @@ public struct Site: Decodable, Identifiable, Sendable {
         // Gson on Android reads a quoted "0" into its `Integer` too, so a string form is accepted.
         searchable = (try? values.decode(Int.self, forKey: .searchable))
             ?? (try? values.decode(String.self, forKey: .searchable)).flatMap { Int($0) }
+        jar = (try? values.decode(String.self, forKey: .jar)) ?? ""
     }
 }
 

@@ -14,15 +14,18 @@ public struct CSPSourceResolver: Sendable {
     private let session: URLSession
     /// Where the configuration came from, so a spider's `ext` can point at a sibling rule file.
     private let source: ConfigSource
+    private let jars: JarFingerprints
 
     public init(registry: SpiderRegistry = .active(),
                 source: ConfigSource = .importedFile,
                 defaults: UserDefaults = .standard,
-                session: URLSession = .webHTV) {
+                session: URLSession = .webHTV,
+                jars: JarFingerprints = .shared) {
         self.registry = registry
         self.source = source
         self.defaults = defaults
         self.session = session
+        self.jars = jars
     }
 
     /// True when this site is a spider the app can drive today — a registered `csp_*` class, or a
@@ -38,7 +41,12 @@ public struct CSPSourceResolver: Sendable {
         // stays hidden rather than appearing and failing on the first tap — the same rule the
         // registry applies to an unported `csp_*` class.
         if site.isPythonSpider { return PythonSpiderSupport.isAvailable && source.baseURL != nil }
-        return site.isCSPSpider && registry.canDrive(site.api)
+        guard site.isCSPSpider else { return false }
+        if registry.canDrive(site.api) { return true }
+        // A mapping whose JAR is already known to have changed is as good as none: the site goes
+        // back to "not ported" until the analysis is run again.
+        guard let mapping = registry.mapping(for: site, in: source) else { return false }
+        return URL(string: mapping.jar).flatMap(jars.known).map { Self.same($0, mapping.jarSha256) } ?? true
     }
 
     /// Builds the session. Async because a drpy site has to fetch and verify its engine first;
@@ -47,9 +55,36 @@ public struct CSPSourceResolver: Sendable {
         if site.isDrpySpider { return try await drpySession(for: site) }
         if site.isPythonSpider { return try await pythonSession(for: site) }
         guard site.isCSPSpider else { throw SpiderError.notRegistered(site.api) }
-        let runtime = try registry.makeRuntime(for: site.api, siteKey: site.key,
+        var api = site.api
+        if !registry.canDrive(api), let mapping = registry.mapping(for: site, in: source) {
+            try await verifyJar(of: mapping)
+            api = "csp_" + mapping.adapter
+        }
+        // Still this site's own key, `ext` and a fresh cookie jar: a mapping changes which script
+        // runs, never whose storage, session or configuration it runs with.
+        let runtime = try registry.makeRuntime(for: api, siteKey: site.key,
                                                defaults: defaults, session: session)
         return SpiderSession(site: site, runtime: runtime, extend: resolvedExtend(for: site))
+    }
+
+    /// IOS-POC-55: a mapping is only valid for the JAR bytes it was analysed against. Failing to
+    /// confirm that is reported as what it is — never as the site being unreachable.
+    private func verifyJar(of mapping: SpiderPack.ClassMapping) async throws {
+        guard let url = URL(string: mapping.jar) else { throw SpiderError.notRegistered("csp_" + mapping.className) }
+        let actual: String
+        do {
+            actual = try await jars.sha256(of: url)
+        } catch {
+            throw ClassMappingUnverified(className: mapping.className,
+                                         reason: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+        }
+        guard Self.same(actual, mapping.jarSha256) else {
+            throw ClassMappingUnverified(className: mapping.className, reason: "JAR 已更新，和分析時的版本不同")
+        }
+    }
+
+    private static func same(_ left: String, _ right: String) -> Bool {
+        left.caseInsensitiveCompare(right) == .orderedSame
     }
 
     /// A drpy site runs on **the same `JavaScriptSpiderRuntime`** every ported spider uses. The only

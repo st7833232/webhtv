@@ -13,6 +13,13 @@ drives 薦片 despite its class being blocked; IOS-POC-5L added `AppQi`, `App99`
 What changed since: IOS-POC-5P gave every spider's play result its request headers, and IOS-POC-5Q
 made `Bili` report one line per quality — both noted in the `Bili` row below.
 
+**IOS-POC-55 (2026-10-06): a renamed class no longer needs a port of its own when it is provably
+the same protocol.** `scripts/audit_spider_jars.py compat` fingerprints every configured class in the
+JAR the configuration actually references and maps it to an existing adapter only on an exact match
+plus a live golden run; the mapping travels in the compatibility pack, scoped to configuration, site,
+class and JAR SHA-256. On the 2026-10-06 configurations no unported class is such a copy (0 mappings);
+the per-class reasons are in `docs/IOS-POC-55-jar-compat-reuse.md`.
+
 ## Headline
 
 | | audit rows | distinct classes | sites |

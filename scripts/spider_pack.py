@@ -6,8 +6,10 @@ app's configuration can reach. The app verifies every script against the SHA-256
 before adopting it, so this tool's job is to produce hashes that are true and to tell you when the
 JAR a script was written from has changed underneath it.
 
-  build        emit manifest.json + scripts/ from a directory of spiders
-  verify       fetch a published pack and re-check schema, hashes and completeness
+  build        emit manifest.json + scripts/ from a directory of spiders, plus the scoped class
+               mappings `audit_spider_jars.py compat` verified (IOS-POC-55)
+  verify       fetch a published pack (or read a local one) and re-check schema, hashes, completeness
+               and that every mapping names a script the pack carries, at that script's digest
   fingerprint  re-hash the origin JARs and report which scripts were written from a different build
 
 This tool never decompiles, executes or unpacks a JAR. It reads bytes and computes a digest.
@@ -48,7 +50,22 @@ DEFAULT_ORIGINS = {
                  "jarSha256": "7b732f2289236619b791d9c5a0d862d42c9bf3e5bb6123a6982736329bbe9e16"},
     "XYQHiker": {"originJar": "xyqxbpq.jar",
                  "jarSha256": "7b732f2289236619b791d9c5a0d862d42c9bf3e5bb6123a6982736329bbe9e16"},
+    # IOS-POC-44A–44F, recorded in IOS-POC-55 so every port has a baseline to be compared against.
+    **{name: {"originJar": "xiaosa-0807.jar",
+              "jarSha256": "90f70a10123456a97e4d9dac8270bf9e533259c3e157a8f6b67cf1dadc3e41fc"}
+       for name in ("WeiguanDJ", "HemaDJ", "QimaoDJ", "HaokanDJ", "Feiyu", "MiaoWu", "AppYQK", "MoDu")},
+    "Jpys":     {"originJar": "river-fman.jar",
+                 "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
+                 "notes": "Jys is a hand-proven alias in SpiderRegistry, not a pack alias"},
+    "AppYsV2":  {"originJar": "river-fman.jar",
+                 "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
+                 "notes": "the .vod dialect only"},
+    "GuaziTY":  {"originJar": "river-fman.jar",
+                 "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392"},
 }
+
+# What the app reads from a mapping (`SpiderPack.ClassMapping`). `evidence` is provenance only.
+MAPPING_KEYS = ("config", "site", "class", "jar", "jarSha256", "adapter", "adapterSha256")
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -84,25 +101,52 @@ def build(args) -> int:
         shutil.copyfile(path, out / "scripts" / f"{name}.js")
 
     manifest = {"schema": SCHEMA, "version": args.version, "minHostApi": HOST_API, "scripts": entries}
+    if args.mappings:
+        mappings = json.loads(pathlib.Path(args.mappings).read_text())["mappings"]
+        problems = mapping_problems(mappings, {e["class"]: e["sha256"] for e in entries})
+        if problems:
+            print("refusing to pack mappings that do not match the scripts being packed:")
+            for problem in problems:
+                print(f"  ! {problem}")
+            return 1
+        manifest["mappings"] = mappings
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
     print(f"{len(entries)} scripts -> {out/'manifest.json'} (version {args.version}, minHostApi {HOST_API})")
     for entry in entries:
         print(f"  {entry['class']:<12} {entry['sha256'][:16]}… {entry.get('originJar', '-')}")
+    for mapping in manifest.get("mappings", []):
+        print(f"  map {mapping['class']} @ {mapping['jar'].rsplit('/', 1)[-1]} ({mapping['site']}) -> {mapping['adapter']}")
     return 0
 
 
+def mapping_problems(mappings, scripts) -> list:
+    """A mapping is only meaningful against the exact adapter bytes it was verified with."""
+    problems = []
+    for mapping in mappings:
+        missing = [key for key in MAPPING_KEYS if not mapping.get(key)]
+        if missing:
+            problems.append(f"{mapping.get('class')}: missing {', '.join(missing)}")
+        elif scripts.get(mapping["adapter"]) != mapping["adapterSha256"]:
+            problems.append(f"{mapping['class']} -> {mapping['adapter']}: adapter is "
+                            f"{(scripts.get(mapping['adapter']) or 'absent')[:16]}…, analysed against "
+                            f"{mapping['adapterSha256'][:16]}… — run `audit_spider_jars.py compat` again")
+    return problems
+
+
 def verify(args) -> int:
-    manifest = json.loads(fetch(args.url))
+    local = not args.url.startswith("http")
+    read = (lambda location: pathlib.Path(location).read_bytes()) if local else fetch
+    manifest = json.loads(read(os.path.join(args.url, "manifest.json") if local else args.url))
     problems = []
     if manifest.get("schema") != SCHEMA:
         problems.append(f"schema {manifest.get('schema')} != {SCHEMA}")
     if (manifest.get("minHostApi") or 0) > HOST_API:
         problems.append(f"minHostApi {manifest['minHostApi']} > this tool's {HOST_API}")
-    base = args.url.rsplit("/", 1)[0] + "/"
+    base = args.url.rstrip("/") + "/" if local else args.url.rsplit("/", 1)[0] + "/"
     for entry in manifest.get("scripts", []):
         url = entry["path"] if entry["path"].startswith("http") else base + entry["path"].lstrip("./")
         try:
-            actual = sha256_bytes(fetch(url))
+            actual = sha256_bytes(read(url))
         except Exception as error:                      # noqa: BLE001 - reported, not raised
             problems.append(f"{entry['class']}: {type(error).__name__} {error}")
             continue
@@ -110,7 +154,10 @@ def verify(args) -> int:
         if status != "ok":
             problems.append(f"{entry['class']}: declared {entry['sha256'][:16]}… served {actual[:16]}…")
         print(f"  {entry['class']:<12} {status}")
-    print(f"pack {manifest.get('version')}: {len(manifest.get('scripts', []))} scripts, {len(problems)} problem(s)")
+    problems += mapping_problems(manifest.get("mappings", []),
+                                 {e["class"]: e["sha256"] for e in manifest.get("scripts", [])})
+    print(f"pack {manifest.get('version')}: {len(manifest.get('scripts', []))} scripts, "
+          f"{len(manifest.get('mappings', []))} mapping(s), {len(problems)} problem(s)")
     for problem in problems:
         print(f"  ! {problem}")
     return 1 if problems else 0
@@ -161,10 +208,11 @@ def main() -> int:
     b.add_argument("--scripts", default="ios/Sources/WebHTVCore/Resources/Spiders")
     b.add_argument("--out", default="build/spider-pack")
     b.add_argument("--version", required=True)
+    b.add_argument("--mappings", help="mappings.json written by `audit_spider_jars.py compat`")
     b.set_defaults(func=build)
 
     v = sub.add_parser("verify")
-    v.add_argument("--url", required=True)
+    v.add_argument("--url", required=True, help="manifest URL, or a local pack directory")
     v.set_defaults(func=verify)
 
     f = sub.add_parser("fingerprint")

@@ -35,18 +35,44 @@ public struct SpiderPack: Sendable, Equatable {
     public let aliases: [String: String]
     /// What the pack offered and this build declined, with a reason a human can act on.
     public let rejected: [Rejection]
+    /// IOS-POC-55: configured classes that `scripts/audit_spider_jars.py compat` proved to be one of
+    /// this pack's adapters under another name. Unlike `aliases` each one is scoped — one
+    /// configuration, one site key, one JAR at one SHA-256, and the exact adapter bytes it was proven
+    /// with — because the same class name in another JAR, or the same JAR after an update, is a
+    /// different class.
+    public let mappings: [ClassMapping]
 
     public struct Rejection: Sendable, Equatable {
         public let className: String
         public let reason: String
     }
 
+    public struct ClassMapping: Decodable, Sendable, Equatable {
+        /// The configuration's URL; its query and fragment do not take part in the match.
+        public let config: String
+        public let site: String
+        /// The configured class, without `csp_`.
+        public let className: String
+        /// The JAR as the configuration resolves it, absolute and without `;md5;`.
+        public let jar: String
+        /// The JAR's actual bytes when it was analysed, not the configuration's declared md5.
+        public let jarSha256: String
+        public let adapter: String
+        public let adapterSha256: String
+
+        enum CodingKeys: String, CodingKey {
+            case config, site, className = "class", jar, jarSha256, adapter, adapterSha256
+        }
+    }
+
     public init(version: String, scripts: [String: String],
-                aliases: [String: String] = [:], rejected: [Rejection] = []) {
+                aliases: [String: String] = [:], rejected: [Rejection] = [],
+                mappings: [ClassMapping] = []) {
         self.version = version
         self.scripts = scripts
         self.aliases = aliases
         self.rejected = rejected
+        self.mappings = mappings
     }
 }
 
@@ -58,6 +84,8 @@ public struct SpiderPackManifest: Decodable, Sendable {
     /// Gate for the pack as a whole. A pack that needs a newer host than this build is not adopted.
     public let minHostApi: Int?
     public let scripts: [Script]
+    /// Optional, so a schema-1 pack without it — and an older app reading one with it — is unchanged.
+    public let mappings: [SpiderPack.ClassMapping]?
 
     public struct Script: Decodable, Sendable {
         /// The `csp_*` class this script implements, without the prefix.
@@ -239,7 +267,23 @@ public actor SpiderPackStore {
         }
 
         guard !scripts.isEmpty else { throw SpiderPackError.emptyPack }
-        return SpiderPack(version: manifest.version, scripts: scripts, aliases: aliases, rejected: rejected)
+
+        // A mapping was proven against one adapter's exact bytes. It stands only when this pack
+        // delivers that adapter at that digest — so it can never repoint a bundled script, and an
+        // adapter republished without re-running the analysis drops the mapping instead of guessing.
+        var mappings = [SpiderPack.ClassMapping]()
+        for mapping in manifest.mappings ?? [] {
+            let declared = manifest.scripts.first { $0.className == mapping.adapter }?.sha256
+            guard scripts[mapping.adapter] != nil,
+                  declared?.caseInsensitiveCompare(mapping.adapterSha256) == .orderedSame else {
+                rejected.append(.init(className: mapping.className,
+                                      reason: "對應的 \(mapping.adapter) 不是分析時的版本，需要重新分析"))
+                continue
+            }
+            mappings.append(mapping)
+        }
+        return SpiderPack(version: manifest.version, scripts: scripts, aliases: aliases, rejected: rejected,
+                          mappings: mappings)
     }
 
     private func write(manifest: Data, sources: [String: Data]) throws {
@@ -272,6 +316,68 @@ public actor SpiderPackStore {
     private var manifestURL: URL { directory.appendingPathComponent("manifest.json") }
     private func scriptURL(for className: String) -> URL {
         directory.appendingPathComponent("scripts", isDirectory: true).appendingPathComponent("\(className).js")
+    }
+}
+
+/// IOS-POC-55: a mapped class whose JAR could not be confirmed to be the one analysed. A statement
+/// about the mapping, never about the site: it is not a `URLError`, so nothing reads it as one.
+public struct ClassMappingUnverified: Error, Equatable, LocalizedError {
+    public let className: String
+    public let reason: String
+
+    public var errorDescription: String? {
+        "csp_\(className) 自動對應的內建爬蟲暫停使用：\(reason)。需要在電腦上重新分析 JAR。"
+    }
+}
+
+/// IOS-POC-55: the SHA-256 of a JAR's actual bytes, which is what a class mapping is valid for. The
+/// configuration's `;md5;` is not used: it is a cache hint, and this configuration already carries
+/// one that no longer matches its JAR. The bytes are hashed and dropped — never unpacked, never
+/// executed, never kept.
+public actor JarFingerprints {
+    public static let shared = JarFingerprints()
+    static let key = "webhtv.jarFingerprints"
+
+    private nonisolated(unsafe) let defaults: UserDefaults
+    private let fetch: @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse?)
+
+    public init(defaults: UserDefaults = .standard,
+                fetch: (@Sendable (URLRequest) async throws -> (Data, HTTPURLResponse?))? = nil) {
+        self.defaults = defaults
+        self.fetch = fetch ?? { request in
+            let (data, response) = try await URLSession.webHTV.data(for: request)
+            return (data, response as? HTTPURLResponse)
+        }
+    }
+
+    /// What the last check saw, readable without a hop so listing can leave out a mapping already
+    /// known to be stale.
+    public nonisolated func known(_ url: URL) -> String? {
+        (defaults.dictionary(forKey: Self.key)?[url.absoluteString] as? [String: String])?["sha256"]
+    }
+
+    /// The JAR's digest now. A conditional request keeps an unchanged JAR to a 304.
+    public func sha256(of url: URL) async throws -> String {
+        let stored = defaults.dictionary(forKey: Self.key)?[url.absoluteString] as? [String: String]
+        var request = URLRequest(url: url)
+        if let etag = stored?["etag"], !etag.isEmpty { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
+        do {
+            let (data, response) = try await fetch(request)
+            if response?.statusCode == 304, let sha = stored?["sha256"] { return sha }
+            if let status = response?.statusCode, !(200...299).contains(status) {
+                throw URLError(.badServerResponse)
+            }
+            let sha = DrpyEngine.digest(data)
+            var table = defaults.dictionary(forKey: Self.key) ?? [:]
+            table[url.absoluteString] = ["sha256": sha, "etag": response?.value(forHTTPHeaderField: "ETag") ?? ""]
+            defaults.set(table, forKey: Self.key)
+            return sha
+        } catch {
+            // ponytail: last known good when the JAR's host cannot be reached, as the configuration
+            // itself is; a JAR changed while unreachable is caught on the next successful check.
+            if let sha = stored?["sha256"] { return sha }
+            throw error
+        }
     }
 }
 

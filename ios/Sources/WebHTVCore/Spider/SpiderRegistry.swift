@@ -30,13 +30,16 @@ public struct SpiderRegistry: Sendable {
     /// The **CatVod JS spider** adapter (IOS-POC-10T), the sibling of `drpyBridge` for TVBox's other
     /// JavaScript contract. Bundled and not packable for exactly the same reason.
     public let jsSpiderBridge: String
+    /// IOS-POC-55: the installed pack's scoped class mappings; see `mapping(for:in:)`.
+    let mappings: [SpiderPack.ClassMapping]
 
     public init(entries: [String: Entry], prelude: String, drpyBridge: String = "",
-                jsSpiderBridge: String = "") {
+                jsSpiderBridge: String = "", mappings: [SpiderPack.ClassMapping] = []) {
         self.entries = entries
         self.prelude = prelude
         self.drpyBridge = drpyBridge
         self.jsSpiderBridge = jsSpiderBridge
+        self.mappings = mappings
     }
 
     /// Adding a port is a new `.js` resource plus one line here — never a Swift rewrite. Each line
@@ -113,7 +116,8 @@ public struct SpiderRegistry: Sendable {
         }
         registry = SpiderRegistry(entries: entries, prelude: registry.prelude,
                                   drpyBridge: registry.drpyBridge,
-                                  jsSpiderBridge: registry.jsSpiderBridge)
+                                  jsSpiderBridge: registry.jsSpiderBridge,
+                                  mappings: pack.mappings)
         return registry
     }
 
@@ -135,6 +139,29 @@ public struct SpiderRegistry: Sendable {
 
     public func entry(for api: String) -> Entry? { entries[Self.className(from: api)] }
     public func canDrive(_ api: String) -> Bool { entry(for: api) != nil }
+
+    /// IOS-POC-55: the adapter a pack proved this site's class to be, for a class the registry does
+    /// not drive by name (a name it does drive keeps its existing binding). Every part of the scope
+    /// must match — configuration, site key, class, and the JAR this configuration resolves for the
+    /// site. The JAR's actual bytes are checked against `jarSha256` before the session is built
+    /// (`CSPSourceResolver`); `pack.assemble` already pinned the adapter's bytes.
+    public func mapping(for site: Site, in source: ConfigSource) -> SpiderPack.ClassMapping? {
+        guard site.isCSPSpider, !canDrive(site.api), !mappings.isEmpty,
+              let config = source.baseURL.flatMap({ Self.withoutQuery($0.absoluteString) }),
+              let jar = source.resourceURL(for: site.jar)?.absoluteString else { return nil }
+        let className = Self.className(from: site.api)
+        return mappings.first {
+            $0.className == className && $0.site == site.key && Self.withoutQuery($0.config) == config
+                && URL(string: $0.jar)?.absoluteString == jar
+        }
+    }
+
+    private static func withoutQuery(_ text: String) -> String? {
+        guard var parts = URLComponents(string: text) else { return nil }
+        parts.query = nil
+        parts.fragment = nil
+        return parts.url?.absoluteString
+    }
 
     /// `csp_AppGet` → `AppGet`; a bare class name passes through unchanged.
     public static func className(from api: String) -> String {

@@ -4,7 +4,28 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-06：IOS-POC-44F 瓜子体育與魔都动漫 JS adapter（先讀這一節）
+## Current handoff — 2026-10-06：IOS-POC-55 電腦端分析 JAR，自動重用相容的內建爬蟲（先讀這一節）
+
+**IOS-POC-55**（2026-10-06，基準 `d6823b53`）：使用者要求電腦端分析 JAR，讓名稱不同、協定相同的 `csp_*` 類別自動用既有 adapter，不新增 adapter；只交付工具、App 整合與可驗證的相容包，**發布另行處理**。完整紀錄：`docs/IOS-POC-55-jar-compat-reuse.md`。
+- 工具：`scripts/audit_spider_jars.py` 新增 `baseline`／`compat`（舊的 `audit` 不變）。會下載設定實際引用的 JAR、記錄實際 SHA-256，忽略改名、但保留字面值與呼叫內容地比對 19 個 adapter 的原版基準（`scripts/spider_baselines.json`）。只有完全相同、且該站 live golden 通過，才寫進 `mappings.json`；其餘列為待分析並附原因。`spider_pack.py build --mappings` 打包、`verify` 可檢查本機目錄。
+- App：相容包多一個選用欄位 `mappings`（schema 仍是 1，舊 App 會忽略）。
+  - 生效條件：設定、站 key、類別、站實際用的 JAR（`site.jar`，沒有就用設定的 `spider`）全部相符，而且 JAR 實際 bytes 的 SHA-256 與 adapter 的 SHA-256 都和分析時相同。
+  - 已能用名稱驅動的類別，照舊用名稱綁定。
+  - JAR 一變就不再對應，錯誤寫明是 JAR 版本問題，不會當成站台失效。
+  - 站的 key、`ext`、儲存與 cookie 都不變。
+- 真實結果（兩份設定、260 站、17 個 JAR）：**0 個新對應**。現有設定裡沒有改名副本；全部 1,164 個類別也掃過，同樣沒有。
+  - 34 站是加密空殼（`*Amns`／`*Guard`），18 站需要新 adapter。
+  - 29 站是既有名稱綁定，但跟基準不同：`xiaosa`／`愛影` 的 App 系列、`Jys`、其他 JAR 的 `XBPQ`／`XYQHiker`。只報告，行為不變。
+- 驗證：
+  - 端到端：把真實 JAR 改名做成樣本（類別＋helper 改名），從分析、live golden、打包、App 安裝、JAR 雜湊確認，一路跑到用 `GuaziTY` 拿到 live m3u8。
+  - 相似但不相容、helper 更新、同名不同 JAR：都正確判定為待分析。
+  - Python 自測與 Swift 範圍／版本測試都通過，突變都被抓到。
+  - 全部回歸：1019 個測試，2 個失敗與本次無關，見任務文件 7.4。
+  - Ponytail：3 項已套用。
+- **未驗證**：模擬器與真機都沒跑；真實設定沒有對應，所以真機上沒有可測的實例。
+- 交付：`spider-pack/`（`2026-10-06.1`，19 支腳本，`mappings: []`）。發布到設定旁的 `spiders/`，也會把 44D～44F 的新腳本送到 0.1.68；要不要發布，由使用者決定。
+
+## Previous handoff — 2026-10-06：IOS-POC-44F 瓜子体育與魔都动漫 JS adapter
 
 **IOS-POC-44F**（2026-10-06，基準 `cd62381e`）：使用者要求直接實作 `csp_GuaziTY`、`csp_MoDu`，只交付程式與文件，**發版另行處理**。完整紀錄在 `docs/IOS-POC-44-csp-portable-sites.md` 第 16 節。
 - 改動：新增 `GuaziTY.js`、`MoDu.js`；`SpiderRegistry.ported` 加兩行；`ShortDramaSpiderTests` 加 2 個離線測試，registry 與站數（44）測試同步更新；`docs/CSP_MIGRATION_STATUS.md` 同步。host／ABI 不變（`js.host` 1.2）。

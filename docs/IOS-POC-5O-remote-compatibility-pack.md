@@ -95,6 +95,26 @@ The same holds for `drpy-bridge.js` and `js-spider.js`; `scripts/spider_pack.py`
 | `scripts[].aliases` | no | other configured class names this script serves | — |
 | `scripts[].originJar`, `jarSha256` | no | audit provenance for the maintenance flow | — |
 | `scripts[].notes` | no | free text for humans | — |
+| `mappings[]` | no | IOS-POC-55: a configured class proven to be one of this pack's adapters under another name, scoped to `config` + `site` + `class` + `jar` + `jarSha256`, pinned to `adapter` + `adapterSha256` (`evidence` is provenance, never read) | an entry missing a field refuses the pack; an adapter not delivered at `adapterSha256` drops that mapping, reason recorded |
+
+## Scoped class mappings (IOS-POC-55)
+
+`aliases` are global: `JPianAmns → JianPian` applies to every site, every JAR, every configuration.
+That is fine for a pair a human proved once, and unsafe for anything automatic — the same class name
+in another JAR, or the same JAR after an update, is a different class (FongMi loads each JAR into its
+own `DexClassLoader`). `mappings` is the scoped form, written only by
+`scripts/audit_spider_jars.py compat` after a strict fingerprint match **and** a live golden run:
+
+- the registry consults a mapping only for a class it does not drive by name, and only when the
+  configuration, the site key, the class and the JAR the configuration resolves for that site (its own
+  `jar`, else the configuration's `spider`) all match;
+- the session is built only after the JAR's **actual bytes** hash to `jarSha256`
+  (`JarFingerprints`: hashed and dropped, conditional request, last known good when unreachable); a
+  mismatch throws `ClassMappingUnverified` and the site is no longer listed until it is analysed again;
+- the site keeps its own key, `ext`, storage and cookie jar — only the script changes.
+
+Older apps decode the manifest without `mappings` and behave exactly as before. Full record:
+`docs/IOS-POC-55-jar-compat-reuse.md`.
 
 ## Cache, last known good, atomic replace
 
@@ -139,7 +159,8 @@ does *not* give you is authenticity — see Ponytail finding 2.
 `scripts/spider_pack.py` carries the provenance of all eight ports and implements the flow:
 
 ```bash
-scripts/spider_pack.py build --version 2026-09-17.1 --out build/spider-pack
+scripts/audit_spider_jars.py compat --runtime --config https://…/wang-movie.json   # IOS-POC-55
+scripts/spider_pack.py build --version 2026-09-17.1 --out build/spider-pack --mappings build/compat/mappings.json
 scripts/spider_pack.py verify --url https://…/spiders/manifest.json
 scripts/spider_pack.py fingerprint --manifest build/spider-pack/manifest.json --jars ~/jars
 ```

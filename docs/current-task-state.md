@@ -4,7 +4,23 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-06：發布 0.1.71 (72)，全域解析上線（先讀這一節）
+## Current handoff — 2026-10-06 傍晚：IOS-POC-57 qist/tvbox JAR 盤點＋5 個 alias（先讀這一節）
+
+- 使用者要把 <https://github.com/qist/tvbox/tree/master/jar> 的爬蟲加進 iOS App。範圍決定：
+  - 重複的類別取支援最多的一份；`fty.jar` 不支援；成人類一起做。
+  - 站台由使用者在 App 加 qist 的設定網址取得，不改 `wang-movie.json`。
+- 完整紀錄：`docs/IOS-POC-57-qist-jar-spiders.md`（基準 `1174be81`）。
+- 盤點：排除 `fty.jar` 後有 270 個類別。
+  - 可移植的影音、嗅探、直播、音訊共 141 個：105 個主機連得上、19 個連不上、17 個沒有固定主機。
+  - 不做：`fan.txt` 的加密殼 45 個、網盤 51 個、本機／推送 8 個、BT 6 個、輔助 6 個。
+- 階段 1（已 commit，**沒發版**）：
+  - `ShortHema→HemaDJ`、`ShortQimao→QimaoDJ`、`ShortHaokan→HaokanDJ`、`ShortWeiguan→WeiguanDJ`、`SportsGuazi→GuaziTY` 五個 alias。
+  - 離線 62／62 通過；5 個 qist 站經 alias 名稱 live 通過；Ponytail 1 項已套用。
+  - A 群 live 實測：28 次通過 12 次；失敗 7 次是外部問題，9 次是 adapter 與 qist 版本不同（App3Q、App99、AppQi、Bili、XYQHiker）。
+- **未驗證**：Simulator、真機都沒跑；App 介面加 qist 設定網址後的實際畫面沒看過。
+- 唯一下一步：等使用者決定階段 2 的第一批。建議 2A：修 A 群在 qist 設定上失敗的 adapter 變體，見任務文件第 6 節。
+
+## Previous handoff — 2026-10-06：發布 0.1.71 (72)，全域解析上線
 
 - **最新發布：WebHTV `0.1.71 (72)`**（2026-10-06 15:42 CST）＝`0.1.70 (71)`＋IOS-POC-56（設定檔全域解析接口）。
 - 證據：run [`37430560852`](https://github.com/st7833232/webhtv/actions/runs/37430560852) 全部 success；tag `ios-v0.1.71-b72` → `ace72419`；`source.json` `63503527` 第一筆 `0.1.71`、size 35,328,221 與 Release 相同；IPA 已下載核對（SHA-256 `a145e7d3…`、0.1.71／72、24 支腳本相同、主程式含新解析程式）。完整紀錄：`docs/IOS-POC-11-sidestore-release.md`「第七十二次發布」。

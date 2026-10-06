@@ -82,13 +82,22 @@ public struct SpiderRegistry: Sendable {
         // IOS-POC-44G: the first two ports on js.host 1.3 (RSA, binary HTTP, AES hex output).
         "AppDrama",   // http-crypto: river-fman.jar (protobuf POSTs, RSA-signed public params)
         "Uvod",       // http-crypto: custom_spider.jar (AES bodies whose key travels RSA-encrypted)
+        // IOS-POC-57: qist/tvbox `spider.jar` renames of five ported APIs (same hosts, live golden passed).
+        "ShortHema",    // http-json: qist spider.jar (as HemaDJ)
+        "ShortQimao",   // http-json: qist spider.jar (as QimaoDJ)
+        "ShortHaokan",  // http-json: qist spider.jar (as HaokanDJ)
+        "ShortWeiguan", // http-crypto: qist spider.jar (as WeiguanDJ)
+        "SportsGuazi",  // http-crypto: qist spider.jar (as GuaziTY)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no
     /// logic of its own, or none the other lacks. Only ever for a pair proven to be the same site:
     /// `Jys` decompiles to `Jpys` with a different line label and one header fewer, and its host serves
-    /// the same listing, detail and episode ids as `Jpys`'s (IOS-POC-44C).
-    static let aliases = ["JPianAmns": "JianPian", "Jys": "Jpys"]
+    /// the same listing, detail and episode ids as `Jpys`'s (IOS-POC-44C). The `Short*`/`SportsGuazi`
+    /// classes of qist/tvbox's `spider.jar` call the same hosts as their targets, and each target
+    /// drove the qist-configured site through home, category, detail, search and play (IOS-POC-57).
+    /// One line on purpose: `scripts/audit_spider_jars.py` (`registry_names`) reads it with a single-line regex.
+    static let aliases = ["JPianAmns": "JianPian", "Jys": "Jpys", "ShortHema": "HemaDJ", "ShortQimao": "QimaoDJ", "ShortHaokan": "HaokanDJ", "ShortWeiguan": "WeiguanDJ", "SportsGuazi": "GuaziTY"]
 
     /// The registry the app actually runs on: the bundled scripts, with a verified compatibility
     /// pack overlaid on top. `CSPSourceResolver` uses this, so every call site picks up a pack

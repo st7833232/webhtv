@@ -196,10 +196,14 @@ private func playURL(_ value: Any?) -> [String] {
     // IOS-POC-5L: every script the registry names must have actually loaded from the bundle.
     #expect(registry.entries.keys.sorted() ==
             ["App3Q", "App99", "AppDrama", "AppGet", "AppQi", "AppYQK", "AppYsV2", "Bili", "Feiyu", "GuaziTY",
-             "HaokanDJ", "HemaDJ", "JPianAmns", "JianPian", "Jpys", "Jys", "MiaoWu", "MoDu", "QimaoDJ", "Uvod",
+             "HaokanDJ", "HemaDJ", "JPianAmns", "JianPian", "Jpys", "Jys", "MiaoWu", "MoDu", "QimaoDJ",
+             "ShortHaokan", "ShortHema", "ShortQimao", "ShortWeiguan", "SportsGuazi", "Uvod",
              "WeiguanDJ", "XBPQ", "XYQHiker"])
-    // IOS-POC-44C: `Jys` runs `Jpys`'s script.
-    #expect(registry.entry(for: "csp_Jys")?.script == registry.entry(for: "csp_Jpys")?.script)
+    // IOS-POC-44C `Jys`, IOS-POC-57 qist `spider.jar`'s renames: each runs its target's script.
+    for (alias, target) in SpiderRegistry.aliases {
+        let script = registry.entry(for: "csp_" + alias)?.script
+        #expect(script != nil && script == registry.entry(for: "csp_" + target)?.script)
+    }
     #expect(!registry.prelude.isEmpty)
     #expect(registry.canDrive("csp_XBPQ"))
     // IOS-POC-5M: the alias must load JianPian's script, not an empty entry for a name with no file.

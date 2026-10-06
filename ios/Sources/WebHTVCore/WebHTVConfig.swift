@@ -12,9 +12,12 @@ public struct WebHTVConfig: Decodable, Sendable {
     /// Decoded the same forgiving way `ads` is: absent decodes to empty, and an empty array means
     /// no rules at all. `SnifferRules` is what gives them meaning; Android's shape is `Rule.java`.
     public let rules: [SnifferRule]
+    /// IOS-POC-56: the configuration's global parse services and VIP line names. Every `Site` it
+    /// decodes carries a copy, so a site's parsing always belongs to the configuration it came from.
+    public let parsing: ParseSettings
 
     enum CodingKeys: String, CodingKey {
-        case sites, ads, rules, spider
+        case sites, ads, rules, spider, parses, flags
     }
 
     public init(from decoder: Decoder) throws {
@@ -22,9 +25,14 @@ public struct WebHTVConfig: Decodable, Sendable {
         // FongMi's `Site.objectFrom(element, spider)`: a site without its own `jar` runs on the
         // configuration's `spider` JAR. Only IOS-POC-55's class mappings read it.
         let spider = ((try? values.decodeIfPresent(String.self, forKey: .spider)) ?? nil) ?? ""
+        let entries = ((try? values.decodeIfPresent([Lenient<ParseEntry>].self, forKey: .parses)) ?? nil) ?? []
+        let flags = ((try? values.decodeIfPresent([Lenient<String>].self, forKey: .flags)) ?? nil) ?? []
+        let parsing = ParseSettings(parses: entries.compactMap(\.value), flags: flags.compactMap(\.value))
+        self.parsing = parsing
         sites = try values.decode([Site].self, forKey: .sites).map { site in
             var site = site
             if site.jar.isEmpty { site.jar = spider }
+            site.parsing = parsing
             return site
         }
         ads = (try? values.decodeIfPresent([String].self, forKey: .ads)) as? [String] ?? []
@@ -81,9 +89,15 @@ public struct Site: Decodable, Identifiable, Sendable {
     /// The JAR a `csp_*` class is loaded from on Android, `;md5;` suffix and all: the site's own
     /// `jar`, else the configuration's `spider` (filled in by `WebHTVConfig`). Not part of `id`.
     public internal(set) var jar: String
+    /// CatVod's site-level `playUrl` (IOS-POC-56): a parse prefix a type-0/1 CMS site puts in front of
+    /// every episode — `json:<api>`, `parse:<name>` or a web parse URL. Empty on almost every site.
+    public let playUrl: String
+    /// IOS-POC-56: the global parse settings of the configuration this site was decoded from, filled
+    /// in by `WebHTVConfig`. Not part of `id`.
+    public internal(set) var parsing = ParseSettings()
 
     enum CodingKeys: String, CodingKey {
-        case key, name, type, api, ext, searchable, jar
+        case key, name, type, api, ext, searchable, jar, playUrl
     }
 
     /// Whether a search across every site asks this one (IOS-POC-20). Android's rule exactly: only
@@ -166,6 +180,7 @@ public struct Site: Decodable, Identifiable, Sendable {
         searchable = (try? values.decode(Int.self, forKey: .searchable))
             ?? (try? values.decode(String.self, forKey: .searchable)).flatMap { Int($0) }
         jar = (try? values.decode(String.self, forKey: .jar)) ?? ""
+        playUrl = (try? values.decode(String.self, forKey: .playUrl)) ?? ""
     }
 }
 

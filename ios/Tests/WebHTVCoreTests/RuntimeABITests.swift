@@ -36,7 +36,9 @@ private func matches(_ pattern: String, in text: String) throws -> [String] {
 private let frozen: [RuntimeABI.Surface: [RuntimeABI.Version: String]] = [
     .catvodResult: [.init(1, 0): "d62107dd0a481f15ec026a0bc6d7c5f766db1d6a3ea4c2de26ff1ff5b3021c5b",
                     // IOS-POC-45H: `subs` on spider and type-4 play results; `SourceSubtitles.swift`'s keys.
-                    .init(1, 1): "584279fcf060436cfa33ee943ab76c1254b20fec1a9f036a5e2c6566543c1f21"],
+                    .init(1, 1): "584279fcf060436cfa33ee943ab76c1254b20fec1a9f036a5e2c6566543c1f21",
+                    // IOS-POC-56: `jx`, `playUrl`, `flag` on spider and type-4 play results, type 4's `parse`.
+                    .init(1, 2): "eca40e564298dc7d46982c5b800dbd760662683667b7b4c5b5f8041601f6af39"],
     .jsHost: [.init(1, 1): "3724fb8a7f10f4c4467aadc3280d616c30a1801e319ef12d45ed4deba40d798b",
               // IOS-POC-54: `host.isVideoFormat` and `host.firstURL`.
               .init(1, 2): "d314325a5c270d800a104edeece16a2634ccf629f4643365739a98897eab2d09",

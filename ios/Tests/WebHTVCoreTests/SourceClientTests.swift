@@ -165,7 +165,7 @@ private func gatedSession() -> URLSession {
         storage: SpiderStorage(siteKey: "t", defaults: .standard))
     let site = try JSONDecoder().decode(Site.self, from: Data(
         #"{"key":"t","name":"t","type":3,"api":"csp_Bili"}"#.utf8))
-    let client = SourceClient.spider(SpiderSession(site: site, runtime: runtime))
+    let client = SourceClient.spider(SpiderSession(site: site, runtime: runtime), site)
 
     let target = try #require(try await client.playbackURL(for: Episode(name: "01", url: "ep1"), flag: "B站"))
     #expect(target.url.absoluteString == "https://cdn.invalid/ep1.m3u8")
@@ -191,7 +191,7 @@ private func gatedSession() -> URLSession {
         prelude: SpiderRegistry.bundled().prelude,
         storage: SpiderStorage(siteKey: "t", defaults: .standard))
     let site = try JSONDecoder().decode(Site.self, from: Data(#"{"key":"t","name":"t","type":3,"api":"csp_T"}"#.utf8))
-    let client = SourceClient.spider(SpiderSession(site: site, runtime: runtime))
+    let client = SourceClient.spider(SpiderSession(site: site, runtime: runtime), site)
 
     let target = try #require(try await client.playbackURL(for: Episode(name: "01", url: "ep1"), flag: "線路"))
     #expect(target.subtitles == [SourceSubtitle(url: "https://cdn.invalid/ep1.ass", name: "简体", language: "zh-CN",
@@ -460,7 +460,7 @@ private final class OneShotHTTPServer: @unchecked Sendable {
         let stop: Stop = switch result.verdict {
         case .playable: .played
         case .notMedia: .deadMedia
-        case .noPlayURL: .noPlay
+        case .noPlayURL, .needsParse: .noPlay
         case .noEpisodes: .noEpisode
         case .noTitles: .empty
         case .unreachable, .failed, .timedOut: .failed

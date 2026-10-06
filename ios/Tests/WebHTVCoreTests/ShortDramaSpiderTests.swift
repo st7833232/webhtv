@@ -628,8 +628,11 @@ private func hmacSHA256(_ text: String, key: String) -> String {
     let direct = try json(try await nunu.playerContent(flag: "DT", id: "https://d.invalid/1/index.m3u8", vipFlags: []))
     #expect(direct["parse"] as? Int == 0)
     #expect((direct["header"] as? [String: String])?["User-Agent"] == "okhttp/4.1.0")
+    #expect(direct["jx"] == nil)
     let pageLine = try json(try await nunu.playerContent(flag: "jazsjzlp_1080p", id: "https://jaz.invalid/vod/play/1?quality=1080", vipFlags: []))
-    #expect(pageLine["parse"] as? Int == 1, "a play page goes to the sniffer")
+    #expect(pageLine["parse"] as? Int == 1 && pageLine["jx"] == nil, "a play page goes to the sniffer, which finds it")
+    let bareID = try json(try await nunu.playerContent(flag: "bsky3", id: "v14033g50000dajeibvog65ve113q390", vipFlags: []))
+    #expect(bareID["parse"] as? Int == 1 && bareID["jx"] as? Int == 1, "a bare video ID goes to the global parse (IOS-POC-56)")
 
     _ = try await nunu.searchContent(key: "蜘蛛侠", quick: false, page: "1")
     let search = try #require(ShortDramaSite.requests(to: "/api.php/v1.vod").last?.url.query)
@@ -951,4 +954,17 @@ private func aes(_ text: String, key: String, iv: String = "", mode: String, enc
         "-keyword=ab+c&need_fragment=1&page=1&pagesize=42&sort_type=asc-\(searched.headers["x-timestamp"] ?? "")".utf8))
         .map { String(format: "%02x", $0) }.joined(), "Java's URLEncoder, then lower-cased, as the original")
     await uvod.destroy()
+}
+
+/// IOS-POC-56: 荐片's VIP portal links ask for the configuration's parse services, as the original's
+/// `parse:1, jx:1` does; its own files stay direct. `playerContent` needs nothing from `init`.
+@Test func jianPianSendsVIPPortalLinksToTheGlobalParse() async throws {
+    let registry = SpiderRegistry.bundled()
+    let runtime = try JavaScriptSpiderRuntime(
+        name: "JianPian", script: try #require(registry.entry(for: "csp_JianPian")?.script), prelude: registry.prelude,
+        storage: SpiderStorage(siteKey: "JianPian-jx-test", defaults: UserDefaults(suiteName: "JianPian-jx-test")!))
+    let vip = try json(try await runtime.playerContent(flag: "腾讯", id: "https://v.qq.com/x/cover/abc/def.html", vipFlags: []))
+    #expect(vip["parse"] as? Int == 1 && vip["jx"] as? Int == 1)
+    let file = try json(try await runtime.playerContent(flag: "高清", id: "https://cdn.invalid/1/index.m3u8", vipFlags: []))
+    #expect(file["parse"] as? Int == 0 && file["jx"] == nil)
 }

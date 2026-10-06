@@ -4,7 +4,26 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-06：發布 0.1.70 (71)（先讀這一節）
+## Current handoff — 2026-10-06：IOS-POC-56 設定檔全域解析接口（先讀這一節）
+
+**IOS-POC-56**（基準 `f730bd20`，只交付程式與驗證，**發版另行處理**）。完整紀錄：`docs/IOS-POC-56-global-parse.md`。
+- 做了什麼：
+  - 解碼設定的 `parses`（type 數字或字串、`ext.flag`、`ext.header`、名稱去重）、`flags`，以及站台的 `playUrl`；每個 `Site` 帶著所屬設定的解析清單，`Site.id` 不變。
+  - 播放結果多讀 `jx`、`playUrl`、`flag`（type 4 另讀 `parse`），依 Android `Result.needParse`／`shouldUseParse`／`ParseJob` 決定要不要解析、用哪個。沒有選單，預設照原版「超級解析」：符合線路的 type 1 JSON 同時送，type 0 網頁放在同一頁 iframe 一起嗅探，最多 15 秒；解出的網址要讀得到媒體才採用。
+  - 只執行 type 0／1；type 2／3、找不到名稱、Android JAR 的本機（127.0.0.1）接口，明確顯示「iOS 尚未支援」。直接的媒體網址不經過解析。
+  - 走共用 `SourceClient.playbackURL`，播放、預取、下載、來源檢查都適用；來源檢查遇到解析失敗歸到「需要解析接口，未解出」，不記成來源播放失敗。
+  - `MediaSniffer`：可帶請求 headers（UA→web view）、呼叫端取消時結束、回報媒體來自哪個 frame（推 Referer）。
+  - adapter：荐片的 VIP 官方連結、奴娜的影片 ID（`bsky*`）照原版補 `jx:1`；奴娜的 http 播放頁維持嗅探（實測嗅探可播、解析解不出）。`spider-pack/` 重建為 `2026-10-06.3`（未發布）。`catvod.result` ABI 1.1 → 1.2。
+- 驗證：
+  - 離線：GlobalParse 測試＋adapter 斷言，突變 4／4 被抓到；回歸 `swift test --filter` 417／417。
+  - live 接口：bilibili 官方網址經超級解析 3～5 秒解出可讀的 mp4。騰訊、愛奇藝、優酷、芒果解不出；`wang-movie.json` 的 JSON 接口全部連不上，多數網頁接口已停用或回「无法解析视频」。這些是外部接口的狀態。
+  - iOS Release device build 成功。
+  - Simulator：本機 demo 設定的 bilibili VIP 線路由解析接口解出，原生播放器實際播放；qq 線路、奴娜 `bsky3` 約 15 秒顯示「設定的解析接口都沒有解出影片（試過：…）」；奴娜 `jazsjzlp_1080p` 照舊可播。
+  - Ponytail：1 項已套用。
+- 實際恢復可播的線路：**目前兩份設定裡原本需要解析的線路（奴娜 `bsky*`）仍解不出**，原因是外部接口解不出。機制已驗證：接口解得出的線路（bilibili）能播。
+- **真機未驗證**：待確認的項目見任務文件第 9 節。
+
+## Previous handoff — 2026-10-06：發布 0.1.70 (71)
 
 - **最新發布：WebHTV `0.1.70 (71)`**（2026-10-06 14:26 CST）＝`0.1.69 (70)`＋IOS-POC-44G（`js.host` 1.3、`AppDrama`、`Uvod`）＋IOS-POC-27A-1（原生開播等待 10 秒）。
 - 證據：

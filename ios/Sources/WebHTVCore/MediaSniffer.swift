@@ -38,10 +38,14 @@ public struct SniffedSubtitle: Sendable, Equatable {
 public struct MediaSniffResult: Sendable, Equatable {
     public let mediaURL: URL
     public let subtitles: [SniffedSubtitle]
+    /// IOS-POC-56: the frame that asked for the stream — a parse service's page, which is what a
+    /// browser would have sent as the `Referer`. Nil when the address was read without a web view.
+    public let frameURL: URL?
 
-    public init(mediaURL: URL, subtitles: [SniffedSubtitle] = []) {
+    public init(mediaURL: URL, subtitles: [SniffedSubtitle] = [], frameURL: URL? = nil) {
         self.mediaURL = mediaURL
         self.subtitles = subtitles
+        self.frameURL = frameURL
     }
 }
 
@@ -237,19 +241,24 @@ public final class MediaSniffer {
     ///
     /// The grace only exists on this API. Legacy `sniff()` still finishes on the first media match,
     /// so source-health checks and other callers do not pay extra latency.
+    ///
+    /// `headers` (IOS-POC-56) are what a parse service's page is opened with — Android's
+    /// `CustomWebView.checkHeader`: a `User-Agent` becomes the web view's, the rest go on the request.
     public func sniffWithSubtitles(
         page: URL,
         referer: String? = nil,
+        headers: [String: String] = [:],
         timeout: Duration = .seconds(12),
         subtitleGrace: Duration = .milliseconds(250)
     ) async -> MediaSniffResult? {
-        await sniffResult(page: page, referer: referer, timeout: timeout,
+        await sniffResult(page: page, referer: referer, headers: headers, timeout: timeout,
                           captureSubtitles: true, subtitleGrace: subtitleGrace)
     }
 
     private func sniffResult(
         page: URL,
         referer: String?,
+        headers: [String: String] = [:],
         timeout: Duration,
         captureSubtitles: Bool,
         subtitleGrace: Duration
@@ -269,7 +278,13 @@ public final class MediaSniffer {
             if self.collector === collector { self.collector = nil }
             if !waiting.isEmpty { waiting.removeFirst().resume() }
         }
-        return await collector.run(page: page, referer: referer, timeout: timeout)
+        // IOS-POC-56: a caller that gives up — a parse that another service already answered, a
+        // play that was abandoned — ends its sniff now rather than at the timeout.
+        return await withTaskCancellationHandler {
+            await collector.run(page: page, referer: referer, headers: headers, timeout: timeout)
+        } onCancel: {
+            Task { @MainActor in collector.cancel() }
+        }
     }
 
     /// Owns one web view and one continuation for the duration of a single sniff.
@@ -280,6 +295,7 @@ public final class MediaSniffer {
         private var timeoutTask: Task<Void, Never>?
         private var finishTask: Task<Void, Never>?
         private var mediaURL: URL?
+        private var frameURL: URL?
         private var subtitles = [SniffedSubtitle]()
         private var subtitleIndexes = [String: Int]()
 
@@ -299,8 +315,11 @@ public final class MediaSniffer {
             self.subtitleGrace = subtitleGrace
         }
 
-        func run(page: URL, referer: String?, timeout: Duration) async -> MediaSniffResult? {
-            await withCheckedContinuation { (continuation: CheckedContinuation<MediaSniffResult?, Never>) in
+        func run(page: URL, referer: String?, headers: [String: String],
+                 timeout: Duration) async -> MediaSniffResult? {
+            // Cancelled before it started: nothing to load.
+            if Task.isCancelled { return nil }
+            return await withCheckedContinuation { (continuation: CheckedContinuation<MediaSniffResult?, Never>) in
                 self.continuation = continuation
 
                 let configuration = WKWebViewConfiguration()
@@ -330,6 +349,10 @@ public final class MediaSniffer {
 
                 var request = URLRequest(url: page)
                 if let referer { request.setValue(referer, forHTTPHeaderField: "Referer") }
+                for (name, value) in headers {
+                    if name.caseInsensitiveCompare("User-Agent") == .orderedSame { webView.customUserAgent = value }
+                    else { request.setValue(value, forHTTPHeaderField: name) }
+                }
                 webView.load(request)
             }
         }
@@ -338,7 +361,7 @@ public final class MediaSniffer {
 
         private func finishCurrent() {
             guard let mediaURL else { finish(with: nil); return }
-            finish(with: MediaSniffResult(mediaURL: mediaURL, subtitles: subtitles))
+            finish(with: MediaSniffResult(mediaURL: mediaURL, subtitles: subtitles, frameURL: frameURL))
         }
 
         private func finish(with result: MediaSniffResult?) {
@@ -355,7 +378,7 @@ public final class MediaSniffer {
             continuation.resume(returning: result)
         }
 
-        private func acceptMedia(_ raw: String) {
+        private func acceptMedia(_ raw: String, frame: URL? = nil) {
             let candidate = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard candidate.lowercased().hasPrefix("http") else { return }
             switch ruleset?.verdict(for: candidate) ?? .undecided {
@@ -370,6 +393,7 @@ public final class MediaSniffer {
             let resolved = MediaSniffer.unwrapped(url)
             guard mediaURL == nil else { return }
             mediaURL = resolved
+            frameURL = frame
             guard captureSubtitles else { finishCurrent(); return }
             finishTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: self?.subtitleGrace ?? .milliseconds(0))
@@ -413,8 +437,9 @@ public final class MediaSniffer {
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+            let frame = message.frameInfo.request.url
             if let raw = message.body as? String {
-                acceptMedia(raw)
+                acceptMedia(raw, frame: frame)
                 return
             }
             guard let body = message.body as? [String: Any],
@@ -426,7 +451,7 @@ public final class MediaSniffer {
                                format: body["format"] as? String ?? "",
                                isDefault: body["default"] as? Bool ?? false)
             } else {
-                acceptMedia(raw)
+                acceptMedia(raw, frame: frame)
             }
         }
 

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-06.2",
+  "version": "2026-10-06.3",
   "minHostApi": 2,
   "scripts": [
     {
@@ -52,7 +52,7 @@
     {
       "class": "AppYsV2",
       "path": "./scripts/AppYsV2.js",
-      "sha256": "370f1685c4466ec9194845e79fd49788d84330bc40c8cd1b34abf677e3944d10",
+      "sha256": "45d90bcd511472fed922fce4e5d88d2a0727f37d8d58e5c552c376960dc356eb",
       "originJar": "river-fman.jar",
       "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
       "notes": "the .vod dialect only"
@@ -96,7 +96,7 @@
     {
       "class": "JianPian",
       "path": "./scripts/JianPian.js",
-      "sha256": "5b0c0e83a005144d94ae0933f5c3e66432a39e2c4afe71ecffb4051c9d6abf59",
+      "sha256": "4d1fbff68cca08e062b293ce68b4326c007d99e76ee33308893091dc74591bf2",
       "aliases": [
         "JPianAmns"
       ],

@@ -12,7 +12,10 @@ import Foundation
 /// shape the app was already parsing. The spider branch therefore only decodes; it never reshapes.
 public enum SourceClient: Sendable {
     case cms(CMSClient)
-    case spider(SpiderSession)
+    /// The `Site` is the one this client was made for. The session is cached by `Site.id` and may
+    /// have been built from another configuration's copy of the site, so per-configuration settings
+    /// — the global parses (IOS-POC-56) — are read from here, never from `session.site`.
+    case spider(SpiderSession, Site)
 
     /// Builds the right client for a site. A `csp_*` site the registry can drive becomes a spider;
     /// anything else falls back to `CMSClient`, which rejects unsupported types as it always did.
@@ -22,14 +25,14 @@ public enum SourceClient: Sendable {
     /// call would re-fetch it on every page, every search and every episode.
     public static func make(site: Site, resolver: CSPSourceResolver) async throws -> SourceClient {
         guard resolver.canResolve(site) else { return .cms(try CMSClient(site: site)) }
-        return .spider(try await SpiderSessionStore.shared.session(for: site, resolver: resolver))
+        return .spider(try await SpiderSessionStore.shared.session(for: site, resolver: resolver), site)
     }
 
     public func home(page: Int = 1) async throws -> CMSResponse {
         switch self {
         case .cms(let client):
             return try await explained { try await client.home(page: page) }
-        case .spider(let session):
+        case .spider(let session, _):
             let home = try await decode(CMSResponse.self, from: session.home())
             // XBPQ always returns an empty home list and XYQHiker only fills one when its rule file
             // sets 首页推荐链接, so a spider home would otherwise render an empty grid. This is the
@@ -55,7 +58,7 @@ public enum SourceClient: Sendable {
         switch self {
         case .cms(let client):
             return try await explained { try await client.category(id: id, page: page) }
-        case .spider(let session):
+        case .spider(let session, _):
             return try await decode(CMSResponse.self,
                                     from: session.category(tid: id, page: String(page), extend: extend))
         }
@@ -75,7 +78,7 @@ public enum SourceClient: Sendable {
         switch self {
         case .cms(let client):
             return try await client.search(keyword, page: page)
-        case .spider(let session):
+        case .spider(let session, _):
             return try await decode(CMSResponse.self, from: session.search(key: keyword, page: String(page)))
         }
     }
@@ -84,7 +87,7 @@ public enum SourceClient: Sendable {
         switch self {
         case .cms(let client):
             return try await client.detail(id: id)
-        case .spider(let session):
+        case .spider(let session, _):
             return try await decode(CMSResponse.self, from: session.detail(ids: [id])).list.first
         }
     }
@@ -105,10 +108,21 @@ public enum SourceClient: Sendable {
         case .cms(let client):
             // A MacCMS endpoint has no header protocol, so these are the app's own defaults: none.
             guard let play = try await client.playback(for: episode, flag: flag) else { return nil }
-            return await Self.target(from: play.url, headers: [:], parse: 0, subtitles: play.subtitles)
-        case .spider(let session):
-            let play = try await decode(SpiderPlayResponse.self, from: session.player(flag: flag, id: episode.url))
-            return await Self.target(from: play.url, headers: play.header ?? [:], parse: play.parse, subtitles: play.subs)
+            // `SiteApi.playerContent`: a type-0/1 site's `parse` is 1 when it names a `playUrl` (a page
+            // address with none is already probed, then sniffed, below); type 4 answers its own.
+            let site = client.site
+            let global = site.type == 4
+                ? (play.parse, play.jx, play.playUrl, play.flag.isEmpty ? flag : play.flag)
+                : (site.playUrl.isEmpty ? 0 : 1, 0, site.playUrl, flag)
+            return try await Self.target(from: play.url, headers: [:], parse: 0, subtitles: play.subs,
+                                         global: global, settings: site.parsing)
+        case .spider(let session, let site):
+            let play = try await decode(SpiderPlayResponse.self,
+                                        from: session.player(flag: flag, id: episode.url, vipFlags: site.parsing.flags))
+            return try await Self.target(from: play.url, headers: play.header ?? [:], parse: play.parse,
+                                         subtitles: play.subs,
+                                         global: (play.parse, play.jx, play.playUrl, play.flag.isEmpty ? flag : play.flag),
+                                         settings: site.parsing)
         }
     }
 
@@ -122,14 +136,37 @@ public enum SourceClient: Sendable {
     /// ponytail: switching quality in the picker therefore opens that entry's URL exactly as the
     /// source gave it, with no probe or sniff hop. Resolve the others lazily if a real multi-value
     /// source ever needs it — none of the 62 listed sources answers with a `url` array today.
+    ///
+    /// IOS-POC-56: `global` is the result read the way `ParseJob` reads it — `parse`, `jx`, `playUrl`
+    /// and the line — and `settings` the site's configuration's parses. A result that needs one of
+    /// them is resolved by the services and keeps everything else of the target: the quality menu,
+    /// the source's subtitles. A direct media address never waits for a service.
     private static func target(from play: PlayURL, headers: [String: String], parse: Int,
-                               subtitles: [SourceSubtitle]) async -> PlaybackTarget? {
+                               subtitles: [SourceSubtitle],
+                               global: (parse: Int, jx: Int, playUrl: String, flag: String),
+                               settings: ParseSettings) async throws -> PlaybackTarget? {
         let qualities = play.values.compactMap { value in
             URL(string: value.v).map { PlaybackQuality(name: value.n ?? "", url: $0) }
         }
         guard !qualities.isEmpty else { return nil }
         let index = PlaybackQuality.defaultIndex(in: qualities, position: play.position)
         let chosen = qualities[index].url
+        let plan = CMSClient.isDirectMedia(chosen) ? .none
+            : GlobalParse.plan(parse: global.parse, jx: global.jx, playUrl: global.playUrl, flag: global.flag,
+                               header: headers, settings: settings)
+        switch plan {
+        case .none:
+            break
+        case .unsupported(let message):
+            throw GlobalParseError.unsupported(message)
+        case .run(let json, let web, let header):
+            // `getUrl().v()`: the address exactly as the source wrote it, appended to each service.
+            guard let parsed = await GlobalParser.resolve(play.values[index].v, json: json, web: web, header: header)
+            else { throw GlobalParseError.unresolved((json + web).map(\.label)) }
+            return PlaybackTarget(url: parsed.url, headers: parsed.headers,
+                                  qualities: qualities, position: play.position, defaultIndex: index,
+                                  subtitles: SourceSubtitles.merging(subtitles, sniffed: parsed.subtitles))
+        }
         let sniffed: MediaSniffResult?
         if parse != 0 {
             // parse:1 is the spider saying outright "this is a page, sniff it" — no need to probe.
@@ -207,6 +244,11 @@ public struct PlaybackTarget: Sendable, Equatable {
 /// some CatVod sources send it as a string, so both are accepted rather than failing the decode.
 struct SpiderPlayResponse: Decodable, Sendable {
     let parse: Int
+    /// IOS-POC-56: `jx:1` asks for the configuration's global parse; `playUrl` names one (`json:…`,
+    /// `parse:<name>`, or a web parse address); `flag` is the line, when the result renames it.
+    let jx: Int
+    let playUrl: String
+    let flag: String
     /// All three shapes CatVod allows — see `PlayURL`. This was `String`, and an array made the
     /// decode throw rather than offering the qualities it was listing.
     let url: PlayURL
@@ -217,22 +259,25 @@ struct SpiderPlayResponse: Decodable, Sendable {
     /// IOS-POC-45H: the source's own subtitles, entry by entry (`SourceSubtitle.list`).
     let subs: [SourceSubtitle]
 
-    enum CodingKeys: String, CodingKey { case parse, url, header, subs }
+    enum CodingKeys: String, CodingKey { case parse, url, header, subs, jx, playUrl, flag }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         url = try values.decodeIfPresent(PlayURL.self, forKey: .url) ?? PlayURL(values: [])
+        jx = Self.flexibleInt(values, .jx)
+        playUrl = (try? values.decode(String.self, forKey: .playUrl)) ?? ""
+        flag = (try? values.decode(String.self, forKey: .flag)) ?? ""
         // A spider may emit a non-string value here (a number, or `false` for "none"); one odd
         // header must not cost the whole play result, so anything undecodable is simply no headers.
         header = try? values.decodeIfPresent([String: String].self, forKey: .header)
         subs = SourceSubtitle.list(in: values, forKey: .subs)
-        if let number = try? values.decode(Int.self, forKey: .parse) {
-            parse = number
-        } else if let text = try? values.decode(String.self, forKey: .parse) {
-            parse = Int(text) ?? 0
-        } else {
-            parse = 0
-        }
+        parse = Self.flexibleInt(values, .parse)
+    }
+
+    /// An int, or a string holding one — sources send `"jx": "1"` as often as `1`.
+    static func flexibleInt<Key: CodingKey>(_ values: KeyedDecodingContainer<Key>, _ key: Key) -> Int {
+        (try? values.decode(Int.self, forKey: key))
+            ?? (try? values.decode(String.self, forKey: key)).flatMap { Int($0) } ?? 0
     }
 }
 

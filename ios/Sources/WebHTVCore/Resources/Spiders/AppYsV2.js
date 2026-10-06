@@ -156,7 +156,13 @@ var spider = (function () {
      */
     playerContent: function (flag, id) {
       var url = String(id);
-      return host.result.play(url, !isVideo(url), { 'User-Agent': UA });
+      // The original answers `parse:1, jx:1` for anything that is not a file. A bare video ID
+      // (`bsky*`) keeps that and goes to the configuration's parse services (IOS-POC-56). A play
+      // page does not: sniffing it finds the stream in seconds and the parse services never did
+      // (measured 2026-10-06), so it stays with the sniffer as before.
+      var out = host.result.play(url, !isVideo(url), { 'User-Agent': UA });
+      if (out.parse && !/^https?:\/\//i.test(url)) out.jx = 1;
+      return out;
     },
 
     isVideoFormat: isVideo,

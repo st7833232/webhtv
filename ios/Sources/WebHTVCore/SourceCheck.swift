@@ -22,11 +22,14 @@ public enum SourceCheck {
         case failed(Stage, String)
         /// No answer within the check's limit.
         case timedOut
+        /// IOS-POC-56: the first episode needs a global parse service that did not answer, or one
+        /// this app cannot run. That is the service's state, not the source's, so nothing is recorded.
+        case needsParse(String)
     }
 
     /// The report's groups, in its order.
     public enum Category: CaseIterable, Sendable {
-        case playable, unreachable, noTitles, noEpisodes, noPlayURL, notMedia, failed, timedOut
+        case playable, unreachable, noTitles, noEpisodes, noPlayURL, notMedia, needsParse, failed, timedOut
 
         public var label: String {
             switch self {
@@ -36,6 +39,7 @@ public enum SourceCheck {
             case .noEpisodes: "有片單但沒有集數"
             case .noPlayURL: "取不到播放網址"
             case .notMedia: "播放網址不是影片"
+            case .needsParse: "需要解析接口，未解出"
             case .failed: "其他錯誤"
             case .timedOut: "檢查逾時"
             }
@@ -59,6 +63,7 @@ public enum SourceCheck {
             case .noEpisodes: .noEpisodes
             case .noPlayURL: .noPlayURL
             case .notMedia: .notMedia
+            case .needsParse: .needsParse
             case .failed: .failed
             case .timedOut: .timedOut
             }
@@ -69,6 +74,7 @@ public enum SourceCheck {
             switch verdict {
             case .unreachable(let failure): failure.reason
             case .failed(let stage, let message): "\(stage.rawValue)：\(message)"
+            case .needsParse(let message): message
             default: nil
             }
         }
@@ -82,6 +88,7 @@ public enum SourceCheck {
             case .unreachable, .failed(.listing, _): return [(.browse, false)]
             case .noEpisodes, .failed(.detail, _): return [(.browse, true), (detail, false)]
             case .noPlayURL, .notMedia, .failed(.play, _): return [(.browse, true), (detail, true), (.play, false)]
+            case .needsParse: return [(.browse, true), (detail, true)]
             case .noTitles, .timedOut: return []
             }
         }
@@ -133,6 +140,8 @@ public enum SourceCheck {
             return (kind == .media ? .playable : .notMedia, trail, milliseconds)
         } catch let failure as SiteUnreachable where stage == .listing {
             return (.unreachable(failure), trail, 0)
+        } catch let failure as GlobalParseError {
+            return (.needsParse(failure.localizedDescription), trail, milliseconds)
         } catch {
             return (.failed(stage, error.localizedDescription), trail, milliseconds)
         }

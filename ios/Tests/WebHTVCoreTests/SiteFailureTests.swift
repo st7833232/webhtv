@@ -47,7 +47,7 @@ private func client(_ extend: String) throws -> SourceClient {
         storage: SpiderStorage(siteKey: "site-failure", defaults: UserDefaults(suiteName: "site-failure")!),
         session: URLSession(configuration: configuration))
     let site = try JSONDecoder().decode(Site.self, from: Data(#"{"key":"f","name":"f","type":3,"api":"csp_XBPQ"}"#.utf8))
-    return .spider(SpiderSession(site: site, runtime: runtime, extend: extend))
+    return .spider(SpiderSession(site: site, runtime: runtime, extend: extend), site)
 }
 
 private func rule(_ host: String) -> String {

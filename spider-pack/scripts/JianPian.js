@@ -209,11 +209,12 @@ var spider = (function () {
 
     playerContent: function (flag, id, vipFlags) {
       var url = String(id);
-      // The original sends `parse:1` only for the big VIP portals, whose links need a parse service.
-      // iOS has none configured, so the same call sends them to the sniffer, which is the closest
-      // thing this app has; everything else is a direct file.
+      // The original sends `parse:1, jx:1` only for the big VIP portals, whose links need the
+      // configuration's parse services (IOS-POC-56); everything else is a direct file.
       var vip = /\/\/[^/]*(iqiyi|v\.qq|youku|le|tudou|mgtv|sohu|acfun|bilibili|pptv|miguvideo|ixigua|1905|fun\.tv)\./i.test(url);
-      return host.result.play(url, vip, { 'User-Agent': UA });
+      var out = host.result.play(url, vip, { 'User-Agent': UA });
+      if (vip) out.jx = 1;
+      return out;
     },
 
     isVideoFormat: host.isVideoFormat,

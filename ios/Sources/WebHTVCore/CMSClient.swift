@@ -360,13 +360,24 @@ struct PlayResponse: Decodable, Sendable {
     let url: PlayURL
     /// IOS-POC-45H: the source's own subtitles, as a spider's play result lists them.
     let subs: [SourceSubtitle]
+    /// IOS-POC-56: what `ParseJob` reads from a type-4 answer, as `SpiderPlayResponse` does.
+    var parse = 0, jx = 0, playUrl = "", flag = ""
 
-    enum CodingKeys: String, CodingKey { case url, subs }
+    enum CodingKeys: String, CodingKey { case url, subs, parse, jx, playUrl, flag }
+
+    init(url: PlayURL) {
+        self.url = url
+        subs = []
+    }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         url = try values.decode(PlayURL.self, forKey: .url)
         subs = SourceSubtitle.list(in: values, forKey: .subs)
+        parse = SpiderPlayResponse.flexibleInt(values, .parse)
+        jx = SpiderPlayResponse.flexibleInt(values, .jx)
+        playUrl = (try? values.decode(String.self, forKey: .playUrl)) ?? ""
+        flag = (try? values.decode(String.self, forKey: .flag)) ?? ""
     }
 }
 
@@ -439,14 +450,13 @@ public struct CMSClient: Sendable {
         try await playback(for: episode, flag: flag)?.url
     }
 
-    /// The same, with the subtitles a type-4 `?play=` answer lists (IOS-POC-45H). A direct address
-    /// asks nothing, so it has none.
-    public func playback(for episode: Episode, flag: String) async throws -> (url: PlayURL, subtitles: [SourceSubtitle])? {
+    /// The whole type-4 `?play=` answer: its subtitles (IOS-POC-45H) and its parse fields
+    /// (IOS-POC-56). A direct address asks nothing, so it has neither.
+    func playback(for episode: Episode, flag: String) async throws -> PlayResponse? {
         guard let direct = episode.mediaURL else { return nil }
-        guard site.type == 4, !Self.isDirectMedia(direct) else { return (PlayURL(direct.absoluteString), []) }
+        guard site.type == 4, !Self.isDirectMedia(direct) else { return PlayResponse(url: PlayURL(direct.absoluteString)) }
         let data = try await data(for: [URLQueryItem(name: "play", value: episode.url), URLQueryItem(name: "flag", value: flag)])
-        guard let resolved = try? JSONDecoder().decode(PlayResponse.self, from: data) else { return nil }
-        return (resolved.url, resolved.subs)
+        return try? JSONDecoder().decode(PlayResponse.self, from: data)
     }
 
     // ponytail: path-extension heuristic; probe the content type only if a real site needs it.

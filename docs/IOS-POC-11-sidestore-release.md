@@ -1,9 +1,11 @@
 # IOS-POC-11：SideStore 發布流程
 
 
-## Current release — 2026-10-06：0.1.70 (71) / IOS-POC-44G＋IOS-POC-27A-1
+## Current release — 2026-10-06：0.1.71 (72) / IOS-POC-56
 
-**目前最新版是 `0.1.70 (71)`**（`js.host` 1.3：RSA／AES hex／二進位 HTTP，`AppDrama`、`Uvod`；原生播放器開播等待 10 秒）。完整紀錄在下方「第七十一次發布」：run `37423001505` success，tag `ios-v0.1.70-b71` → `cdec4ec5`，`source.json` `329a5c9d`，`WebHTV-0.1.70-71.ipa` 35,277,702 bytes。真機未驗收。
+**目前最新版是 `0.1.71 (72)`**（設定檔全域解析接口：type 0 網頁解析、type 1 JSON 解析）。完整紀錄在下方「第七十二次發布」：run `37430560852` success，tag `ios-v0.1.71-b72` → `ace72419`，`source.json` `63503527`，`WebHTV-0.1.71-72.ipa` 35,328,221 bytes。真機未驗收。
+
+前一版 `0.1.70 (71)`（`js.host` 1.3：RSA／AES hex／二進位 HTTP，`AppDrama`、`Uvod`；原生播放器開播等待 10 秒）完整紀錄在下方「第七十一次發布」：run `37423001505` success，tag `ios-v0.1.70-b71` → `cdec4ec5`，`source.json` `329a5c9d`，`WebHTV-0.1.70-71.ipa` 35,277,702 bytes。真機未驗收。
 
 前一版 `0.1.69 (70)`（六個新內建來源＋JAR 自動辨識第一版）完整紀錄在下方「第七十次發布」：run `37411484416` success，tag `ios-v0.1.69-b70` → `98384c2a`，`source.json` `ef554012`，`WebHTV-0.1.69-70.ipa` 35,261,144 bytes。**使用者 2026-10-06 回報真機驗收完成。**
 
@@ -951,9 +953,43 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第七十一次發布：`0.1.70 (71)`（2026-10-06，**已發布**）
+## 第七十二次發布：`0.1.71 (72)`（2026-10-06，**已發布**）
 
-**目前最新版是 `0.1.70 (71)`。** 前面七十版都已被取代。
+**目前最新版是 `0.1.71 (72)`。** 前面七十一版都已被取代。
+
+- 授權：使用者 2026-10-06「發布新版讓全域解析上線」。只用 `workflow_dispatch` 並填 release notes；GitLab 相容包 `spider-pack/`（`2026-10-06.3`）**沒有**發布。
+- 版號決定：發布前 fetch，origin `ios-poc` 是 `75e62f54`；GitHub 最新 Release 是 `0.1.70 (71)`，origin 上沒有 `ios-v0.1.71*`／`*-b72` tag；專案版號 0.1.70／71 → `0.1.71 (72)`。
+- 內容：`0.1.70 (71)` 的全部，加上 IOS-POC-56（`75e62f54`）：設定檔 `parses`／`flags`／站台 `playUrl` 解碼；播放結果的 `jx`／`playUrl`／`flag` 依 Android `ParseJob` 語意交給 type 0 網頁解析與 type 1 JSON 解析（預設超級解析，15 秒上限，解出的網址要讀得到媒體才採用）；其他類型與 JAR 本機服務明確顯示未支援；荐片 VIP 連結、奴娜影片 ID 照原版補 `jx:1`；`catvod.result` ABI 1.2。見 `docs/IOS-POC-56-global-parse.md`。
+- 發布序列：版號 commit `ace72419`（Task-Guard `IOS-RELEASE-0.1.71-b72`），push `75e62f54..ace72419`。`gh workflow run`（ref `ios-poc`、version `0.1.71`、build `72`、release notes）。run [`37430560852`](https://github.com/st7833232/webhtv/actions/runs/37430560852) 成功（07:34:59Z → 07:42:26Z），全部 steps success。workflow 建立 tag `ios-v0.1.71-b72`（→ `ace72419`）並推回 `source.json`（`63503527`，共七十二筆，第一筆 `0.1.71`，size 35,328,221，downloadURL 與 Release 相同；bundle `com.webhtv.ios.poc`、source identifier `com.webhtv.sidestore.source` 未改）。**沒有手動建 tag。**
+- 產物：GitHub Release `WebHTV 0.1.71 (72)`，不是 draft／prerelease，07:42:15Z 發布。`WebHTV-0.1.71-72.ipa` **35,328,221 bytes**，SHA-256 `a145e7d36b94a892fccba16f349c7a2ba27876102dc60dd0f25ae1518f1c3a9d`。**IPA 已下載核對**：雜湊與 GitHub digest 相同；`Info.plist` `com.webhtv.ios.poc`、`0.1.71`、`72`、最低 iOS 17.0；24 支爬蟲腳本與原始碼逐位元組相同（含改過的 `JianPian.js`、`AppYsV2.js`）；主程式含 IOS-POC-56 的解析失敗訊息與 iframe 合併頁。
+- 發布前驗證：見 IOS-POC-56 第 5 節（離線 GlobalParse＋adapter 測試、突變 4／4、回歸 417／417、live 接口、本機 Release device build、Simulator 實際播放 bilibili 解析線路、qq／`bsky3` 約 15 秒顯示解析失敗訊息、`jazsjzlp_1080p` 照舊可播、Ponytail 1 項已套用）。沒有另跑測試 CI；本次 run 的 device Release build（CI Xcode）成功。
+- **真機尚未驗收**。驗收項目見 IOS-POC-56 第 9 節。
+
+### Release notes（實際送出的內容）
+
+```text
+WebHTV 0.1.71 (72)（支援設定檔的全域解析接口；真機未驗收）
+
+變更
+- 支援設定檔的全域解析接口：來源要求交給解析服務的線路（包括設定指定的 VIP 線路與站台自帶的解析前綴），會改用設定裡的網頁解析（type 0）與 JSON 解析（type 1）。
+- 沒有指定解析時採用與 Android 版相同的預設方式：符合該線路的解析服務同時嘗試，最多等待 15 秒，先解出可播放影片的服務優先；解出的網址先確認是影片才交給播放器。
+- 解析結果沿用原本的畫質選單、字幕、播放所需 headers 與續播位置；播放、預先解析下一集、下載與來源檢查都使用同一套解析。
+- 直接的影片網址照舊直接播放，不經過解析服務。
+- 解析失敗時直接說明「設定的解析接口都沒有解出影片」並列出試過的服務，不再顯示「這一集沒有可播放的網址」或改由播放器嘗試後失敗；來源檢查不會因此把來源記為播放失敗。
+- 換集或離開頁面時，進行中的解析會一併停止，不會覆蓋新的播放。
+
+已知限制
+- 只支援網頁解析與 JSON 解析；其他解析類型與需要 Android 本機服務的解析會顯示「尚未支援」。
+- 能否解出取決於解析服務本身：目前不少公開解析服務已停用或無法解析部分平台，這時請改選其他線路。
+- 沒有手動選擇解析服務的選單，播放失敗時也不會自動換下一個解析服務。
+- 尚未在任何真機驗證。
+```
+
+- 回復方式：revert `75e62f54` 並以更高版號重新發布；保留所有既有 tag 與 Release。
+
+## 第七十一次發布：`0.1.70 (71)`（2026-10-06，**已發布**，已被 `0.1.71 (72)` 取代）
+
+`0.1.70 (71)` 曾是最新版。
 
 - 授權：使用者 2026-10-06「發布新版到 SideStore」。只用 `workflow_dispatch` 並填 release notes。
 - 版號決定：發布前 fetch，origin `ios-poc` 是 `14fdc432`；GitHub 最新 Release 是 `0.1.69 (70)`，origin 上沒有 `ios-v0.1.70*`／`*-b71` tag（`ios-v0.1.7-b8` 是舊的 0.1.7）；專案版號 0.1.69／70 → `0.1.70 (71)`。

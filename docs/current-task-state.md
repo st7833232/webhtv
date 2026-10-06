@@ -4,7 +4,14 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-06：IOS-POC-56 設定檔全域解析接口（先讀這一節）
+## Current handoff — 2026-10-06：發布 0.1.71 (72)，全域解析上線（先讀這一節）
+
+- **最新發布：WebHTV `0.1.71 (72)`**（2026-10-06 15:42 CST）＝`0.1.70 (71)`＋IOS-POC-56（設定檔全域解析接口）。
+- 證據：run [`37430560852`](https://github.com/st7833232/webhtv/actions/runs/37430560852) 全部 success；tag `ios-v0.1.71-b72` → `ace72419`；`source.json` `63503527` 第一筆 `0.1.71`、size 35,328,221 與 Release 相同；IPA 已下載核對（SHA-256 `a145e7d3…`、0.1.71／72、24 支腳本相同、主程式含新解析程式）。完整紀錄：`docs/IOS-POC-11-sidestore-release.md`「第七十二次發布」。
+- **真機未驗收**。項目見 `docs/IOS-POC-56-global-parse.md` 第 9 節。
+- 相容包 `spider-pack/`（`2026-10-06.3`）未發布，要不要發布由使用者決定。
+
+## Previous handoff — 2026-10-06：IOS-POC-56 設定檔全域解析接口（已隨 0.1.71 (72) 發布）
 
 **IOS-POC-56**（基準 `f730bd20`，只交付程式與驗證，**發版另行處理**）。完整紀錄：`docs/IOS-POC-56-global-parse.md`。
 - 做了什麼：

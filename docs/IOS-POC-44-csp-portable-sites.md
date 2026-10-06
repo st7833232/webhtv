@@ -5,8 +5,8 @@
 - 目標：使用者 2026-10-02「開始 IOS-POC-44 assessment」。對象是 `docs/current-task-state.md`「Current handoff — 2026-10-02 下午」列的 23 站（19 個類別）：可以移植、iOS 還沒有 port 的 `csp_*` 站。
 - 範圍：只做 assessment，**不改程式**。task guard `IOS-POC-44`（`assessment`），路徑：本文件、`docs/current-task-state.md`、`docs/CSP_PORTABILITY_MATRIX.md`。探測腳本與回應都在 session scratchpad，不 commit。
 - 結論：23 站裡 **18 站後端今天活著、5 站死了**。活著的 18 站裡 13 站只要寫 JS，不必改 Swift；3 站（AppDrama×2、Uvod）要先在 host 補 RSA 和二進位 HTTP；Douban×2 要另做 App 功能。建議與分段見第 7 節，待決定事項見第 9 節。
-- 44A（`WeiguanDJ`＋`HemaDJ`）見第 11 節；44B（`QimaoDJ`＋`HaokanDJ`）見第 12 節；44C（`Jpys`＋`Jys`）見第 13 節。三段都已完成。
-- 唯一下一步：等使用者決定下一段（第 7 節，建議 44D：`Feiyu`＋`MiaoWu`）；沒有核准不改程式。`QmdjAmns`／`HHkkAmns` 的 alias（第 6 節、第 9 節第 2 項）仍待使用者決定。
+- 44A（`WeiguanDJ`＋`HemaDJ`）見第 11 節；44B（`QimaoDJ`＋`HaokanDJ`）見第 12 節；44C（`Jpys`＋`Jys`）見第 13 節；44D（`Feiyu`＋`MiaoWu`）見第 14 節。四段都已完成。44D 還沒發版，真機未驗證。
+- 唯一下一步：等使用者決定下一段（第 7 節，建議 44E：`AppYQK`＋`AppYsV2`）；沒有核准不改程式。`QmdjAmns`／`HHkkAmns` 的 alias（第 6 節、第 9 節第 2 項）仍待使用者決定。
 
 ## 1. 問題與範圍
 
@@ -134,6 +134,7 @@
 - 2026-10-02 17:05：使用者「開始 44A」。實作見第 11 節。
 - 2026-10-02 17:24：使用者「開始 44B」。實作見第 12 節。
 - 2026-10-02 17:41：使用者「開始 44C」。實作見第 13 節。
+- 2026-10-06：使用者要求直接實作 44D（飛魚、喵呜动漫），只交付程式與文件，發版另行處理。實作見第 14 節。
 
 ## 11. 44A 實作紀錄（2026-10-02，Task-Guard `IOS-POC-44A`，`standard`）
 
@@ -257,3 +258,113 @@
     - 異界：首頁內容和金牌相同（回退到預設網域）→ 詳情 → 立即播放，原生播放器播放中。
   - **真機未驗證**。
 - Ponytail（`ponytail:ponytail-review`，對最終 diff）：沒有可刪的項目（Lean already）。
+
+## 14. 44D 實作紀錄（2026-10-06，Task-Guard `IOS-POC-44D`，`standard`）
+
+- 基準：fetch 後的 `origin/ios-poc` `b277685f`，工作區乾淨。沒有沿用第 3 節 2026-10-02 的存活結論，全部重新確認。
+- 設定：當天的 `wang-movie.json`（127,425 bytes，md5 `177d298c…`）。兩站都沒有 `ext`：
+  - `飞娱影视`（`csp_Feiyu`）
+  - `喵呜动漫`（`csp_MiaoWu`，`searchable: 1`）
+  - JAR 都寫 `xiaosa-0807.jar;md5;4d263271…`，實際下載的是 `d8f71fc8…`，和 10-02 相同。
+- 原版：以 jadx 反編譯 `Feiyu`（404 行）、`MiaoWu`（339 行），以及它們用到的 result builder 與 HTTP helper，完整讀過。HTTP helper 的逾時是 30 秒，信任所有憑證。
+
+### 14.1 原版邏輯核對與站況（09:48～09:52 CST，家用網路，python3／curl／openssl 照原版重做）
+
+- **飛魚的雙層 HMAC 簽章**：
+  - `secret = hex(HMAC-SHA256(key=鹽, msg=deviceId))`。
+  - `x-signature = hex(HMAC-SHA256(key=secret, "GET\n路徑\n查詢\n秒\nnonce\n2.6.8+1"))`。nonce 是 16 個英數字的 base64。
+  - 分類與搜尋用**原始值**簽，網址帶 encode 過的值；排行用 encode 過的值簽。
+  - 正確簽章回 200，錯誤簽章回 403 `签名验证失败`。
+  - 新發現：伺服器是對**排序後**的參數驗章。`page,page_size,year` 剛好是字母序所以會過；`area`、`class`、`lang` 排在 `page` 後面就回 403。原版首頁沒有篩選，所以這些參數實際上從來不會送出去。
+  - 用原始值簽中文關鍵字 200，用 encode 過的值簽 403。
+- **飛魚站況**：
+  - 分類 6 個，`children` 都是空的，API 沒有提供篩選。
+  - 列表：電影 82,057 部，回傳中有 `total`。
+  - 排行 50 筆。
+  - 詳情 6 條線路。
+  - 搜尋「蜘蛛侠」共 109 筆，第 2 頁可以取。
+  - 媒體：fengbao、ffzy、lz、dytt 的 m3u8 都回 200。`极速资源站`（`vv.jisuzyv.com`）是自簽憑證。`高清qq` 的解析 API 回 `账户已欠费`，`url` 是相對路徑 `/mizhicdn/video/error.mp4`。
+- **喵呜的 DoH 與 AES**：
+  - `doh.pub` 的 TXT 去掉引號後，以 AES-256-ECB（32 字元 UTF-8 鍵 `6516…`）解開是 `http://app.nyafun.vip`，和原版寫死的備援相同。
+  - 回應的 `data` 是長度大於 16、不是 `{`／`[` 開頭的字串時，用另一把鍵 `c55c…` 解開，結果取代整個 envelope。
+- **喵呜站況**：
+  - config 有 6 個分類，`type_extend` 有 `class`／`year` 清單。4K专区的 year 欄位是一段提示文字（`PC请使用…`）。
+  - 原版的篩選有 80 字上限，當天所有 class／year 清單都超過，所以原版**一個篩選都不顯示**，`categoryContent` 也不送篩選。實測 `content/filter` 會依 `class`、`year` 篩選，結果不同。
+  - 列表每頁 12 筆。
+  - 詳情的線路名稱全部都是「请移步牛番」。
+  - 4K专区的集數是 `mwvod` 位址，要 POST `vod/parse`，會換到 Cloudflare R2 的簽名 mp4（206 `ftypisom`）；直接連 `mwvod` 主機連不上。
+  - 搜尋「斗罗」48 筆，不分頁（帶 `page=2` 也回同樣 48 筆）。
+
+### 14.2 改動
+
+- 新增 `ios/Sources/WebHTVCore/Resources/Spiders/Feiyu.js`、`MiaoWu.js`。
+  - `SpiderRegistry.ported` 加兩行。
+  - 沿用既有的 `host.get/post`、`host.hmac`、`host.aesDecrypt`（ECB）、`host.base64`、`host.random`、`host.enc`、`host.result`、`host.isVideoFormat`。
+  - 不動 `host.js`／Swift host，`js.host` 維持 1.2。
+- 測試：
+  - `ShortDramaSpiderTests.swift`：stub 多攔截 `4kyszx.top`、`doh.pub`、`app.nyafun.vip`，並新增兩個離線測試。
+    - 飛魚：每個請求的 `x-signature` 都和用 CryptoKit 獨立算出的雙層 HMAC 相同；nonce 是 16 個英數字的 base64；搜尋的網址帶 encode 過的中文，簽章用原始值；線路依原版的畫質排序；集數 id 是 `parseApi||url`；解析 API 回相對網址時交給嗅探。
+    - 喵呜：DoH 用 10-06 當天 `doh.pub` 實際回的 TXT 密文，ext 設的主機會被 DoH 解出的主機取代（原版也是這樣）；AES-ECB 回應能解開；篩選列（提示文字不算篩選）與分類請求帶 `class`／`year`；重名線路加上 player 代碼；`mwvod` 會 POST `vod/parse`，body 是 `{vid, player}`。
+  - `SpiderGoldenTests.registryClaimsOnlyWhatIsActuallyPorted` 加兩類；`SourceClientTests` 的 spider 站數由 38 改成 40。
+- **和原版刻意不同的地方**：
+  - 共通：
+    - 逾時 20 秒（原版 30 秒），跟其他 port 一樣。
+    - 不支援彈幕（`addDanmaku` 要用 Android 的本機 proxy）。
+    - `destroy` 會清掉狀態。
+  - 飛魚：
+    - 分類與搜尋的總頁數用 API 回的 `total` 算（原版寫死 999）。
+    - 搜尋照 App 傳的頁碼送（原版永遠是第 1 頁）。
+    - 播放結果帶 `User-Agent: Dart/3.10 (dart:io)`。原版不帶，但 golden 要求 `parse:0` 一定要有 header，其他 port 也都帶。
+    - 解析 API 回的 `url` 不是 http(s) 時改成 `parse:1` 交給嗅探。原版會照收，就會播 `/mizhicdn/video/error.mp4`。
+    - 不送篩選參數，因為 API 沒有提供篩選選項，伺服器也會拒絕非字母序的參數。
+    - `host` header 由 URLSession 依網址自動帶。
+  - 喵呜：
+    - 顯示並送出 `class`／`year` 篩選：拿掉 80 字上限，保留「请／建议」的提示文字過濾。
+    - 重複的線路名稱後面加 player 代碼，例如「请移步牛番 ffm3u8」。App 找回上次看的線路是用名稱（`WebHTVApp.swift` 的 `flags.first(where: { $0.name == watchedFlag })`），名稱重複時永遠回到第一條。
+    - 詳情多帶 `type_name`（API 的 `vod_class`）。
+    - 搜尋回單頁清單：原版的總頁數是 10，但這個 API 不分頁。
+    - DoH 只在 `init` 查一次。原版每個請求前都會檢查一個旗標，但旗標在 `init` 之後就一直是 true。
+    - `vod_author` 照原版放在 `vod_actor`。有些作品這個欄位是「豆瓣」，不是演員，照原版不改。
+
+### 14.3 驗證
+
+- **簽章與解密的離線測試**：新增的 2 個測試加上 registry 測試通過。突變 3／3 都被抓到：改版本字串、改 DoH 鍵、改成用 encode 過的值簽章。
+- **runtime 端到端探測**：真的 JavaScriptCore，走 `CSPSourceResolver().session(for:)`，用設定檔原本的站台定義。10:00 CST 執行。探測檔是臨時測試，用完就刪掉，沒有 commit。
+
+| 功能 | 飛魚 | 喵呜动漫 |
+|---|---|---|
+| 首頁分類 | 6 個 | 6 個 |
+| 篩選 | 來源沒有提供（同原版） | 番剧、剧场、国漫、欧美动漫 4 個分類有 `class`／`year`；番剧＋搞笑／2024 回 12 筆，和不篩選時不同 |
+| 首頁推薦列表 | 排行 50 筆 | 原版沒有 |
+| 分類與分頁 | 6 個分類的第 1、2 頁各 20 筆，不重疊；總頁數 16～12,376 | 6 個分類的第 1 頁各 12 筆；第 2 頁 5 個分類各 12 筆不重疊，4K专区第 2 頁 0 筆 |
+| 搜尋 | 「蜘蛛侠」第 1、2 頁各 20 筆，總頁數 6 | 「斗罗」48 筆（單頁） |
+| 作品 metadata | 年份、類型、地區、演員、導演、簡介、備註 | 年份、類型（`vod_class`）、簡介、備註；`vod_actor` 來自 `vod_author` |
+| 線路與集數 | 魅力航班第二季：5 條線路，集數 20／24／2／22／22 | 擅长逃跑的殿下第二季：2 條線路（第二條加上 `ffm3u8`），各 4 集；紫罗兰永恒花园（4K）：1 條 14 集 |
+| HTTP 成功 | API 全部 200 | DoH、config、列表、詳情、搜尋、`vod/parse` 全部 200 |
+| 取得媒體網址（`parse:0`） | 5／5 條 | 3／3 條（2 條直連 m3u8，1 條經 `vod/parse` 的 R2 mp4） |
+| 媒體 bytes | 4／5 條：m3u8（→ variant）→ TS 分段 206、`47 40 11…`；**无水印**（`v13.wsyzym3u8.com`）憑證無效，連不上 | 3／3：TS 分段 206；R2 mp4 `ftyp` |
+| AVFoundation 可開啟（macOS，`isPlayable`／`duration`） | 4／5 條 playable，長度約 40 分鐘；无水印失敗（憑證） | 3／3 playable |
+| 播放 header | `User-Agent: Dart/3.10 (dart:io)` | `User-Agent: Dart/3.5 (dart:io)`＋`content-type: application/json`（同原版） |
+| **iOS 實際播放（畫面）** | **未驗證**（沒有跑模擬器或真機） | **未驗證** |
+
+- 這次的飛魚作品沒有 `高清qq` 線路。10-02 抽到的作品有，當時它的解析 API 已經欠費，走嗅探，**能不能播未驗證**。
+- 即時 golden（`CSP_GOLDEN_SITE` 用設定原本的定義，含相容包 golden）：套用 Ponytail 前後各跑一次，兩站都通過（10:05 CST）。
+  - 飛魚：6 個分類 → 分類 1 共 20 筆 → 詳情 5 條線路 → 搜尋「我」0 筆（這個 API 搜「我」本來就沒有結果）→ `parse:0` m3u8。
+  - 喵呜：6 個分類 → 12 筆 → 詳情 2 條線路 → 搜尋「我」100 筆 → `parse:0` m3u8。
+- **既有來源回歸**：`swift test --filter` 跑 SpiderHost、ShortDramaSpider、SpiderPack、RuntimeABI、RuntimePackManifest、XBPQRule、XYQHikerRule、DrpyEngine、SpiderGolden、SourceClient 這 10 個檔，帶 `WANG_MOVIE_JSON`=當天設定。
+  - 164 個測試中 163 個通過。
+  - App 列表 70 站＝30 原生＋40 spider（原本 68 站）。
+  - 唯一失敗的 `ConfigLoaderTests.decodesProvidedWangMovieConfig` 寫死設定檔有 167 站（2026-09-15 寫的），當天設定是 169 站。這是過時的預期，和 44D 無關，沒有修。
+  - 既有的 spider 腳本與 host 都沒改。
+- 沒有跑：完整 `swift test`、測試 CI、`wang-movie.json` sweep、模擬器、Xcode 建置、真機。
+- Ponytail（`ponytail:ponytail-review`，對最終 diff）：提出 2 項，已套用。
+  - `Feiyu.js` 只用一次的 `items()` 改成內嵌。
+  - `MiaoWu.js` 拿掉 DoH 旗標和多餘的 `resolve()` 呼叫。
+  - 套用後重跑離線測試與兩站的即時 golden，都通過。
+
+### 14.4 要用 SideStore 真機確認的項目（這次沒有發版）
+
+1. 兩站首頁、分類、篩選（喵呜）、翻頁、搜尋在 App 裡的顯示。
+2. 飛魚：暴风／非凡／量子／电影天堂這幾條線路能播。无水印、极速资源站的憑證是無效的，**預期在 iOS 上會失敗**，是否顯示合適的錯誤要確認；`高清qq` 這類走解析 API 的線路會交給嗅探。
+3. 喵呜：直連 m3u8 線路、4K专区經 `vod/parse` 的 R2 mp4（簽名 1 小時內有效）、重名線路的續看會回到正確的線路。
+4. 收藏、觀看記錄、下載對這兩站的行為（App 端沒有改程式）。

@@ -67,6 +67,9 @@ public struct SpiderRegistry: Sendable {
         // IOS-POC-44C: the mw-movie API, one script for both classes.
         "Jpys",       // http-crypto: river-fman.jar
         "Jys",        // http-crypto: river-fman.jar (as Jpys: the same body apart from a line label)
+        // IOS-POC-44D: a doubly HMAC-signed API and a DoH-located, AES-ECB envelope API.
+        "Feiyu",      // http-crypto: xiaosa-0807.jar (HMAC-SHA256 secret, then HMAC-SHA256 per request)
+        "MiaoWu",     // http-crypto: xiaosa-0807.jar (DoH TXT host, AES-256-ECB replies, vod/parse)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

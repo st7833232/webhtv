@@ -4,7 +4,28 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-05：IOS-POC-54 爬蟲共用工具第一批（先讀這一節）
+## Current handoff — 2026-10-06：IOS-POC-44D 飛魚與喵呜动漫 JS adapter（先讀這一節）
+
+**IOS-POC-44D**（2026-10-06，基準 `b277685f`）：使用者要求直接實作 `csp_Feiyu`、`csp_MiaoWu`，只交付程式與文件，**發版另行處理**。完整紀錄在 `docs/IOS-POC-44-csp-portable-sites.md` 第 14 節。
+- 改動：新增 `Feiyu.js`、`MiaoWu.js`；`SpiderRegistry.ported` 加兩行；`ShortDramaSpiderTests` 加 2 個離線測試，registry 與站數測試同步更新；`docs/CSP_MIGRATION_STATUS.md` 同步。host／ABI 不變（`js.host` 1.2）。
+- 原版重新核對（jadx，`xiaosa-0807.jar` `d8f71fc8…`）：
+  - 飛魚：雙層 HMAC-SHA256 簽章。伺服器是對排序後的參數驗章。
+  - 喵呜：DoH TXT 經 AES-256-ECB 解出 `http://app.nyafun.vip`；回應的 `data` 用另一把鍵解開；`mwvod` 檔案經 `vod/parse` 換成 R2 簽名網址。
+- 驗證（2026-10-06 09:48～10:06 CST，家用網路）：
+  - 離線簽章／解密測試通過，突變 3／3 都被抓到。
+  - 即時 golden（含相容包）兩站都通過。
+  - runtime 端到端（JavaScriptCore）：
+    - 飛魚：5 條線路都拿到 `parse:0` 網址；4 條有媒體 bytes，macOS AVFoundation 判定可開啟；「无水印」憑證無效。
+    - 喵呜：3／3 條拿到網址，有媒體 bytes，AVFoundation 判定可開啟（含 R2 mp4）。
+  - 既有來源回歸：10 個測試檔 164 個測試，163 個通過。App 列表 70 站＝30 原生＋40 spider。唯一失敗的是無關的 `decodesProvidedWangMovieConfig`：寫死 167 站，當天設定是 169 站。
+  - Ponytail 2 項已套用。
+- **iOS 實際播放（畫面）未驗證**：沒有跑模擬器或真機。要用 SideStore 真機確認的項目見第 14.4 節。
+- 和原版刻意不同的地方：
+  - 喵呜：顯示並送出 `class`／`year` 篩選；重名線路加上 player 代碼。
+  - 飛魚：總頁數用 API 回的 `total` 算；播放帶 UA；解析 API 回相對網址時交給嗅探。
+- 下一步：發版另行處理。IOS-POC-44 的下一段（建議 44E）要等使用者核准。
+
+## Previous handoff — 2026-10-05：IOS-POC-54 爬蟲共用工具第一批
 
 **真機驗收（使用者回報，2026-10-05）**：使用者回報已在真機完成現有版本 `0.1.67 (68)` 的 UI、下載、播放與收藏驗收。這是使用者自己回報的結果，本 session 沒有在真機或 Simulator 上執行。下一節「真機未驗收」的狀態以這段為準。
 

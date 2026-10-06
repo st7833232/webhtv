@@ -27,7 +27,8 @@ final class ShortDramaSite: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool {
         let host = request.url?.host ?? ""
         return host.hasSuffix(".invalid") || ["api.drama.9ddm.com", "freevideo.zqqds.cn", "neptune.qmplaylet.com",
-            "api-store.qmplaylet.com", "api-read.qmplaylet.com", "sv.baidu.com", "www.hkybqufgh.com"].contains(host)
+            "api-store.qmplaylet.com", "api-read.qmplaylet.com", "sv.baidu.com", "www.hkybqufgh.com",
+            "4kyszx.top", "doh.pub", "app.nyafun.vip"].contains(host)
     }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func stopLoading() {}
@@ -345,4 +346,161 @@ private func md5(_ text: String) -> String {
     #expect((try json(try await jys.homeContent(filter: false))["list"] as? [[String: Any]])?.count == 1)
     #expect(ShortDramaSite.requests(to: api + "home/hotSearch").contains { $0.url.host == "www.hkybqufgh.com" })
     await jys.destroy()
+}
+
+private func hmacSHA256(_ text: String, key: String) -> String {
+    Data(HMAC<SHA256>.authenticationCode(for: Data(text.utf8), using: SymmetricKey(data: Data(key.utf8))))
+        .map { String(format: "%02x", $0) }.joined()
+}
+
+@Test func feiyuSignsEveryRequestWithTheDerivedSecretAndOrdersLinesByQuality() async throws {
+    let api = "4kyszx.top/api/app/"
+    ShortDramaSite.serve([
+        api + "categories": [#"{"code":200,"data":[{"id":1,"name":"连续剧"},{"id":2,"name":"电影"}]}"#],
+        api + "ranking/list": [#"{"code":200,"data":[{"id":7,"title":"排行","cover":"https://p.invalid/7.jpg","subtitle":"已完结"}]}"#],
+        api + "categories/2/videos": [#"""
+        {"code":200,"data":{"list":[{"id":243253,"name":"蜘蛛侠","pic":"https://p.invalid/1.jpg","subTitle":"别名"}],
+                            "page":1,"pageSize":20,"total":82057}}
+        """#],
+        api + "videos/243253": [#"""
+        {"code":200,"data":{"id":243253,"name":"蜘蛛侠","pic":"https://p.invalid/1.jpg","categoryName":"电影","year":"2026",
+          "area":"美国","actor":"甲","director":"乙","content":"簡介","remarks":"HD中字","playGroups":[
+          {"name":"极速资源站jsm3u8","code":"jsm3u8","parseApi":"","playUrls":[{"name":"高清版","url":"https://a.invalid/1.m3u8"}]},
+          {"name":"高清qq","code":"qq","parseApi":"https://jx.invalid/api/?url=","playUrls":[{"name":"第1集","url":"https://v.qq.com/x/1.html"}]},
+          {"name":"暴风资源","code":"bfzym3u8","parseApi":"","playUrls":[{"name":"第1集","url":"https://b.invalid/1.m3u8"},
+                                                                    {"name":"第2集","url":"https://b.invalid/2.m3u8"}]},
+          {"code":"lzm3u8","parseApi":"","playUrls":[{"name":"TC","url":"https://l.invalid/1.m3u8"}]}]}}
+        """#],
+        api + "videos/search": [#"{"code":200,"data":{"list":[{"id":5,"title":"甲","cover":"https://p.invalid/5.jpg","remarks":"HD"}],"page":2,"pageSize":20,"total":109}}"#],
+        "jx.invalid/api": [#"{"url":"https://real.invalid/x.m3u8"}"#, #"{"code":"403","url":"/mizhicdn/video/error.mp4"}"#],
+    ])
+    let feiyu = try await spider("Feiyu")
+    // `init`'s secret, then one signature per request over the original's six-line payload.
+    let secret = hmacSHA256("f45a775875e2e004adbcea78e3312218", key: "cms_device_salt_v1_2024cms_app_sign_key_v1_2024_secure")
+    func signed(_ asked: ShortDramaSite.Asked, path: String, query: String) -> Bool {
+        let stamp = asked.headers["x-timestamp"] ?? "", nonce = asked.headers["x-nonce"] ?? ""
+        let random = String(decoding: Data(base64Encoded: nonce) ?? Data(), as: UTF8.self)
+        return random.range(of: "^[A-Za-z0-9]{16}$", options: .regularExpression) != nil
+            && asked.headers["x-signature"] == hmacSHA256(["GET", path, query, stamp, nonce, "2.6.8+1"].joined(separator: "\n"), key: secret)
+    }
+
+    let home = try json(try await feiyu.homeContent(filter: false))
+    #expect((home["class"] as? [[String: String]])?.map { $0["type_name"] ?? "" } == ["连续剧", "电影"])
+    #expect(signed(try #require(ShortDramaSite.requests(to: "/api/app/categories").last), path: "/api/app/categories", query: ""))
+
+    let hot = try json(try await feiyu.homeVideoContent())
+    #expect((hot["list"] as? [[String: Any]])?.first?["vod_name"] as? String == "排行")
+    #expect(signed(try #require(ShortDramaSite.requests(to: "/api/app/ranking/list").last), path: "/api/app/ranking/list", query: "category=1"))
+
+    let page = try json(try await feiyu.categoryContent(tid: "2", page: "1", filter: false, extend: [:]))
+    let item = try #require((page["list"] as? [[String: Any]])?.first)
+    #expect(item["vod_id"] as? String == "243253")
+    #expect(item["vod_remarks"] as? String == "别名", "subTitle when remarks is absent")
+    #expect(page["pagecount"] as? Int == 4103, "the API's own total, 20 a page")
+    #expect(signed(try #require(ShortDramaSite.requests(to: "/api/app/categories/2/videos").last),
+                   path: "/api/app/categories/2/videos", query: "page=1&page_size=20"))
+
+    let detail = try #require((try json(try await feiyu.detailContent(ids: ["243253"]))["list"] as? [[String: Any]])?.first)
+    #expect(detail["vod_play_from"] as? String == "高清qq$$$暴风资源$$$极速资源站jsm3u8$$$lzm3u8",
+            "best quality first; equal ranks keep the API's order; a nameless line shows its code")
+    #expect(detail["vod_play_url"] as? String == "第1集$https://jx.invalid/api/?url=||https://v.qq.com/x/1.html"
+            + "$$$第1集$||https://b.invalid/1.m3u8#第2集$||https://b.invalid/2.m3u8$$$高清版$||https://a.invalid/1.m3u8$$$TC$||https://l.invalid/1.m3u8")
+    #expect(detail["type_name"] as? String == "电影")
+    #expect(detail["vod_director"] as? String == "乙")
+
+    let direct = try json(try await feiyu.playerContent(flag: "暴风资源", id: "||https://b.invalid/1.m3u8", vipFlags: []))
+    #expect(direct["parse"] as? Int == 0)
+    #expect(direct["url"] as? String == "https://b.invalid/1.m3u8")
+    #expect((direct["header"] as? [String: String])?["User-Agent"] == "Dart/3.10 (dart:io)")
+    let parsed = try json(try await feiyu.playerContent(flag: "高清qq", id: "https://jx.invalid/api/?url=||https://v.qq.com/x/1.html", vipFlags: []))
+    #expect(parsed["parse"] as? Int == 0)
+    #expect(parsed["url"] as? String == "https://real.invalid/x.m3u8")
+    #expect(ShortDramaSite.requests(to: "/api").last?.headers["User-Agent"] == "Mozilla/5.0")
+    // An expired parse account answers a relative error clip: not an address, so the sniffer gets the page.
+    let expired = try json(try await feiyu.playerContent(flag: "高清qq", id: "https://jx.invalid/api/?url=||https://v.qq.com/x/1.html", vipFlags: []))
+    #expect(expired["parse"] as? Int == 1)
+    #expect(expired["url"] as? String == "https://jx.invalid/api/?url=https://v.qq.com/x/1.html")
+
+    let search = try json(try await feiyu.searchContent(key: "蜘蛛侠", quick: false, page: "2"))
+    #expect((search["list"] as? [[String: Any]])?.first?["vod_name"] as? String == "甲")
+    #expect(search["pagecount"] as? Int == 6)
+    let asked = try #require(ShortDramaSite.requests(to: "/api/app/videos/search").last)
+    #expect(asked.url.absoluteString.contains("keyword=%E8%9C%98%E8%9B%9B%E4%BE%A0"), "the URL carries the keyword encoded")
+    #expect(signed(asked, path: "/api/app/videos/search", query: "keyword=蜘蛛侠&page=2&page_size=20"),
+            "while the signature is over the raw value")
+    await feiyu.destroy()
+}
+
+@Test func miaoWuFindsItsHostOverDoHDecryptsRepliesAndParsesMwvodFiles() async throws {
+    let key = "c55c019c59a9fbe196ef9fc7d2a0b351"
+    func sealed(_ plain: String) -> String {
+        #"{"code":1,"data":""# + CryptoHost.run(algorithm: "aes", encrypt: true, input: plain, key: key, iv: "",
+                                                mode: "ECB", inputEncoding: "base64") + #""}"#
+    }
+    let api = "app.nyafun.vip/app/api/"
+    ShortDramaSite.serve([
+        // The TXT record as `doh.pub` served it on 2026-10-06: AES-256-ECB of `http://app.nyafun.vip`.
+        "doh.pub/resolve": [#"{"Status":0,"Answer":[{"name":"doh.catw.moe.","type":16,"data":"\"cRpC1XpSNFAKsda+MqmZfwJgfYG9/auk+4NBUjyREIc=\""}]}"#],
+        api + "config": [sealed(#"""
+        {"ac_vod_type":[{"type_id":1,"type_name":"番剧","type_extend":{"class":"搞笑, 运动,","year":"2026,2025"}},
+                        {"type_id":22,"type_name":"连载新番","type_extend":{"class":"","year":""}},
+                        {"type_id":26,"type_name":"4K专区","type_extend":{"class":"","year":"PC请使用谷歌内核的浏览器(如Edge)观看"}}]}
+        """#)],
+        api + "content/filter": [sealed(#"""
+        {"filter_vods":[{"id":33942,"vod_name":"殿下","vod_pic":"https://p.invalid/1.jpg","vod_remarks":"更新至第04集"},
+                        {"id":null,"vod_name":"无编号"},{"id":5,"vod_name":"  "}]}
+        """#)],
+        api + "vod/33942": [sealed(#"""
+        {"vod_name":"殿下","vod_pic":"https://p.invalid/1.jpg","vod_year":2026,"vod_content":"<p>簡介</p>","vod_author":"甲",
+         "vod_class":"日漫","vod_remarks":"更新至第04集","playerData":[
+          {"name":"请移步牛番","player":"dyttm3u8","vids":["第01集$https://d.invalid/1/index.m3u8","https://d.invalid/2/index.m3u8"]},
+          {"name":"请移步牛番","player":"R2","vids":["第01集$https://anime.mwvod.xyz:65534/4k/a/08.mp4"]},
+          {"name":"","player":"x","vids":[]}]}
+        """#)],
+        api + "vod/parse": [sealed(#"{"play_url":"https://r2.invalid/08.mp4?X-Amz-Signature=1"}"#)],
+        api + "search/full": [sealed(#"{"search_full":[{"id":11942,"vod_name":"斗罗大陆","vod_pic":"https://p.invalid/2.jpg"}]}"#)],
+    ])
+    // A configured host is replaced by the one DoH publishes, as in the original `init`.
+    let miaowu = try await spider("MiaoWu", extend: "https://ext.invalid")
+
+    let home = try json(try await miaowu.homeContent(filter: true))
+    #expect((home["class"] as? [[String: String]])?.map { $0["type_id"] ?? "" } == ["1", "22", "26"])
+    let rows = try #require((home["filters"] as? [String: Any])?["1"] as? [[String: Any]])
+    #expect(rows.map { $0["key"] as? String ?? "" } == ["class", "year"])
+    #expect((rows[0]["value"] as? [[String: String]])?.map { $0["n"] ?? "" } == ["全部", "搞笑", "运动"])
+    #expect((home["filters"] as? [String: Any])?["26"] == nil, "a notice in a filter slot is not a filter")
+    let config = try #require(ShortDramaSite.requests(to: "/app/api/config").last)
+    #expect(config.url.absoluteString == "http://app.nyafun.vip/app/api/config?platform=android", "the host came from DoH")
+    #expect(config.headers["User-Agent"] == "Dart/3.5 (dart:io)")
+
+    let page = try json(try await miaowu.categoryContent(tid: "1", page: "1", filter: true, extend: ["class": "搞笑", "year": "2026"]))
+    #expect((page["list"] as? [[String: Any]])?.map { $0["vod_id"] as? String ?? "" } == ["33942"], "no id or no name: skipped")
+    #expect(page["pagecount"] as? Int == 1, "a page short of 12 is the last")
+    let listing = try #require(ShortDramaSite.requests(to: "/app/api/content/filter").last)
+    let query = Dictionary(uniqueKeysWithValues: try #require(URLComponents(url: listing.url, resolvingAgainstBaseURL: false)?
+        .queryItems).map { ($0.name, $0.value ?? "") })
+    #expect(query == ["page": "1", "sort": "0", "type": "1", "class": "搞笑", "year": "2026"])
+
+    let detail = try #require((try json(try await miaowu.detailContent(ids: ["33942"]))["list"] as? [[String: Any]])?.first)
+    #expect(detail["vod_play_from"] as? String == "请移步牛番$$$请移步牛番 R2", "a repeated line name gets its player code")
+    #expect(detail["vod_play_url"] as? String == "第01集$https://d.invalid/1/index.m3u8|||dyttm3u8#第2集$https://d.invalid/2/index.m3u8|||dyttm3u8"
+            + "$$$第01集$https://anime.mwvod.xyz:65534/4k/a/08.mp4|||R2")
+    #expect(detail["vod_actor"] as? String == "甲")
+    #expect(detail["vod_year"] as? String == "2026")
+
+    let direct = try json(try await miaowu.playerContent(flag: "请移步牛番", id: "https://d.invalid/1/index.m3u8|||dyttm3u8", vipFlags: []))
+    #expect(direct["url"] as? String == "https://d.invalid/1/index.m3u8")
+    #expect((direct["header"] as? [String: String])?["User-Agent"] == "Dart/3.5 (dart:io)")
+    #expect(ShortDramaSite.requests(to: "/app/api/vod/parse").isEmpty, "a plain file address needs no parse")
+
+    let parsed = try json(try await miaowu.playerContent(flag: "请移步牛番 R2", id: "https://anime.mwvod.xyz:65534/4k/a/08.mp4|||R2", vipFlags: []))
+    #expect(parsed["parse"] as? Int == 0)
+    #expect(parsed["url"] as? String == "https://r2.invalid/08.mp4?X-Amz-Signature=1")
+    let parse = try #require(ShortDramaSite.requests(to: "/app/api/vod/parse").last)
+    #expect(try json(parse.body) as NSDictionary == ["vid": "https://anime.mwvod.xyz:65534/4k/a/08.mp4", "player": "R2"])
+
+    let search = try json(try await miaowu.searchContent(key: "斗罗", quick: false, page: "1"))
+    #expect((search["list"] as? [[String: Any]])?.first?["vod_id"] as? String == "11942")
+    #expect(ShortDramaSite.requests(to: "/resolve").count >= 1)
+    await miaowu.destroy()
 }

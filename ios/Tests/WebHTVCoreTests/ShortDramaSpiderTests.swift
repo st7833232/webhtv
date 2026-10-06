@@ -28,7 +28,7 @@ final class ShortDramaSite: URLProtocol, @unchecked Sendable {
         let host = request.url?.host ?? ""
         return host.hasSuffix(".invalid") || ["api.drama.9ddm.com", "freevideo.zqqds.cn", "neptune.qmplaylet.com",
             "api-store.qmplaylet.com", "api-read.qmplaylet.com", "sv.baidu.com", "www.hkybqufgh.com",
-            "4kyszx.top", "doh.pub", "app.nyafun.vip"].contains(host)
+            "4kyszx.top", "doh.pub", "app.nyafun.vip", "yzy0916.n0z6fkpuk.com"].contains(host)
     }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func stopLoading() {}
@@ -503,4 +503,138 @@ private func hmacSHA256(_ text: String, key: String) -> String {
     #expect((search["list"] as? [[String: Any]])?.first?["vod_id"] as? String == "11942")
     #expect(ShortDramaSite.requests(to: "/resolve").count >= 1)
     await miaowu.destroy()
+}
+
+@Test func appYQKSignsEveryPostAndOffersOnlyTheQualitiesTheWebAPIServes() async throws {
+    let api = "yzy0916.n0z6fkpuk.com"
+    func ok(_ data: String) -> String { #"{"result":true,"msg":"","data":"# + data + "}" }
+    ShortDramaSite.serve([
+        api + "/v2/api/home/header": [ok(#"{"channeList":[{"channelId":50,"channelName":"短剧"},{"channelId":2,"channelName":"电影"},{"channelId":5,"channelName":"体育"}]}"#)],
+        api + "/v2/api/channel/topicListView": [ok(#"""
+        {"topicList":[{"topicName":"院线","vodList":[{"vodId":1,"vodName":"甲","coverImg":"https://p.invalid/1.jpg","remark":"已完结"},
+                                                     {"vodId":2,"vodName":"乙","coverImg":"https://p.invalid/2.jpg","remark":null}]},
+                      {"topicName":"高分","vodList":[{"vodId":1,"vodName":"甲","coverImg":"https://p.invalid/1.jpg","remark":"已完结"}]}]}
+        """#)],
+        api + "/v2/api/vodInfo/index": [ok(#"""
+        {"vodName":"甲-8月31日-HD高清","areaName":"大陆","year":"2026","updateRemark":"已完结","coverImg":"https://p.invalid/1.jpg",
+         "intro":"簡介","tagList":["剧情","战争"],"actorList":[{"vodWorkerName":"沈腾"},{"vodWorkerName":"蒋奇明"}],
+         "directorList":[{"vodWorkerName":"文牧野"}],"playerList":[
+          {"playerName":"一起看APP","totalEpCount":"1","epList":[{"epId":27069484,"epName":"HD"}]},
+          {"playerName":"SD","totalEpCount":"2","epList":[{"epId":11,"epName":"第1集"},{"epId":12,"epName":"第2集"}]}]}
+        """#)],
+        api + "/v2/api/vodInfo/epDetail": [ok(#"""
+        [{"showName":"超清","vodResolution":3,"canPlay":false,"iconRemark":"APP独享"},
+         {"showName":"标清","vodResolution":2,"canPlay":true,"iconRemark":""}]
+        """#)],
+        api + "/v2/api/vodInfo/playUrl": [ok(#"{"playUrl":"https://m.invalid/720/master.m3u8?sign=1"}"#)],
+        api + "/v1/api/search/search": [
+            ok(#"{"hasNext":true,"nextVal":"[1,2,3]","items":[{"vodId":7,"vodName":"蜘蛛侠","coverImg":"https://p.invalid/7.jpg","flags":"2021 / 动作片"},{"vodId":8,"vodName":"短","flags":"2025 / 短剧"}]}"#),
+            ok(#"{"hasNext":false,"nextVal":"","items":[{"vodId":9,"vodName":"蜘蛛侠2","coverImg":"https://p.invalid/9.jpg","flags":"2004 / 动作片"}]}"#)],
+    ])
+    let yqk = try await spider("AppYQK")
+    /// The body's fields in order, minus `sign`, then `appKey`, md5'd — and the order must be the original's.
+    func signedBody(_ path: String) throws -> [String: Any] {
+        let asked = try #require(ShortDramaSite.requests(to: path).last)
+        let fields = try #require(try JSONSerialization.jsonObject(with: Data(asked.body.utf8)) as? [String: Any])
+        let keys = fields.keys.filter { $0 != "sign" }.sorted()
+        let text = keys.map { "\($0)=\(fields[$0] ?? "")" }.joined(separator: "&") + "&appKey=3359de478f8d45638125e446a10ec541"
+        #expect(fields["sign"] as? String == md5(text), "\(path) is signed over its sorted fields")
+        #expect(asked.body.range(of: #""sign":"[0-9a-f]{32}"\}$"#, options: .regularExpression) != nil, "sign comes last")
+        #expect(asked.headers["Referer"] == "https://yqk1.app/")
+        #expect((fields["udid"] as? String)?.range(of: "^[0-9a-f]{16}$", options: .regularExpression) != nil)
+        #expect((fields["requestId"] as? String)?.range(of: "^[0-9A-Za-z]{32}$", options: .regularExpression) != nil)
+        return fields
+    }
+
+    let home = try json(try await yqk.homeContent(filter: false))
+    #expect((home["class"] as? [[String: String]])?.map { $0["type_name"] ?? "" } == ["电影"], "短剧 and 体育 are skipped")
+    _ = try signedBody("/v2/api/home/header")
+
+    let page = try json(try await yqk.categoryContent(tid: "2", page: "1", filter: false, extend: [:]))
+    #expect((page["list"] as? [[String: Any]])?.map { $0["vod_id"] as? String ?? "" } == ["1", "2"], "a title in two topics shows once")
+    #expect((page["list"] as? [[String: Any]])?.last?["vod_remarks"] as? String == "")
+    #expect(page["pagecount"] as? Int == 1)
+    #expect(try signedBody("/v2/api/channel/topicListView")["channelId"] as? String == "2")
+
+    let detail = try #require((try json(try await yqk.detailContent(ids: ["441826"]))["list"] as? [[String: Any]])?.first)
+    #expect(detail["vod_play_from"] as? String == "一起看APP$$$SD", "no episode count in the label")
+    #expect(detail["vod_play_url"] as? String == "HD$27069484$$$第1集$11#第2集$12")
+    #expect(detail["vod_actor"] as? String == "沈腾 蒋奇明")
+    #expect(detail["vod_director"] as? String == "文牧野")
+    #expect(detail["type_name"] as? String == "剧情,战争")
+
+    let play = try json(try await yqk.playerContent(flag: "一起看APP", id: "27069484", vipFlags: []))
+    #expect(play["parse"] as? Int == 0)
+    #expect(play["url"] as? [String] == ["标清", "https://m.invalid/720/master.m3u8?sign=1"], "超清 is APP-only and never requested")
+    #expect((play["header"] as? [String: String])?["Origin"] == "https://yqk1.app")
+    #expect(ShortDramaSite.requests(to: "/v2/api/vodInfo/playUrl").count == 1)
+    let quality = try signedBody("/v2/api/vodInfo/playUrl")
+    #expect(quality["epId"] as? String == "27069484")
+    #expect(quality["vodResolution"] as? String == "2")
+
+    let first = try json(try await yqk.searchContent(key: "蜘蛛侠", quick: false, page: "1"))
+    #expect((first["list"] as? [[String: Any]])?.map { $0["vod_id"] as? String ?? "" } == ["7"], "短剧 results are dropped")
+    #expect(first["pagecount"] as? Int == 2)
+    #expect(try signedBody("/v1/api/search/search")["nextVal"] == nil)
+    let second = try json(try await yqk.searchContent(key: "蜘蛛侠", quick: false, page: "2"))
+    #expect((second["list"] as? [[String: Any]])?.first?["vod_id"] as? String == "9")
+    #expect(try signedBody("/v1/api/search/search")["nextVal"] as? String == "[1,2,3]", "page 2 sends page 1's cursor")
+    await yqk.destroy()
+}
+
+@Test func appYsV2SpeaksTheVodDialectFiltersAndHandsPagesToTheSniffer() async throws {
+    let api = "nn.invalid/api.php/v1.vod"
+    ShortDramaSite.serve([
+        api + "/types": [#"""
+        {"code":1,"data":{"list":[{"type_id":22,"type_name":"电影","type_extend":{"class":"喜剧, 爱情,伦理,","area":"大陆,香港","star":"甲","year":"2026"}},
+                                  {"type_id":9,"type_name":"伦理","type_extend":{}}]}}
+        """#],
+        api: [#"{"code":1,"data":{"total":37,"page":1,"limit":18,"list":[{"vod_id":112442,"vod_name":"蜘蛛侠","vod_pic":"https://p.invalid/1.jpg","vod_remarks":"HD"}]}}"#],
+        api + "/vodPhbAll": [#"{"code":1,"data":[{"name":"热","vod_list":[{"vod_id":1,"vod_name":"甲"},{"vod_id":2,"vod_name":"乙"}]},{"name":"新","vod_list":[{"vod_id":1,"vod_name":"甲"}]}]}"#],
+        api + "/detail": [#"""
+        {"code":1,"data":{"vod_id":112442,"vod_name":"蜘蛛侠","vod_pic":"https://p.invalid/1.jpg","vod_class":"动作","vod_year":"2026",
+          "vod_area":"美国","vod_remarks":"HD","vod_actor":"甲","vod_director":"乙","vod_content":"簡介",
+          "vod_url_with_player":[{"code":"wrong","url":"x$y"}],
+          "vod_play_list":[{"player_info":{"from":"jazsjzlp_1080p","show":"SRBJ","parse":""},"url":"蓝光$https://jaz.invalid/vod/play/1?quality=1080"},
+                           {"player_info":{"from":"","show":"DT","parse":""},"url":"HD$https://d.invalid/1/index.m3u8#TC$https://d.invalid/2/index.m3u8"}]}}
+        """#],
+    ])
+    let nunu = try await spider("AppYsV2", extend: "https://nn.invalid/api.php/v1.vod")
+
+    let home = try json(try await nunu.homeContent(filter: true))
+    #expect((home["class"] as? [[String: String]])?.map { $0["type_name"] ?? "" } == ["电影"], "伦理 is hidden")
+    let rows = try #require((home["filters"] as? [String: Any])?["22"] as? [[String: Any]])
+    #expect(rows.map { $0["key"] as? String ?? "" } == ["class", "area", "year", "排序"], "the type's own order; star is not a filter")
+    #expect((rows[0]["value"] as? [[String: String]])?.map { $0["n"] ?? "" } == ["全部", "喜剧", "爱情"], "trimmed, 伦理 and the trailing empty dropped")
+    #expect((rows[3]["value"] as? [[String: String]])?.map { $0["v"] ?? "" } == ["", "time", "hits", "score"])
+    #expect((try json(try await nunu.homeVideoContent())["list"] as? [[String: Any]])?.map { $0["vod_id"] as? String ?? "" } == ["1", "2"])
+
+    let page = try json(try await nunu.categoryContent(tid: "22", page: "1", filter: true, extend: ["class": "喜剧", "year": "2026", "排序": "hits"]))
+    #expect(page["pagecount"] as? Int == 3, "data.total over data.limit")
+    let listing = try #require(ShortDramaSite.requests(to: "/api.php/v1.vod").last)
+    let query = Dictionary(uniqueKeysWithValues: try #require(URLComponents(url: listing.url, resolvingAgainstBaseURL: false)?
+        .queryItems).map { ($0.name, $0.value ?? "") })
+    #expect(query == ["type": "22", "class": "喜剧", "area": "", "lang": "", "year": "2026", "by": "hits", "limit": "18", "page": "1"])
+    #expect(listing.headers["User-Agent"] == "okhttp/4.1.0")
+
+    let detail = try #require((try json(try await nunu.detailContent(ids: ["112442"]))["list"] as? [[String: Any]])?.first)
+    #expect(detail["vod_play_from"] as? String == "jazsjzlp_1080p$$$DT", "`from`, else `show`; never the api.php/app fields")
+    #expect(detail["vod_play_url"] as? String == "蓝光$https://jaz.invalid/vod/play/1?quality=1080$$$HD$https://d.invalid/1/index.m3u8#TC$https://d.invalid/2/index.m3u8")
+    #expect(detail["type_name"] as? String == "动作")
+
+    let direct = try json(try await nunu.playerContent(flag: "DT", id: "https://d.invalid/1/index.m3u8", vipFlags: []))
+    #expect(direct["parse"] as? Int == 0)
+    #expect((direct["header"] as? [String: String])?["User-Agent"] == "okhttp/4.1.0")
+    let pageLine = try json(try await nunu.playerContent(flag: "jazsjzlp_1080p", id: "https://jaz.invalid/vod/play/1?quality=1080", vipFlags: []))
+    #expect(pageLine["parse"] as? Int == 1, "a play page goes to the sniffer")
+
+    _ = try await nunu.searchContent(key: "蜘蛛侠", quick: false, page: "1")
+    let search = try #require(ShortDramaSite.requests(to: "/api.php/v1.vod").last?.url.query)
+    #expect(search.hasPrefix("wd=") && search.hasSuffix("&page=1"))
+    await nunu.destroy()
+
+    // Only the `.vod` dialect is ported: any other `ext` answers nothing rather than guessing.
+    let other = try await spider("AppYsV2", extend: "https://x.invalid/api.php/app/")
+    #expect((try json(try await other.homeContent(filter: true))["class"] as? [Any])?.isEmpty == true)
+    await other.destroy()
 }

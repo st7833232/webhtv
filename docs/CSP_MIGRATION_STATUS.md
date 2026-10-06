@@ -8,7 +8,7 @@ compatibility pack published beside the configuration replaces it at runtime, ha
 bundled copy as the fallback. What still requires an app release is a new `CatVodHost` primitive.
 See `docs/IOS-POC-5O-remote-compatibility-pack.md`.
 
-Last updated 2026-10-06: IOS-POC-44D ported `Feiyu` and `MiaoWu` (one site each). Earlier, IOS-POC-44A ported `WeiguanDJ` and `HemaDJ`, IOS-POC-44B `QimaoDJ` and `HaokanDJ`, IOS-POC-44C `Jpys` and `Jys` (one script, one site each). Before that, port coverage was unchanged since IOS-POC-5M (`JianPian`, which
+Last updated 2026-10-06: IOS-POC-44E ported `AppYQK` and `AppYsV2` (`.vod` dialect only), IOS-POC-44D `Feiyu` and `MiaoWu` (one site each). Earlier, IOS-POC-44A ported `WeiguanDJ` and `HemaDJ`, IOS-POC-44B `QimaoDJ` and `HaokanDJ`, IOS-POC-44C `Jpys` and `Jys` (one script, one site each). Before that, port coverage was unchanged since IOS-POC-5M (`JianPian`, which
 drives 薦片 despite its class being blocked; IOS-POC-5L added `AppQi`, `App99`, `App3Q` and `Bili`).
 What changed since: IOS-POC-5P gave every spider's play result its request headers, and IOS-POC-5Q
 made `Bili` report one line per quality — both noted in the `Bili` row below.
@@ -19,8 +19,8 @@ made `Bili` report one line per quality — both noted in the `Bili` row below.
 |---|---:|---:|---:|
 | configured `csp_*` | 58 | 51 | 90 |
 | **portable** (categories A–C) | **33** | **26** | **54** |
-|  ported | 16 | 15 | 39 |
-|  portable, not yet ported | 17 | 11 | 15 |
+|  ported | 18 | 17 | 41 |
+|  portable, not yet ported | 15 | 9 | 13 |
 | blocked by native protection (H) | 24 | 24 | 35 |
 |   of which driven anyway, through an equivalent class | 1 | 1 | 1 |
 | missing resource | 1 | 1 | 1 |
@@ -83,6 +83,8 @@ here, all six `AppQi` hosts were dead on the day, and two of the four `App99` ho
 | `Jys` | 1 | C. (as `Jpys`) | Alias of `Jpys` (same body, same backend). Its only host's certificate expired 2026-08-07, so — exactly like the original's own check — it falls back to the class default `www.hkybqufgh.com`; live golden passes on that path. |
 | `Feiyu` | 1 | C. HTTP + double HMAC-SHA256 sign | IOS-POC-44D live golden on 飛魚: 6 classes → category 20 (paged by the API's own total) → detail with 5 lines, best quality first → `parse:0` m3u8; ranking as the home list; search pages. Lines whose media host has an invalid certificate (`无水印`, `极速资源站`) cannot play on Apple platforms. |
 | `MiaoWu` | 1 | C. DoH host + AES-256-ECB envelope | IOS-POC-44D live golden on 喵呜动漫: DoH → `app.nyafun.vip`, 6 classes with `class`/`year` filters (the original hides them by an 80-character cap and never sends them; the API honours both) → category 12 → detail → `parse:0` m3u8; `mwvod` files resolve through `vod/parse` to an R2 mp4. |
+| `AppYQK` | 1 | B. HTTP + md5 sign | IOS-POC-44E live golden on 一起影视: 6 channels (短剧/体育 skipped as the original does) → one curated page of topics → detail with 18 lines → search with its `nextVal` cursor → `parse:0` quality list. Only `canPlay` qualities are offered: 超清 is marked `APP独享` and the web API refuses it. Many lines' media hosts have invalid certificates and cannot play on Apple platforms. |
+| `AppYsV2` | 1 | A. HTTP + JSON | IOS-POC-44E, **`.vod` dialect only** (奴娜, `www.nntv.in/api.php/v1.vod`): 10 types with class/area/lang/year/排序 filters → category 18 a page (`data.total`/`limit`) → detail with 3 lines → `parse:0` m3u8; the `jazsjzlp_1080p` line is a play page that goes to the sniffer. The other dialects (`api.php/app`, `xgapp`, `iopenyun`, `?ac=list`) are not ported. |
 | `JianPian` | 1 | A. HTTP + JSON | IOS-POC-5M live golden on 薦片 (configured as `csp_JPianAmns`): 5 classes → 15 titles → detail with **24 lines** → search 20 → `parse:0` m3u8 whose playlist fetches as media with no Referer. |
 
 The first three were re-run live on 2026-09-17 at HEAD `226e826c` and each still ends in a `parse:0`
@@ -104,7 +106,7 @@ IOS-POC-5L; `AppDrama` is the last of the family and is blocked on RSA in the ho
 |---|---:|---|---|
 | `AppDrama` | 4 | C | App-API family; **needs RSA in the host** |
 | `Douban` | 2 | A | plain JSON |
-| remaining A/B/C | 9 | A–C | `AppYsV2`, `GuaziTY`, `Wwys`, `Hxq`, `PianKu8`, `AppYQK`, `AppSy`, `MoDu`, `Uvod`, 1 site each |
+| remaining A/B/C | 7 | A–C | `GuaziTY`, `Wwys`, `Hxq`, `PianKu8`, `AppSy`, `MoDu`, `Uvod`, 1 site each |
 
 Which of these were alive on 2026-10-02, what each needs from the host, and the staged order they
 are being ported in: `docs/IOS-POC-44-csp-portable-sites.md`.

@@ -330,8 +330,8 @@ private final class OneShotHTTPServer: @unchecked Sendable {
             "a remote configuration also lists the drpy sources")
 
     #expect(native.count == 30, "2 type-0 + 22 type-1 + 6 type-4")
-    #expect(spiders.count == 40,
-            "AppGet 5 + AppQi 6 + App99 4 + App3Q 2 + Bili 4 + JianPian 1 + XBPQ 7 + XYQHiker 3 + WeiguanDJ 1 + HemaDJ 1 + QimaoDJ 1 + HaokanDJ 1 + Jpys 1 + Jys 1 + Feiyu 1 + MiaoWu 1")
+    #expect(spiders.count == 42,
+            "AppGet 5 + AppQi 6 + App99 4 + App3Q 2 + Bili 4 + JianPian 1 + XBPQ 7 + XYQHiker 3 + WeiguanDJ 1 + HemaDJ 1 + QimaoDJ 1 + HaokanDJ 1 + Jpys 1 + Jys 1 + Feiyu 1 + MiaoWu 1 + AppYQK 1 + AppYsV2 1")
     #expect(drivable.count == native.count + spiders.count)
     // The app selects a site by `id`, so a duplicate would make the picker ambiguous. This
     // configuration does repeat site *keys* — `爱影` names two different AppQi sites — which is why

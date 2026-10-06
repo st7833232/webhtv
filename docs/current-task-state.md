@@ -4,7 +4,24 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-06：IOS-POC-44D 飛魚與喵呜动漫 JS adapter（先讀這一節）
+## Current handoff — 2026-10-06：IOS-POC-44E 一起影视與奴娜 JS adapter（先讀這一節）
+
+**IOS-POC-44E**（2026-10-06，基準 `0068cd9c`）：使用者要求直接實作 `csp_AppYQK`、`csp_AppYsV2`（只做 `.vod` 方言），只交付程式與文件，**發版另行處理**。完整紀錄在 `docs/IOS-POC-44-csp-portable-sites.md` 第 15 節。
+- 改動：新增 `AppYQK.js`、`AppYsV2.js`；`SpiderRegistry.ported` 加兩行；`ShortDramaSpiderTests` 加 2 個離線測試，registry 與站數（42）測試同步更新；`docs/CSP_MIGRATION_STATUS.md` 同步。host／ABI 不變（`js.host` 1.2）。
+- 原版重新核對：
+  - 一起影视：md5 簽章（欄位依字母序，加上 `appKey`）；`udid` 是時間 hex；只要 `canPlay` 的畫質。超清標 `APP独享`，伺服器拒絕網頁版。
+  - 奴娜：jadx 把 `.vod` 分支和 `api.php/app` 分支攤平成 fall-through，這裡照 bytecode 的語意，只讀 `vod_play_list`。
+- 驗證（10:17～10:40 CST，家用網路）：
+  - 離線測試通過，突變 4／4 都被抓到。
+  - 即時 golden（含相容包）兩站都通過。
+  - runtime 端到端：一起影视兩部作品 36 條線路都拿到 `parse:0` 畫質清單，13 條讀到媒體，其他大多是媒體主機憑證無效；奴娜的 m3u8 線路 4／4 讀到 TS，播放頁那條交給嗅探（未驗證）。
+  - 畫質：5 部作品調查，超清（`APP独享`）每次都被拒，标清、流畅每次都拿到網址。
+  - 既有來源回歸：10 個測試檔 166 個測試，165 個通過。App 列表 72 站＝30 原生＋42 spider。唯一失敗的 `decodesProvidedWangMovieConfig`（寫死 167 站，當天設定是 169 站）在 44D 時就已經失敗，是既有的失敗，不是這次造成的。
+  - Ponytail 3 項已套用。
+- **iOS 實際播放（畫面）未驗證**：沒有跑模擬器或真機。要用 SideStore 真機確認的項目見第 15.4 節。
+- 下一步：發版另行處理。IOS-POC-44 的下一段（建議 44F）要等使用者核准。
+
+## Previous handoff — 2026-10-06：IOS-POC-44D 飛魚與喵呜动漫 JS adapter
 
 **IOS-POC-44D**（2026-10-06，基準 `b277685f`）：使用者要求直接實作 `csp_Feiyu`、`csp_MiaoWu`，只交付程式與文件，**發版另行處理**。完整紀錄在 `docs/IOS-POC-44-csp-portable-sites.md` 第 14 節。
 - 改動：新增 `Feiyu.js`、`MiaoWu.js`；`SpiderRegistry.ported` 加兩行；`ShortDramaSpiderTests` 加 2 個離線測試，registry 與站數測試同步更新；`docs/CSP_MIGRATION_STATUS.md` 同步。host／ABI 不變（`js.host` 1.2）。

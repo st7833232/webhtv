@@ -70,6 +70,9 @@ public struct SpiderRegistry: Sendable {
         // IOS-POC-44D: a doubly HMAC-signed API and a DoH-located, AES-ECB envelope API.
         "Feiyu",      // http-crypto: xiaosa-0807.jar (HMAC-SHA256 secret, then HMAC-SHA256 per request)
         "MiaoWu",     // http-crypto: xiaosa-0807.jar (DoH TXT host, AES-256-ECB replies, vod/parse)
+        // IOS-POC-44E: an md5-signed API with per-quality play addresses, and the `.vod` dialect of AppYsV2.
+        "AppYQK",     // http-crypto: xiaosa-0807.jar (md5-signed JSON POSTs; only `canPlay` qualities)
+        "AppYsV2",    // http-json: river-fman.jar (the `.vod` dialect only)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

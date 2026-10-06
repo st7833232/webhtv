@@ -5,8 +5,8 @@
 - 目標：使用者 2026-10-02「開始 IOS-POC-44 assessment」。對象是 `docs/current-task-state.md`「Current handoff — 2026-10-02 下午」列的 23 站（19 個類別）：可以移植、iOS 還沒有 port 的 `csp_*` 站。
 - 範圍：只做 assessment，**不改程式**。task guard `IOS-POC-44`（`assessment`），路徑：本文件、`docs/current-task-state.md`、`docs/CSP_PORTABILITY_MATRIX.md`。探測腳本與回應都在 session scratchpad，不 commit。
 - 結論：23 站裡 **18 站後端今天活著、5 站死了**。活著的 18 站裡 13 站只要寫 JS，不必改 Swift；3 站（AppDrama×2、Uvod）要先在 host 補 RSA 和二進位 HTTP；Douban×2 要另做 App 功能。建議與分段見第 7 節，待決定事項見第 9 節。
-- 44A（`WeiguanDJ`＋`HemaDJ`）見第 11 節；44B（`QimaoDJ`＋`HaokanDJ`）見第 12 節；44C（`Jpys`＋`Jys`）見第 13 節；44D（`Feiyu`＋`MiaoWu`）見第 14 節。四段都已完成。44D 還沒發版，真機未驗證。
-- 唯一下一步：等使用者決定下一段（第 7 節，建議 44E：`AppYQK`＋`AppYsV2`）；沒有核准不改程式。`QmdjAmns`／`HHkkAmns` 的 alias（第 6 節、第 9 節第 2 項）仍待使用者決定。
+- 44A（`WeiguanDJ`＋`HemaDJ`）見第 11 節；44B（`QimaoDJ`＋`HaokanDJ`）見第 12 節；44C（`Jpys`＋`Jys`）見第 13 節；44D（`Feiyu`＋`MiaoWu`）見第 14 節；44E（`AppYQK`＋`AppYsV2`）見第 15 節。五段都已完成。44D、44E 還沒發版，真機未驗證。
+- 唯一下一步：等使用者決定下一段（第 7 節，建議 44F：`GuaziTY`＋`MoDu`）；沒有核准不改程式。`QmdjAmns`／`HHkkAmns` 的 alias（第 6 節、第 9 節第 2 項）仍待使用者決定。
 
 ## 1. 問題與範圍
 
@@ -135,6 +135,7 @@
 - 2026-10-02 17:24：使用者「開始 44B」。實作見第 12 節。
 - 2026-10-02 17:41：使用者「開始 44C」。實作見第 13 節。
 - 2026-10-06：使用者要求直接實作 44D（飛魚、喵呜动漫），只交付程式與文件，發版另行處理。實作見第 14 節。
+- 2026-10-06：使用者要求直接實作 44E（一起影视、奴娜），只交付程式與文件，發版另行處理。實作見第 15 節。
 
 ## 11. 44A 實作紀錄（2026-10-02，Task-Guard `IOS-POC-44A`，`standard`）
 
@@ -368,3 +369,112 @@
 2. 飛魚：暴风／非凡／量子／电影天堂這幾條線路能播。无水印、极速资源站的憑證是無效的，**預期在 iOS 上會失敗**，是否顯示合適的錯誤要確認；`高清qq` 這類走解析 API 的線路會交給嗅探。
 3. 喵呜：直連 m3u8 線路、4K专区經 `vod/parse` 的 R2 mp4（簽名 1 小時內有效）、重名線路的續看會回到正確的線路。
 4. 收藏、觀看記錄、下載對這兩站的行為（App 端沒有改程式）。
+
+## 15. 44E 實作紀錄（2026-10-06，Task-Guard `IOS-POC-44E`，`standard`）
+
+- 基準：fetch 後的 `origin/ios-poc` `0068cd9c`（含 44D），工作區乾淨。沒有沿用第 3、4 節 2026-10-02 的存活與畫質結論，全部重新確認。
+- 設定：當天的 `wang-movie.json`（169 站，md5 `177d298c…`）。
+  - `奴娜`：`csp_AppYsV2`，`ext` `https://www.nntv.in/api.php/v1.vod`，`searchable`／`quickSearch`／`filterable` 都是 1。JAR 是 `river-fman.jar` `ca48f92e…`，和設定一致。
+  - `一起影视`：`csp_AppYQK`，沒有 `ext`，`filterable: 0`。JAR 設定寫 `xiaosa-0807.jar` `4d263271…`，實際下載的是 `d8f71fc8…`。
+- 原版：以 jadx 反編譯 `AppYQK`（342 行，以及它的 md5 helper `merge/A/e0`）、`AppYsV2`（969 行，以及 `merge/A0/ku` 的影片判斷與解析結果處理），完整讀過。
+
+### 15.1 原版邏輯核對與站況（10:17～10:35 CST，家用網路，python3／curl 照原版重做）
+
+- **一起影视的 md5 簽章**：
+  - 欄位以 `k=v&…` 串接，結尾加上 `&appKey=…`，取 md5 小寫 hex 當作 `sign`，放在 JSON body 的最後一欄。每個端點在原版裡的欄位順序剛好都是字母序。
+  - `udid` 是毫秒時間的 16 位 hex：`getUUID` 先組了一個 UUID，最後卻回傳時間字串。
+  - 正確簽章回 `result:true`，錯誤簽章回 `sign error`。
+- **一起影视站況**：
+  - 頻道 8 個，原版略過短剧、体育，剩 6 個。API 沒有提供篩選。
+  - 分類是一頁精選專題：電影頻道有 15 個專題、90 筆，其中 2 筆重複；API 不接受頁碼。
+  - 詳情有 18 條線路。
+  - 畫質：`epDetail` 列出每集的畫質。超清標 `APP独享`、`canPlay:false`，向 `playUrl` 要網址時，伺服器回「网页版不支持该清晰度」；标清、流畅的 `canPlay:true`，會回 m3u8。
+  - 搜尋每次 15 筆，回應帶 `hasNext`／`nextVal` 游標（原版沒用）。實測把 `nextVal` 放進簽章欄位，就能拿到第 2 頁，結果和第 1 頁不同。
+- **奴娜的 `.vod` 方言**：
+  - 首頁 `/types`：10 個分類，`type_extend` 有 class／area／lang／year（還有 star、director 等，原版不用）。
+  - 列表 `?type=&class=&area=&lang=&year=&by=&limit=18&page=`：回 `data.total`／`limit`，篩選與排序有效。
+  - 排行 `/vodPhbAll`：只有 `vod_list`，沒有 `vlist`。
+  - 詳情 `/detail?vod_id=`：線路是 `vod_play_list[].player_info.from`，集數是 `url`。
+  - 搜尋 `?wd=&page=`：會分頁。
+  - jadx 的 `m()` 在 `.vod` 分支結束後，接著輸出 `api.php/app` 分支讀 `data.vod_url_with_player` 的程式碼。這是反編譯工具把互斥分支攤平造成的；照抄的話，`.vod` 會在讀不到 `vod_url_with_player` 時丟例外，詳情整個失敗。這裡 `.vod` 只讀 `vod_play_list`。
+- **奴娜站況**：
+  - 抽查 8 部作品，每部都有 3 條線路：`jazsjzlp_1080p`、`dyttm3u8`、`lzm3u8`。
+  - `parse`／`parse2` 全部是空的，所以原版的解析器流程（`r()`）沒有東西可試。
+  - `jazsjzlp_1080p` 的集數是網頁播放頁（307 → validator → Next.js 頁面），原版也是交給 `parse:1`。
+  - `lzm3u8` 有些作品的集數只有網址、沒有「名稱$」（iOS 的 `Episode.parse` 會用序號當名稱）。
+  - 直播（23）和電視劇（25）兩個分類的列表是空的，來源本身沒有內容。
+
+### 15.2 改動
+
+- 新增 `ios/Sources/WebHTVCore/Resources/Spiders/AppYQK.js`、`AppYsV2.js`，`SpiderRegistry.ported` 加兩行。
+  - 沿用 `host.post/get`、`host.md5`、`host.random`、`host.enc`、`host.result`、`host.isVideoFormat`。
+  - 不動 host 與 Swift，`js.host` 維持 1.2。
+- 測試：
+  - `ShortDramaSpiderTests.swift`：stub 多攔截 `yzy0916.n0z6fkpuk.com`，並新增兩個離線測試。
+    - 一起影视：每個請求的 `sign` 都和用 CryptoKit 獨立計算的 md5 相同，`sign` 是最後一欄；`udid`、`requestId` 的格式正確；短剧、体育被略過；重複的作品只列一次；線路名稱不含集數；只向 `canPlay` 的畫質要網址，超清從不送出；播放帶 Origin／Referer；搜尋第 2 頁會帶第 1 頁的 `nextVal`。
+    - 奴娜：篩選列依 `type_extend` 的順序產生，去空白，伦理和結尾的空值丟掉，最後加上排序列；分類請求的參數（`排序` → `by`）、總頁數＝`data.total`／`limit`；詳情只讀 `vod_play_list`（fixture 故意放一個錯的 `vod_url_with_player`）；m3u8 → `parse:0`，播放頁 → `parse:1`；`vodPhbAll` 去重；非 `.vod` 的 `ext` 不輸出任何東西。
+  - registry 測試加兩類；`SourceClientTests` 的 spider 站數由 40 改成 42。
+- **和原版刻意不同的地方**：
+  - 共通：逾時 20 秒（原版是 OkHttp 的預設值）；不支援彈幕（原版的 `addDanmaku`／`Proxy.getUrl()?do=appdanmu` 都要用 Android 的本機 proxy）。
+  - 一起影视：
+    - 線路名稱只用 `playerName`。原版是「`名稱共(N)集`」，但集數會隨更新改變，App 找回上次看的線路又是比對名稱。
+    - 集數 id 只用 `epId`。原版是 `epId|片名|集名`，給彈幕用；片名會隨版本更新改變（例如「…-8月31日-HD高清」）。
+    - 分類頁裡重複的作品只列一次。
+    - 分類只有一頁（原版的總頁數永遠是頁碼＋1，但 API 不吃頁碼）。
+    - 搜尋用 `nextVal` 游標翻頁（原版只取第一頁）。
+    - 詳情多帶 `vod_director`（`directorList`）與 `type_name`（`tagList`）。
+    - `playUrl` 拒絕的畫質直接略過（原版會丟例外）。
+  - 奴娜：
+    - 只做 `.vod` 方言，`iopenyun` 變體與其他方言都沒移植。
+    - 解析器流程不做，因為來源的 `parse`／`parse2` 目前都是空的；以後有了，非媒體網址也會照樣交給嗅探。
+    - 搜尋照 App 傳的頁碼送（原版 `page=` 留空）。
+    - `parse:0` 的結果帶 `User-Agent: okhttp/4.1.0`。原版不帶，但 golden 要求一定要有 header。
+    - 篩選值裡的空值丟掉；原版只有結尾的空值會被 Java 的 `split` 自動丟掉。
+    - `ku.e` 裡只對 `m3u8.pw/Cache`＋`banyung` 的特例沒有做。
+
+### 15.3 驗證
+
+- **簽章與解析的離線測試**：新增的 2 個測試加上 registry 測試通過。突變 4／4 都被抓到：改 `appKey`、拿掉 `canPlay` 過濾、改讀 `vod_url_with_player`、欄位不排序。
+- **畫質調查**（python 照原版，10:35～10:39）：5 部作品（奈飞、電視劇、動漫、韓劇、電影頻道各 1 部）每部取前 3 條線路的第 1 集，列出所有畫質，並對每個畫質向 `playUrl` 要網址。
+  - 有「一起看APP」線路的 4 部，畫質都是**超清（`APP独享`，`canPlay:false`）＋标清（`canPlay:true`）**。超清每次都被拒（「网页版不支持该清晰度」），标清每次都拿到 m3u8。
+  - 其他線路（WJ、BF、HH、JS、SN、SD、KC…）都只有**流畅**，`canPlay:true`，也都拿到網址。
+  - **超清不能宣稱可播**：adapter 不會列出它，也不會去要網址。
+- **runtime 端到端探測**：真的 JavaScriptCore，走 `CSPSourceResolver().session(for:)`，用設定檔原本的站台定義。10:26～10:28 執行。探測檔是臨時測試，用完就刪掉，沒有 commit。讀媒體最多 256 KB。
+
+| 功能 | 一起影视 | 奴娜 |
+|---|---|---|
+| 首頁分類 | 6 個（奈飞Netflix、电影、电视剧、动漫、综艺、高清韩剧） | 10 個 |
+| 篩選 | 來源沒有提供（同原版） | 10 個分類都有 class／area／lang／year＋排序；电影＋喜剧／2025／最热 回 18 筆、16 頁，和不篩選時不同 |
+| 首頁推薦列表 | 原版回空清單 | `vodPhbAll` 56 筆（去重後） |
+| 分類與分頁 | 每個頻道一頁精選：170／88／41／30／24／47 筆（已去重），第 2 頁 0 筆（設計如此） | 8 個分類的第 1、2 頁各 18 筆，不重疊，總頁數 183～1278；直播、電視劇是空的（來源沒有內容） |
+| 搜尋 | 「蜘蛛侠」第 1 頁 15 筆、第 2 頁 15 筆（不同作品，用游標） | 「蜘蛛侠」15 筆，1 頁 |
+| 作品 metadata | 年份、類型（tag）、地區、演員、導演、簡介、備註 | 年份、類型、地區、演員、導演、簡介、備註 |
+| 線路與集數 | 金特务：18 條線路各 10 集；欢迎来龙餐馆：18 條，1～2 集 | 夜色将烬：3 條各 20 集；太玄·东方阙：3 條各 4 集 |
+| HTTP 成功 | 全部 `result:true`（只有超清的 `playUrl` 被拒，adapter 不會送） | 全部 200 |
+| 取得媒體網址 | 兩部作品 36 條線路都拿到 `parse:0` 畫質清單（「一起看APP」是 [标清]，其他是 [流畅]） | `dyttm3u8`／`lzm3u8` 是 `parse:0` m3u8；`jazsjzlp_1080p` 是播放頁，`parse:1` |
+| 讀到媒體 | 13／36 條讀到 TS 或加密分段（一起看APP、BF、FF、LZ、YZ、UK，加上龙餐馆的 MT）。KC、NN 4 條的 playlist 可讀，但分段主機憑證無效。**19 條（WJ、SN、HN、SD、HH、JS、JY、XL、BD，以及金特务的 MT）的媒體主機憑證無效**，Apple 平台連不上 | 4／4 條 m3u8 讀到 TS（`47 40 11…`），包含只有網址的 lzm3u8 集數（curl 補測） |
+| AVFoundation 可開啟（macOS） | 讀到媒體的 13 條都 playable；KC、NN 只是 playlist 層判定 playable，分段實際讀不到 | 探測的 3 條 m3u8 都 playable |
+| 播放 header | UA `Dart/3.1 (dart:io)`＋Origin／Referer `yqk1.app`（同原版） | UA `okhttp/4.1.0` |
+| `parse:1`（交給嗅探） | 無 | `jazsjzlp_1080p`：嗅探能不能找到媒體**未驗證** |
+| **iOS 實際播放（畫面）** | **未驗證** | **未驗證** |
+
+- 即時 golden（`CSP_GOLDEN_SITE` 用設定原本的定義，含相容包 golden）兩站都通過（10:25）；奴娜在套用 Ponytail 後又跑了一次，也通過（10:35）。
+  - 一起影视：6 個頻道 → 奈飞頻道 170 筆 → 詳情 18 條線路 → 搜尋「我」14 筆 → `parse:0` 标清 m3u8。
+  - 奴娜：10 個分類 → 短剧 18 筆 → 詳情 3 條線路 → 搜尋「我」20 筆 → `parse:1`（第一條是播放頁）。
+- **既有來源回歸**：`swift test --filter` 跑和 44D 相同的 10 個測試檔，帶 `WANG_MOVIE_JSON`=當天設定。
+  - 166 個測試中 165 個通過。
+  - App 列表 72 站＝30 原生＋42 spider（原本 70 站）。
+  - 唯一失敗的 `ConfigLoaderTests.decodesProvidedWangMovieConfig` 是**既有的失敗**：它寫死 167 站，當天設定是 169 站，44D（本次改動之前）的回歸就已經這樣失敗，和 44E 無關，沒有修。
+  - 既有的 spider 腳本與 host 都沒改。
+- 沒有跑：完整 `swift test`、測試 CI、sweep、模擬器、Xcode 建置、真機。
+- Ponytail（`ponytail:ponytail-review`，對最終 diff）：提出 3 項，都在 `AppYsV2.js`，已套用（拿掉其他方言的 `list`／`data` 陣列 fallback、`totalpage`／`pagecount`、`vlist`）。套用後重跑離線測試與奴娜的即時 golden，都通過。
+
+### 15.4 要用 SideStore 真機確認的項目（這次沒有發版）
+
+1. 兩站首頁、分類、奴娜的篩選與排序、翻頁、搜尋（一起影视的第 2 頁）在 App 裡的顯示。
+2. 一起影视：
+   - 「一起看APP」线路的标清，以及 BF、FF、LZ、YZ、UK 線路能播。
+   - 超清不會出現在畫質清單裡。
+   - 憑證無效的線路（WJ、SN、HN、SD、HH、JS、JY、XL、BD、KC、NN，MT 視作品而定）**預期會失敗**，要確認錯誤顯示是否合適。
+3. 奴娜：`dyttm3u8`、`lzm3u8` 能播；`jazsjzlp_1080p` 交給嗅探後能不能播；只有網址的集數名稱會顯示成 01、02…。
+4. 收藏、觀看記錄（線路名稱改成不含集數後的續看）、下載對這兩站的行為（App 端沒有改程式）。

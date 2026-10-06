@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-06.3",
+  "version": "2026-10-06.4",
   "minHostApi": 2,
   "scripts": [
     {
@@ -13,7 +13,7 @@
     {
       "class": "App99",
       "path": "./scripts/App99.js",
-      "sha256": "a75daba4662110b17d308e5bb7036c2731294c78accf219fce5c2f95aa753221",
+      "sha256": "9de51fd0e34bd742d8510bd278e099d825284e970e1426e9b3a1edcc13954b8d",
       "originJar": "river-fman.jar",
       "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
       "notes": "xiaosa-0807 variant parses through /app/vodParser"
@@ -60,7 +60,7 @@
     {
       "class": "Bili",
       "path": "./scripts/Bili.js",
-      "sha256": "686d3c25d95afb0ee654506caf9c1508becc1a1875589507d74b5d66a312e451",
+      "sha256": "a9def12b048ab2069a9502f5ee768f58d2fceb4a0873af8b133c4768edac4d04",
       "originJar": "river-fman.jar",
       "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
       "notes": "progressive durl instead of the original's DASH proxy; AVPlayer has no DASH"

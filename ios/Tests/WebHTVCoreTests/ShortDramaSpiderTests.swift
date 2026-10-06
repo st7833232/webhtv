@@ -29,7 +29,9 @@ final class ShortDramaSite: URLProtocol, @unchecked Sendable {
         return host.hasSuffix(".invalid") || ["api.drama.9ddm.com", "freevideo.zqqds.cn", "neptune.qmplaylet.com",
             "api-store.qmplaylet.com", "api-read.qmplaylet.com", "sv.baidu.com", "www.hkybqufgh.com",
             "4kyszx.top", "doh.pub", "app.nyafun.vip", "yzy0916.n0z6fkpuk.com",
-            "api.46d5umpk.com", "www.mdzyapi.com", "api-h5.uvod.tv"].contains(host)
+            "api.46d5umpk.com", "www.mdzyapi.com", "api-h5.uvod.tv",
+            // IOS-POC-57A: Bili's API, and TVBox's local file server so a fetch of it would show.
+            "api.bilibili.com", "127.0.0.1"].contains(host)
     }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func stopLoading() {}
@@ -967,4 +969,51 @@ private func aes(_ text: String, key: String, iv: String = "", mode: String, enc
     #expect(vip["parse"] as? Int == 1 && vip["jx"] as? Int == 1)
     let file = try json(try await runtime.playerContent(flag: "高清", id: "https://cdn.invalid/1/index.m3u8", vipFlags: []))
     #expect(file["parse"] as? Int == 0 && file["jx"] == nil)
+}
+
+// IOS-POC-57A: qist/tvbox's builds of App99 and Bili (docs/IOS-POC-57-qist-jar-spiders.md).
+
+private func sha256(_ text: String) -> String {
+    SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+}
+
+@Test func app99SignsWithoutAnAppkeyTheWayQistsBuildDoesAndKeepsTheKeyedDialect() async throws {
+    let identity = #""name":"剧圈圈","package":"p","buildNumber":"2002","buildSignature":"S","versionName":"1.2.0""#
+    _ = try await spider("App99", extend: #"{"host":"https://app99.invalid/qist",\#(identity)}"#)
+    let qist = try #require(ShortDramaSite.requests(to: "/qist/app/systemInit").last)
+    let stamp = try #require(qist.headers["timestamp"]), nonce = try #require(qist.headers["nonce"])
+    #expect(qist.headers["sign"] == sha256("\(qist.body):\(stamp):\(nonce):"), "four fields, the token still empty")
+    #expect(qist.headers["appkey"] == nil)
+    #expect(qist.headers["version"] == "1.2.0", "qist's build defaults version to versionName")
+
+    _ = try await spider("App99", extend: #"{"host":"https://app99.invalid/keyed","appkey":"K",\#(identity)}"#)
+    let keyed = try #require(ShortDramaSite.requests(to: "/keyed/app/systemInit").last)
+    let keyedStamp = try #require(keyed.headers["timestamp"]), keyedNonce = try #require(keyed.headers["nonce"])
+    #expect(keyed.headers["sign"] == sha256("\(keyed.body):\(keyedStamp):\(keyedNonce)::K"))
+    #expect(keyed.headers["appkey"] == "K")
+    #expect(keyed.headers["version"] == "0b4328287a5d953e")
+}
+
+@Test func biliServesQistsBuiltInAndXYQHomesWithoutFetchingTVBoxsOwnCookieFile() async throws {
+    let cookie = "http://127.0.0.1:9978/file/TVBox/bili_cookie.txt"
+    let builtIn = try await spider("Bili", extend: #"{"n":"哔哩合集","cookie":"\#(cookie)"}"#)
+    let classes = try #require(try json(try await builtIn.homeContent(filter: true))["class"] as? [[String: String]])
+    #expect(classes.first?["type_id"] == "搞笑")
+    #expect(classes.count == 20, "the three signed-in-account categories are dropped")
+    #expect(!classes.contains { ["我的关注", "最新动态", "历史记录"].contains($0["type_id"] ?? "") })
+    #expect(ShortDramaSite.requests(to: "/file/TVBox/bili_cookie.txt").isEmpty)
+
+    ShortDramaSite.serve(["bili.invalid/biliext/Bili.json": [#"""
+        {"cookie":"clan://XYQTVBox/bilicookie.txt","classes":[{"type_name":"Sports","type_id":"球星"}],
+         "filter":{"球星":[{"key":"duration","name":"时长","value":[{"n":"全部","v":"0"}]}]}}
+        """#],
+                          "api.bilibili.com/x/web-interface/search/type": [#"{"code":0,"data":{"result":[]}}"#]])
+    let xyq = try await spider("Bili", extend: "https://bili.invalid/biliext/Bili.json")
+    let home = try json(try await xyq.homeContent(filter: true))
+    #expect((home["class"] as? [[String: String]])?.first?["type_id"] == "球星")
+    #expect((home["filters"] as? [String: Any])?["球星"] != nil)
+    _ = try await xyq.categoryContent(tid: "球星", page: "1", filter: false, extend: [:])
+    let search = try #require(ShortDramaSite.requests(to: "/x/web-interface/search/type").last)
+    let sent = search.headers.first { $0.key.lowercased() == "cookie" }?.value
+    #expect(sent?.hasPrefix("buvid3=") == true, "a clan:// cookie leaves the anonymous visitor")
 }

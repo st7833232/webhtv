@@ -17,15 +17,20 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
   - `ShortHema→HemaDJ`、`ShortQimao→QimaoDJ`、`ShortHaokan→HaokanDJ`、`ShortWeiguan→WeiguanDJ`、`SportsGuazi→GuaziTY` 五個 alias。
   - 離線 62／62 通過；5 個 qist 站經 alias 名稱 live 通過；Ponytail 1 項已套用。
   - A 群 live 實測：28 次通過 12 次；失敗 7 次是外部問題，9 次是 adapter 與 qist 版本不同（App3Q、App99、AppQi、Bili、XYQHiker）。
+- 階段 2A（Task-Guard `IOS-POC-57A`，**沒發版**）：
+  - `App99` 支援沒有 `appkey` 的 qist 版：qist 3 站 live 通過，`wang-movie.json` 帶 `appkey` 的站照舊通過。
+  - `Bili` 支援 `ext.n` 內建分類、XYQ 版 `ext`，也不再抓 TVBox 本機 cookie：qist 6 站 live 通過。
+  - `App3Q`（伺服器回 403）、`AppQi`（蓝鹰沒有播放清單）是站方問題，不改。
+  - 離線 84／84 通過、突變 2／2 被抓到。`spider-pack/` 重建為 `2026-10-06.4`，未發布。完整紀錄見任務文件第 8 節。
 - **未驗證**：Simulator、真機都沒跑；App 介面加 qist 設定網址後的實際畫面沒看過。
-- 唯一下一步：等使用者決定階段 2 的第一批。建議 2A：修 A 群在 qist 設定上失敗的 adapter 變體，見任務文件第 6 節。
+- 唯一下一步：等使用者決定下一批。候選見任務文件第 8.5 節：XYQHiker 的 JSON 分類模式、Bili 分集標題含 `#`（原本就有的問題）、2B 新類別移植。
 
 ## Previous handoff — 2026-10-06：發布 0.1.71 (72)，全域解析上線
 
 - **最新發布：WebHTV `0.1.71 (72)`**（2026-10-06 15:42 CST）＝`0.1.70 (71)`＋IOS-POC-56（設定檔全域解析接口）。
 - 證據：run [`37430560852`](https://github.com/st7833232/webhtv/actions/runs/37430560852) 全部 success；tag `ios-v0.1.71-b72` → `ace72419`；`source.json` `63503527` 第一筆 `0.1.71`、size 35,328,221 與 Release 相同；IPA 已下載核對（SHA-256 `a145e7d3…`、0.1.71／72、24 支腳本相同、主程式含新解析程式）。完整紀錄：`docs/IOS-POC-11-sidestore-release.md`「第七十二次發布」。
 - **真機驗收：使用者 2026-10-06 回報完成，沒問題**（項目見 `docs/IOS-POC-56-global-parse.md` 第 9 節）。
-- 相容包 `spider-pack/`（`2026-10-06.3`）未發布，要不要發布由使用者決定。
+- 相容包 `spider-pack/`（當時 `2026-10-06.3`，IOS-POC-57A 起 `2026-10-06.4`）未發布，要不要發布由使用者決定。
 
 ## Previous handoff — 2026-10-06：IOS-POC-56 設定檔全域解析接口（已隨 0.1.71 (72) 發布）
 

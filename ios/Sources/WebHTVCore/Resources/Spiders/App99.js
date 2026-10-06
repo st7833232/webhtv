@@ -33,20 +33,23 @@ var spider = (function () {
   /** The AES key is the uuid with its dashes removed — 32 chars, so AES-256. */
   function key() { return String(cfg.uuid).replace(/-/g, ''); }
 
+  /** qist/tvbox's `spider.jar` build has no appkey: it signs four fields and sends no `appkey`. */
   function headers(nonceValue, timestamp, body) {
-    return {
+    var signed = body + ':' + timestamp + ':' + nonceValue + ':' + cfg.token;
+    var out = {
       'User-Agent': cfg.ua,
       'Accept': 'application/json',
       'Content-Type': 'application/json',
       'client_type': 'android',
       'uuid': cfg.uuid,
       'timestamp': timestamp,
-      'sign': host.sha256(body + ':' + timestamp + ':' + nonceValue + ':' + cfg.token + ':' + cfg.appkey),
+      'sign': host.sha256(cfg.appkey ? signed + ':' + cfg.appkey : signed),
       'nonce': nonceValue,
-      'appkey': cfg.appkey,
       'version': cfg.version,
       'api_version': 'v1'
     };
+    if (cfg.appkey) out.appkey = cfg.appkey;
+    return out;
   }
 
   /** POST one encrypted JSON body and decrypt the reply. */
@@ -81,14 +84,15 @@ var spider = (function () {
     init: function (extend) {
       var ext = {};
       try { ext = JSON.parse(extend || '{}'); } catch (e) { ext = {}; }
-      // The original refuses to run unless the whole app identity is present.
-      if (!ext.host || !ext.appkey || !ext.name || !ext.buildSignature
+      // The original refuses to run unless the whole app identity is present; `appkey` is part of
+      // it everywhere except qist's build, which defaults `version` to `versionName` instead.
+      if (!ext.host || !ext.name || !ext.buildSignature
           || !ext.buildNumber || !ext.versionName || !ext.package) return '';
       cfg.url = String(ext.host).replace(/\/+$/, '');
-      cfg.appkey = ext.appkey;
+      cfg.appkey = ext.appkey || '';
       cfg.uuid = ext.uuid || uuid4();
       cfg.ua = ext.ua || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6299.95 Safari/537.36';
-      cfg.version = ext.version || '0b4328287a5d953e';
+      cfg.version = ext.version || (cfg.appkey ? '0b4328287a5d953e' : ext.versionName);
       cfg.token = '';
 
       var system = api('/app/systemInit', {

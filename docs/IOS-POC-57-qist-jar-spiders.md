@@ -5,8 +5,11 @@
 - 目標（使用者 2026-10-06）：把 <https://github.com/qist/tvbox/tree/master/jar> 的全部爬蟲加進 **iOS App**。同一個類別出現在多份 JAR 時，「看哪一份支援最多」；**`fty.jar` 不用支援**；成人類**一起做**；站台由使用者在 App 裡加 qist 的設定網址（例如 `https://raw.githubusercontent.com/qist/tvbox/master/dianshi.json`）取得，不改 `wang-movie.json`。
 - iOS 不能執行 JAR（Android DEX），每個類別都要用 JS adapter 重寫，或證明與既有 adapter 相同後加 alias。所以分階段：階段 0 盤點＋連線檢查，階段 1 不寫新 adapter（實測已支援的類別、加 alias），階段 2 起每批 5～8 個移植。
 - Task guard：`IOS-POC-57`（`standard`），基準 `1174be8101ae63adcb7f0ba345e5311711992fd0`。路徑：本文件、`docs/current-task-state.md`、`ios/Sources/WebHTVCore/Spider/SpiderRegistry.swift`、`ios/Tests/WebHTVCoreTests/SpiderGoldenTests.swift`。
-- 狀態（2026-10-06 17:05 CST）：階段 0、階段 1 完成。5 個 alias（`ShortHema`、`ShortQimao`、`ShortHaokan`、`ShortWeiguan`、`SportsGuazi`）已加，離線與 live 都通過。**沒有發版**；Simulator／真機都沒跑。
-- 唯一下一步：等使用者決定階段 2 的第一批（建議見第 6 節：先修 A 群在 qist 設定上失敗的 adapter 變體）。
+- 狀態（2026-10-06 18:20 CST）：
+  - 階段 0、階段 1 完成：5 個 alias（`ShortHema`、`ShortQimao`、`ShortHaokan`、`ShortWeiguan`、`SportsGuazi`）已加，commit `91364cd6`。
+  - 階段 2A 完成（第 8 節，Task-Guard `IOS-POC-57A`）：`App99` 支援沒有 `appkey` 的 qist 版；`Bili` 支援 `ext.n` 內建分類、XYQ 版 `ext`，並且不再抓 TVBox 本機 cookie。`App3Q`、`AppQi` 查證後是站方問題，不改。
+  - **沒有發版**；Simulator、真機都沒跑。
+- 唯一下一步：等使用者決定下一批。候選見第 8.5 節：XYQHiker 的 JSON 分類模式、Bili 分集標題含 `#`、2B 新類別移植。
 
 ## 1. 方法（2026-10-06 16:40～17:00 CST，台灣家用網路）
 
@@ -142,3 +145,51 @@
 
 - 2026-10-06 16:40～16:55：盤點、使用者確認範圍（iOS、加 qist 設定網址、成人類一起做、先做階段 0＋1、排除 `fty.jar`）。
 - 2026-10-06 16:55～17:05：階段 0、階段 1 完成；alias 已加，等使用者決定階段 2。
+- 2026-10-06 17:05～18:20：使用者「開始做 2A」；2A 完成（第 8 節）。
+
+## 8. 階段 2A：A 群在 qist 設定上的 adapter 變體（Task-Guard `IOS-POC-57A`，`standard`，基準 `91364cd6`）
+
+### 8.1 每項查證（17:05～17:40 CST）
+
+| 項目 | qist 原版（反編譯）對照 | 結論 |
+|---|---|---|
+| App99（剧圈99、半日99、双星99） | `spider.jar` 版的 `init` 不要求 `appkey`；`g()` 的簽章是 `sha256(body:timestamp:nonce:token)`（四段），header 不送 `appkey`；`version` 預設 `versionName`。回應解密後是 zlib：照原版重做（python3＋openssl），`systemInit`、`/vod/search` 都回 zlib，而 host 的 `aesDecryptIV` 早已自動解壓（`CryptoHost.ivPrefixed`） | **改 JS**；不用改 host |
+| App3Q（马猴影视） | 原版邏輯與現有 JS 相同；照原版重做請求，首頁、分類正常，`get_detail` 不論 time／nonce／`x-update-id` 都回 HTTP 403「请求异常，请重启应用后重试」 | 站方問題，**不改**（原版送的請求一樣會被拒） |
+| AppQi（蓝鹰） | 原版邏輯與現有 JS 相同；照原版重做，`vodDetail` 回 `code 1`，但前 3 部的 `vod_play_list` 都是空的 | 站方問題，**不改** |
+| Bili（`spider.jar`） | `ext.n` 選用原版寫死的 6 份首頁（哔哩合集／听书／戏曲／相声／小品／音乐）；`ext.cookie` 是 `http://127.0.0.1:9978/file/…`（TVBox 本機檔案服務）。原本的失敗：不支援 `ext.n` → 首頁空 → 空頁面被歸因到 init 時失敗的 cookie 請求 | **改 JS** |
+| Bili（`XYQ.jar`） | `ext` 是字串 `./biliext/*.json`，內容 `{"cookie":"clan://…","classes":[…],"filter":{…}}`；原版抓這份 JSON 當首頁 | **改 JS** |
+| XYQHiker 影搜 | 規則只有搜尋，結果是阿里雲盤分享連結 | 屬網盤（C 群），**不做** |
+| XYQHiker 另外 5 站 | 农民影视（網域查不到）、七新影视（404）、可可影视（850）都是站方；兔小贝的規則是「分类截取模式 0」（JSON）＋「分类Json数据二次截取」`jsonp(&&);`，現有 `XYQHiker.js` 分類只有 HTML 模式；河马短剧只有一個 `type_id` 0 的分類，golden 會跳過 0（測試條件，不代表 App 不能用） | 兔小贝要補規則引擎的 JSON 分類模式：**另列後續**（第 8.5 節） |
+
+### 8.2 改動
+
+| 檔案 | 內容 |
+|---|---|
+| `ios/Sources/WebHTVCore/Resources/Spiders/App99.js` | `appkey` 不再是必要欄位；沒有 `appkey` 時，簽章用四段、不送 `appkey` header、`version` 預設 `versionName`。有 `appkey` 的站行為不變 |
+| `ios/Sources/WebHTVCore/Resources/Spiders/Bili.js` | `BUILTIN`：原版 6 份首頁（哔哩合集拿掉需要登入帳號的 我的关注／最新动态／历史记录，剩 20 類）；`ext.n` 命中就用它；`ext` 是網址字串時抓 `{classes, filter}` 當首頁，並讀它的 `cookie`；cookie 是 `127.0.0.1`／`localhost`／`clan://` 時不抓、改用匿名 buvid3 |
+| `ios/Tests/WebHTVCoreTests/ShortDramaSpiderTests.swift` | 2 個離線測試：App99 兩種簽章；Bili 的 `ext.n`、XYQ 版 `ext`、本機 cookie 不被請求、`clan://` 改用匿名 cookie。stub 加上 `api.bilibili.com`、`127.0.0.1` 兩個主機 |
+| `spider-pack/` | 重建為 `2026-10-06.4`：只有 App99、Bili 兩支腳本與版本號不同（`mappings: []` 照舊）；**未發布** |
+
+### 8.3 驗證
+
+| 項目 | 方法 | 結果 |
+|---|---|---|
+| qist App99 | live golden：剧圈99、半日99、双星99（dianshi） | 3／3 通過（m3u8／flv 播放網址） |
+| qist Bili | live golden：哔哩合集、哔哩哔哩音乐、哔哩哔哩听书、少儿教育（dianshi／spider.jar）、csp_Bili、csp_Bili幼儿（XYQ.json／XYQ.jar） | 6／6 通過；Ponytail 修改後哔哩合集再跑一次也通過 |
+| `wang-movie.json` 回歸 | live golden：App99 剧圈99、听心99、橙子99、双星99；Bili bili、bilitingshu、bilimanhua、biligequ | 剧圈99、听心99、bili、bilimanhua、biligequ 通過。橙子99、双星99 主機逾時（站方）。bilitingshu 失敗：今天列表第一部的分集標題含 `#`（`《似水小弟》#七猫小说…`），把 CatVod 的集數切壞。走的是 `ext.json` 路徑、詳情程式沒動，**是原本就有的問題**（第 8.5 節） |
+| 離線 | `ShortDramaSpiderTests`、`SpiderHostTests`、`SpiderPackTests`、`SourceClientTests`、`ContractFreezeTests`、`RuntimeABITests`、`registryClaimsOnlyWhatIsActuallyPorted` | 84／84 通過；Ponytail 修改後相關 49 個重跑通過 |
+| 突變 | App99 一律帶 `appkey` 簽；拿掉 Bili 的本機 cookie 判斷 | 2／2 被抓到（3 個斷言失敗），之後已還原 |
+| 相容包 | `spider_pack.py verify --url spider-pack`；App99、Bili 與內建腳本逐位元組相同 | 21 支、0 問題 |
+| Ponytail | `ponytail:ponytail-review` 最終 diff | 1 項（刪掉 Bili 一行用不到的 `ext` 型別檢查）已套用 |
+
+**未驗證**：Simulator、真機都沒跑；App 介面加 qist 設定後的畫面沒看過。沒有發版。
+
+### 8.4 回滾
+
+一個 commit。`git revert` 後 App99 回到一定要有 `appkey`、Bili 回到只認 `ext.json`；`spider-pack/` 一起回到 `2026-10-06.3`。
+
+### 8.5 後續候選（未做，待使用者決定）
+
+1. **XYQHiker 的 JSON 分類模式**（「分类截取模式 0」＋「分类Json数据二次截取」）：qist 的兔小贝要用。這會改動規則引擎，影響所有 XYQHiker 站，要先對照 `XYQ.jar` 原版的實作。
+2. **Bili 分集標題含 `$`／`#`**：`wang-movie.json` 的 bilitingshu 今天就踩到。原本就有的問題，修法是詳情組集數時把這兩個字元換掉（`acceptedQualities` 已經這樣處理線路名稱）。
+3. **2B：移植新類別**：依第 3 節「連得上＋有站在用」的清單，每批 5～8 個。

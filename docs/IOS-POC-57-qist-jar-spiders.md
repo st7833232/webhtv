@@ -5,9 +5,10 @@
 - 目標（使用者 2026-10-06）：把 <https://github.com/qist/tvbox/tree/master/jar> 的全部爬蟲加進 **iOS App**。同一個類別出現在多份 JAR 時，「看哪一份支援最多」；**`fty.jar` 不用支援**；成人類**一起做**；站台由使用者在 App 裡加 qist 的設定網址（例如 `https://raw.githubusercontent.com/qist/tvbox/master/dianshi.json`）取得，不改 `wang-movie.json`。
 - iOS 不能執行 JAR（Android DEX），每個類別都要用 JS adapter 重寫，或證明與既有 adapter 相同後加 alias。所以分階段：階段 0 盤點＋連線檢查，階段 1 不寫新 adapter（實測已支援的類別、加 alias），階段 2 起每批 5～8 個移植。
 - Task guard：`IOS-POC-57`（`standard`），基準 `1174be8101ae63adcb7f0ba345e5311711992fd0`。路徑：本文件、`docs/current-task-state.md`、`ios/Sources/WebHTVCore/Spider/SpiderRegistry.swift`、`ios/Tests/WebHTVCoreTests/SpiderGoldenTests.swift`。
-- 狀態（2026-10-06 18:20 CST）：
+- 狀態（2026-10-08 上午）：
   - 階段 0、階段 1 完成：5 個 alias（`ShortHema`、`ShortQimao`、`ShortHaokan`、`ShortWeiguan`、`SportsGuazi`）已加，commit `91364cd6`。
-  - 階段 2A 完成（第 8 節，Task-Guard `IOS-POC-57A`）：`App99` 支援沒有 `appkey` 的 qist 版；`Bili` 支援 `ext.n` 內建分類、XYQ 版 `ext`，並且不再抓 TVBox 本機 cookie。`App3Q`、`AppQi` 查證後是站方問題，不改。
+  - 階段 2A 完成（第 8 節，Task-Guard `IOS-POC-57A`，commit `c7512240`）：`App99` 支援沒有 `appkey` 的 qist 版；`Bili` 支援 `ext.n` 內建分類、XYQ 版 `ext`，並且不再抓 TVBox 本機 cookie。`App3Q`、`AppQi` 查證後是站方問題，不改。
+  - 2A 第一輪審查修正完成（第 9 節，Task-Guard `IOS-POC-57A-1`）：Bili 本機 cookie 判斷補齊邊界、App99／Bili 檔頭、2A 研究紀錄（第 8.6 節）、測試並行時取錯請求（P2）。`spider-pack/` 為 `2026-10-07.1`。
   - **沒有發版**；Simulator、真機都沒跑。
 - 唯一下一步：等使用者決定下一批。候選見第 8.5 節：XYQHiker 的 JSON 分類模式、Bili 分集標題含 `#`、2B 新類別移植。
 
@@ -146,6 +147,7 @@
 - 2026-10-06 16:40～16:55：盤點、使用者確認範圍（iOS、加 qist 設定網址、成人類一起做、先做階段 0＋1、排除 `fty.jar`）。
 - 2026-10-06 16:55～17:05：階段 0、階段 1 完成；alias 已加，等使用者決定階段 2。
 - 2026-10-06 17:05～18:20：使用者「開始做 2A」；2A 完成（第 8 節）。
+- 2026-10-07 14:15～2026-10-08 上午：第一輪審查 3 項成立並修正；審查追加的 P2（測試並行時取錯請求）也修正（第 9 節）。
 
 ## 8. 階段 2A：A 群在 qist 設定上的 adapter 變體（Task-Guard `IOS-POC-57A`，`standard`，基準 `91364cd6`）
 
@@ -193,3 +195,96 @@
 1. **XYQHiker 的 JSON 分類模式**（「分类截取模式 0」＋「分类Json数据二次截取」）：qist 的兔小贝要用。這會改動規則引擎，影響所有 XYQHiker 站，要先對照 `XYQ.jar` 原版的實作。
 2. **Bili 分集標題含 `$`／`#`**：`wang-movie.json` 的 bilitingshu 今天就踩到。原本就有的問題，修法是詳情組集數時把這兩個字元換掉（`acceptedQualities` 已經這樣處理線路名稱）。
 3. **2B：移植新類別**：依第 3 節「連得上＋有站在用」的清單，每批 5～8 個。
+
+### 8.6 設計研究、方案比較與驗收條件（2026-10-07 補記，IOS-POC-57A-1）
+
+2A 實作前只有第 6 節的建議和第 8.1 節的查證，缺 AGENTS.md 研究關卡要求的來源釘選、證據等級、方案比較與驗收條件。本節依 2026-10-06 已取得的證據補記，**不是實作前完成的紀錄**。qist 的爬蟲不是播放器依賴，不走第 8 節的 upstream-integration-governor；適用的是第 7 節對相容性需求的研究關卡。
+
+**來源**：2026-10-06 16:41～17:18 CST 經 GitHub contents API（`ref=master`）與 raw 取得。當時沒有記下 qist 的 commit，改以下載檔的 Git blob SHA（與 API 回傳的相同）和 SHA-256 釘選內容。
+
+| 來源 | 版本釘選 | 證據等級 | 支持的結論 | 對決策的影響 |
+|---|---|---|---|---|
+| [qist/tvbox `jar/spider.jar`](https://github.com/qist/tvbox/blob/master/jar/spider.jar) 的 `App99`、`Bili` | blob `94fe284cc245b400e8a3503e23d1187774d19fa8`；SHA-256 `391065e92e19437e73109e9d3c79feff6676baa8ed4fec3cdb04f4e7cca77314` | 一手：qist 設定實際載入的發布產物（jadx 反編譯） | App99 `init` 不要求 `appkey`，`g()` 簽四段，header 不送 `appkey`，`version` 預設 `versionName`；Bili 以 `ext.n` 選 6 份內建首頁，`ext.cookie` 指向 `127.0.0.1:9978` | App99 四段簽章；Bili `BUILTIN` 的內容；本機 cookie 不抓 |
+| [qist/tvbox `jar/XYQ.jar`](https://github.com/qist/tvbox/blob/master/jar/XYQ.jar) 的 `Bili` | blob `9d13b15af5965165d3f356051e2e0b7351c4f4eb`；SHA-256 `ace8cb39979597eaa8121b540994a31d9b78ebe965613d13dad6a3da07003137` | 一手（同上） | `ext` 是 `./biliext/*.json` 網址，內容 `{cookie, classes, filter}`，cookie 是 `clan://` | URL 型 `ext` 當首頁；`clan://` 不抓 |
+| qist/tvbox `dianshi.json`、`XYQ.json` | blob `dd835a21d812a5a72d162126cd7823000c03407e`、`b9b77924ef8045af1dae9eec5443bf8dc0eecfac`（依下載內容計算） | 一手 | 哪些站用哪份 JAR、`ext` 的實際格式 | 測試用的站與 `ext` 樣本 |
+| 照原版重做的請求（第 8.1 節；腳本在 session scratchpad，未 commit） | 2026-10-06 17:05～17:40 | 一手實測，結果會隨站方變動 | 四段簽章的請求得到加密的 zlib 回應；App3Q 詳情 403、AppQi 播放清單空 | App99 不必改 host；App3Q、AppQi 不改 |
+| WebHTV 既有移植的來源 `river-fman.jar`（`spider-pack/manifest.json` 的 `jarSha256` `3133519d…`；`docs/IOS-POC-5L-appqi-app99-app3q-bili.md`） | 同左 | 一手：相關版本 | 帶 `appkey` 的五段簽章；`ext.json` 首頁 | 這兩條路徑要保持不變 |
+
+**證據類別**
+- 上游原始碼／提交／測試：用了上表的 qist JAR。qist 只發布編譯後的 JAR，沒有這些類別的原始碼、提交歷史或測試。
+- 官方規格與文件：不適用。CatVod／TVBox 的 `ext` 沒有規格文件，反編譯的 JAR 就是事實上的規格（與 IOS-POC-55 第 1 節的判斷相同）；bilibili 網頁 API 沒有公開的官方文件。
+- 上游 PR／issue／revert／維護者討論：未查。qist/tvbox 只轉發 JAR，沒有對應這段邏輯的 PR 或提交；相容的目標是 qist 設定實際載入的那份 JAR，討論內容不會改變這個目標。
+- 成熟相關專案的程式：用了 WebHTV 既有移植所根據的 `river-fman.jar`（上表最後一列）當另一個版本的對照；其他 TVBox fork 未查，理由同上。
+- 論文、技術文章、benchmark、實地報告：論文與 benchmark 不適用（協定相容問題，沒有演算法或效能取捨）；實地證據是第 8.1 節照原版重做的請求與第 8.3 節的 live golden。
+
+**2A 之前的實作**
+- `App99.js` 的 `init` 缺 `appkey` 就 `return ''`；`headers()` 固定五段簽章並送 `appkey`。
+- `Bili.js` 的 `init`／`homeContent` 只認 `ext.json`；`ext.cookie` 是網址就去抓，包含 `127.0.0.1`。
+- 呼叫端：`SpiderRegistry.ported`（`ios/Sources/WebHTVCore/Spider/SpiderRegistry.swift:47`）以類別名稱綁定腳本，`CSPSourceResolver`（`ios/Sources/WebHTVCore/Spider/CSPSourceResolver.swift:11`）經由它取腳本，`spider-pack/` 可覆蓋同名腳本。`wang-movie.json` 的 App99 4 站（帶 `appkey`）、Bili 4 站（`ext.json`）與 qist 的站共用同一支腳本。
+- 既有防護：`CryptoHost.ivPrefixed`（`ios/Sources/WebHTVCore/Spider/Host/CryptoHost.swift:182`）解密後自動解壓 zlib；離線測試 `ShortDramaSpiderTests`；live golden `SpiderGoldenTests`。
+
+**方案比較**
+
+| 方案 | App99 | Bili | 取捨 |
+|---|---|---|---|
+| 不改 | qist 3 站 init 就失敗 | qist 6 站首頁空；`127.0.0.1` 的 cookie 請求失敗後被當成失敗原因 | 沒有回歸風險，但使用者加 qist 設定後這些站不能用，不符需求 |
+| 照原版（不修改） | iOS 不能執行 JAR。最接近的是另寫一支照抄 qist 版的腳本，但 registry 只看類別名稱，要依 JAR 選腳本得靠 IOS-POC-55 的對應機制，而且兩份程式幾乎相同 | 原版從 TVBox 本機檔案服務（`127.0.0.1:9978`）或 `clan://` 拿 cookie，iOS 兩者都沒有，做不到 | 做不到，或維護成本高 |
+| **WebHTV 適配（採用）** | 同一支腳本：沒有 `appkey` 就簽四段、不送 header、`version` 用 `versionName`；有 `appkey` 完全照舊 | `ext.n` 用內建的 6 份首頁（拿掉 3 個需要登入的分類）；URL 型 `ext` 抓 `{classes, filter}`；本機與 `clan://` 的 cookie 不抓，用匿名 `buvid3` | 見下 |
+| 另做 cookie 匯入介面 | — | 讓使用者在 App 貼 bilibili cookie | 是新功能（帳號資料），超出 2A；需要時另立案 |
+
+採用方案的取捨：
+- 正確性：照反編譯的 qist 版本。相容性：帶 `appkey` 與 `ext.json` 的路徑不變，離線測試鎖住。
+- 效能：XYQ 版的站 init 多一次請求（逾時 20 秒）。畫質：匿名 cookie 拿不到 qn 80 以上，與原版未登入時相同。
+- 安全：不對設定指定的本機位址發 cookie 請求。維護：兩支腳本各多一處分支；`BUILTIN` 是照抄的資料。
+- 驗證：離線測試＋live golden。推出與回滾：沒有發版；`git revert` 一個 commit，相容包版本跟著回去（第 8.4 節）。
+
+決定：採用 WebHTV 適配，保留 qist 的行為，修正 iOS 上不存在的本機依賴。使用者 2026-10-06 以「開始做 2A」核准，第 8.1 節逐項查證後實作。
+
+**驗收條件**（證據見第 8.3 節與第 9 節）
+1. App99 的 `ext` 沒有 `appkey`：init 不放棄；`sign = sha256(body:timestamp:nonce:token)`；不送 `appkey` header；`version` 預設 `versionName`。
+2. App99 的 `ext` 有 `appkey`：五段簽章、送 `appkey`、`version` 預設 `0b4328287a5d953e`，和改動前相同。
+3. Bili 的 `ext.n` 對到內建首頁時用內建的；哔哩合集 20 類，不含 我的关注／最新动态／历史记录。
+4. Bili 的 `ext` 是網址字串時，抓 `{cookie, classes, filter}` 當首頁並讀它的 cookie。
+5. Bili 的 cookie 網址主機是 `127.0.0.1` 或 `localhost`（後面接 `:`、`/`、`?`、`#` 或結尾），或是 `clan:`：不發請求，改用匿名 `buvid3`。其他 http(s) cookie 網址照舊抓取（邊界在第 9 節補齊）。
+6. 只用 `ext.json` 的 Bili 站行為不變。
+7. `spider-pack/` 的 App99、Bili 與內建腳本逐位元組相同，manifest 的 sha256 相符，`spider_pack.py verify` 0 問題。
+8. 不在範圍：App3Q、AppQi（站方問題）、XYQHiker 影搜（網盤）。
+
+## 9. 2A 第一輪審查修正（Task-Guard `IOS-POC-57A-1`，`quick-fix`，基準 `c7512240`）
+
+### 9.1 審查意見與處置（2026-10-07～08）
+
+| # | 意見 | 核對 | 處置 |
+|---|---|---|---|
+| 1 | Bili 本機 cookie 判斷 `[:/]` 只接受主機後接冒號或斜線 | 成立：node 實測 `http://127.0.0.1`、`https://localhost`、`http://localhost?x=1` 都是 false，會落到抓取分支 | 改成 `([:/?#]\|$)`；補測試 |
+| 2 | 2A 缺研究關卡的來源釘選、證據類別、方案比較、驗收條件 | 成立（AGENTS.md 第 7 節的相容性需求；不是第 8 節的播放器依賴） | 補第 8.6 節 |
+| 3 | `App99.js` 檔頭仍寫固定五段簽章；`Bili.js` 檔頭仍寫只支援 4 個 `ext.json` 站 | 成立 | 只改檔頭，鏡像同步 |
+| P2 | 新測試的「搞笑」搜尋與既有測試的「球星」搜尋並行，共用 `ShortDramaSite.asked`；既有測試取路徑的 `.last`，可能拿到 `SESSDATA=remote` | 成立：修正前重複執行，既有測試在第 93 輪的匿名 `buvid3` 斷言失敗 | 既有測試改以 `keyword=球星` 挑自己的請求 |
+
+### 9.2 改動
+
+| 檔案 | 內容 |
+|---|---|
+| `ios/Sources/WebHTVCore/Resources/Spiders/Bili.js` | 本機 cookie 判斷改為 `/^https?:\/\/(127\.0\.0\.1\|localhost)([:/?#]\|$)/i`；註解與檔頭（三種首頁來源） |
+| `ios/Sources/WebHTVCore/Resources/Spiders/App99.js` | 檔頭補四段簽章的版本（只改註解） |
+| `ios/Tests/WebHTVCoreTests/ShortDramaSpiderTests.swift` | stub 加 `requests(host:)`、攔截 `localhost`；新測試 `biliFetchesNoCookieURLOnALocalHostButStillFetchesARemoteOne`；既有 Bili 測試以 keyword 挑請求 |
+| `spider-pack/` | 重建為 `2026-10-07.1`：只有 App99、Bili 兩支腳本與 sha256、版本號不同（`mappings: []` 照舊）；**未發布** |
+| 本文件、`docs/current-task-state.md` | 第 8.6 節、本節、交接 |
+
+### 9.3 驗證
+
+| 項目 | 指令 | 結果 |
+|---|---|---|
+| 新測試在舊 regex 下失敗 | `swift test --package-path ios --filter biliFetchesNoCookieURLOnALocalHostButStillFetchesARemoteOne` | 失敗 2 項：`127.0.0.1`、`localhost` 被請求；遠端 cookie 的斷言通過 |
+| 新 regex 的邊界 | node 直接測 | 本機主機單獨、帶 port／路徑／query／fragment、大寫 → 是；`localhost.evil.com`、`127.0.0.1.nip.io`、`localhost.invalid` → 否 |
+| 聚焦測試 | `swift test --package-path ios --filter 'ShortDramaSpiderTests\|SpiderPackTests\|RuntimePackManifestTests\|registryClaimsOnlyWhatIsActuallyPorted'` | 65／65 通過（P2 修改前） |
+| P2 重現與修正 | `swift test --package-path ios --filter 'biliServesQistsBuiltInAndXYQHomesWithoutFetchingTVBoxsOwnCookieFile\|biliFetchesNoCookieURLOnALocalHostButStillFetchesARemoteOne' --maximum-repetitions 500 --repeat-until fail` | 修正前：既有測試第 93 輪失敗；修正後：兩個測試各 500 輪通過 |
+| 檔案全部測試 | `swift test --package-path ios --filter ShortDramaSpiderTests` | 17／17 通過（P2 修改後） |
+| 相容包 | `python3 scripts/spider_pack.py verify --url spider-pack` | 21 支、0 問題 |
+| Ponytail | `ponytail:ponytail-review` 最終程式 diff；審查者另行複查 | 0 項（Lean already）；審查者也未見需刪除的複雜度 |
+
+**未驗證**：Simulator、真機、iOS App build 都沒做；live golden 沒重跑；完整 `swift test` 沒跑；P2 修改後沒有重跑 65 個那組（P2 只改這個測試檔，已由 17／17 涵蓋）；`[::1]` 與其他 `127.x` 位址照舊會發請求（不在 B5 範圍）。沒有發版。
+
+### 9.4 回滾
+
+一個 commit。`git revert` 後 regex 回到 `[:/]`，檔頭與測試回到 2A 版本，`spider-pack/` 回到 `2026-10-06.4`。

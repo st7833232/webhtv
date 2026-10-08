@@ -24,14 +24,18 @@ final class ShortDramaSite: URLProtocol, @unchecked Sendable {
         lock.withLock { asked.filter { $0.url.path == path } }
     }
 
+    static func requests(host: String) -> [Asked] {
+        lock.withLock { asked.filter { $0.url.host == host } }
+    }
+
     override class func canInit(with request: URLRequest) -> Bool {
         let host = request.url?.host ?? ""
         return host.hasSuffix(".invalid") || ["api.drama.9ddm.com", "freevideo.zqqds.cn", "neptune.qmplaylet.com",
             "api-store.qmplaylet.com", "api-read.qmplaylet.com", "sv.baidu.com", "www.hkybqufgh.com",
             "4kyszx.top", "doh.pub", "app.nyafun.vip", "yzy0916.n0z6fkpuk.com",
             "api.46d5umpk.com", "www.mdzyapi.com", "api-h5.uvod.tv",
-            // IOS-POC-57A: Bili's API, and TVBox's local file server so a fetch of it would show.
-            "api.bilibili.com", "127.0.0.1"].contains(host)
+            // IOS-POC-57A(-1): Bili's API, and the local hosts a TVBox cookie URL names, so a fetch of one would show.
+            "api.bilibili.com", "127.0.0.1", "localhost"].contains(host)
     }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func stopLoading() {}
@@ -1013,7 +1017,31 @@ private func sha256(_ text: String) -> String {
     #expect((home["class"] as? [[String: String]])?.first?["type_id"] == "球星")
     #expect((home["filters"] as? [String: Any])?["球星"] != nil)
     _ = try await xyq.categoryContent(tid: "球星", page: "1", filter: false, extend: [:])
-    let search = try #require(ShortDramaSite.requests(to: "/x/web-interface/search/type").last)
+    // Its own request by keyword, not the path's `.last`: tests run in parallel and the next one
+    // searches this path too (IOS-POC-57A-1).
+    let search = try #require(ShortDramaSite.requests(to: "/x/web-interface/search/type").last {
+        URLComponents(url: $0.url, resolvingAgainstBaseURL: false)?.queryItems?
+            .contains { $0.name == "keyword" && $0.value == "球星" } == true
+    })
     let sent = search.headers.first { $0.key.lowercased() == "cookie" }?.value
     #expect(sent?.hasPrefix("buvid3=") == true, "a clan:// cookie leaves the anonymous visitor")
+}
+
+// IOS-POC-57A-1: the host alone decides, so a bare host, a query or a fragment after it is still local.
+@Test func biliFetchesNoCookieURLOnALocalHostButStillFetchesARemoteOne() async throws {
+    for cookie in ["http://127.0.0.1", "https://localhost", "http://localhost?x=1", "http://localhost#top"] {
+        _ = try await spider("Bili", extend: #"{"n":"哔哩合集","cookie":"\#(cookie)"}"#)
+    }
+    #expect(ShortDramaSite.requests(host: "127.0.0.1").isEmpty)
+    #expect(ShortDramaSite.requests(host: "localhost").isEmpty)
+
+    // A host that merely starts with `localhost` is remote: its `{"cookie"}` is fetched and then sent.
+    ShortDramaSite.serve(["localhost.invalid/bili/cookie.json": [#"{"cookie":"SESSDATA=remote"}"#],
+                          "api.bilibili.com/x/web-interface/search/type": [#"{"code":0,"data":{"result":[]}}"#]])
+    let remote = try await spider("Bili", extend: #"{"n":"哔哩合集","cookie":"https://localhost.invalid/bili/cookie.json"}"#)
+    _ = try await remote.categoryContent(tid: "搞笑", page: "1", filter: false, extend: [:])
+    #expect(!ShortDramaSite.requests(to: "/bili/cookie.json").isEmpty)
+    #expect(ShortDramaSite.requests(to: "/x/web-interface/search/type").contains {
+        $0.headers.first { $0.key.lowercased() == "cookie" }?.value == "SESSDATA=remote"
+    })
 }

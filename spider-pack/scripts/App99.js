@@ -5,7 +5,9 @@
  * The most guarded of the App-API family, and the only one that logs in. Every request body is
  * AES-CBC/PKCS7 under a **random IV shipped in front of the ciphertext** — `base64(iv‖ct)` — keyed
  * by the client's own `uuid`, which also travels as a header so the server can answer the same way.
- * Authenticity is a second layer on top: `sign` = SHA-256 hex of `body:timestamp:nonce:token:appkey`.
+ * Authenticity is a second layer on top: `sign` = SHA-256 hex of `body:timestamp:nonce:token:appkey`,
+ * or of `body:timestamp:nonce:token` with no `appkey` header in qist/tvbox's `spider.jar` build, whose
+ * `ext` carries no appkey (IOS-POC-57A).
  *
  * `init` therefore costs two round trips before any content: `/app/systemInit` for the category
  * tree, the player-name map and the parse list, then `LoginPath` (default `/app/userInfo`) posing as

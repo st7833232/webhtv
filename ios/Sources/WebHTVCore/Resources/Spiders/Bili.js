@@ -1,9 +1,12 @@
 /**
  * csp_Bili — ported from `com.github.catvod.spider.Bili` (river-fman.jar, 284 lines).
  *
- * The public bilibili web API, no crypto and no login required for what the four configured sites
- * ask of it: each one points `ext.json` at a static CatVod home document whose every `type_id` is a
- * search keyword, so browsing is `search/type` and playing is `player/playurl`.
+ * The public bilibili web API, no crypto and no login required. The home is a static CatVod document
+ * whose `type_id`s this port searches for as keywords, so browsing is `search/type` and playing is
+ * `player/playurl`. The document comes from `ext.json` (the original's form, which the four
+ * `wang-movie.json` sites use), from `ext.n` naming one that qist/tvbox's `spider.jar` compiles in,
+ * or from an `ext` that is itself the URL of qist/tvbox `XYQ.jar`'s `{cookie, classes, filter}`
+ * document (IOS-POC-57A).
  *
  * Three deliberate departures from the original (see `docs/IOS-POC-5L-appqi-app99-app3q-bili.md`
  * and `docs/IOS-POC-5Q-playback-quality.md`); the first two are forced by the platform:
@@ -127,10 +130,11 @@ var spider = (function () {
       }
       var cookie = String(ext.cookie || '');
       // A `cookie` that is a URL points at `{"cookie": "…"}`. TVBox's own file server
-      // (`http://127.0.0.1:9978/file/…`) and its `clan://` storage cannot exist here, so they are not
-      // fetched: the request could only fail, and every later empty page would report it as the
-      // reason. The anonymous buvid3 below carries the session, as it does on Android.
-      if (/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/i.test(cookie) || /^clan:/i.test(cookie)) {
+      // (`http://127.0.0.1:9978/file/…`) and its `clan://` storage cannot exist here, so neither they
+      // nor any other URL whose host is `127.0.0.1` or `localhost` are fetched: the request could only
+      // fail, and every later empty page would report it as the reason. The anonymous buvid3 below
+      // carries the session, as it does on Android.
+      if (/^https?:\/\/(127\.0\.0\.1|localhost)([:/?#]|$)/i.test(cookie) || /^clan:/i.test(cookie)) {
         cookie = '';
       } else if (cookie.indexOf('http') === 0) {
         var fetched = host.get(cookie, { timeout: 10000 }).json || {};

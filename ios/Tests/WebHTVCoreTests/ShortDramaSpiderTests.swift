@@ -1045,3 +1045,23 @@ private func sha256(_ text: String) -> String {
         $0.headers.first { $0.key.lowercased() == "cookie" }?.value == "SESSDATA=remote"
     })
 }
+
+// IOS-POC-57A-2: CatVod splits episodes on `#` and an episode's name from its address on `$`, so a
+// page title carrying either must reach the app's own parser as plain text.
+@Test func biliPageTitlesCarryingCatVodSeparatorsKeepEveryEpisodeAndAddress() async throws {
+    ShortDramaSite.serve([
+        "api.bilibili.com/x/web-interface/wbi/view": [#"""
+        {"code":0,"data":{"aid":7,"cid":71,"title":"似水小弟","pages":[
+          {"cid":71,"page":1,"part":"《似水小弟》#七猫小说"},{"cid":72,"page":2,"part":"第2集$番外"},
+          {"cid":73,"page":3,"part":"普通标题"},{"cid":74,"page":4,"part":"#$"}]}}
+        """#],
+        "api.bilibili.com/x/player/playurl": [#"{"code":0,"data":{"accept_quality":[80,64],"accept_description":["高清 1080P","高清 720P"]}}"#],
+    ])
+    let detail = try await spider("Bili").detailContent(ids: ["BV1sx"])
+    let vod = try #require(try JSONDecoder().decode(CMSResponse.self, from: Data(detail.utf8)).list.first)
+    #expect(vod.flags.map(\.name) == ["B站 高清 1080P", "B站 高清 720P"])
+    for (flag, qn) in zip(vod.flags, ["80", "64"]) {
+        #expect(flag.episodes.map(\.name) == ["《似水小弟》 七猫小说", "第2集 番外", "普通标题", "P4"])
+        #expect(flag.episodes.map(\.url) == ["7+71+\(qn)", "7+72+\(qn)", "7+73+\(qn)", "7+74+\(qn)"])
+    }
+}

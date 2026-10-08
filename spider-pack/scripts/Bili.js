@@ -172,7 +172,9 @@ var spider = (function () {
       lines.forEach(function (line) {
         froms.push('B站 ' + line.name);
         urls.push(pages.map(function (page) {
-          return (page.part || ('P' + page.page)) + '$' + aid + '+' + page.cid + '+' + line.qn;
+          // As with a quality's label: `#` would split the episode list, `$` a name from its address.
+          var name = String(page.part || '').replace(/[$#]/g, ' ').trim();
+          return (name || ('P' + page.page)) + '$' + aid + '+' + page.cid + '+' + line.qn;
         }).join('#'));
       });
       return host.result.detail({

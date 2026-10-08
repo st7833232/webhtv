@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-07.1",
+  "version": "2026-10-08.1",
   "minHostApi": 2,
   "scripts": [
     {
@@ -60,7 +60,7 @@
     {
       "class": "Bili",
       "path": "./scripts/Bili.js",
-      "sha256": "6f81530e50f54e6534ba2368617fb6ee72d2422e0880db5c7e3438df33ffad78",
+      "sha256": "714a29128fa401fbe14a02d4b1e8ebbe46e51ab7fa5c6b01cb8b9402999117b8",
       "originJar": "river-fman.jar",
       "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
       "notes": "progressive durl instead of the original's DASH proxy; AVPlayer has no DASH"

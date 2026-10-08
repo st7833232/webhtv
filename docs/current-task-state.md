@@ -4,7 +4,7 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-08：IOS-POC-57 qist/tvbox JAR（57、57A、57A-1 審查修正）（先讀這一節）
+## Current handoff — 2026-10-08：IOS-POC-57 qist/tvbox JAR（57、57A、57A-1、57A-2）（先讀這一節）
 
 - 使用者要把 <https://github.com/qist/tvbox/tree/master/jar> 的爬蟲加進 iOS App。範圍決定：
   - 重複的類別取支援最多的一份；`fty.jar` 不支援；成人類一起做。
@@ -27,8 +27,11 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
   - App99、Bili 檔頭改成與現行行為一致；2A 的研究紀錄、方案比較、驗收條件補在任務文件第 8.6 節。
   - 審查追加 P2：既有 Bili 測試與新測試並行時取錯請求（重現於第 93 輪），已改用 keyword 挑自己的請求。
   - `spider-pack/` 重建為 `2026-10-07.1`，未發布。完整紀錄見任務文件第 9 節。
+- Bili 分集標題含 `$`／`#`（Task-Guard `IOS-POC-57A-2`，審查通過、已 commit，**沒發版**）：
+  - 分集標題的 `$`、`#` 換成空白（沿用畫質名稱的處理），經 App 解析後集數與 `aid+cid+qn` 正確。
+  - `spider-pack/` 重建為 `2026-10-08.1`，未發布。完整紀錄見任務文件第 10 節。
 - **未驗證**：Simulator、真機都沒跑；App 介面加 qist 設定網址後的實際畫面沒看過。
-- 唯一下一步：等使用者決定下一批。候選見任務文件第 8.5 節：XYQHiker 的 JSON 分類模式、Bili 分集標題含 `#`（原本就有的問題）、2B 新類別移植。
+- 唯一下一步：等使用者決定下一批（任務文件第 8.5 節：XYQHiker 的 JSON 分類模式、2B 新類別移植）。
 
 ## Previous handoff — 2026-10-06：發布 0.1.71 (72)，全域解析上線
 

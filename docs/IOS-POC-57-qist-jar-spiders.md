@@ -8,9 +8,10 @@
 - 狀態（2026-10-08 上午）：
   - 階段 0、階段 1 完成：5 個 alias（`ShortHema`、`ShortQimao`、`ShortHaokan`、`ShortWeiguan`、`SportsGuazi`）已加，commit `91364cd6`。
   - 階段 2A 完成（第 8 節，Task-Guard `IOS-POC-57A`，commit `c7512240`）：`App99` 支援沒有 `appkey` 的 qist 版；`Bili` 支援 `ext.n` 內建分類、XYQ 版 `ext`，並且不再抓 TVBox 本機 cookie。`App3Q`、`AppQi` 查證後是站方問題，不改。
-  - 2A 第一輪審查修正完成（第 9 節，Task-Guard `IOS-POC-57A-1`）：Bili 本機 cookie 判斷補齊邊界、App99／Bili 檔頭、2A 研究紀錄（第 8.6 節）、測試並行時取錯請求（P2）。`spider-pack/` 為 `2026-10-07.1`。
+  - 2A 第一輪審查修正完成（第 9 節，Task-Guard `IOS-POC-57A-1`，commit `50b31b79`）：Bili 本機 cookie 判斷補齊邊界、App99／Bili 檔頭、2A 研究紀錄（第 8.6 節）、測試並行時取錯請求（P2）。
+  - Bili 分集標題含 `$`／`#`（第 10 節，Task-Guard `IOS-POC-57A-2`）：已實作並驗證，審查通過（2026-10-08），已 commit。`spider-pack/` 為 `2026-10-08.1`。
   - **沒有發版**；Simulator、真機都沒跑。
-- 唯一下一步：等使用者決定下一批。候選見第 8.5 節：XYQHiker 的 JSON 分類模式、Bili 分集標題含 `#`、2B 新類別移植。
+- 唯一下一步：等使用者決定下一批（第 8.5 節：XYQHiker 的 JSON 分類模式、2B 新類別移植）。
 
 ## 1. 方法（2026-10-06 16:40～17:00 CST，台灣家用網路）
 
@@ -148,6 +149,7 @@
 - 2026-10-06 16:55～17:05：階段 0、階段 1 完成；alias 已加，等使用者決定階段 2。
 - 2026-10-06 17:05～18:20：使用者「開始做 2A」；2A 完成（第 8 節）。
 - 2026-10-07 14:15～2026-10-08 上午：第一輪審查 3 項成立並修正；審查追加的 P2（測試並行時取錯請求）也修正（第 9 節）。
+- 2026-10-08 09:58～：使用者同意先修第 8.5 節第 2 項（Bili 分集標題含 `$`／`#`），第 10 節。
 
 ## 8. 階段 2A：A 群在 qist 設定上的 adapter 變體（Task-Guard `IOS-POC-57A`，`standard`，基準 `91364cd6`）
 
@@ -193,7 +195,7 @@
 ### 8.5 後續候選（未做，待使用者決定）
 
 1. **XYQHiker 的 JSON 分類模式**（「分类截取模式 0」＋「分类Json数据二次截取」）：qist 的兔小贝要用。這會改動規則引擎，影響所有 XYQHiker 站，要先對照 `XYQ.jar` 原版的實作。
-2. **Bili 分集標題含 `$`／`#`**：`wang-movie.json` 的 bilitingshu 今天就踩到。原本就有的問題，修法是詳情組集數時把這兩個字元換掉（`acceptedQualities` 已經這樣處理線路名稱）。
+2. **Bili 分集標題含 `$`／`#`**：`wang-movie.json` 的 bilitingshu 今天就踩到。原本就有的問題，修法是詳情組集數時把這兩個字元換掉（`acceptedQualities` 已經這樣處理線路名稱）。由 IOS-POC-57A-2 處理（第 10 節）。
 3. **2B：移植新類別**：依第 3 節「連得上＋有站在用」的清單，每批 5～8 個。
 
 ### 8.6 設計研究、方案比較與驗收條件（2026-10-07 補記，IOS-POC-57A-1）
@@ -288,3 +290,20 @@
 ### 9.4 回滾
 
 一個 commit。`git revert` 後 regex 回到 `[:/]`，檔頭與測試回到 2A 版本，`spider-pack/` 回到 `2026-10-06.4`。
+
+## 10. Bili 分集標題含 `$`／`#`（Task-Guard `IOS-POC-57A-2`，`quick-fix`，基準 `50b31b79`）
+
+- 問題：`detailContent` 直接用 bilibili 的分集標題 `page.part` 組 CatVod 播放清單。標題含 `#` 會多切出集數，含 `$` 會把標題後半當成網址（第 8.3 節 `wang-movie.json` bilitingshu 的 `《似水小弟》#七猫小说…`）。App 的 `Episode.parse`（`ios/Sources/WebHTVCore/CMSClient.swift:327`）在括號外的 `#` 切集數、以第一個 `$` 分開名稱與網址；這個標題的 `#` 在 `》` 之後，照樣被切。
+- 改動：`Bili.js` 的 `detailContent` 對分集標題沿用 `acceptedQualities` 的處理：`$`、`#` 換成空白後 trim，空了就用原本的 `P<頁碼>`。代價是標題裡的這兩個字元顯示成空白。`spider-pack/` 重建為 `2026-10-08.1`（只有 Bili 與版本號不同，`mappings: []` 照舊），**未發布**。
+- 測試 `biliPageTitlesCarryingCatVodSeparatorsKeepEveryEpisodeAndAddress`：分集標題 `《似水小弟》#七猫小说`、`第2集$番外`、`普通标题`、`#$`，兩個畫質；經 `CMSResponse`＋`Vod.flags`（App 實際的解析）檢查線路名稱，以及每條線 4 集的名稱與 `aid+cid+qn`。
+
+| 項目 | 指令 | 結果（log 在 session scratchpad） |
+|---|---|---|
+| 新測試在舊版失敗 | `swift test --package-path ios --filter biliPageTitlesCarryingCatVodSeparatorsKeepEveryEpisodeAndAddress` | 失敗 4 項：兩條線的集數名稱與網址（`57A-2-red.log`） |
+| 回歸（一次） | `swift test --package-path ios --filter 'ShortDramaSpiderTests\|SpiderPackTests\|RuntimePackManifestTests\|registryClaimsOnlyWhatIsActuallyPorted'` | 66／66 通過（`57A-2-regression.log`） |
+| 相容包 | `python3 -I scripts/spider_pack.py build --out spider-pack --version 2026-10-08.1 --mappings <scratchpad>/empty-mappings.json`；`python3 -I scripts/spider_pack.py verify --url spider-pack` | 21 支、0 問題；Bili 鏡像與內建腳本相同（`57A-2-pack-build.log`、`57A-2-pack-verify.log`） |
+| Ponytail | `ponytail:ponytail-review` 程式 diff | 0 項 |
+
+- 未驗證：Simulator、真機、live golden（bilitingshu 實際的標題）都沒跑；完整 `swift test` 沒跑。
+- 審查：2026-10-08 Codex 唯讀審查 PASS（Spec、Standards、Ponytail 都沒有 finding）。
+- 回滾：一個 commit。`git revert` 後標題回到原樣，`spider-pack/` 回到 `2026-10-07.1`。

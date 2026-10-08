@@ -8,7 +8,7 @@
    - SHA256: `391065e92e19437e73109e9d3c79feff6676baa8ed4fec3cdb04f4e7cca77314`
    - 本地解編路徑: `qist/src/spider/sources/com/github/catvod/spider/FirstAid.java`
    - 主機: 已明確標示目標主機為 `https://m.youlai.cn`。
-2. **變體比較**：實際解碼 `pg_upgraded` 與 `pg23a94bb_upgraded` 兩版的位元組陣列常數後，確認所有 CSS Selector（如 `.block100`, `#video source`）與主機（`https://m.youlai.cn`）均與 `spider.jar` 和 `custom_spider.jar` 版本完全一致。四個非 fty 版本的差異僅在於 `User-Agent` 的 Chrome 版本號（介於 122 到 151 之間）。
+2. **變體比較**：實際解碼 `pg_upgraded` 與 `pg23a94bb_upgraded` 兩版的位元組陣列常數，並對照 `custom_spider.jar` 與 `spider.jar`。已證明其 CSS Selector（如 `.block100`, `#video source`）與目標主機（`https://m.youlai.cn`）完全一致；差異在於 `custom_spider.jar` 與 `pg_upgraded` 分類封面主動補 `"https:"` 前綴，而 `spider.jar` 未補，以及 `User-Agent` 的 Chrome 版本號。窄適配統一採用 `host.urljoin` 處理以完整相容。
 3. **基礎設施支援**：`ios/Sources/WebHTVCore/Resources/Spiders/host.js` 提供了 `pdfh`、`pdfa`、`pd` 與 `urljoin` 等工具，已確認可支援 `FirstAid.java` 的 DOM 操作。
 4. **不足證據**：目前無外部 API 官方文件，依賴原 JAR 逆向結果；未全面探測該主機的反爬蟲機制（如頻率限制）。
 
@@ -33,8 +33,44 @@
 2. **線上驗證**：在 Simulator 中實際走訪「首頁 → 分類 → 詳情 → 播放」，若出現網路或解析失敗，區分環境、外部阻擋或程式回歸。只有成功播放才算通過。
 
 ## 5. 驗證結果 (Verification)
-1. **離線驗證**：已完成。`FirstAidSpiderTests.swift` 涵蓋了全部 8 個分類、`cateId` 解析、搜尋、詳細資訊及 `host.urljoin` 處理，單元測試執行全數通過（`0.025 seconds`）。
-2. **線上驗證**：Simulator 測試需由 Claude 執行。
+
+**整體狀態：native 離線驗證通過；Simulator 線上驗收未執行，整項尚未完成。**
+
+1. **來源恢復（IOS-POC-57B-1-FIX）**：commit `38c6795d` 的 `FirstAid.js` 與 `FirstAidSpiderTests.swift` 都是空檔（只有一個空行），`SpiderRegistry.bundledOnly` 會跳過空腳本，所以該 commit 上 FirstAid 實際未註冊。協調者把原 AGY 修復檔逐字保存在本 checkout 的 `.codex/task-state/recovery/`（git-ignored），Claude 以此為輸入還原兩個 tracked 檔，只加下列已核准修正：
+   - **FA-1**：`categoryContent` 回傳 `host.result.page(items, 1, 1, items.length, items.length)`；測試斷言 `pagecount == 1`（`jijiu|0` 與 `jijiu|1`）。
+   - **FA-2**：fixture 加第二組 `.block100` 與 `.jj-title-li`；`tid jijiu|1` 斷言第二組封面 `https://m.youlai.cn/pic/family.jpg` 與唯一片目 `/video/301.html`「烫伤处理」。
+   - **FA-6**：搜尋請求以 `URLComponents` 驗 `q == 溺水`；請求數由 `>= 4` 改為精確 `== 6`（分類 3 + 詳情 2 + 搜尋 1；首頁與播放不發請求）。
+2. **離線驗證（native runtime，`JavaScriptSpiderRuntime` + bundled registry + mock `URLProtocol`）**：
+   - 指令：`swift test --package-path ios --filter FirstAidSpiderTests`（2026-10-08，Claude 於本 checkout 執行一次）。
+   - 結果：`Build complete! (54.52秒)`；`✔ Test testFirstAidSpiderFullFlow() passed after 0.046 seconds.`；`✔ Test run with 1 test in 1 suite passed after 0.046 seconds.`；0 failures。建置警告皆來自無關檔案，FirstAid 檔無警告。
+   - 完整 log：Claude 端寫檔被 runner 權限拒絕，未存檔。Codex 協調者獨立執行結果：exit 0，1 test、0 failures（2026-10-08）；完整輸出：`/private/tmp/webhtv-firstaid-coordinator-proof.log`。
+   - 涵蓋對照（依斷言內容，不依測試名稱）：8 分類首尾 `type_id`/`type_name`；`jijiu|0` 預設、`cateId=custom_cate` 覆寫（請求路徑 `/custom_cate`、`.block100` 自身 `src`）、`jijiu|1` 第二組；`#video source` 與 `#video` 兩種詳情 DOM；搜尋列表與 `q`；網址補齊涵蓋 `//`、`/`、`http://`、`https://`；播放 URL、`parse == 0`、播放 header UA；6 個請求全部帶 `Chrome/151.0.0.0` UA。
+3. **已知限制（不在本修復範圍）**：
+   - **FA-7**：詳情頁缺 `#video source` 與 `#video` 的 `src` 時，`vod_play_url` 會是 `標題$`（空網址），維持原移植行為，未擴大詳情處理。
+   - FA-1 的 `pagecount` 是正確的分頁 metadata，但 iOS Swift 端目前不讀 `pagecount`；實際停止翻頁的是 `CMSClient.swift:254-260` 的 `merging(newTitlesFrom:)`（新頁沒有新片目就停）。所以 iOS 仍會多要一次第 2 頁、拿到重複清單後停止，不會無限翻頁。
+4. **Ponytail 最終 diff 審查**（`ponytail:ponytail-review`，範圍：兩個 tracked 程式檔對 `38c6795d` 的 diff）：沒有必須修正項。
+   - Nice to have（未套用，維持逐字匯入）：檔尾的 `typeof module !== 'undefined' && module.exports` 判斷與 `return spider` 可簡化成同層爬蟲（`MoDu.js`、`HaokanDJ.js`）的 `var spider = (function () { ... })(); module.exports = spider;`，可減少約 3 行。runtime 一定會先定義 `module`（`JavaScriptSpiderRuntime.swift:39`），所以現行寫法也正確。
+   - 審查限制：未對 `m.youlai.cn` 實站驗證 DOM，fixture 依原移植的 selector 撰寫。
+5. **線上驗證**：未執行。本次 build turn 依指示不做 GUI；Simulator「首頁 → 分類 → 詳情 → 播放」仍是完整驗收條件，依計畫 FA-9 排在 XYQHiker GUI 之後，由 Claude 在確認 GUI 權限後執行。
 
 ## 6. 回滾計畫 (Rollback)
-若有嚴重回歸或外部阻礙，執行 `git revert <commit-hash>` 退回此任務的 atomic commit，確保乾淨移除 `FirstAid.js`、單元測試、Registry 註冊項及任何相容包的變更。
+本修復可用 `git revert <修復 commit-hash>` 回到基準的空 JS／測試檔；Registry 仍存在但會略過空腳本。此修復不包含 Registry 或相容包變更。不得只整合含空檔的 `38c6795d` 而遺漏修復 commit。
+
+---
+
+## 7. Recovery Anchor
+
+- **Task ID**: IOS-POC-57B-1-FIX
+- **Worktree**: `/private/tmp/webhtv-claudex-resume`（隔離 checkout；原 `/private/tmp/webhtv-firstaid` 與主 workspace 唯讀保護、未修改）
+- **Git Branch**: `ios-poc-firstaid`
+- **Git HEAD**: `38c6795d08fde53b8247d1ce5511e5fe26fb5b51`（含空檔，必須連同本修復 commit 使用；不 reset / 不改寫）
+- **Git Status（本次交付時）**:
+  - M `docs/IOS-POC-57B-1-firstaid.md`
+  - M `ios/Sources/WebHTVCore/Resources/Spiders/FirstAid.js`
+  - M `ios/Tests/WebHTVCoreTests/FirstAidSpiderTests.swift`
+- **Task Guard**: 協調者已啟動 `IOS-POC-57B-1-FIX`（quick-fix，scope 為上述 3 檔）；Claude 未另行 `check`。
+- **恢復輸入**: `.codex/task-state/recovery/{FirstAid.js,FirstAidSpiderTests.swift,IOS-POC-57B-1-firstaid.md}`（git-ignored，協調者保存的 AGY 原檔）。
+- **已驗證**: native focused test 1/1 通過（第 5 節）。
+- **未驗證**: Simulator GUI 全流程；`m.youlai.cn` 實站 DOM。
+- **授權邊界**: 不 commit、不 tag、不 push、不 merge 回原 worktree 或主 workspace。
+- **下一個單一動作 (Next Single Action)**: fresh Codex inspect；PASS 後以 `task_guard.sh finish --no-tag` 提交 native-only 修復，並維持 GUI 驗收為未完成。獨立 native proof 已通過，不重跑。

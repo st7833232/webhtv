@@ -39,7 +39,11 @@ public enum ConfigLoaderError: Error, Equatable, LocalizedError {
 
 public enum ConfigLoader {
     public static func decode(_ data: Data) throws -> WebHTVConfig {
-        try JSONDecoder().decode(WebHTVConfig.self, from: data)
+        let decoder = JSONDecoder()
+        // QIST-JSONC: shared configs such as qist XYQ.json carry `//` comments. JSON5 is a superset
+        // of JSON, so standard configs decode exactly as before and invalid data is still rejected.
+        decoder.allowsJSON5 = true
+        return try decoder.decode(WebHTVConfig.self, from: data)
     }
 
     /// Decodes and requires at least one usable source, so a syntactically valid but useless payload

@@ -20,6 +20,32 @@ import Testing
     #expect(config.nativeCMSSites.contains { $0.name.contains("索尼") })
 }
 
+@Test func decodesCommentedConfigAndKeepsURLStrings() throws {
+    let standard = #"{"sites":[{"key":"cms","name":"CMS","type":1,"api":"http://example.com/api.php/provide/vod"}]}"#
+    let commented = """
+    // 网盘资源区
+    {"sites":[
+      //{"key":"off","name":"Off","type":1,"api":"http://example.com/off"},
+      {"key":"cms","name":"CMS","type":1,"api":"http://example.com/api.php/provide/vod"} /* tail */
+    ]}
+    """
+    for text in [standard, commented] {
+        let config = try ConfigLoader.decode(Data(text.utf8))
+        #expect(config.sites.map(\.key) == ["cms"])
+        #expect(config.sites[0].api == "http://example.com/api.php/provide/vod")
+    }
+    #expect(throws: (any Error).self) { try ConfigLoader.decode(Data("not json".utf8)) }
+    #expect(throws: (any Error).self) { try ConfigLoader.decode(Data(#"{"sites":["#.utf8)) }
+}
+
+@Test func decodesProvidedQistXYQConfig() throws {
+    guard let path = ProcessInfo.processInfo.environment["QIST_XYQ_JSON"] else { return }
+    let config = try ConfigLoader.decode(Data(contentsOf: URL(fileURLWithPath: path)))
+
+    #expect(config.sites.count == 49)
+    #expect(config.sites.first { $0.key == "csp_JianPian" }?.rawExtJSON.contains("http://39.108.238.168:20000") == true)
+}
+
 @Test func classifiesType4SitesAndToleratesNonDictionaryExt() throws {
     let data = Data(#"""
     {"sites":[

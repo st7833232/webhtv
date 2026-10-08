@@ -4,7 +4,45 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-08：IOS-POC-57 qist/tvbox JAR（57、57A、57A-1、57A-2）（先讀這一節）
+## Current handoff — 2026-10-08 GUI 證據已審查，局部分類核准（先讀這一節）
+
+- **Goal**：Codex 派發的 GUI 驗收：(1) 主 checkout App 的兔小贝 XYQHiker 分類；(2) 隔離 FirstAid checkout `176542d5` 的首頁、分類、詳情、播放。
+- **Result**：
+  - 兔小贝分類 **PASS（fixture 前提）**：原機 iOS 26.0，主 build `XYQHiker.js` `7c9a719b…`，首頁顯示 4 個分類；兒歌／故事／國學各載入 30 部；啟蒙片單未驗證。
+  - FirstAid **PASS**：iOS 27 測試機，隔離 build `FirstAid.js` `ab0646a5…`、binary `700a2713…`，qist `dianshi.json` 原檔；8 個分類，詳情「腫脹」，播放進度 00:05→00:12／04:46，有影像。
+  - GUI 路徑是一次性 XCUITest runner（AXe 的觸控注入無效，這條改走不同機制）。
+- **Findings（沒修）**：
+  - qist `XYQ.json` 原檔在這個 build 載不進來：一是 `ConfigLoader.decode` 用嚴格 `JSONDecoder`，遇到 18 行 `//` 註解就失敗；二是刪掉註解後，`validate` 仍要求至少一個 type-0/1/4 CMS 站，這份 49 站全是 type-3。
+  - 上一輪記錄的「App 載入了 qist 設定」是誤判，已在任務文件更正。
+- **Scope／Constraints**：
+  - 只改了這兩份文件：本文件和 `docs/IOS-POC-57-qist-jar-spiders.md`。
+  - guard `IOS-POC-57A-3` 仍然 active，其他 4 個 dirty 檔原樣保留。
+  - 沒有 commit／merge／tag／push／發布，沒改產品 code，沒刪模擬器。
+  - 兩台模擬器的設定都已還原，iOS 27 測試機已裝回主 build。
+- **Verification**：證據在 `/private/tmp/webhtv-gui-57a3-firstaid/`；明細在任務文件 Recovery anchor 的「GUI 驗收 checkpoint」。
+- **未驗證**：qist `XYQ.json` 原檔經 App 載入、兔小贝的詳情和播放、FirstAid 搜尋、完整 `swift test`、真機。
+- **Review**：fresh Codex 第 2 輪 `APPROVED`、0 finding，Ponytail 無需修正項。只核准局部分類功能；原始 qist `XYQ.json` 載入、啟蒙片單、兔小貝詳情／播放仍未驗收。
+- **Next**：guard `IOS-POC-57A-3` `finish --no-tag` 提交已驗證局部功能，接續 FirstAid 整合回 `ios-poc`；ConfigLoader 兩項另行確認範圍。Claude 正在唯讀評估下一個 qist 爬蟲，輸出 `/private/tmp/webhtv-qist-next-candidate.md`，不得改本次 diff。
+- **Resume**：『讀 docs/current-task-state.md 接手：GUI 驗收已完成，等 Codex 審查兔小贝（fixture 前提）與 FirstAid PASS 證據 /private/tmp/webhtv-gui-57a3-firstaid/；不重跑 GUI、59／59、live 分類；Codex PASS 後才 guard finish --no-tag；無 push／tag／發布授權。』
+
+## Previous handoff — 2026-10-08 11:47 CST 暫停 checkpoint
+
+- **Goal**：接續 qist/tvbox 兩項任務：(1) IOS-POC-57A-3 XYQHiker JSON 分類模式（兔小贝）；(2) FirstAid（AGY 獨立 worktree）的 P1 修復。
+- **Scope**：57A-3 guard 路徑只有 `ios/Sources/WebHTVCore/Resources/Spiders/XYQHiker.js`、`ios/Tests/WebHTVCoreTests/XYQHikerRuleTests.swift`、`spider-pack/`、`docs/IOS-POC-57-qist-jar-spiders.md`、本文件；不改選站功能，不修兔小贝 detail／play。
+- **Constraints**：暫停期間沒有 commit／merge／tag／push／發布授權；不改產品 code。恢復後照已授權的 scope 做到 Codex 最終 PASS，再以 guard `finish --no-tag` 原子 commit，不必就同一 scope 再問使用者；不自行提前 commit／merge／push／tag／發布。Codex 是管理者、唯讀審查、唯一使用者窗口；Claude 執行 Simulator；AGY 只在受限 worktree 做已核准的必要讀寫，不永久放寬權限；模型選擇需核對；所有權限與問題經 Codex。
+- **Decisions**：57A-3 設計關卡 PASS；實作用 `host.cut1`＋可帶鍵組的 `listFromJSON`；AXe 已核准安裝使用（v1.8.0）；Xcode 27 的模擬器主機是 `/Applications/Xcode-27.0.0.app/Contents/Applications/DeviceHub.app`。
+- **Read**：AXe 官方 `scripts/e2e-environment.sh` 第 60～77 行；`WebHTVApp.swift` 第 527 行 `siteMemory()`；`SiteSelection.swift`；`WebHTVConfig.swift` 的 `drivableSites`。
+- **Modified**：主 workspace 6 個未 commit 的 dirty 檔（保留）：`docs/IOS-POC-57-qist-jar-spiders.md`、本文件、`XYQHiker.js`、`XYQHikerRuleTests.swift`、`spider-pack/manifest.json`、`spider-pack/scripts/XYQHiker.js`。
+- **Diff**：`ios-poc` HEAD `3c6ec28dc38e696c684b291a2ef12f42bec88c47`；guard `IOS-POC-57A-3` active。FirstAid：`/private/tmp/webhtv-firstaid`，branch `ios-poc-firstaid` HEAD `38c6795d`，未整合。
+- **Completed**：Code 雙軸與 Ponytail 沒有 finding；回歸 59／59；相容包 21 支 0 問題；Simulator build／hash 已核對；live 兔小贝分類 30 筆。
+- **Remaining**：兔小贝分類 GUI 畫面（**未 verified**）；Codex 審查後 `finish --no-tag`。FirstAid P1（兩個新增 JS／Swift 檔各只有 1 byte 換行）待修。
+- **Blockers**：AXe 的 tap／button 在 iOS 26.0 與 iOS 27.0（DeviceHub 已開）都沒有效果；兔小贝 detail 失敗（既有規則，另列）。FirstAid 根因：Python 同檔先 `open('w')` 截斷再讀。詳見任務文件 Recovery anchor。
+- **Verification**：證據在 `/private/tmp/claude-501/-Users-chengchenchih-GIT-webhtv/c74533cc-0049-4e4f-95f8-15de90a82828/scratchpad/`（`57A-3-*.log`、`axe-run/`、`sim-backup/`）。
+- **Risks**：證據在 `/private/tmp`；iOS 27 測試機 `BC4948DD-E901-4550-B253-633F80C7ABF9` 仍開機、裝著測試版 App、設定來源指向 qist（不刪除）；原機 `E0A41D48-2210-46B8-B18C-9432B77DECC4` 已還原；DeviceHub（pid 87924）與非本 task 的 `log stream`（PID 37746／37755／37818）仍在執行。
+- **Next**：先讀 Git 證據與本 checkpoint；優先完成 FirstAid P1 修復，再處理兔小贝 GUI（改走已記錄的最短證據路徑）。
+- **Resume**：『恢復qist兩任務，先讀Git證據與最新暫停anchor。保留主workspace6個未驗證dirty；FirstAid獨立分支38c6795d不得整合，先恢復JS與實際native測試並在新guard完成P1修復，Codex審查後才提交。XYQ59/59/live分類30已完成不重跑，GUI未verified需改走已記錄的最短證據路徑；Simulator由Claude執行。所有權限/問題經Codex。無push/tag/發布授權。』
+
+## Previous handoff — 2026-10-08：IOS-POC-57 qist/tvbox JAR（57、57A、57A-1、57A-2、57A-3）
 
 - 使用者要把 <https://github.com/qist/tvbox/tree/master/jar> 的爬蟲加進 iOS App。範圍決定：
   - 重複的類別取支援最多的一份；`fty.jar` 不支援；成人類一起做。
@@ -30,8 +68,11 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - Bili 分集標題含 `$`／`#`（Task-Guard `IOS-POC-57A-2`，審查通過、已 commit，**沒發版**）：
   - 分集標題的 `$`、`#` 換成空白（沿用畫質名稱的處理），經 App 解析後集數與 `aid+cid+qn` 正確。
   - `spider-pack/` 重建為 `2026-10-08.1`，未發布。完整紀錄見任務文件第 10 節。
+- XYQHiker JSON 分類模式（qist 兔小贝，Task-Guard `IOS-POC-57A-3`，**待審查、未 commit、沒發版**）：
+  - 分類在 `分类截取模式`／`cat_mode` 為 `0` 時，以 `host.cut1` 套二次截取後交給 `listFromJSON`（分類鍵組、路徑預設 `data`、副標題）；HTML 分類與搜尋 JSON 不變。
+  - live：兔小贝分類 30 筆；詳情失敗（既有規則，另列）。Simulator 只驗到安裝（腳本 hash 相同）與設定載入，兔小贝畫面因缺 UI 輸入工具未驗（已向 Codex 申請 AXe）。`spider-pack/` `2026-10-08.2`，未發布。完整紀錄見任務文件第 11 節。
 - **未驗證**：Simulator、真機都沒跑；App 介面加 qist 設定網址後的實際畫面沒看過。
-- 唯一下一步：等使用者決定下一批（任務文件第 8.5 節：XYQHiker 的 JSON 分類模式、2B 新類別移植）。
+- 唯一下一步：IOS-POC-57A-3 待 Codex 審查；通過後以 `task_guard.sh finish --no-tag` commit。Simulator 上的兔小贝畫面待 Codex 核准安裝 AXe 後由 Claude 完成（任務文件第 11.1 節）。
 
 ## Previous handoff — 2026-10-06：發布 0.1.71 (72)，全域解析上線
 

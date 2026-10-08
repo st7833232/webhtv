@@ -163,19 +163,22 @@ var spider = (function () {
   /**
    * 搜索截取模式 0 means the search answers JSON — MacCMS's `ajax/suggest` in all 15 rule files that
    * set it. The array rule is a dotted path and each field rule names a key, defaulting to the
-   * original's `list`, `name`, `id` and `pic`.
+   * original's `list`, `name`, `id` and `pic`. 分类截取模式 0 reads a category the same way, its path
+   * defaulting to `data` and with its 副标题 (XYQ.jar `m161`, IOS-POC-57A-3); search keeps no remark.
    */
-  function listFromJSON(body) {
-    var items = (ruleFor(SEARCH.array) || 'list').split('.').reduce(function (node, name) {
+  function listFromJSON(body, keys, path) {
+    var items = (ruleFor(keys.array) || path).split('.').reduce(function (node, name) {
       return node && node[name];
     }, host.parseJSON(body));
-    var title = ruleFor(SEARCH.title) || 'name', link = ruleFor(SEARCH.url) || 'id';
-    var pic = ruleFor(SEARCH.pic) || 'pic', prefix = ruleFor(SEARCH.prefix), suffix = ruleFor(SEARCH.suffix);
+    var title = ruleFor(keys.title) || 'name', link = ruleFor(keys.url) || 'id';
+    var pic = ruleFor(keys.pic) || 'pic', prefix = ruleFor(keys.prefix), suffix = ruleFor(keys.suffix);
+    var remark = keys === SEARCH ? '' : ruleFor(keys.remark);
     var out = [];
     (Array.isArray(items) ? items : []).forEach(function (item) {
       if (!item || !item[title] || item[link] === undefined) return;
       out.push({ vod_id: joinPrefix(prefix, String(item[link])) + suffix, vod_name: String(item[title]),
-                 vod_pic: host.urljoin(prefix, String(item[pic] || '')), vod_remarks: '' });
+                 vod_pic: host.urljoin(prefix, String(item[pic] || '')),
+                 vod_remarks: remark && item[remark] != null ? String(item[remark]) : '' });
     });
     return out;
   }
@@ -211,7 +214,15 @@ var spider = (function () {
         lang: (extend && extend.lang) || '', letter: ''
       });
       if (!url) return { list: [] };
-      return host.result.page(extract(fetch(url), CATEGORY), page);
+      var body = fetch(url);
+      // XYQ.jar `m161`: 分类截取模式 0 cuts the reply with 分类Json数据二次截取 when it holds a `&&`, then
+      // reads what is left as JSON (IOS-POC-57A-3).
+      if (ruleFor(['分类截取模式', 'cat_mode']) === '0') {
+        var wrapper = text('分类Json数据二次截取');
+        if (wrapper.indexOf('&&') >= 0) body = host.cut1(body, wrapper);
+        return host.result.page(listFromJSON(body, CATEGORY, 'data'), page);
+      }
+      return host.result.page(extract(body, CATEGORY), page);
     },
 
     detailContent: function (ids) {
@@ -282,7 +293,7 @@ var spider = (function () {
         ? host.post(url, body, { headers: searchHeaders, timeout: 20000 })
         : host.get(url, { headers: searchHeaders, timeout: 20000 });
       return host.result.list(/^(0|否)$/.test(text('搜索截取模式') || text('search_mode'))
-        ? listFromJSON(res.body || '') : extract(res.body || '', SEARCH));
+        ? listFromJSON(res.body || '', SEARCH, 'list') : extract(res.body || '', SEARCH));
     },
 
     playerContent: function (flag, id) {

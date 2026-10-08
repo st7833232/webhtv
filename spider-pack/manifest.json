@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-08.1",
+  "version": "2026-10-08.2",
   "minHostApi": 2,
   "scripts": [
     {
@@ -159,7 +159,7 @@
     {
       "class": "XYQHiker",
       "path": "./scripts/XYQHiker.js",
-      "sha256": "f2381ac533f70c3e11cf65f5dd9868d3d2dda16d10f72b9eacce35d57e04e91f",
+      "sha256": "7c9a719b8e05fa3f5bb2230247da014bd2dad4153f3daad160cad8b362c245ad",
       "originJar": "xyqxbpq.jar",
       "jarSha256": "7b732f2289236619b791d9c5a0d862d42c9bf3e5bb6123a6982736329bbe9e16"
     }

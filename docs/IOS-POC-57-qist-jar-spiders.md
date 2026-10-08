@@ -2,6 +2,55 @@
 
 ## Recovery anchor
 
+### GUI 驗收 checkpoint（2026-10-08 15:23 CST，先讀這一節；待 Codex 審查）
+
+- **Goal**：Codex 派發的兩件事：(1) 在主 checkout 已安裝的 App 上驗兔小贝 XYQHiker 分類 GUI；(2) 從隔離 FirstAid checkout `/private/tmp/webhtv-claudex-resume`（`176542d5ec1aac4a96669c60b81b480f317a73f7`）build／install，驗首頁、分類、詳情、播放。兩套 build 的證據分開記。
+- **GUI 路徑（新證據）**：用一次性 XCUITest runner（`/private/tmp/webhtv-gui-57a3-firstaid/probe/`，`XCUIApplication(bundleIdentifier: "com.webhtv.ios.poc")`，以 `io/cmd`／`io/out` 逐步下指令）。事件由模擬器內的 XCTest 合成，不走 AXe 的主機端 SimulatorKit HID。iOS 27 第一次點「使用網址」，sheet 就出現了（`t02-url.txt`、`s02-url.png`）。原機上的 App 有動畫一直在跑，XCTest 每個動作都要等 60 秒的 quiescence，所以只在 runner 內 swizzle 掉這個等待。產品 code 與產品 project 都沒動。
+- **兔小贝：PASS（fixture 前提）**。用原機 `E0A41D48…`（iOS 26.0）上的主 checkout build：`XYQHiker.js` `7c9a719b…` 與 checkout 相同，binary `f6716ba5…`（10:33:12）。
+  - qist `XYQ.json` 原檔在這個 build 載不進來（見 Findings），所以改用標明的 fixture `mirror/XYQ-fixture.json`（`21e02bc8…`）：從 qist `XYQ.json`（`701eabdf…`）刪掉 18 行 `//` 註解，尾端加上 qist `dianshi.json` 的第一個 CMS 站「影视 • 电影天堂」，由本機 `http://127.0.0.1:8766` 提供。`XYQHiker/兔小贝.json`（`e0317d5e…`）是 qist 原檔。
+  - 結果：選站清單有「兔小貝(XYQH)」；首頁分類是兒歌／故事／國學／啟蒙，「已載入 30 部」；切到「故事」（半途而廢…）和「國學」（秋夜寄邱員外…）也都是 30 部，有封面（`u07`～`u11`）。
+  - 兔小贝的詳情和播放不在本項，沒有測。
+- **FirstAid：PASS（只用隔離 build）**。裝在 iOS 27 測試機 `BC4948DD…`，獨立 DerivedData，build 2 分 41 秒。
+  - Hash：`FirstAid.js` `ab0646a5…`（4459 bytes），checkout、build 產物、已安裝三者相同；binary `700a2713…`（`firstaid-hashes.txt`）。
+  - 用 qist `dianshi.json` 原檔（`08b35f4a…`）走「使用網址」載入。
+  - 首頁有 8 個分類（急救技能…意外事故），急救技能 19 部；切到「家庭生活」30 部。
+  - 「腫脹」詳情：作者李力卓、有簡介、線路是「Qile · 1 集」。
+  - 「立即播放」用原生播放器，進度從 00:05 走到 00:12（總長 04:46），畫面有影像（`f03`～`f08`）。
+- **Findings（不在授權範圍，沒修）**：
+  1. `ConfigLoader.decode` 用嚴格的 `JSONDecoder`。qist `XYQ.json` 有 18 行 `//` 註解，結果是「遠端設定載入失敗：The data couldn’t be read because it isn’t in the correct format.」。iOS 26.0、iOS 27.0 都重現，macOS 27 主機的 `JSONDecoder` 也一樣失敗（`jsontest.swift`）。
+  2. 刪掉註解後，`ConfigLoader.validate` 仍然拒絕：`XYQ.json` 的 49 站全是 type-3，`nativeCMSSites` 是空的，錯誤是「此設定沒有 iOS 可用的 CMS 來源」。
+  3. **更正**：上一輪記錄「App 載入了 qist 設定；首頁停在 YouTube｜PY」是誤判。YouTube｜PY 在 gitlab 的 `wang-movie.json` 裡，不在 qist `XYQ.json`。啟動時抓取失敗不會報錯（`reportFailure: false`），App 沿用快取。偏好設定預選兔小贝失敗也是這個原因。
+  4. qist 另外有兩份含兔小贝的 `dianshi.json`／`jsm.json`，但用的是 `csp_TuXiaoBei`，走不到 XYQHiker。
+- **環境還原**：
+  - 兩台模擬器的偏好設定和 Application Support 都還原了，比對跟備份相同。
+  - iOS 27 測試機已裝回主 checkout 的 build（`XYQHiker.js` `7c9a719b…`、binary `f6716ba5…`，`restore-27-hashes.txt`）。
+  - 兩台的 probe app 都已移除，本機鏡像已停。
+  - 沒有刪除任何模擬器，FirstAid 的 3 個 dirty 檔和 guard 沒動。
+- **Verification**：證據在 `/private/tmp/webhtv-gui-57a3-firstaid/`（session scratchpad 中途被收回後搬到這裡）：UI 樹 `.txt` 和截圖 `.png`（`t*`／`s*` 是 iOS 27 觸控證明，`u*` 是兔小贝，`f*` 是 FirstAid）、`firstaid-hashes.txt`、`firstaid-build.log`、`restore-27-hashes.txt`、`backup-26/`、`backup-27/`、`mirror/`、`qist-cfg/`、`probe/`、`probe-run*.log`。FirstAid 的 build 產物還在已收回的舊 scratchpad `…/43665cff-…/scratchpad/gui/dd-firstaid/`，可能會被清掉；hash 已經另存。
+- **未驗證**：qist `XYQ.json` 原檔經 App 載入（被 Findings 1、2 擋住）；兔小贝的詳情和播放；FirstAid 搜尋（設定是 `searchable: 0`）；完整 `swift test`；真機。
+- **Codex 最終審查**：第 1 輪僅發現文件誤把啟蒙片單也列為 30 部，已改為未驗證；第 2 輪 `APPROVED`、0 finding（`/private/tmp/webhtv-xyq-final-reinspect/claudex-dbqp1krb/result.json`）。Ponytail 已審分類／搜尋共用解析器與呼叫端，沒有需修正項。程式與成功驗證證據未變，未重跑測試或 GUI。
+- **完成邊界**：只核准本局部分類 adapter 功能；fixture 證據不代表原始 qist `XYQ.json` 已可載入或完整產品需求已驗收。Findings 1、2 仍未修復。
+- **Next**：以 guard `IOS-POC-57A-3` 跑 `finish --no-tag` 提交本局部分類功能；接續將已通過 GUI 的 FirstAid 整合回 `ios-poc`。ConfigLoader 修復需另行確認範圍。
+
+### 暫停 checkpoint（2026-10-08 11:47 CST，前一版）
+
+- **Goal**：接續 qist/tvbox 兩項任務：(1) IOS-POC-57A-3 XYQHiker JSON 分類模式（兔小贝）；(2) FirstAid（AGY 獨立 worktree）的 P1 修復。
+- **Scope**：57A-3 guard 路徑只有 `ios/Sources/WebHTVCore/Resources/Spiders/XYQHiker.js`、`ios/Tests/WebHTVCoreTests/XYQHikerRuleTests.swift`、`spider-pack/`、本文件、`docs/current-task-state.md`；不改選站功能，不修兔小贝 detail／play。
+- **Constraints**：暫停期間沒有 commit／merge／tag／push／發布授權；不改產品 code。恢復後照已授權的 scope 做到 Codex 最終 PASS，再以 guard `finish --no-tag` 原子 commit，不必就同一 scope 再問使用者；不自行提前 commit／merge／push／tag／發布。Codex 是管理者、唯讀審查、唯一使用者窗口；Claude 執行 Simulator；AGY 只在受限 worktree 做已核准的必要讀寫，不永久放寬權限；模型選擇需核對；所有權限與問題經 Codex。
+- **Decisions**：57A-3 設計關卡 PASS（第 11 節）；實作用 `host.cut1`＋可帶鍵組的 `listFromJSON`；AXe 已核准安裝使用（v1.8.0，`/opt/homebrew/Cellar/axe/1.8.0`）；Xcode 27 的模擬器主機是 `/Applications/Xcode-27.0.0.app/Contents/Applications/DeviceHub.app`（舊位置 `Contents/Developer/Applications/Simulator.app` 不存在）。
+- **Read**：AXe 官方 `scripts/e2e-environment.sh` 第 60～77 行 `ensure_e2e_runtime_host`（副本在 scratchpad `axe-e2e-environment.sh`）；`ios/WebHTVApp/Sources/WebHTVApp.swift` 第 527 行 `siteMemory()`；`ios/Sources/WebHTVCore/SiteSelection.swift`；`ios/Sources/WebHTVCore/WebHTVConfig.swift` 的 `drivableSites`。
+- **Modified**：主 workspace 6 個未 commit 的 dirty 檔（保留）：本文件、`docs/current-task-state.md`、`XYQHiker.js`、`XYQHikerRuleTests.swift`、`spider-pack/manifest.json`、`spider-pack/scripts/XYQHiker.js`。
+- **Diff**：`ios-poc` HEAD `3c6ec28dc38e696c684b291a2ef12f42bec88c47`；guard `IOS-POC-57A-3` active（standard）。FirstAid：`/private/tmp/webhtv-firstaid`，branch `ios-poc-firstaid` HEAD `38c6795d`，未整合。
+- **Completed**：Code 雙軸（Spec／Standards）與 Ponytail 沒有 finding；新測試舊版失敗、新版通過；回歸 59／59；`spider_pack.py verify` 21 支 0 問題；Simulator build 與安裝後 `XYQHiker.js` 的 hash `7c9a719b…` 與 checkout 相同；live golden 兔小贝分類 30 筆。
+- **Remaining**：兔小贝分類的 GUI 畫面（**未 verified，不能記 passed**）；之後 Codex 審查，再 `task_guard.sh finish --no-tag`。FirstAid：兩個新增的 JS／Swift 檔各只有 1 byte 換行（P1），要在新 guard 恢復 JS 與實際 native 測試後修復，Codex 審查後才提交。
+- **Blockers**：GUI 觸控注入失效。iOS 26.0 `E0A41D48-2210-46B8-B18C-9432B77DECC4` 與 iOS 27.0 `BC4948DD-E901-4550-B253-633F80C7ABF9`（DeviceHub 已開，pid 87924）上 `axe tap`／`axe button` 都回報成功但畫面不變；iOS 27 第一次 `describe-ui` 回 "Timed out creating the simulator remote automation session"，重試可讀；點擊時間模擬器內 `backboardd` 沒有任何觸控事件；開機時 `backboardd` 有 `setiopolicy_np failed: Operation not permitted`、`missing accel HID service plugin`。兔小贝 detail 在 live golden 失敗（既有 HTML 規則，`链接是否直接播放=2`），另列不修。FirstAid 的根因是不安全的 Python：同一個檔先 `open('w')` 截斷再讀；其 guard `57B-1` 已 finished，新修正未完成。
+- **Verification**：證據都在 `/private/tmp/claude-501/-Users-chengchenchih-GIT-webhtv/c74533cc-0049-4e4f-95f8-15de90a82828/scratchpad/`：`57A-3-red.log`、`57A-3-regression.log`、`57A-3-pack-build.log`、`57A-3-pack-verify.log`、`57A-3-golden.log`、`57A-3-golden-retry.log`、`57A-3-sim-build.log`、`57A-3-sim-*.png`、`axe-install.log`、`axe-run/`（describe-ui JSON、截圖、`app.log`、`27-app.log`、`27-backboardd.log`、`27-boot.log`）、`sim-backup/`（原機偏好與 Application Support 備份）。
+- **Risks**：證據在 `/private/tmp`，重開機可能被清除；iOS 27 測試機 `BC4948DD…` 仍開機、裝著測試版 App、設定來源指向 qist（新測試機，依指示不刪除）；DeviceHub 保留執行；原機上有一個非本 task 的 `log stream`（PID 37746／37755／37818，追蹤 backboardd 的 "Last effective interface"），沒有處理。原機（`E0A41D48…`）偏好與 Application Support 已還原，設定來源是測試前的 `http://127.0.0.1:8765/parse-demo.json`。
+- **Next**：恢復後先讀 Git 證據與本 checkpoint；GUI 改走已記錄的最短證據路徑，不重跑 59／59 與 live 分類。
+- **Resume**：『恢復qist兩任務，先讀Git證據與最新暫停anchor。保留主workspace6個未驗證dirty；FirstAid獨立分支38c6795d不得整合，先恢復JS與實際native測試並在新guard完成P1修復，Codex審查後才提交。XYQ59/59/live分類30已完成不重跑，GUI未verified需改走已記錄的最短證據路徑；Simulator由Claude執行。所有權限/問題經Codex。無push/tag/發布授權。』
+
+### 暫停前的狀態（保留）
+
 - 目標（使用者 2026-10-06）：把 <https://github.com/qist/tvbox/tree/master/jar> 的全部爬蟲加進 **iOS App**。同一個類別出現在多份 JAR 時，「看哪一份支援最多」；**`fty.jar` 不用支援**；成人類**一起做**；站台由使用者在 App 裡加 qist 的設定網址（例如 `https://raw.githubusercontent.com/qist/tvbox/master/dianshi.json`）取得，不改 `wang-movie.json`。
 - iOS 不能執行 JAR（Android DEX），每個類別都要用 JS adapter 重寫，或證明與既有 adapter 相同後加 alias。所以分階段：階段 0 盤點＋連線檢查，階段 1 不寫新 adapter（實測已支援的類別、加 alias），階段 2 起每批 5～8 個移植。
 - Task guard：`IOS-POC-57`（`standard`），基準 `1174be8101ae63adcb7f0ba345e5311711992fd0`。路徑：本文件、`docs/current-task-state.md`、`ios/Sources/WebHTVCore/Spider/SpiderRegistry.swift`、`ios/Tests/WebHTVCoreTests/SpiderGoldenTests.swift`。
@@ -9,9 +58,10 @@
   - 階段 0、階段 1 完成：5 個 alias（`ShortHema`、`ShortQimao`、`ShortHaokan`、`ShortWeiguan`、`SportsGuazi`）已加，commit `91364cd6`。
   - 階段 2A 完成（第 8 節，Task-Guard `IOS-POC-57A`，commit `c7512240`）：`App99` 支援沒有 `appkey` 的 qist 版；`Bili` 支援 `ext.n` 內建分類、XYQ 版 `ext`，並且不再抓 TVBox 本機 cookie。`App3Q`、`AppQi` 查證後是站方問題，不改。
   - 2A 第一輪審查修正完成（第 9 節，Task-Guard `IOS-POC-57A-1`，commit `50b31b79`）：Bili 本機 cookie 判斷補齊邊界、App99／Bili 檔頭、2A 研究紀錄（第 8.6 節）、測試並行時取錯請求（P2）。
-  - Bili 分集標題含 `$`／`#`（第 10 節，Task-Guard `IOS-POC-57A-2`）：已實作並驗證，審查通過（2026-10-08），已 commit。`spider-pack/` 為 `2026-10-08.1`。
+  - Bili 分集標題含 `$`／`#`（第 10 節，Task-Guard `IOS-POC-57A-2`，commit `3c6ec28d`）：審查通過。
+  - XYQHiker JSON 分類模式（第 11 節，Task-Guard `IOS-POC-57A-3`）：已實作並驗證，**待審查、未 commit**。`spider-pack/` 為 `2026-10-08.2`。Simulator 只驗到安裝與設定載入，兔小贝畫面未驗（缺 UI 輸入工具，已向 Codex 申請 AXe）。
   - **沒有發版**；Simulator、真機都沒跑。
-- 唯一下一步：等使用者決定下一批（第 8.5 節：XYQHiker 的 JSON 分類模式、2B 新類別移植）。
+- 唯一下一步：IOS-POC-57A-3（第 11.1 節）待 Codex 審查；通過後以 `task_guard.sh finish --no-tag` commit。
 
 ## 1. 方法（2026-10-06 16:40～17:00 CST，台灣家用網路）
 
@@ -307,3 +357,73 @@
 - 未驗證：Simulator、真機、live golden（bilitingshu 實際的標題）都沒跑；完整 `swift test` 沒跑。
 - 審查：2026-10-08 Codex 唯讀審查 PASS（Spec、Standards、Ponytail 都沒有 finding）。
 - 回滾：一個 commit。`git revert` 後標題回到原樣，`spider-pack/` 回到 `2026-10-07.1`。
+
+## 11. XYQHiker JSON 分類模式（qist 兔小贝）：設計研究與實作（2026-10-08）
+
+決策問題：兔小贝的「分类截取模式 0」「分类Json数据二次截取」在 XYQ.jar 怎麼解析；WebHTV 最少要補哪些既有函式。使用者 2026-10-08 選定本項。
+
+**來源**（2026-10-08 10:10～10:11 CST）
+
+| 來源 | 釘選 | 證據等級 | 結論 |
+|---|---|---|---|
+| [qist/tvbox `XYQHiker/兔小贝.json`](https://github.com/qist/tvbox/blob/master/XYQHiker/%E5%85%94%E5%B0%8F%E8%B4%9D.json) | blob `ead838c9176f431772b9141fe68c1f24d731ac53`（2168 bytes，與 API 相同）；SHA-256 `e0317d5e350a6049df9097163be1d556ea28203a0705b92aef570ae73c62b2ea`；最後修改 commit `2858d8ed3ccc30d5297dfaaa66b7ab5aa2f4ac2e`（2023-03-28） | 一手：規則本身 | 分类链接 `https://www.tuxiaobei.com/list/mip-data?typeId={cateId}&page={catePg}&callback=jsonp`；截取模式 `0`；二次截取 `jsonp(&&);`；列表数组规则 `data.items`；Jsoup写法 `0`；标题 `name`、链接 `video_id`（前缀 `https://www.tuxiaobei.com/play/`）、图片 `image`、副标题 `duration_string`；请求头参数 `手机`；搜索截取模式 `1`；分类名称／替换词寫死 |
+| qist/tvbox `jar/XYQ.jar` 的 `XYQHiker` | blob `9d13b15af5965165d3f356051e2e0b7351c4f4eb`（與 10-06 相同）；最後修改 commit `739c4a81b6a6e949f881a3a0cda4259f459dc18a`（2024-08-05） | 一手：反編譯＋單一類別 fallback 反組譯 | 見下方「原版行為」 |
+| 站方實測 `mip-data?typeId=2&page=1&callback=jsonp` | 2026-10-08 10:11 CST | 一手實測，時間相依 | 預設 UA 回 404；手機 UA＋Referer 回 200 `application/javascript`，內容 `jsonp({"status":0,"data":{"items":…`；保存的回應 `data.items` 30 筆，`name`、`video_id`（**數字** `1222`）、`image`、`duration_string` 都在 |
+
+**原版行為**（2026-10-08；產物在 session scratchpad `xyq-m161/`，未 commit）
+- 一般反編譯的 `categoryContent`（`XYQHiker.java` 第 1608 行）呼叫 `m161`（原名 `Ԩ`），`m161`（第 254～259 行）是 `Method not decompiled`（3,299 個指令單元）。缺口是這個方法沒有反編譯，不只是字串混淆。
+- 改用 `jadx 1.5.6 --single-class com.github.catvod.spider.XYQHiker --decompilation-mode fallback` 只輸出這個類別；字串照 `merge/JZU.d` 還原（hex 解碼後以 `QrNKWf` 循環 XOR，用 Python 標準函式庫）。`m161` 在 fallback 第 474～1959 行。
+- 鍵名：分類鍵都有英文別名，中文鍵沒值才讀別名（`分类截取模式`／`cat_mode`、`分类片单是否Jsoup写法`／`cat_is_jsoup`、`分类片单链接加后缀`／`cat_suffix`…，第 837～1013 行）。
+- JSON 分支（第 1012～1334 行，錯誤訊息「分类解析json出错」；HTML 分支是「分类解析html出错」，第 1903 行）：
+  - 二次截取非空且含 `&&` 時切成前段、後段，交 `C0285.m1142`（`merge/C0285.java` 第 451 行：前後段先經 `m1124`（第 54 行）轉成字面正規式，第 460 行組成 `前段(.*?)後段`，取第一筆並 trim；前後段都空時回原文；全形 `＆＆` 先換成 `&`；切不到時補一個空字串，不是 `get(0)` 越界），取第一筆後 `new JSONObject`（第 1029～1052 行）；空字串解析失敗，走「分类解析json出错」。
+  - `分类列表数组规则` 預設 `data`，依 `.` 拆開，前面各段 `getJSONObject`、最後一段 `getJSONArray`（第 1053～1104 行，只支援純物件路徑）。
+  - 每筆 `getJSONObject(i)`，標題、連結、副標題用 `optString`（數字會轉成字串）；連結加前後綴；圖片規則以 `http` 開頭時當固定網址，否則取欄位後交 `C0285.m1127`（推測是補成完整網址，未讀）；組成 `vod_id`／`vod_name`／`vod_pic`／`vod_remarks`（第 1105～1247 行）。
+- 模式比較（審查補證）：fallback 第 486～487 行的 `r7` 是 `61`，經 `JZU.d` 還原為 `0`；第 885～899 行用模式值和 `r7`（或「否」）比較得出布林值，第 1031 行依此分支。原本只搜了第 862～1012 行，漏看了這段。
+
+**證據類別**：上游原始碼——規則與 JAR 都已讀（上方）；上游測試——無（qist 只發布 JAR）。官方規格——不適用，XYQHiker 規則格式沒有公開規格。上游 issue——GitHub 搜尋 `repo:qist/tvbox XYQHiker` 0 筆（2026-10-08）；qist 只轉發 JAR，沒有對應程式的 PR。相關成熟實作——[Hiram-Wong/zyfun `t3Xyq.ts`](https://github.com/Hiram-Wong/zyfun/blob/c0ce097ad6017a5fe217984d470a977bb47e3f8d/src/main/services/FastifyService/routes/v1/film/cms/adapter/t3Xyq.ts)（commit `c0ce097ad6017a5fe217984d470a977bb47e3f8d`，2026-06-07；blob `98513a05165de48effc23df5fe2a8dec0e59bf53`）第 278～284 行：`分类截取模式 === '0'` 時，有二次截取就切（切不到改用原文），再 `getValueByPath` 取清單；GitHub 程式碼搜尋 `分类Json数据二次截取` 的其他結果都是規則檔，不是實作。實地——上表。
+
+**範圍核對**：首頁分類由「分类名称／替换词」寫死，不需 JSON；搜尋是 `搜索截取模式 1`（HTML）。**只需改分類。**
+
+**現況**：`XYQHiker.js` 的 `categoryContent`（第 204～215 行）一律以 `extract(fetch(url), CATEGORY)` 做 HTML 截取（`extract` 第 115 行；`CATEGORY` 第 154 行，前後綴鍵在第 152～153 行）；`fetch`（第 73 行）、`text`（第 22 行）可沿用。搜尋已有 JSON 版本 `listFromJSON`（第 168～181 行：`host.parseJSON`、點號路徑、`joinPrefix`、`host.urljoin`），但鍵組寫死為 `SEARCH`、副標題固定空白。
+
+| 方案 | 內容 | 取捨 |
+|---|---|---|
+| 不改 | 兔小贝分類維持空白 | 沒風險；需求不成立 |
+| 原版 | 照 XYQ.jar 的 JSON 模式 | 原版邏輯未定位，無法照抄 |
+| **最小適配（建議，待核准）** | `categoryContent` 在模式 `0`（含別名 `cat_mode`）時：用 `host.cut1`（`host.js:430`，與 `m1142` 一樣取第一段，切不到回空字串）取二次截取前後段之間的內容（切不到最後是空清單，同原版），再交給改成可帶鍵組的 `listFromJSON`（分類用 `CATEGORY`、路徑預設 `data`、副標題取 `分类片单副标题`、數字欄位轉字串）；其他模式照舊走 `extract` | 重用現有函式，不做通用 JSON 引擎（不支援陣列索引、萬用字元、Jsoup写法 `1`、圖片代理）；與 zyfun 的差異：切不到時不改用原文，照原版 |
+
+- 驗收：兔小贝分類有片單（名稱、圖片、副標題；連結＝前綴＋`video_id`）；HTML 模式的 XYQHiker 站不變；一個舊版會失敗的離線測試（JSONP fixture）。詳情與播放沿用既有規則，若失敗另列，不擴大本項。
+- HTML 回歸：`XYQHikerRuleTests` 加聚焦組各跑一次；`spider_pack.py verify`。
+- Simulator 代表流程（Claude 執行）：先確認裝的是新版 → 加 qist `XYQ.json` → 兔小贝 → 切分類看片單 → 進一部詳情 → 播放；截圖與 log 交給 Codex。
+- 回滾：一個 commit，`git revert`，相容包版本跟著回去。
+- **關卡狀態：通過**（2026-10-08 Codex 設計審查 PASS；模式常數由審查補證）。
+
+### 11.1 實作（Task-Guard `IOS-POC-57A-3`，`standard`，基準 `3c6ec28d`）
+
+- 改動：
+  - `XYQHiker.js`：`listFromJSON(body, keys, path)` 可帶鍵組與預設路徑；搜尋照舊（`SEARCH`、`list`、副標題空白），分類多讀副標題。`categoryContent` 在 `分类截取模式`／`cat_mode` 為 `0` 時，二次截取含 `&&` 就先 `host.cut1`，再 `listFromJSON(body, CATEGORY, 'data')`；其他模式照舊 `extract`。數字 id 由既有的 `String(item[link])` 轉成字串。
+  - 分類沿用搜尋的欄位預設（`name`／`id`／`pic`）；原版分類沒有這些預設，只有規則沒寫欄位時才有差別。
+  - `XYQHikerRuleTests.swift`：新測試 `readsAJSONPCategoryByEitherModeKeyAndNothingFromAReplyWithoutTheWrapper`（中文鍵與 `cat_mode` 各讀一次 JSONP；沒有外殼時清單為空）。
+  - `spider-pack/` 重建為 `2026-10-08.2`（只有 XYQHiker 與版本號不同），**未發布**。
+- 執行時的 header：runtime 只送手機 UA（`XYQHiker.js` 第 33 行 `parseHeaders('手机')`，沒有 Referer），分類端點回 200 JSONP（10:27 實測）。
+
+| 項目 | 指令 | 結果（log 在 session scratchpad） |
+|---|---|---|
+| 新測試在舊版失敗 | `swift test --package-path ios --filter readsAJSONPCategoryByEitherModeKeyAndNothingFromAReplyWithoutTheWrapper` | 2 項失敗：兩種模式鍵都讀不到清單（`57A-3-red.log`） |
+| 回歸（一次） | `swift test --package-path ios --filter 'XYQHikerRuleTests\|SpiderPackTests\|RuntimePackManifestTests\|registryClaimsOnlyWhatIsActuallyPorted'` | 59／59 通過，含 HTML 分類與搜尋 JSON（`57A-3-regression.log`） |
+| 相容包 | `python3 -I scripts/spider_pack.py build --out spider-pack --version 2026-10-08.2 --mappings <scratchpad>/empty-mappings.json`；`verify --url spider-pack` | 21 支、0 問題；XYQHiker 鏡像與內建腳本相同 |
+| live golden（兔小贝） | `CSP_GOLDEN_SITE='{…"api":"csp_XYQHiker","ext":"https://raw.githubusercontent.com/qist/tvbox/master/XYQHiker/%E5%85%94%E5%B0%8F%E8%B4%9D.json"}' swift test --package-path ios --filter appGetDrivesTheWholeCatVodFlowAgainstTheLiveSite` | 第 1 次：首頁 4 類，分類逾時（同時 curl 量到端點要 19.7 秒，runtime 逾時 20 秒）。第 2 次：**分類 2 有 30 筆**（第一筆 乖乖吃饭歌），之後詳情失敗（`57A-3-golden.log`、`57A-3-golden-retry.log`） |
+| Ponytail | `ponytail:ponytail-review` 程式 diff | 0 項 |
+
+- Simulator（`E0A41D48…`，iPhone 17 Pro、iOS 26.3）：
+  - Debug build 成功（33 秒，`project.pbxproj` 沒被改寫）；安裝後 `WebHTVCore_WebHTVCore.bundle/Spiders/XYQHiker.js` 的 SHA-256 `7c9a719b8e05fa3f5bb2230247da014bd2dad4153f3daad160cad8b362c245ad` 與 checkout 相同。
+  - 設定來源換成 qist `XYQ.json` 後，App 載入了 qist 設定；首頁停在第一個站 YouTube｜PY（該站自己的腳本回 404，與本項無關；截圖 `57A-3-sim-2.png`、`57A-3-sim-4.png`）。**更正（2026-10-08 15:05）**：這是誤判。YouTube｜PY 來自快取的 `wang-movie.json`，qist `XYQ.json` 根本沒載入，下一點的預選失敗也是同一原因。見 Recovery anchor「GUI 驗收 checkpoint」的 Findings 3。
+  - **兔小贝畫面未驗證**：這台機器沒有模擬器 UI 輸入工具（`idb`、`axe`、`cliclick` 都沒有，本 session 也沒有模擬器控制工具），App 也沒有 deeplink、啟動參數或 UI test target。
+  - 用偏好設定預先選站（`WebHTVApp.swift` 第 527 行 `siteMemory()`，鍵是 `source.identity`＝設定網址；`SiteSelection.resolve` 接受 token 或純 `site.key`）：設定網址的改動確實生效（App 載入了 qist 設定），代表寫到的是已安裝 `com.webhtv.ios.poc` 的有效偏好設定；但 base64 token（重開 2 次）與 UTF-8 純 key（1 次）都沒有選到兔小贝，App 也沒有改寫記住的值。依程式，兔小贝應在 `drivableSites` 內（`isCSPSpider` 且 `canDrive("csp_XYQHiker")`），執行時沒有驗證；原因要追到 App 的選站流程，不在本項。
+  - 設定陷阱：`simctl spawn … defaults write` 的中文參數會被存成字面的 `\U5154…`，要改用 `defaults export`＋`plistlib`＋`defaults import`。
+  - 已向 Codex 提出 UI 輸入工具需求：AXe（[cameroncooke/AXe](https://github.com/cameroncooke/AXe)，v1.8.0），`brew install cameroncooke/axe/axe`，用 `axe describe-ui`／`axe tap --label` 操作；待核准後由 Claude 完成兔小贝畫面。
+  - AXe（使用者核准，2026-10-08 11:10 安裝，13 秒，沒有權限提示）：`axe describe-ui` 可讀出畫面（選站按鈕「切換內容來源，目前為 🇹🇼｜YouTube｜PY」在 (212, 86, 170×44)），但 `axe tap`（預設與 `--tap-style physical`、座標與 `--label`）和 `axe button home` 都回報成功卻沒有效果：選站 sheet 沒出現、底部分頁沒切換、Home 鍵也沒回到主畫面。這台 Mac 的 Xcode 27.0 沒有 Simulator.app（Spotlight 與 Xcode 目錄都找不到），模擬器是無介面開機；`SimulatorKit.framework` 在 `Contents/SharedFrameworks/`，AXe 內建的 FBControlCore 兩個位置都會找，觸控注入失效的確切原因未查。證據在 session scratchpad `axe-run/`（`01-home.json`～`05-picker.json`、截圖、`app.log`）。**兔小贝畫面仍未驗證**，已向 Codex 回報下一步選項。
+  - 每次測後都已還原偏好設定與 `Library/Application Support`（設定來源回到測試前的 `http://127.0.0.1:8765/parse-demo.json`，沒有殘留 qist 項目）。
+- GUI 驗收（2026-10-08 15:23，XCUITest runner）：兔小贝分類 PASS（fixture 前提）、FirstAid 首頁／分類／詳情／播放 PASS。細節、證據與 Findings 見 Recovery anchor「GUI 驗收 checkpoint」。
+- 未驗證：qist `XYQ.json` 原檔經 App 載入；Simulator 上兔小贝的詳情、播放；兔小贝詳情在 live golden 失敗（規則 `链接是否直接播放=2`、`播放列表数组规则=body`，走既有 HTML 規則，原因未查，不在本項）；完整 `swift test` 沒跑；真機沒跑。
+- 回滾：一個 commit。`git revert` 後分類只剩 HTML 模式，`spider-pack/` 回到 `2026-10-08.1`。

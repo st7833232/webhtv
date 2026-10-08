@@ -159,3 +159,30 @@ private func xyq(_ rules: String) async throws -> JavaScriptSpiderRuntime { try 
     #expect(found.first?["vod_name"] == "片七")
     #expect(found.first?["vod_pic"] == "https://h11.invalid/u/7.jpg")
 }
+
+/// IOS-POC-57A-3: 分类截取模式 0 (qist 兔小贝). XYQ.jar's `m161` cuts the reply with 分类Json数据二次截取
+/// and walks the dotted 分类列表数组规则 (docs/IOS-POC-57-qist-jar-spiders.md, section 11).
+@Test func readsAJSONPCategoryByEitherModeKeyAndNothingFromAReplyWithoutTheWrapper() async throws {
+    RuleSite.serve([
+        "https://h12.invalid/list?typeId=2&page=1": #"""
+        jsonp({"status":0,"data":{"items":[{"name":"水果歌","video_id":1222,"image":"https://cdn.invalid/1.jpg","duration_string":"03:07"}]}});
+        """#,
+        "https://h13.invalid/list?typeId=2&page=1": #"{"data":{"items":[{"name":"裸","video_id":1}]}}"#,
+    ])
+    func rules(_ host: String, _ mode: String) -> String {
+        #"{"\#(mode)":"0","分类Json数据二次截取":"jsonp(&&);","分类链接":"https://\#(host)/list?typeId={cateId}&page={catePg}","#
+            + #""分类列表数组规则":"data.items","分类片单标题":"name","分类片单链接":"video_id","分类片单图片":"image","#
+            + #""分类片单副标题":"duration_string","分类片单链接加前缀":"https://\#(host)/play/"}"#
+    }
+    func list(_ host: String, _ mode: String) async throws -> [[String: String]] {
+        let page = try await xyq(rules(host, mode)).categoryContent(tid: "2", page: "1", filter: false, extend: [:])
+        return try #require((try JSONSerialization.jsonObject(with: Data(page.utf8)) as? [String: Any])?["list"] as? [[String: String]])
+    }
+    for mode in ["分类截取模式", "cat_mode"] {
+        let found = try await list("h12.invalid", mode)
+        #expect(found == [["vod_id": "https://h12.invalid/play/1222", "vod_name": "水果歌",
+                           "vod_pic": "https://cdn.invalid/1.jpg", "vod_remarks": "03:07"]], "\(mode)")
+    }
+    let bare = try await list("h13.invalid", "分类截取模式")
+    #expect(bare.isEmpty, "no jsonp( … ); to cut, nothing to read")
+}

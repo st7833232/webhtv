@@ -88,6 +88,8 @@ public struct SpiderRegistry: Sendable {
         "ShortHaokan",  // http-json: qist spider.jar (as HaokanDJ)
         "ShortWeiguan", // http-crypto: qist spider.jar (as WeiguanDJ)
         "SportsGuazi",  // http-crypto: qist spider.jar (as GuaziTY)
+        // IOS-POC-57B-1: FirstAid 急救教學
+        "FirstAid",     // http-html: spider.jar
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

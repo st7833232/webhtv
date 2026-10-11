@@ -4,7 +4,15 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-06：發布 0.1.71 (72)，全域解析上線（先讀這一節）
+## Current handoff — 2026-10-11：IOS-POC-57「下載」分頁依影集分組（先讀這一節）
+
+- 使用者要求「下載要用每個影集當群組 可以一鍵下載 刪除 暫停」（指底部「下載」分頁），選擇一鍵下載＝繼續暫停／失敗的集數、版面全部依影集分組。
+- 做法：Core `OfflineTitleGroup`（依 `historyKey` 分組、依狀態與片名排序、全部暫停先停排隊中的）；App「下載」分頁每部作品一組，點標題展開各集，「…」選單有全部暫停、全部繼續、刪除全部，左滑標題可刪除整部。見 `docs/IOS-POC-57-downloads-grouped-by-title.md`。
+- Linux 138／138，突變 4／4。
+- **`0.1.72 (73)` 已發布**（2026-10-11；run `38127624020` success，tag `ios-v0.1.72-b73` → `1104febf`，`source.json` `dd7967b1`，IPA 35,343,548 bytes），**目前最新版是 `0.1.72 (73)`**。真機未驗證。
+- 另一個未處理的問題：使用者回報離線影片在 App 背景停留較久（例如去 SideStore 重新簽署）後，AVPlayer 與 MPV 都無法播放（`mpv error -13`），退出 App 重開就好。判斷是本機播放伺服器在同一程序內失效；建議在 `OfflineMediaServer.start()` 交出位址前先自我連線確認，不通就重開。**尚未實作，等使用者決定。**
+
+## Previous handoff — 2026-10-06：發布 0.1.71 (72)，全域解析上線
 
 - **最新發布：WebHTV `0.1.71 (72)`**（2026-10-06 15:42 CST）＝`0.1.70 (71)`＋IOS-POC-56（設定檔全域解析接口）。
 - 證據：run [`37430560852`](https://github.com/st7833232/webhtv/actions/runs/37430560852) 全部 success；tag `ios-v0.1.71-b72` → `ace72419`；`source.json` `63503527` 第一筆 `0.1.71`、size 35,328,221 與 Release 相同；IPA 已下載核對（SHA-256 `a145e7d3…`、0.1.71／72、24 支腳本相同、主程式含新解析程式）。完整紀錄：`docs/IOS-POC-11-sidestore-release.md`「第七十二次發布」。

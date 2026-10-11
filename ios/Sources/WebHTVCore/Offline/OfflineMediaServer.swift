@@ -22,6 +22,9 @@ public final class OfflineMediaServer: @unchecked Sendable {
     private var port: NWEndpoint.Port?
     private var waiting = [CheckedContinuation<URL?, Never>]()
     public let token = UUID().uuidString.lowercased()
+    /// How `start()` checks a listener that says it is ready. Tests stand in for it before the first
+    /// `start()`; nothing changes it after.
+    var isAnswering: @Sendable (NWEndpoint.Port) async -> Bool = { await OfflineMediaServer.answers(port: $0) }
 
     public init(root: URL) {
         self.root = root.standardizedFileURL
@@ -30,8 +33,30 @@ public final class OfflineMediaServer: @unchecked Sendable {
     /// `http://127.0.0.1:<port>/<token>/`, starting the listener when it is not running — also
     /// after iOS tore it down while the app was suspended. The previous port is tried first, so an
     /// address handed out before stays valid.
+    ///
+    /// IOS-POC-58: a listener can go on saying `.ready` and no longer answer. After the app sat in
+    /// the background, the viewer saw both engines fail on a download (mpv error -13) until the app
+    /// was quit. So one that says ready is asked a request first; one that does not answer is
+    /// dropped, and a new one opens on another port — iOS refuses the same port again for about a
+    /// minute (FB8658821). A loaded episode follows it to the new port (`OfflinePlaybackSource.rebased`).
     public func start() async -> URL? {
-        await withCheckedContinuation { continuation in
+        if let ready = lock.withLock({ () -> (listener: NWListener, port: NWEndpoint.Port)? in
+            guard let listener, listener.state == .ready, let port else { return nil }
+            return (listener, port)
+        }) {
+            if await isAnswering(ready.port) { return base(ready.port) }
+            let dropped = lock.withLock { () -> Bool in
+                guard let current = listener, ObjectIdentifier(current) == ObjectIdentifier(ready.listener) else { return false }
+                listener = nil
+                port = nil
+                return true
+            }
+            if dropped {
+                OfflineLog.notice("[offline] server stopped answering: reopening")
+                ready.listener.cancel()
+            }
+        }
+        return await withCheckedContinuation { continuation in
             let (ready, needsListener, preferred) = lock.withLock { () -> (URL?, Bool, NWEndpoint.Port?) in
                 if let listener, listener.state == .ready, let port { return (base(port), false, port) }
                 waiting.append(continuation)
@@ -87,6 +112,55 @@ public final class OfflineMediaServer: @unchecked Sendable {
             }
         }
         listener.start(queue: queue)
+    }
+
+    /// Whether something on `port` answers an HTTP request within `timeout`. Any status counts: this
+    /// request has no token, and the server's refusal is still an answer.
+    static func answers(port: NWEndpoint.Port, timeout: TimeInterval = 3) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let probe = Probe(port: port, continuation: continuation)
+            probe.connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    probe.connection.send(content: Data("HEAD / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".utf8),
+                                          completion: .contentProcessed { error in if error != nil { probe.finish(false) } })
+                    probe.connection.receive(minimumIncompleteLength: 1, maximumLength: 64) { data, _, _, _ in
+                        probe.finish(data?.starts(with: Data("HTTP/1.".utf8)) ?? false)
+                    }
+                case .waiting, .failed, .cancelled:
+                    probe.finish(false)
+                default:
+                    break
+                }
+            }
+            probe.connection.start(queue: probeQueue)
+            probeQueue.asyncAfter(deadline: .now() + timeout) { probe.finish(false) }
+        }
+    }
+
+    private static let probeQueue = DispatchQueue(label: "com.webhtv.ios.poc.offline-server-probe")
+
+    /// One request, answered once: by the reply, a refusal, or the timeout, whichever comes first.
+    private final class Probe: @unchecked Sendable {
+        let connection: NWConnection
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Bool, Never>?
+
+        init(port: NWEndpoint.Port, continuation: CheckedContinuation<Bool, Never>) {
+            connection = NWConnection(host: .ipv4(.loopback), port: port, using: .tcp)
+            self.continuation = continuation
+        }
+
+        func finish(_ answered: Bool) {
+            let waiting = lock.withLock { () -> CheckedContinuation<Bool, Never>? in
+                defer { continuation = nil }
+                return continuation
+            }
+            guard let waiting else { return }
+            connection.stateUpdateHandler = nil
+            connection.cancel()
+            waiting.resume(returning: answered)
+        }
     }
 
     private func finish(_ url: URL?) {

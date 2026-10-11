@@ -1,5 +1,6 @@
 #if canImport(Network)
 import Foundation
+import Network
 import Testing
 @testable import WebHTVCore
 
@@ -53,6 +54,34 @@ struct OfflineMediaServerTests {
         #expect((escape.1 as? HTTPURLResponse)?.statusCode != 200)
         // Started again, it answers at the same address.
         #expect(await server.start() == base)
+    }
+
+    // IOS-POC-58: after the app sat in the background, a listener went on saying it was ready and no
+    // longer answered; both engines failed until the app was quit. One that does not answer is
+    // replaced on another port, and the new one serves the same files under the same token.
+    @Test func aServerThatStopsAnsweringIsReopenedOnAnotherPort() async throws {
+        let layout = OfflineHarness.scratchLayout()
+        let folder = layout.folder(for: id)
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("media"), withIntermediateDirectories: true)
+        let body = Data("segment".utf8)
+        try body.write(to: folder.appendingPathComponent("media/v00001.ts"))
+        let server = OfflineMediaServer(root: layout.root)
+        let first = try #require(await server.start())
+        let firstPort = try #require(first.port.flatMap { NWEndpoint.Port(rawValue: UInt16($0)) })
+
+        // The real check tells a live listener from a port nothing answers on.
+        #expect(await OfflineMediaServer.answers(port: firstPort))
+        #expect(await OfflineMediaServer.answers(port: 1, timeout: 1) == false)
+
+        server.isAnswering = { _ in false }
+        let second = try #require(await server.start())
+        server.isAnswering = { await OfflineMediaServer.answers(port: $0) }
+
+        #expect(second.port != first.port)
+        #expect(second.path == first.path)
+        let served = try await URLSession.shared.data(from: second.appendingPathComponent("\(id)/media/v00001.ts"))
+        #expect(served.0 == body)
+        #expect(await server.start() == second)
     }
 }
 #endif

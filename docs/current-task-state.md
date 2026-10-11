@@ -10,7 +10,7 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - 做法：Core `OfflineTitleGroup`（依 `historyKey` 分組、依狀態與片名排序、全部暫停先停排隊中的）；App「下載」分頁每部作品一組，點標題展開各集，「…」選單有全部暫停、全部繼續、刪除全部，左滑標題可刪除整部。見 `docs/IOS-POC-57-downloads-grouped-by-title.md`。
 - Linux 138／138，突變 4／4。
 - **`0.1.72 (73)` 已發布**（2026-10-11；run `38127624020` success，tag `ios-v0.1.72-b73` → `1104febf`，`source.json` `dd7967b1`，IPA 35,343,548 bytes），**目前最新版是 `0.1.72 (73)`**。真機未驗證。
-- 另一個未處理的問題：使用者回報離線影片在 App 背景停留較久（例如去 SideStore 重新簽署）後，AVPlayer 與 MPV 都無法播放（`mpv error -13`），退出 App 重開就好。判斷是本機播放伺服器在同一程序內失效；建議在 `OfflineMediaServer.start()` 交出位址前先自我連線確認，不通就重開。**尚未實作，等使用者決定。**
+- 使用者回報離線影片在 App 背景停留較久（例如去 SideStore 重新簽署）後，AVPlayer 與 MPV 都無法播放（`mpv error -13`），退出 App 重開就好。**IOS-POC-58 已實作**（使用者 2026-10-11「實作」）：`OfflineMediaServer.start()` 交出位址前先對自己送一個請求，沒有回應就在另一個 port 重開。見 `docs/IOS-POC-58-loopback-server-liveness.md`。macOS 測試未執行，真機未驗證。
 
 ## Previous handoff — 2026-10-06：發布 0.1.71 (72)，全域解析上線
 

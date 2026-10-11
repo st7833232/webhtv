@@ -4416,19 +4416,18 @@ private struct OfflineAssetRow: View {
     }
 }
 
-/// The 下載 tab: 正在下載, 需要處理, 已下載, and how much space offline content takes against what is free.
+/// The 下載 tab: how much space offline content takes against what is free, then one group per
+/// title (IOS-POC-57) — opened to show its episodes, and paused, resumed or deleted all at once.
 private struct OfflineDownloadsView: View {
     @State private var playing: OfflineAsset?
     @State private var available = OfflineText.available
     @State private var deletion: OfflineDeletion?
+    /// The titles opened to show their episodes.
+    @State private var expanded = Set<String>()
 
     var body: some View {
         let snapshot = offlineLibrary.snapshot
-        let assets = snapshot.assets.filter { $0.state != .deleting }
-        let running = assets.filter(\.state.isActive)
-        let attention = assets.filter(\.state.needsAttention)
-        let done = assets.filter { $0.state == .completed }
-            .sorted { ($0.title.vodName, $0.identity.flag, $0.title.episodeIndex) < ($1.title.vodName, $1.identity.flag, $1.title.episodeIndex) }
+        let groups = OfflineTitleGroup.groups(snapshot.assets)
         List {
             Group {
                 Section {
@@ -4439,20 +4438,17 @@ private struct OfflineDownloadsView: View {
                 } footer: {
                     Text("最多同時下載 \(OfflineDownloadManager.concurrentDownloads) 集，其餘依序排隊。")
                 }
-                if assets.isEmpty && snapshot.unreadable.isEmpty {
+                if groups.isEmpty && snapshot.unreadable.isEmpty {
                     Section {
                         ContentUnavailableView("沒有下載內容", systemImage: "arrow.down.circle",
                                                description: Text("在作品詳情頁下載單集，或使用「全部下載」。"))
                     }
                 }
-                if !running.isEmpty {
-                    Section("下載佇列（\(running.count)）") {
-                        ForEach(running) { OfflineAssetRow(asset: $0, onPlay: {}, onDelete: { deletion = $0 }) }
-                    }
+                ForEach(groups) { group in
+                    Section { titleRows(group) }
                 }
-                if !attention.isEmpty || !snapshot.unreadable.isEmpty {
-                    Section("需要處理（\(attention.count + snapshot.unreadable.count)）") {
-                        ForEach(attention) { OfflineAssetRow(asset: $0, onPlay: {}, onDelete: { deletion = $0 }) }
+                if !snapshot.unreadable.isEmpty {
+                    Section("無法讀取的下載（\(snapshot.unreadable.count)）") {
                         ForEach(snapshot.unreadable, id: \.self) { folder in
                             HStack {
                                 Image(systemName: "questionmark.folder").foregroundStyle(.orange)
@@ -4461,13 +4457,6 @@ private struct OfflineDownloadsView: View {
                                 Button("刪除", role: .destructive) { deletion = OfflineDeletion(unreadable: folder) }
                                     .frame(minHeight: 44)
                             }
-                        }
-                    }
-                }
-                if !done.isEmpty {
-                    Section("已下載（\(done.count)）") {
-                        ForEach(done) { asset in
-                            OfflineAssetRow(asset: asset, onPlay: { playing = asset }, onDelete: { deletion = $0 })
                         }
                     }
                 }
@@ -4486,6 +4475,99 @@ private struct OfflineDownloadsView: View {
         // The free space moves with everything else on the phone; read it whenever the list changes.
         .onChange(of: snapshot.sequence) { available = OfflineText.available }
         .onAppear { available = OfflineText.available }
+    }
+
+    /// A title's row, then its episodes when it is open.
+    @ViewBuilder private func titleRows(_ group: OfflineTitleGroup) -> some View {
+        let open = expanded.contains(group.id)
+        OfflineTitleGroupRow(group: group, expanded: open,
+                             onToggle: { if open { expanded.remove(group.id) } else { expanded.insert(group.id) } },
+                             onDelete: {
+                                 deletion = OfflineDeletion(group.assets, title: "刪除「\(zhTW(group.title))」全部 \(group.assets.count) 集的下載")
+                             })
+        if open {
+            ForEach(group.assets) { asset in
+                OfflineAssetRow(asset: asset, showsTitle: false, onPlay: { playing = asset }, onDelete: { deletion = $0 })
+            }
+        }
+    }
+}
+
+/// IOS-POC-57: one title in the 下載 tab — what it holds, and what can be done to all of it.
+private struct OfflineTitleGroupRow: View {
+    let group: OfflineTitleGroup
+    let expanded: Bool
+    let onToggle: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(action: onToggle) {
+                HStack(spacing: 10) {
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(zhTW(group.title)).font(.headline).lineLimit(2)
+                        Text(summary).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                        if let progress { ProgressView(value: progress) }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("\(zhTW(group.title))，\(summary)"))
+            .accessibilityHint(Text(expanded ? "收合各集" : "展開各集"))
+            Menu {
+                actions
+            } label: {
+                Image(systemName: "ellipsis.circle").font(.title3).frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .accessibilityLabel(Text("整部動作"))
+        }
+        .padding(.vertical, 4)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button("刪除", systemImage: "trash", action: onDelete).tint(.red)
+        }
+    }
+
+    /// 全部暫停 and 全部繼續 go through the same pause and resume as one episode's; 刪除全部 through
+    /// the one confirmation every delete has.
+    @ViewBuilder private var actions: some View {
+        let manager = OfflineDownloads.manager
+        let pausable = group.pausable.map(\.id)
+        let resumable = group.resumable.map(\.id)
+        if !pausable.isEmpty {
+            Button("全部暫停（\(pausable.count) 集）", systemImage: "pause.fill") {
+                Task { for id in pausable { await manager.pause(id) } }
+            }
+        }
+        if !resumable.isEmpty {
+            Button("全部繼續（\(resumable.count) 集）", systemImage: "play.fill") {
+                Task { for id in resumable { await manager.resume(id) } }
+            }
+        }
+        Button("刪除全部", systemImage: "trash", role: .destructive, action: onDelete)
+    }
+
+    /// 「共 5 集 · 已下載 3 · 進行中 1 · 需要處理 1 · 1.2 GB」.
+    private var summary: String {
+        var parts = ["共 \(group.assets.count) 集"]
+        if !group.completed.isEmpty { parts.append("已下載 \(group.completed.count)") }
+        if !group.pausable.isEmpty { parts.append("進行中 \(group.pausable.count)") }
+        if !group.resumable.isEmpty { parts.append("需要處理 \(group.resumable.count)") }
+        if group.bytes > 0 { parts.append(OfflineByteFormat.string(group.bytes)) }
+        return parts.joined(separator: " · ")
+    }
+
+    /// The episodes downloading now, on average; nil when none is.
+    private var progress: Double? {
+        let downloading = group.assets.filter { $0.state == .downloading }
+        guard !downloading.isEmpty else { return nil }
+        return downloading.reduce(0) { $0 + $1.progress.fraction } / Double(downloading.count)
     }
 }
 

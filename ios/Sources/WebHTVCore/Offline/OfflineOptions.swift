@@ -213,6 +213,46 @@ public enum OfflineOptionsBuilder {
     }
 }
 
+/// IOS-POC-57: the 下載 tab, one group per title (`historyKey`, every line together), so a series
+/// is paused, resumed or deleted at once.
+public struct OfflineTitleGroup: Identifiable, Equatable, Sendable {
+    public let historyKey: String
+    /// Line, then the place in it — the order 管理下載 lists them in.
+    public let assets: [OfflineAsset]
+
+    public var id: String { historyKey }
+    public var title: String { assets.first?.title.vodName ?? "" }
+
+    /// 全部暫停: what is queued, preparing or downloading — the queued ones first, so pausing a
+    /// running one never lets a sibling start in its place just to be paused after it.
+    public var pausable: [OfflineAsset] {
+        assets.filter { $0.state == .queued } + assets.filter { $0.state == .preparing || $0.state == .downloading }
+    }
+
+    /// 全部繼續: what is paused or failed.
+    public var resumable: [OfflineAsset] { assets.filter(\.state.needsAttention) }
+    public var completed: [OfflineAsset] { assets.filter { $0.state == .completed } }
+    public var bytes: Int64 { OfflineBulkSelection.bytes(assets) }
+
+    /// The downloads by title, without the ones being deleted. Titles with work under way come
+    /// first, then the ones waiting on the viewer, then the finished ones; by name within each.
+    public static func groups(_ assets: [OfflineAsset]) -> [OfflineTitleGroup] {
+        Dictionary(grouping: assets.filter { $0.state != .deleting }, by: \.identity.historyKey)
+            .map { key, members in
+                OfflineTitleGroup(historyKey: key, assets: members.sorted {
+                    ($0.identity.flag, $0.title.episodeIndex) < ($1.identity.flag, $1.title.episodeIndex)
+                })
+            }
+            .sorted { ($0.rank, $0.title, $0.historyKey) < ($1.rank, $1.title, $1.historyKey) }
+    }
+
+    private var rank: Int {
+        if assets.contains(where: \.state.isActive) { return 0 }
+        if assets.contains(where: \.state.needsAttention) { return 1 }
+        return 2
+    }
+}
+
 /// The groups the bulk actions act on, so 刪除已看完 can never take an unfinished episode.
 public enum OfflineBulkSelection {
     public static func all(_ assets: [OfflineAsset], historyKey: String) -> [OfflineAsset] {

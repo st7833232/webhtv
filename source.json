@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.73",
+          "date": "2026-10-11",
+          "localizedDescription": "離線播放修正：\n- App 在背景停留較久（例如去 SideStore 重新簽署）後，下載的影片可能出現「無法播放」（mpv error -13），要退出 App 重開才能播。現在播放前會先確認 App 內的本機播放伺服器還能回應，不能就自動重開。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.73-b74/WebHTV-0.1.73-74.ipa",
+          "size": 35352580,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.72",
           "date": "2026-10-11",
           "localizedDescription": "「下載」分頁依影集分組：\n- 每部作品一組，顯示集數、已下載、進行中、需要處理與大小，點標題展開各集。\n- 每組的「…」選單可全部暫停、全部繼續（暫停與失敗的集數）、刪除全部；左滑標題也可刪除整部。\n- 有集數正在下載的作品排在最前面。",

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-12.4",
+  "version": "2026-10-12.5",
   "minHostApi": 2,
   "scripts": [
     {
@@ -84,7 +84,7 @@
       "path": "./scripts/FirstAid.js",
       "sha256": "ab0646a592cf82956b62c7325b5bff1c27ea6e75cecb5a1eb92b0fe63a1ee8ff",
       "originJar": "spider.jar",
-      "jarSha256": "391065e92e19437e73109e9d3c79feff6676baa8ed4fec3cdb04f4e7cca77314"
+      "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"
     },
     {
       "class": "GuaziTY",

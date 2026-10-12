@@ -90,6 +90,8 @@
 | `pg_upgraded.jar` | 2,912,031 | `9e87df36ac8048c5` | 147 |
 | `spider.jar` | 1,859,860 | `391065e92e19437e` | 113 |
 
+> **更正（2026-10-12，W-69）**：上表 `spider.jar` 是 2026-10-06 下載的版本（blob `94fe284c…`）。本機現存、與 dianshi／jsm 設定 pin（md5 `b6fc17ade72f89a0c9594c4bde5ebf13`）相符的是同樣大小的另一版：SHA-256 `72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69`、blob `8ac9cb8e56b322256a5204bfa2806507e9b64d04`，內含 `classes.dex` 的時間戳是 2026-10-07 14:47。推定上游在 10-07 重新發布，設定 pin 跟著更新；沒有連網確認。IOS-POC-57B-2～57B-4 與相容包（`scripts/spider_pack.py`，含 FirstAid）都以後者為準；`docs/IOS-POC-57B-1-firstaid.md:8` 仍記 10-06 版，但這一版 `FirstAid.java` 的主機、UA（Chrome/151）與選擇器和 `FirstAid.js` 相同。10-06 那版本機已不存在，無法再比對。
+
 ## 2. 盤點結果（排除 `fty.jar` 後 270 個類別，129 個跨 JAR 重複）
 
 - 沒有任何兩份重複的類別是相同版本；也沒有任何類別是 21 個基準的改名副本（IOS-POC-55 意義上的 `candidate`＝0）。
@@ -262,7 +264,7 @@
 
 | 來源 | 版本釘選 | 證據等級 | 支持的結論 | 對決策的影響 |
 |---|---|---|---|---|
-| [qist/tvbox `jar/spider.jar`](https://github.com/qist/tvbox/blob/master/jar/spider.jar) 的 `App99`、`Bili` | blob `94fe284cc245b400e8a3503e23d1187774d19fa8`；SHA-256 `391065e92e19437e73109e9d3c79feff6676baa8ed4fec3cdb04f4e7cca77314` | 一手：qist 設定實際載入的發布產物（jadx 反編譯） | App99 `init` 不要求 `appkey`，`g()` 簽四段，header 不送 `appkey`，`version` 預設 `versionName`；Bili 以 `ext.n` 選 6 份內建首頁，`ext.cookie` 指向 `127.0.0.1:9978` | App99 四段簽章；Bili `BUILTIN` 的內容；本機 cookie 不抓 |
+| [qist/tvbox `jar/spider.jar`](https://github.com/qist/tvbox/blob/master/jar/spider.jar) 的 `App99`、`Bili` | blob `94fe284cc245b400e8a3503e23d1187774d19fa8`；SHA-256 `391065e92e19437e73109e9d3c79feff6676baa8ed4fec3cdb04f4e7cca77314`（10-06 下載版；現行版見 §1.1 更正） | 一手：qist 設定實際載入的發布產物（jadx 反編譯） | App99 `init` 不要求 `appkey`，`g()` 簽四段，header 不送 `appkey`，`version` 預設 `versionName`；Bili 以 `ext.n` 選 6 份內建首頁，`ext.cookie` 指向 `127.0.0.1:9978` | App99 四段簽章；Bili `BUILTIN` 的內容；本機 cookie 不抓 |
 | [qist/tvbox `jar/XYQ.jar`](https://github.com/qist/tvbox/blob/master/jar/XYQ.jar) 的 `Bili` | blob `9d13b15af5965165d3f356051e2e0b7351c4f4eb`；SHA-256 `ace8cb39979597eaa8121b540994a31d9b78ebe965613d13dad6a3da07003137` | 一手（同上） | `ext` 是 `./biliext/*.json` 網址，內容 `{cookie, classes, filter}`，cookie 是 `clan://` | URL 型 `ext` 當首頁；`clan://` 不抓 |
 | qist/tvbox `dianshi.json`、`XYQ.json` | blob `dd835a21d812a5a72d162126cd7823000c03407e`、`b9b77924ef8045af1dae9eec5443bf8dc0eecfac`（依下載內容計算） | 一手 | 哪些站用哪份 JAR、`ext` 的實際格式 | 測試用的站與 `ext` 樣本 |
 | 照原版重做的請求（第 8.1 節；腳本在 session scratchpad，未 commit） | 2026-10-06 17:05～17:40 | 一手實測，結果會隨站方變動 | 四段簽章的請求得到加密的 zlib 回應；App3Q 詳情 403、AppQi 播放清單空 | App99 不必改 host；App3Q、AppQi 不改 |

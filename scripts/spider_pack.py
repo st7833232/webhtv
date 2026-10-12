@@ -73,9 +73,10 @@ DEFAULT_ORIGINS = {
     "Uvod":     {"originJar": "custom_spider.jar",
                  "jarSha256": "fd624e376b63c9a942ab27f31caf5a8163ae633490f3c47c30eb5935bb096b02",
                  "minHostApi": 3, "notes": "RSA PKCS#1 private-key decryption of every reply"},
-    # IOS-POC-57B-1/57B-2 (qist): two spider.jar builds, each digest from its own task document.
+    # IOS-POC-57B-1/57B-2 (qist): the spider.jar the configs pin (md5 b6fc17ad…). 57B-1's 391065e9 was
+    # the 2026-10-06 download; FirstAid.java in this build carries FirstAid.js's host, UA and selectors.
     "FirstAid":  {"originJar": "spider.jar",
-                  "jarSha256": "391065e92e19437e73109e9d3c79feff6676baa8ed4fec3cdb04f4e7cca77314"},
+                  "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"},
     "TuXiaoBei": {"originJar": "spider.jar",
                   "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"},
     # IOS-POC-57B-3: the first port on js.host 1.4 (P-256, HKDF, AES-GCM/CBC, zlib); older apps skip it.

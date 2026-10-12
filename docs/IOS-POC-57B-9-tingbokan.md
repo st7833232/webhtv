@@ -1,6 +1,6 @@
 # IOS-POC-57B-9：博看听书（qist `csp_TingBokan`）
 
-> Recovery anchor（2026-10-12 16:50 CST）：已實作，單元測試、全測試與 Simulator 純音訊實播通過（W-76，guard `QIST-TINGBOKAN-IMPL`，`--no-tag`）。設計：`.herdr-synapse/webhtv-dev/artifacts/qist-tingbokan-gate-2026-10-12.md` D1–D6（W-63 PASS）；資料閘門 W-54 PASS；使用者 2026-10-12 核准實作（W-71）。相容包另由 W-78（Duboku）之後的 pack 步驟處理（Manager #1353／#1355）。下一步：Reviewer code review。
+> Recovery anchor（2026-10-12 16:50 CST）：已實作，單元測試、全測試與 Simulator 純音訊實播通過（W-76，guard `QIST-TINGBOKAN-IMPL`，`--no-tag`）。設計：`.herdr-synapse/webhtv-dev/artifacts/qist-tingbokan-gate-2026-10-12.md` D1–D6（W-63 PASS）；資料閘門 W-54 PASS；使用者 2026-10-12 核准實作（W-71）。相容包在 W-78（Duboku）之後以第二個 guard `QIST-PACK-SYNC-TINGBOKAN` 加入（Manager #1353／#1355）。下一步：Reviewer code review。
 
 ## 來源
 
@@ -14,6 +14,7 @@
 | `ios/Sources/WebHTVCore/Spider/SpiderRegistry.swift` | `ported` 加 `TingBokan` |
 | `ios/Tests/WebHTVCoreTests/SpiderGoldenTests.swift` | 預期清單加 `TingBokan` |
 | `ios/Tests/WebHTVCoreTests/TingBokanSpiderTests.swift`（新） | D5 八組＋首頁共 9 個測試；fixture 為 W-54 的 `category-1303-p1.json`（24 筆，`095a5ca8…`）與 `units-4033132-p1.json`（60 集，`8f6a4fc1…`），raw deflate＋base64 內嵌，載入時驗 sha256 |
+| `scripts/spider_pack.py`、`spider-pack/`（第二個 commit） | `DEFAULT_ORIGINS` 加 `TingBokan`（`spider.jar` `72a1f392…`，只用 base host API：`host.get`、`host.result`，不帶 `minHostApi`）；相容包重建為 `2026-10-12.8`（27 支）：與 `2026-10-12.7` 比只新增 TingBokan、舊 entry 全部不變，pack 與內建 `TingBokan.js` 同 blob `e7a9e9b0…`；`verify` 0 problems（`artifacts/w76-logs/w76p-pack.log`） |
 
 ## 驗證
 
@@ -27,7 +28,6 @@
 ## 未驗證
 
 - 實機；MPV；鎖屏、控制中心、來電中斷與長時間背景；其他 10 個分類；多頁單元（`last_page > 1`）的真實書。
-- 相容包：依 Manager #1353／#1355，W-78 先加 Duboku，之後 W-76 的 pack 步驟另一個 guard 只加 TingBokan。
 
 ## 觀察（未改程式）
 

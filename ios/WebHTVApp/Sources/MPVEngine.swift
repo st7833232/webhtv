@@ -247,8 +247,9 @@ final class MPVEngine: PlaybackEngine {
             firstFrameWatchdog = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: Self.firstFrameTimeout)
                 guard !Task.isCancelled, let self else { return }
-                self.onFailure?(NSError(domain: PlaybackFailure.mpvDomain,
-                                        code: PlaybackFailure.mpvNoFirstFrame), nil)
+                let now = self.core.snapshot
+                let code = PlaybackFailure.firstFrameTimeoutCode(buffering: now.buffering, cacheEnd: now.cacheEnd)
+                self.onFailure?(NSError(domain: PlaybackFailure.mpvDomain, code: code), nil)
             }
         case .videoReconfigured(let width, let height):
             firstFrameWatchdog?.cancel()

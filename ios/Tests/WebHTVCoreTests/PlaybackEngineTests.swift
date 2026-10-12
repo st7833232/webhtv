@@ -326,6 +326,20 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     }
 }
 
+/// W-46: the first frame never came because the source stopped sending (a 206, then a few KB),
+/// which is the network's fault and must not read "this player cannot play the video".
+@Test func mpvStillWaitingForBytesIsANetworkFailure() {
+    let starved = PlaybackFailure.classify(NSError(domain: PlaybackFailure.mpvDomain, code: 2))  // mpvNoData
+    #expect(starved == .network("來源沒有送來影片資料"))
+    #expect(starved.allowsEngineFallback)
+    #expect(PlaybackFailure.classify(NSError(domain: PlaybackFailure.mpvDomain, code: PlaybackFailure.mpvNoFirstFrame))
+            == .engineCapability("沒有畫面"))
+    #expect(PlaybackFailure.firstFrameTimeoutCode(buffering: true, cacheEnd: 4) == PlaybackFailure.mpvNoData)
+    #expect(PlaybackFailure.firstFrameTimeoutCode(buffering: false, cacheEnd: nil) == PlaybackFailure.mpvNoData)
+    #expect(PlaybackFailure.firstFrameTimeoutCode(buffering: false, cacheEnd: 0) == PlaybackFailure.mpvNoData)
+    #expect(PlaybackFailure.firstFrameTimeoutCode(buffering: false, cacheEnd: 4) == PlaybackFailure.mpvNoFirstFrame)
+}
+
 /// IOS-POC-17F (user decision 2026-09-24): whatever an engine could not play, the other is tried.
 @Test func networkAndUnknownFailuresNowTryTheOtherEngine() {
     let cases: [(String, PlaybackFailure)] = [

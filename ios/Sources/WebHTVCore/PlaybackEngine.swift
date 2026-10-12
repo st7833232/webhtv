@@ -160,6 +160,15 @@ public enum PlaybackFailure: Sendable, Equatable {
     public static let mpvDomain = "mpv"
     /// `MPVEngine`'s own code: the file loaded but no frame ever reached the video output.
     public static let mpvNoFirstFrame = 1
+    /// `MPVEngine`'s own code: the first-frame wait ran out while mpv was still waiting for the source's
+    /// bytes (paused for cache, nothing buffered) — the network's failure, not the engine's (W-46).
+    public static let mpvNoData = 2
+
+    /// The code `MPVEngine` reports when no first frame came in time: still waiting for bytes (paused
+    /// for cache, or nothing buffered) is `mpvNoData`; data that arrived and drew nothing is not.
+    public static func firstFrameTimeoutCode(buffering: Bool, cacheEnd: Double?) -> Int {
+        buffering || (cacheEnd ?? 0) <= 0 ? mpvNoData : mpvNoFirstFrame
+    }
 
     /// `AVError` codes that mean "the bytes arrived and AVFoundation cannot play them"
     /// (`AVFoundation/AVError.h`): decode failed, file format not recognized, failed to parse,
@@ -188,8 +197,11 @@ public enum PlaybackFailure: Sendable, Equatable {
            avCapabilityCodes.contains(av.code) {
             return .engineCapability("AVFoundation \(av.code)")
         }
-        if let mpv = chain.first(where: { $0.domain == mpvDomain }), mpvCapabilityCodes.contains(mpv.code) {
-            return .engineCapability(mpv.code == mpvNoFirstFrame ? "沒有畫面" : "mpv \(mpv.code)")
+        if let mpv = chain.first(where: { $0.domain == mpvDomain }) {
+            if mpv.code == mpvNoData { return .network("來源沒有送來影片資料") }
+            if mpvCapabilityCodes.contains(mpv.code) {
+                return .engineCapability(mpv.code == mpvNoFirstFrame ? "沒有畫面" : "mpv \(mpv.code)")
+            }
         }
         return .unclassified((error as NSError).localizedDescription)
     }

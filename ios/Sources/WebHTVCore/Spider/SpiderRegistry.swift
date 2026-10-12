@@ -94,6 +94,8 @@ public struct SpiderRegistry: Sendable {
         "TuXiaoBei",    // http-html: spider.jar (mobile UA; JSONP lists, HTML subjects)
         // IOS-POC-57B-3: 咕噜, the first port on js.host 1.4 (P-256, HKDF, AES-GCM/CBC, zlib).
         "Gulu",         // http-crypto: spider.jar (private protobuf API; direct lines only)
+        // IOS-POC-57B-4: 贝乐虎 兒童影音
+        "BeiLeHu",      // http-json: spider.jar (JSON POST; static mp4)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

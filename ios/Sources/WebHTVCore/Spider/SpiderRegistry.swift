@@ -102,6 +102,8 @@ public struct SpiderRegistry: Sendable {
         "TingBokan",    // http-json: spider.jar (paged album units; no expiry)
         // IOS-POC-57B-10: 蜻蜓FM live radio (fixed MP3 streams)
         "QingtingFM",   // http-json: spider.jar (GraphQL lists; integer-checked query)
+        // IOS-POC-57B-6: 戏曲多多 opera videos (HLS with a per-play auth_key)
+        "AppLY",        // http-json: spider.jar (JSON POST with a fixed md5 header)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

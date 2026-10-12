@@ -85,6 +85,9 @@ DEFAULT_ORIGINS = {
                   "minHostApi": 4, "notes": "private protobuf API; direct lines only, no keyed parse services"},
     "BeiLeHu":   {"originJar": "spider.jar",
                   "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"},
+    # IOS-POC-57B-5: 独播库, requests signed with java.util.Random rewritten in plain JS (base host API).
+    "Duboku":    {"originJar": "spider.jar",
+                  "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"},
 }
 
 # What the app reads from a mapping (`SpiderPack.ClassMapping`). `evidence` is provenance only.

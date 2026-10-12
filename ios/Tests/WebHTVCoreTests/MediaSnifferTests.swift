@@ -108,13 +108,15 @@ private func sniffResult(_ html: String, timeout: Duration = .seconds(6),
 }
 
 @MainActor @Test func capturesASubtitleRequestedJustAfterTheMediaURL() async throws {
+    // A microtask, not a timer: the subtitle is still posted after the media URL, but a 40 ms
+    // setTimeout under CPU load fired past the 180 ms grace and failed half the runs (W-68).
     let found = await sniffResult("""
     <html><body><script>
       var video = document.createElement('video');
       video.src = 'https://cdn.example.com/show/movie.mp4';
-      setTimeout(function () {
+      Promise.resolve().then(function () {
         fetch('https://cdn.example.com/show/captions.srt').catch(function () {});
-      }, 40);
+      });
     </script></body></html>
     """, grace: .milliseconds(180))
     #expect(found?.mediaURL.absoluteString == "https://cdn.example.com/show/movie.mp4")

@@ -118,6 +118,23 @@ var host = (function () {
   function sha256(s) { return __crypto.digest('sha256', String(s)); }
   function hmac(algorithm, s, key) { return __crypto.hmac(algorithm, String(s), String(key)); }
 
+  // ---- binary crypto, js.host 1.4 (QIST-GULU A) ---------------------------
+  // Every byte string is standard base64 and every failure is "" (null for ecdhP256Generate). Numbers
+  // pass through untouched so the native side can refuse 1.5 instead of rounding it.
+  function randomBytes(n) { return __crypto.randomBytes(n); }
+  function ecdhP256Generate() { var s = __crypto.ecdhP256Generate(); return s ? JSON.parse(s) : null; }
+  function ecdhP256Derive(handle, peer) { return __crypto.ecdhP256Derive(String(handle), String(peer)); }
+  function hkdfSha256(ikm, salt, info, len) {
+    return __crypto.hkdfSha256(String(ikm), String(salt), String(info), len);
+  }
+  function aesGcmSeal(key, plain) { return __crypto.aesGcmSeal(String(key), String(plain)); }
+  function aesGcmOpen(key, combined) { return __crypto.aesGcmOpen(String(key), String(combined)); }
+  function aesCbc(encrypt, key, iv, data) { return __crypto.aesCbc(encrypt, String(key), String(iv), String(data)); }
+  function deflate(data, zlibWrapped) { return __crypto.deflate(String(data), zlibWrapped === true); }
+  function inflate(data, zlibWrapped, maxBytes) {
+    return __crypto.inflate(String(data), zlibWrapped === true, maxBytes);
+  }
+
   // ---- storage ----------------------------------------------------------
   var local = {
     get: function (k) { return __store.get(String(k)); },
@@ -537,6 +554,9 @@ var host = (function () {
     parse: parse, select: select, text: textOf, pdfh: pdfh, pdfa: pdfa, pd: pd, urljoin: urljoin,
     cut: cut, cut1: cut1, stripTags: stripTags, parseJSON: parseJSON,
     isVideoFormat: isVideoFormat, firstURL: firstURL,
+    randomBytes: randomBytes, ecdhP256Generate: ecdhP256Generate, ecdhP256Derive: ecdhP256Derive,
+    hkdfSha256: hkdfSha256, aesGcmSeal: aesGcmSeal, aesGcmOpen: aesGcmOpen, aesCbc: aesCbc,
+    deflate: deflate, inflate: inflate,
     result: result
   };
 })();

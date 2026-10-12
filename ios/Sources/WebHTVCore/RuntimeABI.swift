@@ -61,7 +61,9 @@ public enum RuntimeABI {
             // had each carried a copy of — additions only.
             // 1.3 (IOS-POC-44G): `host.rsaEncrypt`/`rsaDecrypt`, `host.bytes`, `aesEncrypt`'s hex
             // output and `req`'s `bodyBase64`/`responseType` — additions only; 1.2 calls are unchanged.
-            case .jsHost: Version(1, 3)
+            // 1.4 (QIST-GULU A, W-37): `randomBytes`, `ecdhP256Generate`/`ecdhP256Derive`, `hkdfSha256`,
+            // `aesGcmSeal`/`aesGcmOpen`, `aesCbc`, `deflate`, `inflate` — additions only.
+            case .jsHost: Version(1, 4)
             // 1.1 (IOS-POC-37) adds pycryptodome, lxml, bs4 and pyquery, a working
             // `Spider.html()`, and `init`'s return value ignored as on Android — additions only.
             // 1.2 (IOS-POC-37.1): `getCache`/`setCache` use the calling spider's own site key and
@@ -112,6 +114,8 @@ public enum RuntimeABI {
         "parse", "select", "text", "pdfh", "pdfa", "pd", "urljoin",
         "cut", "cut1", "stripTags", "parseJSON", "result",
         "isVideoFormat", "firstURL", "rsaEncrypt", "rsaDecrypt", "bytes",
+        "randomBytes", "ecdhP256Generate", "ecdhP256Derive", "hkdfSha256",
+        "aesGcmSeal", "aesGcmOpen", "aesCbc", "deflate", "inflate",
     ]
 
     static let pythonPackages = [

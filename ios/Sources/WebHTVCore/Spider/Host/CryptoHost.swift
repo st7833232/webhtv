@@ -3,6 +3,7 @@ import CryptoKit
 import Foundation
 import JavaScriptCore
 import Security
+import zlib
 
 /// `host.crypto` — the algorithms the audited spiders actually use.
 ///
@@ -50,6 +51,56 @@ enum CryptoHost {
             String(decoding: Data(base64Encoded: $0, options: [.ignoreUnknownCharacters]) ?? Data(), as: UTF8.self)
         }
 
+        // js.host 1.4 (QIST-GULU A, artifacts/qist-gulu-native-gate-2026-10-08.md §8.3): binary in and
+        // out as standard base64, every failure "". Private keys never leave native code, and each
+        // context keeps its own (`install` runs once per JSContext).
+        let handles = ECDHHandles()
+        let randomBytes: @convention(block) (JSValue) -> String = { n in
+            guard let n = integer(n, in: 1...1024), let bytes = secureRandom(n) else { return "" }
+            return bytes.base64EncodedString()
+        }
+        let ecdhP256Generate: @convention(block) () -> String = { handles.generate() }
+        let ecdhP256Derive: @convention(block) (String, String) -> String = { handles.derive($0, peer: $1) }
+        let hkdfSha256: @convention(block) (String, String, String, JSValue) -> String = { ikm, salt, info, length in
+            guard let ikm = Data(base64Encoded: ikm), let salt = Data(base64Encoded: salt),
+                  let info = Data(base64Encoded: info), let length = integer(length, in: 1...8160) else { return "" }
+            let key = HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: ikm), salt: salt, info: info,
+                                             outputByteCount: length)
+            return key.withUnsafeBytes { Data($0) }.base64EncodedString()
+        }
+        let aesGcmSeal: @convention(block) (String, String) -> String = { key, plain in
+            guard let key = aesKey(key), let plain = Data(base64Encoded: plain),
+                  let combined = (try? AES.GCM.seal(plain, using: key))?.combined else { return "" }
+            return combined.base64EncodedString()
+        }
+        let aesGcmOpen: @convention(block) (String, String) -> String = { key, combined in
+            guard let key = aesKey(key), let combined = Data(base64Encoded: combined), combined.count >= 28,
+                  let box = try? AES.GCM.SealedBox(combined: combined),
+                  let plain = try? AES.GCM.open(box, using: key) else { return "" }
+            return plain.base64EncodedString()
+        }
+        // Decryption checks PKCS7 itself: CommonCrypto hands back a block ending in 0x11 as if it were valid.
+        let aesCbc: @convention(block) (JSValue, String, String, String) -> String = { encrypt, key, iv, data in
+            guard encrypt.isBoolean, let key = Data(base64Encoded: key), [16, 24, 32].contains(key.count),
+                  let iv = Data(base64Encoded: iv), iv.count == kCCBlockSizeAES128, let data = Data(base64Encoded: data),
+                  let out = transform(data, key: key, iv: iv, encrypt: encrypt.toBool(), algorithm: kCCAlgorithmAES,
+                                      options: encrypt.toBool() ? CCOptions(kCCOptionPKCS7Padding) : 0,
+                                      blockSize: kCCBlockSizeAES128),
+                  let result = encrypt.toBool() ? out : pkcs7Unpadded(out)
+            else { return "" }
+            return result.base64EncodedString()
+        }
+        let deflateBlock: @convention(block) (String, Bool) -> String = { data, wrapped in
+            guard let data = Data(base64Encoded: data), let out = zlibDeflate(data, wrapped: wrapped) else { return "" }
+            return out.base64EncodedString()
+        }
+        let inflateBlock: @convention(block) (String, Bool, JSValue) -> String = { data, wrapped, maxBytes in
+            let cap = maxBytes.isUndefined ? 8 << 20 : integer(maxBytes, in: 1...(16 << 20))
+            guard let cap, let data = Data(base64Encoded: data),
+                  let out = zlibInflate(data, wrapped: wrapped, maxBytes: cap) else { return "" }
+            return out.base64EncodedString()
+        }
+
         let crypto = JSValue(newObjectIn: context)
         crypto?.setObject(symmetric, forKeyedSubscript: "symmetric" as NSString)
         crypto?.setObject(symmetricIV, forKeyedSubscript: "symmetricIV" as NSString)
@@ -58,6 +109,15 @@ enum CryptoHost {
         crypto?.setObject(hmac, forKeyedSubscript: "hmac" as NSString)
         crypto?.setObject(b64encode, forKeyedSubscript: "b64encode" as NSString)
         crypto?.setObject(b64decode, forKeyedSubscript: "b64decode" as NSString)
+        crypto?.setObject(randomBytes, forKeyedSubscript: "randomBytes" as NSString)
+        crypto?.setObject(ecdhP256Generate, forKeyedSubscript: "ecdhP256Generate" as NSString)
+        crypto?.setObject(ecdhP256Derive, forKeyedSubscript: "ecdhP256Derive" as NSString)
+        crypto?.setObject(hkdfSha256, forKeyedSubscript: "hkdfSha256" as NSString)
+        crypto?.setObject(aesGcmSeal, forKeyedSubscript: "aesGcmSeal" as NSString)
+        crypto?.setObject(aesGcmOpen, forKeyedSubscript: "aesGcmOpen" as NSString)
+        crypto?.setObject(aesCbc, forKeyedSubscript: "aesCbc" as NSString)
+        crypto?.setObject(deflateBlock, forKeyedSubscript: "deflate" as NSString)
+        crypto?.setObject(inflateBlock, forKeyedSubscript: "inflate" as NSString)
         context.setObject(crypto, forKeyedSubscript: "__crypto" as NSString)
     }
 
@@ -239,6 +299,80 @@ enum CryptoHost {
         return out
     }
 
+    /// A JS number that is a whole value inside `range`; 1.5, NaN, strings and out-of-range numbers are not.
+    private static func integer(_ value: JSValue, in range: ClosedRange<Int>) -> Int? {
+        guard value.isNumber else { return nil }
+        let number = value.toDouble()
+        guard number.rounded() == number, number >= Double(range.lowerBound), number <= Double(range.upperBound)
+        else { return nil }
+        return Int(number)
+    }
+
+    fileprivate static func secureRandom(_ count: Int) -> Data? {
+        var bytes = [UInt8](repeating: 0, count: count)
+        return SecRandomCopyBytes(kSecRandomDefault, count, &bytes) == errSecSuccess ? Data(bytes) : nil
+    }
+
+    private static func pkcs7Unpadded(_ data: Data) -> Data? {
+        guard let last = data.last, (1...kCCBlockSizeAES128).contains(Int(last)), data.count >= Int(last),
+              data.suffix(Int(last)).allSatisfy({ $0 == last }) else { return nil }
+        return data.dropLast(Int(last))
+    }
+
+    private static func aesKey(_ base64: String) -> SymmetricKey? {
+        guard let key = Data(base64Encoded: base64), [16, 24, 32].contains(key.count) else { return nil }
+        return SymmetricKey(data: key)
+    }
+
+    /// System zlib (§8.3, GULU-A-05): windowBits 15 adds and checks the zlib header and Adler-32, -15 is
+    /// raw DEFLATE. An output buffer of `deflateBound` lets one `Z_FINISH` call finish (`zlib.h`).
+    static func zlibDeflate(_ input: Data, wrapped: Bool) -> Data? {
+        var stream = z_stream()
+        guard deflateInit2_(&stream, 6, Z_DEFLATED, wrapped ? 15 : -15, 8, Z_DEFAULT_STRATEGY,
+                            ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else { return nil }
+        defer { deflateEnd(&stream) }
+        var source = [UInt8](input)
+        var out = [UInt8](repeating: 0, count: Int(deflateBound(&stream, uLong(source.count))))
+        let status = source.withUnsafeMutableBufferPointer { s in
+            out.withUnsafeMutableBufferPointer { o in
+                stream.next_in = s.baseAddress
+                stream.avail_in = uInt(s.count)
+                stream.next_out = o.baseAddress
+                stream.avail_out = uInt(o.count)
+                return deflate(&stream, Z_FINISH)
+            }
+        }
+        return status == Z_STREAM_END ? Data(out.prefix(Int(stream.total_out))) : nil
+    }
+
+    /// 64 KiB at a time with `Z_NO_FLUSH`, where `Z_OK` always means progress. Only `Z_STREAM_END` with
+    /// every input byte consumed succeeds: trailing bytes, truncation, a bad header or Adler-32, a
+    /// preset dictionary, or more than `maxBytes` of output all fail, without ever holding more than
+    /// `maxBytes` plus one chunk.
+    static func zlibInflate(_ input: Data, wrapped: Bool, maxBytes: Int) -> Data? {
+        var stream = z_stream()
+        guard inflateInit2_(&stream, wrapped ? 15 : -15, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK
+        else { return nil }
+        defer { inflateEnd(&stream) }
+        var source = [UInt8](input), chunk = [UInt8](repeating: 0, count: 64 * 1024), out = Data()
+        return source.withUnsafeMutableBufferPointer { s -> Data? in
+            stream.next_in = s.baseAddress
+            stream.avail_in = uInt(s.count)
+            while true {
+                let status = chunk.withUnsafeMutableBufferPointer { o in
+                    stream.next_out = o.baseAddress
+                    stream.avail_out = uInt(o.count)
+                    let status = inflate(&stream, Z_NO_FLUSH)
+                    out.append(o.baseAddress!, count: o.count - Int(stream.avail_out))
+                    return status
+                }
+                if out.count > maxBytes { return nil }
+                if status == Z_STREAM_END { return stream.avail_in == 0 ? out : nil }
+                if status != Z_OK { return nil }
+            }
+        }
+    }
+
     static func digest(_ algorithm: String, _ data: Data) -> Data {
         switch algorithm.lowercased() {
         case "md5": Data(Insecure.MD5.hash(data: data))
@@ -248,6 +382,37 @@ enum CryptoHost {
     }
 
     static func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
+}
+
+/// One JSContext's unused P-256 private keys (§8.3 #2, #3), which never leave native code: at most four,
+/// a fifth evicting the oldest. A handle names a key only in the context that made it.
+private final class ECDHHandles: @unchecked Sendable {
+    private let lock = NSLock()
+    private var keys: [(handle: String, key: P256.KeyAgreement.PrivateKey)] = []
+
+    /// `{"handle":"<32 hex>","publicKey":"<base64 x9.63, 65 bytes>"}`, or "" on failure.
+    func generate() -> String {
+        guard let raw = CryptoHost.secureRandom(16) else { return "" }
+        let key = P256.KeyAgreement.PrivateKey(), handle = CryptoHost.hex(raw)
+        lock.lock()
+        keys.append((handle, key))
+        if keys.count > 4 { keys.removeFirst() }
+        lock.unlock()
+        let object = ["handle": handle, "publicKey": key.publicKey.x963Representation.base64EncodedString()]
+        guard let json = try? JSONSerialization.data(withJSONObject: object) else { return "" }
+        return String(decoding: json, as: UTF8.self)
+    }
+
+    /// The handle is spent before the peer is looked at, so a bad peer leaves nothing to retry with.
+    func derive(_ handle: String, peer: String) -> String {
+        lock.lock()
+        let key = keys.firstIndex { $0.handle == handle }.map { keys.remove(at: $0).key }
+        lock.unlock()
+        guard let key, let peer = Data(base64Encoded: peer), peer.count == 65, peer.first == 0x04,
+              let peerKey = try? P256.KeyAgreement.PublicKey(x963Representation: peer),
+              let secret = try? key.sharedSecretFromKeyAgreement(with: peerKey) else { return "" }
+        return secret.withUnsafeBytes { Data($0) }.base64EncodedString()
+    }
 }
 
 extension Data {

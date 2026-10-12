@@ -4,7 +4,83 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-12：本機 ios-poc 併入 origin/ios-poc（W-34，先讀這一節）
+## Current handoff — 2026-10-12 11:42 CST：Manager 派工佇列、push 紀錄、W-45 狀態（先讀這一節）
+
+撰寫者：herdr 團隊 `webhtv-dev` 的 Manager（`webhtv-dev-claude-manager`）。本節只記錄 Manager 視角的協調狀態；各工單的實作細節在 `.herdr-synapse/webhtv-dev/artifacts/` 與各 `docs/<TASK-ID>-*.md`。
+
+### Original Goal
+- 使用者 2026-10-12 指示：WebHTV 團隊改「自主執行模式」。Manager 派工、Developer（`webhtv-dev-claude-dev`）開發、Reviewer（`webhtv-dev-codex-reviewer-2`）唯讀審查；例行回報只在團隊看板，只有需要使用者決策／授權／解不開的阻塞才找使用者。
+- 同日使用者要求：git 只留 `main` 與 `ios-poc`（已完成，見下方 push 紀錄）。
+
+### Current Scope
+- qist/tvbox 爬蟲移植（`docs/IOS-POC-57-qist-jar-spiders.md` 階段 2B）、已核准設計的實作、git 整理與經授權的 push。
+
+### Non-Negotiable Constraints
+- push 只在使用者每次明確授權後做，且一律指定已審 SHA：`git push origin <reviewed-sha>:ios-poc`，不推會移動的分支名（記憶檔 `push-reviewed-sha`）；不 force-push、不改寫已發布歷史。
+- 不 tag（`--no-tag`）、不發布 IPA，除非使用者授權。
+- 每項實作一個可 revert 的 task guard commit；Reviewer PASS 才算完成。
+- 設計 PASS ≠ 實作授權；實作需使用者核准（2026-10-12 已核准 W-39～W-43、Gulu 方案 A）。
+- 隊友的問題由 Manager 直接在看板回覆；不讀、不操作隊友 pane。回報一律台灣繁體中文。
+
+### Important Decisions
+- 遠端 5 個分支（`ci/ios-poc-45/47/48-verify`、`ios-poc-45i-web-sniffed-subtitles`、`ios-poc-ui-a-cinematic`）以 `merge -s ours` 記錄為已併入（W-36）後刪除；內容早已由正式 commit 進入 ios-poc。
+- 保留：`ios-poc-zaka-runtime`（本機分支與 worktree `~/GIT/webhtv-zaka`）、所有 tag。
+- W-2 TuXiaoBei 停在 00:00：根因是 `resource-cdn.tuxiaobei.com` 間歇停送，adapter 不改（`.herdr-synapse/webhtv-dev/artifacts/w2-tuxiaobei-gui-result-2026-10-12.md`）。
+- 隨附發現另案：W-38（字幕 header CR／LF）、W-46（資料沒到時誤報「播放器無法播放」）。
+
+### Files Read
+- `docs/IOS-POC-57-qist-jar-spiders.md`（第 2、3、6、8.5 節）
+- `.herdr-synapse/webhtv-dev/artifacts/qist-gulu-native-gate-2026-10-08.md`、`qist-next-shortlist-2026-10-08.md`、`reviewer-paused-state-2026-10-12.md`、`claude-dev-handoff.md`
+- `ios/Sources/WebHTVCore/SourceSubtitles.swift:297-320`、`ios/Sources/WebHTVCore/PlaybackEngine.swift:185-198`、`ios/WebHTVApp/Sources/MPVEngine.swift:244-256`
+
+### Files Modified
+- 本檔（本節；未 commit）。
+- Manager 自己的 artifacts：`.herdr-synapse/webhtv-dev/artifacts/manager-git-cleanup-state-2026-10-12.md`、`manager-plan-2026-10-12.md`。
+- 產品碼由 Developer 經 guard commit，Manager 未改產品碼。
+
+### Current Diff Summary
+- `origin/ios-poc`＝`c17679155bb347f22f2e4279b1066e5c6f972fe3`；本機 `ios-poc` 多 W-37 `83a0c5846f834a50b732fc3904d561005404d6ae`（13:38 commit，未 push）與本節的文件 commit。
+- 工作樹（13:39）：只有未追蹤 `.herdr-synapse/`。
+
+### Completed Work
+- git 整理：W-34 `9ad3dc34`（併 origin/ios-poc）→ W-35 `f51b248a`（octopus 併 crypto-iv／jsonc／type3，刪分支與 worktree；firstaid、qist-gulu-checkout 存 patch 後移除；Gulu fixture 備份到 `artifacts/gulu-zlib-fixtures/`）→ W-36 `5666bdf3`（`-s ours` 記錄遠端分支）。全部 Reviewer PASS。
+- push 紀錄（皆經使用者授權）：
+  1. `ebba1db6..14d24d28` 推 ios-poc＋刪 5 個遠端分支。疏失：推的是分支名，夾帶當時未審的 W-38 `14d24d28`；事後 Reviewer PASS，未需補修。
+  2. `14d24d28..c1767915`：指定 SHA `git push origin c17679155bb347f22f2e4279b1066e5c6f972fe3:ios-poc`，快轉，9 個 commit 全已審（W-2 `18e758d5` 與其文件／同步 merge、W-46 `b410dbf0`、W-47 merge `c1767915`）。
+- 完成並 PASS 的工單：W-1、W-2、W-5、W-17、W-18、W-25～W-30、W-32～W-36、W-38、W-46、W-47。
+- GitHub 遠端分支只剩 `main`、`ios-poc`；本機分支只剩 `ios-poc`、`ios-poc-zaka-runtime`；本機沒有 `main`。
+
+### Remaining Work（Developer 佇列，Manager 排定順序）
+1. W-7 QIST-PACK-SYNC（ready，尚未開始）
+2. W-45 QIST-2B-NEXT-BATCH（in_progress；見下方阻礙）
+3. W-37 GULU-STAGE1：已 commit `83a0c5846f834a50b732fc3904d561005404d6ae`（本機，未 push），待 Reviewer code review（看板 #926）
+4. W-44 GULU-STAGE2（等 W-37）
+5. W-39 POSTER-IMPL、W-40 FOLDER-IMPL、W-43 DUBOKU-IMPL（等 W-37，排序用）
+6. W-41 IKANBOT-IMPL、W-42 DJUU-IMPL（等 W-39、W-40）
+- 佇列後待使用者決定：出 IPA（Gulu 1.4 原語須在 Stage 2 驗收後才可隨 IPA 發出）、`origin/main` 是否併回（落後 ios-poc 600+ commit）、是否加第二位 Developer。
+
+### Open Questions / Blockers
+- W-45：11:41 時仍 in_progress，`artifacts/` 沒有清單檔（預期 `qist-next-batch-2026-10-12.md`），也未送審；Developer 狀態顯示在做 W-37，順序與 Manager 排定（W-7 → W-45 → W-37）不符。Manager 已在看板 #900 詢問，尚未回覆。
+- 使用者要知道 W-45 選了哪幾個、各卡在哪裡：要等清單交出並經 Reviewer PASS。
+
+### Build / Test / Verification Status
+- Manager 本身未跑 build／test。以下皆為 Developer 回報、Reviewer 核對的結果：W-35 目標測試 36/36；W-38 RED→GREEN、120 通過；W-46 RED→GREEN、131 通過、App target BUILD SUCCEEDED；W-47 92 通過；W-2 RED→GREEN 9/9、鄰近 101、Simulator GUI PASS。
+- 未驗證：W-46 的新錯誤訊息未在 Simulator 重現 CDN 停送情境下親眼確認。
+
+### Risks
+- Developer 未照排定順序做事，曾在 Manager 要求暫緩前 commit W-46，使 push 範圍擴大（後經使用者選擇一併推）。之後 push 前務必核對 `origin/ios-poc..<SHA>` 只含已審 commit。
+- 本檔是 ios-poc 的追蹤檔；本次修改未 commit，Developer 的 guard 會視為既有 dirty 而保護它，若其工單需改本檔會衝突。
+- `/private/tmp` 下的隔離 repo 與證據（`/private/tmp/webhtv-tu-xiao-bei`、`/private/tmp/webhtv-gui-57b2-tuxiaobei/`）重開機可能消失。
+
+### Next Recommended Step
+- **2026-10-12 11:46 起全隊暫停**（使用者指示，看板 #904）：在安全停止點停下、未完成修改留在工作樹不 commit、不認領新工單、不啟動新審查／測試／研究。等使用者通知才繼續。
+- W-45 清單已交出（`.herdr-synapse/webhtv-dev/artifacts/qist-next-batch-2026-10-12.md`，8 個候選：BeiLeHu、SportsKafei、AppLY、ShortXingya、Web1905、SportsFeiqiu、TingBokan、QingtingFM），**尚未經 Reviewer 審查**。
+- 恢復後：先請 Reviewer 審 W-45，PASS 後向使用者回報候選與各自 gate；Developer 接續 W-37（未 commit 修改在工作樹），本檔 Manager 段落交給 Developer 下一張工單一起 commit。
+
+### Resume Prompt
+你是 herdr 團隊 `webhtv-dev` 的 Manager（`webhtv-dev-claude-manager`）。先跑 `herdr-synapse orient`、`herdr-synapse board --new`、`herdr-synapse ack`，再讀本節與 `.herdr-synapse/webhtv-dev/artifacts/manager-plan-2026-10-12.md`、`manager-git-cleanup-state-2026-10-12.md`。現況：ios-poc＝origin＝`c1767915`，git 整理完成，Developer 佇列 W-7 → W-45 → W-37 → W-44 → W-39／W-40／W-43 → W-41／W-42。下一步：取得 W-45 清單進度（看板 #900），PASS 後用台灣繁體中文向使用者回報選了哪些候選、各卡在哪個 gate。限制：push 需使用者每次授權且指定已審 SHA、不 tag、不發布、隊友問題由你在看板回覆、只有授權或新範圍才找使用者、不讀隊友 pane。
+
+## Previous handoff — 2026-10-12：本機 ios-poc 併入 origin/ios-poc（W-34）
 
 - 本機 qist spider 整合（FirstAid merge `7ec799dc`，下一節）與 origin 的 `0.1.72 (73)`／`0.1.73 (74)` 發布（IOS-POC-57 下載分組、IOS-POC-58，再下一節）在 W-34 merge 合流；唯一的文字衝突是本檔，兩邊段落都保留。
 - merge 後的 ios-poc 尚未發版；目前最新發布仍是 `0.1.73 (74)`，不含 qist spider 整合。

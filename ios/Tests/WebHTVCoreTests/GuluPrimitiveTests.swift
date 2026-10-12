@@ -117,6 +117,10 @@ private let largePlain: Data = {
     #expect(inflate(large, wrapped: true, "143360") == largePlain)
     #expect(inflate(large, wrapped: true, "143359") == nil)
     #expect(inflate(largeRaw, wrapped: false, "143359") == nil)
+    // W37-01: the trailing-byte and truncation refusals hold across chunks too.
+    #expect(inflate(large + [0], wrapped: true) == nil)
+    #expect(inflate(largeRaw + [1, 2, 3, 4, 5], wrapped: false) == nil)
+    #expect(inflate(Data(large.dropLast()), wrapped: true) == nil)
 }
 
 @Test func inflateRefusesEveryBrokenOrTrailingFrameAndBadCaps() throws {

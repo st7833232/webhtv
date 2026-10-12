@@ -196,7 +196,7 @@ private func playURL(_ value: Any?) -> [String] {
     // IOS-POC-5L: every script the registry names must have actually loaded from the bundle.
     #expect(registry.entries.keys.sorted() ==
             ["App3Q", "App99", "AppDrama", "AppGet", "AppQi", "AppYQK", "AppYsV2", "BeiLeHu", "Bili", "Duboku", "Feiyu", "FirstAid", "GuaziTY", "Gulu",
-             "HaokanDJ", "HemaDJ", "JPianAmns", "JianPian", "Jpys", "Jys", "MiaoWu", "MoDu", "QimaoDJ",
+             "HaokanDJ", "HemaDJ", "JPianAmns", "JianPian", "Jpys", "Jys", "MiaoWu", "MoDu", "QimaoDJ", "QingtingFM",
              "ShortHaokan", "ShortHema", "ShortQimao", "ShortWeiguan", "SportsGuazi", "TingBokan", "TuXiaoBei", "Uvod",
              "WeiguanDJ", "XBPQ", "XYQHiker"])
     // IOS-POC-44C `Jys`, IOS-POC-57 qist `spider.jar`'s renames: each runs its target's script.

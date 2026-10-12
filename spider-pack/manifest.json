@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-12.8",
+  "version": "2026-10-12.9",
   "minHostApi": 2,
   "scripts": [
     {
@@ -162,6 +162,13 @@
       "sha256": "404231482d9ce760b9371e2e9dad167555059e6e62da57311fad87ad313dd606",
       "originJar": "xiaosa-0807.jar",
       "jarSha256": "90f70a10123456a97e4d9dac8270bf9e533259c3e157a8f6b67cf1dadc3e41fc"
+    },
+    {
+      "class": "QingtingFM",
+      "path": "./scripts/QingtingFM.js",
+      "sha256": "9dcf83089f2e57ac5511fb3a28e9d17c39fa1dd0af208269543f40516abe5b44",
+      "originJar": "spider.jar",
+      "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"
     },
     {
       "class": "TingBokan",

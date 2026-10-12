@@ -100,6 +100,8 @@ public struct SpiderRegistry: Sendable {
         "Duboku",       // http-json: spider.jar (Java-Random-signed GET; HLS)
         // IOS-POC-57B-9: 博看听书, the first audio-only source (plain-HTTP m4a)
         "TingBokan",    // http-json: spider.jar (paged album units; no expiry)
+        // IOS-POC-57B-10: 蜻蜓FM live radio (fixed MP3 streams)
+        "QingtingFM",   // http-json: spider.jar (GraphQL lists; integer-checked query)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

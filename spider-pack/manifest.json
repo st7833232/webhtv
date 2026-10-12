@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-12.1",
+  "version": "2026-10-12.2",
   "minHostApi": 2,
   "scripts": [
     {
@@ -85,6 +85,15 @@
       "sha256": "379175d593aa9ef113582c578f5ddff06762b049bb424b9cf9296f459922aa1a",
       "originJar": "river-fman.jar",
       "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392"
+    },
+    {
+      "class": "Gulu",
+      "path": "./scripts/Gulu.js",
+      "sha256": "a7ac097846c13c44158a21a7aa55872298d3baa6a95ef841f104dccffa257527",
+      "minHostApi": 4,
+      "originJar": "spider.jar",
+      "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69",
+      "notes": "private protobuf API; direct lines only, no keyed parse services"
     },
     {
       "class": "HaokanDJ",

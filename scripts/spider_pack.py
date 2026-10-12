@@ -78,6 +78,10 @@ DEFAULT_ORIGINS = {
                   "jarSha256": "391065e92e19437e73109e9d3c79feff6676baa8ed4fec3cdb04f4e7cca77314"},
     "TuXiaoBei": {"originJar": "spider.jar",
                   "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"},
+    # IOS-POC-57B-3: the first port on js.host 1.4 (P-256, HKDF, AES-GCM/CBC, zlib); older apps skip it.
+    "Gulu":      {"originJar": "spider.jar",
+                  "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69",
+                  "minHostApi": 4, "notes": "private protobuf API; direct lines only, no keyed parse services"},
 }
 
 # What the app reads from a mapping (`SpiderPack.ClassMapping`). `evidence` is provenance only.

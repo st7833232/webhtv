@@ -92,6 +92,8 @@ public struct SpiderRegistry: Sendable {
         "FirstAid",     // http-html: spider.jar
         // IOS-POC-57B-2: 兔小贝 兒童影音
         "TuXiaoBei",    // http-html: spider.jar (mobile UA; JSONP lists, HTML subjects)
+        // IOS-POC-57B-3: 咕噜, the first port on js.host 1.4 (P-256, HKDF, AES-GCM/CBC, zlib).
+        "Gulu",         // http-crypto: spider.jar (private protobuf API; direct lines only)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

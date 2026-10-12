@@ -195,7 +195,7 @@ private func playURL(_ value: Any?) -> [String] {
     let registry = SpiderRegistry.bundled()
     // IOS-POC-5L: every script the registry names must have actually loaded from the bundle.
     #expect(registry.entries.keys.sorted() ==
-            ["App3Q", "App99", "AppDrama", "AppGet", "AppQi", "AppYQK", "AppYsV2", "Bili", "Feiyu", "FirstAid", "GuaziTY",
+            ["App3Q", "App99", "AppDrama", "AppGet", "AppQi", "AppYQK", "AppYsV2", "Bili", "Feiyu", "FirstAid", "GuaziTY", "Gulu",
              "HaokanDJ", "HemaDJ", "JPianAmns", "JianPian", "Jpys", "Jys", "MiaoWu", "MoDu", "QimaoDJ",
              "ShortHaokan", "ShortHema", "ShortQimao", "ShortWeiguan", "SportsGuazi", "TuXiaoBei", "Uvod",
              "WeiguanDJ", "XBPQ", "XYQHiker"])

@@ -765,13 +765,57 @@ private struct CinematicSearchField: View {
     }
 }
 
+/// QIST-POSTER (W-39): `AsyncImage` for a poster address that may carry TVBox image headers
+/// (`@Headers=`, `@Referer=`, `@User-Agent=`). A plain address is still an `AsyncImage`; one with headers
+/// is fetched with only Referer and User-Agent and no cookies (`ImageRequest`), through the same cache.
+private struct RemoteImage<Content: View>: View {
+    let picture: String
+    let content: (AsyncImagePhase) -> Content
+    // The result with the address it belongs to: a reused view never draws the previous address's image.
+    @State private var loaded: (picture: String, phase: AsyncImagePhase) = ("", .empty)
+
+    init(_ picture: String, @ViewBuilder content: @escaping (AsyncImagePhase) -> Content) {
+        self.picture = picture
+        self.content = content
+    }
+
+    var body: some View {
+        if let request = ImageRequest.parse(picture) {
+            content(loaded.picture == picture ? loaded.phase : .empty)
+                .task(id: picture) { await load(request.url, request.headers) }
+        } else {
+            AsyncImage(url: URL(string: picture), content: content)
+        }
+    }
+
+    private func load(_ url: URL, _ headers: [String: String]) async {
+        var request = URLRequest(url: url)
+        request.httpShouldHandleCookies = false
+        headers.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            // POSTER-04: a task cancelled because `picture` changed never overwrites the new one's result.
+            guard !Task.isCancelled else { return }
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if (200..<300).contains(status), let image = UIImage(data: data) {
+                loaded = (picture, .success(Image(uiImage: image)))
+            } else {
+                loaded = (picture, .failure(URLError(.badServerResponse)))
+            }
+        } catch {
+            if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled { return }
+            loaded = (picture, .failure(error))
+        }
+    }
+}
+
 /// Ratio belongs to the container, not the downloaded image's intrinsic size.
 private struct CinematicPosterArt: View {
     let picture: String
     var body: some View {
         Color.clear.aspectRatio(2 / 3, contentMode: .fit)
             .overlay {
-                AsyncImage(url: URL(string: picture)) { phase in
+                RemoteImage(picture) { phase in
                     if case .success(let image) = phase { image.resizable().scaledToFill() }
                     else { appSurface.overlay { Image(systemName: "film").foregroundStyle(.secondary) } }
                 }
@@ -787,7 +831,7 @@ private struct CinematicHeroArt: View {
     var body: some View {
         Rectangle().fill(appSurface)
             .overlay {
-                AsyncImage(url: URL(string: picture)) { phase in
+                RemoteImage(picture) { phase in
                     if case .success(let image) = phase { image.resizable().scaledToFill() }
                     else { Image(systemName: "film").font(.largeTitle).foregroundStyle(.secondary) }
                 }
@@ -3142,7 +3186,7 @@ private struct HistoryView: View {
 
     private func label(for record: WatchHistory) -> some View {
         HStack(spacing: 12) {
-            AsyncImage(url: URL(string: record.vodPic)) { phase in
+            RemoteImage(record.vodPic) { phase in
                 switch phase {
                 case .success(let image): image.resizable().scaledToFill()
                 default: appSurface.overlay { Image(systemName: "film").foregroundStyle(.secondary) }
@@ -4670,7 +4714,7 @@ private struct VodPoster: View {
         // an image wider than the box spans its width, and any other is centred at full height.
         // The corners are cut on the fitted image itself. Filling and then clipping, as before,
         // clipped to the overflowing image rather than the box, so nothing was cut.
-        AsyncImage(url: URL(string: picture)) { phase in
+        RemoteImage(picture) { phase in
             switch phase {
             case .success(let image):
                 image.resizable().scaledToFit().clipShape(.rect(cornerRadius: 18))

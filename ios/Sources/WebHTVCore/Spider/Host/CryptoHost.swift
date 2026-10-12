@@ -214,6 +214,12 @@ enum CryptoHost {
 
     private static func transform(_ source: Data, key: Data, iv: Data, encrypt: Bool,
                                   algorithm: Int, options: CCOptions, blockSize: Int) -> Data? {
+        // QIST-CRYPTO-IV: CommonCryptor.h — an IV, if present, must be one block long and is ignored in
+        // ECB. A shorter one would be read past its end, so CBC refuses it; empty stays the all-zero IV
+        // and a longer one keeps using its first block, as before (option B).
+        let ecb = options & CCOptions(kCCOptionECBMode) != 0
+        guard ecb || iv.isEmpty || iv.count >= blockSize else { return nil }
+        let ivInUse = !ecb && !iv.isEmpty
         var out = Data(count: source.count + blockSize)
         let capacity = out.count
         var moved = 0
@@ -222,7 +228,7 @@ enum CryptoHost {
                 key.withUnsafeBytes { k in
                     iv.withUnsafeBytes { i in
                         CCCrypt(CCOperation(encrypt ? kCCEncrypt : kCCDecrypt), CCAlgorithm(algorithm), options,
-                                k.baseAddress, key.count, iv.isEmpty ? nil : i.baseAddress,
+                                k.baseAddress, key.count, ivInUse ? i.baseAddress : nil,
                                 s.baseAddress, source.count, o.baseAddress, capacity, &moved)
                     }
                 }

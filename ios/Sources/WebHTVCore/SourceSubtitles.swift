@@ -304,7 +304,9 @@ public struct SourceSubtitleProvider: SubtitleProvider {
         let trusted = media.map { sameOrigin(url, as: $0) } ?? false
         return headers.sorted { $0.key < $1.key }.filter { name, value in
             let key = name.lowercased()
-            guard !dropped.contains(key), !value.contains(where: { $0 == "\r" || $0 == "\n" }) else { return false }
+            // Scalars, not `Character`s: Swift reads "\r\n" as one grapheme that equals neither.
+            guard !dropped.contains(key),
+                  !(name + value).unicodeScalars.contains(where: { $0 == "\r" || $0 == "\n" }) else { return false }
             return trusted || anyHost.contains(key)
         }
     }

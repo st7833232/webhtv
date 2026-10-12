@@ -1,9 +1,13 @@
 # IOS-POC-11：SideStore 發布流程
 
 
-## Current release — 2026-10-06：0.1.71 (72) / IOS-POC-56
+## Current release — 2026-10-11：0.1.73 (74) / IOS-POC-58
 
-**目前最新版是 `0.1.71 (72)`**（設定檔全域解析接口：type 0 網頁解析、type 1 JSON 解析）。完整紀錄在下方「第七十二次發布」：run `37430560852` success，tag `ios-v0.1.71-b72` → `ace72419`，`source.json` `63503527`，`WebHTV-0.1.71-72.ipa` 35,328,221 bytes。**使用者 2026-10-06 回報真機驗收完成。**
+**目前最新版是 `0.1.73 (74)`**（本機播放伺服器失效時自動重開）。完整紀錄在下方「第七十四次發布」：run `38128728510` success，tag `ios-v0.1.73-b74` → `a2541ddf`，`source.json` `7d6b3944`，`WebHTV-0.1.73-74.ipa` 35,352,580 bytes。真機未驗收。
+
+前一版 `0.1.72 (73)`（「下載」分頁依影集分組，每組可全部暫停、全部繼續、刪除全部）完整紀錄在下方「第七十三次發布」：run `38127624020` success，tag `ios-v0.1.72-b73` → `1104febf`，`source.json` `dd7967b1`，`WebHTV-0.1.72-73.ipa` 35,343,548 bytes。真機未驗收。
+
+前一版 `0.1.71 (72)`（設定檔全域解析接口：type 0 網頁解析、type 1 JSON 解析）。完整紀錄在下方「第七十二次發布」：run `37430560852` success，tag `ios-v0.1.71-b72` → `ace72419`，`source.json` `63503527`，`WebHTV-0.1.71-72.ipa` 35,328,221 bytes。**使用者 2026-10-06 回報真機驗收完成。**
 
 前一版 `0.1.70 (71)`（`js.host` 1.3：RSA／AES hex／二進位 HTTP，`AppDrama`、`Uvod`；原生播放器開播等待 10 秒）完整紀錄在下方「第七十一次發布」：run `37423001505` success，tag `ios-v0.1.70-b71` → `cdec4ec5`，`source.json` `329a5c9d`，`WebHTV-0.1.70-71.ipa` 35,277,702 bytes。真機未驗收。
 
@@ -953,7 +957,65 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第七十二次發布：`0.1.71 (72)`（2026-10-06，**已發布**）
+## 第七十四次發布：`0.1.73 (74)`（2026-10-11，**已發布**）
+
+**目前最新版是 `0.1.73 (74)`。** 前面七十三版都已被取代。
+
+- 授權：使用者回報重新簽署後離線影片無法播放（`mpv error -13`，AVPlayer 也一樣，重開 App 就好），2026-10-11「實作」。依使用者先前「不要跑ci修改後就發佈」的指示發布，release notes 依「之後發布只能用 workflow_dispatch，要記得填 release notes」填寫。版號 `0.1.73`，build `74`。
+- 內容：`0.1.72 (73)` 的全部，加上 IOS-POC-58（`56b0875c`）。見 `docs/IOS-POC-58-loopback-server-liveness.md`。
+- 發布序列：
+  1. 版號 commit `a2541ddf`（Task-Guard `IOS-RELEASE-0.1.73`），push `54b6ceb8..a2541ddf`。
+  2. 以 MCP `workflow_dispatch` 觸發：ref `ios-poc`，version `0.1.73`、build `74`，並填 release notes。run `38128728510` 成功（09:32:22Z → 09:39:04Z）。
+  3. workflow 建立 tag `ios-v0.1.73-b74`（target `a2541ddf`），並推回 `source.json`（`7d6b3944`，共七十四筆，第一筆 `0.1.73`，size 35,352,580）。
+
+  **沒有手動建 tag。**
+- 產物：
+  - GitHub Release `WebHTV 0.1.73 (74)`：不是 draft，也不是 prerelease，2026-10-11 09:38:52Z 發布。
+  - `WebHTV-0.1.73-74.ipa`：**35,352,580 bytes**。digest SHA-256 為 `81c6ff41270c5e31a512c87b9edef733635030a245c61cc6a7f2c091eabf7e28`。
+  - IPA 未在本機下載核對。
+- 發布前驗證：
+  - 伺服器程式只在 Apple 平台編譯：雲端做了語法檢查，並以模擬的 Network 模組在 Swift 6 下做型別檢查；本次 run 的 device Release build 成功，是第一次以真正的 SDK 編譯。
+  - 新增的 macOS 測試沒有執行。
+  - 沒有另跑 macOS CI。
+- **真機尚未驗收。**
+
+### Release notes（實際送出的內容）
+
+```text
+離線播放修正：
+- App 在背景停留較久（例如去 SideStore 重新簽署）後，下載的影片可能出現「無法播放」（mpv error -13），要退出 App 重開才能播。現在播放前會先確認 App 內的本機播放伺服器還能回應，不能就自動重開。
+```
+
+## 第七十三次發布：`0.1.72 (73)`（2026-10-11，**已發布**，已被 `0.1.73 (74)` 取代）
+
+- 授權：使用者 2026-10-11 要求「下載要用每個影集當群組 可以一鍵下載 刪除 暫停」，並選擇一鍵下載＝繼續暫停／失敗的集數、版面全部改成依影集分組。依使用者先前「不要跑ci修改後就發佈」的指示發布，release notes 依「之後發布只能用 workflow_dispatch，要記得填 release notes」填寫。版號 `0.1.72`，build `73`。
+- 內容：`0.1.71 (72)` 的全部，加上 IOS-POC-57（`0e433a08`）。見 `docs/IOS-POC-57-downloads-grouped-by-title.md`。
+- 發布序列：
+  1. 版號 commit `1104febf`（Task-Guard `IOS-RELEASE-0.1.72`），push `1174be81..1104febf`。
+  2. 以 MCP `workflow_dispatch` 觸發：ref `ios-poc`，version `0.1.72`、build `73`，並填 release notes。run `38127624020` 成功（09:13:54Z → 09:18:34Z）。
+  3. workflow 建立 tag `ios-v0.1.72-b73`（target `1104febf`），並推回 `source.json`（`dd7967b1`，共七十三筆，第一筆 `0.1.72`，size 35,343,548）。
+
+  **沒有手動建 tag。**
+- 產物：
+  - GitHub Release `WebHTV 0.1.72 (73)`：不是 draft，也不是 prerelease，2026-10-11 09:18:25Z 發布。
+  - `WebHTV-0.1.72-73.ipa`：**35,343,548 bytes**。digest SHA-256 為 `6accfff89ecab63f46fabce935d15177b9ab0b35cb51506411d5eff7e868f175`。
+  - IPA 未在本機下載核對。
+- 發布前驗證：
+  - Core 測試：Linux 138／138，突變 4／4。
+  - App 端的「下載」分頁畫面在 Linux 無法編譯；本次 run 的 device Release build 成功，是第一次通過編譯。
+  - 沒有另跑 macOS CI。
+- **真機尚未驗收。**
+
+### Release notes（實際送出的內容）
+
+```text
+「下載」分頁依影集分組：
+- 每部作品一組，顯示集數、已下載、進行中、需要處理與大小，點標題展開各集。
+- 每組的「…」選單可全部暫停、全部繼續（暫停與失敗的集數）、刪除全部；左滑標題也可刪除整部。
+- 有集數正在下載的作品排在最前面。
+```
+
+## 第七十二次發布：`0.1.71 (72)`（2026-10-06，**已發布**，已被 `0.1.72 (73)` 取代）
 
 **目前最新版是 `0.1.71 (72)`。** 前面七十一版都已被取代。
 

@@ -32,21 +32,32 @@ public enum ConfigLoaderError: Error, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .invalidHTTPStatus(let code): "設定來源回應 HTTP \(code)。"
-        case .noSupportedSites: "此設定沒有 iOS 可用的 CMS 來源（type-1 或 type-4）。"
+        case .noSupportedSites: "此設定沒有 iOS 可用的來源（CMS 或已支援的爬蟲）。"
         }
     }
 }
 
 public enum ConfigLoader {
     public static func decode(_ data: Data) throws -> WebHTVConfig {
-        try JSONDecoder().decode(WebHTVConfig.self, from: data)
+        let decoder = JSONDecoder()
+        // QIST-JSONC: shared configs such as qist XYQ.json carry `//` comments. JSON5 is a superset
+        // of JSON, so standard configs decode exactly as before and invalid data is still rejected.
+        decoder.allowsJSON5 = true
+        return try decoder.decode(WebHTVConfig.self, from: data)
     }
 
     /// Decodes and requires at least one usable source, so a syntactically valid but useless payload
     /// can never replace a cached copy that still works.
     public static func validate(_ data: Data) throws -> WebHTVConfig {
         let config = try decode(data)
-        guard !config.nativeCMSSites.isEmpty else { throw ConfigLoaderError.noSupportedSites }
+        // QIST-TYPE3: a spider-only config (qist XYQ.json) is usable when the registry drives one of
+        // its classes. Native CMS is checked first so a CMS config never loads the registry.
+        // ponytail: source-less resolver, so drpy, Python and JAR-mapped spiders (they need the
+        // config's own address) do not count; a config with only those is still refused, as before.
+        // Pass the caller's ConfigSource here if one of those ever has to stand alone.
+        guard !config.nativeCMSSites.isEmpty || !config.spiderSites(resolvedBy: CSPSourceResolver()).isEmpty else {
+            throw ConfigLoaderError.noSupportedSites
+        }
         return config
     }
 

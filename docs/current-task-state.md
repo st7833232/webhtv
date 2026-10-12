@@ -4,7 +4,12 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — FirstAid 主分支整合
+## Current handoff — 2026-10-12：本機 ios-poc 併入 origin/ios-poc（W-34，先讀這一節）
+
+- 本機 qist spider 整合（FirstAid merge `7ec799dc`，下一節）與 origin 的 `0.1.72 (73)`／`0.1.73 (74)` 發布（IOS-POC-57 下載分組、IOS-POC-58，再下一節）在 W-34 merge 合流；唯一的文字衝突是本檔，兩邊段落都保留。
+- merge 後的 ios-poc 尚未發版；目前最新發布仍是 `0.1.73 (74)`，不含 qist spider 整合。
+
+## Previous handoff — 2026-10-12：FirstAid 主分支整合（已完成：本機 merge commit `7ec799dc`）
 
 - XYQHiker 局部分類已提交 `88ea5ce9a48c2453be3df38dd60f5448db4ca4e7`，fresh inspect APPROVED；原始 XYQ.json 仍受 ConfigLoader 註解／全 type-3 驗證阻塞。
 - FirstAid 的 incoming 為 `176542d5ec1aac4a96669c60b81b480f317a73f7`，native 與原始 dianshi.json GUI 已通過；已在 ios-poc 以 `git merge --no-commit --no-ff` 合併 tree，尚未提交。Guard `IOS-POC-57B-1-INTEGRATE` active。
@@ -14,6 +19,17 @@ Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-mov
 - 唯一下一步：fresh inspect 整合 diff，PASS 後以 guard 產生本機 merge commit，不重跑成功 proof。
 - 合併審查 FA-INTEGRATE-001：使用者已核准新增 SpiderGoldenTests.swift 路徑；Claude 補 FirstAid 固定預期清單，Codex 的 Registry proof exit 0、1/1（`/private/tmp/webhtv-firstaid-registry-proof.log`）。待第二輪 inspect，FirstAid flow／GUI 未重跑。
 - 第二輪 FirstAid final inspect 已 `APPROVED`、0 finding，Ponytail 無必須修正項。現在以 guard 產生本機 merge commit，接續使用者已核准的 TuXiaoBei 57B-2，無 tag／push／發布。
+
+## Previous handoff — 2026-10-11：IOS-POC-58 本機播放伺服器自動重開、IOS-POC-57 下載分組
+
+- **`0.1.73 (74)` 已發布**（2026-10-11；run `38128728510` success，tag `ios-v0.1.73-b74` → `a2541ddf`，`source.json` `7d6b3944`，IPA 35,352,580 bytes），**目前最新版是 `0.1.73 (74)`** ＝ `0.1.72 (73)`（IOS-POC-57）＋IOS-POC-58。真機都未驗證。
+- IOS-POC-58：`OfflineMediaServer.start()` 交出位址前先對自己送一個請求，沒有回應就在另一個 port 重開。新增的 macOS 測試 `aServerThatStopsAnsweringIsReopenedOnAnotherPort` 尚未執行，本機 session 可補跑。
+
+- 使用者要求「下載要用每個影集當群組 可以一鍵下載 刪除 暫停」（指底部「下載」分頁），選擇一鍵下載＝繼續暫停／失敗的集數、版面全部依影集分組。
+- 做法：Core `OfflineTitleGroup`（依 `historyKey` 分組、依狀態與片名排序、全部暫停先停排隊中的）；App「下載」分頁每部作品一組，點標題展開各集，「…」選單有全部暫停、全部繼續、刪除全部，左滑標題可刪除整部。見 `docs/IOS-POC-57-downloads-grouped-by-title.md`。
+- Linux 138／138，突變 4／4。
+- **`0.1.72 (73)` 已發布**（2026-10-11；run `38127624020` success，tag `ios-v0.1.72-b73` → `1104febf`，`source.json` `dd7967b1`，IPA 35,343,548 bytes），已被 `0.1.73 (74)` 取代。真機未驗證。
+- 使用者回報離線影片在 App 背景停留較久（例如去 SideStore 重新簽署）後，AVPlayer 與 MPV 都無法播放（`mpv error -13`），退出 App 重開就好。**IOS-POC-58 已實作**（使用者 2026-10-11「實作」）：`OfflineMediaServer.start()` 交出位址前先對自己送一個請求，沒有回應就在另一個 port 重開。見 `docs/IOS-POC-58-loopback-server-liveness.md`。macOS 測試未執行，真機未驗證。
 
 ## Previous handoff — 2026-10-08 GUI 證據已審查，局部分類核准
 

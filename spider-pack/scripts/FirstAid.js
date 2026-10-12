@@ -94,8 +94,9 @@
         vod_id: fullUrl,
         vod_name: title,
         vod_pic: pic,
-        type_name: docName,
-        vod_year: '中国',
+        // FirstAid.java:70–71 call j.c() and j.d(), which write vod_actor and vod_area (merge/FM/p003c/j.java).
+        vod_actor: docName,
+        vod_area: '中国',
         vod_content: desc,
         vod_play_from: 'Qile',
         vod_play_url: playUrl

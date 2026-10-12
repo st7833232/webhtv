@@ -187,8 +187,10 @@ struct FirstAidSpiderTests {
         #expect(dList1.count == 1)
         #expect(dList1[0]["vod_name"] as? String == "心肺复苏教学")
         #expect(dList1[0]["vod_pic"] as? String == "http://pic.invalid/cover1.jpg")
-        #expect(dList1[0]["type_name"] as? String == "张医生")
-        #expect(dList1[0]["vod_year"] as? String == "中国")
+        // A80-01: upstream's j.c()/j.d() write vod_actor and vod_area (FirstAid.java:70–71, merge/FM/p003c/j.java).
+        #expect(dList1[0]["vod_actor"] as? String == "张医生")
+        #expect(dList1[0]["vod_area"] as? String == "中国")
+        #expect(dList1[0]["type_name"] == nil && dList1[0]["vod_year"] == nil)
         #expect(dList1[0]["vod_content"] as? String == "标准急救胸外按压")
         #expect(dList1[0]["vod_play_from"] as? String == "Qile")
         #expect(dList1[0]["vod_play_url"] as? String == "心肺复苏教学$https://m.youlai.cn/media/cpr.mp4")

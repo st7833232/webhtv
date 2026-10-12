@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-12.9",
+  "version": "2026-10-12.10",
   "minHostApi": 2,
   "scripts": [
     {
@@ -89,7 +89,7 @@
     {
       "class": "FirstAid",
       "path": "./scripts/FirstAid.js",
-      "sha256": "ab0646a592cf82956b62c7325b5bff1c27ea6e75cecb5a1eb92b0fe63a1ee8ff",
+      "sha256": "20533552af16a2eabf0d7e7cd8e03ecb956d8301f6d86626234e6b5b91758e07",
       "originJar": "spider.jar",
       "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"
     },

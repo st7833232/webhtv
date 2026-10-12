@@ -96,6 +96,8 @@ public struct SpiderRegistry: Sendable {
         "Gulu",         // http-crypto: spider.jar (private protobuf API; direct lines only)
         // IOS-POC-57B-4: 贝乐虎 兒童影音
         "BeiLeHu",      // http-json: spider.jar (JSON POST; static mp4)
+        // IOS-POC-57B-5: 独播库 影視
+        "Duboku",       // http-json: spider.jar (Java-Random-signed GET; HLS)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

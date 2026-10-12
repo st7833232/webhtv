@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-12.3",
+  "version": "2026-10-12.4",
   "minHostApi": 2,
   "scripts": [
     {
@@ -60,7 +60,7 @@
     {
       "class": "BeiLeHu",
       "path": "./scripts/BeiLeHu.js",
-      "sha256": "7a595ae0b3d941da90f420615ffd5a07c0dc591b6ec863dee4e5220916c9b8bd",
+      "sha256": "e556c4552bf07f17751e8a3de96a8528b6affb7df161df6dad7929e47f43b541",
       "originJar": "spider.jar",
       "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"
     },

@@ -28,16 +28,6 @@
     return result && Array.isArray(result.items) ? result.items : [];
   }
 
-  // endInterval / 10 seconds as m:ss, else the brand (BeiLeHu.java:67–89).
-  function remarks(item) {
-    var n = parseInt(text(item.endInterval), 10);
-    if (n > 0) {
-      var seconds = Math.floor(n / 10), rest = seconds % 60;
-      return Math.floor(seconds / 60) + ':' + (rest < 10 ? '0' : '') + rest;
-    }
-    return typeof item.brand === 'string' ? item.brand : '';
-  }
-
   // vod_id is upstream's url@@title@@image: the url never expires, so history and favourites can keep it.
   function vods(list) {
     var out = [];
@@ -46,7 +36,9 @@
       var title = typeof item.title === 'string' && item.title ? item.title : '贝乐虎';
       var image = typeof item.image === 'string' ? item.image : '';
       if ([item.url, title, image].some(function (s) { return s.indexOf('@@') >= 0; })) return;
-      out.push({ vod_id: item.url + '@@' + title + '@@' + image, vod_name: title, vod_pic: image, vod_remarks: remarks(item) });
+      // The brand, not upstream's endInterval / 10 (:67–86): that is not the length (4:50 shown for a 2:09 video).
+      var brand = typeof item.brand === 'string' ? item.brand : '';
+      out.push({ vod_id: item.url + '@@' + title + '@@' + image, vod_name: title, vod_pic: image, vod_remarks: brand });
     });
     return out;
   }

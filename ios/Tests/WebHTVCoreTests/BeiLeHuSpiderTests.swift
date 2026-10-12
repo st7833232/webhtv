@@ -95,7 +95,7 @@ private func reply(_ items: [[String: Any]]) throws -> Data {
         #expect(items.count == 20)
         #expect(items.first?["vod_id"] as? String == "https://res1.ubestkid.com/blk/m/001_xtzgg.mp4@@小兔子乖乖@@" +
                 "https://res1.ubestkid.com/blk/t/001_xtzgg.png@c_1,x_120,y_0,w_720,h_540%7Cs_0,w_300,f_png")
-        #expect(items.first?["vod_remarks"] as? String == "4:50")
+        #expect(items.first?["vod_remarks"] as? String == "贝乐虎")
         let sent = try #require(BeiLeHuSite.requests.first)
         #expect(sent.body == #"{"age":1,"appver":"6.1.9","egvip_status":0,"svip_status":0,"vps":60,"subcateId":56,"p":1}"#)
         #expect(sent.headers["Content-Type"] == "application/json" && sent.headers["User-Agent"] == chrome)
@@ -127,7 +127,7 @@ private func reply(_ items: [[String: Any]]) throws -> Data {
         }
     }
 
-    @Test func itemsWithoutAPlayableAddressAreSkippedAndRemarksFollowUpstream() async throws {
+    @Test func itemsWithoutAPlayableAddressAreSkippedAndRemarksAreTheBrand() async throws {
         BeiLeHuSite.serve(try reply([
             ["title": "无网址"],
             ["url": "ftp://res1.ubestkid.com/a.mp4", "title": "ftp"],
@@ -144,7 +144,8 @@ private func reply(_ items: [[String: Any]]) throws -> Data {
             "https://res1.ubestkid.com/1.mp4@@贝乐虎@@", "https://res1.ubestkid.com/2.mp4@@贝乐虎@@",
             "https://res1.ubestkid.com/3.mp4@@一分钟@@", "https://res1.ubestkid.com/4.mp4@@九秒@@https://i/4.png",
         ])
-        #expect(items.map { $0["vod_remarks"] as? String } == ["贝乐虎", "品牌", "1:00", "0:09"])
+        // endInterval is ignored: it is not the length.
+        #expect(items.map { $0["vod_remarks"] as? String } == ["贝乐虎", "品牌", "", ""])
     }
 
     @Test func aDetailIsBuiltFromItsIdWithoutARequest() async throws {

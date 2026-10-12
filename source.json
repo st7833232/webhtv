@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.75",
+          "date": "2026-10-12",
+          "localizedDescription": "來源相容性：\n- 新增更多影音來源的支援，包含每次請求都要重新簽章的影視來源，以及兒童影音來源。\n- 新增有聲書等純音訊來源；沒有畫面時播放器不會誤報錯誤，App 退到背景仍會繼續播放。\n\n修正：\n- 部分來源的 Cookie 或擴充設定若指向本機位址（含 IPv6 本機位址與 0.0.0.0），不再嘗試讀取，避免無謂的等待與錯誤訊息。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.75-b76/WebHTV-0.1.75-76.ipa",
+          "size": 35402864,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.74",
           "date": "2026-10-12",
           "localizedDescription": "來源相容性：\n- 新增多種 App 型與網頁型影音來源的支援，包含需要加密握手與二進位協定的來源。\n- 設定檔可帶註解（JSONC），只有爬蟲沒有影音站清單的設定也能使用。\n- 支援更多爬蟲類別的別名與設定寫法（例如不帶 appkey 的 App 介面、首頁分類以 JSON 提供的規則）。\n- 需要特定來源頁（Referer）或 User-Agent 才能顯示的海報，現在能正常載入。\n\n修正：\n- 分集標題含特殊符號時不再漏掉集數。\n- 來源停止送出影片資料時，改為顯示「網路錯誤：來源沒有送來影片資料」，不再誤報「這個播放器無法播放」。\n- 字幕與離線下載不再轉送含換行字元的標頭；設定裡指向本機的 cookie 網址不會被讀取。\n- 加解密時拒絕長度不足的 IV，避免錯誤的解密結果。",

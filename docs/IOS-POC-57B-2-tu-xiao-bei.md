@@ -8,11 +8,11 @@
 
 ## 邊界與基準
 
-- 隔離 repo：/private/tmp/webhtv-tu-xiao-bei，branch ios-poc-tu-xiao-bei，實作基準 HEAD `7d8ffc6290aba7afbb6d102c2a3cf9b42c2095f9`（2026-10-12：merge W-1 FirstAid 基準 `7ec799dc6cdab7d2b67620c5e089eb7097339ceb` 進 `3e226e7fdac7423e7528629a01cc272bb885569f`（本檔第二輪修訂）；舊基準 `d09c7c339558ea1355e0bd911902d6d440c8fa27`）。
+- 隔離 repo：/private/tmp/webhtv-tu-xiao-bei，branch ios-poc-tu-xiao-bei，實作基準 HEAD `f3ad2c60a09f1ce2f6de581f85721a62c138c3eb`（2026-10-12：merge ios-poc `14d24d28359a0f1c40b30a3adeb889b620aa4f5a`（W-34～W-38 之後、已 push 的 HEAD）進 `06c74e17`；程式與測試樹和 `14d24d28` 相同。前一基準 `7d8ffc6290aba7afbb6d102c2a3cf9b42c2095f9`＝FirstAid `7ec799dc` 同步點）。
 - 可寫產品／測試路徑：ios/Sources/WebHTVCore/Resources/Spiders/TuXiaoBei.js、ios/Sources/WebHTVCore/Spider/SpiderRegistry.swift、ios/Tests/WebHTVCoreTests/TuXiaoBeiSpiderTests.swift、ios/Tests/WebHTVCoreTests/SpiderGoldenTests.swift；文件僅本檔。
 - 不改 ConfigLoader、host.js、runtime、播放器引擎、選站、spider-pack 或其他 adapter；不新增通用 parser／helper。不觸碰主 checkout、原 AGY worktree／guard／dirty 檔。
 - **FirstAid 基準前置（TXB-03，已同步）**：W-1 已在 ios-poc 產生 FirstAid merge commit `7ec799dc6cdab7d2b67620c5e089eb7097339ceb`（parents `88ea5ce9`／`176542d5`），Claude 已在原授權內同步進本隔離 branch。`git diff 7ec799dc HEAD` 只有本檔，程式與測試樹和 `7ec799dc` 完全相同，因此沿用 W-1 已通過的 native proof、不重跑。Registry 精確斷言：`SpiderRegistry.swift:91–92` 註冊 `"FirstAid"`；`SpiderGoldenTests.swift:197–201` 整份固定清單含 `"FirstAid"`（:198，位於 `"Feiyu"` 與 `"GuaziTY"` 之間）。TuXiaoBei 的功能 commit 只新增 TuXiaoBei，不順帶修 FirstAid；清單保持整份精確斷言。
-- 同步後完成基準 hash：`7d8ffc6290aba7afbb6d102c2a3cf9b42c2095f9`（TuXiaoBei 程式從此開始）。
+- 同步後完成基準 hash：`f3ad2c60a09f1ce2f6de581f85721a62c138c3eb`（TuXiaoBei 程式從此開始；FirstAid 精確斷言仍在 `SpiderGoldenTests.swift` 固定清單）。
 
 ## 證據與設計判斷
 
@@ -68,4 +68,13 @@
 
 - 狀態（2026-10-08 18:25 CST）：第一輪 REVISE；第二輪 W-5 REVISE（Reviewer-2，`.herdr-synapse/webhtv-dev/artifacts/w5-tuxiaobei-round2-review-2026-10-08.md`）的 TXB-01～09 已套入本檔。程式尚未實作。2026-10-12：第二輪文件修訂已 commit `3e226e7f`，FirstAid 基準 `7ec799dc` 已同步（HEAD `7d8ffc62`）。
 - Claude 估時 45～60 分鐘（不含 FirstAid 基準同步與 Codex 審查）；已有 sources／fixtures／runner，不再全面研究或找全機暫存。
-- 唯一下一步：Reviewer 核對 TXB-03（完整基準 hash 與上述 Registry 精確斷言）；plan PASS 後才開始實作。
+- 2026-10-12 實作（guard `IOS-POC-57B-2`，未 commit，等 code review 與 GUI）：
+  - 檔案：新 `TuXiaoBei.js`（手機 UA＋Referer；api_* JSONP 以 `jsonp(` 到最後一個 `)` 解析、page 整數化、合法正整數 video_id、remarks 字串化、空頁 pagecount=page；sub_* 只有第 1 頁、上游 pattern b 首見去重、primary 全空才用 bare href；detail／search／player 依上游規則，輸出 canonical id，標題的 `$`／`#` 換成空白；非 200 不解析）、新 `TuXiaoBeiSpiderTests.swift`、`SpiderRegistry.swift` 加 `TuXiaoBei`、`SpiderGoldenTests.swift` 固定清單只加 `TuXiaoBei`。
+  - Fixture：測試 target 沒有 resource 目錄，又不擴大範圍改 `Package.swift`，所以 5 份 live fixture（list-api2-p1.jsonp、subject-17、play-2156、search 兩份）以 raw DEFLATE＋base64 嵌入測試檔，使用前先比對解壓後 sha256 等於上方記錄值；edge 案例都在測試內標明「Synthetic, not live」。
+  - 與工單的差異：非 200 時 adapter 回空，但 runtime 既有規則（`JavaScriptSpiderRuntime.swift:100–106`）會把「分類回空且有失敗請求」轉成 `SiteUnreachable(.httpStatus(404))` 讓 App 顯示站台錯誤，測試照此斷言；詳情非 200 回空 `list`。頁面沒有 mp4 時播放網址放影片 id，播放時再解析（上游是空網址）。
+  - 驗證：RED（舊 registry，8 個新測試因 `canDrive` false 失敗）→ GREEN `swift test --package-path ios --filter 'TuXiaoBeiSpiderTests|registryClaimsOnlyWhatIsActuallyPorted'` exit 0、9/9；鄰近回歸 `SpiderGoldenTests|SpiderPackTests|RuntimePackManifestTests|RuntimeABITests|SpiderHostTests|FirstAidSpiderTests|ShortDramaSpiderTests` exit 0、101 通過。
+  - Ponytail review：1 項 Should fix（`<title>` 備援與缺 mp4 分支沒測試）已補合成 `play/79` 測試並重跑 9/9；結論 Ship。
+  - Simulator GUI（2026-10-12，iPhone 18 Pro／iOS 27.0 `BC4948DD`，證據 `/private/tmp/webhtv-gui-57b2-tuxiaobei/RESULT.md`）：checkout、build 出的 .app、裝進容器三處的 `TuXiaoBei.js` sha256 都是 `57116b5b00cdf84116564ed322ee3fd911eadfc2c6f0e61297a48b2d8c5e22d5`。dianshi 原檔載入後清單有「兔小貝 • 兒童」；首頁前 4 項是 4 個大類，accessibility tree 數到 48 項。大類·兒歌（api_2）載入 30 部，《行教童謠》原生播放 00:08→00:16→00:27；兔小貝原創兒歌（sub_17）載入 266 部，《竹蜻蜓》00:17→00:25；搜尋「我是巧克力」1 部，MPV 00:37→00:46。三個流程都看到畫面與進度前進。Simulator 已還原（`restore-hashes.txt` 逐檔一致）。
+  - 停在 00:00 的根因（使用者經 Manager #840 指定查清）：《苹果乐园》3663 與《我是巧克力》2156 第一次播放卡住。adapter 交給播放器的是 `video-src` 的 http mp4 網址（沒有走「缺 mp4 放 id」的路徑）；檔案本身 200／206 `video/mp4`、ftyp 開頭、moov 在檔頭、H.264 720p＋AAC。同一網址 11:10～11:12 從 Mac curl 也逾時 0 byte、11:13 恢復（`TCP_REFRESH_HIT`），App log 顯示 206 後只收到幾 KB～100 KB 就停住；恢復後兩部片 AVPlayer、MPV 都能播。結論：`resource-cdn.tuxiaobei.com` 邊緣節點間歇停送資料，屬來源／網路，不是 adapter 或播放引擎，adapter 不需修改（證據 `rootcause/`）。順帶記錄（範圍外）：資料沒送到時 App 顯示「這個播放器無法播放此影片」，是 `MPVEngine.swift:251`／`PlaybackEngine.swift:192` 的錯誤分類，另案處理。
+  - 未驗：api_3、api_4、api_25 與其他 43 個專題沒有點進去；CDN 停住的原因只能從回應標頭推測（網路是 iPhone 熱點，沒換有線網路比較）。
+- 唯一下一步：code review 已 PASS（board #837）、GUI 已 PASS；Reviewer 核對 GUI 證據與程式 diff 未再變動後，以 `task_guard.sh finish --no-tag` 本機 commit。

@@ -8,11 +8,11 @@
 
 ## 邊界與基準
 
-- 隔離 repo：/private/tmp/webhtv-tu-xiao-bei，branch ios-poc-tu-xiao-bei，目前 HEAD `d09c7c339558ea1355e0bd911902d6d440c8fa27`（merge：`0ede8b7f`＝FirstAid `176542d5`＋本工單，與 57A-3 `88ea5ce9a48c2453be3df38dd60f5448db4ca4e7`）。
+- 隔離 repo：/private/tmp/webhtv-tu-xiao-bei，branch ios-poc-tu-xiao-bei，實作基準 HEAD `7d8ffc6290aba7afbb6d102c2a3cf9b42c2095f9`（2026-10-12：merge W-1 FirstAid 基準 `7ec799dc6cdab7d2b67620c5e089eb7097339ceb` 進 `3e226e7fdac7423e7528629a01cc272bb885569f`（本檔第二輪修訂）；舊基準 `d09c7c339558ea1355e0bd911902d6d440c8fa27`）。
 - 可寫產品／測試路徑：ios/Sources/WebHTVCore/Resources/Spiders/TuXiaoBei.js、ios/Sources/WebHTVCore/Spider/SpiderRegistry.swift、ios/Tests/WebHTVCoreTests/TuXiaoBeiSpiderTests.swift、ios/Tests/WebHTVCoreTests/SpiderGoldenTests.swift；文件僅本檔。
 - 不改 ConfigLoader、host.js、runtime、播放器引擎、選站、spider-pack 或其他 adapter；不新增通用 parser／helper。不觸碰主 checkout、原 AGY worktree／guard／dirty 檔。
-- **FirstAid 基準前置（TXB-03）**：本 HEAD 的 SpiderGoldenTests.swift:197–201 固定清單缺 FirstAid；主 checkout 的修正（FA-INTEGRATE-001）已審查 APPROVED，但仍是未提交的 merge（W-1 因權限 blocked）。**目前不能宣稱 main 已完成 merge。** 順序：W-1 在 ios-poc 產生 FirstAid merge commit → Claude 在原授權內把該 commit 同步（merge）進本隔離 branch，記錄完整 hash → 才開始 TuXiaoBei 程式。TuXiaoBei 的功能 commit 只新增 TuXiaoBei，不順帶修 FirstAid；清單保持整份精確斷言。
-- 同步後完成基準 hash：**待 W-1**（同步時填入）。
+- **FirstAid 基準前置（TXB-03，已同步）**：W-1 已在 ios-poc 產生 FirstAid merge commit `7ec799dc6cdab7d2b67620c5e089eb7097339ceb`（parents `88ea5ce9`／`176542d5`），Claude 已在原授權內同步進本隔離 branch。`git diff 7ec799dc HEAD` 只有本檔，程式與測試樹和 `7ec799dc` 完全相同，因此沿用 W-1 已通過的 native proof、不重跑。Registry 精確斷言：`SpiderRegistry.swift:91–92` 註冊 `"FirstAid"`；`SpiderGoldenTests.swift:197–201` 整份固定清單含 `"FirstAid"`（:198，位於 `"Feiyu"` 與 `"GuaziTY"` 之間）。TuXiaoBei 的功能 commit 只新增 TuXiaoBei，不順帶修 FirstAid；清單保持整份精確斷言。
+- 同步後完成基準 hash：`7d8ffc6290aba7afbb6d102c2a3cf9b42c2095f9`（TuXiaoBei 程式從此開始）。
 
 ## 證據與設計判斷
 
@@ -66,6 +66,6 @@
 
 僅增一個 source 與資源，無依賴、Host ABI 或解碼／渲染改動。先離線 → 一個 GUI 流程 → 本機 commit／main 整合；不發版。回滾只 revert TuXiaoBei 的 logical commit：此站回到未支援，FirstAid 基準與其精確斷言保留，其餘能力不變。
 
-- 狀態（2026-10-08 18:25 CST）：第一輪 REVISE；第二輪 W-5 REVISE（Reviewer-2，`.herdr-synapse/webhtv-dev/artifacts/w5-tuxiaobei-round2-review-2026-10-08.md`）的 TXB-01～09 已套入本檔。程式尚未實作；FirstAid 基準尚未提交（W-1 blocked）。
+- 狀態（2026-10-08 18:25 CST）：第一輪 REVISE；第二輪 W-5 REVISE（Reviewer-2，`.herdr-synapse/webhtv-dev/artifacts/w5-tuxiaobei-round2-review-2026-10-08.md`）的 TXB-01～09 已套入本檔。程式尚未實作。2026-10-12：第二輪文件修訂已 commit `3e226e7f`，FirstAid 基準 `7ec799dc` 已同步（HEAD `7d8ffc62`）。
 - Claude 估時 45～60 分鐘（不含 FirstAid 基準同步與 Codex 審查）；已有 sources／fixtures／runner，不再全面研究或找全機暫存。
-- 唯一下一步：Reviewer-2 復核本檔短 diff；W-1 產生 FirstAid merge commit 後，Claude 同步該基準並回報完整 hash 與 Registry 精確斷言，兩項成立後 plan PASS，才開始實作。
+- 唯一下一步：Reviewer 核對 TXB-03（完整基準 hash 與上述 Registry 精確斷言）；plan PASS 後才開始實作。

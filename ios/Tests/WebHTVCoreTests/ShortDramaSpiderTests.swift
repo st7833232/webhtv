@@ -35,7 +35,9 @@ final class ShortDramaSite: URLProtocol, @unchecked Sendable {
             "4kyszx.top", "doh.pub", "app.nyafun.vip", "yzy0916.n0z6fkpuk.com",
             "api.46d5umpk.com", "www.mdzyapi.com", "api-h5.uvod.tv",
             // IOS-POC-57A(-1): Bili's API, and the local hosts a TVBox cookie URL names, so a fetch of one would show.
-            "api.bilibili.com", "127.0.0.1", "localhost"].contains(host)
+            "api.bilibili.com", "127.0.0.1", "localhost",
+            // W-67: the rest of loopback, IPv6 loopback and the unspecified address, likewise.
+            "127.1.2.3", "::1", "0.0.0.0"].contains(host)
     }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func stopLoading() {}
@@ -1044,6 +1046,20 @@ private func sha256(_ text: String) -> String {
     #expect(ShortDramaSite.requests(to: "/x/web-interface/search/type").contains {
         $0.headers.first { $0.key.lowercased() == "cookie" }?.value == "SESSDATA=remote"
     })
+}
+
+// W-67: one check guards both the cookie URL and an `ext` that is itself a URL, and it covers all of
+// 127.0.0.0/8, [::1] and 0.0.0.0, not just 127.0.0.1 and localhost.
+@Test func biliFetchesNoLocalExtURLAndNoLocalCookieURL() async throws {
+    let local = ["http://127.0.0.1:9978/file/xyq.json", "http://127.1.2.3:9978/file/xyq.json",
+                 "http://[::1]:9978/file/xyq.json", "http://0.0.0.0:9978/file/xyq.json"]
+    for url in local {
+        _ = try await spider("Bili", extend: #"{"n":"哔哩合集","cookie":"\#(url)"}"#)
+        _ = try await spider("Bili", extend: url)
+    }
+    for host in ["127.0.0.1", "127.1.2.3", "::1", "0.0.0.0"] {
+        #expect(ShortDramaSite.requests(host: host).isEmpty, "fetched \(host)")
+    }
 }
 
 // IOS-POC-57A-2: CatVod splits episodes on `#` and an episode's name from its address on `$`, so a

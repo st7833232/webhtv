@@ -115,6 +115,13 @@ var spider = (function () {
     return host.result.page(searchList(data.result), page || '1');
   }
 
+  // TVBox's own file server (`http://127.0.0.1:9978/file/…`) and its `clan://` storage cannot exist
+  // here, so a URL on a loopback or unspecified address is never fetched: the request could only
+  // fail, and every later empty page would report it as the reason.
+  function isLocal(url) {
+    return /^https?:\/\/(127(\.\d{1,3}){3}|localhost|\[::1\]|0\.0\.0\.0)([:/?#]|$)/i.test(url) || /^clan:/i.test(url);
+  }
+
   return {
     init: function (extend) {
       var ext = {};
@@ -123,18 +130,15 @@ var spider = (function () {
       cfg.home = BUILTIN[ext.n] || null;
       // qist/tvbox `XYQ.jar`: `ext` is the URL of `{"cookie", "classes", "filter"}` itself.
       var source = String(extend || '').trim();
-      if (source.indexOf('http') === 0) {
+      if (source.indexOf('http') === 0 && !isLocal(source)) {
         var doc = host.get(source, { timeout: 20000 }).json || {};
         cfg.home = { 'class': doc.classes || [], filters: doc.filter || {} };
         ext.cookie = doc.cookie;
       }
       var cookie = String(ext.cookie || '');
-      // A `cookie` that is a URL points at `{"cookie": "…"}`. TVBox's own file server
-      // (`http://127.0.0.1:9978/file/…`) and its `clan://` storage cannot exist here, so neither they
-      // nor any other URL whose host is `127.0.0.1` or `localhost` are fetched: the request could only
-      // fail, and every later empty page would report it as the reason. The anonymous buvid3 below
-      // carries the session, as it does on Android.
-      if (/^https?:\/\/(127\.0\.0\.1|localhost)([:/?#]|$)/i.test(cookie) || /^clan:/i.test(cookie)) {
+      // A `cookie` that is a URL points at `{"cookie": "…"}`. A local one is dropped and the anonymous
+      // buvid3 below carries the session, as it does on Android.
+      if (isLocal(cookie)) {
         cookie = '';
       } else if (cookie.indexOf('http') === 0) {
         var fetched = host.get(cookie, { timeout: 10000 }).json || {};

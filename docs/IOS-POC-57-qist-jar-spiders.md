@@ -32,6 +32,12 @@
 - **完成邊界**：只核准本局部分類 adapter 功能；fixture 證據不代表原始 qist `XYQ.json` 已可載入或完整產品需求已驗收。Findings 1、2 仍未修復。
 - **Next**：以 guard `IOS-POC-57A-3` 跑 `finish --no-tag` 提交本局部分類功能；接續將已通過 GUI 的 FirstAid 整合回 `ios-poc`。ConfigLoader 修復需另行確認範圍。
 
+### 2026-10-08 主分支收尾
+
+- IOS-POC-57A-3 已提交 `88ea5ce9a48c2453be3df38dd60f5448db4ca4e7`（無 tag／push）；局部分類功能已核准，原始 XYQ.json 載入仍未驗收。
+- FirstAid 唯一任務文件：[IOS-POC-57B-1-firstaid.md](IOS-POC-57B-1-firstaid.md)。隔離修復 `176542d5` 已通過 native 1/1 與原始 dianshi.json 的 Simulator 首頁／分類／詳情／播放，現以 guard `IOS-POC-57B-1-INTEGRATE` 整合回 `ios-poc`；主分支 focused proof exit 0、1/1（`/private/tmp/webhtv-firstaid-main-proof.log`），待 final inspect。
+- 下一個候選 TuXiaoBei 的唯讀證據在 `/private/tmp/webhtv-qist-next-candidate.md`；CDN URLSession 206／ftyp 與 AVAsset 可播已確認，只限本機網路，尚未核准產品實作。
+
 ### 暫停 checkpoint（2026-10-08 11:47 CST，前一版）
 
 - **Goal**：接續 qist/tvbox 兩項任務：(1) IOS-POC-57A-3 XYQHiker JSON 分類模式（兔小贝）；(2) FirstAid（AGY 獨立 worktree）的 P1 修復。

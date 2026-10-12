@@ -4,7 +4,18 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-08 GUI 證據已審查，局部分類核准（先讀這一節）
+## Current handoff — FirstAid 主分支整合
+
+- XYQHiker 局部分類已提交 `88ea5ce9a48c2453be3df38dd60f5448db4ca4e7`，fresh inspect APPROVED；原始 XYQ.json 仍受 ConfigLoader 註解／全 type-3 驗證阻塞。
+- FirstAid 的 incoming 為 `176542d5ec1aac4a96669c60b81b480f317a73f7`，native 與原始 dianshi.json GUI 已通過；已在 ios-poc 以 `git merge --no-commit --no-ff` 合併 tree，尚未提交。Guard `IOS-POC-57B-1-INTEGRATE` active。
+- 範圍為 FirstAid JS／測試／Registry 與 3 份任務紀錄，原 AGY worktree 3 個 dirty 檔保護；沒有 tag／push／發布。
+- Claude 下一候選唯讀評估已交付 TuXiaoBei；CDN 閘門以 URLSession 206 video/mp4、ftyp 與 AVAsset isPlayable 通過（限本機網路）。候選仍未授權產品實作，證據 `/private/tmp/webhtv-qist-next-candidate.md`。
+- 主分支 `swift test --package-path ios --filter FirstAidSpiderTests` 已通過：exit 0、1/1、0 failures，完整 log `/private/tmp/webhtv-firstaid-main-proof.log`。
+- 唯一下一步：fresh inspect 整合 diff，PASS 後以 guard 產生本機 merge commit，不重跑成功 proof。
+- 合併審查 FA-INTEGRATE-001：使用者已核准新增 SpiderGoldenTests.swift 路徑；Claude 補 FirstAid 固定預期清單，Codex 的 Registry proof exit 0、1/1（`/private/tmp/webhtv-firstaid-registry-proof.log`）。待第二輪 inspect，FirstAid flow／GUI 未重跑。
+- 第二輪 FirstAid final inspect 已 `APPROVED`、0 finding，Ponytail 無必須修正項。現在以 guard 產生本機 merge commit，接續使用者已核准的 TuXiaoBei 57B-2，無 tag／push／發布。
+
+## Previous handoff — 2026-10-08 GUI 證據已審查，局部分類核准
 
 - **Goal**：Codex 派發的 GUI 驗收：(1) 主 checkout App 的兔小贝 XYQHiker 分類；(2) 隔離 FirstAid checkout `176542d5` 的首頁、分類、詳情、播放。
 - **Result**：

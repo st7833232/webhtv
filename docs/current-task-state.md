@@ -4,7 +4,82 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-12 11:42 CST：Manager 派工佇列、push 紀錄、W-45 狀態（先讀這一節）
+## Current handoff — 2026-10-12 15:07 CST：0.1.74 (75) 已發布、W-58／W-65 push 授權、W-59～W-64 設計佇列（先讀這一節）
+
+撰寫者：herdr 團隊 `webhtv-dev` 的 Manager（`webhtv-dev-claude-manager`）。只記 Manager 視角的協調狀態；工單細節在 `.herdr-synapse/webhtv-dev/artifacts/` 與各 `docs/<TASK-ID>-*.md`。
+
+### Resume Prompt
+你是 herdr 團隊 `webhtv-dev` 的 Manager（`webhtv-dev-claude-manager`）。先跑 `herdr-synapse orient`、`herdr-synapse board --new`、`herdr-synapse ack`，再讀本節、`.herdr-synapse/webhtv-dev/artifacts/manager-plan-2026-10-12.md`、`manager-git-cleanup-state-2026-10-12.md`（push／發布授權與結果）與 `team-collab-rules-2026-10-12.md`（長期協作規範）。0.1.74 (75) 已發布並核對完成。目前 Developer 做 W-58 BeiLeHu 實作；之後 W-65（merge origin 的 `774f2ae3`＋版號＋發布紀錄）、再 W-59～W-64 六個設計。待辦授權：W-58 與 W-65 都 Reviewer PASS 後 push W-65 的已審 SHA（只用一次）。W-58 審過要向使用者回報含 Simulator 實播證據；六個設計都審過要一次整理每站重點與風險給使用者決定。用台灣繁體中文回覆，next steps 用編號選項、建議項放第一並標「（建議）」。
+
+### 1. Original Goal
+- 使用者：管理 webhtv-dev 團隊持續推進 qist 來源移植與 iOS 發版；本次要求把 0.1.74 發布結果、W-58／W-65 push 授權、W-59～W-64 設計佇列寫進本檔。
+
+### 2. Current Scope
+- 分支 `ios-poc`；本機 HEAD `282aa692`；origin/ios-poc `774f2ae3`（release workflow 推的 source.json commit，本機尚未整合）。
+- 工作樹：W-58 guard `QIST-BEILEHU-IMPL`（status active，base_head `282aa692`）的未 commit 改動：`ios/Sources/WebHTVCore/Spider/SpiderRegistry.swift`、`ios/Tests/WebHTVCoreTests/SpiderGoldenTests.swift`、`scripts/spider_pack.py`、`spider-pack/manifest.json`、新檔 `ios/Sources/WebHTVCore/Resources/Spiders/BeiLeHu.js`、`ios/Tests/WebHTVCoreTests/BeiLeHuSpiderTests.swift`、`spider-pack/scripts/BeiLeHu.js`。
+- 本節（`docs/current-task-state.md`）是 Manager 在 W-58 guard 開著時寫入的未 commit 改動，**不在 W-58 scope**，會擋 W-58 finish；處理方式見第 10 節。
+
+### 3. Non-Negotiable Constraints
+- push 只推 Reviewer 已審的確切 SHA：`git push origin <sha>:ios-poc`；先確認快轉且範圍全已審；不 force、不改寫已發布歷史。
+- 每次 push／發布都要使用者授權，授權只用一次；正式發布（tag、GitHub Release、IPA）前須使用者核准（`team-collab-rules-2026-10-12.md` 第四節）。
+- 不建 recovery tag（guard `--no-tag`）；不併 main。
+- 例行 done／commit／PASS／FAIL／merge／交接只走 board，不發 `--to human`（knowledge F-2）。context 剩餘低於 20% 停在安全點、寫交接、通報 Manager（F-1）。
+- 不讀、不操作隊友 pane；權限分類器拒絕不得改由其他 agent 繞過。
+- Release notes 只寫能力，不寫站名、設定檔名、站數、成人內容。
+
+### 4. Important Decisions
+- 0.1.74 (75) 版號只用 workflow 參數覆寫（`MARKETING_VERSION`／`CURRENT_PROJECT_VERSION`），沒有另做版號 commit，發布的就是授權的 `282aa692`；專案檔版號由 W-65 補正。
+- W-65 必須等 W-58 commit 後才做：現在把 origin 的 `774f2ae3` 拉進本機會改 HEAD、打壞 W-58 guard。W-65 用 `git merge origin/ios-poc` 整合，不 rebase。
+- 使用者選 1（14:4x）：BeiLeHu 核准實作（W-58）；其他 6 個 gate PASS 的站先做設計（W-59～W-64），全部審完一次交使用者決定。Web1905 外部 BLOCKED 結案。
+- 本機 `.git/info/exclude` 已加 `/.herdr-synapse/`，guard 不再把團隊檔當受保護 dirty。
+- push 的「依既有授權」解讀：只推使用者授權過的已審 SHA，不是長期 push 授權（使用者 14:3x 選 1 確認）。
+
+### 5. Files Read
+- `.github/workflows/ios-sidestore-release.yml`（:90–107 xcodebuild 覆寫版號；:167–195 發布後 commit／push `source.json` 到 ios-poc）。
+- `.herdr-synapse/webhtv-dev/artifacts/ipa-prep-0.1.74-75.md`（§2 測試、§3 release notes、§5 已驗未驗）、`w57-ipa-prep-review-2026-10-12.md`、`qist-beilehu-gate-2026-10-12.md`（D1–D6，sha256 `1fbc0430…`）。
+- `docs/IOS-POC-11-sidestore-release.md`（檔頭 Current release 仍是 0.1.73 (74)）。
+
+### 6. Files Modified
+- 本次 Manager：`docs/current-task-state.md`（本節，未 commit）；`.herdr-synapse/webhtv-dev/artifacts/manager-git-cleanup-state-2026-10-12.md`、`manager-plan-2026-10-12.md`、`team-collab-rules-2026-10-12.md`（untracked、已 exclude）。
+- 本機 `.git/info/exclude`（不進 repo）。
+
+### 7. Current Diff Summary
+- 已 push 到 origin（本節前完成）：`c1767915..4fb33c62`（W-37 系列、交接文件、W-7）、`4fb33c62..282aa692`（W-39 `0a3596f7`、W-44 `282aa692`）；workflow 再推 `774f2ae3`（source.json）。
+- 未 commit：W-58 的 7 個檔（Developer，guard active）＋本節。
+
+### 8. Completed Work
+- **0.1.74 (75) 已發布並核對**：run `38214692660` success（06:52:26Z→07:00:15Z，headSha `282aa692`）；tag `ios-v0.1.74-b75` → `282aa692`；Release「WebHTV 0.1.74 (75)」07:00:04Z 公開、非 draft／prerelease；`WebHTV-0.1.74-75.ipa` 35,393,349 bytes，sha256 `c3cd18c0f9e9917e3f0db22697e80103e852b447abd579e113de35bbfc94692c`（Manager 下載重算相符）；Info.plist `com.webhtv.ios.poc`／0.1.74／75／minimum iOS 17.0、Payload 只有 WebHTVApp.app、Gulu.js 前綴 `a7ac0978` 與 checkout 相同；`source.json` commit `774f2ae319e6d3a3f20a2f22154070cae0aadfa8`，0.1.74 在 versions 第一筆；release notes 與 W-57 已審草稿逐字相同。核對值已貼 board #1162 供 W-65 照抄。
+- W-37（`83a0c584`＋`4fb33c62`）、W-7、W-39、W-44（code＋GUI，#1114）、W-57（含 IOS-POC-57 系列 `91364cd6`／`c7512240`／`50b31b79` 補審，#1141）全部 Reviewer PASS。
+- 資料閘門 W-48～W-55 全部結算：BeiLeHu、SportsKafei、AppLY、ShortXingya、SportsFeiqiu、TingBokan、QingtingFM PASS；Web1905 外部 BLOCKED。W-56 BeiLeHu 設計 PASS。
+- 團隊長期規範寫入 `team-collab-rules-2026-10-12.md`（sha256 `aafa90c0…`），knowledge F-2 指向它；F-1 為 context 20% 規則。
+
+### 9. Remaining Work（Developer 依序）
+1. **W-58** QIST-BEILEHU-IMPL（進行中）：依 W-56 設計；驗收含 D5 八組單元測試與 Simulator 實播（首頁推薦海報含 `@c_1…`、儿歌列表、`res1` 與 `resvd` 各播一部、從觀看紀錄重開、證明是這個 build）。
+2. **W-65** IOS-RELEASE-RECORD-0.1.74（依賴 W-58）：`git merge origin/ios-poc`（帶進 `774f2ae3`）→ guard commit：`ios/WebHTVApp/WebHTVApp.xcodeproj/project.pbxproj` 版號 4 行改 0.1.74／75（比照 `a2541ddf`）＋`docs/IOS-POC-11-sidestore-release.md` 檔頭與「第七十五次發布」段（照抄 #1162）。建議同一 guard 把本節也一併 commit（見第 10 節）。
+3. **W-59～W-64** 設計（只設計）：SportsKafei、AppLY、ShortXingya、SportsFeiqiu、TingBokan、QingtingFM，各寫進該站 gate 文件新設計節（比照 W-56 D1–D6）。
+4. 其後既有佇列：W-40 FOLDER-IMPL、W-43 DUBOKU-IMPL（ready），W-41 Ikanbot／W-42 Djuu（等 W-40）。
+
+### 10. Open Questions / Blockers
+- **本節會擋 W-58 finish**（SCOPE_VIOLATION：`docs/current-task-state.md` outside declared scope）。處理：W-58 準備 finish 時，Manager 把本節 diff 存成 `.herdr-synapse/webhtv-dev/artifacts/manager-current-task-state-section-1507.patch` 並 `git checkout -- docs/current-task-state.md`；W-65 把 `docs/current-task-state.md` 納入 scope、`git apply` 該 patch 後一起 commit。
+- 待使用者：W-58 結果（含實播證據）回報；六個設計審完後選擇實作哪幾個；是否發 IPA 以外的後續（併 main、第二位 Developer）仍未決定。
+
+### 11. Build / Test / Verification Status
+- 0.1.74：device Release unsigned 建置成功；Core 全測試 1083 個、1 個 `MediaSnifferTests.capturesASubtitleRequestedJustAfterTheMediaURL` 時序不穩（單獨重跑 17 個全過、本版未改該檔）；Simulator 實播 Gulu（W-44）、TuXiaoBei（W-2）。**真機未驗收**；W-39 帶標頭海報 GUI 未驗（隨 W-41）；Gulu 的 MPV、其他分類／篩選／翻頁／線路未驗。
+- W-58：Unknown（實作中，尚未交件）。
+
+### 12. Risks
+- js.host 1.4（Gulu 原語）已隨 0.1.74 發出，日後移除屬 major。
+- 本機 HEAD 落後 origin 一個 workflow commit；W-65 merge 前任何 push 都會被拒（非快轉），不可 force。
+- ShortXingya 共用寫死裝置資料可能被封鎖；SportsFeiqiu RTMP 只有靜態推論；SportsKafei 直播線在本網路疑被 FortiGuard 擋。
+- 專案檔版號暫時是 0.1.73 (74)，與已發布 IPA 不一致，直到 W-65 commit。
+
+### 13. Next Recommended Step
+- 等 board：W-58 交件與 Reviewer PASS → 向使用者回報（含 Simulator 證據）；W-58 準備 finish 時依第 10 節移走本節。W-65 PASS 後依授權 push 其已審 SHA 並回報。
+
+### 14. Resume Prompt
+見本節開頭「Resume Prompt」。
+
+## Previous handoff — 2026-10-12 11:42 CST：Manager 派工佇列、push 紀錄、W-45 狀態（先讀這一節）
 
 撰寫者：herdr 團隊 `webhtv-dev` 的 Manager（`webhtv-dev-claude-manager`）。本節只記錄 Manager 視角的協調狀態；各工單的實作細節在 `.herdr-synapse/webhtv-dev/artifacts/` 與各 `docs/<TASK-ID>-*.md`。
 

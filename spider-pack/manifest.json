@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-08.2",
+  "version": "2026-10-12.1",
   "minHostApi": 2,
   "scripts": [
     {
@@ -73,6 +73,13 @@
       "jarSha256": "90f70a10123456a97e4d9dac8270bf9e533259c3e157a8f6b67cf1dadc3e41fc"
     },
     {
+      "class": "FirstAid",
+      "path": "./scripts/FirstAid.js",
+      "sha256": "ab0646a592cf82956b62c7325b5bff1c27ea6e75cecb5a1eb92b0fe63a1ee8ff",
+      "originJar": "spider.jar",
+      "jarSha256": "391065e92e19437e73109e9d3c79feff6676baa8ed4fec3cdb04f4e7cca77314"
+    },
+    {
       "class": "GuaziTY",
       "path": "./scripts/GuaziTY.js",
       "sha256": "379175d593aa9ef113582c578f5ddff06762b049bb424b9cf9296f459922aa1a",
@@ -132,6 +139,13 @@
       "sha256": "404231482d9ce760b9371e2e9dad167555059e6e62da57311fad87ad313dd606",
       "originJar": "xiaosa-0807.jar",
       "jarSha256": "90f70a10123456a97e4d9dac8270bf9e533259c3e157a8f6b67cf1dadc3e41fc"
+    },
+    {
+      "class": "TuXiaoBei",
+      "path": "./scripts/TuXiaoBei.js",
+      "sha256": "57116b5b00cdf84116564ed322ee3fd911eadfc2c6f0e61297a48b2d8c5e22d5",
+      "originJar": "spider.jar",
+      "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"
     },
     {
       "class": "Uvod",

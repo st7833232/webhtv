@@ -73,6 +73,11 @@ DEFAULT_ORIGINS = {
     "Uvod":     {"originJar": "custom_spider.jar",
                  "jarSha256": "fd624e376b63c9a942ab27f31caf5a8163ae633490f3c47c30eb5935bb096b02",
                  "minHostApi": 3, "notes": "RSA PKCS#1 private-key decryption of every reply"},
+    # IOS-POC-57B-1/57B-2 (qist): two spider.jar builds, each digest from its own task document.
+    "FirstAid":  {"originJar": "spider.jar",
+                  "jarSha256": "391065e92e19437e73109e9d3c79feff6676baa8ed4fec3cdb04f4e7cca77314"},
+    "TuXiaoBei": {"originJar": "spider.jar",
+                  "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"},
 }
 
 # What the app reads from a mapping (`SpiderPack.ClassMapping`). `evidence` is provenance only.

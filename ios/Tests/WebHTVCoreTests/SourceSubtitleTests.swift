@@ -111,6 +111,14 @@ private func play(_ json: String) throws -> [SourceSubtitle] {
     #expect(provider.acceptsDownload(from: URL(string: "https://files.example/a.srt")!))
 }
 
+/// W-38: a CR or LF in a header's name or value would inject another header, and Swift reads "\r\n"
+/// as one `Character`, so the check is on scalars. Same origin, so only that check can drop these.
+@Test func aHeaderCarryingCROrLFIsNeverForwarded() {
+    let url = URL(string: "https://cdn.example/a.srt")!
+    let headers = ["X-Pair": "a\r\nb", "X-CR": "a\rb", "X-LF": "a\nb", "X-Name\r\n": "v", "X-Ok": "fine"]
+    #expect(SourceSubtitleProvider.forwarded(headers, to: url, media: url).map(\.0) == ["X-Ok"])
+}
+
 // MARK: - The default (FongMi/TV c616c0aa `MediaItemFactory.SubtitleFlags`)
 
 private func chosen(_ subs: [SourceSubtitle], device: String?) -> String? {

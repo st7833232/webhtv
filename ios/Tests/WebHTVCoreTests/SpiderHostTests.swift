@@ -143,6 +143,69 @@ private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScri
     #expect(out["enc"] as? String == "a b&c")
 }
 
+/// The same `CCCrypt` call made directly, as the reference the host must match byte for byte.
+private func directCipher(_ algorithm: Int, _ options: CCOptions, key: String, iv: Data?, _ input: Data,
+                          block: Int) -> String {
+    let keyData = Data(key.utf8)
+    var out = Data(count: input.count + block)
+    let capacity = out.count
+    var moved = 0
+    let status = out.withUnsafeMutableBytes { o in
+        input.withUnsafeBytes { s in
+            keyData.withUnsafeBytes { k in
+                (iv ?? Data()).withUnsafeBytes { i in
+                    CCCrypt(CCOperation(kCCEncrypt), CCAlgorithm(algorithm), options, k.baseAddress, keyData.count,
+                            iv == nil ? nil : i.baseAddress, s.baseAddress, input.count, o.baseAddress, capacity, &moved)
+                }
+            }
+        }
+    }
+    precondition(status == kCCSuccess)
+    return out.prefix(moved).base64EncodedString()
+}
+
+/// QIST-CRYPTO-IV: CommonCryptor.h says an IV is one block long and ignored in ECB. Every input that
+/// worked keeps its exact result; a short CBC IV is refused before `CCCrypt` could read past it.
+@Test func keepsEveryWorkingIVAndRefusesAShortOne() async throws {
+    let key = "#getapp@TMD@2025", iv = "0200010900030207", plain = Data("iv text".utf8)
+    let pkcs7 = CCOptions(kCCOptionPKCS7Padding), ecb = pkcs7 | CCOptions(kCCOptionECBMode)
+    let desCipher = directCipher(kCCAlgorithmDES, pkcs7, key: "12345678", iv: Data("abcdefgh".utf8),
+                                 Data("des text".utf8), block: kCCBlockSizeDES)
+    let spider = try runtime("""
+    module.exports = {
+      init: function () { return ''; },
+      homeContent: function () {
+        var key = '\(key)', iv = '\(iv)';
+        var cipher = host.aesEncrypt('iv text', key, iv, 'CBC');
+        return {
+          cbc16: cipher,
+          cbcEmpty: host.aesEncrypt('iv text', key, '', 'CBC'),
+          cbcLong: host.aesEncrypt('iv text', key, iv + 'X', 'CBC'),
+          cbcShort: host.aesEncrypt('iv text', key, iv.slice(0, 15), 'CBC'),
+          cbcShortDecrypt: host.aesDecrypt(cipher, key, iv.slice(0, 15), 'CBC', 'base64'),
+          ecbWithIV: host.aesEncrypt('iv text', key, 'short', 'ECB'),
+          ecbNoIV: host.aesEncrypt('iv text', key, '', 'ECB'),
+          des8: host.desDecrypt('\(desCipher)', '12345678', 'abcdefgh', 'CBC'),
+          des7: host.desDecrypt('\(desCipher)', '12345678', 'abcdefg', 'CBC')
+        };
+      }
+    };
+    """)
+    let out = try #require(try JSONSerialization.jsonObject(
+        with: Data(try await spider.homeContent(filter: true).utf8)) as? [String: Any])
+
+    let aes = kCCAlgorithmAES, block = kCCBlockSizeAES128
+    #expect(out["cbc16"] as? String == directCipher(aes, pkcs7, key: key, iv: Data(iv.utf8), plain, block: block))
+    #expect(out["cbcEmpty"] as? String == directCipher(aes, pkcs7, key: key, iv: Data(count: block), plain, block: block))
+    #expect(out["cbcLong"] as? String == out["cbc16"] as? String)
+    #expect(out["ecbWithIV"] as? String == directCipher(aes, ecb, key: key, iv: nil, plain, block: block))
+    #expect(out["ecbNoIV"] as? String == out["ecbWithIV"] as? String)
+    #expect(out["des8"] as? String == "des text")
+    #expect(out["cbcShort"] as? String == "")
+    #expect(out["cbcShortDecrypt"] as? String == "")
+    #expect(out["des7"] as? String == "")
+}
+
 /// `csp_App99` ships `base64(iv‖ciphertext)` under a fresh IV per request and reads the reply the
 /// same way, which is the one cipher shape the string-IV helpers cannot express.
 @Test func carriesTheIVInFrontOfTheCiphertextTheWayApp99Does() async throws {

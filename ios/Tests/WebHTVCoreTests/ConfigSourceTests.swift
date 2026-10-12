@@ -52,7 +52,22 @@ private let base = "https://example.com/group/project/-/raw/main/"
     // native CMS at all.
     let useless = Data(#"{"sites":[{"key":"s","name":"s","type":3,"api":"csp_Test"},{"key":"x","name":"x","type":2,"api":"https://example.com/live"}]}"#.utf8)
     #expect(throws: ConfigLoaderError.noSupportedSites) { try ConfigLoader.validate(useless) }
+    #expect(throws: ConfigLoaderError.noSupportedSites) { try ConfigLoader.validate(Data(#"{"sites":[]}"#.utf8)) }
     #expect(throws: (any Error).self) { try ConfigLoader.validate(Data("not json".utf8)) }
+}
+
+/// QIST-TYPE3: qist XYQ.json is all type-3. Its registered classes make it usable on their own;
+/// the unknown class next to them still counts for nothing.
+@Test func validationAcceptsASpiderOnlyConfigTheRegistryDrives() throws {
+    let spiderOnly = Data(#"""
+    {"sites":[
+      {"key":"csp_JianPian","name":"荐片","type":3,"api":"csp_JianPian","ext":"http://39.108.238.168:20000"},
+      {"key":"csp_Unknown","name":"Unknown","type":3,"api":"csp_NoSuchClassQistType3"}
+    ]}
+    """#.utf8)
+    let config = try ConfigLoader.validate(spiderOnly)
+    #expect(config.nativeCMSSites.isEmpty)
+    #expect(config.spiderSites(resolvedBy: CSPSourceResolver()).map(\.key) == ["csp_JianPian"])
 }
 
 @Test func countsTheSupportedSitesOfTheSuppliedConfig() throws {

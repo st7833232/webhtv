@@ -98,6 +98,8 @@ public struct SpiderRegistry: Sendable {
         "BeiLeHu",      // http-json: spider.jar (JSON POST; static mp4)
         // IOS-POC-57B-5: 独播库 影視
         "Duboku",       // http-json: spider.jar (Java-Random-signed GET; HLS)
+        // IOS-POC-57B-9: 博看听书, the first audio-only source (plain-HTTP m4a)
+        "TingBokan",    // http-json: spider.jar (paged album units; no expiry)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

@@ -47,14 +47,15 @@
       var res = host.post('https://webbff.qtfm.cn/www', body, {
         headers: Object.assign({ 'Content-Type': 'application/json' }, HEADERS), timeout: 15000
       });
-      var d = json(res).data, items = d && d.radioPage && d.radioPage.contents && d.radioPage.contents.items;
-      var list = [];
-      (Array.isArray(items) ? items : []).forEach(function (item) {
+      var d = json(res).data, found = d && d.radioPage && d.radioPage.contents && d.radioPage.contents.items;
+      var items = Array.isArray(found) ? found : [], list = [];
+      items.forEach(function (item) {
         if (!item || typeof item !== 'object' || !DIGITS.test(text(item.id))) return;
         list.push({ vod_id: text(item.id), vod_name: text(item.title), vod_pic: image(item.imgUrl), vod_remarks: text(item.desc) });
       });
-      // Upstream's paging: a full page of 12 means there may be another (:45).
-      return host.result.page(list, page, list.length < 12 ? page : page + 1, 12, 0);
+      // Upstream's paging on the raw item count: a full page of 12 means there may be another (:45), even
+      // when a malformed station on it was skipped (W77-N1).
+      return host.result.page(list, page, items.length < 12 ? page : page + 1, 12, 0);
     },
 
     detailContent: function (ids) {

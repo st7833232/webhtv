@@ -138,6 +138,15 @@ private func stations(_ items: [Any]) throws -> Data {
         #expect(page["page"] as? Int == 3 && page["pagecount"] as? Int == 3)
     }
 
+    // W77-N1: upstream pages on the raw item count (QingtingFM.java:45), so one malformed station on a full page
+    // must not stop paging.
+    @Test func aFullPageWithOneBadStationStillOffersTheNextPage() async throws {
+        let items: [Any] = (1...11).map { ["id": $0, "title": "台\($0)"] } + [["id": "x", "title": "坏 id"]]
+        QtfmSite.serve(["/www": try stations(items)])
+        let page = try object(try await qingtingFM().categoryContent(tid: "217", page: "2", filter: false, extend: [:]))
+        #expect((page["list"] as? [Any])?.count == 11 && page["pagecount"] as? Int == 3)
+    }
+
     @Test func aStationsDetailPlaysItsOwnId() async throws {
         QtfmSite.serve(["/api/pc/radio/1259": try radio1259()])
         let vod = try #require(try list(try await qingtingFM().detailContent(ids: ["1259"])).first)

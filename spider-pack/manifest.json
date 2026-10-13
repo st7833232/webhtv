@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-13.4",
+  "version": "2026-10-13.5",
   "minHostApi": 2,
   "scripts": [
     {
@@ -195,6 +195,13 @@
       "class": "TingBokan",
       "path": "./scripts/TingBokan.js",
       "sha256": "9f634581889a548a8bf071e999e1ec0b440fea02e3f0694eb79ab0628c174797",
+      "originJar": "spider.jar",
+      "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"
+    },
+    {
+      "class": "TingJinxia",
+      "path": "./scripts/TingJinxia.js",
+      "sha256": "63f7d24b97e431403cd0a5ebc793947c191a18e2c22e1550a40bcf7a3f78b8be",
       "originJar": "spider.jar",
       "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"
     },

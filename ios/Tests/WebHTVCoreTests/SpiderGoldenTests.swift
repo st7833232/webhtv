@@ -197,7 +197,7 @@ private func playURL(_ value: Any?) -> [String] {
     #expect(registry.entries.keys.sorted() ==
             ["App3Q", "App99", "AppDrama", "AppGet", "AppLY", "AppQi", "AppYQK", "AppYsV2", "BeiLeHu", "Bili", "Duboku", "Feiyu", "FirstAid", "GuaziTY", "Gulu",
              "HaokanDJ", "HemaDJ", "JPianAmns", "JianPian", "Jpys", "Jys", "MiaoWu", "MoDu", "QimaoDJ", "QingtingFM",
-             "ShortHaokan", "ShortHema", "ShortQimao", "ShortWeiguan", "ShortXingya", "SportsGuazi", "SportsKafei", "TingBokan", "TuXiaoBei", "Uvod",
+             "ShortHaokan", "ShortHema", "ShortQimao", "ShortWeiguan", "ShortXingya", "SportsGuazi", "SportsKafei", "TingBokan", "TingJinxia", "TuXiaoBei", "Uvod",
              "WeiguanDJ", "XBPQ", "XYQHiker"])
     // IOS-POC-44C `Jys`, IOS-POC-57 qist `spider.jar`'s renames: each runs its target's script.
     for (alias, target) in SpiderRegistry.aliases {

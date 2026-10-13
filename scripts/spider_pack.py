@@ -103,6 +103,9 @@ DEFAULT_ORIGINS = {
     # IOS-POC-57B-11: 咖啡体育 live sports (base host API).
     "SportsKafei": {"originJar": "spider.jar",
                     "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"},
+    # IOS-POC-57B-12: 堇夏听书 audiobooks (base host API).
+    "TingJinxia":  {"originJar": "spider.jar",
+                    "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"},
 }
 
 # What the app reads from a mapping (`SpiderPack.ClassMapping`). `evidence` is provenance only.

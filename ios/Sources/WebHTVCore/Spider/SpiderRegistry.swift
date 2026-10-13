@@ -108,6 +108,8 @@ public struct SpiderRegistry: Sendable {
         "ShortXingya",  // http-json: spider.jar (token-gated JSON API; four-hour media links)
         // IOS-POC-57B-11: 咖啡体育 live football/basketball (one card per streamer room)
         "SportsKafei",  // http-json: spider.jar (live HLS or rtmp signals; nothing stored but the room id)
+        // IOS-POC-57B-12: 堇夏听书 audiobooks (m4a that needs the site's Referer)
+        "TingJinxia",   // http-html: spider.jar (chapter page meta, then a form POST for the audio)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

@@ -97,6 +97,9 @@ DEFAULT_ORIGINS = {
     # IOS-POC-57B-6: 戏曲多多 opera videos (base host API).
     "AppLY":     {"originJar": "spider.jar",
                   "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"},
+    # IOS-POC-57B-7: 星芽短剧 short dramas (base host API).
+    "ShortXingya": {"originJar": "spider.jar",
+                    "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"},
 }
 
 # What the app reads from a mapping (`SpiderPack.ClassMapping`). `evidence` is provenance only.

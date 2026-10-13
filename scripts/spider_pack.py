@@ -18,7 +18,7 @@ This tool never decompiles, executes or unpacks a JAR. It reads bytes and comput
 import argparse, hashlib, json, os, pathlib, shutil, sys, urllib.request
 
 SCHEMA = 1
-HOST_API = 4
+HOST_API = 5
 # What every packed script needs at least (IOS-POC-54's host.isVideoFormat). A script needing more
 # carries its own `minHostApi` (IOS-POC-44G), so an older app skips just that script, says why, and
 # still takes the rest of the pack instead of refusing all of it.

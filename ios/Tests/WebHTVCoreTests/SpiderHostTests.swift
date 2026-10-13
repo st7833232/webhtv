@@ -143,6 +143,55 @@ private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScri
     #expect(out["enc"] as? String == "a b&c")
 }
 
+/// W-97 (js.host 1.5): `options.key`/`options.input` read hex or base64, so a key or message that is
+/// not text (Gz360's `old_key` HMACs 14 packed bytes) can be signed. Vectors are RFC 2202 and RFC 4231.
+@Test func hmacSignsBinaryKeysAndMessagesGivenAsHexOrBase64() async throws {
+    let spider = try runtime("""
+    module.exports = {
+      init: function () { return ''; },
+      homeContent: function () {
+        var k0b = '0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b';
+        return {
+          sha1Case1: host.hmac('sha1', 'Hi There', k0b, { key: 'hex' }),
+          sha1Case3: host.hmac('sha1', '3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d0=',
+                               'qqqqqqqqqqqqqqqqqqqqqqqqqqo=', { key: 'base64', input: 'base64' }),
+          sha1Case4: host.hmac('sha1', new Array(51).join('cd'), '0102030405060708090a0b0c0d0e0f10111213141516171819',
+                               { key: 'HEX', input: 'hex' }),
+          md5Case1: host.hmac('md5', 'Hi There', '0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b', { key: 'hex' }),
+          sha256Case1: host.hmac('sha256', 'Hi There', k0b, { key: 'hex' }),
+          sha256Case3: host.hmac('sha256', new Array(51).join('dd'), new Array(21).join('aa'), { key: 'hex', input: 'hex' }),
+          // Text keys and messages are what every 1.4 caller passed; spelled out or left out, they stay UTF-8.
+          sha256Case2: host.hmac('sha256', 'what do ya want for nothing?', 'Jefe'),
+          sha256Case2Utf8: host.hmac('sha256', 'what do ya want for nothing?', 'Jefe', { key: 'utf8', input: 'utf8' }),
+          // Gz360's shape: a text key over packed bytes.
+          gz360: host.hmac('sha1', '00000001fffffffe03008000007f', 'd6fc3a4a06adbde89223bvefedc24fecde188aaa9161',
+                           { input: 'hex' }),
+          oddHex: host.hmac('sha1', 'Hi There', '0b0', { key: 'hex' }),
+          badHex: host.hmac('sha1', 'zz', 'Jefe', { input: 'hex' }),
+          badBase64: host.hmac('sha1', 'Hi There', 'qq qq', { key: 'base64' })
+        };
+      }
+    };
+    """)
+    let out = try #require(try JSONSerialization.jsonObject(
+        with: Data(try await spider.homeContent(filter: true).utf8)) as? [String: String])
+
+    #expect(out["sha1Case1"] == "b617318655057264e28bc0b6fb378c8ef146be00")
+    #expect(out["sha1Case3"] == "125d7342b9ac11cd91a39af48aa17b4f63f175d3")
+    #expect(out["sha1Case4"] == "4c9007f4026250c6bc8414f9bf50c86c2d7235da")
+    #expect(out["md5Case1"] == "9294727a3638bb1c13f48ef8158bfc9d")
+    #expect(out["sha256Case1"] == "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7")
+    #expect(out["sha256Case3"] == "773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe")
+    #expect(out["sha256Case2"] == "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")
+    #expect(out["sha256Case2Utf8"] == out["sha256Case2"])
+    // Python's hmac.new(key, bytes.fromhex(...), 'sha1') on the same 14 bytes.
+    #expect(out["gz360"] == "17d0dc534585995fe4cc1bb4c2a7d3c26df1789b")
+    // A malformed hex or base64 operand is "", never a digest of whatever bytes survived parsing.
+    #expect(out["oddHex"] == "")
+    #expect(out["badHex"] == "")
+    #expect(out["badBase64"] == "")
+}
+
 /// The same `CCCrypt` call made directly, as the reference the host must match byte for byte.
 private func directCipher(_ algorithm: Int, _ options: CCOptions, key: String, iv: Data?, _ input: Data,
                           block: Int) -> String {

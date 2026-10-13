@@ -23,8 +23,13 @@ enum CryptoHost {
             hex(CryptoHost.digest(algorithm, Data(input.utf8)))
         }
 
-        let hmac: @convention(block) (String, String, String) -> String = { algorithm, input, key in
-            let key = SymmetricKey(data: Data(key.utf8)), message = Data(input.utf8)
+        // js.host 1.5 (W-97): the key and message may be hex or base64 bytes; a 1.4 caller's three
+        // arguments arrive with the encodings undefined, which reads as UTF-8 as before.
+        let hmac: @convention(block) (String, String, String, String, String) -> String = {
+            algorithm, input, key, inputEncoding, keyEncoding in
+            guard let keyData = strictBytes(key, keyEncoding), let message = strictBytes(input, inputEncoding)
+            else { return "" }
+            let key = SymmetricKey(data: keyData)
             return switch algorithm.lowercased() {
             case "md5": hex(Data(HMAC<Insecure.MD5>.authenticationCode(for: message, using: key)))
             case "sha1": hex(Data(HMAC<Insecure.SHA1>.authenticationCode(for: message, using: key)))
@@ -184,6 +189,16 @@ enum CryptoHost {
         switch encoding.lowercased() {
         case "base64": Data(base64Encoded: text, options: [.ignoreUnknownCharacters])
         case "hex": Data(hex: text)
+        default: Data(text.utf8)
+        }
+    }
+
+    /// `decode` without its leniency: hex must be whole ASCII pairs and base64 must be padded and clean,
+    /// so a typo is "" rather than a signature over whatever bytes survived parsing.
+    private static func strictBytes(_ text: String, _ encoding: String) -> Data? {
+        switch encoding.lowercased() {
+        case "hex": text.count.isMultiple(of: 2) && text.allSatisfy { $0.isASCII && $0.isHexDigit } ? Data(hex: text) : nil
+        case "base64": Data(base64Encoded: text)
         default: Data(text.utf8)
         }
     }

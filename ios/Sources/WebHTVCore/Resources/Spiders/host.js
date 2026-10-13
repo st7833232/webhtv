@@ -116,7 +116,12 @@ var host = (function () {
   function md5(s) { return __crypto.digest('md5', String(s)); }
   function sha1(s) { return __crypto.digest('sha1', String(s)); }
   function sha256(s) { return __crypto.digest('sha256', String(s)); }
-  function hmac(algorithm, s, key) { return __crypto.hmac(algorithm, String(s), String(key)); }
+  // Hex digest. `options.input` and `options.key` are utf8 (default), hex or base64 (js.host 1.5);
+  // a malformed hex or base64 operand gives "".
+  function hmac(algorithm, s, key, options) {
+    options = options || {};
+    return __crypto.hmac(algorithm, String(s), String(key), options.input || 'utf8', options.key || 'utf8');
+  }
 
   // ---- binary crypto, js.host 1.4 (QIST-GULU A) ---------------------------
   // Every byte string is standard base64 and every failure is "" (null for ecdhP256Generate). Numbers

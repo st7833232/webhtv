@@ -63,7 +63,9 @@ public enum RuntimeABI {
             // output and `req`'s `bodyBase64`/`responseType` — additions only; 1.2 calls are unchanged.
             // 1.4 (QIST-GULU A, W-37): `randomBytes`, `ecdhP256Generate`/`ecdhP256Derive`, `hkdfSha256`,
             // `aesGcmSeal`/`aesGcmOpen`, `aesCbc`, `deflate`, `inflate` — additions only.
-            case .jsHost: Version(1, 4)
+            // 1.5 (W-97): `host.hmac`'s optional 4th argument `{input, key}` reads hex or base64 bytes;
+            // three-argument calls are unchanged.
+            case .jsHost: Version(1, 5)
             // 1.1 (IOS-POC-37) adds pycryptodome, lxml, bs4 and pyquery, a working
             // `Spider.html()`, and `init`'s return value ignored as on Android — additions only.
             // 1.2 (IOS-POC-37.1): `getCache`/`setCache` use the calling spider's own site key and

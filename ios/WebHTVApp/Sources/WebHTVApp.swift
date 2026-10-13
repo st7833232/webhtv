@@ -972,6 +972,10 @@ private struct CMSView: View {
     @State private var listingGeneration = 0
     @State private var loadingMore = false
     @State private var loading = false
+    /// W-87: a new first page may repeat the ids already on screen (the same category tapped again, a
+    /// refresh). ForEach would keep those cells, the last card would never appear again and the next
+    /// page would never load; a new listing gets new cells.
+    @State private var listingID = 0
     @State private var error: String?
 
     private let columns = [GridItem(.adaptive(minimum: 104, maximum: 180), spacing: 12)]
@@ -1114,15 +1118,18 @@ private struct CMSView: View {
     private var posterGrid: some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
             ForEach(items) { vod in
+                let listing = listingID
                 NavigationLink { VodView(site: site, summary: vod, source: source) } label: { VodCard(vod: vod) }
                     .buttonStyle(.plain)
                     .onAppear {
                         if vod.id == items.first?.id { atTop = true }
                         if vod.id == items.last?.id { Task { await loadMore() } }
                     }
-                    .onDisappear { if vod.id == items.first?.id { atTop = false } }
+                    // The old listing's cell leaves after the new one arrived; it must not hide the top.
+                    .onDisappear { if listing == listingID, vod.id == items.first?.id { atTop = false } }
             }
         }
+        .id(listingID)
         .padding(.horizontal, 20)
     }
 
@@ -1382,6 +1389,7 @@ private struct CMSView: View {
             guard generation == listingGeneration else { return }
             searchCursor = cursor
             items = titles ?? response.list
+            listingID &+= 1
             // IOS-POC-41A: a spider home whose first category could not be fetched keeps its
             // categories and says why under them, instead of 「沒有內容」.
             if items.isEmpty, let failure = response.failure { error = failure.localizedDescription }

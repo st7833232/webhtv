@@ -180,6 +180,51 @@ import Testing
     #expect(PlaybackLogRedaction.comment(nil) == "none")
 }
 
+// W-109: mpv's error text goes into a public line, so every address, header value, key=value and path in
+// it is replaced before the line is cut short. Only error (20) and fatal (10) are written at all.
+@Test func anMpvErrorIsWrittenWithNothingThatCouldCarryAToken() throws {
+    func line(_ text: String, level: Int = 20, prefix: String = "ffmpeg") throws -> String {
+        try #require(PlaybackLogRedaction.mpvError(level: level, prefix: prefix, text: text))
+    }
+    let cases: [(text: String, leaked: [String], kept: [String])] = [
+        ("Failed to open https://cdn.example.com/v/index.m3u8?token=W109TOKEN&expires=1760000000.\n",
+         ["W109TOKEN", "expires", "1760000000", "/v/", "https"], ["Failed to open", "cdn.example.com"]),
+        ("Failed to open https://media.example.com/auth/W109PATH/a.m3u8?sign=W109SIGN&t=1760000000",
+         ["W109PATH", "W109SIGN", "t="], ["media.example.com"]),
+        ("http://user:W109PASS@media.example.com/a.mp4#W109FRAG", ["W109PASS", "W109FRAG", "user"], ["media.example.com"]),
+        ("Cookie: sid=W109COOKIE; uid=1", ["W109COOKIE", "uid"], ["Cookie"]),
+        ("authorization: Bearer W109BEARER", ["W109BEARER", "Bearer"], []),
+        ("Referer: https://site.example.com/play?id=W109REF", ["W109REF", "site.example.com"], ["Referer"]),
+        ("Opening https%3A%2F%2Fcdn.example.com%2Fa.m3u8%3Ftoken%3DW109ENC", ["W109ENC", "token"], ["cdn.example.com"]),
+        ("stream ended at ?token%3DW109ENC2&sign=W109SIGN2", ["W109ENC2", "W109SIGN2"], ["stream ended at"]),
+        ("Failed to open rtmp://live.example.com/app/W109STREAMKEY", ["W109STREAMKEY", "/app/"], ["live.example.com"]),
+        ("/private/var/mobile/Containers/Data/Application/1234-ABCD/Library/Downloads/片名W109/0001.ts: Invalid data",
+         ["1234-ABCD", "W109", "Containers"], [".ts", "Invalid data"]),
+        ("'https://a.example.com/x?t=W109Q1', \"udp://b.example.com:1234/W109Q2\"", ["W109Q1", "W109Q2"], ["a.example.com", "b.example.com"]),
+        ("https: HTTP error 403 Forbidden", [], ["HTTP error 403 Forbidden"]),
+        ("[https @ 0x7f8e] HTTP error 403 Forbidden", [], ["403"]),
+    ]
+    for (text, leaked, kept) in cases {
+        let written = try line(text)
+        #expect(written.hasPrefix("[playback] mpv error level=20 prefix=ffmpeg text="), "\(written)")
+        let body = String(written.dropFirst("[playback] mpv error level=20 prefix=ffmpeg text=".count))
+        for secret in leaked { #expect(!body.contains(secret), "\(secret) leaked in \(written)") }
+        for part in kept { #expect(written.contains(part), "\(part) missing from \(written)") }
+    }
+    // Redacted before it is cut: an address straddling the 80th character still loses its token.
+    let long = try line(String(repeating: "x", count: 70) + " https://cdn.example.com/a.m3u8?token=W109CUT")
+    #expect(!long.contains("W109CUT") && !long.contains("token"))
+    #expect(long.count <= "[playback] mpv error level=20 prefix=ffmpeg text=".count + 81)
+    #expect(try line("Failed", level: 10).contains("level=10"))
+    // A prefix is mpv's module name; anything else is not written as one.
+    #expect(try line("Failed", prefix: "ffmpeg/demuxer").contains("prefix=ffmpeg/demuxer text="))
+    #expect(try line("Failed", prefix: "https://x/?t=W109P").contains("prefix=? text="))
+    // warn, info and v carry an address just as often and are never written.
+    for level in [30, 40, 50] {
+        #expect(PlaybackLogRedaction.mpvError(level: level, prefix: "ffmpeg", text: "https://x.example.com/?t=1") == nil)
+    }
+}
+
 // MARK: - IOS-POC-36: one hand-over per item
 
 @Test func theViewersEndingAndTheRealEndAdvanceOnce() {

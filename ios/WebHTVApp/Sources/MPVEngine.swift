@@ -479,6 +479,10 @@ final class MPVPlayerCore: @unchecked Sendable {
     private var fontErrors = 0
     private var fallbackMisses = 0
     private var underruns = 0
+    /// W-109: this file's error/fatal lines written so far, capped at `errorLineLimit` (a broken stream
+    /// can repeat one decoder error every frame). `queue` only, and as approximate at file boundaries.
+    private var errorLines = 0
+    private static let errorLineLimit = 5
     private var frameDrops: Int64?
     private var decoderDrops: Int64?
     private var shownSid: String?
@@ -550,7 +554,8 @@ final class MPVPlayerCore: @unchecked Sendable {
         }
         // IOS-POC-45D: libass's font failures arrive at mpv's "info" (sub/ass_mp.c maps libass
         // warnings there), the audio output's underruns at "warn". Counted per file
-        // (`countLogMessage`), never stored or logged as text.
+        // (`countLogMessage`), never logged as text. W-109: error and fatal messages are the exception,
+        // written redacted (`PlaybackLogRedaction.mpvError`) so a failed load says why.
         mpv_request_log_messages(handle, "info")
         for (name, format) in [("time-pos", MPV_FORMAT_DOUBLE), ("duration", MPV_FORMAT_DOUBLE),
                                ("pause", MPV_FORMAT_FLAG), ("paused-for-cache", MPV_FORMAT_FLAG),
@@ -808,7 +813,15 @@ final class MPVPlayerCore: @unchecked Sendable {
             case MPV_EVENT_LOG_MESSAGE:
                 if let message = event.pointee.data?.assumingMemoryBound(to: mpv_event_log_message.self).pointee,
                    let text = message.text {
-                    countLogMessage(String(cString: text))
+                    let line = String(cString: text)
+                    countLogMessage(line)
+                    if errorLines < Self.errorLineLimit,
+                       let entry = PlaybackLogRedaction.mpvError(level: Int(message.log_level.rawValue),
+                                                                 prefix: message.prefix.map { String(cString: $0) } ?? "",
+                                                                 text: line) {
+                        errorLines += 1
+                        Task { @MainActor in PlaybackSession.log.notice("\(entry, privacy: .public)") }
+                    }
                 }
             case MPV_EVENT_END_FILE:
                 reportSubtitleHealth()
@@ -964,7 +977,8 @@ final class MPVPlayerCore: @unchecked Sendable {
         return String(cString: value)
     }
 
-    /// IOS-POC-45D: counts, and the first font file that failed (its name only). No line text.
+    /// IOS-POC-45D: counts, and the first font file that failed (its name only). No line text; error
+    /// and fatal lines are written separately, redacted (W-109).
     private func countLogMessage(_ text: String) {
         if text.contains("Error opening font") || text.contains("Error opening memory font") {
             fontErrors += 1
@@ -988,6 +1002,7 @@ final class MPVPlayerCore: @unchecked Sendable {
             fontErrors = 0
             fallbackMisses = 0
             underruns = 0
+            errorLines = 0
             frameDrops = nil
             decoderDrops = nil
             shownSid = nil

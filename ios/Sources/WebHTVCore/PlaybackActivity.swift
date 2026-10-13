@@ -172,4 +172,42 @@ public enum PlaybackLogRedaction {
         let line = text.split(whereSeparator: \.isNewline).joined(separator: " ")
         return line.count > limit ? String(line.prefix(limit)) + "…" : line
     }
+
+    /// W-109: mpv's error or fatal message as one public line, or nil for anything milder (warn and
+    /// below stay counted only, IOS-POC-45D). The level is checked before any text is touched.
+    public static func mpvError(level: Int, prefix: String, text: String) -> String? {
+        guard level <= 20 else { return nil }  // MPV_LOG_LEVEL_ERROR; FATAL is 10
+        let module = prefix.range(of: #"^[A-Za-z0-9_/-]{1,24}$"#, options: .regularExpression) != nil ? prefix : "?"
+        return "[playback] mpv error level=\(level) prefix=\(module) text=\(comment(redacted(text)))"
+    }
+
+    /// Free text with nothing left that can carry a token: header values, addresses (plain or
+    /// percent-encoded, any scheme) as `urlSummary`, every `key=value` run and every multi-part path
+    /// (as its extension). Distrusts by shape rather than listing token names; runs before any cut.
+    static func redacted(_ text: String) -> String {
+        var out = text
+        for (regex, transform) in redactions {
+            for match in regex.matches(in: out, range: NSRange(out.startIndex..., in: out)).reversed() {
+                guard let range = Range(match.range, in: out) else { continue }
+                out.replaceSubrange(range, with: transform(String(out[range])))
+            }
+        }
+        return out
+    }
+
+    // NSRegularExpression is immutable and documented safe to share across threads.
+    nonisolated(unsafe) private static let redactions: [(NSRegularExpression, (String) -> String)] = [
+        // A header's whole value: a Referer's is an address, a Cookie's a list of key=value.
+        (#"\b(cookie|set-cookie|authorization|proxy-authorization|referer)\s*:.*$"#,
+         { String($0.prefix { $0 != ":" }) + ": <redacted>" }),
+        (#"[a-z][a-z0-9+.-]*://[^\s'"]+"#, { urlSummary($0) }),
+        (#"[a-z][a-z0-9+.-]*%3A%2F%2F[^\s'"]+"#, { urlSummary($0.removingPercentEncoding) }),
+        (#"[^\s'"]*(=|%3D)[^\s'"]*"#, { _ in "<redacted>" }),
+        (#"(?<![\w.])/[^\s'":,;)]*/[^\s'":,;)]*"#, { path in
+            let ext = ((path.split(separator: "/").last.map(String.init) ?? "") as NSString).pathExtension.lowercased()
+            return ext.isEmpty ? "<path>" : "<path .\(ext)>"
+        }),
+    ].map { pattern, transform in
+        (try! NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .anchorsMatchLines]), transform)
+    }
 }

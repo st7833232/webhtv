@@ -42,8 +42,11 @@
     homeContent: function (filter) {
       var sects = api('page/setinf/get', { leastNum: '0', memberId: 'yszyz', project: 'lyhxcx', userId: 'yszyz' }).sects;
       var classes = [];
+      // Upstream's optString keeps a number as text (A89-01); anything else is no value.
+      function scalar(v) { return typeof v === 'string' || typeof v === 'number' ? String(v) : ''; }
       (Array.isArray(sects) ? sects : []).forEach(function (s) {
-        if (s && typeof s.code === 'string' && s.code && typeof s.name === 'string') classes.push({ type_id: s.code, type_name: s.name });
+        var code = s && typeof s === 'object' ? scalar(s.code) : '';
+        if (code) classes.push({ type_id: code, type_name: scalar(s.name) });
       });
       return host.result.home(classes);
     },

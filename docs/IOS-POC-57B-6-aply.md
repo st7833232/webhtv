@@ -1,6 +1,6 @@
 # IOS-POC-57B-6：戏曲多多（qist `csp_AppLY`）
 
-> Recovery anchor（2026-10-12 17:45 CST）：已實作，單元測試通過（W-73，guard `QIST-APPLY-IMPL`，`--no-tag`）。設計：`.herdr-synapse/webhtv-dev/artifacts/qist-aply-gate-2026-10-12.md` D1–D6（W-60 PASS，含 W60-01）；資料閘門 W-50 PASS；使用者 2026-10-12 核准實作（W-71）。Simulator 實播（確認播放不帶 header 也能播）在 Simulator 空出後對本 commit 補做，證據放 `artifacts/w73-gui-evidence/`（Manager #1469：W-83 優先）。下一步：Reviewer code review。
+> Recovery anchor（2026-10-12 17:45 CST）：已實作，單元測試通過（W-73，guard `QIST-APPLY-IMPL`，`--no-tag`）。設計：`.herdr-synapse/webhtv-dev/artifacts/qist-aply-gate-2026-10-12.md` D1–D6（W-60 PASS，含 W60-01）；資料閘門 W-50 PASS；使用者 2026-10-12 核准實作（W-71）。Simulator 實播已對 `f4978111` 補做（與 W-83 同一輪）；後續 commit 修 A89-01 並收緊測試（Manager #1516）。下一步：Reviewer code review。
 
 ## 來源
 
@@ -29,6 +29,8 @@
 | 全測試 | `swift test --package-path ios` 一次：1132 個全過 | `w73-full.log` |
 | 相容包 | build／verify 0 problems；只新增 AppLY | `w73-pack.log` |
 | Ponytail review | Ship，沒有 finding | — |
+| Simulator 實播（iPhone 18 Pro／iOS 27.0，checkout＝`30048684`＋W-83 修正，`AppLY.js` `d45a5e43…` 三處相同） | 「戲曲 • 多多」→ 77 類、第一個棗梆 → 棗梆 2 部 → 詳情 5 集 → 第 1 集：原生 10 秒內未起播（neverReady），App 自動改 MPV 起播並播完接第 2 集；再播一次原生 7.2 秒起播。播放網址 `http://flytx.daoran.tv/sv/…m3u8?auth_key=…`，adapter 不帶 header 也能播 → 從紀錄重開：重新取網址（新 auth_key）、原生 00:21→00:56；還原 BYTE-IDENTICAL | `/private/tmp/webhtv-gui-w83-fix/RESULT.md` `f099c8cc…`（B 段；關鍵檔備份 `artifacts/w73-gui-evidence/`） |
+| 後續 commit（A89-01＋測試收緊） | 首頁 `sects[]` 的 `code`／`name` 若是數字，照上游 `optString` 轉成字串保留（空 code 仍略過）；新測試在舊版失敗、新版通過；另補 C5 第 2 筆全欄位、P3 播放網址全等、9b（集全被略過仍回詳情、線路空）、9d（limit 20／total 999999）、9e（tid 含底線）與首頁 `{}` 為 0 類的斷言；相容包 `2026-10-13.1` 只改 AppLY，pack 與內建同 blob `edaf64fc…` | `artifacts/w73-logs/w73f-*.log` |
 
 ## 未驗證
 

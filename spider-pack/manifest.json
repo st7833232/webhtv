@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-12.12",
+  "version": "2026-10-13.1",
   "minHostApi": 2,
   "scripts": [
     {
@@ -37,7 +37,7 @@
     {
       "class": "AppLY",
       "path": "./scripts/AppLY.js",
-      "sha256": "d45a5e43fe2085ed2c1c9c1076af7c66528c691927286eb83688f21ff1bf9b28",
+      "sha256": "0b315bd45975caa89e3cd73e7113ef1f2d5ea09f972d8d4e9fb13ce2910e51b4",
       "originJar": "spider.jar",
       "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"
     },

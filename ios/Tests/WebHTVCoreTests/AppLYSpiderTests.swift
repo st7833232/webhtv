@@ -107,6 +107,19 @@ private func sentUpstreamHeaders(_ sent: [String: String]) -> Bool {
         #expect(sentUpstreamHeaders(sent.headers))
     }
 
+    // A89-01: upstream's optString keeps a numeric code or name as text; an empty or missing code is no class.
+    @Test func homeKeepsNumericSectsAsTextAndAnEmptyReplyHasNoClasses() async throws {
+        let spider = try await appLY()
+        DaoranSite.serve([api + "page/setinf/get": try json(["sects": [
+            ["code": "zaobang", "name": "枣梆"], ["code": 7, "name": "七"], ["code": "x", "name": 8],
+            ["code": "", "name": "空"], ["name": "缺 code"], "不是对象",
+        ] as [Any]])])
+        let classes = try #require(try object(try await spider.homeContent(filter: false))["class"] as? [[String: String]])
+        #expect(classes.map { $0["type_id"]! + "/" + $0["type_name"]! } == ["zaobang/枣梆", "7/七", "x/8"])
+        DaoranSite.serve([api + "page/setinf/get": Data("{}".utf8)])
+        #expect((try object(try await spider.homeContent(filter: false))["class"] as? [Any])?.isEmpty == true)
+    }
+
     @Test func aCategoryPostsItsPageAndSectAndMapsTheSavedReply() async throws {
         DaoranSite.serve([api + "search/album/list": try category()])
         let page = try object(try await appLY().categoryContent(tid: "zaobang", page: "1", filter: false, extend: [:]))
@@ -114,6 +127,10 @@ private func sentUpstreamHeaders(_ sent: [String: String]) -> Bool {
         #expect(items.map { $0["vod_id"] as? String } == ["0dOTNN3xWq505829", "0dOTPfeHnm484017"])
         #expect(items.first?["vod_name"] as? String == "枣梆宋德靖经典唱段" && items.first?["vod_pic"] as? String == image)
         #expect(items.first?["vod_remarks"] as? String == "2026-03-12" && page["pagecount"] as? Int == 1)
+        #expect(items.last?["vod_name"] as? String == "枣梆《生日》潘海英版" && items.last?["vod_remarks"] as? String == "2026-03-12")
+        #expect(items.last?["vod_pic"] as? String == "https://ottphoto.daoran.tv/HD/OPERATE/PAGE_IMAGE/album/E/69e70ddfe4b08084d5f60043.jpg")
+        // 9d: the host's defaults for what upstream leaves unset.
+        #expect(page["limit"] as? Int == 20 && page["total"] as? Int == 999999)
         let sent = try #require(DaoranSite.requests.last)
         #expect(sent.body == #"{"cur":"1","free":"0","item":"o5","pageSize":"20","sect":["zaobang"]}"#)
         #expect(sentUpstreamHeaders(sent.headers))
@@ -134,6 +151,9 @@ private func sentUpstreamHeaders(_ sent: [String: String]) -> Bool {
         #expect(items.map { $0["vod_id"] as? String } == ["k1"] && items.first?["vod_pic"] as? String == "")
         #expect(page["page"] as? Int == 1 && page["pagecount"] as? Int == 2)
         #expect(DaoranSite.requests.last?.body.hasPrefix(#"{"cur":"1","#) == true)
+        // 9e: a category id may hold an underscore, unlike album and resource codes.
+        _ = try await spider.categoryContent(tid: "a_b", page: "1", filter: false, extend: [:])
+        #expect(DaoranSite.requests.last?.body == #"{"cur":"1","free":"0","item":"o5","pageSize":"20","sect":["a_b"]}"#)
         DaoranSite.serve([api + "search/album/list": try category()])
         #expect(try list(try await spider.categoryContent(tid: "zao bang", page: "1", filter: false, extend: [:])).isEmpty)
         #expect(DaoranSite.requests.isEmpty)
@@ -165,6 +185,11 @@ private func sentUpstreamHeaders(_ sent: [String: String]) -> Bool {
         #expect(vod["vod_play_url"] as? String == "第 一 段$0dOT1a#第2集$77")
         #expect(vod["vod_director"] as? String == "" && vod["vod_pic"] as? String == "")
 
+        // 9b: every resource dropped still answers the album, with an empty play list (as upstream A:76–78).
+        DaoranSite.serve([api + "album/res/list": Data(#"{"album":{"name":"n"},"pb":null}"#.utf8)])
+        let bare = try #require(try list(try await spider.detailContent(ids: ["0dOTNN3xWq505829"])).first)
+        #expect(bare["vod_play_from"] as? String == "在线播放" && bare["vod_play_url"] as? String == "")
+
         DaoranSite.serve([api + "album/res/list": Data(#"{"pb":{"dataList":[]}}"#.utf8)])
         #expect(try list(try await spider.detailContent(ids: ["0dOTNN3xWq505829"])).isEmpty)
         DaoranSite.serve([:])
@@ -178,8 +203,9 @@ private func sentUpstreamHeaders(_ sent: [String: String]) -> Bool {
         DaoranSite.serve([api + "play/get/playurl": try playurl1()])
         let spider = try await appLY()
         let played = try object(try await spider.playerContent(flag: "在线播放", id: "11084070000629", vipFlags: []))
-        let url = try #require(played["url"] as? String)
-        #expect(url.hasPrefix("http://flytx.daoran.tv/sv/90f8e48-19cf7c479c8/90f8e48-19cf7c479c8.m3u8?auth_key=1791786466-") && url.count == 238)
+        #expect(played["url"] as? String == "http://flytx.daoran.tv/sv/90f8e48-19cf7c479c8/90f8e48-19cf7c479c8.m3u8?auth_key="
+                + "1791786466-a8efe6f6895f43fc8dcd4781871ba1eb-0-55f0b469f1fbec82befe46a882e660fe&t=6acd0956&us=1da22a290190bfc43f2"
+                + "&sign=cecc7ad64c57bb93db0e89155ae425cc0a187e53")
         #expect(played["parse"] as? Int == 0 && played["header"] == nil)
         let sent = try #require(DaoranSite.requests.last)
         #expect(sent.body == #"{"item":"y9","nodeCode":"001000","project":"lyhxcx","px":"2","resCode":"11084070000629","userId":"92315ec6e58a45ba7f47fd143b3d7956"}"#)

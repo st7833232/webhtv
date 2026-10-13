@@ -471,3 +471,16 @@ private func poorish(variantCount: Int = 0, stalls: Int = 0) -> PlaybackNetworkS
     #expect(monitor.state == .normal)
     #expect(policy.forwardBufferSeconds == 120, "the monitor must pass the sample's speed to the policy")
 }
+
+// W-86: a live MP3 plays with about eight seconds ahead and that is all it ever holds; on demand, the
+// same cushion is still a risk.
+@Test func aLiveStreamsThinCushionIsNotARisk() {
+    var live = healthy(bufferAhead: 8)
+    live.kind = .liveOrUnknown
+    #expect(PlaybackNetworkMonitor.level(of: live) == .normal)
+    #expect(PlaybackNetworkMonitor.level(of: healthy(bufferAhead: 8)) == .risk)
+    var stalled = live
+    stalled.playing = false
+    stalled.waitingToPlay = true
+    #expect(PlaybackNetworkMonitor.level(of: stalled) == .poor, "a live rebuffer is still poor")
+}

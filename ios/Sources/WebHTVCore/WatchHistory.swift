@@ -149,9 +149,10 @@ public struct WatchHistory: Codable, Sendable, Equatable, Identifiable {
     /// Where playback should start, or nil to start from the beginning (D4).
     ///
     /// Under ten seconds is not a place anyone wants resumed to, and a title that was watched to the
-    /// end should replay rather than open on its own closing seconds.
+    /// end should replay rather than open on its own closing seconds. W-86: a live stream is saved
+    /// with no duration, and its position is not a place either — it reopens at the live edge.
     public var resumePosition: Double? {
-        guard position > 10_000, !isNearEnding else { return nil }
+        guard position > 10_000, duration > 0, !isNearEnding else { return nil }
         return position
     }
 

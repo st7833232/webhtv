@@ -309,7 +309,8 @@ public struct PlaybackNetworkMonitor: Sendable {
         if sample.waitingToPlay { return .poor }
 
         if !sample.likelyToKeepUp { return .risk }
-        if moving && cushion < PlaybackNetworkThresholds.riskBufferSeconds { return .risk }
+        // W-86: a live stream holds only a few seconds ahead by design; only a stall says it is in trouble.
+        if moving && sample.kind == .onDemand && cushion < PlaybackNetworkThresholds.riskBufferSeconds { return .risk }
         if sample.hasThroughputEvidence,
            sample.observedBitrate
             < sample.indicatedBitrate * PlaybackNetworkThresholds.starvedThroughputRatio {

@@ -616,3 +616,15 @@ private func watched(_ vodId: String, on sourceID: String?) -> WatchHistory {
     #expect(kept.count == 16)
     #expect(try fields(moved) == kept)
 }
+
+// W-86: a live stream is saved with no duration (the engine reports 0). It keeps its history entry, but
+// reopening it starts at the live edge: its position is not a place to resume to. The rule is read, so
+// entries saved before the fix are covered too.
+@Test func aLiveStreamsSavedPositionIsNeverResumed() {
+    let live = record("1", position: 121_846, duration: 0)
+    #expect(live.resumePosition == nil)
+    #expect(live.startPosition() == 0)
+    #expect(live.carryingOver(from: live).resumePosition == nil)
+    // On demand is unchanged.
+    #expect(record("1", position: 121_846, duration: 1_200_000).resumePosition == 121_846)
+}

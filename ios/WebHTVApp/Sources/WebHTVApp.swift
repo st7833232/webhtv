@@ -3213,7 +3213,8 @@ private struct HistoryView: View {
     }
 
     private func progress(of record: WatchHistory) -> String {
-        guard record.duration > 0 else { return "看到 " + clock(record.position) }
+        // W-86: a live stream has no duration and its position means nothing to reopen.
+        guard record.duration > 0 else { return "看過" }
         if record.isNearEnding { return "已看完" }
         return "看到 \(clock(record.position)) / \(clock(record.duration))"
     }
@@ -5381,7 +5382,10 @@ struct EpisodeSteps: Equatable {
         prefetch.invalidate()
         prefetchRequested = false
         retryWithoutPrefetch = nil
-        resumeTo = position > 0 ? position * 1000 : nil
+        // W-86: where a reload starts — a live stream at its live edge, an item still preparing at
+        // the start it was asked for (a bare `duration > 0` would lose a resume chosen while loading).
+        let from = reloadPosition
+        resumeTo = from > 0 ? from * 1000 : nil
         let playing = intendsToPlay
         items = [.init(name: "", url: quality.url)]
         index = 0
@@ -7006,6 +7010,8 @@ private struct PlayerControlBar: View {
     }
 
     private var shown: Double { scrubbing ?? position }
+    /// W-86: a live stream (the engine reports no duration) has no total; `00:00` read as a length.
+    private var total: String { duration > 0 ? PlayerView.clock(duration) : "--:--" }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -7171,7 +7177,7 @@ private struct PlayerControlBar: View {
                            })
                 .frame(height: 44)
                 .accessibilityLabel("播放進度")
-                .accessibilityValue("\(PlayerView.clock(shown)) / \(PlayerView.clock(duration))")
+                .accessibilityValue("\(PlayerView.clock(shown)) / \(total)")
 
             HStack(spacing: 10) {
                 Text(PlayerView.clock(shown))
@@ -7184,7 +7190,7 @@ private struct PlayerControlBar: View {
                     skipButton(.ending, offset: \.endingOffset)
                 }
                 Spacer(minLength: 8)
-                Text(PlayerView.clock(duration))
+                Text(total)
                     .monospacedDigit()
             }
             .font(.caption)

@@ -207,6 +207,21 @@ public struct WatchHistory: Codable, Sendable, Equatable, Identifiable {
         max(openingOffset, resuming ? (resumePosition ?? 0) : 0)
     }
 
+    /// W-110: this record at the engine's position, or nil when that is not a measurement yet.
+    ///
+    /// Until the item has started playing or reported a length, the engine's time is only where a
+    /// seek is waiting: a stalled AVPlayer item answers its seek target with no duration. Saved, that
+    /// made an on-demand title look live (`resumePosition`, W-86) and lost its resume point. Either
+    /// condition alone is wrong: a live stream that played has no length, and an item reloaded
+    /// paused (a quality switch) never plays.
+    public func measured(position: Double, duration: Double, started: Bool) -> WatchHistory? {
+        guard position > 0, started || duration > 0 else { return nil }
+        var record = self
+        record.position = position
+        record.duration = duration
+        return record
+    }
+
     /// `VideoActivity.onTimeChanged()`: `ending > 0 && duration > 0 && ending + position >= duration`.
     ///
     /// The `duration > 0` term is what keeps a live stream or an item whose runtime has not been

@@ -628,3 +628,23 @@ private func watched(_ vodId: String, on sourceID: String?) -> WatchHistory {
     // On demand is unchanged.
     #expect(record("1", position: 121_846, duration: 1_200_000).resumePosition == 121_846)
 }
+
+// W-110: until an item has played or reported a length, the engine's time is only where a seek waits — a
+// stalled AVPlayer item answers its seek target with no duration. Saving that wrote an on-demand title as a
+// live one (W-86) and the replay after the failure lost its resume point.
+@Test func aPositionIsRecordedOnlyOnceTheItemHasPlayedOrHasALength() throws {
+    let stored = record("1", position: 32_667, duration: 217_900)
+    #expect(stored.measured(position: 32_667, duration: 0, started: false) == nil)
+    #expect(stored.measured(position: 45_000, duration: 0, started: false) == nil)  // a seek before it ever played
+    #expect(stored.startPosition() == 32_667)
+
+    // Played on demand: as before.
+    let played = try #require(stored.measured(position: 50_000, duration: 217_900, started: true))
+    #expect(played.position == 50_000 && played.duration == 217_900 && played.resumePosition == 50_000)
+    // Played live: still recorded, still never resumed (W-86).
+    let live = try #require(stored.measured(position: 121_846, duration: 0, started: true))
+    #expect(live.duration == 0 && live.resumePosition == nil)
+    // Reloaded paused (a quality switch never plays) but its length is known: recorded.
+    #expect(stored.measured(position: 60_000, duration: 217_900, started: false)?.position == 60_000)
+    #expect(stored.measured(position: 0, duration: 217_900, started: true) == nil)
+}

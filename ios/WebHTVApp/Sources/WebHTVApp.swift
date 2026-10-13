@@ -5537,12 +5537,11 @@ struct EpisodeSteps: Equatable {
     /// ponytail: whole-file writes at 5 s are fine for a few hundred records. Coalesce them, or
     /// flush only on pause and background, if the file ever grows enough to matter.
     func persist(onlyWhilePlaying: Bool = false) async {
-        guard var record, started, let engine, engine.isLoaded else { return }
+        guard let current = record, started, let engine, engine.isLoaded else { return }
         if onlyWhilePlaying, engine.rate == 0 { return }
-        let position = Self.milliseconds(engine.currentTime)
-        guard position > 0 else { return }
-        record.position = position
-        record.duration = Self.milliseconds(engine.duration)
+        guard let record = current.measured(position: Self.milliseconds(engine.currentTime),
+                                            duration: Self.milliseconds(engine.duration),
+                                            started: startupMilliseconds != nil) else { return }
         self.record = record
         if record.isNearEnding { measuredNearEnd = true }
         await WatchHistoryStore.shared.save(record)

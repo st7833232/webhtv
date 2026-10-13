@@ -70,6 +70,21 @@ public struct PlaybackStartupWatch: Sendable, Equatable {
 
 // MARK: - One hand-over per item
 
+/// W-83: AVPlayer can halt a fraction of a second short of the end of a file it buffered only from a
+/// late start (an audio episode resumed near its end), then wait for data that never comes, so
+/// `didPlayToEndTime` never arrives. A wait that close to a known duration is the end.
+public enum PlaybackEndStall {
+    /// The halts seen were 0.1 s short of the duration.
+    public static let tolerance = 1.0
+
+    /// Whether a player waiting to minimise stalls at `position` is really at the end of `duration`.
+    /// A live stream has no finite duration and never counts.
+    public static func isAtEnd(waitingToMinimizeStalls: Bool, position: Double, duration: Double) -> Bool {
+        waitingToMinimizeStalls && duration.isFinite && duration > 0 && position.isFinite
+            && duration - position <= tolerance
+    }
+}
+
 /// IOS-POC-36 — an item moves on to what comes next once. Two things end an item: the viewer's
 /// ending, seen by the five-second sampler, and the engine's real end. When the ending is closer to
 /// the end than the next episode takes to resolve, both arrived and each advanced, so the episode

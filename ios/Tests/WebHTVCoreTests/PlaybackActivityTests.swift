@@ -248,3 +248,16 @@ import Testing
     #expect(late == .ignore)
     #expect(loopOff == .handOver, "with loop turned off the replayed item moves on")
 }
+
+// W-83: the halt the Simulator showed — 125.84 s of a 125.937 s m4a, waiting to minimise stalls.
+@Test func aStallAtTheVeryEndOfAKnownDurationCountsAsTheEnd() {
+    #expect(PlaybackEndStall.isAtEnd(waitingToMinimizeStalls: true, position: 125.84, duration: 125.937))
+    #expect(!PlaybackEndStall.isAtEnd(waitingToMinimizeStalls: true, position: 100, duration: 125.937), "a mid-file stall is a stall")
+    #expect(!PlaybackEndStall.isAtEnd(waitingToMinimizeStalls: false, position: 125.84, duration: 125.937), "playing or paused near the end is not")
+    #expect(!PlaybackEndStall.isAtEnd(waitingToMinimizeStalls: true, position: 120, duration: .nan), "live: no duration")
+    #expect(!PlaybackEndStall.isAtEnd(waitingToMinimizeStalls: true, position: 120, duration: .infinity))
+    #expect(!PlaybackEndStall.isAtEnd(waitingToMinimizeStalls: true, position: 0, duration: 0))
+    // The edge: exactly the tolerance short is the end, a hair more is a stall the player may still recover.
+    #expect(PlaybackEndStall.isAtEnd(waitingToMinimizeStalls: true, position: 124.937, duration: 125.937))
+    #expect(!PlaybackEndStall.isAtEnd(waitingToMinimizeStalls: true, position: 124.927, duration: 125.937))
+}

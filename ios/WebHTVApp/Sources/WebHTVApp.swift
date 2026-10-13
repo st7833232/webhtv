@@ -6445,6 +6445,7 @@ final class AVPlayerEngine: PlaybackEngine {
     private var player: AVPlayer { session.player }
     private var observers = [NSObjectProtocol]()
     private var itemStatus: NSKeyValueObservation?
+    private var controlStatus: NSKeyValueObservation?
     /// `.failed` is terminal and the failure notification can follow it: one report per item.
     private weak var reportedItem: AVPlayerItem?
     private var lastAudioDiagnostic = ""
@@ -6489,6 +6490,18 @@ final class AVPlayerEngine: PlaybackEngine {
                 self.report(error)
             }
         })
+        // W-83: a wait that starts a fraction of a second short of a known duration and is still there
+        // two seconds later is the end AVPlayer never announces (an m4a resumed near its end). A second
+        // end, should the real one follow, is dropped by `PlaybackEndGate`.
+        controlStatus = session.player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor in
+                guard let self, let item = self.player.currentItem, self.isStalledAtEnd(item) else { return }
+                try? await Task.sleep(for: .seconds(2))
+                guard self.player.currentItem === item, self.isStalledAtEnd(item) else { return }
+                PlaybackSession.log.notice("[playback] stalled at \(self.player.currentTime().seconds)s of \(item.duration.seconds)s, taken as the end")
+                self.onEnded?()
+            }
+        }
         itemStatus = session.player.observe(\.currentItem?.status, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in
                 guard let self else { return }
@@ -6512,6 +6525,13 @@ final class AVPlayerEngine: PlaybackEngine {
         lastAudioDiagnostic = ""
         onMediaSelectionChange?(PlaybackMediaSelection())
         session.loadNative(request)
+    }
+
+    private func isStalledAtEnd(_ item: AVPlayerItem) -> Bool {
+        PlaybackEndStall.isAtEnd(
+            waitingToMinimizeStalls: player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+                && player.reasonForWaitingToPlay == .toMinimizeStalls,
+            position: player.currentTime().seconds, duration: item.duration.seconds)
     }
 
     /// Whether a notification's item is the one loaded now.
@@ -6866,6 +6886,8 @@ final class AVPlayerEngine: PlaybackEngine {
         observers.removeAll()
         itemStatus?.invalidate()
         itemStatus = nil
+        controlStatus?.invalidate()
+        controlStatus = nil
         onFailure = nil
         onEnded = nil
         onMediaSelectionChange = nil

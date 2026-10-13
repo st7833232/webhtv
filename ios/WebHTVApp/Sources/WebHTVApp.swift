@@ -962,6 +962,8 @@ private struct CMSView: View {
     @State private var atTop = true
 
     private static let topAnchor = "grid-top"
+    /// How far the top may scroll away before the Top button shows: about one featured card.
+    nonisolated private static let topSlack: CGFloat = 300
     @State private var searching = false
     @State private var query = ""
     @State private var page = 1
@@ -984,7 +986,12 @@ private struct CMSView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    // W-107: the Top button follows how far the top has scrolled, not which card last
+                    // appeared or disappeared; that missed short and empty results and a hidden featured card.
                     Color.clear.frame(height: 0).id(Self.topAnchor)
+                        .onGeometryChange(for: Bool.self) { $0.frame(in: .scrollView).minY > -Self.topSlack } action: {
+                            atTop = $0
+                        }
                     homeHeader
                     CinematicSearchField(text: $query, prompt: "搜尋此來源的影片", onSubmit: {
                         submitSearch()
@@ -1111,22 +1118,15 @@ private struct CMSView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onAppear { atTop = true; if items.count == 1 { Task { await loadMore() } } }
-        .onDisappear { atTop = false }
+        .onAppear { if items.count == 1 { Task { await loadMore() } } }
     }
 
     private var posterGrid: some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
             ForEach(items) { vod in
-                let listing = listingID
                 NavigationLink { VodView(site: site, summary: vod, source: source) } label: { VodCard(vod: vod) }
                     .buttonStyle(.plain)
-                    .onAppear {
-                        if vod.id == items.first?.id { atTop = true }
-                        if vod.id == items.last?.id { Task { await loadMore() } }
-                    }
-                    // The old listing's cell leaves after the new one arrived; it must not hide the top.
-                    .onDisappear { if listing == listingID, vod.id == items.first?.id { atTop = false } }
+                    .onAppear { if vod.id == items.last?.id { Task { await loadMore() } } }
             }
         }
         .id(listingID)

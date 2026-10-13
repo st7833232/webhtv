@@ -4,7 +4,85 @@
 
 Port WebHomeTV to iPhone with an Android-like UI, drive the user's own `wang-movie.json`, and play with the app's own engines. **Superseded by dual internal-player decision, 2026-09-23:** the goal used to include Infuse, Fileball, SenPlayer and VidHub playback; those were removed, and the product maintains exactly two internal engines — AVPlayer (primary) and MPV (compatibility). `docs/IOS-POC-17-dual-internal-player.md`. The Google TV `csp_JPianAmns` repair is not in scope.
 
-## Current handoff — 2026-10-12 15:07 CST：0.1.74 (75) 已發布、W-58／W-65 push 授權、W-59～W-64 設計佇列（先讀這一節）
+## Current handoff — 2026-10-12 17:11 CST：0.1.75 (76) 發布授權、W-83／W-84／W-85 push 計畫、目前佇列（先讀這一節）
+
+撰寫者：herdr 團隊 `webhtv-dev` 的 Manager（`webhtv-dev-claude-manager`）。只記 Manager 視角的協調狀態；工單細節在 `.herdr-synapse/webhtv-dev/artifacts/` 與各 `docs/<TASK-ID>-*.md`。授權與結果的流水帳在 `artifacts/manager-git-cleanup-state-2026-10-12.md`，佇列在 `artifacts/manager-plan-2026-10-12.md`。
+
+### 關機前更新（2026-10-12 17:3x CST，使用者準備關機，優先於本節其他舊狀態）
+- **0.1.75 (76) 已發布並核對完成**：run `38229239279` success；tag `ios-v0.1.75-b76`→`3fb9be02`；IPA `WebHTV-0.1.75-76.ipa` 35,402,864 B，sha256 `5416703566d058177919ca51b3eb8da22f4e3ee31770b93b9862bdb765ee0c15`；workflow 推回 source.json commit `474981aa`（origin/ios-poc＝`474981aa`）。核對值在 board #1479。發布授權已用完。
+- 本機 HEAD `f4978111`（未 push）：`0cd41e8e` W-77 PASS、`ca4621d0` W-84 PASS、`06103373` W-88 PASS、`f4978111` W-73（partial，Simulator 實播未做、未審）。無 active guard。
+- **仍有效的 push 授權（只用一次）**：W-85、W-83、W-73 都 PASS 後，連同 W-77／W-84／W-88 push 最後已審 SHA；需 W-85 merge `474981aa` 才能快轉；範圍必須全已審。
+- 待做：W-85（等 #1479 核對值，已可開工）→ W-83（Simulator 重現中，背景結果 `/private/tmp/webhtv-gui-w83-eof-repro/RESULT.md`）→ W-73 補 GUI → W-86、W-87 → W-74 → W-72 → W-40 → W-41／W-42 → W-70。Reviewer：W-89 稽核進行中。
+- 待回報使用者：W-83 審過（TingBokan 自動接下一集＋影片不退化證據）；push 結果。
+- 本節未 commit；W-85 會以 `--adopt-dirty docs/current-task-state.md` 一起 commit（patch 備份 `artifacts/manager-current-task-state-section-1711.patch`，已更新）。
+
+### Resume Prompt
+你是 herdr 團隊 `webhtv-dev` 的 Manager（`webhtv-dev-claude-manager`，w1:p8）。先跑 `herdr-synapse orient`、`herdr-synapse board --new`、`herdr-synapse ack`，再讀本節、`artifacts/manager-git-cleanup-state-2026-10-12.md`（最後幾節是待辦授權）、`artifacts/manager-plan-2026-10-12.md`、`artifacts/team-collab-rules-2026-10-12.md`（knowledge F-2）。有兩件已授權、條件未到的事：(1) W-82 Reviewer PASS 且無問題 → 確認 origin/ios-poc＝3fb9be02 → 觸發 release workflow 發布 0.1.75 (76) → 核對 Release／tag／IPA → 在看板貼核對值給 W-85 → 一次向使用者回報版本號、主要變更、測試結果、已知問題、風險、發布結果；(2) W-83、W-84、W-85 都 PASS → push 最後已審 SHA 到 ios-poc（須快轉、範圍全已審）。另外使用者要的回報：W-77 審過（附電台直播純音訊畫面＋背景播放證據）、W-83 審過（附 TingBokan 第 1 集自動接第 2 集＋影片自動下一集不退化證據）。用台灣繁體中文回覆，next steps 用編號選項、建議項放第一並標「（建議）」。
+
+### 1. Original Goal
+- 管理 webhtv-dev 團隊持續移植 qist 來源並發版；本次要求把 0.1.75 發布授權、W-83／W-84／W-85 push 計畫與佇列寫進本檔。
+
+### 2. Current Scope
+- 分支 `ios-poc`；本機 HEAD `0cd41e8e`（W-77 QingtingFM，審查中）；origin/ios-poc `3fb9be02`（0.1.75 截點，已 push）。
+- 沒有 active guard（最後一個 `QIST-QINGTINGFM-IMPL` finished）。工作樹只有本節（未 commit，W-85 會一起 commit）。
+- 臨時 worktree：`/private/tmp/webhtv-ipa-prep-0.1.75/wt`（3fb9be02，W-82 建置用，完成後由 Developer 移除）；`/private/tmp/webhtv-gulu-stage2-draft`（83a0c584，舊草稿）；`~/GIT/webhtv-zaka`（保留）。
+
+### 3. Non-Negotiable Constraints
+- push 只推 Reviewer 已審的確切 SHA：`git push origin <sha>:ios-poc`；先確認快轉且範圍全已審；不 force。每次 push／發布都要使用者授權，授權只用一次。
+- 正式發布（tag、GitHub Release、IPA）須使用者核准；發布前／後一次提供版本號、主要變更、測試結果、已知問題、風險（F-2）。
+- 不建 recovery tag；不併 main；release notes 只寫能力，不寫站名、設定檔名、站數、成人內容。
+- 例行狀態只走 board；context 剩不到 20% 停在安全點交接（F-1）。不讀隊友 pane；權限被拒不繞過。
+- `docs/current-task-state.md` 只在最上方加節，不得整份覆寫（Developer 曾覆寫過一次，已還原）。
+
+### 4. Important Decisions
+- 0.1.75 (76) 截點＝`3fb9be02`：BeiLeHu、Duboku、TingBokan、Bili 本機防護、MediaSniffer 測試修正、spider.jar 標示。W-77 QingtingFM 不在本版。
+- 版號用 workflow 覆寫，不另做版號 commit；發布後由 W-85 merge source.json＋補版號 0.1.75 (76)＋寫 IOS-POC-11。
+- W-72 SportsKafei：每頁依 room_id 去重（直播中優先）；任務文件 `docs/IOS-POC-57B-11-sportskafei.md`。W-40：採 Reviewer S-06（`load(category: folder?.id)`、folder 模式以 `folder == nil` 判斷）。Ikanbot、Djuu 不進相容包。
+- SportsFeiqiu（W-75）使用者選擇暫緩，已取消。
+- Reviewer 名稱：使用者已改回 `webhtv-dev-codex-reviewer-2`（w1:p9），instructions 已補回（#1394）。舊 Reviewer `webhtv-dev-codex-reviewer`（w1:p6）是 left 墓碑。
+- task-wall mod（`~/claude-mods/task-wall`）已改成不顯示沒有工作的離線成員（54/54 測試通過，非 git repo）。
+
+### 5. Files Read
+- `.github/workflows/ios-sidestore-release.yml`（版號覆寫、發布後推 source.json 到 ios-poc）、`artifacts/w76-tingbokan-impl-review-2026-10-12.md`、`artifacts/adapter-audit-2026-10-12.md`、`artifacts/review-prep-*-2026-10-12.md`。
+
+### 6. Files Modified
+- 本節（`docs/current-task-state.md`，未 commit）。artifacts：`manager-git-cleanup-state-2026-10-12.md`、`manager-plan-2026-10-12.md`、`team-collab-rules-2026-10-12.md`（untracked、已 exclude）。
+
+### 7. Current Diff Summary
+- origin/ios-poc 自 0.1.74 起已推：`b638d907`（W-65）、`c13d9a5b`／`47d3f039`／`3ee26487`（W-69／68／67）、`edd23bc8`（W-43 Duboku）、`001871c7`＋`3fb9be02`（W-76 TingBokan）、`89f17a3d`（W-78）。
+- 本機未推：`0cd41e8e`（W-77，審查中）。
+
+### 8. Completed Work（今日要點）
+- 0.1.74 (75) 已發布並核對（tag `ios-v0.1.74-b75`→`282aa692`），紀錄在 W-65 `b638d907`。
+- PASS：W-43、W-58、W-66、W-67、W-68、W-69、W-76（code＋GUI，含純音訊畫面與背景播放）、W-78、W-79（審查預備 7 份）、W-80（稽核，A80-01→W-84）。
+
+### 9. Remaining Work（Developer 佇列）
+1. W-82 0.1.75 準備（進行中）→ PASS 後 Manager 發布 0.1.75。
+2. W-85 發布紀錄（等 Manager 貼核對值）。
+3. W-83 AUDIO-EOF-NEXT（音訊檔尾卡住不接下一集）→ W-84 FirstAid 詳情欄位（A80-01）。
+4. W-73 AppLY → W-74 ShortXingya → W-72 SportsKafei → W-40 資料夾導覽 → W-41 Ikanbot、W-42 Djuu → W-70 Gulu 補驗。
+- Reviewer：審 W-77、W-82 與後續；空檔無工作時由 Manager 再派唯讀工作。Manager 以 Monitor 跑 idle watcher（`scratchpad/idle-watch.py`，30 分鐘到期要重開）。
+
+### 10. Open Questions / Blockers
+- 待使用者：是否加第二位 Developer（Reviewer 常閒置的根本解）；0.1.75 之後的發版節奏。
+- 推 W-83／W-84 前必須先有已審的 W-85 merge（origin 會多一個 workflow commit），否則非快轉。
+
+### 11. Build / Test / Verification Status
+- W-77：Developer 回報 8 測試＋全測試 1123 過、Simulator 電台直播（純音訊畫面、背景 16 秒持續解碼）；**未經 Reviewer 審**。
+- W-82：Unknown（進行中）。0.1.75 的真機驗收：未做。
+
+### 12. Risks
+- 音訊檔尾卡住（W-83 未修）會是 0.1.75 已知問題。
+- ShortXingya 共用裝置資料可能被封鎖；QingtingFM 第 2 頁要回捲才載入、紀錄重開直播會 seek 到上次秒數（W-77 觀察，未改）。
+- 改名撞名風險：不要再把 Reviewer 改名成 `webhtv-dev-codex-reviewer`（與墓碑同名）。
+
+### 13. Next Recommended Step
+- 等 board：W-82 PASS → 依授權發布 0.1.75 並核對、回報；W-77 PASS → 回報使用者（含電台證據）。
+
+### 14. Resume Prompt
+見本節開頭「Resume Prompt」。
+
+## Previous handoff — 2026-10-12 15:07 CST：0.1.74 (75) 已發布、W-58／W-65 push 授權、W-59～W-64 設計佇列（先讀這一節）
 
 撰寫者：herdr 團隊 `webhtv-dev` 的 Manager（`webhtv-dev-claude-manager`）。只記 Manager 視角的協調狀態；工單細節在 `.herdr-synapse/webhtv-dev/artifacts/` 與各 `docs/<TASK-ID>-*.md`。
 

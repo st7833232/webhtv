@@ -1,9 +1,11 @@
 # IOS-POC-11：SideStore 發布流程
 
 
-## Current release — 2026-10-12：0.1.74 (75) / IOS-POC-57 系列（qist 來源相容）
+## Current release — 2026-10-12：0.1.75 (76) / IOS-POC-57B 系列（影視、兒童影音與純音訊來源）
 
-**目前最新版是 `0.1.74 (75)`**（新增多種 App 型與網頁型來源、JSONC 設定、受保護海報、播放錯誤訊息修正）。完整紀錄在下方「第七十五次發布」：run `38214692660` success，tag `ios-v0.1.74-b75` → `282aa692`，`source.json` `774f2ae3`，`WebHTV-0.1.74-75.ipa` 35,393,349 bytes。真機未驗收。
+**目前最新版是 `0.1.75 (76)`**（新增簽章影視來源、兒童影音來源、有聲書等純音訊來源與背景播放；部分來源的本機位址設定不再讀取）。完整紀錄在下方「第七十六次發布」：run `38229239279` success，tag `ios-v0.1.75-b76` → `3fb9be02`，`source.json` `474981aa`，`WebHTV-0.1.75-76.ipa` 35,402,864 bytes。真機未驗收。
+
+前一版 `0.1.74 (75)`（新增多種 App 型與網頁型來源、JSONC 設定、受保護海報、播放錯誤訊息修正）完整紀錄在下方「第七十五次發布」：run `38214692660` success，tag `ios-v0.1.74-b75` → `282aa692`，`source.json` `774f2ae3`，`WebHTV-0.1.74-75.ipa` 35,393,349 bytes。真機未驗收。
 
 前一版 `0.1.73 (74)`（本機播放伺服器失效時自動重開）完整紀錄在下方「第七十四次發布」：run `38128728510` success，tag `ios-v0.1.73-b74` → `a2541ddf`，`source.json` `7d6b3944`，`WebHTV-0.1.73-74.ipa` 35,352,580 bytes。真機未驗收。
 
@@ -959,9 +961,37 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第七十五次發布：`0.1.74 (75)`（2026-10-12，**已發布**）
+## 第七十六次發布：`0.1.75 (76)`（2026-10-12，**已發布**）
 
-**目前最新版是 `0.1.74 (75)`。** 前面七十四版都已被取代。
+**目前最新版是 `0.1.75 (76)`。** 前面七十五版都已被取代。
+
+- 授權：使用者 2026-10-12「你自己抓一個階段我想要發佈」；截點由 Manager 選定（#1379）；發布準備 W-82（`.herdr-synapse/webhtv-dev/artifacts/ipa-prep-0.1.75-76.md`，Reviewer PASS）。push 與 workflow 由 Manager 依使用者授權執行。版號 `0.1.75`，build `76`。
+- 內容：`0.1.74 (75)` 的全部，加上 `ios-v0.1.74-b75..3fb9be02` 的 12 個 commit（first-parent 11 個，全部已審）：IOS-POC-57B-4 BeiLeHu（W-58／W-66）、IOS-POC-57B-5 Duboku（W-43）、IOS-POC-57B-9 TingBokan（W-76，第一個純音訊來源）、相容包加入 Duboku／TingBokan（W-78、W-76）、Bili 本機位址防護（W-67）、MediaSniffer 測試時序修正（W-68）、spider.jar hash 更正（W-69）、0.1.74 發布紀錄（W-65）。QingtingFM（W-77）不在本版。
+- 發布序列：
+  1. push `git push origin 3fb9be0230637a2ae407d0e3584572dcdaa3f2e6:ios-poc`（`3ee26487..3fb9be02`，快轉）。**沒有事先做版號 commit**：版號由 workflow 輸入覆寫，本紀錄所在的 commit 才把 `project.pbxproj` 補成 `0.1.75`／`76`。
+  2. `workflow_dispatch`：ref `ios-poc`，version `0.1.75`、build_number `76`，release notes 為 W-82 已審草稿。run `38229239279` success（2026-10-12 09:20:19Z → 09:27:55Z，headSha `3fb9be0230637a2ae407d0e3584572dcdaa3f2e6`）。
+  3. workflow 建立 tag `ios-v0.1.75-b76`（→ `3fb9be02`），並推回 `source.json` commit `474981aa0b3f70a1d86573a948319f7fdabf26df`（`release(ios): publish WebHTV 0.1.75 (76)`）：`0.1.75` 是 versions 第一筆、size 35402864、minOSVersion 17.0。
+
+  **沒有手動建 tag。**
+- 產物：
+  - GitHub Release `WebHTV 0.1.75 (76)`：不是 draft，也不是 prerelease，2026-10-12 09:27:42Z 發布，https://github.com/st7833232/webhtv/releases/tag/ios-v0.1.75-b76。
+  - `WebHTV-0.1.75-76.ipa`：**35,402,864 bytes**，SHA-256 `5416703566d058177919ca51b3eb8da22f4e3ee31770b93b9862bdb765ee0c15`（Manager 下載重算相符）。IPA 內 `Info.plist`：`com.webhtv.ios.poc`／`0.1.75`／`76`／minimum iOS 17.0；Payload 只有一個 .app；`Duboku.js` `3f900c98`、`TingBokan.js` `9f634581`、`BeiLeHu.js` `e556c455` 與 `3fb9be02` 相同。
+- 發布前驗證（W-82）：generic iOS device Release unsigned 建置成功；WebHTVCore 全測試 1115 個全過；Simulator 實播：BeiLeHu（W-58）、Duboku（W-43）、TingBokan 含背景播放（W-76）。
+- 已知問題：純音訊從觀看紀錄續播、位置離檔尾約 20 秒內時，可能停在檔尾轉圈、不接下一集（W-83 處理中）；每頁筆數少的來源第 2 頁要捲回頂端才載入（W-87）；直播被當成可續播（W-86）。
+- **真機尚未驗收。**
+
+### Release notes（實際送出的內容）
+
+```text
+來源相容性：
+- 新增更多影音來源的支援，包含每次請求都要重新簽章的影視來源，以及兒童影音來源。
+- 新增有聲書等純音訊來源；沒有畫面時播放器不會誤報錯誤，App 退到背景仍會繼續播放。
+
+修正：
+- 部分來源的 Cookie 或擴充設定若指向本機位址（含 IPv6 本機位址與 0.0.0.0），不再嘗試讀取，避免無謂的等待與錯誤訊息。
+```
+
+## 第七十五次發布：`0.1.74 (75)`（2026-10-12，**已發布**，已被 `0.1.75 (76)` 取代）
 
 - 授權：使用者 2026-10-12「W-44 審過後跟我說，準備出 IPA」；發布準備 W-57（`.herdr-synapse/webhtv-dev/artifacts/ipa-prep-0.1.74-75.md`，Reviewer PASS）。push 與 workflow 由 Manager 依使用者授權執行。版號 `0.1.74`，build `75`。
 - 內容：`0.1.73 (74)` 的全部，加上 `ios-v0.1.73-b74..282aa692` 的 42 個 commit（first-parent 18 個，全部已審，含 IOS-POC-57 系列 3 個補審 PASS）：IOS-POC-57／57A／57A-1～3（qist 類別別名、App99／Bili／XYQHiker 相容）、57B-1 FirstAid、57B-2 TuXiaoBei、QIST-CRYPTO-IV／JSONC／TYPE3、W-38（標頭 CR／LF）、W-46（來源停送誤報修正）、W-39（受保護海報）、W-37／W-44（js.host 1.4 與 Gulu）。

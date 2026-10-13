@@ -106,6 +106,8 @@ public struct SpiderRegistry: Sendable {
         "AppLY",        // http-json: spider.jar (JSON POST with a fixed md5 header)
         // IOS-POC-57B-7: 星芽短剧 short dramas (AES-ECB login token; signed plain-HTTP mp4)
         "ShortXingya",  // http-json: spider.jar (token-gated JSON API; four-hour media links)
+        // IOS-POC-57B-11: 咖啡体育 live football/basketball (one card per streamer room)
+        "SportsKafei",  // http-json: spider.jar (live HLS or rtmp signals; nothing stored but the room id)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

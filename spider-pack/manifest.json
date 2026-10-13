@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-13.2",
+  "version": "2026-10-13.3",
   "minHostApi": 2,
   "scripts": [
     {
@@ -181,6 +181,13 @@
       "class": "ShortXingya",
       "path": "./scripts/ShortXingya.js",
       "sha256": "43f1c231c1d39f25f40ebf36851a026f590b9bcb3896c0ff6fbccb9a7905eceb",
+      "originJar": "spider.jar",
+      "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"
+    },
+    {
+      "class": "SportsKafei",
+      "path": "./scripts/SportsKafei.js",
+      "sha256": "7492fd10ad47ed249bad6ddaa06d75e149c27d97a8e623eec14d4c48a2b0ac0f",
       "originJar": "spider.jar",
       "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"
     },

@@ -255,18 +255,15 @@ private func listing(id: [UInt8]) -> Data {
 }
 
 @Suite(.serialized) struct GuluSpiderTests {
-    @Test func homeOffersTheJARsTwelveClassesAndFiltersWithoutTouchingTheNetwork() async throws {
+    // W-112: the server ignores the year and sort it is sent (W-70), so the home offers no filter rows.
+    @Test func homeOffersTheJARsTwelveClassesAndNoFiltersWithoutTouchingTheNetwork() async throws {
         GuluServer.reset()
         let home = try object(try await gulu().homeContent(filter: true))
         let classes = try #require(home["class"] as? [[String: String]])
         #expect(classes.count == 12)
         #expect(classes.first == ["type_id": "movie", "type_name": "电影"])
         #expect(classes.last == ["type_id": "jp", "type_name": "日剧"])
-        let tv = try #require((home["filters"] as? [String: [[String: Any]]])?["tv"])
-        #expect(tv.map { $0["key"] as? String } == ["year", "sort"])
-        #expect((tv[0]["value"] as? [[String: String]])?.map { $0["v"]! } ==
-                [""] + (2010...2026).reversed().map(String.init) + ["2009"])
-        #expect(tv[1]["init"] as? String == "vod_hits_week")
+        #expect(home["filters"] == nil)
         #expect(GuluServer.asked.isEmpty)
     }
 
@@ -299,9 +296,8 @@ private func listing(id: [UInt8]) -> Data {
         let app = fields(try #require(boot[4]?.first as? Data))
         #expect(text(app[3]?.first) == "com.jymqfh.xee" && text(app[4]?.first) == device)
         let query = fields(try #require(calls[1].fields[6]?.first as? Data))
-        #expect(query[1]?.first as? Int == 9 && query[2]?.first as? Int == 1 && text(query[3]?.first) == "2026")
-        let sort = fields(try #require(query[5]?.first as? Data))
-        #expect(sort[1]?.first as? Int == 1 && sort[2]?.first as? Int == 0 && text(sort[3]?.first) == "vod_time")
+        // W-112: a year or sort that still arrives (an old saved filter) is not sent; the server ignored it.
+        #expect(query[1]?.first as? Int == 9 && query[2]?.first as? Int == 1 && query[3] == nil && query[5] == nil)
 
         // The session holds: page 2 is one more call, no second handshake; the boot template is never fetched.
         _ = try await spider.categoryContent(tid: "doc", page: "2", filter: false, extend: [:])
@@ -322,10 +318,12 @@ private func listing(id: [UInt8]) -> Data {
         #expect(vod["vod_director"] as? String == "黄颖湘、陈丹")
         #expect(vod["vod_area"] as? String == "大陆" && vod["vod_year"] as? String == "2026")
         #expect(vod["vod_remarks"] as? String == "更新至第43集")
-        #expect(vod["vod_play_from"] as? String == "腾讯视频$$$电影天堂$$$暴风资源$$$量子资源$$$非凡资源")
+        // W-112: 腾讯视频's episodes are v.qq.com pages no parse service opened (W-70); only m3u8 lines stay.
+        #expect(vod["vod_play_from"] as? String == "电影天堂$$$暴风资源$$$量子资源$$$非凡资源")
         let lines = try #require(vod["vod_play_url"] as? String).components(separatedBy: "$$$")
-        #expect(lines.map { $0.components(separatedBy: "#").count } == [47, 47, 47, 47, 47])
-        #expect(lines[1].hasPrefix("第01集$https://vip.dytt-tvs.com/20260911/36662_4031da8c/index.m3u8#"))
+        #expect(lines.map { $0.components(separatedBy: "#").count } == [47, 47, 47, 47])
+        #expect(!lines.joined().contains("v.qq.com"))
+        #expect(lines[0].hasPrefix("第01集$https://vip.dytt-tvs.com/20260911/36662_4031da8c/index.m3u8#"))
         // The prefixed lines (xfy-, CO4K_, rose_, NBY-, qsvip-, …) and pylg's bare ids are gone.
         let episodes = lines.flatMap { $0.components(separatedBy: "#") }
         #expect(episodes.allSatisfy { $0.components(separatedBy: "$").count == 2 && $0.components(separatedBy: "$")[1].hasPrefix("http") })
@@ -335,6 +333,23 @@ private func listing(id: [UInt8]) -> Data {
         GuluServer.reset()
         #expect(try list(try await spider.detailContent(ids: ["902056|||9"])).isEmpty)
         #expect(GuluServer.asked.isEmpty)
+    }
+
+    // W-112: the rule is the episode, not the line's code (W-114 found mgtv, bilibili and rrmj pages too):
+    // a page episode goes, and a line left with no m3u8 (or m.php) episode goes with it.
+    @Test func aDetailKeepsOnlyEpisodesThatPlayDirectly() async throws {
+        func episode(_ no: Int, _ url: String) -> Data { pb([(1, no), (3, url), (4, "第\(no)集")]) }
+        func line(_ code: String, _ urls: [String]) -> Data {
+            pb([(1, code)] + urls.enumerated().map { (2, episode($0.offset + 1, $0.element)) as (Int, Any) })
+        }
+        GuluServer.reset(["3/62": pb([(5, "手做"),
+            (75, line("mgtv", ["https://www.mgtv.com/b/1/2.html"])),
+            (75, line("dyttm3u8", ["https://v.invalid/a/index.m3u8", "https://www.bilibili.com/bangumi/play/ep1"])),
+            (75, line("rrmj", ["https://m.yichengwlkj.com/drama/58134?episodeNo=1"])),
+            (75, line("lzm3u8", ["https://relay.invalid/m.php?id=7"]))])])
+        let vod = try #require(try list(try await gulu().detailContent(ids: ["5"])).first)
+        #expect(vod["vod_play_from"] as? String == "电影天堂$$$量子资源")
+        #expect(vod["vod_play_url"] as? String == "第1集$https://v.invalid/a/index.m3u8$$$第1集$https://relay.invalid/m.php?id=7")
     }
 
     @Test func searchReadsAListingAndTreatsAShortReplyAsNone() async throws {

@@ -22,6 +22,10 @@
   var deviceId = '';
   var session = null; // { id, key, booted }
 
+  // An m3u8 (or the m.php relay) plays directly; anything else is a page.
+  // shortcut: a direct .mp4 line would count as a page; none was seen in 11 titles (W-114), add .mp4 if one appears.
+  function direct(url) { return url.indexOf('.m3u8') >= 0 || url.indexOf('m.php') >= 0; }
+
   function text(value) { return value === null || value === undefined ? '' : String(value); }
   function utf8(array) { return array ? host.bytes.toUtf8(array) : ''; }
   function b64(array) { return host.bytes.toBase64(array); }
@@ -230,17 +234,9 @@
       return '';
     },
 
+    // W-112: no filter rows. The JAR's year and sort (fields 3 and 5) leave the server's listing as it was (W-70).
     homeContent: function (filter) {
-      var years = [{ n: '全部', v: '' }];
-      for (var y = 2026; y >= 2010; y--) years.push({ n: String(y), v: String(y) });
-      years.push({ n: '更早', v: '2009' });
-      var sorts = [{ n: '最热', v: 'vod_hits_week' }, { n: '最新', v: 'vod_time' }, { n: '评分', v: 'vod_score' }];
-      var filters = {};
-      CLASSES.forEach(function (c) {
-        filters[c[0]] = [{ key: 'year', name: '年份', init: '', value: years },
-                         { key: 'sort', name: '排序', init: 'vod_hits_week', value: sorts }];
-      });
-      return host.result.home(CLASSES.map(function (c) { return { type_id: c[0], type_name: c[1] }; }), null, filters);
+      return host.result.home(CLASSES.map(function (c) { return { type_id: c[0], type_name: c[1] }; }));
     },
 
     homeVideoContent: function () {
@@ -250,12 +246,10 @@
 
     categoryContent: function (tid, pg, filter, extend) {
       ensure();
-      var page = pageNumber(pg), ext = extend || {};
+      var page = pageNumber(pg);
       var type = Object.prototype.hasOwnProperty.call(TYPES, tid) ? TYPES[tid] : 9;
-      var query = [[1, type], [2, page]];
-      if (ext.year) query.push([3, text(ext.year)]);
-      if (ext.sort) query.push([5, encode([[1, 1], [2, 0], [3, text(ext.sort)]])]);
-      return listing(items(callApi(3, 66, encode(query)), 100), page, type >= 8 && type <= 12 ? 10 : type === 6 ? 3 : 2);
+      return listing(items(callApi(3, 66, encode([[1, type], [2, page]])), 100), page,
+                     type >= 8 && type <= 12 ? 10 : type === 6 ? 3 : 2);
     },
 
     detailContent: function (ids) {
@@ -268,8 +262,10 @@
       var keys = { 5: 'vod_name', 13: 'vod_pic', 21: 'vod_content', 22: 'vod_remarks', 28: 'vod_area', 30: 'vod_year' };
       var lists = { 17: actors, 18: directors, 12: types };
       function addLine(group) {
-        // Direct lines only: a prefixed id would need the JAR's keyed third-party parse services.
-        var episodes = group.episodes.filter(function (e) { return e[1].indexOf('http') === 0; })
+        // Direct lines only: a prefixed id would need the JAR's keyed third-party parse services, and
+        // W-112: an http episode that is a page (腾讯视频, 爱奇艺, 优酷, mgtv, bilibili, rrmj) opened in
+        // no parse service (W-70, W-114). A line left with no direct episode is not listed.
+        var episodes = group.episodes.filter(function (e) { return e[1].indexOf('http') === 0 && direct(e[1]); })
           // A "$" or "#" in a name would split the play list into extra episodes (as in Bili.js).
           .map(function (e) { return (e[0].replace(/[$#]/g, ' ').trim() || '播放') + '$' + e[1]; });
         if (!episodes.length) return;
@@ -305,9 +301,8 @@
     playerContent: function (flag, id, vipFlags) {
       var url = text(id);
       if (url.indexOf('http') !== 0) return host.result.play('', false);
-      // An m3u8 (or the m.php relay) plays directly; anything else is a page to sniff.
-      var direct = url.indexOf('.m3u8') >= 0 || url.indexOf('m.php') >= 0;
-      return host.result.play(upgrade(url), !direct, { 'User-Agent': UA });
+      // A page (an old history entry from before W-112) is still handed to the sniffer.
+      return host.result.play(upgrade(url), !direct(url), { 'User-Agent': UA });
     }
   };
 

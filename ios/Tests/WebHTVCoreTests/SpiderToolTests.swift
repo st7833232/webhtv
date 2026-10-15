@@ -52,6 +52,18 @@ private let nothingInstalled = CSPSourceResolver(registry: SpiderRegistry(entrie
         #expect(SpiderToolText.bundledScripts < SpiderRegistry.ported.count)
     }
 
+    // W-138: most configurations publish no compatibility pack, so their 404 is the normal answer and shows no row;
+    // a pack that was installed, or any other failure, still says what went wrong.
+    @Test func theCompatibilityRowHidesOnlyAConfigurationWithoutAPack() {
+        #expect(SpiderToolText.compatibilityRow(failure: SpiderPackError.invalidHTTPStatus(404), installed: nil) == "")
+        #expect(SpiderToolText.compatibilityRow(failure: SpiderPackError.invalidHTTPStatus(404), installed: "相容性套件 v1，3 支腳本")
+                == "相容性套件 v1，3 支腳本（更新失敗：相容性套件回應 HTTP 404。）")
+        #expect(SpiderToolText.compatibilityRow(failure: SpiderPackError.invalidHTTPStatus(503), installed: nil)
+                == "沒有（更新失敗：相容性套件回應 HTTP 503。）")
+        #expect(SpiderToolText.compatibilityRow(failure: SpiderPackError.malformedManifest, installed: nil)
+                == "沒有（更新失敗：相容性套件的 manifest 無法解析。）")
+    }
+
     // The banner counts only what the 爬蟲工具 could bring: a class the pack provides that does not run today.
     @Test func onlyAProvidableClassThatDoesNotRunCountsAsNeedingTheTool() throws {
         let mixed = try config([cms, ported, unported, drpy, python].joined(separator: ","))

@@ -498,10 +498,8 @@ private struct ConfigView: View {
             await SpiderSessionStore.shared.reset()
             rebuildSites()
         } catch {
-            let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             let current = await SpiderPackStore.shared.installedPack()
-            packStatus = current.map { "\(Self.describe($0))（更新失敗：\(reason)）" }
-                ?? "沒有（更新失敗：\(reason)）"
+            packStatus = SpiderToolText.compatibilityRow(failure: error, installed: current.map(Self.describe))
         }
     }
 

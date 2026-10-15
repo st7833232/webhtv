@@ -13,6 +13,15 @@ public enum SpiderToolText {
         return "\(name) \(official.version)（序號 \(official.generation.sequence)，\(official.scripts.count) 支）"
     }
 
+    /// The 設定檔相容包 row after a failed refresh of `./spiders/manifest.json`. Most configurations publish no pack, so
+    /// a 404 with nothing installed is the normal answer and shows no row (W-138); `installed` describes a pack that
+    /// is still in use, and any other failure is shown.
+    public static func compatibilityRow(failure: Error, installed: String?) -> String {
+        if installed == nil, failure as? SpiderPackError == .invalidHTTPStatus(404) { return "" }
+        let reason = (failure as? LocalizedError)?.errorDescription ?? failure.localizedDescription
+        return "\(installed ?? "沒有")（更新失敗：\(reason)）"
+    }
+
     /// `scripts` is what runs after an install; `playing` holds an installed pack back until the player closes.
     public static func result(of outcome: RuntimePackUpdater.Outcome, scripts: Int, playing: Bool) -> String {
         switch outcome {

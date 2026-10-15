@@ -228,6 +228,12 @@
 - DEBUG 縫 `WEBHTV_DELAY_PACK_LOAD_MS`：只在 DEBUG 編譯，讓載入延後，GUI 才做得出「載入前已經在播放」的情境（Release 不含，和 S3 的兩個縫同一種做法）。
 - 驗證：App Simulator build 成功、`swift test` 1276／46（`artifacts/w134-logs/`）。GUI（N-2 一併補）：暫存 Simulator（測完刪除，臨時 CA 只加在那台）、本機 HTTPS 伺服器提供一個「`JianPian.js` 多一行註解」的序號 2 下載版，全部 PASS（`artifacts/w134-gui-evidence/RESULT.md`，sha256 `c44211e5…`）：A 檢查更新裝上序號 2；B（N-2）正常重開：`site list ready 35 ms` → 種子 `.rollback` → `applied … seq 2`，站台在、荐片分類可載入；C 播放中延後：`WEBHTV_DELAY_PACK_LOAD_MS=20000` 下先開始播放（嗶哩），`deferred: player open`、播放期間沒有 `applied`、時間碼 00:22→00:29，關閉播放器 → `player closed` → `applied … seq 2`（第一輪荐片片源 DNS 解析不到，改嗶哩重做）；D 重設回內建基準後正常重開：只有 `site list ready 73 ms` 與 `baseline unchanged`，沒有 `applied`。沒驗到：真機、MPV、PiP、Release；正常啟動的約 230 ms 空檔沒有真的撞到過（用 DEBUG 延遲做出來）。Ponytail：沒有 finding。
 
+### 沒有相容包的設定不顯示失敗列（W-138，0.1.77 使用者回報）
+
+- 問題（W-121 審查 N-4）：每次啟動 `refreshSpiderPack()` 都會抓設定旁的 `./spiders/manifest.json`，絕大多數設定沒有相容包，伺服器回 404 是正常的，設定頁卻顯示「設定檔相容包：沒有（更新失敗：相容性套件回應 HTTP 404。）」，使用者以為更新失敗。
+- 修正：狀態文字改由 `SpiderToolText.compatibilityRow(failure:installed:)` 決定：沒有裝過相容包而且是 HTTP 404 → 空字串（列不顯示）；已有相容包（仍在使用）或其他錯誤 → 照舊顯示「<目前的包或『沒有』>（更新失敗：原因）」。相容包的下載與驗證、官方包流程都沒動。
+- 驗證：`theCompatibilityRowHidesOnlyAConfigurationWithoutAPack`（404 無包 → 空；404 有舊包 → 舊包＋失敗；503、manifest 壞 → 顯示）先紅後綠；mutant（拿掉 404 判斷）變紅；`swift test` 1277／46；App Simulator build 成功（`artifacts/w138-logs/`）。截圖：暫存 Simulator、0825 設定（它的 `spiders/manifest.json` 回 404，Mac 上 curl 確認），啟動約 2 分鐘後設定頁「爬蟲工具」區塊只有狀態「內建基準 2026-10-15.1（序號 1，33 支）」、檢查更新、重設與頁尾說明，沒有「設定檔相容包」列，畫面裡「404」0 筆，PASS（`artifacts/w138-gui-evidence/RESULT.md`，sha256 `6ce17677…`）。沒驗到：App 自己那次相容包請求沒有 log 佐證（由網址 404 與等待時間推論）；「已裝相容包又 404」與非 404 錯誤只有單元測試；真機、Release。Ponytail：沒有 finding（一個條件、一個呼叫端）。
+
 ### S4 回滾
 
 一個 commit；`git revert` 移除基準 manifest、種子與狀態列的分辨。已種子的裝置留下的世代內容就是內建檔，registry 讀它和讀內建結果相同；S3 的「重設」可清掉。

@@ -15,9 +15,12 @@ public struct WebHTVConfig: Decodable, Sendable {
     /// IOS-POC-56: the configuration's global parse services and VIP line names. Every `Site` it
     /// decodes carries a copy, so a site's parsing always belongs to the configuration it came from.
     public let parsing: ParseSettings
+    /// IOS-POC-59: the configuration's live lists, type-0 URL lists only. Decoded twice-forgiving
+    /// (the whole value, then each live), so `lives` can never cost the configuration its sites.
+    public let lives: [LiveSource]
 
     enum CodingKeys: String, CodingKey {
-        case sites, ads, rules, spider, parses, flags
+        case sites, ads, rules, spider, parses, flags, lives
     }
 
     public init(from decoder: Decoder) throws {
@@ -29,7 +32,9 @@ public struct WebHTVConfig: Decodable, Sendable {
         let flags = ((try? values.decodeIfPresent([Lenient<String>].self, forKey: .flags)) ?? nil) ?? []
         let parsing = ParseSettings(parses: entries.compactMap(\.value), flags: flags.compactMap(\.value))
         self.parsing = parsing
-        sites = try values.decode([Site].self, forKey: .sites).map { site in
+        // A missing `sites` is empty, so a lives-only configuration reaches `validate` and is refused
+        // there; a broken one still fails to decode, as before.
+        sites = try (values.decodeIfPresent([Site].self, forKey: .sites) ?? []).map { site in
             var site = site
             if site.jar.isEmpty { site.jar = spider }
             site.parsing = parsing
@@ -37,6 +42,10 @@ public struct WebHTVConfig: Decodable, Sendable {
         }
         ads = (try? values.decodeIfPresent([String].self, forKey: .ads)) as? [String] ?? []
         rules = ((try? values.decodeIfPresent([SnifferRule].self, forKey: .rules)) ?? nil) ?? []
+        // Android's `.distinct()` keeps the first live of a name (`Live.equals` is the name).
+        var names = Set<String>()
+        lives = (((try? values.decodeIfPresent([Lenient<LiveSource>].self, forKey: .lives)) ?? nil) ?? [])
+            .compactMap(\.value).filter { names.insert($0.name).inserted }.filter(\.isURLList)
     }
 
     /// The native CMS sites this app drives directly: type-0 MacCMS XML, type-1 MacCMS JSON and

@@ -1,9 +1,11 @@
 # IOS-POC-11：SideStore 發布流程
 
 
-## Current release — 2026-10-13：0.1.76 (77) / 直播、戲曲、短劇與體育來源，續播與翻頁修正
+## Current release — 2026-10-15：0.1.77 (78) / 爬蟲工具與官方爬蟲包、有聲書與體育來源、資料夾導覽
 
-**目前最新版是 `0.1.76 (77)`**（新增網路電台直播、戲曲影音、短劇與體育直播來源；直播不續播、起播失敗後保留續播位置、音訊檔尾接下一集、重新整理後翻頁、回到頂部按鈕修正）。完整紀錄在下方「第七十七次發布」：run `38371100907` success，tag `ios-v0.1.76-b77` → `43014fae`，`source.json` `54d5e1f7`，`WebHTV-0.1.76-77.ipa` 35,422,351 bytes。真機未驗收。
+**目前最新版是 `0.1.77 (78)`**（設定頁「爬蟲工具」可手動下載官方爬蟲更新；新增有聲書與體育直播來源；資料夾項目可以點進去看清單；部分來源只列能直接播放的集數）。完整紀錄在下方「第七十八次發布」：run `38712470365` success，tag `ios-v0.1.77-b78` → `81115ea9`，`source.json` `b8dcbf64`，`WebHTV-0.1.77-78.ipa` 35,582,685 bytes。官方爬蟲包第一版（序號 2）已在 `b78d9147` 發布。真機尚未完整驗收。
+
+前一版 `0.1.76 (77)`（新增網路電台直播、戲曲影音、短劇與體育直播來源；直播不續播、起播失敗後保留續播位置、音訊檔尾接下一集、重新整理後翻頁、回到頂部按鈕修正）。完整紀錄在下方「第七十七次發布」：run `38371100907` success，tag `ios-v0.1.76-b77` → `43014fae`，`source.json` `54d5e1f7`，`WebHTV-0.1.76-77.ipa` 35,422,351 bytes。真機未驗收。
 
 前一版 `0.1.75 (76)`（新增簽章影視來源、兒童影音來源、有聲書等純音訊來源與背景播放；部分來源的本機位址設定不再讀取）完整紀錄在下方「第七十六次發布」：run `38229239279` success，tag `ios-v0.1.75-b76` → `3fb9be02`，`source.json` `474981aa`，`WebHTV-0.1.75-76.ipa` 35,402,864 bytes。真機未驗收。
 
@@ -963,9 +965,47 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第七十七次發布：`0.1.76 (77)`（2026-10-13，**已發布**）
+## 第七十八次發布：`0.1.77 (78)`（2026-10-15，**已發布**）
 
-**目前最新版是 `0.1.76 (77)`。** 前面七十六版都已被取代。
+**目前最新版是 `0.1.77 (78)`。** 前面七十七版都已被取代。
+
+- 授權：使用者 2026-10-15 17:15「0.1.77 一起發截點內所有已審功能」（看板 #2403／#2404），發布前檢查（W-132，`.herdr-synapse/webhtv-dev/artifacts/pre-release-check-0.1.77-2026-10-15.md`，六項 PASS）與官方包真網址驗證（W-136 PASS）之後，Manager 依授權觸發（#2446）。截點由 Manager 選定為 `f64be3ba`（W-131 為止，#2337）；發布步驟 W-130（`artifacts/release-steps-2026-10-15.md`）。版號 `0.1.77`，build `78`。
+- 建置來源：workflow 建的是當下的 `ios-poc`＝`81115ea9`，也就是 `f64be3ba` 再加官方包發布的三個 commit（`3f8989fd` 暫時觸發、`b78d9147` 發布物、`81115ea9` revert）。這三個只動 `.github/workflows/ios-spider-pack.yml`（加了又還原，和 `f64be3ba` 相同）與 `spider-pack/official/`，App 內容和 `f64be3ba` 相同。
+- 內容：`0.1.76 (77)` 的全部，加上 `ios-v0.1.76-b77..f64be3ba` 的 18 個 commit（first-parent 17 個，全部已審）：MPV 錯誤 log 遮罩（W-109）、Gulu 只列能直接播放的集數（W-112）、IOS-POC-57B-12 TingJinxia 有聲書（W-103）、0.1.76 發布紀錄（W-116）、Jianpian 別名（W-104）、IOS-POC-57B-14 Sports88／Kanqiu 體育直播（W-105）、資料夾導覽（W-40：來源回傳的資料夾項目可以點進去看清單）、IOS-POC-61 爬蟲工具 S1–S4（W-119、W-120、W-121、W-122）、直播清單解析核心（W-124，沒有畫面）、站台清單不等官方包（W-131）。W-41 Ikanbot、W-42 Djuu、W-134、W-125 不在本版。
+- 官方爬蟲包第一版：W-133 commit A `3f8989fd`（暫時加 push 觸發，序號／版本預設 2／`2026-10-15.2`）由使用者推上，觸發 run `38710898206`（event `push`，headSha `3f8989fd`，2026-10-15 09:09:44Z → 09:10:02Z，success），workflow 推回 `b78d9147`（`release(ios): publish the official spider pack 2026-10-15.2 (sequence 2)`）：`spider-pack/official/manifest.json` sha256 `4a620765003ffa4093ec93bdd12198ed9443e4c715adf65093528210a415ced8`，序號 2、版本 `2026-10-15.2`、33 支。commit B `81115ea9`＝revert A，推上後沒有再觸發。Manager 從 raw 網址下載全部 blob verify 0 problem；W-136 Simulator 真網址驗證 PASS。本版 App 內建基準是序號 1（`2026-10-15.1`）。
+- 發布序列：
+  1. `origin/ios-poc` 在發布前停在 `81115ea9`。**沒有事先做版號 commit**：版號由 workflow 輸入覆寫，本紀錄所在的 commit 才把 `project.pbxproj` 補成 `0.1.77`／`78`。
+  2. `workflow_dispatch`：ref `ios-poc`，version `0.1.77`、build_number `78`，release notes 為 `artifacts/release-notes-0.1.77.txt`。run `38712470365` success（2026-10-15 09:22:36Z → 09:29:50Z，headSha `81115ea9308e2b2edc109f3946af04a2b735907f`）。
+  3. workflow 建立 tag `ios-v0.1.77-b78`（→ `81115ea9`），並推回 `source.json` commit `b8dcbf64245970d3e73883799dd92a60614ce1c4`（`release(ios): publish WebHTV 0.1.77 (78)`）：`0.1.77` 是 versions 第一筆、size 35582685、minOSVersion 17.0，`localizedDescription` 與 `release-notes-0.1.77.txt` 逐字相同。
+
+  **沒有手動建 tag。**
+- 產物：
+  - GitHub Release `WebHTV 0.1.77 (78)`：不是 draft，也不是 prerelease，2026-10-15 09:29:40Z 發布，https://github.com/st7833232/webhtv/releases/tag/ios-v0.1.77-b78。
+  - `WebHTV-0.1.77-78.ipa`：**35,582,685 bytes**，SHA-256 `378b33bad6d244e0971e6ace1ef42017b9080d9bd3b634edece6f181df039b8a`（W-137 以 `gh release download` 下載重算）。IPA 內 `Info.plist`：`com.webhtv.ios.poc`／`0.1.77`／`78`／minimum iOS 17.0；Payload 只有一個 `WebHTVApp.app`；`WebHTVCore_WebHTVCore.bundle/SpiderBaseline/manifest.json` 與 repo 相同（sha256 `19f4d4c9…`），`Spiders/` 36 個檔（33 支＋SDK 3 支）；Release binary 裡 `WEBHTV_RUNTIME_PACK_URL`、`WEBHTV_HIDE_BUNDLED_SPIDERS`、`WEBHTV_DELAY_PACK_LOAD_MS` 都是 0 筆（只在 DEBUG 編譯的測試縫沒有進 Release）。
+- 發布前驗證（W-132，`artifacts/pre-release-check-0.1.77/`）：截點只含已審 commit；WebHTVCore 全測試 1276 個全過；官方包 build＋verify 0 problem、33 支、不含 Ikanbot／Djuu；相容包 verify 不變；tag 與 Release 不存在；Simulator 全新安裝首次啟動種子、設定頁「內建基準 2026-10-15.1（序號 1，33 支）」。各單的 Simulator 證據：W-121（`w121-gui-evidence`）、W-122（`w122-gui-evidence`）、W-131（`w131-logs`）、W-136（官方包真網址）。
+- 已知問題：
+  - 設定檔沒有相容包時（多數遠端設定），設定頁「設定檔相容包」列每次啟動都顯示「沒有（更新失敗：…HTTP 404）」（使用者回報，W-121 審查 N-4；W-138 處理中）。
+  - 啟動時若載入的是和內建不同的下載版官方包，站台清單出現後約 230 ms 內換版，沒有走播放中延後（W-134 已修、審過，下一版帶入）。
+- **真機尚未完整驗收**（使用者已安裝並回報上面第一個已知問題）。
+
+### Release notes（實際送出的內容）
+
+```text
+爬蟲工具：
+- 設定頁新增「爬蟲工具」區塊，可手動檢查並下載官方爬蟲更新；只有按下時才會連網。
+- 下載的更新驗證通過才會採用，失敗時一律保留目前的版本；播放中下載的版本會在關閉播放器後套用。
+- 可隨時「重設」回到 App 內建的版本。
+
+來源相容性：
+- 新增更多有聲書與體育直播來源的支援。
+- 部分設定檔以不同名稱引用的影視來源，現在也能使用。
+- 影視來源裡的資料夾項目（例如片單、歌單）可以點進去看清單，再從清單打開影片。
+
+修正：
+- 部分來源只列出能直接播放的集數，並移除已經失效的篩選條件。
+```
+
+## 第七十七次發布：`0.1.76 (77)`（2026-10-13，**已發布**，已被 `0.1.77 (78)` 取代）
 
 - 授權：使用者 2026-10-13 選 1 授權發布；截點由 Manager 選定為 `43014fae`（W-110 為止，#1877）；發布準備 W-115（`.herdr-synapse/webhtv-dev/artifacts/ipa-prep-0.1.76-review-2026-10-13.md`：Reviewer REVISE 只改發布說明兩句，修訂版已採用）。workflow 由使用者以 `!` 指令觸發（Manager 觸發被權限擋下）。版號 `0.1.76`，build `77`。
 - 內容：`0.1.75 (76)` 的全部，加上 `ios-v0.1.75-b76..43014fae` 的 16 個 commit（first-parent 15 個，全部已審）：IOS-POC-57B-10 QingtingFM 網路電台（W-77、W-88 分頁）、FirstAid 詳情欄位（W-84）、IOS-POC-57B-6 AppLY 戲曲（W-73 與後續）、0.1.75 發布紀錄（W-85）、音訊檔尾接下一集（W-83）、直播不續播（W-86）、重新整理後翻頁（W-87）、js.host 1.5 二進位 HMAC（W-97）、IOS-POC-57B-7 ShortXingya 短劇（W-74）、IOS-POC-57B-11 SportsKafei 體育直播（W-72）、回到頂部（W-107）、起播失敗後保留續播位置（W-110）。W-109（MPV 錯誤 log）、W-112（Gulu 線路收斂）、W-103（TingJinxia）不在本版。

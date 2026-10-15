@@ -38,7 +38,9 @@ private let frozen: [RuntimeABI.Surface: [RuntimeABI.Version: String]] = [
                     // IOS-POC-45H: `subs` on spider and type-4 play results; `SourceSubtitles.swift`'s keys.
                     .init(1, 1): "584279fcf060436cfa33ee943ab76c1254b20fec1a9f036a5e2c6566543c1f21",
                     // IOS-POC-56: `jx`, `playUrl`, `flag` on spider and type-4 play results, type 4's `parse`.
-                    .init(1, 2): "eca40e564298dc7d46982c5b800dbd760662683667b7b4c5b5f8041601f6af39"],
+                    .init(1, 2): "eca40e564298dc7d46982c5b800dbd760662683667b7b4c5b5f8041601f6af39",
+                    // IOS-POC-60 (W-40): `vod_tag` on list items; "folder" opens one as a category.
+                    .init(1, 3): "04cbf663526efb77052c50e3310df3e90241eb53e6db1294d7e1e9d1b03344fb"],
     .jsHost: [.init(1, 1): "3724fb8a7f10f4c4467aadc3280d616c30a1801e319ef12d45ed4deba40d798b",
               // IOS-POC-54: `host.isVideoFormat` and `host.firstURL`.
               .init(1, 2): "d314325a5c270d800a104edeece16a2634ccf629f4643365739a98897eab2d09",

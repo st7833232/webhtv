@@ -54,7 +54,9 @@ public enum RuntimeABI {
             // 1.1 (IOS-POC-45H): a play result's `subs` is read.
             // 1.2 (IOS-POC-56): a play result's `jx`, `playUrl` and `flag` are read, and type 4's
             // `parse` — additions only; a result without them means what it did in 1.1.
-            case .catvodResult: Version(1, 2)
+            // 1.3 (IOS-POC-60, W-40): a list item's `vod_tag` "folder" opens it as a category — additions
+            // only; an item without it means what it did in 1.2.
+            case .catvodResult: Version(1, 3)
             // Minor 1 is `SpiderPackStore.hostApiVersion` 1, so a schema-1 compatibility pack's
             // `minHostApi` n means `js.host` {1, n} with no translation table.
             // 1.2 (IOS-POC-54): `host.isVideoFormat` and `host.firstURL`, which the ported spiders

@@ -942,12 +942,31 @@ private struct HomeView: View {
     }
 }
 
+/// IOS-POC-60 (W-40): a `vod_tag` "folder" item opened as a listing of its own, with the extend it was listed under.
+struct FolderTarget: Hashable {
+    let id: String
+    let name: String
+    let extend: [String: String]
+}
+
+/// Where tapping a list item goes: a folder lists its own items, anything else opens its detail (FongMi's TypeFragment).
+@MainActor @ViewBuilder private func vodDestination(_ vod: Vod, site: Site, source: ConfigSource,
+                                                    extend: [String: String]) -> some View {
+    if vod.isFolder {
+        CMSView(site: site, source: source, folder: FolderTarget(id: vod.id, name: vod.name, extend: extend))
+    } else {
+        VodView(site: site, summary: vod, source: source)
+    }
+}
+
 private struct CMSView: View {
     let site: Site
     let source: ConfigSource
     var initialQuery: String?
     var onPickSource: (() -> Void)?
     var topRequest = 0
+    /// Set, this view lists one folder: no header, search or category rows, a navigation bar to go back.
+    var folder: FolderTarget?
     @State private var items = [Vod]()
     @State private var groups = [CategoryGroup]()
     @State private var selectedCategory: String?
@@ -982,6 +1001,22 @@ private struct CMSView: View {
 
     private let columns = [GridItem(.adaptive(minimum: 104, maximum: 180), spacing: 12)]
 
+    init(site: Site, source: ConfigSource, initialQuery: String? = nil, onPickSource: (() -> Void)? = nil,
+         topRequest: Int = 0, folder: FolderTarget? = nil) {
+        self.site = site
+        self.source = source
+        self.initialQuery = initialQuery
+        self.onPickSource = onPickSource
+        self.topRequest = topRequest
+        self.folder = folder
+        // A folder is listed as a category: every page, refresh and load-more goes through `selectedCategory`.
+        _selectedCategory = State(initialValue: folder?.id)
+        _chosenFilters = State(initialValue: folder?.extend ?? [:])
+    }
+
+    /// The extend a folder opened from this listing inherits: the filters of a category being listed, else none.
+    private var linkExtend: [String: String] { !searching && selectedCategory != nil ? chosenFilters : [:] }
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -992,15 +1027,17 @@ private struct CMSView: View {
                         .onGeometryChange(for: Bool.self) { $0.frame(in: .scrollView).minY > -Self.topSlack } action: {
                             atTop = $0
                         }
-                    homeHeader
-                    CinematicSearchField(text: $query, prompt: "搜尋此來源的影片", onSubmit: {
-                        submitSearch()
-                    }, onClear: {
-                        searching = false
-                        Task { await load(category: selectedCategory) }
-                    })
-                    .padding(.horizontal, 20)
-                    if !groups.isEmpty {
+                    if folder == nil {
+                        homeHeader
+                        CinematicSearchField(text: $query, prompt: "搜尋此來源的影片", onSubmit: {
+                            submitSearch()
+                        }, onClear: {
+                            searching = false
+                            Task { await load(category: selectedCategory) }
+                        })
+                        .padding(.horizontal, 20)
+                    }
+                    if folder == nil, !groups.isEmpty {
                         VStack(spacing: 4) {
                             categoryRow(parentChips)
                             if !searching, !(activeGroup?.children.isEmpty ?? true) || !activeFilterRows.isEmpty {
@@ -1041,7 +1078,9 @@ private struct CMSView: View {
             }
         }
         .appWallpaper()
-        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(folder == nil ? .hidden : .visible, for: .navigationBar)
+        .navigationTitle(folder.map { zhTW($0.name) } ?? "")
+        .navigationBarTitleDisplayMode(.inline)
         .onChange(of: query) { _, text in
             if searching && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 searching = false
@@ -1050,7 +1089,7 @@ private struct CMSView: View {
         }
         .task {
             guard items.isEmpty else { return }
-            guard let initialQuery, !initialQuery.isEmpty else { return await load() }
+            guard let initialQuery, !initialQuery.isEmpty else { return await load(category: folder?.id) }
             query = initialQuery
             searching = true
             await load(search: initialQuery)
@@ -1091,7 +1130,7 @@ private struct CMSView: View {
 
     private func featuredCard(_ vod: Vod) -> some View {
         NavigationLink {
-            VodView(site: site, summary: vod, source: source)
+            vodDestination(vod, site: site, source: source, extend: linkExtend)
         } label: {
             VStack(alignment: .leading, spacing: 12) {
                 CinematicHeroArt(picture: vod.picture).frame(height: 260)
@@ -1124,7 +1163,7 @@ private struct CMSView: View {
     private var posterGrid: some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
             ForEach(items) { vod in
-                NavigationLink { VodView(site: site, summary: vod, source: source) } label: { VodCard(vod: vod) }
+                NavigationLink { vodDestination(vod, site: site, source: source, extend: linkExtend) } label: { VodCard(vod: vod) }
                     .buttonStyle(.plain)
                     .onAppear { if vod.id == items.last?.id { Task { await loadMore() } } }
             }
@@ -1505,7 +1544,7 @@ private struct AggregateSearchView: View {
                         LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
                             ForEach(hits) { hit in
                                 NavigationLink {
-                                    VodView(site: hit.site, summary: hit.vod, source: source)
+                                    vodDestination(hit.vod, site: hit.site, source: source, extend: [:])
                                 } label: {
                                     VStack(alignment: .leading, spacing: 4) {
                                         VodCard(vod: hit.vod)

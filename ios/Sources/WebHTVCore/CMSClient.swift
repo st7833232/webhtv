@@ -181,6 +181,9 @@ public struct Vod: Decodable, Identifiable, Sendable {
     public let director: String
     public let actor: String
     public let content: String
+    /// IOS-POC-60 (W-40): "folder" marks an item that lists more items rather than playing — its id is a
+    /// category id (FongMi's `Vod.isFolder()`). Anything else, or no tag, is an ordinary title.
+    public let tag: String
 
     enum CodingKeys: String, CodingKey {
         case id = "vod_id"
@@ -197,6 +200,7 @@ public struct Vod: Decodable, Identifiable, Sendable {
         case actor = "vod_actor"
         case content = "vod_content"
         case blurb = "vod_blurb"
+        case tag = "vod_tag"
     }
 
     public init(from decoder: Decoder) throws {
@@ -217,6 +221,8 @@ public struct Vod: Decodable, Identifiable, Sendable {
         director = values.decodeText(forKey: .director)
         actor = values.decodeText(forKey: .actor)
         content = values.decodeText(forKey: .content, orElse: .blurb)
+        // Only a string counts; a number must not read as one (decodeText would make 123 "123").
+        tag = ((try? values.decodeIfPresent(String.self, forKey: .tag)) ?? nil) ?? ""
     }
 
     /// Built rather than decoded: `player.playVod` names a vod by id, and the MacCMS XML decoder
@@ -227,7 +233,7 @@ public struct Vod: Decodable, Identifiable, Sendable {
         id: String, name: String, picture: String,
         remarks: String = "", playFrom: String = "", playURL: String = "",
         year: String = "", area: String = "", typeName: String = "",
-        director: String = "", actor: String = "", content: String = ""
+        director: String = "", actor: String = "", content: String = "", tag: String = ""
     ) {
         self.id = id
         self.name = name
@@ -241,7 +247,11 @@ public struct Vod: Decodable, Identifiable, Sendable {
         self.director = director
         self.actor = actor
         self.content = content
+        self.tag = tag
     }
+
+    /// Case-sensitive, as on Android.
+    public var isFolder: Bool { tag == "folder" }
 
     public var flags: [Flag] {
         zip(playFrom.components(separatedBy: "$$$"), playURL.components(separatedBy: "$$$"))

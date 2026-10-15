@@ -146,10 +146,22 @@ private struct ConfigView: View {
     /// What the compatibility pack is doing, shown in settings so a refused pack is visible rather
     /// than silent. Empty means "bundled scripts", which is the normal state until a pack is served.
     @State private var packStatus = ""
+    /// IOS-POC-61 S3: the official pack that runs (`nil` is the bundled scripts), the last check's sentence, and one
+    /// busy flag every way in shares — settings, the banner, the all-spider screen — so two never run at once.
+    @State private var officialPack: OfficialSpiderPack?
+    @State private var spiderToolNote = ""
+    @State private var spiderToolCheckedAt: Date?
+    @State private var spiderToolOutcome: RuntimePackUpdater.Outcome?
+    @State private var spiderToolBusy = false
+    /// Installed while the player was open; applied when it closes.
+    @State private var officialPending = false
+    /// Sites of this configuration the 爬蟲工具 would bring (`sitesNeedingSpiderTool`): the banner's count, and
+    /// what tells "a configuration that only waits for the tool" from "no configuration" when `sites` is empty.
+    @State private var needSpiderTool = 0
 
     var body: some View {
         Group {
-            if sites.isEmpty {
+            if sites.isEmpty && needSpiderTool == 0 {
                 NavigationStack {
                     ContentUnavailableView(
                         "尚未載入設定",
@@ -176,7 +188,15 @@ private struct ConfigView: View {
             } else {
                 VStack(spacing: 0) {
                 TabView(selection: $selectedTab) {
-                    HomeView(sites: sites, selectedSiteID: pickedSite, source: source, topRequest: homeTopRequest)
+                    Group {
+                        // Never an empty list into HomeView, whose selected site is `sites[0]` (Manager #2112 ③).
+                        if sites.isEmpty {
+                            SpiderToolNeededView(count: needSpiderTool, note: spiderToolNote, busy: spiderToolBusy,
+                                                 onDownload: checkSpiderTool)
+                        } else {
+                            HomeView(sites: sites, selectedSiteID: pickedSite, source: source, topRequest: homeTopRequest)
+                        }
+                    }
                         .toolbar(.hidden, for: .tabBar)
                         .tag(0)
                         .tabItem { Label("首頁", systemImage: "play.rectangle.fill") }
@@ -214,6 +234,12 @@ private struct ConfigView: View {
                             updatedAt: updatedAt,
                             refreshing: refreshing,
                             packStatus: packStatus,
+                            spiderToolStatus: SpiderToolText.status(of: officialPack),
+                            spiderToolNote: spiderToolNote,
+                            spiderToolCheckedAt: spiderToolCheckedAt,
+                            spiderToolBusy: spiderToolBusy,
+                            onCheckSpiderTool: checkSpiderTool,
+                            onResetSpiderTool: resetSpiderTool,
                             onImport: { importing = true },
                             onAskRemote: {
                                 remoteText = ""
@@ -242,6 +268,10 @@ private struct ConfigView: View {
                         if let offer = favoriteLibrary.undoOffer, !favoriteLibrary.playerOpen {
                             FavoriteUndoBanner(offer: offer).padding(.vertical, 8)
                         }
+                        if selectedTab == 0, needSpiderTool > 0, !sites.isEmpty, !keyboardVisible {
+                            SpiderToolBanner(count: needSpiderTool, busy: spiderToolBusy, onDownload: checkSpiderTool)
+                                .padding(.vertical, 8)
+                        }
                         if !keyboardVisible { CinematicTabBar(selection: selectedTab, onSelect: selectTab) }
                     }
                 }
@@ -262,7 +292,21 @@ private struct ConfigView: View {
         .onChange(of: sites.map(\.id), initial: true) { adoptFavoriteContext() }
         .onChange(of: source) { adoptFavoriteContext() }
         .onChange(of: saved) { adoptFavoriteContext() }
+        // C17: what was installed while the player was open is applied the moment it closes.
+        .onChange(of: favoriteLibrary.playerOpen) { _, open in
+            guard !open, officialPending else { return }
+            Self.spiderToolLog.notice("player closed")
+            Task {
+                await applyOfficialPack()
+                if let outcome = spiderToolOutcome {
+                    spiderToolNote = SpiderToolText.result(of: outcome, scripts: officialPack?.scripts.count ?? 0, playing: false)
+                }
+            }
+        }
         .task {
+            // The official pack on disk, before any site list is built. Never the network (only a tap does that).
+            await RuntimePackStore.shared.removeStaging()
+            await loadOfficialPack()
             restore()
             await WatchHistoryStore.shared.migrateSiteIdentities(in: sites)
             // The cached pack is adopted before anything is fetched, so an offline launch runs on
@@ -438,8 +482,81 @@ private struct ConfigView: View {
             let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             let current = await SpiderPackStore.shared.installedPack()
             packStatus = current.map { "\(Self.describe($0))（更新失敗：\(reason)）" }
-                ?? "內建腳本（更新失敗：\(reason)）"
+                ?? "沒有（更新失敗：\(reason)）"
         }
+    }
+
+    private static let spiderToolLog = Logger(subsystem: "com.webhtv.ios.poc", category: "spider-tool")
+
+    #if DEBUG
+    /// W-121 Simulator evidence only: a local HTTPS server stands in for the published address. Compiled out of
+    /// Release, and never read from settings (plan §3.1).
+    private static let spiderToolUpdater = ProcessInfo.processInfo.environment["WEBHTV_RUNTIME_PACK_URL"]
+        .flatMap(URL.init(string:)).map { RuntimePackUpdater(manifestURL: $0) } ?? .shared
+    #else
+    private static let spiderToolUpdater = RuntimePackUpdater.shared
+    #endif
+
+    /// 檢查更新／下載: only ever from a button (plan §10: no launch, background or retry check). The task is not
+    /// tied to the settings page, so leaving it neither cancels the download nor loses the result.
+    private func checkSpiderTool() {
+        guard !spiderToolBusy else { return }
+        spiderToolBusy = true
+        Self.spiderToolLog.notice("check started")
+        Task {
+            let outcome = await Self.spiderToolUpdater.check()
+            Self.spiderToolLog.notice("outcome \(String(describing: outcome), privacy: .public)")
+            spiderToolOutcome = outcome
+            if case .installed = outcome {
+                Self.spiderToolLog.notice("installed")
+                await applyOfficialPack()
+            }
+            spiderToolNote = SpiderToolText.result(of: outcome, scripts: officialPack?.scripts.count ?? 0,
+                                                   playing: officialPending)
+            spiderToolCheckedAt = Date()
+            spiderToolBusy = false
+        }
+    }
+
+    /// 重設: forgets the downloaded pack (floor included, so the same version installs again) and runs the bundled
+    /// scripts — through the same apply as an install. Settings, history and the compatibility pack stay.
+    private func resetSpiderTool() {
+        guard !spiderToolBusy else { return }
+        spiderToolBusy = true
+        Task {
+            do {
+                try await RuntimePackStore.shared.reset()
+                spiderToolOutcome = nil
+                await applyOfficialPack()
+                spiderToolNote = officialPending ? "已重設，關閉播放器後套用" : "已重設，回到內建版本"
+            } catch {
+                spiderToolNote = "重設失敗：\(error.localizedDescription)"
+            }
+            Self.spiderToolLog.notice("reset: \(spiderToolNote, privacy: .public)")
+            spiderToolCheckedAt = Date()
+            spiderToolBusy = false
+        }
+    }
+
+    private func loadOfficialPack() async {
+        officialPack = await RuntimePackStore.shared.load(host: .installed())
+        ActiveOfficialPack.shared.set(officialPack)
+    }
+
+    /// The registry, a fresh session cache and the site list, as `refreshSpiderPack` does for the compatibility
+    /// pack. Held back while the player is open: sessions are keyed by site, not script, so the next episode
+    /// would otherwise resolve an id the old script gave with the new one. Nothing running is destroyed.
+    private func applyOfficialPack() async {
+        guard !favoriteLibrary.playerOpen else {
+            officialPending = true
+            Self.spiderToolLog.notice("deferred: player open")
+            return
+        }
+        officialPending = false
+        await loadOfficialPack()
+        await SpiderSessionStore.shared.reset()
+        rebuildSites()
+        Self.spiderToolLog.notice("applied \(officialPack.map { "\($0.version) seq \($0.generation.sequence)" } ?? "bundled", privacy: .public)")
     }
 
     private static func describe(_ pack: SpiderPack) -> String {
@@ -453,10 +570,18 @@ private struct ConfigView: View {
     private func rebuildSites() {
         guard let url = try? configURL(for: source), let data = try? Data(contentsOf: url),
               let config = try? ConfigLoader.validate(data) else { return }
-        sites = config.drivableSites(resolvedBy: CSPSourceResolver(source: source))
+        show(config, from: source)
         adoptAdBlocking(from: config)
         selectedSiteID = SiteSelection.choose(remembered: siteMemory()[source.identity], current: selectedSiteID,
                                               in: sites)
+    }
+
+    /// The listed sites and, with them, how many wait for the 爬蟲工具 — always together, so the banner and the
+    /// all-spider screen never describe another configuration than the one listed.
+    private func show(_ config: WebHTVConfig, from source: ConfigSource) {
+        let resolver = CSPSourceResolver(source: source)
+        sites = config.drivableSites(resolvedBy: resolver)
+        needSpiderTool = config.sitesNeedingSpiderTool(resolvedBy: resolver).count
     }
 
     /// Point the sniffer at **this** configuration's ad rules and sniffer rules, and at nothing else
@@ -486,21 +611,20 @@ private struct ConfigView: View {
     /// Write, then publish. Callers validate first and hand the result in, so nothing that failed
     /// validation reaches the cached file — that is what makes a failed refresh safe.
     private func adopt(_ data: Data, config: WebHTVConfig, from source: ConfigSource) throws {
-        let loaded = config.drivableSites(resolvedBy: CSPSourceResolver(source: source))
         try data.write(to: configURL(for: source), options: .atomic)
         let now = Date()
         UserDefaults.standard.set(source.baseURL?.absoluteString, forKey: configSourceURLKey)
         UserDefaults.standard.set(now.timeIntervalSince1970, forKey: configUpdatedAtKey)
         self.source = source
         updatedAt = now
-        sites = loaded
+        show(config, from: source)
         adoptAdBlocking(from: config)
         // Reclaim the spider sessions this configuration orphaned. Correctness does not depend on
         // this landing first — `SpiderSessionStore` keys on the site's `ext`, so a redefined site
         // misses the cache regardless.
         Task { await SpiderSessionStore.shared.reset() }
         selectedSiteID = SiteSelection.choose(remembered: siteMemory()[source.identity], current: selectedSiteID,
-                                              in: loaded)
+                                              in: sites)
     }
 
     /// IOS-POC-19 — the pickers' binding. Only a site the viewer picks is remembered, for the source
@@ -575,10 +699,9 @@ private struct ConfigView: View {
             // Read the local value, not the `@State` just written: a spider's relative `ext` is
             // resolved against it, and resolving against the wrong base silently breaks those sites.
             let restoredConfig = try ConfigLoader.validate(data)
-            let loaded = restoredConfig.drivableSites(resolvedBy: CSPSourceResolver(source: restored))
-            sites = loaded
+            show(restoredConfig, from: restored)
             adoptAdBlocking(from: restoredConfig)
-            selectedSiteID = SiteSelection.choose(remembered: siteMemory()[restored.identity], current: nil, in: loaded)
+            selectedSiteID = SiteSelection.choose(remembered: siteMemory()[restored.identity], current: nil, in: sites)
         } catch {
             self.error = "已保存的設定無法載入：\(error.localizedDescription)。請重新匯入。"
         }
@@ -1843,6 +1966,13 @@ private struct SettingsView: View {
     let updatedAt: Date?
     let refreshing: Bool
     let packStatus: String
+    /// IOS-POC-61 S3
+    let spiderToolStatus: String
+    let spiderToolNote: String
+    let spiderToolCheckedAt: Date?
+    let spiderToolBusy: Bool
+    let onCheckSpiderTool: () -> Void
+    let onResetSpiderTool: () -> Void
     let onImport: () -> Void
     /// The 加入設定來源 prompt lives on `ConfigView`, which the empty state needs it on as well.
     let onAskRemote: () -> Void
@@ -1856,6 +1986,7 @@ private struct SettingsView: View {
 
     @State private var renaming: SavedSource?
     @State private var renameText = ""
+    @State private var confirmingSpiderToolReset = false
     @AppStorage(siteHealthSortKey) private var healthSort = true
     @State private var healthCleared = false
     @AppStorage(appAppearanceKey) private var appearance = AppAppearance.dark
@@ -2030,6 +2161,7 @@ private struct SettingsView: View {
 
             savedSection
             sourceSection
+            spiderToolSection
             }
             .listRowBackground(appSurface)
         }
@@ -2063,7 +2195,6 @@ private extension SettingsView {
         Section {
             LabeledContent("來源", value: sourceLabel)
             LabeledContent("上次更新", value: updatedLabel)
-            LabeledContent("Spider 腳本", value: packStatus.isEmpty ? "內建" : packStatus)
             Button("加入設定來源", action: onAskRemote)
             if isRemote {
                 Button(refreshing ? "更新中…" : "重新整理", action: onRefresh).disabled(refreshing)
@@ -2072,7 +2203,34 @@ private extension SettingsView {
         } header: {
             Text("設定來源")
         } footer: {
-            Text("目前支援 \(sites.count) 個來源：type-0／type-1／type-4 CMS，已移植的 csp_* Spider，drpy 與 Python 腳本。腳本只從設定檔自己的來源、且必須是 HTTPS 才會載入。遠端更新失敗時會保留上一份可用設定。Spider 腳本可由設定檔旁的 ./spiders/manifest.json 熱更新，驗過 SHA-256 才會採用。")
+            Text("目前支援 \(sites.count) 個來源：type-0／type-1／type-4 CMS，已移植的 csp_* Spider，drpy 與 Python 腳本。腳本只從設定檔自己的來源、且必須是 HTTPS 才會載入。遠端更新失敗時會保留上一份可用設定。")
+        }
+    }
+
+    /// IOS-POC-61 S3 (plan §2.3). Replaces the 「Spider 腳本」 row.
+    @ViewBuilder var spiderToolSection: some View {
+        Section {
+            LabeledContent("狀態", value: spiderToolStatus)
+            // A configuration's own compatibility pack still wins over the official one (plan §3.4).
+            if !packStatus.isEmpty { LabeledContent("設定檔相容包", value: packStatus) }
+            if let spiderToolCheckedAt {
+                LabeledContent("上次檢查") {
+                    Text("\(spiderToolCheckedAt.formatted(date: .abbreviated, time: .shortened))\n\(spiderToolNote)")
+                        .multilineTextAlignment(.trailing)
+                }
+            }
+            Button(spiderToolBusy ? "檢查中…" : "檢查更新", action: onCheckSpiderTool).disabled(spiderToolBusy)
+            Button("重設", role: .destructive) { confirmingSpiderToolReset = true }.disabled(spiderToolBusy)
+        } header: {
+            Text("爬蟲工具")
+        } footer: {
+            Text("只在按下「檢查更新」時連網。下載的更新包驗過 SHA-256 才會採用，失敗時一律保留目前的版本；播放中下載的版本在關閉播放器後套用。設定檔另有相容包時，以相容包優先。")
+        }
+        .confirmationDialog("重設爬蟲工具？", isPresented: $confirmingSpiderToolReset, titleVisibility: .visible) {
+            Button("重設", role: .destructive, action: onResetSpiderTool)
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("刪除已下載的爬蟲工具，回到 App 內建的版本。已存來源、觀看記錄、收藏與設定都不受影響。")
         }
     }
 
@@ -3627,6 +3785,64 @@ private struct FavoriteToggle: View {
     }
 }
 
+/// IOS-POC-61 S3 (plan §2.2): some of this configuration's sites wait for the 爬蟲工具. Shown on 首頁 only while
+/// the count is above zero; a finished download rebuilds the list and the count with it.
+private struct SpiderToolBanner: View {
+    let count: Int
+    let busy: Bool
+    let onDownload: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "puzzlepiece.extension")
+                .accessibilityHidden(true)
+            Text("這個設定有 \(count) 個來源需要爬蟲工具")
+                .font(.subheadline)
+                // Wraps instead of truncating at accessibility text sizes (W-121 C25).
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button(busy ? "下載中…" : "下載", action: onDownload)
+                .font(.subheadline.weight(.semibold))
+                .frame(minHeight: 44)
+                .disabled(busy)
+                .accessibilityLabel(busy ? "爬蟲工具下載中" : "下載爬蟲工具")
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+        .background(.black.opacity(0.82), in: RoundedRectangle(cornerRadius: 22))
+        .padding(.horizontal, 16)
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// IOS-POC-61 S3: a configuration whose every site waits for the 爬蟲工具. Inside the tab bar, so 設定 stays
+/// reachable — the old empty state had none (plan §2.2).
+private struct SpiderToolNeededView: View {
+    let count: Int
+    let note: String
+    let busy: Bool
+    let onDownload: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ContentUnavailableView {
+                Label("設定已載入", systemImage: "puzzlepiece.extension")
+            } description: {
+                Text(note.isEmpty ? "有 \(count) 個來源需要爬蟲工具。" : "有 \(count) 個來源需要爬蟲工具。\n\(note)")
+            } actions: {
+                Button(busy ? "下載中…" : "下載爬蟲工具", action: onDownload)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(busy)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .appWallpaper()
+            .navigationTitle("WebHTV")
+            .appNavigationBar()
+        }
+    }
+}
+
 /// A13: 已看完，已從收藏移除 · 復原 — for as long as the offer is open, then gone by itself.
 private struct FavoriteUndoBanner: View {
     let offer: FavoriteUndoOffer
@@ -3703,7 +3919,7 @@ private struct StorageMaintenanceView: View {
             } header: {
                 Text("初始化")
             } footer: {
-                Text("刪除已存來源、觀看記錄、收藏、所有離線下載、設定、網頁登入資料、線上字幕的帳號金鑰與快取，回到剛安裝的狀態。完成後 App 會關閉，重新打開即可。")
+                Text("刪除已存來源、觀看記錄、收藏、所有離線下載、設定、網頁登入資料、線上字幕的帳號金鑰與快取，回到剛安裝的狀態；下載的爬蟲工具也會刪除，回到內建版本。完成後 App 會關閉，重新打開即可。")
             }
             .listRowBackground(appSurface)
         }
@@ -3718,7 +3934,7 @@ private struct StorageMaintenanceView: View {
             Button("繼續", role: .destructive) { confirmingResetAgain = true }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("已存來源、觀看記錄、收藏、所有離線下載與設定都會刪除。")
+            Text("已存來源、觀看記錄、收藏、所有離線下載與設定都會刪除；下載的爬蟲工具也會刪除，回到內建版本。")
         }
         .alert("確定要初始化？", isPresented: $confirmingResetAgain) {
             Button("初始化", role: .destructive) { Task { await reset() } }

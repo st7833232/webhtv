@@ -133,6 +133,19 @@ private func host(jsHost: RuntimeABI.Version) -> RuntimeHost {
         #expect(await store.load(host: host)?.scripts["AppGet"] == script("two"))
     }
 
+    // W-120 review N-3 (fixed in W-121): a generation directory without its manifest is not "already installed";
+    // installing the same pack writes it again instead of leaving a generation `load` always skips.
+    @Test func aGenerationDirectoryWithoutItsManifestIsWrittenAgain() async throws {
+        let root = temporaryRoot()
+        let store = RuntimePackStore(root: root)
+        let one = try built(1, [Script(name: "AppGet", body: script("one"))])
+        try await store.install(one.candidate, manifest: one.manifest, files: one.files)
+        try FileManager.default.removeItem(at: scopeDirectory(root).appendingPathComponent("generations/\(one.candidate.generation.id)/manifest.json"))
+        #expect(await store.load(host: host) == nil)
+        #expect(try await store.install(one.candidate, manifest: one.manifest, files: one.files) != nil)
+        #expect(await store.load(host: host)?.scripts["AppGet"] == script("one"))
+    }
+
     // R5, G5: a generation this build cannot run is skipped, never marked bad, never deleted.
     @Test func aGenerationThisBuildCannotRunIsKeptForALaterBuild() async throws {
         let root = temporaryRoot()

@@ -212,6 +212,50 @@ private struct Rig {
         #expect(plain.server.requests.isEmpty)
     }
 
+    // W-121: a server never reached reads "無法連線"; one that dropped the transfer reads "下載沒有完成".
+    @Test func aServerNeverReachedIsUnreachableNotAnUnfinishedDownload() async throws {
+        let rig = Rig()
+        for code in [URLError.Code.notConnectedToInternet, .cannotConnectToHost, .cannotFindHost, .timedOut] {
+            rig.server.publish(try published(1, [("AppGet", script("one"), nil)]), failing: [manifestURL: URLError(code)])
+            guard case .unreachable = await rig.check() else { Issue.record("\(code.rawValue) is not unreachable"); continue }
+        }
+        rig.server.publish(try published(1, [("AppGet", script("one"), nil)]),
+                           failing: [blobURL(Data(script("one").utf8)): URLError(.timedOut)])
+        guard case .failed = await rig.check() else { Issue.record("a transfer that stopped is not unreachable"); return }
+    }
+
+    // W-121 C5: the settings page, the banner and the all-spider screen can all start a check; two at once share
+    // one, so one manifest is fetched and two installs never race for the scope.
+    @Test func twoChecksAtOnceAreOne() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("updater-\(UUID().uuidString)")
+        let server = FakeServer()
+        server.publish(try published(1, [("AppGet", script("one"), nil)]))
+        let updater = RuntimePackUpdater(store: RuntimePackStore(root: root), manifestURL: manifestURL, fetch: {
+            try await Task.sleep(for: .milliseconds(50))
+            return try server.fetch($0, $1)
+        })
+        async let first = updater.check(host: host)
+        async let second = updater.check(host: host)
+        let outcomes = await [first, second]
+        #expect(outcomes == [.installed(version: "v1", needsNewerApp: []), .installed(version: "v1", needsNewerApp: [])])
+        #expect(server.requests.filter { $0.url == manifestURL }.count == 1)
+    }
+
+    // W-121 C11: 重設 forgets the pack, floor included, so checking again really installs the same sequence rather
+    // than calling it up to date while the bundled scripts run.
+    @Test func afterAResetTheSameSequenceInstallsAgain() async throws {
+        let rig = Rig()
+        rig.server.publish(try published(12, [("AppGet", script("twelve"), nil)]))
+        _ = await rig.check()
+        try await rig.store.reset()
+        #expect(await rig.store.state() == nil)
+        #expect(await rig.store.load(host: host) == nil)
+        #expect(!FileManager.default.fileExists(atPath: rig.scope.path))
+        rig.server.publish(try published(12, [("AppGet", script("twelve"), nil)]))
+        #expect(await rig.check() == .installed(version: "v12", needsNewerApp: []))
+        #expect(await rig.store.load(host: host)?.scripts["AppGet"] == script("twelve"))
+    }
+
     // The compiled-in address is HTTPS, under spider-pack/official/ beside — never over — the compatibility pack.
     @Test func theOfficialAddressIsFixedHTTPSBesideTheCompatibilityPack() {
         #expect(RuntimePackUpdater.manifestURL.scheme == "https")

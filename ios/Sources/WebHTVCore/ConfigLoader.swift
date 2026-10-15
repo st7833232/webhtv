@@ -48,14 +48,17 @@ public enum ConfigLoader {
 
     /// Decodes and requires at least one usable source, so a syntactically valid but useless payload
     /// can never replace a cached copy that still works.
-    public static func validate(_ data: Data) throws -> WebHTVConfig {
+    public static func validate(_ data: Data, resolvedBy resolver: CSPSourceResolver = CSPSourceResolver()) throws -> WebHTVConfig {
         let config = try decode(data)
         // QIST-TYPE3: a spider-only config (qist XYQ.json) is usable when the registry drives one of
         // its classes. Native CMS is checked first so a CMS config never loads the registry.
         // ponytail: source-less resolver, so drpy, Python and JAR-mapped spiders (they need the
         // config's own address) do not count; a config with only those is still refused, as before.
         // Pass the caller's ConfigSource here if one of those ever has to stand alone.
-        guard !config.nativeCMSSites.isEmpty || !config.spiderSites(resolvedBy: CSPSourceResolver()).isEmpty else {
+        // IOS-POC-61 S3 (Manager #2112 ①): a site that only waits for the 爬蟲工具 counts too, so the App can
+        // load the configuration and offer the download instead of refusing it.
+        guard !config.nativeCMSSites.isEmpty || !config.spiderSites(resolvedBy: resolver).isEmpty
+                || !config.sitesNeedingSpiderTool(resolvedBy: resolver).isEmpty else {
             throw ConfigLoaderError.noSupportedSites
         }
         return config

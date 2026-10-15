@@ -68,6 +68,15 @@ public struct WebHTVConfig: Decodable, Sendable {
     public func drivableSites(resolvedBy resolver: CSPSourceResolver) -> [Site] {
         sites.filter { $0.isNativeCMS || ($0.isSpiderShape && resolver.canResolve($0)) }
     }
+
+    /// IOS-POC-61 S3: the `csp_*` sites the 爬蟲工具 would bring — a class it provides (`SpiderRegistry.ported`,
+    /// Manager #2112 ②) that does not run now. An unported class, drpy and Python never count: downloading
+    /// the tool would not make them appear, so a banner about them could never go away.
+    public func sitesNeedingSpiderTool(resolvedBy resolver: CSPSourceResolver) -> [Site] {
+        sites.filter {
+            $0.isCSPSpider && SpiderRegistry.ported.contains(SpiderRegistry.className(from: $0.api)) && !resolver.canResolve($0)
+        }
+    }
 }
 
 public struct Site: Decodable, Identifiable, Sendable {

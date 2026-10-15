@@ -134,7 +134,17 @@ public struct SpiderRegistry: Sendable {
     /// compatibility pack on top. `CSPSourceResolver` uses this, so every call site picks up a pack
     /// without knowing one exists.
     public static func active(bundle: Bundle? = nil) -> SpiderRegistry {
-        bundled(bundle: bundle, official: ActiveOfficialPack.shared.current, overlaying: InstalledSpiderPack.shared.current)
+        let registry = bundled(bundle: bundle, official: ActiveOfficialPack.shared.current,
+                               overlaying: InstalledSpiderPack.shared.current)
+        #if DEBUG
+        // W-121 Simulator evidence only: the N+1 state, where nothing is bundled. Compiled out of Release.
+        if ProcessInfo.processInfo.environment["WEBHTV_HIDE_BUNDLED_SPIDERS"] == "1" {
+            return SpiderRegistry(entries: registry.entries.filter { $0.value.source != .bundled }, prelude: registry.prelude,
+                                  drpyBridge: registry.drpyBridge, jsSpiderBridge: registry.jsSpiderBridge,
+                                  mappings: registry.mappings)
+        }
+        #endif
+        return registry
     }
 
     public static func bundled(bundle: Bundle? = nil) -> SpiderRegistry {

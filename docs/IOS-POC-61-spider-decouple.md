@@ -1,6 +1,6 @@
 # IOS-POC-61：爬蟲工具與主程式分離（spider decouple）
 
-> Recovery anchor（2026-10-15，W-119 S1）：S1 已實作（guard `SPIDER-DECOUPLE-S1`，`--no-tag`）。先紅後綠、mutant 8/8 紅、全量 1203 通過、App Simulator build 見「S1 驗證」。下一步：Reviewer code review，之後 W-120（S2）。
+> Recovery anchor（2026-10-15，W-121 S3）：S1 `d7498bbf`＋`d910cab4`、S2 `47c1d023` 已審過並推上 origin。S3 實作與 Core 驗證完成（見「S3 驗證」），Simulator ①–⑧ 與 C25 複驗證據在 `artifacts/w121-gui-evidence/`。下一步：Reviewer code review，之後 W-122（S4）。
 
 - 編號：工單 W-119 寫的 `IOS-POC-60` 已被 W-40 的 `docs/IOS-POC-60-folder-navigation.md` 用掉，`IOS-POC-59` 預留給直播 L1，所以本任務用 **IOS-POC-61**（Manager #2062）。
 - 來源：計畫 `.herdr-synapse/webhtv-dev/artifacts/spider-decouple-plan-2026-10-15.md`（W-118，Reviewer 撰寫），審查預備 `review-prep-W-119-2026-10-15.md`。下面「計畫」各節照搬，只改了：簽章相關段落改成「不做」、33 支（W-105 加了 Sports88）、檔尾第二個「## 10」改成「## 11」。計畫內的 `檔:行` 以 `a0e6991b` 為準；S1 實際改動的位置以本節為準。
@@ -114,6 +114,56 @@
 ### S2 回滾
 
 一個 commit；`git revert` 移除 updater、工具、workflow 與 `validateOfficial`，store 回到 W-119 的行為。workflow 沒跑過，沒有發布物要收回。
+
+
+## S3（W-121）：設定頁「爬蟲工具」、首頁提示、播放中延後套用
+
+接在 W-120 的 `47c1d023` 之後。審查預備 `artifacts/review-prep-W-121-2026-10-15.md`（下稱 prep）。
+
+### 決定
+
+- **只在使用者按下時連網**（C1–C3）：`RuntimePackUpdater.check` 只在 `ConfigView.checkSpiderTool()` 呼叫，入口只有三個按鈕（設定頁「檢查更新」、首頁橫幅「下載」、全是爬蟲站畫面「下載爬蟲工具」）。啟動只做不連網的 `removeStaging()`＋`load(host:)`＋`ActiveOfficialPack.shared.set`（S1／S2 都還沒接，這是第一次接上）。`.task` 裡既有的相容包 `refreshSpiderPack()` 不動。沒有排程、重試或 `Task.sleep`。
+- **prep §0-1（Manager #2112 ①）選 (a)**：`ConfigLoader.validate` 多認一種「只等爬蟲工具的站」（`sitesNeedingSpiderTool` 非空），四條路徑（匯入、遠端、啟動、`rebuildSites`）共用同一個 `validate`，所以一致。全是**未移植** csp 類別的設定仍丟 `.noSupportedSites`，無用的 payload 仍不能取代快取（C24）。`validate` 多一個 `resolvedBy:` 參數（預設 `CSPSourceResolver()`，行為和原本相同），只為了讓測試能注入「什麼都沒有」的 registry。
+- **缺爬蟲數 N（prep §0-2，Manager #2112 ②）**：`WebHTVConfig.sitesNeedingSpiderTool(resolvedBy:)`＝`csp_*` 站、類別在 `SpiderRegistry.ported`（含別名）、而且目前 `canResolve` 為 false。未移植類別、drpy、Python 不算，所以 N 版正常狀態 N＝0，0825 這類含大量未移植類別的設定不會出現永久橫幅。N+1 版沒有內建時 `ported` 從哪來，留給 S5。
+- **空站台不交給 `HomeView`（prep §0-3，Manager #2112 ③）**：`ConfigView` 新增 `needSpiderTool`，和 `sites` 由同一個 `show(_:from:)` 一起算（三條路徑共用）。`sites` 空且 N＝0 → 原本的「尚未載入設定」畫面（C23，程式沒動）；`sites` 空且 N＞0 → 分頁列照常，首頁分頁換成 `SpiderToolNeededView`（「設定已載入」＋「下載爬蟲工具」），`HomeView` 只在 `sites` 非空時建立，所以 `selectedSite` 的 `sites[0]` 不會遇到空陣列。`SettingsView`（`sites.first`）、`AggregateSearchView`（0 站已有空狀態）、`LibraryView` 對空陣列不會越界。
+- **結果文字**（C8）：純函式 `SpiderToolText.result(of:scripts:playing:)`，一個 `Outcome` 對一句（計畫 §2.4，「簽章錯誤」拿掉）。`.sequenceReused`、`.knownBad` 等其他拒絕都歸「更新包驗證失敗，沒有採用，繼續使用目前的版本」；`.rollback` 是「伺服器版本比目前的舊，已忽略」；`requiresNewerApp` 是「這個版本需要較新的 App，請到 SideStore 更新」，和「已是最新版本」不同。為了分出「無法連線」和「下載沒有完成」，updater 的 `Outcome` 加 `unreachable`：**抓 manifest 時**遇到離線、連線被拒、找不到主機、DNS、逾時、TLS 失敗；manifest 之後（blob）的逾時或斷線、HTTP 錯誤仍是 `failed`。「未安裝時：無法連線，請稍後再試」N 版不會出現（一定有內建），`shortcut:` 註記留給 S5。
+- **狀態列**（C10）：`內建基準（33 支）`／`官方包 <version>（序號 S，N 支）`；設定檔相容包另一列「設定檔相容包」，沿用原本的說明文字（失敗時的退回字改成「沒有（更新失敗：…）」，因為這一列講的是相容包，不是內建）。內建基準的版本號要等 S4 種子才有。
+- **進行中與互斥**（C4–C7）：一個 `spiderToolBusy`（`ConfigView` 的 state）給三個入口共用，下載與重設互斥；updater 本身也把同時兩次 `check` 合成一次（第二個等第一個的結果，只抓一次 manifest）；重設是 store actor 的方法，不會插進 install 中間。下載用的 `Task` 不綁設定頁，離開再回來結果仍在。
+- **重設（prep C11）選 (a)**：`RuntimePackStore.reset()` 刪掉整個官方包 scope（世代、LKG、bad、序號下限），registry 退回內建，再按「檢查更新」同一版會真的裝上。序號下限回到 0 是使用者自己按的，可以接受。S4 加種子後「內建基準」就是種子世代，屆時 S4 決定重設後是否立刻重新種子。只動 `RuntimePacks/`，相容包 `SpiderPack/`、設定、記錄、收藏、離線下載都不動（C13）。重設和安裝走同一個套用（C14）。
+- **播放中＝`favoriteLibrary.playerOpen`**（C19）：三種播放入口（詳情、離線、inline）都經過 `PlaybackSession.open` 設為 true，`closePlayer` 設回 false。install 照常做完；registry 發布、`SpiderSessionStore.reset()`、`rebuildSites()` 三件事（`applyOfficialPack`）在 `playerOpen` 為 true 時延後，顯示「已下載，關閉播放器後套用」，`onChange(of: playerOpen)` 變 false 時套用（C15、C17）。registry 只在套用時由 `ActiveOfficialPack.shared.set` 換掉，播放中任何新建的 `CSPSourceResolver` 讀到的仍是舊版（C16）；沒有呼叫任何 session 的 `destroy()`（C18）。**限制**：關閉播放器後仍在 PiP 播放時算「不在播放」，會照常套用；PiP 中自動下一集可能用新腳本解析舊集數 id。Simulator 不支援 PiP，只讀程式碼；真機回報前不處理。
+- **初始化文字**（C27）：頁尾與第一層確認補上「下載的爬蟲工具也會刪除，回到內建版本」（N 版的真實結果）。
+- **W-120 審查 N-3**：`install` 的 `.unchanged` 改用 `has`（看 `manifest.json`）；目錄在、manifest 不在時把舊目錄換掉再寫入。
+- **只在 DEBUG 編譯的 GUI 縫**（prep §5.1）：`WEBHTV_RUNTIME_PACK_URL`（App 的 updater 改指本機 HTTPS 伺服器）與 `WEBHTV_HIDE_BUNDLED_SPIDERS=1`（`SpiderRegistry.active()` 拿掉內建層，模擬 N+1 做情境⑦）。兩者都包在 `#if DEBUG`，只讀環境變數，不讀 `UserDefaults`；Release build 的 binary 裡找不到這兩個名稱（見驗證）。
+- 沒做：觀看紀錄／收藏打開缺爬蟲站時的「需要爬蟲工具」訊息（計畫 §2.5 最後一句，N 版不會發生，S5 做）；手動「退回上一版」按鈕（計畫已決定不做）。
+
+### 改動
+
+| 檔案 | 內容 |
+|---|---|
+| `WebHTVApp.swift` | `ConfigView`：官方包狀態、`checkSpiderTool`／`resetSpiderTool`／`loadOfficialPack`／`applyOfficialPack`、`show(_:from:)`、啟動載入、`playerOpen` 觀察、首頁橫幅 `SpiderToolBanner`、全是爬蟲站畫面 `SpiderToolNeededView`、log category `spider-tool`；`SettingsView`：「爬蟲工具」區塊（狀態、設定檔相容包、上次檢查＋結果、檢查更新、重設＋確認），拿掉「Spider 腳本」列與 `./spiders/manifest.json` 那句；初始化文字 |
+| `SpiderToolText.swift`（新） | 狀態列與結果文字 |
+| `RuntimePackUpdater.swift` | `Outcome.unreachable`；同時兩次 `check` 合成一次 |
+| `RuntimePackStore.swift` | `reset()`；N-3 |
+| `ConfigLoader.swift`、`WebHTVConfig.swift` | `validate(_:resolvedBy:)` 放寬；`sitesNeedingSpiderTool` |
+| `SpiderRegistry.swift` | DEBUG 縫 `WEBHTV_HIDE_BUNDLED_SPIDERS` |
+| 測試 | `SpiderToolTests`（新，4）、`RuntimePackUpdaterTests`（+3）、`RuntimePackStoreTests`（+1） |
+
+### S3 驗證（證據 `.herdr-synapse/webhtv-dev/artifacts/w121-logs/`、`w121-gui-evidence/`）
+
+| 項目 | 結果 |
+|---|---|
+| 先紅 | 新測試在 `SpiderToolText`、`sitesNeedingSpiderTool`、`validate(_:resolvedBy:)`、`.unreachable`、`reset()` 都不存在時編譯失敗：`red.log` |
+| 後綠 | `SpiderToolTests`＋`RuntimePackUpdaterTests`＋`RuntimePackStoreTests`＋`ConfigSourceTests` 41/41：`green.log` |
+| Mutant | M2 整包需要較新 App 對到「已是最新」、M3 rollback 對到「已更新」、M4 N 改回 `isCSPSpider && !canResolve`、M7 重設只刪世代不刪 state、M8 拿掉同時 check 的合併、M11 拿掉 unreachable 分類、M12 validate 不認只等爬蟲工具的站、M13 N-3 改回看目錄：8/8 變紅，全部還原後 sha256 相同：`mutants.txt`、`mut-*.log`。UI 層的 M1（`.task` 呼叫 updater）、M5（不延後）、M6（關閉後不套用）、M9（空陣列進 HomeView）以 GUI 證據與讀碼代替 |
+| 全測試 | `swift test` 1219／45 通過（1212＋7；N-3 測試在其後加入，由 41/41 那輪涵蓋）：`full.log` |
+| App build | Simulator Debug `** BUILD SUCCEEDED **`：`app-build.log` |
+| Release 縫 | Simulator Release build（`ONLY_ACTIVE_ARCH=YES`；不加會在 Python framework 複製兩種架構那一步失敗，和程式無關）成功；binary 含本版新字串「沒有（更新失敗」，`WEBHTV_RUNTIME_PACK_URL`、`WEBHTV_HIDE_BUNDLED_SPIDERS` 都是 0 筆，Debug dylib 各 1 筆：`release-strings.txt`、`release-build.log` |
+| Simulator | iPhone 18 Pro / iOS 27.0（`BC4948DD`），本機 HTTPS 假伺服器（臨時 CA）＋`runtime_pack.py build` 的序號 1–3 包：C23「尚未載入設定」不變、⑦a 全是爬蟲站專屬畫面（分頁列在，下載後站台出現）、⑦b 混合設定橫幅（下載後消失；重設後同一序號真的重裝，C11）、C20 0825 沒有橫幅、① 下載成功（manifest 1＋33 blob）、② 已是最新（只抓 manifest）、③ 壞 blob 驗證失敗、④ 停機「無法連線」且 csp 站仍可用、⑥ 中途斷線「下載沒有完成」（③④⑥ `state.json` 不變、沒有殘留 staging）、⑤ 播放中延後套用（`installed`＝`deferred` → `player closed` → `applied`，延後期間播放持續 01:56→02:03，關閉後不必重開 App；第一輪荐片片源 DNS 解析不到，改用嗶哩重做）、⑧ 重設（data 差異只在 `RuntimePacks/`）、C1 只有按鈕會連網（4 次啟動 0 請求）、C4、C7 都 PASS。C25 第一輪橫幅在最大字級截字，修正（文字可換行、背景改圓角矩形）後複驗 PASS（§5）；最大字級時橫幅約 465pt 高，可用但佔半個畫面，要改成按鈕放文字下方再說。「已下載，關閉播放器後套用」這句出現時播放器蓋住設定頁，只有 log 證據。開 DEBUG 縫時狀態列仍寫「內建基準」，是縫的限制。App／data 還原 BYTE-IDENTICAL；臨時 CA 留在這台 Simulator 的信任清單（私鑰已刪、2 天後過期；移除只能整台 `keychain reset`）。沒驗到：PiP、真機、Release 實際操作、不可路由位址的逾時、有設定檔相容包時的那一列。`artifacts/w121-gui-evidence/RESULT.md`（sha256 `1807d573…`） |
+| Ponytail | 審查抓到 2 點並已修：我插入的兩個 struct 把 A13 的文件註解從 `FavoriteUndoBanner` 搶走（移回）；相容包失敗的退回字「內建腳本（更新失敗…）」在新的「設定檔相容包」列下意思不對，而沒有相容包的遠端設定每次都會 404（改「沒有（更新失敗…）」）。其餘 Ship |
+
+### S3 回滾
+
+一個 commit；`git revert` 移除設定頁區塊、橫幅、專屬畫面、延後套用與啟動載入，updater／store／validate 回到 W-120。磁碟上已下載的 `RuntimePacks/` 留著也無害：沒有呼叫端會再讀它，registry 回到「內建＋相容包」。
 
 ---
 

@@ -20,7 +20,9 @@ public actor RuntimePackUpdater {
         case installed(version: String, needsNewerApp: [String])
         /// The pack itself was refused; `rejection.requiresNewerApp` tells "update the App" from "broken".
         case rejected(RuntimePackRejection)
-        /// The network, not the pack: try again later.
+        /// The server was never reached (offline, refused, no such host, timed out before any answer).
+        case unreachable(String)
+        /// The network, not the pack, after the server answered: an HTTP error or a transfer that stopped.
         case failed(String)
     }
 
@@ -38,6 +40,8 @@ public actor RuntimePackUpdater {
     private let store: RuntimePackStore
     private let fetch: Fetch
     private let manifestURL: URL
+    /// One check at a time: a second caller waits for the first one's outcome instead of starting another.
+    private var running: Task<Outcome, Never>?
 
     public init(store: RuntimePackStore = .shared, manifestURL: URL = RuntimePackUpdater.manifestURL,
                 fetch: Fetch? = nil) {
@@ -47,6 +51,14 @@ public actor RuntimePackUpdater {
     }
 
     public func check(host: RuntimeHost = .installed(), now: Date = Date()) async -> Outcome {
+        if let running { return await running.value }
+        let task = Task { await run(host: host, now: now) }
+        running = task
+        defer { running = nil }
+        return await task.value
+    }
+
+    private func run(host: RuntimeHost, now: Date) async -> Outcome {
         // Refused before anything is asked of the network, not after a plain-HTTP body arrived.
         guard manifestURL.scheme?.lowercased() == "https" else { return .rejected(.insecureOrigin(manifestURL.absoluteString)) }
         do {
@@ -55,6 +67,8 @@ public actor RuntimePackUpdater {
                 manifest = try await fetch(manifestURL, RuntimePackLimits.manifestBytes)
             } catch FetchError.tooLarge(let bytes) {
                 return .rejected(.manifestTooLarge(bytes))
+            } catch let error as URLError where Self.neverReached.contains(error.code) {
+                return .unreachable(error.localizedDescription)
             }
             let candidate = try RuntimePackValidator.validateOfficial(manifest: manifest, fetchedFrom: manifestURL,
                                                                       host: host, now: now)
@@ -94,6 +108,12 @@ public actor RuntimePackUpdater {
             return .failed(error.localizedDescription)
         }
     }
+
+    /// Before the manifest's first byte, these mean the server was not reached at all.
+    private static let neverReached: Set<URLError.Code> = [
+        .notConnectedToInternet, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed, .timedOut,
+        .internationalRoamingOff, .dataNotAllowed, .secureConnectionFailed,
+    ]
 
     /// Neither a cached copy nor a cookie: a hash-pinned download must never be served a stale body, and the
     /// pack's host gets no state from the App. Longer than a content request, so a slow link finishes 2 MiB.

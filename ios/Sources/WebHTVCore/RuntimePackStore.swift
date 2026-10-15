@@ -129,7 +129,7 @@ public actor RuntimePackStore {
         switch current.admission(of: candidate) {
         case .accept: break
         // The one already accepted at this sequence; written again only if a restore left its files out.
-        case .unchanged where files.fileExists(atPath: generationURL(candidate.generation).path): return nil
+        case .unchanged where has(candidate.generation): return nil
         case .unchanged: break
         case .reject(let rejection): throw rejection
         }
@@ -169,8 +169,12 @@ public actor RuntimePackStore {
             values.isExcludedFromBackup = true
             try? generations.setResourceValues(values)
             let target = generationURL(candidate.generation)
-            // Same id is same content: one already there was renamed in whole from a verified staging.
-            if !files.fileExists(atPath: target.path) { try files.moveItem(at: staging, to: target) }
+            // Same id is same content: one already there was renamed in whole from a verified staging. A directory
+            // without its manifest (W-120 review N-3) is not one, and is replaced.
+            if !has(candidate.generation) {
+                try? files.removeItem(at: target)
+                try files.moveItem(at: staging, to: target)
+            }
         }
 
         let next = current.activating(candidate)
@@ -186,6 +190,15 @@ public actor RuntimePackStore {
         let next = current.markingBad(generation, reason: reason)
         try write(next)
         prune(keeping: next)
+    }
+
+    /// 重設 (W-121): forgets the official pack entirely — generations, last known good, the bad list and the
+    /// sequence floor — so the bundled scripts run and the next check installs whatever is published, even the
+    /// same sequence. The floor going back is the user's own choice here. An actor method, so it never lands
+    /// in the middle of an install.
+    public func reset() throws {
+        guard files.fileExists(atPath: scopeURL.path) else { return }
+        try files.removeItem(at: scopeURL)
     }
 
     /// Staging left by an install that never finished. Called at launch, before any install.

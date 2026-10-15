@@ -134,7 +134,8 @@ var spider = (function () {
       remember('img', cfg.img);
       // The class hard-codes its filter rows; this configuration supplies the same rows as a JSON
       // file through `ext`, so fetch that instead of carrying 4 KB of constants that would go stale.
-      cfg.ext = String(extend || '');
+      // IOS-POC-57B-13: qist 0825's ext ends in "$$$1", its danmaku switch; iOS has no danmaku.
+      cfg.ext = String(extend || '').split('$$$')[0];
       cfg.filters = fetchFilters();
       return '';
     },
@@ -156,7 +157,7 @@ var spider = (function () {
           + '&sort=' + (query.sort || 'update') + '&page=' + (page || '1')
         : '/api/crumb/list?fcate_pid=' + id + '&category_id=' + (query.category_id || '')
           + '&area=' + (query.area || '') + '&year=' + (query.year || '')
-          + '&type=' + (query.type || '') + '&sort=' + (query.sort || '') + '&page=' + (page || '1');
+          + '&type=' + (query.type || '') + '&sort=' + (query.sort || query.by || '') + '&page=' + (page || '1');
       return host.result.page(listing(api(path).data, id), page || '1');
     },
 

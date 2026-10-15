@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-13.5",
+  "version": "2026-10-13.6",
   "minHostApi": 2,
   "scripts": [
     {
@@ -133,13 +133,14 @@
     {
       "class": "JianPian",
       "path": "./scripts/JianPian.js",
-      "sha256": "4d1fbff68cca08e062b293ce68b4326c007d99e76ee33308893091dc74591bf2",
+      "sha256": "c01b6b0d41b628a54fc1eac26fbb6ef0a8167bfed9fddb7174119bcad24ecd4b",
       "aliases": [
-        "JPianAmns"
+        "JPianAmns",
+        "Jianpian"
       ],
       "originJar": "river-fman.jar",
       "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
-      "notes": "JPianAmns is a protected shim; this drives the same API"
+      "notes": "JPianAmns is a protected shim; qist 0825's Jianpian is the same API (W-99); this drives both"
     },
     {
       "class": "Jpys",

@@ -58,6 +58,9 @@ public struct SpiderRegistry: Sendable {
         // type/area/year/sort are exactly what `JianPian` substitutes into its request template,
         // including 67 being the category that goes to `shortList`. See docs/IOS-POC-5M-jianpian.md.
         "JPianAmns",  // http-json: river-fman.jar (as JianPian; aowu.jar's own class is a shim)
+        // IOS-POC-57B-13: qist 0825's 荐片 (W-99: its own old API host is dead; its list parameters and
+        // filter ids answer on JianPian's). The "$$$1" danmaku switch in its ext is dropped: no danmaku on iOS.
+        "Jianpian",   // http-json: qist 0825 Jianpian (as JianPian)
         // Rule engines: one port serves every site configured for them, now and later.
         "XBPQ",       // http-crypto: xyqxbpq.jar, xiaosa-0807.jar
         "XYQHiker",   // http-json: xyqxbpq.jar, river-fman.jar
@@ -119,7 +122,7 @@ public struct SpiderRegistry: Sendable {
     /// classes of qist/tvbox's `spider.jar` call the same hosts as their targets, and each target
     /// drove the qist-configured site through home, category, detail, search and play (IOS-POC-57).
     /// One line on purpose: `scripts/audit_spider_jars.py` (`registry_names`) reads it with a single-line regex.
-    static let aliases = ["JPianAmns": "JianPian", "Jys": "Jpys", "ShortHema": "HemaDJ", "ShortQimao": "QimaoDJ", "ShortHaokan": "HaokanDJ", "ShortWeiguan": "WeiguanDJ", "SportsGuazi": "GuaziTY"]
+    static let aliases = ["JPianAmns": "JianPian", "Jianpian": "JianPian", "Jys": "Jpys", "ShortHema": "HemaDJ", "ShortQimao": "QimaoDJ", "ShortHaokan": "HaokanDJ", "ShortWeiguan": "WeiguanDJ", "SportsGuazi": "GuaziTY"]
 
     /// The registry the app actually runs on: the bundled scripts, with a verified compatibility
     /// pack overlaid on top. `CSPSourceResolver` uses this, so every call site picks up a pack

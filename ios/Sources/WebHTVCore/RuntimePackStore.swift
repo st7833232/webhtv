@@ -70,6 +70,11 @@ public actor RuntimePackStore {
         var changed = false
         defer { if changed { try? write(state) } }
         for generation in [state.active, state.lastKnownGood].compactMap({ $0 }) {
+            // generations/ is excluded from backups but state.json is not: after a restore a generation is
+            // simply absent, which says nothing about its content. Installing it again brings it back.
+            guard files.fileExists(atPath: generationURL(generation).appendingPathComponent("manifest.json").path) else {
+                continue
+            }
             do {
                 return try read(generation, host: host)
             } catch let rejection as RuntimePackRejection where Self.keeps(rejection) {
@@ -96,7 +101,9 @@ public actor RuntimePackStore {
         let current = state() ?? RuntimeScopeState(scope: scope, packId: candidate.manifest.packId)
         switch current.admission(of: candidate) {
         case .accept: break
-        case .unchanged: return nil
+        // The one already accepted at this sequence; written again only if a restore left its files out.
+        case .unchanged where files.fileExists(atPath: generationURL(candidate.generation).path): return nil
+        case .unchanged: break
         case .reject(let rejection): throw rejection
         }
         guard runtimeSHA256(manifest) == candidate.manifestSHA256 else {

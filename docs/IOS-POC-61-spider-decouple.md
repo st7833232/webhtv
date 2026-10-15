@@ -55,6 +55,14 @@
 
 沒驗到：檔案保護等級（macOS 測試沒有這個選項，只能讀碼）；平行測試污染（新測試都用注入的 root 與 `bundled(official:overlaying:)`，沒有寫 `.shared`）。
 
+### S1 審查修正（Reviewer F-1，`artifacts/w119-review-2026-10-15.md`）
+
+- 問題：`generations/` 排除備份，`state.json` 會備份。iCloud／電腦備份還原後世代目錄不在，原本的 `load` 把「讀不到檔」當成確定性失敗，active 和 LKG 都被標壞；之後同一版 admission 回 `knownBad`，要等更大的 sequence 才裝得回來。N+1 版沒有內建時，爬蟲會全部消失。Reviewer 的探針 `artifacts/w119-review/probe-restore.log` 證實（bad=[2,1]、重裝丟 knownBad）。
+- 修正：`load` 遇到世代目錄或 `manifest.json` 不存在時略過，不標壞；`install` 遇到 `.unchanged`（已接受的同一版）但世代目錄不在時照樣寫回，並把它設為 active。目錄在、檔案 hash 錯，仍然標壞（`anEditedGenerationFallsBackOneStepAndIsNeverRetried` 不變）。
+- 測試：`aRestoreWithoutGenerationsMarksNothingBadAndTheSamePackReinstalls`（刪掉 `generations/` → load 回內建、`bad` 是空的、重裝同一包成功、load 回到該版）。先紅：`red-restore.log`（bad 不是空的、重裝丟 `knownBad`），後綠 17/17：`green-restore.log`。
+- Mutant：M11 拿掉略過（缺檔又被標壞）、M12 `.unchanged` 一律不寫回，都變紅。全量 `swift test` 1204／43 通過（`full-restore.log`）。
+- 非阻擋 N-1（smoke 用 `Int.max` 把本機跑不了的那支也拿去編譯）、N-2（`scriptDoesNotLoad` 不標壞）照 Reviewer 意見留到 S2。
+
 ### S1 回滾
 
 一個 commit；`git revert` 會移除 store、`File.minHostApi`、`.official` 來源與 `RuntimePacks` keep。沒有任何呼叫端會建立 `RuntimePacks/`，所以不會留下磁碟狀態。

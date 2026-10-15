@@ -116,6 +116,23 @@ private func host(jsHost: RuntimeABI.Version) -> RuntimeHost {
         #expect(await store.load(host: host) == nil)
     }
 
+    // Review F-1: generations/ is excluded from backups and state.json is not, so after a restore the generations
+    // are simply gone. That marks nothing bad, and installing the same pack again brings it back.
+    @Test func aRestoreWithoutGenerationsMarksNothingBadAndTheSamePackReinstalls() async throws {
+        let root = temporaryRoot()
+        let store = RuntimePackStore(root: root)
+        let one = try built(1, [Script(name: "AppGet", body: script("one"))])
+        let two = try built(2, [Script(name: "AppGet", body: script("two"))])
+        try await store.install(one.candidate, manifest: one.manifest, files: one.files)
+        try await store.install(two.candidate, manifest: two.manifest, files: two.files)
+        try FileManager.default.removeItem(at: scopeDirectory(root).appendingPathComponent("generations"))
+        #expect(await store.load(host: host) == nil)
+        #expect(await store.state()?.bad.isEmpty == true)
+        let back = try await store.install(two.candidate, manifest: two.manifest, files: two.files)
+        #expect(back?.scripts["AppGet"] == script("two"))
+        #expect(await store.load(host: host)?.scripts["AppGet"] == script("two"))
+    }
+
     // R5, G5: a generation this build cannot run is skipped, never marked bad, never deleted.
     @Test func aGenerationThisBuildCannotRunIsKeptForALaterBuild() async throws {
         let root = temporaryRoot()

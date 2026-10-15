@@ -24,7 +24,7 @@ private let shipped: [UInt64: String] = [
 /// Bundled scripts `scripts/runtime_pack.py build` leaves out of the official pack, so out of the baseline too: they
 /// stay in the bundled layer, which still serves any class the seeded generation lacks. Mirror that tool's set
 /// (Manager #2249: Ikanbot and Djuu wait for the second official pack; add them here when they are bundled).
-private let notInBaseline: Set<String> = []
+private let notInBaseline: Set<String> = ["Ikanbot.js"]
 
 /// What a manifest runs — each script's path, hash, needed host API and aliases — without its sequence or version,
 /// which `contentIdentity` includes.
@@ -119,8 +119,10 @@ private func variant(of baseline: SpiderBaseline, sequence: UInt64,
         let official = SpiderRegistry.bundled(official: loaded, overlaying: nil)
         let bundled = SpiderRegistry.bundled()
         for name in SpiderRegistry.ported {
-            guard case .official = official.entries[name]?.source else { Issue.record("\(name) is not seeded"); continue }
             #expect(official.entries[name]?.script == bundled.entries[name]?.script)
+            // A class left out of the baseline is still served, by the bundled layer (#2254).
+            if notInBaseline.contains(name + ".js") { #expect(official.entries[name]?.source == .bundled); continue }
+            guard case .official = official.entries[name]?.source else { Issue.record("\(name) is not seeded"); continue }
         }
     }
 

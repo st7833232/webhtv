@@ -119,6 +119,8 @@ public struct SpiderRegistry: Sendable {
         // identical lines), so it runs this script. Only the HLS inside 88player wrapper pages is listed.
         "Sports88",     // http-html: spider.jar (HTML lists, base64-wrapped JSON lines per match)
         "Kanqiu",       // http-html: qist pg jar (as Sports88; its own detail route answers 404)
+        // IOS-POC-57B-15: 爱看 • 影视 (Ikanbot), the first port whose 片单 lists are folders (IOS-POC-60).
+        "Ikanbot",      // http-html: qist j-spider.jar (HTML lists, getResN JSON lines; IPA only, FOLDER-04)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

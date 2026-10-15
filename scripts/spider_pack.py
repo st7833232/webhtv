@@ -27,6 +27,11 @@ BASE_HOST_API = 2
 # `minHostApi` describes, so they ship with the app and are deliberately not packable. Same set as
 # `RuntimeABI.nativeScripts` in the app, which a test keeps equal (IOS-POC-12).
 NOT_PACKABLE = {"host.js", "drpy-bridge.js", "js-spider.js"}
+# Ports that need the app's folder navigation (vod_tag "folder", catvod.result 1.3, IOS-POC-60) ship with
+# the IPA only: an older app would open a folder as a video and fail (FOLDER-04,
+# artifacts/qist-ikanbot-folder-2026-10-09.md §7.1). This is the compatibility pack's rule (Manager #2166);
+# the official pack, read only by apps that have folders, has its own (runtime_pack.NOT_IN_FIRST_OFFICIAL_PACK).
+IPA_ONLY = {"Ikanbot.js"}
 
 # Provenance for the ports this repository carries: which JAR each one was read from, that JAR's
 # SHA-256 at the time it was read, and any configured class name the script also serves. Written into
@@ -134,7 +139,7 @@ def build(args) -> int:
 
     entries = []
     for path in sorted(scripts_dir.glob("*.js")):
-        if path.name in NOT_PACKABLE:
+        if path.name in NOT_PACKABLE or path.name in IPA_ONLY:
             continue
         body = path.read_bytes()
         name = path.stem

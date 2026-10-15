@@ -36,6 +36,9 @@ MANIFEST_BYTES, FILE_BYTES, PACK_BYTES, FILES, PATH_BYTES = 64 * 1024, 512 * 102
 CLASS = re.compile(r"^[A-Za-z0-9_]{1,64}$")
 PATH = re.compile(r"^[A-Za-z0-9._/-]+$")
 RESERVED = {name.removesuffix(".js") for name in spider_pack.NOT_PACKABLE}
+# shortcut: 第一版官方包先不收，發第二版前移除這個集合 (user 2026-10-15, Manager #2249: Ikanbot and Djuu wait
+# for the second official pack; the compatibility pack never takes them, spider_pack.IPA_ONLY).
+NOT_IN_FIRST_OFFICIAL_PACK = {"Ikanbot.js", "Djuu.js"}
 
 
 def sha256(data: bytes) -> str:
@@ -54,7 +57,7 @@ def build(args) -> int:
     swift_aliases = registry_names(args.registry)["aliases"]
     files = []
     for source in sorted(scripts.glob("*.js")):
-        if source.name in spider_pack.NOT_PACKABLE:
+        if source.name in spider_pack.NOT_PACKABLE or source.name in NOT_IN_FIRST_OFFICIAL_PACK:
             continue
         name = source.stem
         origin = spider_pack.DEFAULT_ORIGINS.get(name, {})

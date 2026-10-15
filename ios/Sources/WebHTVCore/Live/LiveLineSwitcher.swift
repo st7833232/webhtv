@@ -18,6 +18,8 @@ public struct LiveLineSwitcher: Sendable {
     /// Starts a new round from `index` (a line picked by hand, or the start for a retry).
     public mutating func select(_ index: Int) {
         let count = tried.count
-        round = (0..<count).map { (index + $0) % count }.filter { tried[$0] }
+        guard count > 0 else { return round = [] }
+        let start = (index % count + count) % count  // W-124 review N-2: a negative or too-large start wraps
+        round = (0..<count).map { (start + $0) % count }.filter { tried[$0] }
     }
 }

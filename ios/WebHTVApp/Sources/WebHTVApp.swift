@@ -124,6 +124,8 @@ struct WebHTVApp: App {
 
 private struct ConfigView: View {
     @State private var sites = [Site]()
+    /// IOS-POC-59: the configuration's live lists, adopted with its sites so the two never describe different ones.
+    @State private var lives = [LiveSource]()
     @State private var selectedSiteID: Site.ID?
     @State private var selectedTab = 0
     @State private var keyboardVisible = false
@@ -201,7 +203,7 @@ private struct ConfigView: View {
                             SpiderToolNeededView(count: needSpiderTool, note: spiderToolNote, busy: spiderToolBusy,
                                                  onDownload: checkSpiderTool)
                         } else {
-                            HomeView(sites: sites, selectedSiteID: pickedSite, source: source, topRequest: homeTopRequest)
+                            HomeView(sites: sites, selectedSiteID: pickedSite, source: source, topRequest: homeTopRequest, lives: lives)
                         }
                     }
                         .toolbar(.hidden, for: .tabBar)
@@ -593,6 +595,7 @@ private struct ConfigView: View {
         let resolver = CSPSourceResolver(source: source)
         sites = config.drivableSites(resolvedBy: resolver)
         waitingSites = config.sitesNeedingSpiderTool(resolvedBy: resolver)
+        lives = config.lives
     }
 
     /// Point the sniffer at **this** configuration's ad rules and sniffer rules, and at nothing else
@@ -1018,6 +1021,7 @@ private struct HomeView: View {
     let source: ConfigSource
 
     var topRequest = 0
+    var lives: [LiveSource] = []
 
     @State private var picking = false
     @AppStorage(siteHealthSortKey) private var healthSort = true
@@ -1067,7 +1071,7 @@ private struct HomeView: View {
 
     var body: some View {
         NavigationStack {
-            CMSView(site: selectedSite, source: source, onPickSource: { picking = true }, topRequest: topRequest)
+            CMSView(site: selectedSite, source: source, onPickSource: { picking = true }, topRequest: topRequest, lives: lives)
                 .sheet(isPresented: $picking) { sourcePicker }
         }
         // Keep the established source-switch identity: detail navigation and listing state belong
@@ -1101,6 +1105,8 @@ private struct CMSView: View {
     var topRequest = 0
     /// Set, this view lists one folder: no header, search or category rows, a navigation bar to go back.
     var folder: FolderTarget?
+    /// IOS-POC-59: the configuration's live lists; the header offers 直播 when there is one.
+    var lives: [LiveSource] = []
     @State private var items = [Vod]()
     @State private var groups = [CategoryGroup]()
     @State private var selectedCategory: String?
@@ -1136,8 +1142,9 @@ private struct CMSView: View {
     private let columns = [GridItem(.adaptive(minimum: 104, maximum: 180), spacing: 12)]
 
     init(site: Site, source: ConfigSource, initialQuery: String? = nil, onPickSource: (() -> Void)? = nil,
-         topRequest: Int = 0, folder: FolderTarget? = nil) {
+         topRequest: Int = 0, folder: FolderTarget? = nil, lives: [LiveSource] = []) {
         self.site = site
+        self.lives = lives
         self.source = source
         self.initialQuery = initialQuery
         self.onPickSource = onPickSource
@@ -1243,6 +1250,17 @@ private struct CMSView: View {
     private var homeHeader: some View {
         HStack(spacing: 16) {
             Text("WebHTV").font(.title2.weight(.bold)).tracking(-0.6).layoutPriority(1)
+            if !lives.isEmpty {
+                NavigationLink {
+                    LiveTVView(lives: lives, base: source.baseURL).appNavigationBar().appWallpaper()
+                } label: {
+                    Label("直播", systemImage: "antenna.radiowaves.left.and.right")
+                        .font(.caption.weight(.medium))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("直播電視")
+            }
             Spacer(minLength: 12)
             Button { onPickSource?() } label: {
                 HStack(spacing: 5) {
@@ -5627,7 +5645,7 @@ struct EpisodeSteps: Equatable {
     func open(url: URL, headers: [String: String] = [:], sourceSubtitles: [SourceSubtitle] = [], title: String,
               artwork: String = "", history: WatchHistory? = nil, resuming: Bool = true,
               quality: PlaybackQualityChoice? = nil, retry: (() async -> Bool)? = nil,
-              offline: OfflinePlaybackSource? = nil) {
+              offline: OfflinePlaybackSource? = nil, rate: Float? = nil) {
         self.quality = quality
         offlineSource = offline
         retryWithoutPrefetch = retry
@@ -5640,7 +5658,11 @@ struct EpisodeSteps: Equatable {
         // while opening something else starts over. No key at all (a bare URL from the bridge)
         // carries nothing, because there is no title to carry it within. Starting over used to mean
         // 1×; since IOS-POC-29 it is the settings page's default speed, which is 1× until changed.
-        if history?.key == nil || history?.key != record?.key {
+        if let rate {
+            // IOS-POC-59 (Manager #2158 B2-1): live always opens at 1×, as Android's does; at a default speed above
+            // 2× AVPlayer would refuse it and hand it to MPV before it started.
+            chosenRate = rate
+        } else if history?.key == nil || history?.key != record?.key {
             chosenRate = PlaybackSpeedPreference().defaultSpeed
         }
         items = [.init(name: "", url: url)]
@@ -8349,6 +8371,11 @@ private struct PlayerSurface: UIViewControllerRepresentable {
             completion(true)
         }
     }
+}
+
+/// IOS-POC-59: the player as the live screen (`LiveTVView.swift`) shows it; `PlayerView` itself stays private.
+struct LivePlayerScreen: View {
+    var body: some View { PlayerView() }
 }
 
 private struct PlayerView: View {

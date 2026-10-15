@@ -288,7 +288,7 @@ lives = ((try? values.decodeIfPresent([Lenient<LiveSource>].self, forKey: .lives
 ```
 
 - `sites` 只把「缺鍵」改成空陣列；**有 `sites` 但裡面有壞資料時照舊丟錯**（保留目前嚴格解碼的行為，不在本任務擴大範圍）。`jar` 和 `parsing` 的回填照舊。
-- `lives` 有兩層保護：外層 `try?`（`lives` 不是陣列時）＋內層 `Lenient`（單一個 live 壞掉時）。`LiveSource.init(from:)` 每個欄位都用 `try?` 加型別容錯：`timeout` 接受整數或數字字串；`pass` 接受布林、`"true"`（W-124 修正 N-1：照 Android Gson，字串 `"1"` 是 false，數字 `1` 是 true）；`header` 接受 JSON 物件（其他型別就忽略）；`type` 缺少時當成 0。`name` 或 `url` 是空的就丟掉這個 live。
+- `lives` 有兩層保護：外層 `try?`（`lives` 不是陣列時）＋內層 `Lenient`（單一個 live 壞掉時）。`LiveSource.init(from:)` 每個欄位都用 `try?` 加型別容錯：`timeout` 接受整數或數字字串；`pass` 接受布林、`"true"`（W-124 修正 N-1：字串照 Android Gson，`"1"` 是 false；數字 `1` 當 true 是**偏離**——Android `Live.pass` 是基本型別 `boolean`，Gson 遇到數字會拋錯、整個 live 被丟掉，iOS 保留並把非 0 當 true，屬 X-17 那類寬鬆偏離；W-125 依 W-124 審查 N-1 更正）；`header` 接受 JSON 物件（其他型別就忽略）；`type` 缺少時當成 0。`name` 或 `url` 是空的就丟掉這個 live。
 - `isURLList`：`type == 0`（或沒有 type），`api` 是空的，`url` 不是空的。本設定 20 個全部符合，#20 雖然有 `jar` 但沒有 `api`，所以照樣收進來。
 - `ConfigLoader.validate` **不改**：只有 lives、沒有 sites 的設定，照舊丟 `noSupportedSites`（L1 的邊界，§12-6）。`ConfigSourceTests.swift:55` 的 `{"sites":[]}` 照舊被拒絕。
 - 快取不用遷移（§3）。
@@ -754,7 +754,7 @@ exhausted ──「重試」──▶ opening(起始線路，新的一輪)
 | B-3 | m3u UA：清單內 setting ＞ `#EXTINF http-user-agent` ＞ 源層 ua（`LiveParser.java:117`、`:132`/`:212`、`Channel.java:360`） | `m3uUserAgentIsListSettingThenEXTINFThenSource`；M-18 |
 | B-4 | 空名稱（判斷在切 `_` 之前，和 `Group.java:41` 的參數遮蔽一致）補「直播」：m3u 空／缺 `group-title`、txt `,#genre#`、txt 第一個 `#genre#` 前的預設群組 | `m3uMergesGroups…`、`theDefaultGroupIsMade…` |
 | B-5 | 空群組照 Android 保留：txt 每個 `#genre#` 行都 `live.getGroups().add(...)`（`LiveParser.java:145`），不管後面有沒有頻道；顯示層也不過濾（`M/LiveActivity:476-481`）。解析層保留，#17＝40 組（4 個空） | `emptyGroupsAreKept`；統計 #17 empty＝4 |
-| N-1 | `pass` 對齊 Android Gson：布林照收；字串只有 `"true"`（不分大小寫）是 true，`"1"` 是 false；數字非 0 是 true。§6.1 已改，不是偏離 | `eachLiveFieldToleratesItsOwnBadType` |
+| N-1 | `pass`：布林照收；字串只有 `"true"`（不分大小寫）是 true，`"1"` 是 false（和 Android Gson 一致）；**數字非 0 當 true 是偏離**（Android 遇到數字整個 live 被丟掉，W-124 審查 N-1；W-125 更正本列）。真實設定的 pass 全是布林，沒有實際影響 | `eachLiveFieldToleratesItsOwnBadType` |
 | N-2 | 逐欄容錯保留 live（X-17，列入 §5.3）。`header` 物件只收字串值；`type` 缺或 null 當 0、`"0"` 收、讀不出來就不收 | 同上 |
 | N-3 | 直播源重名照 Android 去重（`LiveConfig.java:200` `.distinct()`）；去重在 `isURLList` 過濾之前，和 Android 順序一致 | `aRepeatedLiveNameKeepsTheFirst` |
 | N-4 | m3u 群組合併 key＝名稱＋密碼（X-16，列入 §5.3） | `m3uKeepsAPasswordGroupApart…`；M-17 |
@@ -826,3 +826,55 @@ exhausted ──「重試」──▶ opening(起始線路，新的一輪)
 ### 15.8 Recovery anchor
 - 目標：W-124 U1 送審。狀態：實作、測試、mutant、統計、Ponytail 完成；commit 由 guard finish 建立，SHA 記在看板與 work done。
 - 下一步：Reviewer 審 W-124 → Manager 推 origin → 開 W-125（U2）。
+
+## 16. U2 入口、清單與播放實作紀錄（W-125，webhtv-dev-claude-dev-2，2026-10-15 16:13 起）
+
+### 16.1 範圍與拍板
+- 分支 `task/W-125`（從 origin/ios-poc `31161856` 開），guard `LIVE-L1-U2`，一個 commit，`--no-tag`。
+- Manager #2158（W-129）：B2-1 直播固定 1×；B2-2 清單 30 秒為**總時長**、換源時舊結果作廢；B2-3 空群組照 Android 顯示（#17＝40 組）；B2-4 U2 先選第一個源（記住上次的源歸 U4）。另依 #2246 修 W-124 審查 N-1（§6.1、§15.2 更正為偏離）、N-2（`LiveLineSwitcher` 起點超出範圍時繞回，不再當掉）。
+- 檔案：Core 新 `Live/LiveListLoader.swift`；`Live/LiveLineSwitcher.swift`（N-2）；App 新 `LiveTVView.swift`（＋pbxproj 4 處，照 `MPVEngine.swift` 先例）；`WebHTVApp.swift`：`ConfigView.lives`（在唯一採用點 `show(_:from:)` 設定——W-121 之後 rebuild／adopt／restore 三處都走它）、`HomeView`／`CMSView` 傳 `lives`、`homeHeader` 的「直播」按鈕（`lives` 空時不顯示；資料夾頁沒有 `homeHeader`）、`PlaybackSession.open(url:…, rate:)`（直播傳 1）、`LivePlayerScreen`（`PlayerView` 維持 private）。
+
+### 16.2 設計落地
+- `LiveListLoader`（actor，`shared`）：網址只有 `./`、`../` 才對設定位址解析，**不經** `ConfigSource.resourceURL`（它會在第一個 `;` 截斷）；絕對網址只收 http(s)。送 `LiveSource.listHeaders`。總時長用 task group 和 `Task.sleep(limit)` 賽跑（預設 30 秒，測試注入 0.3 秒），`URLRequest.timeoutInterval` 同值；不用 `URLSession.webHTV`（10 秒閒置）。非 2xx →「HTTP <碼>」、逾時 →「逾時」、其他連線錯誤 →「無法連線」，訊息不含網址或 header（D§6.7）。上限 8 MB（比照 `HLSAdSkip`）。記憶體快取 key＝網址＋排序後的 listHeaders；`refresh: true` 重抓。解析在 actor 上跑（不在 main actor）。
+- `LiveTVView`：源選單（Menu＋Picker）、載入中「載入清單中（最多 30 秒）」、失敗頁「無法載入此直播源」＋原因＋重試（原因也顯示在源選單旁）、兩欄（群組欄 112pt，跟字級放大但最多 140pt）。過濾 `isHidden` 群組；空群組點下去顯示「此群組沒有頻道」；整個源沒有可顯示的群組時顯示「此直播源沒有可顯示的頻道」；整台不支援的頻道變灰、標「iOS 不支援」、不能點。`.task(id: (源, 重載次數))`：換源或重試會取消前一個請求，取消後不寫入畫面（B2-2 的作廢）。點頻道：`LiveLineSwitcher` 第一條可試的線路，`history: nil`、`rate: 1`，開播前清掉上一部的 `advance`／`episodeStepper`／`episodeSteps`。
+- Ponytail review 後加的兩點：設定重新整理讓 `lives` 變短時，選中的源以夾住範圍的計算屬性取得（原本 `lives[sourceIndex]` 會越界當掉）；已載入的清單可下拉重新整理（清單網址可能帶短效 token，例如 tv123 的 `sid`）。
+
+### 16.3 測試
+- 先紅：`LiveListLoaderTests` 編譯失敗（`cannot find 'LiveListLoader'`，`artifacts/w125-logs/red.log`）；N-2 測試在修正前讓測試程序以 `Index out of range` 當掉（`red-switcher.log`）。
+- 綠：`swift test --filter Live` 64 個全過（`green-core.log`）：`LiveListLoaderTests` 6 個（header 與 `;` 網址原樣、相對網址與匯入設定無 base、失敗訊息只有狀態碼、總時長期限、快取與 refresh、過大與 JSON 清單）＋`aStartOutsideTheLinesWraps`。
+- 全量 `swift test`：1283 tests／47 suites 全過（`full.log`）。
+- App：`xcodebuild … -destination id=107AA88B… build` 成功（`app-build.log`）。
+- 補測（mutant 後）：`theWholeFetchHasOneDeadline` 加一個「每 0.1 秒送 1 位元組、永不結束」的假站，只有總時長期限能讓它結束（閒置逾時永遠不會觸發）；加 `.timeLimit(.minutes(1))`，拿掉期限時測試會失敗而不是卡住。重跑 `swift test --filter Live` 64 個全過（`green-final.log`）。
+
+### 16.4 Mutant（`artifacts/w125-logs/mutants.log`）
+| # | 突變 | 結果 |
+|---|---|---|
+| M2-1 | 網址在第一個 `;` 截斷（`resourceURL` 的行為） | 殺：`aListIsFetchedWithTheSourceHeadersAtItsAddressAsWritten` |
+| M2-3 | 不送 `listHeaders` | 殺：同上 |
+| M2-x | 快取 key 不含 header | 殺：`aListIsFetchedOnceUntilRefreshed` |
+| M2-y | 拿掉總時長期限（只剩 request 閒置逾時） | 第一輪**存活**（永不回應的假站兩種逾時分不出來）→ 補 trickle 假站後第二輪卡住 600 秒 → 加 `.timeLimit` 後殺：`theWholeFetchHasOneDeadline` |
+| M2-z | 非 2xx 也當成功 | 殺：`aFailedFetchSaysOnlyWhatWentWrong` |
+| N-2 | （修正前）起點負數 | 修正前測試程序 `Index out of range` 當掉（`red-switcher.log`） |
+- App 層（M2-4～M2-10）沒有單元測試能殺，由 §16.5 的 Simulator 情境證明：M2-4 對 `history.json`、M2-5 對 #7／#10 群組數、M2-6 對灰色不能點、M2-7 對 2.5× 仍原生、M2-9 對 App build、M2-10 對 AC-3。
+
+### 16.5 Simulator（`artifacts/w125-gui-evidence/RESULT.md`，背景 fork 執行）
+- 受測 build：本單工作樹（parent `31161856`）。`WebHTVApp` `0b3cefa8…`、`WebHTVApp.debug.dylib` `447f289d…` 在 .app 與 Simulator 容器相同；新 dylib 含 `LiveTVView` 字串 4 次（W-41 版 0 次）。Simulator `WebHTV-dev2`（`107AA88B-F2E2-430A-B3CC-500C7ED07B1E`）；設定用本機 `python3 -m http.server` 提供 W-92 設定檔副本（末尾多一個回 404 的「本機404」源）與拿掉 `lives` 的副本。容器測後還原 BYTE-IDENTICAL。
+- 結果（全部 PASS）：
+  1. AC-9：標題列「直播」，accessibility label「直播電視」，點擊區 47×44pt；進入源選單＋兩欄；返回首頁；分頁仍 5 個。
+  2. AC-3：沒有 `lives` 的設定沒有按鈕。
+  3. AC-7：#7 群組欄 32、#17 40（空群組點下去「此群組沒有頻道」）；**#10 是 35 不是 34**——live 清單在 W-92 之後多了 1 個群組（現在 39 組，隱藏的仍是那 4 個），不是過濾錯誤。證據只記數字，不留名稱。
+  4. AC-10：#8 原生 1.0× 播出（`started … on 原生 in 3839ms`），畫面變化；`history.json` 播放前後都不存在；片庫「記錄」仍空。
+  5. AC-11：#15 原生失敗（`on MPV … reason=failure: … NSURLError -1`）後 MPV 1× 播出，reason 不是 viewer。
+  6. B2-1：設定預設倍速 2.5× 後播 #8，仍 `on 原生 … @1.0x`，沒有換 MPV；測後改回 1×。
+  7. AC-23：#20 抽樣列、#3 的 DRM 群組、#17 的 `parse=` 群組（第 26 組）都變灰、標「iOS 不支援」，點了不開播放器。
+  8. AC-24：#10 979 台的群組快速滑 12 次，肉眼沒有卡頓；選源後 6–10 秒出清單（含網路）。含成人名稱的錄影已刪，只留文字紀錄。
+  9. 404 源：「無法載入此直播源」＋「HTTP 404」，源選單旁也有原因；重試送出第二次請求。
+  10. AC-22：app log `okhttp/` 0、帶 query 的網址 0；唯一的 `sid=` 是 MPV 字幕欄位 `sid=auto`，不是 token。
+  11. 回歸：一般點播站（荐片）的詳情頁沒有「直播」按鈕、影片照常原生播放、分頁 5 個。
+  12. 下拉重新整理：本機清單收到新的 GET（#8 自己的請求在 network log 裡分不出來）。
+- 未驗：實機、AirPlay、PiP、VoiceOver 實際朗讀（只核 accessibility label）。
+
+### 16.6 Ponytail review（對最終 diff 跑過）
+- 1（Must fix）設定重新整理讓 `lives` 變短時，`lives[sourceIndex]` 越界當掉 → 改成夾住範圍的 `source` 計算屬性，`lives` 空時顯示「此設定沒有直播源」。
+- 2（Should fix）已載入的清單沒辦法重抓（token 過期就只能重開 App）→ 加下拉重新整理。
+- 未查：所有源的清單都留在記憶體時的用量（上限是源的數量，本設定 20 個）。

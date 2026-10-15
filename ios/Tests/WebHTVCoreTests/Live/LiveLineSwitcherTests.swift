@@ -45,3 +45,11 @@ private func drain(_ switcher: inout LiveLineSwitcher) -> [Int] {
     lines.select(1)
     #expect(drain(&lines) == [1, 2, 3, 0])
 }
+
+// W-124 review N-2: a start outside the lines wraps instead of crashing.
+@Test func aStartOutsideTheLinesWraps() {
+    var negative = switcher([.playable, .playable, .playable, .playable], start: -1)
+    #expect(drain(&negative) == [3, 0, 1, 2])
+    var past = switcher([.playable, .playable], start: 5)
+    #expect(drain(&past) == [1, 0])
+}

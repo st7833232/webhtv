@@ -29,7 +29,7 @@ jobs:
         with:
           ref: ios-poc
 
-      - name: Refuse a sequence that is not above the published one
+      - name: Refuse a sequence that is not above the published one or the App's baseline
         env:
           SEQUENCE: ${{ inputs.sequence }}
         run: |
@@ -40,6 +40,11 @@ jobs:
           fi
           if [ "$SEQUENCE" -le "$published" ]; then
             echo "sequence $SEQUENCE is not above the published $published"; exit 1
+          fi
+          # IOS-POC-61 S4: a device seeds the IPA's baseline at its sequence; a pack at or below it is refused there.
+          baseline=$(python3 -c 'import json; print(json.load(open("ios/Sources/WebHTVCore/Resources/SpiderBaseline/manifest.json"))["sequence"])')
+          if [ "$SEQUENCE" -le "$baseline" ]; then
+            echo "sequence $SEQUENCE is not above the App's baseline $baseline"; exit 1
           fi
 
       - name: Build and verify (existing blobs are kept for clients still holding an older manifest)

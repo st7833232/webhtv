@@ -45,7 +45,9 @@ private let nothingInstalled = CSPSourceResolver(registry: SpiderRegistry(entrie
         let generation = RuntimeGeneration(sequence: 12, manifestSHA256: "a", contentIdentity: "b")
         let pack = OfficialSpiderPack(generation: generation, version: "2026-10-20.1",
                                       scripts: ["AppGet": "", "Bili": ""], aliases: ["Jys": "AppGet"])
-        #expect(SpiderToolText.status(of: pack) == "官方包 2026-10-20.1（序號 12，2 支）")
+        #expect(SpiderToolText.status(of: pack, baseline: "other") == "官方包 2026-10-20.1（序號 12，2 支）")
+        // W-122: the seeded generation is the bundled content, named as such.
+        #expect(SpiderToolText.status(of: pack, baseline: "b") == "內建基準 2026-10-20.1（序號 12，2 支）")
         // Scripts, not class names: an alias is not another spider.
         #expect(SpiderToolText.bundledScripts < SpiderRegistry.ported.count)
     }

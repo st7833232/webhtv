@@ -1,0 +1,283 @@
+{
+  "files": [
+    {
+      "bytes": 6450,
+      "class": "App3Q",
+      "logicalType": "spider.js",
+      "path": "spiders/App3Q.js",
+      "sha256": "ffa96792a529295f123f2486c965c761c527c92b4429b704f9b93dc0a12c82cc"
+    },
+    {
+      "bytes": 10058,
+      "class": "App99",
+      "logicalType": "spider.js",
+      "path": "spiders/App99.js",
+      "sha256": "f6f30bd728148131719bd97934bf9ff671093f425fa76360c916f8af728e6f96"
+    },
+    {
+      "bytes": 12118,
+      "class": "AppDrama",
+      "logicalType": "spider.js",
+      "minHostApi": 3,
+      "path": "spiders/AppDrama.js",
+      "sha256": "3b9f10feba7ff800a7c261f2d88e2b86684e425e629e9820b7d41229ed957015"
+    },
+    {
+      "bytes": 9543,
+      "class": "AppGet",
+      "logicalType": "spider.js",
+      "path": "spiders/AppGet.js",
+      "sha256": "b824378c5d253fef623dbc15fce9b10cf4491158371b3a3ac76e1e4a8710b753"
+    },
+    {
+      "bytes": 5414,
+      "class": "AppLY",
+      "logicalType": "spider.js",
+      "path": "spiders/AppLY.js",
+      "sha256": "0b315bd45975caa89e3cd73e7113ef1f2d5ea09f972d8d4e9fb13ce2910e51b4"
+    },
+    {
+      "bytes": 10818,
+      "class": "AppQi",
+      "logicalType": "spider.js",
+      "path": "spiders/AppQi.js",
+      "sha256": "6a46163a9a8360dbbfad317d7a9ef90f26f77bd2b004beaf244cb11cdce23ab4"
+    },
+    {
+      "bytes": 6899,
+      "class": "AppYQK",
+      "logicalType": "spider.js",
+      "path": "spiders/AppYQK.js",
+      "sha256": "d4898061a6adef4542c1b292d20dcfa6d6a39ac92f9c87807dbf93939c2daa20"
+    },
+    {
+      "bytes": 7668,
+      "class": "AppYsV2",
+      "logicalType": "spider.js",
+      "path": "spiders/AppYsV2.js",
+      "sha256": "45d90bcd511472fed922fce4e5d88d2a0727f37d8d58e5c552c376960dc356eb"
+    },
+    {
+      "bytes": 4283,
+      "class": "BeiLeHu",
+      "logicalType": "spider.js",
+      "path": "spiders/BeiLeHu.js",
+      "sha256": "e556c4552bf07f17751e8a3de96a8528b6affb7df161df6dad7929e47f43b541"
+    },
+    {
+      "bytes": 32908,
+      "class": "Bili",
+      "logicalType": "spider.js",
+      "path": "spiders/Bili.js",
+      "sha256": "8d062fcf811d56caaffb94f9496d58d64bdce876adcef01eca1fdb09449c16ff"
+    },
+    {
+      "bytes": 9781,
+      "class": "Duboku",
+      "logicalType": "spider.js",
+      "path": "spiders/Duboku.js",
+      "sha256": "3f900c986ad43c7c48e21832fabdb6c53abc2c3d854d416b48df5b7f6af35823"
+    },
+    {
+      "bytes": 7808,
+      "class": "Feiyu",
+      "logicalType": "spider.js",
+      "path": "spiders/Feiyu.js",
+      "sha256": "2ac6bcdc0a9a2bb891b27db3efde5a4f9609300adbcc0dd6eef0255115a9599e"
+    },
+    {
+      "bytes": 4574,
+      "class": "FirstAid",
+      "logicalType": "spider.js",
+      "path": "spiders/FirstAid.js",
+      "sha256": "20533552af16a2eabf0d7e7cd8e03ecb956d8301f6d86626234e6b5b91758e07"
+    },
+    {
+      "aliases": [
+        "SportsGuazi"
+      ],
+      "bytes": 5149,
+      "class": "GuaziTY",
+      "logicalType": "spider.js",
+      "path": "spiders/GuaziTY.js",
+      "sha256": "379175d593aa9ef113582c578f5ddff06762b049bb424b9cf9296f459922aa1a"
+    },
+    {
+      "bytes": 15067,
+      "class": "Gulu",
+      "logicalType": "spider.js",
+      "minHostApi": 4,
+      "path": "spiders/Gulu.js",
+      "sha256": "0b5e5d2204cd630b3b0bda604f177ae1a422c8bb5d68a06f22644545054cd01b"
+    },
+    {
+      "aliases": [
+        "ShortHaokan"
+      ],
+      "bytes": 5592,
+      "class": "HaokanDJ",
+      "logicalType": "spider.js",
+      "path": "spiders/HaokanDJ.js",
+      "sha256": "eb86d74e58f79c86607f586a331c126152c4c8928b80b98d01c50ac1fe37e9cb"
+    },
+    {
+      "aliases": [
+        "ShortHema"
+      ],
+      "bytes": 8227,
+      "class": "HemaDJ",
+      "logicalType": "spider.js",
+      "path": "spiders/HemaDJ.js",
+      "sha256": "a9b3da31b741d77f68e028bc77f776be02d76aba0c93ad1e53e272c8b3a4b944"
+    },
+    {
+      "aliases": [
+        "JPianAmns",
+        "Jianpian"
+      ],
+      "bytes": 11685,
+      "class": "JianPian",
+      "logicalType": "spider.js",
+      "path": "spiders/JianPian.js",
+      "sha256": "c01b6b0d41b628a54fc1eac26fbb6ef0a8167bfed9fddb7174119bcad24ecd4b"
+    },
+    {
+      "aliases": [
+        "Jys"
+      ],
+      "bytes": 6515,
+      "class": "Jpys",
+      "logicalType": "spider.js",
+      "path": "spiders/Jpys.js",
+      "sha256": "22604251f34c2b3fa113fddb15b568f60df1be3900372b973b5c984c60b32502"
+    },
+    {
+      "bytes": 8848,
+      "class": "MiaoWu",
+      "logicalType": "spider.js",
+      "path": "spiders/MiaoWu.js",
+      "sha256": "10a6cecff16e7742fce41f18f23823b699f8084abaffcc676fd940a748f6ccd3"
+    },
+    {
+      "bytes": 3817,
+      "class": "MoDu",
+      "logicalType": "spider.js",
+      "path": "spiders/MoDu.js",
+      "sha256": "37c4e6691570461544163879f9d34d5a2e369f13e0b30329f9e6690a38f407c2"
+    },
+    {
+      "aliases": [
+        "ShortQimao"
+      ],
+      "bytes": 6276,
+      "class": "QimaoDJ",
+      "logicalType": "spider.js",
+      "path": "spiders/QimaoDJ.js",
+      "sha256": "404231482d9ce760b9371e2e9dad167555059e6e62da57311fad87ad313dd606"
+    },
+    {
+      "bytes": 4845,
+      "class": "QingtingFM",
+      "logicalType": "spider.js",
+      "path": "spiders/QingtingFM.js",
+      "sha256": "e67e03d20b8631bf32eaac43ae6eafe212a8caf308a072521a97d3a70049d954"
+    },
+    {
+      "bytes": 7211,
+      "class": "ShortXingya",
+      "logicalType": "spider.js",
+      "path": "spiders/ShortXingya.js",
+      "sha256": "43f1c231c1d39f25f40ebf36851a026f590b9bcb3896c0ff6fbccb9a7905eceb"
+    },
+    {
+      "aliases": [
+        "Kanqiu"
+      ],
+      "bytes": 6484,
+      "class": "Sports88",
+      "logicalType": "spider.js",
+      "path": "spiders/Sports88.js",
+      "sha256": "479a9fac70f37f2adfce7e8c8833864aeb16735009e39f5ba63b488102a0b78e"
+    },
+    {
+      "bytes": 4793,
+      "class": "SportsKafei",
+      "logicalType": "spider.js",
+      "path": "spiders/SportsKafei.js",
+      "sha256": "7492fd10ad47ed249bad6ddaa06d75e149c27d97a8e623eec14d4c48a2b0ac0f"
+    },
+    {
+      "bytes": 5193,
+      "class": "TingBokan",
+      "logicalType": "spider.js",
+      "path": "spiders/TingBokan.js",
+      "sha256": "9f634581889a548a8bf071e999e1ec0b440fea02e3f0694eb79ab0628c174797"
+    },
+    {
+      "bytes": 9900,
+      "class": "TingJinxia",
+      "logicalType": "spider.js",
+      "path": "spiders/TingJinxia.js",
+      "sha256": "63f7d24b97e431403cd0a5ebc793947c191a18e2c22e1550a40bcf7a3f78b8be"
+    },
+    {
+      "bytes": 7457,
+      "class": "TuXiaoBei",
+      "logicalType": "spider.js",
+      "path": "spiders/TuXiaoBei.js",
+      "sha256": "57116b5b00cdf84116564ed322ee3fd911eadfc2c6f0e61297a48b2d8c5e22d5"
+    },
+    {
+      "bytes": 7751,
+      "class": "Uvod",
+      "logicalType": "spider.js",
+      "minHostApi": 3,
+      "path": "spiders/Uvod.js",
+      "sha256": "cdaa16d32a1e8975d98efe0cf2ce18aa7d2140359eccd3db282d0e63e5110d9d"
+    },
+    {
+      "aliases": [
+        "ShortWeiguan"
+      ],
+      "bytes": 4548,
+      "class": "WeiguanDJ",
+      "logicalType": "spider.js",
+      "path": "spiders/WeiguanDJ.js",
+      "sha256": "55535d6ae2625de2fb63bbeafa9f115535ec39ad1a233a0070c7b018dcbe3863"
+    },
+    {
+      "bytes": 34026,
+      "class": "XBPQ",
+      "logicalType": "spider.js",
+      "path": "spiders/XBPQ.js",
+      "sha256": "66e7f59df554bacdb710af01f293933e38829fd29c0058474b0fb1d62b6ab219"
+    },
+    {
+      "bytes": 16753,
+      "class": "XYQHiker",
+      "logicalType": "spider.js",
+      "path": "spiders/XYQHiker.js",
+      "sha256": "7c9a719b8e05fa3f5bb2230247da014bd2dad4153f3daad160cad8b362c245ad"
+    }
+  ],
+  "format": "webhtv.runtime-pack",
+  "packId": "webhtv.spiders",
+  "requires": {
+    "abi": {
+      "catvod.result": {
+        "major": 1,
+        "minMinor": 0
+      },
+      "js.host": {
+        "major": 1,
+        "minMinor": 2
+      }
+    }
+  },
+  "schema": 1,
+  "scope": {
+    "kind": "global"
+  },
+  "sequence": 1,
+  "version": "2026-10-15.1"
+}

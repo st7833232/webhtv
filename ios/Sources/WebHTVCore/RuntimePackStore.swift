@@ -11,6 +11,42 @@ public struct OfficialSpiderPack: Sendable, Equatable {
     public let aliases: [String: String]
 }
 
+/// IOS-POC-61 S4 (W-122): the bundled scripts as the official pack describes them — `Resources/SpiderBaseline/
+/// manifest.json`, written by `scripts/runtime_pack.py build` from `Resources/Spiders` with the same `packId`
+/// and sequence space as a published pack. A new baseline always needs a new, higher sequence
+/// (`SpiderBaselineTests.shipped`).
+public struct SpiderBaseline: Sendable {
+    public let manifest: Data
+    public let candidate: RuntimePackCandidate
+    /// Path in the manifest → the bundled file's bytes; a missing one is left out and `install` refuses it.
+    public let files: [String: Data]
+
+    /// `nil` when this build carries no baseline. shortcut: S5 removes the bundled scripts and this file with them.
+    public init?(bundle: Bundle? = nil, host: RuntimeHost = .installed()) throws {
+        let bundle = bundle ?? .module
+        guard let url = Self.manifestURL(in: bundle) else { return nil }
+        manifest = try Data(contentsOf: url)
+        // The bundle's own bytes; the compiled-in address only stands where the origin check expects one.
+        candidate = try RuntimePackValidator.validateOfficial(manifest: manifest, fetchedFrom: RuntimePackUpdater.manifestURL,
+                                                              host: host)
+        var files = [String: Data]()
+        for file in candidate.manifest.files {
+            files[file.path] = bundle.url(forResource: (file.path as NSString).lastPathComponent, withExtension: nil,
+                                          subdirectory: "Spiders").flatMap { try? Data(contentsOf: $0) }
+        }
+        self.files = files
+    }
+
+    /// What the settings page calls 內建基準: a generation with exactly this build's bundled content. The manifest
+    /// alone says it, so drawing the page never reads the scripts.
+    public static let identity: String? = manifestURL(in: .module).flatMap { try? Data(contentsOf: $0) }
+        .flatMap { try? RuntimePackManifest.decode($0).contentIdentity }
+
+    private static func manifestURL(in bundle: Bundle) -> URL? {
+        bundle.url(forResource: "manifest", withExtension: "json", subdirectory: "SpiderBaseline")
+    }
+}
+
 /// The official pack the registry reads, held outside the store because building a registry is synchronous
 /// and happens on every content call — the lock box `InstalledSpiderPack` is for the compatibility pack.
 public final class ActiveOfficialPack: @unchecked Sendable {
@@ -190,6 +226,17 @@ public actor RuntimePackStore {
         let next = current.markingBad(generation, reason: reason)
         try write(next)
         prune(keeping: next)
+    }
+
+    /// IOS-POC-61 S4 (W-122): the bundled scripts become a generation of the official pack, at launch and without
+    /// the network. Through `install`, so the sequence floor decides (Manager #2112 ①): it lands on a first launch
+    /// and whenever a new IPA brings a baseline above what was downloaded — an IPA's spider fixes are never hidden
+    /// under an older download. The same baseline again writes nothing; a lower one throws `.rollback` and leaves
+    /// everything as it is. Any failure only means the bundled scripts keep running; nothing is marked bad.
+    @discardableResult
+    public func seedBaseline(bundle: Bundle? = nil, host: RuntimeHost = .installed()) throws -> OfficialSpiderPack? {
+        guard let baseline = try SpiderBaseline(bundle: bundle, host: host) else { return nil }
+        return try install(baseline.candidate, manifest: baseline.manifest, files: baseline.files, host: host)
     }
 
     /// 重設 (W-121): forgets the official pack entirely — generations, last known good, the bad list and the

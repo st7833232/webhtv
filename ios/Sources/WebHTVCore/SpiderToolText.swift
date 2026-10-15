@@ -6,9 +6,11 @@ public enum SpiderToolText {
     /// Scripts, not class names: an alias runs one of them.
     static let bundledScripts = Set(SpiderRegistry.ported.map { SpiderRegistry.aliases[$0] ?? $0 }).count
 
-    public static func status(of official: OfficialSpiderPack?) -> String {
+    public static func status(of official: OfficialSpiderPack?, baseline: String? = SpiderBaseline.identity) -> String {
         guard let official else { return "內建基準（\(bundledScripts) 支）" }
-        return "官方包 \(official.version)（序號 \(official.generation.sequence)，\(official.scripts.count) 支）"
+        // W-122: the seeded generation is this build's own content, whatever sequence carried it.
+        let name = official.generation.contentIdentity == baseline ? "內建基準" : "官方包"
+        return "\(name) \(official.version)（序號 \(official.generation.sequence)，\(official.scripts.count) 支）"
     }
 
     /// `scripts` is what runs after an install; `playing` holds an installed pack back until the player closes.

@@ -1,6 +1,6 @@
 # IOS-POC-61：爬蟲工具與主程式分離（spider decouple）
 
-> Recovery anchor（2026-10-15，W-121 S3）：S1 `d7498bbf`＋`d910cab4`、S2 `47c1d023` 已審過並推上 origin。S3 實作與 Core 驗證完成（見「S3 驗證」），Simulator ①–⑧ 與 C25 複驗證據在 `artifacts/w121-gui-evidence/`。下一步：Reviewer code review，之後 W-122（S4）。
+> Recovery anchor（2026-10-15，W-122 S4）：S1–S3 已審過並推上 origin（最新 `aaa14023`）。S4 在分支 `task/W-122` 實作，Core 驗證完成（見「S4 驗證」），Simulator 證據在 `artifacts/w122-gui-evidence/`。下一步：Reviewer code review，之後 S5 要等 N 版發布與真機確認。
 
 - 編號：工單 W-119 寫的 `IOS-POC-60` 已被 W-40 的 `docs/IOS-POC-60-folder-navigation.md` 用掉，`IOS-POC-59` 預留給直播 L1，所以本任務用 **IOS-POC-61**（Manager #2062）。
 - 來源：計畫 `.herdr-synapse/webhtv-dev/artifacts/spider-decouple-plan-2026-10-15.md`（W-118，Reviewer 撰寫），審查預備 `review-prep-W-119-2026-10-15.md`。下面「計畫」各節照搬，只改了：簽章相關段落改成「不做」、33 支（W-105 加了 Sports88）、檔尾第二個「## 10」改成「## 11」。計畫內的 `檔:行` 以 `a0e6991b` 為準；S1 實際改動的位置以本節為準。
@@ -164,6 +164,53 @@
 ### S3 回滾
 
 一個 commit；`git revert` 移除設定頁區塊、橫幅、專屬畫面、延後套用與啟動載入，updater／store／validate 回到 W-120。磁碟上已下載的 `RuntimePacks/` 留著也無害：沒有呼叫端會再讀它，registry 回到「內建＋相容包」。
+
+
+## S4（W-122）：內建基準種子
+
+接在 W-121 的 `aaa14023` 之後（分支 `task/W-122`，Manager #2186 的新流程）。審查預備 `artifacts/review-prep-W-122-2026-10-15.md`（下稱 prep）。
+
+### 決定
+
+- **何時種子（prep §0-1，Manager #2112 ①）選 (a)**：每次啟動都把內建基準當成一個 candidate，走和下載同一條 `RuntimePackStore.install`（admission → 驗證 → staging → rename → `state.json`）。所以由序號下限決定：空 scope（floor 0）、或新 IPA 的基準序號高於已下載的版本時才寫入；同一個基準再來一次是 `.unchanged`、什麼都不寫；較低的基準丟 `.rollback`、什麼都不動。這樣 IPA 帶來的爬蟲修正不會被較舊的下載版蓋住。「空」不看 `generations/`：rename 後、寫 state 前被殺留下的孤兒目錄，下次照樣種子（同 id 目錄直接沿用）。
+- **序號空間（§0-2，Manager #2112 ②）**：基準和官方包同一個序列、同一個下限，下限不可重設（只有使用者按「重設」會清掉）。規則：**每次改內建爬蟲，就用 `runtime_pack.py build` 重建基準，序號加 1，並在 `SpiderBaselineTests.shipped` 加一列**；已發布的序號內容不能變。守門：(1) `theBaselineIsTheBundledScripts`：基準 manifest 的每個檔和 bundle 裡的同名檔 hash、大小相同，檔案集合＝`Resources/Spiders` 扣掉 SDK 3 支，忘了重建就紅；(2) `eachShippedSequenceKeepsItsContent`：序號 → 內容 identity 的凍結表，重建了卻沒升序號就紅；(3) `theBaselineIsAboveAnyPublishedOfficialPack`：repo 裡有已發布的官方包時，基準序號要比它大（或內容相同）；(4) workflow 新增一步：要發布的官方包序號必須大於 App 的基準序號，否則已種子的裝置會拒收。
+- **`packId`（§0-3，Manager #2112 ③）**：基準 manifest 由同一支工具產生，`packId`＝`webhtv.spiders`，scope global（測試斷言）。
+- **內建基準的 manifest（§0-5）選 (a)**：`runtime_pack.py build --sequence 1 --version 2026-10-15.1` 產出的 `manifest.json` 放在 `Resources/SpiderBaseline/`（`Package.swift` 加一行 `.copy`），檔案內容直接讀 bundle 的 `Spiders/`，不另存一份。序號 1，所以第一個發布的官方包至少是 2。`minHostApi`（AppDrama／Uvod 3、Gulu 4）與別名（含 W-120 補上的 `Jys`／`Short*`／`SportsGuazi`）和官方包同一份來源。
+- **怎麼分辨種子與下載（§0-4）**：用內容 identity，不用序號。`SpiderBaseline.identity`（只解析 manifest，畫面繪製時不讀 33 支檔）等於 active 的 `contentIdentity` 時，狀態列顯示「內建基準 2026-10-15.1（序號 1，33 支）」，否則「官方包 …」。
+- **啟動位置（§0-6）**：`ConfigView.task` 裡 `removeStaging()` 之後、`loadOfficialPack()` 與 `restore()` 之前 `await seedBaseline()`。在 store actor 上做（不在主執行緒），沿用 install 的 33 支編譯 smoke；只在第一次與換基準時發生，log 記毫秒。種子內容和內建檔逐位元相同，晚一步到也不會改變站台。
+- **失敗（B10）**：任何錯誤只寫 log（「baseline not seeded: …」），registry 照用內建；種子路徑不標壞（只有 smoke 編譯失敗會標，而內建檔就是正在跑的檔）。完全不連網（B12）：沒有 updater、沒有 `URLSession`。
+- **重設（W-121 留下的問題）**：「重設」清掉 scope 後**立刻重新種子**再套用，狀態回到「內建基準 2026-10-15.1（序號 1）」，和重新啟動一致；之後「檢查更新」較高序號的官方包照樣會裝上（下限回到基準序號）。初始化清掉 Application Support，下次啟動重新種子（B14）。
+- **Ikanbot／Djuu（Manager #2249，使用者 15:15）**：第一版官方包不收這兩支，`runtime_pack.py` 會排除（W-41 做）。種子由同一支工具產生，所以也不含；registry 逐 class 疊層，缺的 class 由內建層提供，行為不變。`SpiderBaselineTests.notInBaseline` 要和工具的排除集合一致（目前兩支都還沒進內建，集合是空的），基準 manifest 不必因此重建。
+- **S5 退場（B15）**：`SpiderBaseline(bundle:)` 在 bundle 沒有 `SpiderBaseline/manifest.json` 時回 `nil`、種子什麼都不做（`shortcut:` 註記）。S5 待辦：移除基準 manifest 與種子程式；N→N+1 升級者保留 N 版種子出的世代（或之後下載的版本），離線可用；0.1.76 跳版到 N+1 沒有種子，走 S3 的提示。
+
+### 改動
+
+| 檔案 | 內容 |
+|---|---|
+| `RuntimePackStore.swift` | `SpiderBaseline`（manifest＋candidate＋bundle 檔、`identity`）；`seedBaseline(bundle:host:)`＝把基準交給 `install` |
+| `Resources/SpiderBaseline/manifest.json`（新）、`Package.swift` | 基準 manifest，序號 1 |
+| `SpiderToolText.swift` | 狀態列用內容 identity 分辨「內建基準」與「官方包」 |
+| `WebHTVApp.swift` | 啟動與重設後 `seedBaseline()`，log 種子結果與耗時 |
+| `.github/workflows/ios-spider-pack.yml` | 發布序號必須大於 App 的基準序號 |
+| 測試 | `SpiderBaselineTests`（新，9）、`SpiderToolTests`（狀態列 +1 斷言） |
+
+### S4 驗證（證據 `.herdr-synapse/webhtv-dev/artifacts/w122-logs/`、`w122-gui-evidence/`）
+
+| 項目 | 結果 |
+|---|---|
+| 先紅 | 新測試在 `SpiderBaseline`、`seedBaseline`、`status(of:baseline:)` 不存在時編譯失敗：`red.log` |
+| 後綠 | `SpiderBaselineTests`＋`SpiderToolTests`＋`RuntimePackStoreTests`＋`RuntimePackUpdaterTests` 42/42（另一輪含 `JianpianAliasTests`、`Sports88SpiderTests` 57/57）：`green.log` |
+| 涵蓋 | B1 空 scope 種子、B1(3)／B9 孤兒世代不擋、B2 第二次啟動不寫入（bytes 與 mtime）、B3 已有較新下載時丟 `.rollback` 且 state 不變、B4／B7 內容與 bundle 逐檔相同＋`packId`＋scope、B6 種子後每個 ported 名稱（含別名）腳本與 `bundled()` 相同、B8 序號＋1 取代種子且種子成為 LKG／同序號不同內容 `.sequenceReused`／種子後下限不回退、Manager ① 新基準取代較舊的下載、狀態列 identity 與種子內容一致 |
+| Mutant | M1 每次啟動先清掉再種子、M4 基準 `packId` 改掉、M5 序號改 2 但凍結表沒加、M7 改一支內建爬蟲 1 byte 不重建基準、M11 狀態列不分辨基準、M12 `Package.swift` 拿掉 `SpiderBaseline`：6/6 變紅，全部還原後 sha256 相同：`mutants.txt`、`mut-*.log`。prep 的 M2（看目錄判斷空）、M6（先寫 state 再 rename）、M8（失敗標壞）、M9（連網）在這個設計下沒有對應的程式（種子就是 install），不適用 |
+| 全測試 | `swift test` 1229／46 通過（1219＋10）：`full.log` |
+| App build | Simulator Debug `** BUILD SUCCEEDED **`，`.app` 內有 `WebHTVCore_WebHTVCore.bundle/SpiderBaseline/manifest.json`：`app-build.log` |
+| workflow | YAML 解析通過；新步驟沒有執行過（發布要另外授權） |
+| Simulator | 暫存 Simulator（同型號，測完刪除，臨時 CA 只加在它上面）＋日常機 `BC4948DD`：① 全新安裝首次啟動種子 275 ms，`state.json` latest＝active＝`gen-1-49b0a7f7…`、`packId` `webhtv.spiders`，種子 33 支與 `.app` 內同名檔 sha256 全同、SDK 3 支不在內，首次啟動時段沒有網路連線，狀態「內建基準 2026-10-15.1（序號 1，33 支）」，荐片分類可載入；② 重複啟動兩次都「baseline unchanged」，`state.json` sha256 與 mtime 不變、沒有 staging；④ 初始化（兩層確認含爬蟲工具那句）後沒有 `RuntimePacks/`，重開重新種子；⑤ 序號 2 官方包取代種子（LKG＝種子），重設後立刻重新種子回「內建基準…序號 1」，再檢查序號 2 真的重裝；③ 升級（S3 build `aaa14023` → 本 build，data 保留）：升級後種子 538 ms，選站 48 個站名集合相同，荐片（別名站）15 部、嗶哩 20 部前後一致（看球前後都是網站 TLS 失敗）。全部 PASS。「unchanged」那條路每次啟動仍讀 33 支檔，實測 54–343 ms，在 store actor 上、不擋畫面。BC4948DD 的 App／data 還原 BYTE-IDENTICAL。沒驗到：真機、檔案保護等級、0.1.76 IPA 原檔升級（以 S3 Simulator build 代替）、真正斷網（只有網路 log 佐證）、種子中途被殺與種子失敗（單元測試涵蓋）。`artifacts/w122-gui-evidence/RESULT.md`（sha256 `b5cf9a67…`） |
+| Ponytail | 自審抓到 1 點並已修：`SpiderBaseline.identity` 原本建整個基準（讀 33 支檔＋驗證）只為了取 identity，而它第一次被讀是在畫面繪製時；改成只解析 manifest，另加測試確認兩者一致。其餘 Ship |
+
+### S4 回滾
+
+一個 commit；`git revert` 移除基準 manifest、種子與狀態列的分辨。已種子的裝置留下的世代內容就是內建檔，registry 讀它和讀內建結果相同；S3 的「重設」可清掉。
 
 ---
 

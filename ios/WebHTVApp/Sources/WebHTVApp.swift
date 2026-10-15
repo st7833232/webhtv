@@ -306,6 +306,7 @@ private struct ConfigView: View {
         .task {
             // The official pack on disk, before any site list is built. Never the network (only a tap does that).
             await RuntimePackStore.shared.removeStaging()
+            await seedBaseline()
             await loadOfficialPack()
             restore()
             await WatchHistoryStore.shared.migrateSiteIdentities(in: sites)
@@ -526,6 +527,8 @@ private struct ConfigView: View {
         Task {
             do {
                 try await RuntimePackStore.shared.reset()
+                // Straight back to this build's own scripts as a generation (S4), as a fresh launch would.
+                await seedBaseline()
                 spiderToolOutcome = nil
                 await applyOfficialPack()
                 spiderToolNote = officialPending ? "已重設，關閉播放器後套用" : "已重設，回到內建版本"
@@ -535,6 +538,19 @@ private struct ConfigView: View {
             Self.spiderToolLog.notice("reset: \(spiderToolNote, privacy: .public)")
             spiderToolCheckedAt = Date()
             spiderToolBusy = false
+        }
+    }
+
+    /// S4 (W-122): this build's bundled scripts as a generation of the official pack, when its sequence is above
+    /// what is installed. Never the network; a refusal or failure is only logged and the bundled scripts run.
+    private func seedBaseline() async {
+        let start = Date()
+        do {
+            let seeded = try await RuntimePackStore.shared.seedBaseline()
+            let ms = Int(Date().timeIntervalSince(start) * 1000)
+            Self.spiderToolLog.notice("baseline \(seeded.map { "seeded \($0.version) seq \($0.generation.sequence)" } ?? "unchanged", privacy: .public) in \(ms) ms")
+        } catch {
+            Self.spiderToolLog.notice("baseline not seeded: \(String(describing: error), privacy: .public)")
         }
     }
 

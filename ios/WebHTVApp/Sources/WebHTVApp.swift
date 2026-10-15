@@ -311,12 +311,21 @@ private struct ConfigView: View {
             Self.spiderToolLog.notice("site list ready \(Int(Date().timeIntervalSince(launch) * 1000)) ms after launch")
             await RuntimePackStore.shared.removeStaging()
             await seedBaseline()
-            await loadOfficialPack()
-            // A pack with this build's own scripts changes nothing listed; only another one (a download) rebuilds the
-            // list and drops sessions built on the bundled scripts meanwhile. Nothing can be playing yet.
-            if let officialPack, officialPack.generation.contentIdentity != SpiderBaseline.identity {
-                await SpiderSessionStore.shared.reset()
-                rebuildSites()
+            #if DEBUG
+            // W-134 Simulator evidence only: holds the load back so a player can be opened first. Compiled out of Release.
+            if let ms = ProcessInfo.processInfo.environment["WEBHTV_DELAY_PACK_LOAD_MS"].flatMap(Int.init) {
+                try? await Task.sleep(for: .milliseconds(ms))
+            }
+            #endif
+            // A pack with this build's own scripts changes nothing listed: it is set as it is. Another one (a download)
+            // goes through applyOfficialPack like an install, so it waits while a player is open (W-131 review N-1);
+            // that loads it once more, only in this case.
+            let pack = await RuntimePackStore.shared.load(host: .installed())
+            if let pack, pack.generation.contentIdentity != SpiderBaseline.identity {
+                await applyOfficialPack()
+            } else {
+                officialPack = pack
+                ActiveOfficialPack.shared.set(pack)
             }
             await WatchHistoryStore.shared.migrateSiteIdentities(in: sites)
             // The cached pack is adopted before anything is fetched, so an offline launch runs on

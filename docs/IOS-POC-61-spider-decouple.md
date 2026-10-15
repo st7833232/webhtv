@@ -221,6 +221,13 @@
 - 實測（同上條件，`launch-after.txt`）：站台清單 1、0、0 ms 出現；種子 1494 ms、重複啟動 27、26 ms 都在之後的背景完成。帶 0825 設定檔（`launch-after-with-config.txt`）：有快取的重複啟動 56、39 ms 列出站台。
 - 取捨：載入的是和內建不同的下載版時，站台清單先用內建腳本列出，約幾百毫秒後重建一次；這段時間點進去的爬蟲站用的是內建腳本，重建時 session 快取清掉，下一次請求就用新腳本（和相容包更新的做法相同）。這條路沒有 GUI 證據（要先下載一個和內建不同的官方包），只讀程式碼。
 
+### 啟動時的下載版也照播放中延後（W-134，接在 W-131 之後）
+
+- 問題（W-131 審查 N-1）：W-131 的啟動流程載入後直接換掉 `ActiveOfficialPack`，下載版那條路沒有看 `playerOpen`，繞過了 S3 的播放中延後；靠的是清單出現後約 230 ms 內使用者還來不及開播放器。
+- 修正：載入的結果先放在區域變數。內容和這個 build 的內建相同（種子）→ 直接設定，不重建、不清 session；不同（下載版）→ 呼叫 `applyOfficialPack()`，和安裝一樣在播放器開著時延後、關閉後套用（它會再載入一次，只發生在這條路）。
+- DEBUG 縫 `WEBHTV_DELAY_PACK_LOAD_MS`：只在 DEBUG 編譯，讓載入延後，GUI 才做得出「載入前已經在播放」的情境（Release 不含，和 S3 的兩個縫同一種做法）。
+- 驗證：App Simulator build 成功、`swift test` 1276／46（`artifacts/w134-logs/`）。GUI（N-2 一併補）：暫存 Simulator（測完刪除，臨時 CA 只加在那台）、本機 HTTPS 伺服器提供一個「`JianPian.js` 多一行註解」的序號 2 下載版，全部 PASS（`artifacts/w134-gui-evidence/RESULT.md`，sha256 `c44211e5…`）：A 檢查更新裝上序號 2；B（N-2）正常重開：`site list ready 35 ms` → 種子 `.rollback` → `applied … seq 2`，站台在、荐片分類可載入；C 播放中延後：`WEBHTV_DELAY_PACK_LOAD_MS=20000` 下先開始播放（嗶哩），`deferred: player open`、播放期間沒有 `applied`、時間碼 00:22→00:29，關閉播放器 → `player closed` → `applied … seq 2`（第一輪荐片片源 DNS 解析不到，改嗶哩重做）；D 重設回內建基準後正常重開：只有 `site list ready 73 ms` 與 `baseline unchanged`，沒有 `applied`。沒驗到：真機、MPV、PiP、Release；正常啟動的約 230 ms 空檔沒有真的撞到過（用 DEBUG 延遲做出來）。Ponytail：沒有 finding。
+
 ### S4 回滾
 
 一個 commit；`git revert` 移除基準 manifest、種子與狀態列的分辨。已種子的裝置留下的世代內容就是內建檔，registry 讀它和讀內建結果相同；S3 的「重設」可清掉。

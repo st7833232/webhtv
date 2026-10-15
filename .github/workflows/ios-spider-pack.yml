@@ -13,6 +13,12 @@ on:
       version:
         description: "Version shown in Settings, e.g. 2026-10-20.1"
         required: true
+  # shortcut: GitHub cannot dispatch a workflow that has never run (`gh workflow run` answers 404), so pushing this
+  # file publishes the first official pack once, as sequence 2 / version 2026-10-15.2 (the `||` defaults below).
+  # Revert this commit right after that run (W-133 commit B); the publish commit itself never re-triggers it.
+  push:
+    branches: [ios-poc]
+    paths: [.github/workflows/ios-spider-pack.yml]
 
 # Same group as the IPA release: both push to ios-poc, so they never run at the same time.
 concurrency:
@@ -31,7 +37,7 @@ jobs:
 
       - name: Refuse a sequence that is not above the published one or the App's baseline
         env:
-          SEQUENCE: ${{ inputs.sequence }}
+          SEQUENCE: ${{ inputs.sequence || '2' }}
         run: |
           case "$SEQUENCE" in ''|*[!0-9]*) echo "sequence must be a whole number"; exit 1;; esac
           published=0
@@ -49,16 +55,16 @@ jobs:
 
       - name: Build and verify (existing blobs are kept for clients still holding an older manifest)
         env:
-          SEQUENCE: ${{ inputs.sequence }}
-          VERSION: ${{ inputs.version }}
+          SEQUENCE: ${{ inputs.sequence || '2' }}
+          VERSION: ${{ inputs.version || '2026-10-15.2' }}
         run: |
           python3 -I scripts/runtime_pack.py build --sequence "$SEQUENCE" --version "$VERSION" --out spider-pack/official
           python3 -I scripts/runtime_pack.py verify --dir spider-pack/official
 
       - name: Publish
         env:
-          SEQUENCE: ${{ inputs.sequence }}
-          VERSION: ${{ inputs.version }}
+          SEQUENCE: ${{ inputs.sequence || '2' }}
+          VERSION: ${{ inputs.version || '2026-10-15.2' }}
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com

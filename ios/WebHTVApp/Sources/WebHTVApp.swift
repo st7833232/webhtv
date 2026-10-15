@@ -304,11 +304,20 @@ private struct ConfigView: View {
             }
         }
         .task {
-            // The official pack on disk, before any site list is built. Never the network (only a tap does that).
+            let launch = Date()
+            // W-131: the site list first, on the bundled scripts; the official pack's disk work (a first seed compiles
+            // 33 scripts, every load re-hashes them) comes after, so the list never waits for it. Never the network.
+            restore()
+            Self.spiderToolLog.notice("site list ready \(Int(Date().timeIntervalSince(launch) * 1000)) ms after launch")
             await RuntimePackStore.shared.removeStaging()
             await seedBaseline()
             await loadOfficialPack()
-            restore()
+            // A pack with this build's own scripts changes nothing listed; only another one (a download) rebuilds the
+            // list and drops sessions built on the bundled scripts meanwhile. Nothing can be playing yet.
+            if let officialPack, officialPack.generation.contentIdentity != SpiderBaseline.identity {
+                await SpiderSessionStore.shared.reset()
+                rebuildSites()
+            }
             await WatchHistoryStore.shared.migrateSiteIdentities(in: sites)
             // The cached pack is adopted before anything is fetched, so an offline launch runs on
             // the last known good scripts rather than waiting for the network.

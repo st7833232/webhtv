@@ -214,6 +214,13 @@
 - **F-2**：`seedBaseline` 先看 admission 再讀腳本（見上「啟動位置」）；`SpiderBaseline.files()` 改成要用時才讀，缺檔直接丟 `fileMissing`。新測試 `aRepeatLaunchReadsNoScript`：種子後換一個只有基準 manifest、沒有任何腳本的 bundle 再種子 → 回 nil、`state.json` 不變（macOS 2 ms）；同一個 bundle 遇到空 scope 才需要腳本 → 丟錯。
 - Mutant：MF1 判斷前先讀腳本、MF2 拿掉「已種子就結束」、MF3 守門改回比整份 identity：3/3 變紅，還原後 sha256 相同（`w122-logs/mutants-fix.txt`）。後綠 44/44（`green-fix.log`），全量 `swift test` 1276／46（rebase 後含 W-124 的測試，`full-fix.log`），App Simulator build 成功（`app-build-fix.log`），重複啟動耗時 `repeat-launch-log.txt`。
 
+### 站台清單不等官方包（W-131，接在 S4 之後）
+
+- 問題：S3 把「載入官方包」、S4 把「種子」都放在 `restore()` 之前 await，站台清單要等它們。實測（暫存 Simulator、不帶設定檔、log「site list ready … ms after launch」，`artifacts/w131-logs/launch-before.txt`）：全新安裝 962 ms（種子 346 ms），重複啟動 252、289 ms（種子 40 ms，其餘是載入時重驗 33 支的 hash）。
+- 修正：`ConfigView.task` 先 `restore()`（用內建腳本列站台），再 `removeStaging()`、`seedBaseline()`、`loadOfficialPack()`。載入的版本和這個 build 的內建內容相同（`SpiderBaseline.identity`，種子就是這種）時什麼都不用動；不同（下載的版本）才清 session 快取並 `rebuildSites()`。開機這段時間不會有播放器開著，所以不必走延後套用。上面「啟動位置」那段的「站台清單會等它」已不成立。
+- 實測（同上條件，`launch-after.txt`）：站台清單 1、0、0 ms 出現；種子 1494 ms、重複啟動 27、26 ms 都在之後的背景完成。帶 0825 設定檔（`launch-after-with-config.txt`）：有快取的重複啟動 56、39 ms 列出站台。
+- 取捨：載入的是和內建不同的下載版時，站台清單先用內建腳本列出，約幾百毫秒後重建一次；這段時間點進去的爬蟲站用的是內建腳本，重建時 session 快取清掉，下一次請求就用新腳本（和相容包更新的做法相同）。這條路沒有 GUI 證據（要先下載一個和內建不同的官方包），只讀程式碼。
+
 ### S4 回滾
 
 一個 commit；`git revert` 移除基準 manifest、種子與狀態列的分辨。已種子的裝置留下的世代內容就是內建檔，registry 讀它和讀內建結果相同；S3 的「重設」可清掉。

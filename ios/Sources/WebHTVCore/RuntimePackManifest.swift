@@ -433,6 +433,14 @@ public struct RuntimeHost: Equatable, Sendable {
     }
 }
 
+extension RuntimeHost {
+    /// This App: its version and build from the main bundle, its ABI and capabilities.
+    public static func installed(bundle: Bundle = .main) -> RuntimeHost {
+        RuntimeHost(appVersion: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",
+                    appBuild: Int(bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "") ?? 0)
+    }
+}
+
 /// `0.1.31`: up to three numeric components, compared numerically, missing ones read as 0.
 struct RuntimeAppVersion: Comparable {
     let parts: [Int]
@@ -551,6 +559,26 @@ public enum RuntimePackValidator {
 
         return RuntimePackCandidate(manifest: manifest, scope: scope, manifestSHA256: runtimeSHA256(data),
                                     contentIdentity: manifest.contentIdentity, signer: signer)
+    }
+
+    /// IOS-POC-61 S2: the official spider pack, **unsigned** by the user's 2026-10-15 decision. The trust is
+    /// the fixed HTTPS address compiled into the App, every file's SHA-256 and the sequence floor; `validate`
+    /// above stays the signed path, untouched, so signing can come back without another contract change.
+    /// No signer means `RuntimeScopeState` can never lower the floor, and a manifest that revokes keys is
+    /// refused (only a backup-signed one may). `expires` is optional here and checked when present.
+    public static func validateOfficial(manifest data: Data, fetchedFrom url: URL, host: RuntimeHost,
+                                        now: Date = Date()) throws(RuntimePackRejection) -> RuntimePackCandidate {
+        guard data.count <= RuntimePackLimits.manifestBytes else { throw .manifestTooLarge(data.count) }
+        try checkOrigin(url, scope: .global, configurationURL: nil)
+        let manifest = try RuntimePackManifest.decode(data)
+        guard manifest.scope.kind == RuntimeScope.Kind.global.rawValue else {
+            throw .scopeMismatch(declared: manifest.scope.kind, expected: RuntimeScope.global.key)
+        }
+        if !(manifest.revokeKeyIds ?? []).isEmpty { throw .revocationNotPermitted }
+        if let expires = manifest.expiryDate, now >= expires { throw .expired }
+        try checkCompatibility(of: manifest, in: .global, host: host)
+        return RuntimePackCandidate(manifest: manifest, scope: .global, manifestSHA256: runtimeSHA256(data),
+                                    contentIdentity: manifest.contentIdentity, signer: nil)
     }
 
     /// Whether this build can run the pack. Separate from `validate` because it has to be re-run on

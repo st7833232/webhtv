@@ -65,10 +65,14 @@ public actor RuntimePackStore {
     /// `nil` — the bundled scripts. One that fails for a deterministic reason (edited files, a manifest that
     /// no longer parses) is marked bad and never tried again; one this build cannot run — an older IPA
     /// reinstalled over the container — is skipped but kept, so updating the App brings it back.
+    ///
+    /// A class the running generation has but this build is too old for (its own `minHostApi`) keeps the last
+    /// known good's copy of it, when that one runs here; otherwise it stays bundled (plan §5.1, §5.3).
     public func load(host: RuntimeHost) -> OfficialSpiderPack? {
         guard var state = state() else { return nil }
         var changed = false
         defer { if changed { try? write(state) } }
+        var running: (pack: OfficialSpiderPack, tooNew: Set<String>)?
         for generation in [state.active, state.lastKnownGood].compactMap({ $0 }) {
             // generations/ is excluded from backups but state.json is not: after a restore a generation is
             // simply absent, which says nothing about its content. Installing it again brings it back.
@@ -76,7 +80,13 @@ public actor RuntimePackStore {
                 continue
             }
             do {
-                return try read(generation, host: host)
+                let loaded = try read(generation, host: host)
+                guard let newer = running else {
+                    if loaded.tooNew.isEmpty { return loaded.pack }
+                    running = loaded
+                    continue
+                }
+                return Self.keeping(newer.tooNew, from: loaded.pack, in: newer.pack)
             } catch let rejection as RuntimePackRejection where Self.keeps(rejection) {
                 continue
             } catch {
@@ -84,7 +94,24 @@ public actor RuntimePackStore {
                 changed = true
             }
         }
-        return nil
+        return running?.pack
+    }
+
+    /// `pack` with the classes in `names` (and the aliases to them) taken from `older`, where it has them.
+    private static func keeping(_ names: Set<String>, from older: OfficialSpiderPack,
+                                in pack: OfficialSpiderPack) -> OfficialSpiderPack {
+        var scripts = pack.scripts
+        var aliases = pack.aliases
+        for name in names { scripts[name] = older.scripts[name] ?? scripts[name] }
+        for (alias, target) in older.aliases where names.contains(target) && older.scripts[target] != nil {
+            aliases[alias] = target
+        }
+        return OfficialSpiderPack(generation: pack.generation, version: pack.version, scripts: scripts, aliases: aliases)
+    }
+
+    /// Whether `generation`'s files are on disk (a restore leaves them out).
+    public func has(_ generation: RuntimeGeneration) -> Bool {
+        files.fileExists(atPath: generationURL(generation).appendingPathComponent("manifest.json").path)
     }
 
     // MARK: Writing
@@ -93,8 +120,8 @@ public actor RuntimePackStore {
     /// anything is missing, mismatched or does not compile; returns `nil` when the pack is already the one
     /// accepted at its sequence (nothing to do) or for a `rollbackToBundled` directive.
     @discardableResult
-    public func install(_ candidate: RuntimePackCandidate, manifest: Data,
-                        files contents: [String: Data]) throws -> OfficialSpiderPack? {
+    public func install(_ candidate: RuntimePackCandidate, manifest: Data, files contents: [String: Data],
+                        host: RuntimeHost = .installed()) throws -> OfficialSpiderPack? {
         guard candidate.scope == scope else {
             throw RuntimePackRejection.scopeMismatch(declared: candidate.scope.key, expected: scope.key)
         }
@@ -111,8 +138,14 @@ public actor RuntimePackStore {
         }
         try RuntimePackValidator.verifyGeneration(of: candidate.manifest, files: contents)
         let pack = try Self.assemble(candidate.manifest, generation: candidate.generation, files: contents,
-                                     hostApi: Int.max)
-        if let pack { try Self.smokeTest(pack) }
+                                     hostApi: host.abi[.jsHost]?.minor ?? 0).pack
+        do {
+            if let pack { try Self.smokeTest(pack) }
+        } catch {
+            // Deterministic: the same bytes never compile, so the next check must not fetch them again.
+            try write(current.markingBad(candidate.generation, reason: String(describing: error)))
+            throw error
+        }
 
         if pack != nil {
             let staging = scopeURL.appendingPathComponent("staging-\(UUID().uuidString)", isDirectory: true)
@@ -175,7 +208,8 @@ public actor RuntimePackStore {
         }
     }
 
-    private func read(_ generation: RuntimeGeneration, host: RuntimeHost) throws -> OfficialSpiderPack {
+    private func read(_ generation: RuntimeGeneration,
+                      host: RuntimeHost) throws -> (pack: OfficialSpiderPack, tooNew: Set<String>) {
         let directory = generationURL(generation)
         let data = try Data(contentsOf: directory.appendingPathComponent("manifest.json"))
         guard runtimeSHA256(data) == generation.manifestSHA256 else {
@@ -192,32 +226,32 @@ public actor RuntimePackStore {
                 .appendingPathComponent(file.path))
         }
         try RuntimePackValidator.verifyGeneration(of: manifest, files: contents)
-        guard let pack = try Self.assemble(manifest, generation: generation, files: contents,
-                                           hostApi: host.abi[.jsHost]?.minor ?? 0) else {
-            throw RuntimePackRejection.emptyPack
-        }
-        return pack
+        let assembled = try Self.assemble(manifest, generation: generation, files: contents,
+                                          hostApi: host.abi[.jsHost]?.minor ?? 0)
+        guard let pack = assembled.pack else { throw RuntimePackRejection.emptyPack }
+        return (pack, assembled.tooNew)
     }
 
     /// The scripts a generation brings, keyed as the registry keys them. A script whose `minHostApi` is above
-    /// `hostApi` is left out with its aliases, so that class keeps running what it runs without the pack.
-    // shortcut: such a class falls back to the bundled copy; the plan's "the last known good's same class
-    // first" (§5.3, D9) has to land before S5 removes the bundled scripts.
-    static func assemble(_ manifest: RuntimePackManifest, generation: RuntimeGeneration,
-                         files contents: [String: Data], hostApi: Int) throws -> OfficialSpiderPack? {
-        guard manifest.directive == nil else { return nil }
+    /// `hostApi` is left out with its aliases and named in `tooNew`; `load` gives that class the last known
+    /// good's copy, else it stays bundled.
+    static func assemble(_ manifest: RuntimePackManifest, generation: RuntimeGeneration, files contents: [String: Data],
+                         hostApi: Int) throws -> (pack: OfficialSpiderPack?, tooNew: Set<String>) {
+        guard manifest.directive == nil else { return (nil, []) }
         var scripts = [String: String]()
         var aliases = [String: String]()
+        var tooNew = Set<String>()
         for file in manifest.files where file.logicalType == RuntimeAssetType.spiderJS.rawValue {
             guard let name = file.className, let data = contents[file.path],
                   let text = String(data: data, encoding: .utf8) else {
                 throw RuntimePackRejection.fileMissing(file.path)
             }
-            guard (file.minHostApi ?? 0) <= hostApi else { continue }
+            guard (file.minHostApi ?? 0) <= hostApi else { tooNew.insert(name); continue }
             scripts[name] = text
             for alias in file.aliases ?? [] { aliases[alias] = name }
         }
-        return OfficialSpiderPack(generation: generation, version: manifest.version, scripts: scripts, aliases: aliases)
+        return (OfficialSpiderPack(generation: generation, version: manifest.version, scripts: scripts, aliases: aliases),
+                tooNew)
     }
 
     /// Each script must compile on the bundled host and assign `module.exports`, in a throwaway context,

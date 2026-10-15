@@ -1,0 +1,63 @@
+# IOS-POC-61 S2 (W-120): publishes WebHTV's official spider pack to ios-poc:spider-pack/official/.
+# Manual only: publishing is a release and needs the user's authorization each time. Unsigned by the user's
+# 2026-10-15 decision; the trust is the App's fixed HTTPS address, every blob's SHA-256 and the sequence floor.
+# The compatibility pack at spider-pack/manifest.json is a different format and is never touched here.
+name: iOS spider pack
+
+on:
+  workflow_dispatch:
+    inputs:
+      sequence:
+        description: "Sequence, a whole number above the one already published"
+        required: true
+      version:
+        description: "Version shown in Settings, e.g. 2026-10-20.1"
+        required: true
+
+# Same group as the IPA release: both push to ios-poc, so they never run at the same time.
+concurrency:
+  group: ios-sidestore-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ios-poc
+
+      - name: Refuse a sequence that is not above the published one
+        env:
+          SEQUENCE: ${{ inputs.sequence }}
+        run: |
+          case "$SEQUENCE" in ''|*[!0-9]*) echo "sequence must be a whole number"; exit 1;; esac
+          published=0
+          if [ -f spider-pack/official/manifest.json ]; then
+            published=$(python3 -c 'import json; print(json.load(open("spider-pack/official/manifest.json"))["sequence"])')
+          fi
+          if [ "$SEQUENCE" -le "$published" ]; then
+            echo "sequence $SEQUENCE is not above the published $published"; exit 1
+          fi
+
+      - name: Build and verify (existing blobs are kept for clients still holding an older manifest)
+        env:
+          SEQUENCE: ${{ inputs.sequence }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          python3 -I scripts/runtime_pack.py build --sequence "$SEQUENCE" --version "$VERSION" --out spider-pack/official
+          python3 -I scripts/runtime_pack.py verify --dir spider-pack/official
+
+      - name: Publish
+        env:
+          SEQUENCE: ${{ inputs.sequence }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add spider-pack/official
+          git commit -m "release(ios): publish the official spider pack $VERSION (sequence $SEQUENCE)"
+          git pull --rebase origin ios-poc
+          git push origin HEAD:ios-poc

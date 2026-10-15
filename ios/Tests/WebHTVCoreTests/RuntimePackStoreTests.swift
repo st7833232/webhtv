@@ -194,7 +194,9 @@ private func host(jsHost: RuntimeABI.Version) -> RuntimeHost {
         await #expect(throws: RuntimePackRejection.scriptDoesNotLoad("AppGet")) {
             try await store.install(broken.candidate, manifest: broken.manifest, files: broken.files)
         }
-        #expect(await store.state() == nil && generations(root).isEmpty)
+        // S2 (review N-2): the pack that does not compile is remembered as bad; nothing became active.
+        #expect(await store.state()?.active == nil && generations(root).isEmpty)
+        #expect(await store.state()?.bad.map(\.contentIdentity) == [broken.candidate.contentIdentity])
     }
 
     // G8: an unreadable state is the bundled scripts, not a crash, and deletes nothing.

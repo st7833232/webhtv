@@ -67,6 +67,54 @@
 
 一個 commit；`git revert` 會移除 store、`File.minHostApi`、`.official` 來源與 `RuntimePacks` keep。沒有任何呼叫端會建立 `RuntimePacks/`，所以不會留下磁碟狀態。
 
+
+## S2（W-120）：手動 updater、建包／驗證工具、發布 workflow
+
+接在 W-119 的 `d910cab4` 之後（Manager #2132：前一張送審就接著做）。審查預備 `artifacts/review-prep-W-120-2026-10-15.md`。
+
+### 決定
+
+- **不簽章的驗證**（§0-1、Manager #2062 第 3 點）：新增 `RuntimePackValidator.validateOfficial(manifest:fetchedFrom:host:now:)`，不呼叫 `authenticate`；原本有簽章的 `validate` 和它的測試都不動，日後要加回簽章不必再改契約。`expires` 選填，有寫才檢查；帶 `revokeKeyIds` 一律拒絕；`signer == nil`，所以序號下限不能被重設。IOS-POC-12 §9 第 7 點寫明。
+- **「現有包」的定義**（§0-2）：選 (b)。新工具 `scripts/runtime_pack.py verify` 驗的是它自己 build 出的官方格式；舊相容包仍由 `spider_pack.py verify` 驗，結果不變（33 支、0 problem）。
+- **發布路徑**（§0-3）：`ios-poc:spider-pack/official/`（`manifest.json`＋`blobs/sha256/<hex>`）；App 編進的網址 `RuntimePackUpdater.manifestURL` 就是這個；`spider-pack/manifest.json` 相容包不動。
+- **整包需求**（§0-4、§0-5）：`requires.abi` 的 `js.host` 寫 base（`1.2`，`BASE_HOST_API`），`catvod.result` 寫 `1.0`（爬蟲回傳的 `subs`、`jx`、`vod_tag` 都是加欄位，舊 App 只是忽略）；需要更多的那幾支自己寫 `minHostApi`（`AppDrama`、`Uvod` 3，`Gulu` 4）。
+- **App 太舊（逐支保留，P1–P3）**：新世代只放新 manifest 驗得過的檔（P2 的 (a)），`load` 讀到 active 有本機跑不了的 class 時，取 LKG 世代的同一支；LKG 也沒有能跑的就退內建。W-119 的 `shortcut:` 已移除。**P3**：連續兩版都是本機跑不了的版本時，第二版把有舊版的 LKG prune 掉後，那一支退回內建（N 版有內建；S5 移除內建前要再處理）。測試 `aClassThisAppIsTooOldForKeepsTheCopyThatRanBefore` 釘住這兩段。
+- **Review N-1／N-2（承 W-119）**：smoke 只編譯本機會跑的 script（用 install 的 `host`）；編譯不過時把那一版記成 bad，下次 check 直接 `knownBad`，不再下載。
+- **工具**：Python 寫，和 `spider_pack.py` 並存（K5），讀它的 `DEFAULT_ORIGINS` 與 `NOT_PACKABLE`、讀 `SpiderRegistry.aliases`（`audit_spider_jars.registry_names`），沒有第二份表。**W-119 的 A4 缺口已補**：官方包現在帶 `Jys`、`Short*`、`SportsGuazi` 別名。沒有 `sign`／`keygen`。`build` 是確定性的，既有 blob 不刪。
+- **Workflow** `.github/workflows/ios-spider-pack.yml`：只有 `workflow_dispatch`；與 IPA 發布同一個 `concurrency` group；先拒絕不大於已發布的 sequence，再 build＋verify，verify 失敗就不推；`git pull --rebase` 後推 `ios-poc`；不刪舊 blob；commit message 不寫站名。**本單沒有執行，也沒有把官方包 commit 進 repo**：發布要使用者另外授權。
+
+### 改動
+
+| 檔案 | 內容 |
+|---|---|
+| `RuntimePackUpdater.swift`（新） | `check(host:now:)`，只在被呼叫時執行，沒有排程或重試。非 HTTPS 網址在發出任何請求前就拒絕；manifest 讀取上限 64 KiB、blob 上限是宣告的 `bytes`；串流下載，重新導向離開 HTTPS 就失敗。`.unchanged` 而且世代在磁碟上就回 `.upToDate`，不下載 blob；`Outcome` 分成 `upToDate`／`installed(version, needsNewerApp)`／`rejected`（`requiresNewerApp` 可分辨「要更新 App」）／`failed`（網路） |
+| `RuntimePackManifest.swift` | `validateOfficial`、`RuntimeHost.installed()` |
+| `RuntimePackStore.swift` | `load` 逐 class 取 LKG；`install(…, host:)`；編譯失敗記成 bad；`has(_:)` |
+| `scripts/runtime_pack.py`（新） | `build`／`verify` |
+| `.github/workflows/ios-spider-pack.yml`（新） | 見上 |
+
+沒有改 `WebHTVApp.swift`、`ios/Package.swift`、`spider_pack.py`、`spider-pack/`；沒有任何呼叫端會跑 updater（C1）。
+
+### S2 驗證（證據 `.herdr-synapse/webhtv-dev/artifacts/w120-logs/`）
+
+| 項目 | 結果 |
+|---|---|
+| 先紅 | 把 `RuntimePackUpdater.swift` 暫時移開時，新測試編譯失敗（`cannot find type 'RuntimePackUpdater'`）：`red.log` |
+| 後綠 | updater 8＋store＋registry layer＋manifest 測試 55/55：`green.log` |
+| updater 涵蓋 | 已是最新只抓 manifest；下一版＋LKG 且 registry 看得到；壞 hash、降級、序號重用、超大 manifest、blob 多 1 byte、HTTP 503、第 2 個 blob 斷線、整包需要較新 App（`requiresNewerApp`）都不動 `state.json`／目錄；逐支保留（含重開 App、P3）；編譯不過不重抓；revokeKeyIds、過期、明文 HTTP（且沒有發出請求） |
+| 端到端 | `RUNTIME_PACK_DIR` 指向工具 build 的包：updater → store → registry，`SpiderRegistry.ported` 每個名稱都是官方來源、內容與內建相同：`e2e.log` |
+| 工具 | `build` 兩次 `diff -r` 相同；33 支；verify 0 problem；改 1 byte、改名、刪檔各被抓到並 exit 1；`spider_pack.py verify` 舊相容包仍 0 problem：`tool-build.txt`、`tool-verify.txt` |
+| Mutant | U1 manifest 不設上限、U2 略過 admission、U3 blob 不設上限、U4 不取 LKG、U5 太新就整包不用、U6 編譯失敗不記 bad、U7 `.unchanged` 照樣下載、U8 拿掉 HTTPS 檢查、U9 允許 revokeKeyIds：9/9 變紅，全部還原：`mutants.txt` |
+| 全測試 | `swift test` 1212／44 通過（rollback directive 修正之後重跑）：`full.log` |
+| App build | Simulator Debug `** BUILD SUCCEEDED **`：`app-build.log` |
+| Ponytail | 自審抓到一處：manifest 帶 `rollbackToBundled` 時 `install` 回 `nil`，updater 會誤報「已是最新」；改成只有沒有 directive 的 `nil` 才是已是最新。其餘 Ship |
+
+沒驗到：真的 GitHub raw 網址（快取時間、重新導向）；workflow 沒有跑過；`expectedContentLength` 和重新導向檢查只讀碼、沒有用假伺服器測（正式下載路徑不經過注入的 fetch）。
+
+### S2 回滾
+
+一個 commit；`git revert` 移除 updater、工具、workflow 與 `validateOfficial`，store 回到 W-119 的行為。workflow 沒跑過，沒有發布物要收回。
+
 ---
 
 # 計畫（W-118，照搬並依決定修正）

@@ -296,6 +296,7 @@ global 另有 `manifest.json.sig`：`{"keyId": "<16 hex>", "alg": "ed25519", "si
 4. configuration：信任就是設定自己的 HTTPS origin。manifest 必須與設定同源（`DrpyEngine.checked` 的同一條規則，不另立第三種）；任何簽章都忽略；不能撤銷 key、不能自稱 global。
 5. 信任判斷永遠不依賴 bundle id、team id、SideStore 簽章身分或下載主機。公鑰本身的真實性等同 IPA 發布通道。
 6. 已知限制：Python spider 在同一個 process 以完整 CPython 執行，可以改寫容器內的檔案（G7）。所以 global 的防回滾與撤銷只在沒有惡意程式碼於 App 內執行時成立；config scope 的隔離只防意外外洩，不防惡意 Python spider。
+7. **官方爬蟲包不簽章（IOS-POC-61，使用者 2026-10-15 決定問題 3＝2）**：`RuntimePackValidator.validateOfficial` 是 global scope 的另一條路，**不呼叫** `authenticate`，`validate`（有簽章的那條）原樣保留，日後要加回簽章不必再改契約。信任＝編進 App 的固定 HTTPS 網址（`RuntimePackUpdater.manifestURL`，`ios-poc:spider-pack/official/`）＋每個 blob 的 SHA-256＋`state.json` 的序號下限。沒有 signer，所以 `resetsFloor` 永遠是 false，下限不能被重設；帶 `revokeKeyIds` 的 manifest 一律 `.revocationNotPermitted`；`expires` 改成選填，有寫才檢查。能防傳輸竄改、CDN 給錯檔、降級；**不能防** GitHub 帳號或 `ios-poc` 推送權被盜（等同 `source.json`／IPA 的信任等級）。第 2、3 點描述的簽章 global 路徑目前沒有任何呼叫者。
 
 ## 10. Size / path / type validation
 

@@ -113,6 +113,10 @@ public struct SpiderRegistry: Sendable {
         "SportsKafei",  // http-json: spider.jar (live HLS or rtmp signals; nothing stored but the room id)
         // IOS-POC-57B-12: 堇夏听书 audiobooks (m4a that needs the site's Referer)
         "TingJinxia",   // http-html: spider.jar (chapter page meta, then a form POST for the audio)
+        // IOS-POC-57B-14: 88看球 live sports; qist 0825's Kanqiu is the same site on a mirror (W-102: same match ids,
+        // identical lines), so it runs this script. Only the HLS inside 88player wrapper pages is listed.
+        "Sports88",     // http-html: spider.jar (HTML lists, base64-wrapped JSON lines per match)
+        "Kanqiu",       // http-html: qist pg jar (as Sports88; its own detail route answers 404)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no
@@ -122,7 +126,7 @@ public struct SpiderRegistry: Sendable {
     /// classes of qist/tvbox's `spider.jar` call the same hosts as their targets, and each target
     /// drove the qist-configured site through home, category, detail, search and play (IOS-POC-57).
     /// One line on purpose: `scripts/audit_spider_jars.py` (`registry_names`) reads it with a single-line regex.
-    static let aliases = ["JPianAmns": "JianPian", "Jianpian": "JianPian", "Jys": "Jpys", "ShortHema": "HemaDJ", "ShortQimao": "QimaoDJ", "ShortHaokan": "HaokanDJ", "ShortWeiguan": "WeiguanDJ", "SportsGuazi": "GuaziTY"]
+    static let aliases = ["JPianAmns": "JianPian", "Jianpian": "JianPian", "Jys": "Jpys", "ShortHema": "HemaDJ", "ShortQimao": "QimaoDJ", "ShortHaokan": "HaokanDJ", "ShortWeiguan": "WeiguanDJ", "SportsGuazi": "GuaziTY", "Kanqiu": "Sports88"]
 
     /// The registry the app actually runs on: the bundled scripts, with a verified compatibility
     /// pack overlaid on top. `CSPSourceResolver` uses this, so every call site picks up a pack

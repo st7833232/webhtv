@@ -106,6 +106,12 @@ DEFAULT_ORIGINS = {
     # IOS-POC-57B-12: 堇夏听书 audiobooks (base host API).
     "TingJinxia":  {"originJar": "spider.jar",
                     "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"},
+    # IOS-POC-57B-14: 88看球 live sports (base host API). The pack alias keeps Kanqiu on the same script
+    # when a pack updates Sports88; Kanqiu itself was read from qist's pg jar (pg_upgraded).
+    "Sports88":    {"originJar": "spider.jar",
+                    "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69",
+                    "aliases": ["Kanqiu"],
+                    "notes": "88player-wrapped HLS lines only; qist 0825's Kanqiu (pg jar) is the same site (W-102)"},
 }
 
 # What the app reads from a mapping (`SpiderPack.ClassMapping`). `evidence` is provenance only.

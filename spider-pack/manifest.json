@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-13.6",
+  "version": "2026-10-15.1",
   "minHostApi": 2,
   "scripts": [
     {
@@ -184,6 +184,17 @@
       "sha256": "43f1c231c1d39f25f40ebf36851a026f590b9bcb3896c0ff6fbccb9a7905eceb",
       "originJar": "spider.jar",
       "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"
+    },
+    {
+      "class": "Sports88",
+      "path": "./scripts/Sports88.js",
+      "sha256": "479a9fac70f37f2adfce7e8c8833864aeb16735009e39f5ba63b488102a0b78e",
+      "aliases": [
+        "Kanqiu"
+      ],
+      "originJar": "spider.jar",
+      "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69",
+      "notes": "88player-wrapped HLS lines only; qist 0825's Kanqiu (pg jar) is the same site (W-102)"
     },
     {
       "class": "SportsKafei",

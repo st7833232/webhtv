@@ -241,6 +241,7 @@ pack 在 `requires.capabilities` 列出不在集合內的名稱（例如 `js.hos
 | `files[].path` | String | 是 | 世代內的相對路徑（第 10 節） |
 | `files[].logicalType` | String | 是 | 第 4 節 |
 | `files[].class`、`aliases` | String、[String] | `spider.js` 必填 class | `[A-Za-z0-9_]{1,64}`，不得是 `host`、`drpy-bridge`、`js-spider` |
+| `files[].minHostApi` | Int | 否 | `spider.js`：這一支需要的 `js.host` minor，只有比整包 `requires.abi` 高時才寫；≥ 1。本機不足時只略過這一支（連同它的別名），其餘照常。IOS-POC-61 新增，原因是使用者 2026-10-15 決定問題 6＝逐支判斷；依下方「未知的選填欄位忽略」，加這個欄位不影響既有 manifest |
 | `files[].bytes` | Int | 是 | 1 ～ 512 KiB |
 | `files[].sha256` | String | 是 | 64 個小寫十六進位字元 |
 | `notes` | String | 否 | 更新說明，不可信的純文字，4 KiB 以內 |

@@ -39,6 +39,7 @@ struct StorageMaintenanceTests {
             support.appendingPathComponent("OfflineMedia/asset/metadata.json"),
             support.appendingPathComponent("site-health.json"),
             support.appendingPathComponent("SpiderPack/manifest.json"),
+            support.appendingPathComponent("RuntimePacks/x/state.json"),
             support.appendingPathComponent("wang-movie.json"),
             support.appendingPathComponent(SavedSource(name: "", url: Self.savedURL).cacheFileName),
             caches.appendingPathComponent("python-spider/site.json"),

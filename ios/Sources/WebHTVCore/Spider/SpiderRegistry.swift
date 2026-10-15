@@ -14,11 +14,13 @@ public struct SpiderRegistry: Sendable {
         }
     }
 
-    /// Where a script came from. Resolution order is exactly this order:
-    /// a verified remote pack first, the bundled copy second, and absent means "not ported".
+    /// Where a script came from. Resolution order is exactly this order: a configuration's verified
+    /// compatibility pack first, the official pack second (IOS-POC-61), the bundled copy last, and absent
+    /// means "not ported".
     public enum Source: Sendable, Equatable {
         case bundled
         case pack(version: String)
+        case official(version: String)
     }
 
     let entries: [String: Entry]
@@ -128,11 +130,11 @@ public struct SpiderRegistry: Sendable {
     /// One line on purpose: `scripts/audit_spider_jars.py` (`registry_names`) reads it with a single-line regex.
     static let aliases = ["JPianAmns": "JianPian", "Jianpian": "JianPian", "Jys": "Jpys", "ShortHema": "HemaDJ", "ShortQimao": "QimaoDJ", "ShortHaokan": "HaokanDJ", "ShortWeiguan": "WeiguanDJ", "SportsGuazi": "GuaziTY", "Kanqiu": "Sports88"]
 
-    /// The registry the app actually runs on: the bundled scripts, with a verified compatibility
-    /// pack overlaid on top. `CSPSourceResolver` uses this, so every call site picks up a pack
+    /// The registry the app actually runs on: the bundled scripts, the official pack over them, a verified
+    /// compatibility pack on top. `CSPSourceResolver` uses this, so every call site picks up a pack
     /// without knowing one exists.
     public static func active(bundle: Bundle? = nil) -> SpiderRegistry {
-        bundled(bundle: bundle, overlaying: InstalledSpiderPack.shared.current)
+        bundled(bundle: bundle, official: ActiveOfficialPack.shared.current, overlaying: InstalledSpiderPack.shared.current)
     }
 
     public static func bundled(bundle: Bundle? = nil) -> SpiderRegistry {
@@ -143,23 +145,30 @@ public struct SpiderRegistry: Sendable {
     /// never carried. Nothing else about the app changes: the script still runs against the same
     /// `CatVodHost` and the same `Spider` ABI, which is the boundary a pack cannot cross.
     public static func bundled(bundle: Bundle? = nil, overlaying pack: SpiderPack?) -> SpiderRegistry {
-        var registry = bundledOnly(bundle: bundle)
-        guard let pack else { return registry }
-        var entries = registry.entries
-        for (name, script) in pack.scripts {
-            entries[name] = Entry(script: script, source: .pack(version: pack.version))
-        }
-        // A pack alias only resolves to a script the pack itself brought, so a stale alias cannot
-        // silently repoint a bundled class.
-        for (alias, target) in pack.aliases {
-            guard let entry = entries[target], case .pack = entry.source else { continue }
+        bundled(bundle: bundle, official: nil, overlaying: pack)
+    }
+
+    /// IOS-POC-61: the three layers, class by class. A class neither pack brings stays bundled; mappings
+    /// come from the compatibility pack alone.
+    public static func bundled(bundle: Bundle? = nil, official: OfficialSpiderPack?,
+                               overlaying pack: SpiderPack?) -> SpiderRegistry {
+        let base = bundledOnly(bundle: bundle)
+        var entries = base.entries
+        if let official { overlay(&entries, official.scripts, official.aliases, as: .official(version: official.version)) }
+        if let pack { overlay(&entries, pack.scripts, pack.aliases, as: .pack(version: pack.version)) }
+        return SpiderRegistry(entries: entries, prelude: base.prelude, drpyBridge: base.drpyBridge,
+                              jsSpiderBridge: base.jsSpiderBridge, mappings: pack?.mappings ?? [])
+    }
+
+    private static func overlay(_ entries: inout [String: Entry], _ scripts: [String: String],
+                                _ aliases: [String: String], as source: Source) {
+        for (name, script) in scripts { entries[name] = Entry(script: script, source: source) }
+        // An alias only resolves to a script its own layer brought, so a stale alias cannot silently repoint
+        // another layer's class.
+        for (alias, target) in aliases {
+            guard let entry = entries[target], entry.source == source else { continue }
             entries[alias] = entry
         }
-        registry = SpiderRegistry(entries: entries, prelude: registry.prelude,
-                                  drpyBridge: registry.drpyBridge,
-                                  jsSpiderBridge: registry.jsSpiderBridge,
-                                  mappings: pack.mappings)
-        return registry
     }
 
     private static func bundledOnly(bundle: Bundle? = nil) -> SpiderRegistry {

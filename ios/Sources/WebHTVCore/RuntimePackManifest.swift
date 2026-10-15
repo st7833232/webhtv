@@ -156,9 +156,13 @@ public struct RuntimePackManifest: Codable, Equatable, Sendable {
         public fileprivate(set) var aliases: [String]?
         public let bytes: Int
         public let sha256: String
+        /// `spider.js`: the `js.host` minor this one script needs, when it needs more than `requires.abi`
+        /// says for the whole pack. A build below it keeps whatever runs that class now (IOS-POC-61,
+        /// the user's 2026-10-15 decision 6: judged script by script).
+        public let minHostApi: Int?
 
         enum CodingKeys: String, CodingKey {
-            case path, logicalType, className = "class", aliases, bytes, sha256
+            case path, logicalType, className = "class", aliases, bytes, sha256, minHostApi
         }
     }
 
@@ -286,6 +290,7 @@ public struct RuntimePackManifest: Codable, Equatable, Sendable {
             guard file.bytes > 0 else { throw .malformed("bytes") }
             guard file.bytes <= RuntimePackLimits.fileBytes else { throw .fileTooLarge(path: file.path, bytes: file.bytes) }
             guard isHex(file.sha256, count: 64) else { throw .invalidDigest(file.path) }
+            guard (file.minHostApi ?? 1) >= 1 else { throw .malformed("minHostApi") }
             total += file.bytes
         }
         guard total <= RuntimePackLimits.packBytes else { throw .packTooLarge(total) }
@@ -382,6 +387,8 @@ public enum RuntimePackRejection: Error, Equatable, Sendable {
     case fileMissing(String)
     case sizeMismatch(path: String, expected: Int, actual: Int)
     case digestMismatch(String)
+    /// `spider.js` that does not compile on this build's host, or does not assign `module.exports`.
+    case scriptDoesNotLoad(String)
     case unexpectedFile(String)
     // History of the scope
     case packIdMismatch(String)

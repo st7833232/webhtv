@@ -979,10 +979,13 @@ WebHTV 0.1.31 (32)（未經真機驗收）
   - GitHub Release `WebHTV 0.1.76 (77)`：不是 draft，也不是 prerelease，2026-10-13 08:51:47Z 發布，https://github.com/st7833232/webhtv/releases/tag/ios-v0.1.76-b77。
   - `WebHTV-0.1.76-77.ipa`：**35,422,351 bytes**，SHA-256 `9ac6c1ec905b0fce1ce4fa8ab94ea4e5360f9645d5eb6403753db38f5855dd31`（GitHub asset digest，`gh release view` 2026-10-13 讀取；沒有下載重算）。
 - 發布前驗證（`artifacts/ipa-prep-0.1.76-logs/`）：截點 `43014fae`，generic iOS device Release unsigned 建置成功（版號以參數覆寫）；WebHTVCore 全測試 1156 個全過；各單的 Simulator 實播：QingtingFM（W-77）、AppLY（W-73）、ShortXingya（W-74）、SportsKafei（W-72）、W-83／W-86／W-87／W-107／W-110。
-- **已知問題：發布說明結尾多了一行 `` ``` ``。** `release-notes-final.txt` 的最後一行是程式碼區塊的結束標記，原樣進了 workflow 輸入；`source.json` 的 `localizedDescription` 最後是一個換行加三個反引號（SideStore 的更新說明會看得到）。GitHub Release 本文的結尾也一樣（`gh release view ios-v0.1.76-b77 --json body`，2026-10-13 讀取）。已回報 Manager，修正與否另行決定。
+- **已更正：發布說明結尾原本多了一行 `` ``` ``。** 原因是 Manager 取說明時多截了一行程式碼區塊的結束標記（#1938），這行原樣進了 workflow 輸入，`source.json` 的 `localizedDescription` 和 GitHub Release 本文結尾都有。
+  - GitHub Release 本文：Manager 於 2026-10-13 09:3x（UTC）以 `gh release edit` 更正，並一併修正了 `release-notes-final.txt`。2026-10-15 以 `gh release view ios-v0.1.76-b77 --json body` 讀取，結尾已是「人物與地區資訊。」加換行，沒有反引號。
+  - `source.json`：W-116 後續 commit 拿掉 0.1.76 那筆 `localizedDescription` 結尾的 `` \n``` ``。推上 origin 後，SideStore 才會看到更正後的說明。
+  - 下方「Release notes」已改成更正後的原文。
 - **真機尚未驗收。**
 
-### Release notes（實際送出的內容）
+### Release notes（更正後；實際送出的版本結尾多一行 `` ``` ``）
 
 ````text
 來源相容性：
@@ -997,7 +1000,6 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - 列表重新整理後，捲到底仍會自動載入下一頁。
 - 「回到頂部」按鈕改為往下捲動一段距離才出現；修正站內搜尋捲到底時不出現、搜尋沒有結果時卻出現的問題。
 - 部分來源的詳情頁補上原本空白的人物與地區資訊。
-```
 ````
 
 ## 第七十六次發布：`0.1.75 (76)`（2026-10-12，**已發布**，已被 `0.1.76 (77)` 取代）

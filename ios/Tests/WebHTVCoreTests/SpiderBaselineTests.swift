@@ -26,12 +26,23 @@ private let shipped: [UInt64: String] = [
 /// (Manager #2249: Ikanbot and Djuu wait for the second official pack; add them here when they are bundled).
 private let notInBaseline: Set<String> = []
 
+/// What a manifest runs — each script's path, hash, needed host API and aliases — without its sequence or version,
+/// which `contentIdentity` includes.
+private func scripts(of manifest: RuntimePackManifest) -> [String] {
+    manifest.files.map { "\($0.path) \($0.sha256) \($0.minHostApi ?? 0) \(($0.aliases ?? []).sorted())" }.sorted()
+}
+
+/// A published official pack with other scripts than this build's baseline must be below it.
+private func baselineKeepsUpWith(_ official: RuntimePackManifest, baseline: RuntimePackManifest) -> Bool {
+    official.sequence < baseline.sequence || scripts(of: official) == scripts(of: baseline)
+}
+
 /// The baseline as `scripts/runtime_pack.py` would publish it, at another sequence and optionally one file edited.
 private func variant(of baseline: SpiderBaseline, sequence: UInt64,
                      editing path: String? = nil) throws -> (candidate: RuntimePackCandidate, manifest: Data, files: [String: Data]) {
     var object = try #require(JSONSerialization.jsonObject(with: baseline.manifest) as? [String: Any])
     object["sequence"] = sequence
-    var files = baseline.files
+    var files = try baseline.files()
     if let path, let data = files[path] {
         let edited = data + Data("\n".utf8)
         files[path] = edited
@@ -81,9 +92,18 @@ private func variant(of baseline: SpiderBaseline, sequence: UInt64,
             .appendingPathComponent("../../../spider-pack/official/manifest.json").standardizedFileURL
         guard let data = try? Data(contentsOf: published) else { return }
         let baseline = try #require(try SpiderBaseline(host: host))
-        let official = try RuntimePackManifest.decode(data)
-        #expect(official.sequence < baseline.candidate.manifest.sequence
-                || official.contentIdentity == baseline.candidate.contentIdentity)
+        #expect(baselineKeepsUpWith(try RuntimePackManifest.decode(data), baseline: baseline.candidate.manifest))
+    }
+
+    // W-122 review F-1: the published pack is built from the same scripts, one sequence up; that is fine. Only other
+    // scripts at or above the baseline would let a download hide the IPA's fixes.
+    @Test func thePublishedRuleComparesScriptsNotTheWholeManifest() throws {
+        let baseline = try #require(try SpiderBaseline(host: host))
+        let seq = baseline.candidate.manifest.sequence
+        let same = try variant(of: baseline, sequence: seq + 1)
+        #expect(baselineKeepsUpWith(same.candidate.manifest, baseline: baseline.candidate.manifest))
+        let other = try variant(of: baseline, sequence: seq + 1, editing: "spiders/AppGet.js")
+        #expect(!baselineKeepsUpWith(other.candidate.manifest, baseline: baseline.candidate.manifest))
     }
 
     // B1, B6: an empty scope gets the baseline; what then runs is byte for byte what the bundle ran.
@@ -166,7 +186,7 @@ private func variant(of baseline: SpiderBaseline, sequence: UInt64,
         let ipa = try variant(of: baseline, sequence: 2)
         try await store.install(download.candidate, manifest: download.manifest, files: download.files, host: host)
         try await store.install(ipa.candidate, manifest: ipa.manifest, files: ipa.files, host: host)
-        #expect(await store.load(host: host)?.scripts["AppGet"] == String(decoding: try #require(baseline.files["spiders/AppGet.js"]), as: UTF8.self))
+        #expect(await store.load(host: host)?.scripts["AppGet"] == String(decoding: try #require(baseline.files()["spiders/AppGet.js"]), as: UTF8.self))
     }
 }
 
@@ -174,5 +194,31 @@ extension SpiderBaselineTests {
     // The settings page's 內建基準 test reads the manifest alone; it must name the same content the seed installs.
     @Test func theStatusIdentityIsTheSeededContent() throws {
         #expect(SpiderBaseline.identity == (try SpiderBaseline(host: host))?.candidate.contentIdentity)
+    }
+}
+
+extension SpiderBaselineTests {
+    // W-122 review F-2: once seeded, a launch reads the baseline manifest only — a bundle with no scripts at all
+    // still answers "nothing to do". Only a seed that will write reads the 33 scripts.
+    @Test func aRepeatLaunchReadsNoScript() async throws {
+        let manifestOnly = temporaryRoot()
+        try FileManager.default.createDirectory(at: manifestOnly.appendingPathComponent("SpiderBaseline"), withIntermediateDirectories: true)
+        let real = try #require(try SpiderBaseline(host: host))
+        try real.manifest.write(to: manifestOnly.appendingPathComponent("SpiderBaseline/manifest.json"))
+        let bundle = try #require(Bundle(url: manifestOnly))
+
+        let root = temporaryRoot()
+        let store = RuntimePackStore(root: root)
+        try await store.seedBaseline(host: host)
+        let before = try Data(contentsOf: stateURL(root))
+        let start = Date()
+        #expect(try await store.seedBaseline(bundle: bundle, host: host) == nil)
+        print("repeat-launch seed check: \(Int(Date().timeIntervalSince(start) * 1000)) ms")
+        #expect(try Data(contentsOf: stateURL(root)) == before)
+
+        // The same bundle on an empty scope has to read the scripts, and has none.
+        await #expect(throws: RuntimePackRejection.self) {
+            try await RuntimePackStore(root: temporaryRoot()).seedBaseline(bundle: bundle, host: host)
+        }
     }
 }

@@ -18,8 +18,7 @@ public struct OfficialSpiderPack: Sendable, Equatable {
 public struct SpiderBaseline: Sendable {
     public let manifest: Data
     public let candidate: RuntimePackCandidate
-    /// Path in the manifest → the bundled file's bytes; a missing one is left out and `install` refuses it.
-    public let files: [String: Data]
+    private let spiders: URL?
 
     /// `nil` when this build carries no baseline. shortcut: S5 removes the bundled scripts and this file with them.
     public init?(bundle: Bundle? = nil, host: RuntimeHost = .installed()) throws {
@@ -29,12 +28,18 @@ public struct SpiderBaseline: Sendable {
         // The bundle's own bytes; the compiled-in address only stands where the origin check expects one.
         candidate = try RuntimePackValidator.validateOfficial(manifest: manifest, fetchedFrom: RuntimePackUpdater.manifestURL,
                                                               host: host)
+        spiders = bundle.url(forResource: "Spiders", withExtension: nil)
+    }
+
+    /// Path in the manifest → the bundled file's bytes. Read only for a seed that will write (W-122 review F-2).
+    public func files() throws -> [String: Data] {
         var files = [String: Data]()
         for file in candidate.manifest.files {
-            files[file.path] = bundle.url(forResource: (file.path as NSString).lastPathComponent, withExtension: nil,
-                                          subdirectory: "Spiders").flatMap { try? Data(contentsOf: $0) }
+            guard let url = spiders?.appendingPathComponent((file.path as NSString).lastPathComponent),
+                  let data = try? Data(contentsOf: url) else { throw RuntimePackRejection.fileMissing(file.path) }
+            files[file.path] = data
         }
-        self.files = files
+        return files
     }
 
     /// What the settings page calls 內建基準: a generation with exactly this build's bundled content. The manifest
@@ -236,7 +241,14 @@ public actor RuntimePackStore {
     @discardableResult
     public func seedBaseline(bundle: Bundle? = nil, host: RuntimeHost = .installed()) throws -> OfficialSpiderPack? {
         guard let baseline = try SpiderBaseline(bundle: bundle, host: host) else { return nil }
-        return try install(baseline.candidate, manifest: baseline.manifest, files: baseline.files, host: host)
+        // Every launch gets here: decide on the manifest alone, so the usual "already seeded" reads no script and
+        // the site list (which waits for this) is not held up (W-122 review F-2).
+        switch state()?.admission(of: baseline.candidate) {
+        case .unchanged? where has(baseline.candidate.generation): return nil
+        case .reject(let rejection)?: throw rejection
+        default: break
+        }
+        return try install(baseline.candidate, manifest: baseline.manifest, files: baseline.files(), host: host)
     }
 
     /// 重設 (W-121): forgets the official pack entirely — generations, last known good, the bad list and the

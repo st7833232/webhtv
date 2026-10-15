@@ -121,6 +121,8 @@ public struct SpiderRegistry: Sendable {
         "Kanqiu",       // http-html: qist pg jar (as Sports88; its own detail route answers 404)
         // IOS-POC-57B-15: 爱看 • 影视 (Ikanbot), the first port whose 片单 lists are folders (IOS-POC-60).
         "Ikanbot",      // http-html: qist j-spider.jar (HTML lists, getResN JSON lines; IPA only, FOLDER-04)
+        // IOS-POC-57B-16: 呦呦 • DJ (Djuu), audio; its 曲库 playlists are folders (IOS-POC-60).
+        "Djuu",         // http-html: qist j-spider.jar (HTML lists, POST /play/music JSON; IPA only, FOLDER-04)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

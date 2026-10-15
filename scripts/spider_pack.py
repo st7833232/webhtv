@@ -31,7 +31,7 @@ NOT_PACKABLE = {"host.js", "drpy-bridge.js", "js-spider.js"}
 # the IPA only: an older app would open a folder as a video and fail (FOLDER-04,
 # artifacts/qist-ikanbot-folder-2026-10-09.md §7.1). This is the compatibility pack's rule (Manager #2166);
 # the official pack, read only by apps that have folders, has its own (runtime_pack.NOT_IN_FIRST_OFFICIAL_PACK).
-IPA_ONLY = {"Ikanbot.js"}
+IPA_ONLY = {"Ikanbot.js", "Djuu.js"}
 
 # Provenance for the ports this repository carries: which JAR each one was read from, that JAR's
 # SHA-256 at the time it was read, and any configured class name the script also serves. Written into

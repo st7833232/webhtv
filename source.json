@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.80",
+          "date": "2026-10-16",
+          "localizedDescription": "直播：\n- 新增直播入口：讀取設定檔裡的直播清單，依群組列出頻道，點選即可播放。\n- 播放中在畫面中間上下滑動即可換台。\n- 一條線路播不出來時，會自動改試下一條線路；全部線路都失敗時停下並顯示提示，不會自動跳台。\n- 播放中可從線路選單手動切換線路。\n- 會記住上次看的頻道，並可將常看的頻道加入收藏。\n\n爬蟲工具：\n- 從收藏或觀看紀錄打開需要爬蟲工具的來源時，會提示「需要爬蟲工具」並可直接下載。\n",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.80-b81/WebHTV-0.1.80-81.ipa",
+          "size": 35603927,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.79",
           "date": "2026-10-16",
           "localizedDescription": "爬蟲工具：\n- 爬蟲工具改由官方爬蟲包提供，App 本體不再內建；之後爬蟲的更新與修正不必等 App 改版。\n- 從舊版升級時，已安裝的爬蟲工具會保留，照常可用；需要新版時首頁會提示下載。\n- 全新安裝或按下「重設」後，請在首頁提示或設定頁「爬蟲工具」下載官方爬蟲包，才能使用需要爬蟲的來源。\n\n修正：\n- 啟動時先載入爬蟲工具再顯示來源，不會先跳到其他來源。\n",

@@ -30,23 +30,42 @@ public enum FavoriteAvailability: Equatable, Sendable {
         case otherConfiguration
         /// The loaded configuration is the favourite's own, but has no such site any more.
         case siteMissing
+        /// W-143 (IOS-POC-61 plan §2.5): the site is in the configuration, waiting for the 爬蟲工具 to drive it.
+        case needsSpiderTool
+
+        /// The badge on a favourite, and the heading of the sheet a favourite or a history row opens.
+        public var title: String { self == .needsSpiderTool ? "需要爬蟲工具" : "來源不可用" }
+        public var message: String {
+            self == .needsSpiderTool ? "這個來源要先下載爬蟲工具才能打開，記錄與收藏都會保留。"
+                : "目前設定中找不到原始來源，此收藏仍會保留。"
+        }
     }
 
     /// The same rule the site migration uses (`SiteSelection.resolveIdentity`), so a favourite never
     /// opens on a site the store would refuse to migrate it to. Never a same-named title, never
     /// another site that shares the key.
-    public init(_ identity: FavoriteIdentity, configSourceID: String, sites: [Site]) {
+    /// `waiting` is the configuration's sites only the 爬蟲工具 would bring (`sitesNeedingSpiderTool`).
+    public init(_ identity: FavoriteIdentity, configSourceID: String, sites: [Site], waiting: [Site] = []) {
         guard identity.configSourceID == configSourceID else {
             self = .unavailable(.otherConfiguration)
             return
         }
-        self = SiteSelection.resolveIdentity(identity.siteID, in: sites).map { .available(siteID: $0) }
-            ?? .unavailable(.siteMissing)
+        if let siteID = SiteSelection.resolveIdentity(identity.siteID, in: sites) {
+            self = .available(siteID: siteID)
+        } else {
+            self = .unavailable(SiteSelection.resolveIdentity(identity.siteID, in: waiting) == nil ? .siteMissing : .needsSpiderTool)
+        }
     }
 
     public var isAvailable: Bool {
         if case .available = self { return true }
         return false
+    }
+
+    /// Why it cannot open; `nil` when it can.
+    public var reason: Reason? {
+        if case .unavailable(let reason) = self { return reason }
+        return nil
     }
 }
 

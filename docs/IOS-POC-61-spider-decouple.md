@@ -302,6 +302,25 @@ GUI 順帶發現（不是本單造成，回報 Manager）：0825 的 Ikanbot 首
 - 順序（Manager #2595 控管）：C1、C2 審過後一起推 `ios-poc` → 發官方包序號 3（35 支）並驗包 → 才觸發 App 0.1.79。推上到序號 3 發布完成之間不發 App；否則 0.1.79 的新安裝與升級者按下載只會拿到沒有 Ikanbot／Djuu 的序號 2。
 - 回滾：C2 可獨立 `git revert`：爬蟲回到 App、基準重新 `.copy` 進 App、種子回來，App 回到「內建＋官方包」。已裝序號 3 的裝置上，回滾版本的種子（序號 1）會 `.rollback`、不寫入，registry 照用序號 3（S4 的規則）。C1 單獨 revert 只影響工具。
 
+### 收藏／紀錄打開缺爬蟲的站（W-143，接在 S5 之後）
+
+- 問題（計畫 §2.5 最後一句；W-121 留給 S5、S5 回報另開單）：S5 起沒有內建爬蟲，未安裝爬蟲工具時，收藏卡片標「來源不可用」，點開說「目前設定中找不到原始來源」；觀看紀錄那一列只是變灰、點不了。站其實還在設定裡，只是等爬蟲工具，這樣寫會讓人以為來源壞了。
+- 改法：`FavoriteAvailability.Reason` 加 `needsSpiderTool`：不在可驅動的 `sites`、但在 `sitesNeedingSpiderTool` 的站（同一個 `SiteSelection.resolveIdentity` 規則）。文字放在 Core（`Reason.title`／`message`），所以可以單元測試：「需要爬蟲工具」／「這個來源要先下載爬蟲工具才能打開，記錄與收藏都會保留。」；真的不在設定裡的仍是「來源不可用」／「目前設定中找不到原始來源，此收藏仍會保留。」，其他設定的收藏仍是 `otherConfiguration`。
+- App：`ConfigView` 改存等爬蟲工具的站本身（`waitingSites`，原本只存個數；首頁橫幅的數字由它算），經 `LibraryView` 傳給收藏與紀錄，連同 `spiderToolBusy` 與同一個 `checkSpiderTool`（首頁橫幅、專屬畫面、設定頁共用的下載，互斥照舊）。收藏：卡片角標用 `Reason.title`，點開的頁面標題與說明照原因換，`needsSpiderTool` 多一個「下載爬蟲工具」按鈕。紀錄：該列仍變灰，右上標「需要爬蟲工具」，點了跳出同一段說明＋「下載爬蟲工具」／「取消」。下載完成後 `sites` 重建，卡片與列自動變回可打開。
+- 沒改：官方包格式、下載流程、紀錄與收藏的儲存（不刪不改任何紀錄）。
+
+#### W-143 驗證（證據 `artifacts/w143-logs/`、`w143-gui-evidence/`）
+
+| 項目 | 結果 |
+|---|---|
+| 先紅 | 新測試 `aSiteWaitingForTheSpiderToolIsNotASiteThatIsGone` 在 `waiting:` 參數不存在時編譯失敗：`red.log` |
+| 後綠 | 兩種情況文字不同（「需要爬蟲工具」vs「來源不可用」，說明不含「找不到」）、能驅動的站優先、其他設定照舊：`green-core.log` |
+| 全測試 | `swift test` 1301／48 通過（W-139 的 1300＋1；`FavoriteAppWiringTests` 改成新的 `LibraryView` 呼叫）：`full-before-review-fix.log`。審查修正（下方 Ponytail）後重跑，13 個 WKWebView 嗅探測試在機器負載約 435 時逾時（`full.log`，其餘全過，和本單無關）；負載降到 150 以下後重跑那 4 個 suite 72/72 通過：`sniffer-retry.log` |
+| Mutant | 不看 `waiting`（一律 `siteMissing`）→ 新測試變紅，還原後 sha256 相同：`mut-ignore-waiting.log` |
+| App build | Simulator Debug `** BUILD SUCCEEDED **`：`app-build.log` |
+| Simulator（`w143-gui-evidence/RESULT.md`） | 暫存機 iPhone 18 Pro／iOS 27.0（測完刪除，BC4948DD 全程關機），每次安裝都核對雜湊。0825 → 下載序號 3 → 嗶哩收藏一部並播放留下紀錄 → 重設回「未安裝」：收藏卡片角標「需要爬蟲工具」，點開的頁面標題、說明與「下載爬蟲工具」按鈕正確（主要截圖 `W143-S4-02-favourite-sheet.png`）；紀錄列標「需要爬蟲工具」，點了跳出同一段說明的 alert；在收藏頁按下載 → 「下載中…」→ 裝好後頁面自己關閉、角標消失、詳情頁打得開（連拍 8 張都沒有「來源不可用」）；從紀錄 alert 下載同樣可行。全部 PASS。Build C（改成 `.badge` 之後）複驗：長片名不再被壓到，alert 照常（`W143C-*`）。之後只再加了一行 `accessibilityValue`（讓 VoiceOver 唸列時帶出「需要爬蟲工具」，因為 badge 在無障礙樹裡是獨立元素），只確認編譯，沒有實機 VoiceOver 測試 |
+| Ponytail | 自審抓到 2 點並已修：收藏格子每張卡算兩次 `FavoriteAvailability`（加 `FavoriteAvailability.reason`，卡片直接用）；**在收藏的頁面按下載、成功後**，原因變成 `nil`，頁面會退回「來源不可用／找不到原始來源」——改成原因消失就自動關閉（`onChange(of: reason)`）。GUI 另抓到 1 點並已修：紀錄列的「需要爬蟲工具」用 overlay 會壓到長片名，改成列的 `.badge`。下載失敗時，頁面與 alert 只把按鈕恢復，失敗原因在設定頁「上次檢查」（和首頁橫幅相同），本單沒另加 |
+
 ---
 
 # 計畫（W-118，照搬並依決定修正）

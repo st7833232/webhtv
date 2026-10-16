@@ -158,9 +158,11 @@ private struct ConfigView: View {
     @State private var spiderToolBusy = false
     /// Installed while the player was open; applied when it closes.
     @State private var officialPending = false
-    /// Sites of this configuration the 爬蟲工具 would bring (`sitesNeedingSpiderTool`): the banner's count, and
-    /// what tells "a configuration that only waits for the tool" from "no configuration" when `sites` is empty.
-    @State private var needSpiderTool = 0
+    /// Sites of this configuration the 爬蟲工具 would bring (`sitesNeedingSpiderTool`): the banner's count, what
+    /// tells "a configuration that only waits for the tool" from "no configuration" when `sites` is empty, and what
+    /// a favourite or history row on one of them says (W-143).
+    @State private var waitingSites = [Site]()
+    private var needSpiderTool: Int { waitingSites.count }
 
     var body: some View {
         Group {
@@ -216,7 +218,8 @@ private struct ConfigView: View {
                     // IOS-POC-48: 片庫 — 收藏 and 記錄 on one tab, in the place 記錄 had, rather than a
                     // sixth tab (HIG: avoid overflow tabs). Tag 1 is still this place.
                     NavigationStack {
-                        LibraryView(sites: sites, source: source)
+                        LibraryView(sites: sites, source: source, waiting: waitingSites, spiderToolBusy: spiderToolBusy,
+                                    onDownloadSpiderTool: checkSpiderTool)
                     }
                     .environment(\.tabReturnActions, libraryNavigation)
                     .tag(1)
@@ -589,7 +592,7 @@ private struct ConfigView: View {
     private func show(_ config: WebHTVConfig, from source: ConfigSource) {
         let resolver = CSPSourceResolver(source: source)
         sites = config.drivableSites(resolvedBy: resolver)
-        needSpiderTool = config.sitesNeedingSpiderTool(resolvedBy: resolver).count
+        waitingSites = config.sitesNeedingSpiderTool(resolvedBy: resolver)
     }
 
     /// Point the sniffer at **this** configuration's ad rules and sniffer rules, and at nothing else
@@ -3319,7 +3322,11 @@ private struct VodView: View {
 private struct HistoryView: View {
     let sites: [Site]
     let source: ConfigSource
+    let waiting: [Site]
+    let spiderToolBusy: Bool
+    let onDownloadSpiderTool: () -> Void
     @State private var records = [WatchHistory]()
+    @State private var needsTool: WatchHistory?
     @State private var loaded = false
 
     var body: some View {
@@ -3369,6 +3376,13 @@ private struct HistoryView: View {
                 .padding(.horizontal, 20).background(appBackground)
             }
         }
+        .alert(FavoriteAvailability.Reason.needsSpiderTool.title, isPresented: Binding(
+            get: { needsTool != nil }, set: { if !$0 { needsTool = nil } })) {
+            Button(spiderToolBusy ? "下載中…" : "下載爬蟲工具", action: onDownloadSpiderTool).disabled(spiderToolBusy)
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text(FavoriteAvailability.Reason.needsSpiderTool.message)
+        }
         // .task runs again whenever the tab is re-entered, which is what keeps the list current
         // after a viewing without any notification plumbing.
         .task {
@@ -3390,6 +3404,13 @@ private struct HistoryView: View {
             } label: {
                 label(for: record)
             }
+        } else if waiting.contains(where: { WatchHistory.key(siteID: $0.id, vodId: record.vodId) == record.key }) {
+            // W-143: the site is there, its spider is not installed yet — say so and offer the download.
+            Button { needsTool = record } label: { label(for: record).foregroundStyle(.secondary) }
+                .buttonStyle(.plain)
+                .accessibilityValue(FavoriteAvailability.Reason.needsSpiderTool.title)
+                // A row badge sits at the trailing edge beside the content; an overlay covered long titles.
+                .badge(Text(FavoriteAvailability.Reason.needsSpiderTool.title).foregroundStyle(appAccent))
         } else {
             // The configuration changed under the record. Show it, greyed, rather than dropping it:
             // deleting someone's history because a site was renamed is worse than a dead row.
@@ -3545,6 +3566,10 @@ final class FavoriteLibrary {
 private struct LibraryView: View {
     let sites: [Site]
     let source: ConfigSource
+    /// W-143: sites waiting for the 爬蟲工具, and the download every 「下載爬蟲工具」 shares.
+    let waiting: [Site]
+    let spiderToolBusy: Bool
+    let onDownloadSpiderTool: () -> Void
     @State private var section = LibrarySection.history
 
     var body: some View {
@@ -3560,8 +3585,10 @@ private struct LibraryView: View {
             .padding(.horizontal, 20)
             Group {
                 switch section {
-                case .favorites: FavoritesView(sites: sites, source: source)
-                case .history: HistoryView(sites: sites, source: source)
+                case .favorites: FavoritesView(sites: sites, source: source, waiting: waiting, spiderToolBusy: spiderToolBusy,
+                                               onDownloadSpiderTool: onDownloadSpiderTool)
+                case .history: HistoryView(sites: sites, source: source, waiting: waiting, spiderToolBusy: spiderToolBusy,
+                                           onDownloadSpiderTool: onDownloadSpiderTool)
                 }
             }
         }
@@ -3576,6 +3603,9 @@ private struct LibraryView: View {
 private struct FavoritesView: View {
     let sites: [Site]
     let source: ConfigSource
+    let waiting: [Site]
+    let spiderToolBusy: Bool
+    let onDownloadSpiderTool: () -> Void
     @State private var query = ""
     /// The watch history by title, read whenever the page appears.
     @State private var watched = [String: WatchHistory]()
@@ -3613,14 +3643,18 @@ private struct FavoritesView: View {
             let records = await WatchHistoryStore.shared.records()
             watched = Dictionary(records.map { ($0.key, $0) }, uniquingKeysWith: { newest, _ in newest })
         }
-        .sheet(item: $unavailable) { FavoriteUnavailableView(favorite: $0) }
+        .sheet(item: $unavailable) { favorite in
+            FavoriteUnavailableView(favorite: favorite, reason: reason(for: favorite), busy: spiderToolBusy,
+                                    onDownload: onDownloadSpiderTool)
+        }
     }
 
     @ViewBuilder
     private func cell(for favorite: Favorite) -> some View {
-        let availability = FavoriteAvailability(favorite.identity, configSourceID: source.identity, sites: sites)
+        let availability = FavoriteAvailability(favorite.identity, configSourceID: source.identity, sites: sites,
+                                                waiting: waiting)
         let card = FavoriteCard(favorite: favorite, watched: watched[favorite.identity.historyKey],
-                                downloaded: downloadedEpisodes(of: favorite), available: availability.isAvailable)
+                                downloaded: downloadedEpisodes(of: favorite), unavailable: availability.reason)
         if case .available(let siteID) = availability, let site = sites.first(where: { $0.id == siteID }) {
             NavigationLink {
                 // The id, name and poster only, as the history list opens a title: the detail
@@ -3642,6 +3676,10 @@ private struct FavoritesView: View {
     private func downloadedEpisodes(of favorite: Favorite) -> Int {
         offlineLibrary.assets(forHistoryKey: favorite.identity.historyKey).filter { $0.state == .completed }.count
     }
+
+    private func reason(for favorite: Favorite) -> FavoriteAvailability.Reason? {
+        FavoriteAvailability(favorite.identity, configSourceID: source.identity, sites: sites, waiting: waiting).reason
+    }
 }
 
 /// One favourite: poster and title always; year and source when known; then what the watch history
@@ -3650,20 +3688,21 @@ private struct FavoriteCard: View {
     let favorite: Favorite
     let watched: WatchHistory?
     let downloaded: Int
-    let available: Bool
+    /// Why it cannot open now; `nil` opens.
+    let unavailable: FavoriteAvailability.Reason?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             CinematicPosterArt(picture: favorite.picture)
                 .overlay(alignment: .topLeading) {
-                    if !available {
-                        Text("來源不可用").font(.caption2.weight(.semibold))
+                    if let unavailable {
+                        Text(unavailable.title).font(.caption2.weight(.semibold))
                             .foregroundStyle(.white)
                             .padding(6).background(.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 4))
                             .padding(6)
                     }
                 }
-                .opacity(available ? 1 : 0.65)
+                .opacity(unavailable == nil ? 1 : 0.65)
                 .padding(.bottom, 3)
             Text(zhTW: favorite.name)
                 .font(.subheadline.weight(.semibold))
@@ -3714,6 +3753,9 @@ private struct FavoriteCard: View {
 /// and never matched to anything else; removing it is the viewer's own choice.
 private struct FavoriteUnavailableView: View {
     let favorite: Favorite
+    let reason: FavoriteAvailability.Reason?
+    let busy: Bool
+    let onDownload: () -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -3728,8 +3770,14 @@ private struct FavoriteUnavailableView: View {
                             Text(verbatim: facts.joined(separator: " · ")).font(.subheadline).foregroundStyle(.secondary)
                         }
                     }
-                    Label("來源不可用", systemImage: "exclamationmark.triangle").font(.headline)
-                    Text("目前設定中找不到原始來源，此收藏仍會保留。")
+                    let reason = reason ?? .siteMissing
+                    Label(reason.title, systemImage: reason == .needsSpiderTool ? "puzzlepiece.extension" : "exclamationmark.triangle")
+                        .font(.headline)
+                    Text(reason.message)
+                    if reason == .needsSpiderTool {
+                        Button(busy ? "下載中…" : "下載爬蟲工具", action: onDownload)
+                            .buttonStyle(.borderedProminent).disabled(busy).frame(minHeight: 44)
+                    }
                     VStack(alignment: .leading, spacing: 8) {
                         if !favorite.configSourceName.isEmpty {
                             LabeledContent("原始設定", value: favorite.configSourceName)
@@ -3751,8 +3799,10 @@ private struct FavoriteUnavailableView: View {
                 .padding(16)
             }
             .appWallpaper()
-            .navigationTitle("來源不可用")
+            .navigationTitle((reason ?? .siteMissing).title)
             .navigationBarTitleDisplayMode(.inline)
+            // W-143: a download made from here lists the site again; the favourite opens from the grid now.
+            .onChange(of: reason) { _, now in if now == nil { dismiss() } }
             .appNavigationBar()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

@@ -418,3 +418,24 @@ enum FavoriteFixture {
     #expect(FavoriteAvailability(identity, configSourceID: FavoriteFixture.configB, sites: [site])
         == .unavailable(.otherConfiguration))
 }
+
+// W-143 (IOS-POC-61 plan §2.5): a site the configuration still has but whose spider is not installed is not a site
+// that is gone. It says 需要爬蟲工具 and offers the download; only a site really absent says 找不到原始來源.
+@Test func aSiteWaitingForTheSpiderToolIsNotASiteThatIsGone() throws {
+    let site = try FavoriteFixture.site(key: "s", ext: #"{"url":"https://a"}"#)
+    let identity = FavoriteFixture.identity(siteID: site.id)
+    let waiting = FavoriteAvailability(identity, configSourceID: FavoriteFixture.configA, sites: [], waiting: [site])
+    let gone = FavoriteAvailability(identity, configSourceID: FavoriteFixture.configA, sites: [], waiting: [])
+    #expect(waiting == .unavailable(.needsSpiderTool))
+    #expect(gone == .unavailable(.siteMissing))
+    #expect(FavoriteAvailability.Reason.needsSpiderTool.title == "需要爬蟲工具")
+    #expect(FavoriteAvailability.Reason.siteMissing.title == "來源不可用")
+    #expect(FavoriteAvailability.Reason.needsSpiderTool.message != FavoriteAvailability.Reason.siteMissing.message)
+    #expect(!FavoriteAvailability.Reason.needsSpiderTool.message.contains("找不到"))
+    // Listed wins: a site both drivable and (stale) waiting opens.
+    #expect(FavoriteAvailability(identity, configSourceID: FavoriteFixture.configA, sites: [site], waiting: [site])
+        == .available(siteID: site.id))
+    // Another configuration is still that, whatever this one waits for.
+    #expect(FavoriteAvailability(identity, configSourceID: FavoriteFixture.configB, sites: [], waiting: [site])
+        == .unavailable(.otherConfiguration))
+}

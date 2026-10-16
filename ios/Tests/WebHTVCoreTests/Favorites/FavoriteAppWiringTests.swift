@@ -36,8 +36,8 @@ private func declaration(_ header: String, in source: String) throws -> String {
     #expect(library.contains("@State private var section = LibrarySection.history"))
     #expect(library.contains("ForEach([LibrarySection.history, .favorites])"))
     #expect(library.contains("CinematicChoice("))
-    #expect(library.contains("FavoritesView(sites: sites, source: source)"))
-    #expect(library.contains("HistoryView(sites: sites, source: source)"))
+    #expect(library.contains("FavoritesView(sites: sites, source: source, waiting: waiting"))
+    #expect(library.contains("HistoryView(sites: sites, source: source, waiting: waiting"))
 }
 
 /// A11: the watch history screen deletes watch history. IOS-POC-47 had it delete the title's

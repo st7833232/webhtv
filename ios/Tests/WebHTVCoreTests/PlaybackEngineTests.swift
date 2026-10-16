@@ -186,6 +186,23 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     #expect(harness.made.count == 2)
 }
 
+// IOS-POC-59 U3 (AC-17): live opens every line on the global default — a channel that needed MPV does not keep the
+// next one on MPV — with a fresh fallback; without the flag the session's engine stays, as above.
+@MainActor @Test func aFreshEngineOpenStartsOnTheDefaultAgain() {
+    let harness = Harness(globalDefault: .native)
+    harness.router.open(request)
+    harness.router.select(.mpv)
+    harness.router.open(request, freshEngine: true)
+    #expect(harness.engine.kind == .native)
+    #expect(harness.made.count == 3)
+    #expect(harness.router.selection.currentSessionEngine == .native)
+    #expect(!harness.router.selection.fallbackSpent)
+    // Once only: the next ordinary open keeps whatever the session is on.
+    harness.router.select(.mpv)
+    harness.router.open(request)
+    #expect(harness.engine.kind == .mpv)
+}
+
 @MainActor @Test func aDefaultChangedWhilePlayingWaitsForTheNextSession() {
     let harness = Harness(globalDefault: .native)
     harness.router.open(request)

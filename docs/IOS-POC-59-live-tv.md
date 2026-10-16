@@ -878,3 +878,34 @@ exhausted ──「重試」──▶ opening(起始線路，新的一輪)
 - 1（Must fix）設定重新整理讓 `lives` 變短時，`lives[sourceIndex]` 越界當掉 → 改成夾住範圍的 `source` 計算屬性，`lives` 空時顯示「此設定沒有直播源」。
 - 2（Should fix）已載入的清單沒辦法重抓（token 過期就只能重開 App）→ 加下拉重新整理。
 - 未查：所有源的清單都留在記憶體時的用量（上限是源的數量，本設定 20 個）。
+
+## 17. U3 換台與自動換線實作紀錄（W-126，webhtv-dev-claude-dev-2，2026-10-15 17:24 起）
+
+### 17.1 範圍與拍板
+- 分支 `task/W-126`，疊在 W-125 審過並 rebase 後的 `af08cfed`（Manager #2431：發布凍結期間不等推送）；guard `LIVE-L1-U3`，一個 commit，`--no-tag`。W-127（U4：上次頻道與收藏）已改派 claude-dev（#2435／#2436），本單做完交棒。
+- Manager #2158（W-129）：X-B1 先 U3 再 U4，**收藏切換與收藏群組內換台不在 U3**（歸 U4）；B3-1 `freshEngine` 一次性、不存成 session 旗標；B3-2 15 秒換線預算在暫停或背景時不計時。
+- 檔案：Core `PlaybackEngine.swift`（`PlayerRouter.open(_:freshEngine:)`）、`Live/LivePlaylist.swift`（`[LiveChannel].zap(from:by:)`）；測試 `PlaybackEngineTests.aFreshEngineOpenStartsOnTheDefaultAgain`、新 `Live/LiveZapTests.swift`；App `WebHTVApp.swift`、`LiveTVView.swift`。
+
+### 17.2 設計落地
+- **`freshEngine`（AC-17，B3-1）**：`PlayerRouter.open(_:freshEngine: Bool = false)`：true 時就算 session 開著也 `startSession()`（回到全域預設、fallback 額度重置），false 時照舊 `beginAttempt()`。`PlaybackSession.open(url:…, freshEngine:)` 把它存進 `freshEngineOnce`，`load` 呼叫 `router.open(…, freshEngine: freshEngineOnce)` 後**立刻清掉**，所以 inline 播放清單的下一項等後續 `load` 都照舊沿用 session 的引擎；點播所有呼叫端沒有傳這個參數，行為不變。
+- **事件槽**：`PlaybackSession.lineObserver: ((LiveLineEvent) -> Void)?`，`enum LiveLineEvent { started, failed }`。`.started` 在 `watchStartup` 起播成功處送出；`.failed` 在 `router.onUnrecoverable` 兩個送出非 nil `onFailure` 的地方一起送出（`load` 裡清除用的 `onFailure?(nil)` 不送）。`closePlayer` 一律清掉 `lineObserver`，關閉後的晚到事件不會再被收到。
+- **`LiveTVController`（App，`@MainActor @Observable`）**：持有源、目前群組的頻道、頻道序號、`LiveLineSwitcher`、`attempt` 與預算 `Task`。每開一條線路 `attempt += 1`；事件和預算都先比對 `attempt`，舊線路晚到的事件丟掉。開線路：`history: nil`、`rate: 1`、`freshEngine: true`，並清掉上一部的 `advance`／`episodeStepper`／`episodeSteps`。一輪試過所有可試線路（繞回）後停在「此頻道目前無法播放（已試 N 條線路）」＋「重試」「換台」，**不自動換台**。播到結尾（`onPlaylistFinished`）顯示「播放結束」＋「重新播放」，不算失敗。
+- **預算（B3-2）**：`LiveSource.lineBudget` 秒（`max(timeout ?? 15, 10)`），每 0.25 秒累加一次，只在 `session.activity.showsPause`（引擎 rate≠0 且不是 idle，和起播監看同一個「使用者想播放」）而且 App 不在背景時才累加；起播成功就取消。點播的 `startupTimeout`（原生 10、MPV 20）一行都沒改。
+- **log**：`[live] line <i>→<j> reason=failed|budget`、`[live] line <i> reason=… — all <N> lines tried`，只記序號與原因（D§6.7）。
+- **換台**：`[LiveChannel].zap(from:by:)`（Core，可單元測試）：在目前群組內繞回、跳過整台不支援（含沒有線路）的頻道；Android 預設不跨群組。
+- **播放畫面（直播模式）**：`PlayerView(live:)`。手勢：直播時垂直拖曳起點在左 1/4＝亮度、右 1/4＝音量、中間 1/2＝換台（放手時垂直位移 > 80pt 且角度 > 70°；往上＝上一台、往下＝下一台，拖曳中顯示「上一台／下一台」）；點播仍是左半亮度、右半音量（`classify` 只有 `live != nil` 才會回 `.zap`）。控制列：直播隱藏倍速按鈕（`PlayerControlBar.live`）；上一集／下一集因 `episodeStepper` 為 nil 不顯示；片頭／片尾因沒有觀看紀錄（`watching` nil）不顯示。PlayerView 自己的錯誤泡泡在直播時不顯示，改由直播卡片說明，避免兩層訊息。`LivePlayerOverlay`：隨控制列出現的「頻道名＋線路 i／n：名稱」選單、上一台／下一台按鈕（44pt），以及不隨控制列消失的失敗／結束卡片。VoiceOver：直播時播放畫面有「上一台」「下一台」自訂動作（點播沒有，Ponytail 修正）。關閉按鈕先 `live.stop()` 再 dismiss，計時器不必等關閉動畫。
+
+### 17.3 測試
+- 先紅：新測試先寫，`[LiveChannel]` 沒有 `zap`、`open` 沒有 `freshEngine` → 編譯失敗（`artifacts/w126-logs/red.log`）。
+- 綠：`PlaybackEngineTests`＋`aNativeStartIsGivenUpOnSoonerThanAnMPVStart`＋Live 共 114 個全過（`green-core.log`），含既有的 `theNextEpisodeStaysOnTheSessionsEngine`（AC-17 的 false 側）與 10／20 秒起播逾時。
+- 全量 `swift test`：1286 tests／47 suites 全過（`full.log`）。App `xcodebuild` 成功（`app-build.log`）。
+- Mutant（`artifacts/w126-logs/mutants.log`）：M3-3 router 忽略 `freshEngine` → 殺（`aFreshEngineOpenStartsOnTheDefaultAgain`）；M3-4 `freshEngine` 預設 true → 殺（`theNextEpisodeStaysOnTheSessionsEngine` 等 6 個）；M3-11 換台不跳過不能播的頻道 → 殺（2 個 zap 測試）；換台不繞回 → 殺。App 層（M3-1 沒有預算、M3-5 拿掉 attempt、M3-7 試完自動換台、M3-8 點播也能換台、M3-10 關閉沒停計時器）沒有單元測試能殺，由 §17.4 的 Simulator 情境證明。
+
+### 17.4 Simulator
+- **第一輪 FAIL**（`artifacts/w126-gui-evidence/RESULT.md`）：點任何直播頻道都打開一個全黑、沒有控制列、關不掉的播放畫面（聲音在底下照播）。原因：`fullScreenCover(isPresented:)` 的內容在同一次更新裡讀到還是 nil 的 `controller`。log 部分已證明：AC-12 線路 1→2 `reason=failed`（17:42:23.333）、線路 2 開於 23.336、10 秒換 MPV（33.431）、線路 2→3 `reason=budget`（38.918，距開線 15.58 秒）、線路 3 原生起播（40.498）；AC-13 三條試完後 38 秒內沒有重開、沒有換台；點播回歸 PASS。
+- 修正：改成 `.fullScreenCover(item: $controller)`（`LiveTVController: Identifiable`），另存一份 `running` 參照，讓封面不論怎麼關閉都會 `stop()` 計時器。
+- **第二輪**（2026-10-16 09:33–10:02，`artifacts/w126-gui-evidence/run2/RESULT.md`）：咪咕與 FYTV 清單這輪連不上，可播線路改用本機 ffmpeg 產生的 HLS／FLV 測試片。AC-12 PASS（line 1→2 failed、2→3 budget，疊層「線路 3／3」；距線路 2 開 16.03 秒，超出 15±1 上緣 0.03 秒）；AC-13 PASS（卡片「已試 3 條線路」、無錯誤泡泡、30 秒不自動換台、重試與換台可用）；AC-14 PASS（FLV 台在 MPV，中間下滑換到 HLS 台從原生開始）；AC-15 PASS（2.37 秒內下滑 5 次，停在最後一台，沒有換線紀錄）；AC-16 PASS（直播兩側亮度／音量、中間換台；點播中間仍是亮度／音量）；直播隱藏倍速 PASS；線路選單 PASS（不支援的線路變灰，選乙線後「線路 2／3」）；點播回歸 PASS。**情境 8 部分 FAIL**：換線中關閉播放器後約 14 秒，未起播的線路自行失敗，router 的失敗交棒在背景把它交給 MPV 重開（點播一向是關閉後保留項目，直播線路常卡住才暴露）。
+- 修正（三點，只改 `LiveTVView.swift`）：①`LiveTVController.stop()` 多呼叫既有的 `session.control("stop")`，關閉直播時卸載項目（點播的關閉行為不變）；②預算改用 `ContinuousClock` 的實際經過時間累計，不再每 tick 固定加 0.25 秒（高負載時 sleep 超時，造成 16.03 秒）；③讀碼發現：最後一條線路因預算用完而進入 exhausted 時，舊碼遞增 `attempt` 並清掉 `lineObserver`，那條線路晚起播時卡片會蓋在播放畫面上——改成 exhausted 不遞增、保留 observer，`.started` 時轉 playing，exhausted 後的 `.failed` 不再重跑一輪。App build 成功（`artifacts/w126-logs/app-build-2.log`）。
+- **第三輪定點複驗**（`artifacts/w126-gui-evidence/run3/RESULT.md`）：A AC-12 兩次 line 2→3 budget 於 15.06／15.04 秒 PASS；B AC-13 卡片、30 秒不換台、`all 3 lines tried` 每輪只一次、重試 PASS；C 線路 2 時關閉，之後 40 秒以上沒有任何 `[playback]`／`[live]`、沒有 MPV 交棒、hang server 沒有新連線 PASS；D 慢台（18 秒後才回應）15.09 秒出現「已試 1 條線路」，開線後 17.6 秒在 MPV 起播、卡片消失、疊層「線路 1／1」PASS；E 點播回歸 PASS（點播關閉後仍保留項目）。安裝的是這次 build（hash 相同），data 還原 BYTE-IDENTICAL，工作樹前後不變。第三輪沒有重跑 AC-14／15／16 與線路選單（修正沒動到這些路徑，第二輪已 PASS）。
+- Ponytail（最終 diff）：Ship；一項 nice-to-have 未採用、記在這裡：群組裡沒有其他可播頻道時，卡片的「換台」與上一台／下一台按鈕仍顯示但按了沒反應（`zap` 回 nil），不會出錯。
+- 未驗：VoiceOver 的「上一台／下一台」自訂動作（自動化工具讀不到）、實機、AirPlay、PiP；直播關閉時卸載項目對 AirPlay 的影響（會一併結束投放）未在實機看過。

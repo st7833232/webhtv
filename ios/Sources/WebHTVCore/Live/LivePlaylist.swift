@@ -41,6 +41,20 @@ public struct LiveChannel: Equatable, Sendable {
     public var isUnsupported: Bool { !lines.contains { $0.support.isTried } }
 }
 
+extension Array where Element == LiveChannel {
+    /// The channel `step` places from `index` within this group, wrapping, past channels with no line iOS can try;
+    /// nil when there is no other one (IOS-POC-59 U3: Android's default stays in the group, `isAcross` off).
+    public func zap(from index: Int, by step: Int) -> Int? {
+        guard !isEmpty, step != 0 else { return nil }
+        var next = index
+        for _ in 1..<count {
+            next = ((next + step) % count + count) % count
+            if !self[next].isUnsupported { return next }
+        }
+        return nil
+    }
+}
+
 public struct LiveLine: Equatable, Sendable {
     /// The address before the first `$`, trimmed.
     public var url: String

@@ -401,9 +401,11 @@ public final class PlayerRouter {
         self.makeEngine = makeEngine
     }
 
-    /// A new item: a title opened from the list, the next episode, a picked episode.
-    public func open(_ request: PlaybackLoadRequest) {
-        if sessionActive {
+    /// A new item: a title opened from the list, the next episode, a picked episode. `freshEngine` (IOS-POC-59 live)
+    /// starts it on the global default even inside an open session, so one channel's MPV fallback does not decide
+    /// the next channel's engine; every other caller keeps the session's engine.
+    public func open(_ request: PlaybackLoadRequest, freshEngine: Bool = false) {
+        if sessionActive && !freshEngine {
             selection.beginAttempt()
         } else {
             selection.startSession()

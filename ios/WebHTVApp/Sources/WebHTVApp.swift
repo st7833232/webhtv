@@ -5117,6 +5117,11 @@ struct EpisodeSteps: Equatable {
 
     /// How the presenting view closes the player once nothing is left to play.
     var onPlaylistFinished: (() -> Void)?
+    /// IOS-POC-59 U3: the live screen's own "this line started / failed" slot; `onFailure` belongs to PlayerView.
+    var lineObserver: ((LiveLineEvent) -> Void)?
+    /// IOS-POC-59 U3 (Manager #2158 B3-1): the next `load` opens on the global default engine — once, then cleared,
+    /// so a later item (the next of an inline playlist) keeps the session's engine as before.
+    private var freshEngineOnce = false
 
     /// IOS-POC-35: the control bar's 上一集／下一集. The detail screen owns it for the reason it owns
     /// `advance` — it holds the episode list and the resolving — and answers `true` once it started
@@ -5383,6 +5388,7 @@ struct EpisodeSteps: Equatable {
             guard let retry = self.retryWithoutPrefetch else {
                 self.notePlayHealth(succeeded: false)
                 self.onFailure?(failure)
+                self.lineObserver?(.failed)
                 return
             }
             self.retryWithoutPrefetch = nil
@@ -5391,6 +5397,7 @@ struct EpisodeSteps: Equatable {
                 if await retry() == false {
                     self.notePlayHealth(succeeded: false)
                     self.onFailure?(failure)
+                    self.lineObserver?(.failed)
                 }
             }
         }
@@ -5597,6 +5604,8 @@ struct EpisodeSteps: Equatable {
     }
     /// The player screen closed: the session override ends.
     func closePlayer() {
+        // A closed live player hears nothing more, whatever closed it.
+        lineObserver = nil
         // IOS-POC-48: closed in the final credits is finished too; the view persisted the position first.
         reportCompletion(ended: false)
         favoriteLibrary.playerClosed()
@@ -5645,8 +5654,9 @@ struct EpisodeSteps: Equatable {
     func open(url: URL, headers: [String: String] = [:], sourceSubtitles: [SourceSubtitle] = [], title: String,
               artwork: String = "", history: WatchHistory? = nil, resuming: Bool = true,
               quality: PlaybackQualityChoice? = nil, retry: (() async -> Bool)? = nil,
-              offline: OfflinePlaybackSource? = nil, rate: Float? = nil) {
+              offline: OfflinePlaybackSource? = nil, rate: Float? = nil, freshEngine: Bool = false) {
         self.quality = quality
+        freshEngineOnce = freshEngine
         offlineSource = offline
         retryWithoutPrefetch = retry
         measuredNearEnd = false
@@ -6471,7 +6481,8 @@ struct EpisodeSteps: Equatable {
         resumeTo = nil
         router.open(PlaybackLoadRequest(target: PlaybackTarget(url: url, headers: headers),
                                         startSeconds: start, rate: chosenRate, autoplay: autoplay,
-                                        title: title, history: record))
+                                        title: title, history: record), freshEngine: freshEngineOnce)
+        freshEngineOnce = false
         startSampling()
         watchAds(url)
     }
@@ -6625,6 +6636,7 @@ struct EpisodeSteps: Equatable {
                     startupMilliseconds = milliseconds
                     retryWithoutPrefetch = nil
                     notePlayHealth(succeeded: true)
+                    lineObserver?(.started)
                     Self.log.notice("[playback] started \(self.itemTitle, privacy: .public) on \(self.engineKind.shortName, privacy: .public) in \(milliseconds)ms after open; resolve \(self.resolution, privacy: .public)")
                     return
                 }
@@ -7293,6 +7305,8 @@ private struct PlayerControlBar: View {
     /// IOS-POC-17: the engine **actually** playing — not the settings page's default.
     let engine: PlaybackEngineKind
     let selectEngine: (PlaybackEngineKind) -> Void
+    /// IOS-POC-59 U3: live plays at 1× only, so it offers no speed menu.
+    var live = false
     /// The open panel, if any. `PlayerView`'s `PlayerChrome` owns it.
     let panel: PlayerPanel?
     /// A bar button: opens its panel, or closes it when it is the one already open.
@@ -7428,8 +7442,10 @@ private struct PlayerControlBar: View {
                         .frame(maxWidth: 80)
                 }
             }
-            panelButton(.speed, value: Self.spoken(rate)) {
-                Text(Self.label(rate)).font(.footnote.weight(.semibold))
+            if !live {
+                panelButton(.speed, value: Self.spoken(rate)) {
+                    Text(Self.label(rate)).font(.footnote.weight(.semibold))
+                }
             }
             // IOS-POC-17: the label is the engine playing now.
             panelButton(.engine, value: engine.displayName) {
@@ -8373,9 +8389,13 @@ private struct PlayerSurface: UIViewControllerRepresentable {
     }
 }
 
+/// IOS-POC-59 U3: what a live line did, for `LiveTVController`.
+enum LiveLineEvent { case started, failed }
+
 /// IOS-POC-59: the player as the live screen (`LiveTVView.swift`) shows it; `PlayerView` itself stays private.
 struct LivePlayerScreen: View {
-    var body: some View { PlayerView() }
+    let controller: LiveTVController
+    var body: some View { PlayerView(live: controller) }
 }
 
 private struct PlayerView: View {
@@ -8383,6 +8403,8 @@ private struct PlayerView: View {
     /// The item is already loaded by the caller, because playback has to outlive this screen for
     /// `player.status` and `player.control` to mean anything.
     private let session = PlaybackSession.shared
+    /// IOS-POC-59 U3: set when the player shows a live channel — its overlay, the 換台 swipe, no speed menu.
+    var live: LiveTVController?
 
     /// IOS-POC-10J: what the current drag is doing. Decided once, on the first few points of
     /// movement, and held until the finger lifts — an axis that can change mid-drag makes the
@@ -8435,7 +8457,11 @@ private struct PlayerView: View {
     /// AVPlayer's state too, whose periodic observer stops with the item's clock in a stall.
     @State private var engineTicker: Task<Void, Never>?
 
-    private enum DragKind { case seek, volume, brightness }
+    /// `zap` is live only: a vertical drag that starts in the middle half changes channel (IOS-POC-59 U3).
+    private enum DragKind { case seek, volume, brightness, zap }
+    /// Android's 換台 swipe (`CustomKeyDown.java:104-108`): far enough, and steep enough to be meant.
+    private static let zapDistance: CGFloat = 80
+    private static let zapAngle = 70.0
 
     /// A full screen-width drag moves two minutes. Chosen so a thumb-width nudge is a few seconds
     /// — fine enough to skip an advert, coarse enough to cross an episode.
@@ -8469,7 +8495,8 @@ private struct PlayerView: View {
         .overlay {
             // The real reason, classified — IOS-POC-17. A failed item used to be a silent black
             // screen with the bar still offering play.
-            if let failure { bubble(failure).padding(32) }
+            // Live shows its own "已試 N 條線路" instead of the engine's message (IOS-POC-59 U3).
+            if let failure, live == nil { bubble(failure).padding(32) }
         }
         .overlay {
             // IOS-POC-27A: a start or a stall is on its way. Never takes a touch, so the bar and the
@@ -8516,6 +8543,7 @@ private struct PlayerView: View {
                 watching: watching, media: media, online: online,
                 engine: engineKind,
                 selectEngine: { session.selectEngine($0) },
+                live: live != nil,
                 panel: chrome.panel,
                 toggle: { panel in
                     chrome.toggle(panel)
@@ -8529,12 +8557,24 @@ private struct PlayerView: View {
                 // The panel shows the value the session actually kept, so no readout is flashed.
                 skipEdited: { watching = session.record },
                 mediaChanged: { reloadMedia() },
-                close: { dismiss() }
+                // A live line's timer stops with the tap, not after the cover's dismissal animation.
+                close: { live?.stop(); dismiss() }
             )
             .opacity(chrome.controlsVisible ? 1 : 0)
             // Gone means gone: a hidden bar must not eat the tap that brings it back.
             .allowsHitTesting(chrome.controlsVisible)
             .animation(.easeInOut(duration: 0.25), value: chrome.controlsVisible)
+        }
+        // IOS-POC-59 U3: on top of the bar, below its top row: the channel, its line, 上一台／下一台, and the
+        // "all lines tried" card, which stays whether or not the bar is showing.
+        .overlay(alignment: .top) {
+            if let live { LivePlayerOverlay(controller: live, controlsVisible: chrome.controlsVisible) }
+        }
+        .accessibilityActions {
+            if let live {
+                Button("上一台") { live.zap(-1) }
+                Button("下一台") { live.zap(1) }
+            }
         }
         // IOS-POC-10J. `simultaneousGesture` again, for the reason IOS-POC-10A2 found: AVKit's
         // recognisers live in the UIKit view underneath and a plain SwiftUI gesture loses to
@@ -8720,9 +8760,12 @@ private struct PlayerView: View {
             case .seek: dragOrigin = session.position
             case .volume: dragOrigin = Double(session.volume)
             case .brightness: dragOrigin = Double(UIScreen.main.brightness)
+            case .zap: dragOrigin = 0
             }
         }
         switch kind {
+        case .zap:
+            hud = Self.isZap(move) ? (move.translation.height < 0 ? "上一台" : "下一台") : nil
         case .seek:
             // Shown, not applied: seeking on every frame of the drag makes a network stream
             // stutter for the whole gesture. The seek happens once, when the finger lifts.
@@ -8745,6 +8788,8 @@ private struct PlayerView: View {
         if drag == .seek {
             session.seek(toSeconds: seekTarget(move))
         }
+        // Up is the previous channel, down the next, as Android's default.
+        if drag == .zap, Self.isZap(move) { live?.zap(move.translation.height < 0 ? -1 : 1) }
         drag = nil
         flashHUD()
     }
@@ -8777,7 +8822,15 @@ private struct PlayerView: View {
     /// wanders across the middle does not switch from brightness to volume underneath the viewer.
     private func classify(_ move: DragGesture.Value) -> DragKind {
         if abs(move.translation.width) > abs(move.translation.height) { return .seek }
-        return move.startLocation.x < UIScreen.main.bounds.width / 2 ? .brightness : .volume
+        let width = UIScreen.main.bounds.width, x = move.startLocation.x
+        // Live: brightness and volume keep the outer quarters, the middle half changes channel (Android's split).
+        if live != nil, x >= width / 4, x <= width * 3 / 4 { return .zap }
+        return x < width / 2 ? .brightness : .volume
+    }
+
+    private static func isZap(_ move: DragGesture.Value) -> Bool {
+        let dy = abs(move.translation.height), dx = abs(move.translation.width)
+        return dy > zapDistance && atan2(dy, dx) * 180 / .pi > zapAngle
     }
 
     private func seekTarget(_ move: DragGesture.Value) -> Double {

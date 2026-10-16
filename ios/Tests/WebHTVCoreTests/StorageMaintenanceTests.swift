@@ -36,6 +36,7 @@ struct StorageMaintenanceTests {
             support.appendingPathComponent("saved-sources.json"),
             support.appendingPathComponent("WatchHistory/history.json"),
             support.appendingPathComponent("Favorites/favorites.json"),
+            support.appendingPathComponent("LiveTV/live-state.json"),
             support.appendingPathComponent("OfflineMedia/asset/metadata.json"),
             support.appendingPathComponent("site-health.json"),
             support.appendingPathComponent("SpiderPack/manifest.json"),

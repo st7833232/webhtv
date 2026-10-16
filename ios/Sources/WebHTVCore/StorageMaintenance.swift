@@ -60,10 +60,11 @@ public struct StorageLocations: Sendable {
 public enum StorageMaintenance {
     /// Application Support entries this build writes: saved sources, the watch history,
     /// favourites, offline downloads, the site health record, the spider pack, the official spider pack's
-    /// generations (IOS-POC-61), the imported configuration. Remote sources' cached configurations are
-    /// kept by name (`keepConfigFiles`).
+    /// generations (IOS-POC-61), the imported configuration, live TV's last channels and favourites (IOS-POC-59).
+    /// Remote sources' cached configurations are kept by name (`keepConfigFiles`).
     static let supportKeep: Set<String> = ["saved-sources.json", "WatchHistory", "Favorites", "OfflineMedia",
-                                           "site-health.json", "SpiderPack", "RuntimePacks", "wang-movie.json"]
+                                           "site-health.json", "SpiderPack", "RuntimePacks", "wang-movie.json",
+                                           "LiveTV"]
     /// Caches entries kept: the spider caches (rebuildable, kept by the viewer's choice), the
     /// system's own folders, WebKit's.
     static let cachesKeep: Set<String> = ["python-spider", "WebKit", "Snapshots"]

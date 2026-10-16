@@ -909,3 +909,40 @@ exhausted ──「重試」──▶ opening(起始線路，新的一輪)
 - **第三輪定點複驗**（`artifacts/w126-gui-evidence/run3/RESULT.md`）：A AC-12 兩次 line 2→3 budget 於 15.06／15.04 秒 PASS；B AC-13 卡片、30 秒不換台、`all 3 lines tried` 每輪只一次、重試 PASS；C 線路 2 時關閉，之後 40 秒以上沒有任何 `[playback]`／`[live]`、沒有 MPV 交棒、hang server 沒有新連線 PASS；D 慢台（18 秒後才回應）15.09 秒出現「已試 1 條線路」，開線後 17.6 秒在 MPV 起播、卡片消失、疊層「線路 1／1」PASS；E 點播回歸 PASS（點播關閉後仍保留項目）。安裝的是這次 build（hash 相同），data 還原 BYTE-IDENTICAL，工作樹前後不變。第三輪沒有重跑 AC-14／15／16 與線路選單（修正沒動到這些路徑，第二輪已 PASS）。
 - Ponytail（最終 diff）：Ship；一項 nice-to-have 未採用、記在這裡：群組裡沒有其他可播頻道時，卡片的「換台」與上一台／下一台按鈕仍顯示但按了沒反應（`zap` 回 nil），不會出錯。
 - 未驗：VoiceOver 的「上一台／下一台」自訂動作（自動化工具讀不到）、實機、AirPlay、PiP；直播關閉時卸載項目對 AirPlay 的影響（會一併結束投放）未在實機看過。
+
+## 18. U4 上次頻道與收藏實作紀錄（W-127，webhtv-dev-claude-dev-2，2026-10-16 10:25 起）
+
+### 18.1 範圍與拍板
+- 分支 `task/W-127`，疊在 W-126 審過的 `4ce27614`（Manager #2633；W-125～W-127 等 U4 完成後一起 rebase 到當時的 origin 再推）；guard `LIVE-L1-U4`，一個 commit，`--no-tag`。
+- 檔案：Core 新 `Live/LiveStateStore.swift`、`StorageMaintenance.swift`（`supportKeep` 加 `LiveTV`）；測試新 `Live/LiveStateStoreTests.swift`、`StorageMaintenanceTests.swift`（kept 清單加 `LiveTV/live-state.json`）；App `LiveTVView.swift`、`WebHTVApp.swift`（入口多傳 `config: source.identity`）。
+- 一併處理 W-126 審查（`artifacts/w126-review-2026-10-16.md`）：N-3 線路選單點擊高 32→44pt；N-1、N-2 記在 §18.5。
+
+### 18.2 設計落地
+- **`LiveStateStore`（actor，`Application Support/LiveTV/live-state.json`）**：格式照 D§6.5（`schemaVersion` 1、`configs[identity].lastLive`、`last[live]`、`favorites[live]`），`.atomic` 寫入、先寫檔才採用。壞檔另存 `live-state.corrupt-<秒>-<8碼>.json` 後從空開始；比目前新的 schema 先複製成 `live-state.schema<N>.backup.json` 再當空的；檔案存在但讀不到、或搬不走時，什麼都不載入也不寫（`FavoriteStore` 的做法）。不存網址（X-10）。
+- **還原（`LiveLastChannel.locate(in:)`）**：同名群組裡的同名頻道 → 其他看得見群組的第一個同名頻道 → 找不到就回 nil；線路先比 `lineLabel`、再用 `lineIndex`、超出用 0。整台不支援的頻道不算找到。**偏離 D§6.5 的第三層**（「第一個群組的第一個可播頻道」）：那不是上次看的頻道，不該標「上次觀看」或出現在「繼續看」；畫面本來就開在第一個群組，所以效果等同，只是不冒充。
+- **收藏群組（`[LiveGroup].withFavorites(_:)`）**：傳入的是已濾掉帶密碼群組的清單，所以隱藏群組的頻道不會經由收藏露出（X-11）；每個收藏只取第一次出現的那筆，照收藏順序；清單裡暫時找不到的收藏保留在檔案裡。收藏 key＝設定 identity＋直播源名稱＋頻道名稱（X-9）。
+- **畫面**：第一次進入先讀 `lastLive` 選源（找不到就第一個），之後換源就寫 `lastLive`；群組改用名稱記選取，「收藏」出現或消失時不會跳到別的群組。清單上方「繼續看：<頻道>」只在找得到上次頻道時出現，**不自動播放**（X-15）；群組欄捲到選取的群組、頻道欄捲到上次頻道。頻道列：「上次觀看」標記、收藏星號；長按選單「加入收藏／取消收藏」，VoiceOver 有同名動作；不支援的頻道沒有收藏操作。播放疊層加星號按鈕；在「收藏」群組裡打開時，換台就在收藏之間換（controller 的 channels 是收藏群組）。關閉播放器後重讀收藏與上次頻道。
+- **寫入時機**：`LiveTVController` 收到 `.started` 才寫上次頻道（群組名＝打開時顯示的群組，包括「收藏」），同時把 `lastLive` 設成這個源。
+
+### 18.3 測試
+- 先紅：新測試與 `StorageMaintenanceTests` 的 kept 項先寫，`LiveStateStore`／`LiveLastChannel`／`LivePosition`／`withFavorites` 不存在 → 編譯失敗（`artifacts/w127-logs/red.log`）。
+- 綠：`LiveStateStore|StorageMaintenance|Live` 80 個全過（`green-core.log`）。
+- 全量 `swift test`：1292 tests／47 suites 中 5 個失敗，都是 WebKit 嗅探或「5 秒內結束」的計時測試（`theProbeReadsOnlyTheHeadOfABodyThatNeverEnds`、`aSniffEndsWhenItsCallerGivesUp`、`MediaSnifferTests` 三支），當時主機 load average 308（Simulator 同時在跑）；負載降到約 75 時單獨重跑 5 個全過（`rerun-load.log`），本單沒有碰這些程式（`full.log`）。App build 成功（`app-build.log`；`generic/platform=iOS Simulator` 會因 Python.xcframework 的雙架構路徑失敗，與本單無關，改用 WebHTV-dev2 的 destination）。
+- Mutant 8/8 殺（`mutants.log`）：M4-1 不先找自己的群組、M4-2 不比線路名、M4-3 不支援的頻道也算找到、M4-4 壞檔不另存、M4-5 新 schema 照讀、M4-6 收藏不分直播源、M4-7 收藏群組列出每一筆同名、M4-8 清除無效檔案不保留 `LiveTV`。App 層（選源還原、捲動、不自動播放、`.started` 才寫）由 §18.4 Simulator 證明。
+
+### 18.4 Simulator
+`artifacts/w127-gui-evidence/RESULT.md`（2026-10-16 10:33–11:17，WebHTV-dev2，安裝的是這次 build、工作樹前後不變、data 還原 BYTE-IDENTICAL；本機兩個直播源、同名 CCTV1、源 1 有帶密碼群組與一台兩條具名線路）：
+- 首次進入：開在源 1，只顯示看得見的群組，沒有「收藏」也沒有「繼續看」。PASS
+- AC-18：選線台切到乙線起播 → 結束 App → 重開：選取央視群組、「上次觀看」、「繼續看：選線台」，進頁面沒有任何開播 log；按下去從「線路 2／2：乙線」開始；`live-state.json` 只有群組名、頻道名、lineLabel、lineIndex，沒有網址。上次在源 2 播時重開就開源 2。PASS
+- AC-19：長按 CCTV1 加入收藏 → 群組欄最上面「收藏」；源 2 的同名 CCTV1 沒有星號；重開後還在；帶密碼群組從不出現。收藏群組裡換台只在收藏之間換；疊層星號可取消，關閉後清單同步。PASS
+- AC-20：檔案寫成 `garbage` → 首頁與直播清單正常、從空開始，原檔另存為 `live-state.corrupt-…json`。PASS
+- AC-21：清除無效檔案只列兩個快取資料夾，沒有 `LiveTV`；刪除後收藏和 `live-state.json` 都還在。PASS
+- 回歸：三線台 line 1→2 failed、2→3 budget（15.29 秒）、線路 3 起播；點播荐片起播、有倍速、沒有上一台，關閉後 5 個分頁。線路選單 88×44pt（N-3）。PASS
+- 未驗：VoiceOver 的收藏動作、長清單捲到上次頻道（測試群組只有兩台）、實機、AirPlay、PiP。
+
+Ponytail（最終 diff）：Ship。兩項 nice-to-have：①評論位置錯（`.onChange` 插在 `fullScreenCover` 的說明之上）——已移正，只動註解順序；②下拉重新整理會跳到上次頻道的群組（之前是跳到第一個群組，不是退步）——未採用，記在這裡。
+
+### 18.5 已知限制（W-126 審查 N-1、N-2）
+- N-1：直播關閉播放器會卸載項目（W-126 修背景換 MPV 重開的必要代價），所以在 PiP 中或 AirPlay 投放中關閉播放畫面，直播會一起停；點播照舊保留。實機未驗。
+- N-2：起播後無限緩衝但沒有錯誤時不會換線（狀態機在 `.playing` 只聽 `.failed`）；MPV 對直播斷線若回 EOF，畫面顯示「播放結束／重新播放」而不換線——是 EOF 還是 error 未在 log 確認。
+- N-4（只記錄）：播放中失敗會接著試同一輪剩下的線路，不回頭試先前播得好的線路；試完顯示卡片，可按重試。

@@ -1252,7 +1252,7 @@ private struct CMSView: View {
             Text("WebHTV").font(.title2.weight(.bold)).tracking(-0.6).layoutPriority(1)
             if !lives.isEmpty {
                 NavigationLink {
-                    LiveTVView(lives: lives, base: source.baseURL).appNavigationBar().appWallpaper()
+                    LiveTVView(lives: lives, base: source.baseURL, config: source.identity).appNavigationBar().appWallpaper()
                 } label: {
                     Label("直播", systemImage: "antenna.radiowaves.left.and.right")
                         .font(.caption.weight(.medium))

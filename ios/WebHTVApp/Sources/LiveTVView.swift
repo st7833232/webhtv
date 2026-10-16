@@ -3,11 +3,15 @@ import WebHTVCore
 
 /// IOS-POC-59 U2 (W-125): the configuration's live lists — a source menu, groups on the left, channels on the right
 /// (D§6.4.2). Password groups never show (D§6.2.6); empty groups do, as on Android (Manager #2158 B2-3); a channel
-/// with no line iOS can try is greyed out. A tap opens the player on `LiveTVController` (U3).
+/// with no line iOS can try is greyed out. A tap opens the player on `LiveTVController` (U3). U4 (D§6.4.2, §6.5): the
+/// last live source opens first, its last channel is marked and offered as 「繼續看」 — never played by itself
+/// (X-15) — and favourites lead the group column as 「收藏」.
 struct LiveTVView: View {
     let lives: [LiveSource]
     /// The configuration's own address, for a `./` list.
     let base: URL?
+    /// `ConfigSource.identity`: the last channel and the favourites are this configuration's (X-9).
+    let config: String
 
     private enum Load {
         case loading
@@ -16,12 +20,17 @@ struct LiveTVView: View {
         case loaded([LiveGroup])
     }
 
-    /// Starts on the first source (B2-4: remembering the last one is U4's).
+    /// The first source until the last one is read (`restored`), once, before any list loads.
     @State private var sourceIndex = 0
+    @State private var restored = false
     @State private var reload = 0
     @State private var refresh = false
     @State private var load = Load.loading
-    @State private var groupIndex = 0
+    /// By name, so 「收藏」 appearing or going does not move the viewer to another group.
+    @State private var groupName: String?
+    @State private var favorites: [String] = []
+    @State private var last: LiveLastChannel?
+    private let store = LiveStateStore.shared
     /// The cover's item: set, the player shows this controller's channel.
     @State private var controller: LiveTVController?
     /// The same controller, kept past the cover's dismissal so its timers are stopped whatever closed it.
@@ -50,19 +59,36 @@ struct LiveTVView: View {
         .navigationBarTitleDisplayMode(.inline)
         // A new source or a retry cancels the request before it, so a late answer for another source never lands.
         .task(id: Request(source: sourceIndex, reload: reload)) {
+            if !restored {
+                restored = true
+                if let name = await store.lastLive(config: config), let index = lives.firstIndex(where: { $0.name == name }),
+                   index != sourceIndex {
+                    sourceIndex = index  // this task is cancelled and runs again for it
+                    return
+                }
+            }
             load = .loading
-            groupIndex = 0
+            groupName = nil
             let fresh = refresh
             refresh = false
             guard let source else { return }
+            favorites = await store.favorites(config: config, live: source.name)
+            last = await store.last(config: config, live: source.name)
             do {
                 let playlist = try await LiveListLoader.shared.playlist(for: source, base: base, refresh: fresh)
                 guard !Task.isCancelled else { return }
-                load = .loaded(playlist.groups.filter { !$0.isHidden })
+                let visible = playlist.groups.filter { !$0.isHidden }
+                let shown = visible.withFavorites(favorites)
+                groupName = last?.locate(in: shown).map { shown[$0.group].name }
+                load = .loaded(visible)
             } catch {
                 guard !Task.isCancelled else { return }
                 load = .failed(error.localizedDescription)
             }
+        }
+        .onChange(of: sourceIndex) { _, index in
+            guard lives.indices.contains(index) else { return }
+            Task { await store.setLastLive(lives[index].name, config: config) }
         }
         // `item`, not `isPresented`: a cover built in the same update that set the controller would read it as nil
         // and show an empty, unclosable black screen (W-126 Simulator run).
@@ -70,6 +96,12 @@ struct LiveTVView: View {
             running?.stop()
             running = nil
             PlaybackSession.shared.onPlaylistFinished = nil
+            // The player may have recorded a started line or changed a favourite.
+            guard let source else { return }
+            Task {
+                favorites = await store.favorites(config: config, live: source.name)
+                last = await store.last(config: config, live: source.name)
+            }
         }) { live in
             LivePlayerScreen(controller: live)
         }
@@ -112,63 +144,110 @@ struct LiveTVView: View {
             }
         case .loaded(let groups) where groups.isEmpty:
             ContentUnavailableView("此直播源沒有可顯示的頻道", systemImage: "tv")
-        case .loaded(let groups):
-            HStack(spacing: 0) {
-                groupColumn(groups).frame(width: min(groupWidth, 140))
-                Divider()
-                channelColumn(groups[min(groupIndex, groups.count - 1)])
+        case .loaded(let visible):
+            let groups = visible.withFavorites(favorites)
+            let current = groups.firstIndex { $0.name == groupName } ?? 0
+            let resume = last?.locate(in: groups)
+            VStack(spacing: 0) {
+                if let last, let resume {
+                    Button {
+                        play(resume.channel, in: groups[resume.group], line: resume.line)
+                    } label: {
+                        Label("繼續看：\(zhTW(last.channel))", systemImage: "play.fill").lineLimit(1)
+                            .frame(maxWidth: .infinity, minHeight: 36)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                }
+                HStack(spacing: 0) {
+                    groupColumn(groups, current: current).frame(width: min(groupWidth, 140))
+                    Divider()
+                    channelColumn(groups[current], scrollTo: resume?.group == current ? resume?.channel : nil)
+                }
             }
             // A list's addresses can carry short-lived tokens (tv123's sid); a pull fetches it again.
             .refreshable { refresh = true; reload += 1 }
         }
     }
 
-    private func groupColumn(_ groups: [LiveGroup]) -> some View {
-        List(groups.indices, id: \.self) { index in
-            Button { groupIndex = index } label: {
-                Text(zhTW: groups[index].name).font(.subheadline).lineLimit(2)
-                    .foregroundStyle(index == groupIndex ? Color.accentColor : .primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityAddTraits(index == groupIndex ? .isSelected : [])
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-    }
-
-    @ViewBuilder private func channelColumn(_ group: LiveGroup) -> some View {
-        if group.channels.isEmpty {
-            ContentUnavailableView("此群組沒有頻道", systemImage: "tv")
-        } else {
-            List(group.channels.indices, id: \.self) { index in
-                let channel = group.channels[index]
-                Button { play(index, in: group) } label: {
-                    HStack {
-                        Text(zhTW: channel.name).lineLimit(1)
-                        Spacer(minLength: 8)
-                        if channel.isUnsupported { Text("iOS 不支援").font(.caption).foregroundStyle(.secondary) }
-                    }
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
+    private func groupColumn(_ groups: [LiveGroup], current: Int) -> some View {
+        ScrollViewReader { proxy in
+            List(groups.indices, id: \.self) { index in
+                Button { groupName = groups[index].name } label: {
+                    Text(zhTW: groups[index].name).font(.subheadline).lineLimit(2)
+                        .foregroundStyle(index == current ? Color.accentColor : .primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(channel.isUnsupported)
-                .opacity(channel.isUnsupported ? 0.45 : 1)
+                .accessibilityAddTraits(index == current ? .isSelected : [])
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .id(groupIndex)
+            .onAppear { proxy.scrollTo(current) }
         }
     }
 
-    private func play(_ index: Int, in group: LiveGroup) {
+    @ViewBuilder private func channelColumn(_ group: LiveGroup, scrollTo target: Int?) -> some View {
+        if group.channels.isEmpty {
+            ContentUnavailableView("此群組沒有頻道", systemImage: "tv")
+        } else {
+            ScrollViewReader { proxy in
+                List(group.channels.indices, id: \.self) { index in
+                    channelRow(group.channels[index]) { play(index, in: group) }
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .onAppear { if let target { proxy.scrollTo(target, anchor: .center) } }
+            }
+            .id(group.name)
+        }
+    }
+
+    private func channelRow(_ channel: LiveChannel, play: @escaping () -> Void) -> some View {
+        let favorite = favorites.contains(channel.name)
+        let action = favorite ? "取消收藏" : "加入收藏"
+        return Button(action: play) {
+            HStack(spacing: 8) {
+                Text(zhTW: channel.name).lineLimit(1)
+                if channel.name == last?.channel {
+                    Text("上次觀看").font(.caption2.weight(.semibold)).foregroundStyle(Color.accentColor)
+                }
+                Spacer(minLength: 8)
+                if channel.isUnsupported { Text("iOS 不支援").font(.caption).foregroundStyle(.secondary) }
+                if favorite { Image(systemName: "star.fill").font(.caption).foregroundStyle(.yellow).accessibilityLabel("已收藏") }
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(channel.isUnsupported)
+        .opacity(channel.isUnsupported ? 0.45 : 1)
+        // D§6.4.2: a long press favourites; VoiceOver gets the same as an action.
+        .contextMenu {
+            if !channel.isUnsupported {
+                Button(action, systemImage: favorite ? "star.slash" : "star") { toggleFavorite(channel.name) }
+            }
+        }
+        .accessibilityAction(named: action) { toggleFavorite(channel.name) }
+    }
+
+    private func toggleFavorite(_ name: String) {
+        guard let live = source?.name else { return }
+        Task {
+            let now = await store.toggleFavorite(name, config: config, live: live)
+            if source?.name == live { favorites = now }
+        }
+    }
+
+    private func play(_ index: Int, in group: LiveGroup, line: Int = 0) {
         guard let source else { return }
-        let live = LiveTVController(source: source, channels: group.channels, start: index)
+        let live = LiveTVController(source: source, config: config, group: group.name, channels: group.channels,
+                                    start: index, favorites: favorites)
         running = live
         controller = live
-        live.play()
+        live.play(line: line)
     }
 }
 
@@ -181,8 +260,12 @@ struct LiveTVView: View {
     enum Phase: Equatable { case opening, playing, exhausted, ended }
 
     let source: LiveSource
+    let config: String
+    /// The group shown when it was opened (「收藏」 too), for the last channel (U4).
+    let group: String
     let channels: [LiveChannel]
     private(set) var channelIndex: Int
+    private(set) var favorites: [String]
     private(set) var lineIndex = 0
     private(set) var phase = Phase.opening
     /// Lines tried in this round, for 「已試 N 條線路」.
@@ -192,16 +275,26 @@ struct LiveTVView: View {
     @ObservationIgnored private var budget: Task<Void, Never>?
     @ObservationIgnored private let session = PlaybackSession.shared
 
-    init(source: LiveSource, channels: [LiveChannel], start: Int) {
+    init(source: LiveSource, config: String, group: String, channels: [LiveChannel], start: Int, favorites: [String]) {
         self.source = source
+        self.config = config
+        self.group = group
         self.channels = channels
         channelIndex = start
+        self.favorites = favorites
         switcher = LiveLineSwitcher(lines: channels[start].lines, start: 0)
     }
 
     var channel: LiveChannel { channels[channelIndex] }
+    var isFavorite: Bool { favorites.contains(channel.name) }
 
-    func play() { restart(at: 0) }
+    /// From the first line, or 「繼續看」's.
+    func play(line: Int = 0) { restart(at: line) }
+
+    func toggleFavorite() {
+        let name = channel.name
+        Task { favorites = await LiveStateStore.shared.toggleFavorite(name, config: config, live: source.name) }
+    }
 
     /// 上一台／下一台: within the group, wrapping, past greyed-out channels.
     func zap(_ step: Int) {
@@ -284,6 +377,10 @@ struct LiveTVView: View {
         case .started:
             phase = .playing
             budget?.cancel()
+            // D§6.5: only a line that started is remembered, by its label and index — never its address.
+            let last = LiveLastChannel(group: group, channel: channel.name, lineLabel: channel.lines[lineIndex].label,
+                                       lineIndex: lineIndex)
+            Task { await LiveStateStore.shared.setLast(last, config: config, live: source.name) }
         case .failed:
             // After a round is spent, the last line failing too changes nothing.
             if phase != .exhausted { open(after: "failed") }
@@ -313,6 +410,12 @@ struct LivePlayerOverlay: View {
                         lineMenu
                     }
                     zapButton(1, symbol: "chevron.down", label: "下一台")
+                    Button { controller.toggleFavorite() } label: {
+                        Image(systemName: controller.isFavorite ? "star.fill" : "star").font(.body.weight(.semibold))
+                            .foregroundStyle(controller.isFavorite ? .yellow : .white)
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
+                    .accessibilityLabel(controller.isFavorite ? "取消收藏" : "加入收藏")
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
@@ -335,7 +438,7 @@ struct LivePlayerOverlay: View {
         } label: {
             Text("線路 \(controller.lineIndex + 1)／\(lines.count)：\(name(of: controller.lineIndex))")
                 .font(.caption).lineLimit(1)
-                .frame(minHeight: 32)
+                .frame(minHeight: 44)
         }
         .accessibilityLabel("選擇線路，目前為線路 \(controller.lineIndex + 1)")
     }

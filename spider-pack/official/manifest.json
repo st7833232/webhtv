@@ -138,11 +138,11 @@
       "sha256": "a9b3da31b741d77f68e028bc77f776be02d76aba0c93ad1e53e272c8b3a4b944"
     },
     {
-      "bytes": 11832,
+      "bytes": 11970,
       "class": "Ikanbot",
       "logicalType": "spider.js",
       "path": "spiders/Ikanbot.js",
-      "sha256": "a310a0cd7f8bc4cd4c90522559f7b24a4de0794b8b8e10943449b6970ed71aeb"
+      "sha256": "c7c72d8861351ef4182b3e58864670cc5ea27842df7ba846f58bc7a750e8400a"
     },
     {
       "aliases": [
@@ -292,6 +292,6 @@
   "scope": {
     "kind": "global"
   },
-  "sequence": 3,
-  "version": "2026-10-16.1"
+  "sequence": 4,
+  "version": "2026-10-16.2"
 }

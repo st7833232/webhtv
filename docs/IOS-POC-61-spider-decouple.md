@@ -238,6 +238,20 @@
 
 一個 commit；`git revert` 移除基準 manifest、種子與狀態列的分辨。已種子的裝置留下的世代內容就是內建檔，registry 讀它和讀內建結果相同；S3 的「重設」可清掉。
 
+## S5（W-139）：把內建爬蟲搬出 App 本體
+
+接在 0.1.78 截點 `683ceb1b` 之後（分支 `task/W-139`）。依據：計畫 §8 S5 列、驗收列、風險 8，使用者 2026-10-15 18:00 決定（Ikanbot／Djuu 收進第二版官方包）、Manager #2561／#2562；設計預審 `artifacts/w139-design-prereview.md`（W-141）四個必改由 Manager #2590 全部採用。依 M-4 分兩個 commit：**C1 工具**（本段）先讓官方包序號 3 能從 `ios-poc` 建出 35 支；**C2 App**（下一段）拿掉內建，隨 App 0.1.79。
+
+### C1：建包工具改讀 `ios/Spiders`，官方包收進 Ikanbot／Djuu
+
+- 35 支爬蟲**複製**到 `ios/Spiders/`（內容逐檔相同，`cmp`）。C1 不動 App：`Resources/Spiders` 照舊帶 38 個檔，App 行為和 0.1.78 完全相同；C2 才刪掉 App 那份。用複製而不是搬，是因為搬了 App 在 C1 就失去內建，C1 就不再是「只動工具」。
+- `runtime_pack.py`：移除 `NOT_IN_FIRST_OFFICIAL_PACK`（W-41 的 `shortcut:` 兌現），官方包收 35 支；`--scripts` 預設 `ios/Spiders`。`spider_pack.py`：`--scripts` 預設 `ios/Spiders`；`IPA_ONLY` 行為照舊（相容包仍不收資料夾爬蟲），只改註解（S-6：不改名，避免動到引用它的地方）。`audit_spider_jars.py` 的 adapter 目錄改 `ios/Spiders`。
+- `test_pack_exclusions.py`：相容包不得有、**官方包必須有** Ikanbot／Djuu；加 M-3 的一致性檢查：工具建出的官方包「類別＋別名」必須等於 `SpiderRegistry.ported`（`registry_names`），兩邊漂移就紅。
+- 驗證（`artifacts/w139-logs/c1-tools.txt`、`c1-mutant.txt`）：`test_pack_exclusions.py` PASS（相容 33 支不含兩支、官方 35 支含兩支、名稱集合＝`ported`）；`runtime_pack.py build --sequence 3` 35 支、9 個別名齊全、`verify` 0 problem；`spider_pack.py build` 從新路徑建出的相容包 `scripts/` 與已發布的 `spider-pack/scripts` 逐檔相同。Mutant：`ported` 多一個包裡沒有的名稱 → 一致性檢查 FAIL、還原後 sha256 相同。沒有 Swift 改動，C1 不跑 `swift test`。
+- Ponytail（C1 diff）：Ship。1 點留 C2：`IkanbotSpiderTests.neitherPackToolPacksIkanbot` 在 `swift test` 裡跑這支腳本，名稱與註解還寫「兩個工具都不收」，C2 改名（C1 不動 Swift，免得為一個名稱重建）；C1 到 C2 之間兩份爬蟲並存，C2 刪掉 App 那份。
+- 推送與發布：C1、C2 都審過後一起推，再發序號 3、再發 0.1.79（理由：C1 單獨在 `ios-poc` 時一旦發出序號 3，舊的 `SpiderBaselineTests` 第 3 條守門會因腳本和基準不同而紅，要 C2 刪掉基準才恢復）。C2 推上到序號 3 發布之間不能觸發 IPA 發布。
+- 回滾：`git revert` C1 只會讓工具回到舊路徑與排除集合；`ios/Spiders` 的複本消失。App 不受影響。
+
 ---
 
 # 計畫（W-118，照搬並依決定修正）

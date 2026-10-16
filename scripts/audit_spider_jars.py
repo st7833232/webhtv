@@ -768,7 +768,7 @@ def compat(args) -> int:
         sys.exit(f"{args.baselines} was made by another algorithm; run `baseline` again")
     baselines = data["baselines"]
     registry = registry_names()
-    adapters_dir = "ios/Sources/WebHTVCore/Resources/Spiders"
+    adapters_dir = "ios/Spiders"
     jar_files: dict[str, tuple[str, str] | None] = {}
     cache: dict = {}
     analysed: dict[tuple, dict] = {}

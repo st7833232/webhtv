@@ -30,7 +30,7 @@ NOT_PACKABLE = {"host.js", "drpy-bridge.js", "js-spider.js"}
 # Ports that need the app's folder navigation (vod_tag "folder", catvod.result 1.3, IOS-POC-60) ship with
 # the IPA only: an older app would open a folder as a video and fail (FOLDER-04,
 # artifacts/qist-ikanbot-folder-2026-10-09.md §7.1). This is the compatibility pack's rule (Manager #2166);
-# the official pack, read only by apps that have folders, has its own (runtime_pack.NOT_IN_FIRST_OFFICIAL_PACK).
+# the official pack, read only by apps that have folders, carries them (IOS-POC-61 S5).
 IPA_ONLY = {"Ikanbot.js", "Djuu.js"}
 
 # Provenance for the ports this repository carries: which JAR each one was read from, that JAR's
@@ -262,7 +262,7 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     b = sub.add_parser("build")
-    b.add_argument("--scripts", default="ios/Sources/WebHTVCore/Resources/Spiders")
+    b.add_argument("--scripts", default="ios/Spiders")
     b.add_argument("--out", default="build/spider-pack")
     b.add_argument("--version", required=True)
     b.add_argument("--mappings", help="mappings.json written by `audit_spider_jars.py compat`")

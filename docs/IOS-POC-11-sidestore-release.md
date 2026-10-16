@@ -1,9 +1,11 @@
 # IOS-POC-11：SideStore 發布流程
 
 
-## Current release — 2026-10-15：0.1.77 (78) / 爬蟲工具與官方爬蟲包、有聲書與體育來源、資料夾導覽
+## Current release — 2026-10-16：0.1.78 (79) / 更多影視與音樂來源、爬蟲工具相容包狀態修正
 
-**目前最新版是 `0.1.77 (78)`**（設定頁「爬蟲工具」可手動下載官方爬蟲更新；新增有聲書與體育直播來源；資料夾項目可以點進去看清單；部分來源只列能直接播放的集數）。完整紀錄在下方「第七十八次發布」：run `38712470365` success，tag `ios-v0.1.77-b78` → `81115ea9`，`source.json` `b8dcbf64`，`WebHTV-0.1.77-78.ipa` 35,582,685 bytes。官方爬蟲包第一版（序號 2）已在 `b78d9147` 發布。真機尚未完整驗收。
+**目前最新版是 `0.1.78 (79)`**（新增更多影視與音樂來源的支援，片單與曲庫可點進去看清單；沒有附帶相容包的設定檔不再在「爬蟲工具」顯示成更新失敗；啟動時已下載的官方爬蟲更新在播放中會等關閉播放器後才套用）。完整紀錄在下方「第七十九次發布」：run `38836431741` success，tag `ios-v0.1.78-b79` → `683ceb1b`，`source.json` `18bd01d0`，`WebHTV-0.1.78-79.ipa` 35,589,870 bytes。官方爬蟲包仍是序號 2。真機尚未驗收。
+
+前一版 `0.1.77 (78)`（設定頁「爬蟲工具」可手動下載官方爬蟲更新；新增有聲書與體育直播來源；資料夾項目可以點進去看清單；部分來源只列能直接播放的集數）。完整紀錄在下方「第七十八次發布」：run `38712470365` success，tag `ios-v0.1.77-b78` → `81115ea9`，`source.json` `b8dcbf64`，`WebHTV-0.1.77-78.ipa` 35,582,685 bytes。官方爬蟲包第一版（序號 2）已在 `b78d9147` 發布。真機尚未完整驗收。
 
 前一版 `0.1.76 (77)`（新增網路電台直播、戲曲影音、短劇與體育直播來源；直播不續播、起播失敗後保留續播位置、音訊檔尾接下一集、重新整理後翻頁、回到頂部按鈕修正）。完整紀錄在下方「第七十七次發布」：run `38371100907` success，tag `ios-v0.1.76-b77` → `43014fae`，`source.json` `54d5e1f7`，`WebHTV-0.1.76-77.ipa` 35,422,351 bytes。真機未驗收。
 
@@ -965,9 +967,40 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第七十八次發布：`0.1.77 (78)`（2026-10-15，**已發布**）
+## 第七十九次發布：`0.1.78 (79)`（2026-10-16，**已發布**）
 
-**目前最新版是 `0.1.77 (78)`。** 前面七十七版都已被取代。
+**目前最新版是 `0.1.78 (79)`。** 前面七十八版都已被取代。
+
+- 授權：使用者指示 W-138 修好、審過就直接發 App `0.1.78`（version `0.1.78`、build `79`；Manager 交接檔記錄）。發布前檢查 W-140（`.herdr-synapse/webhtv-dev/artifacts/pre-release-check-0.1.78.md`，五項 PASS，Manager 核准 #2575）之後，Manager 觸發 workflow 被權限擋下，改由使用者手動觸發（#2576、#2584；run 的 triggering actor 是 repo 擁有者帳號）。截點 `683ceb1b`（W-138 為止）。版號 `0.1.78`，build `79`。
+- 建置來源：run 的 headSha 就是截點 `683ceb1bb2f3106f41c89c09bb5f24ff765266b9`，沒有額外的 commit。
+- 內容：`0.1.77 (78)` 的全部，加上 `ios-v0.1.77-b78..683ceb1b` 的 6 個 commit（first-parent 6 個，全部已審，W-140 第一項）：0.1.77 的 `source.json`（`b8dcbf64`，發布 workflow 產物）、0.1.77 發布紀錄（W-137 `a6e1dd6c`）、IOS-POC-57B-15 Ikanbot（W-41 `a1bd2e5f`，片單當資料夾）、Djuu（W-42 `e04d2f35`，曲庫歌單當資料夾）、啟動時找到的下載版官方包也等播放器關閉才套用（W-134 `98fd86fb`）、沒有相容包的設定檔不再把 404 顯示成更新失敗（W-138 `683ceb1b`）。W-125（直播入口）不在本版。
+- 官方爬蟲包：本版沒有發新包，線上仍是序號 2（`2026-10-15.2`，`b78d9147`）；App 內建基準仍是序號 1（`2026-10-15.1`，33 支）。Ikanbot、Djuu 隨 App 提供，不在官方包內（W-140 第三項）。
+- 發布序列：
+  1. `origin/ios-poc` 在發布前停在 `683ceb1b`。**沒有事先做版號 commit**：版號由 workflow 輸入覆寫，本紀錄所在的 commit 才把 `project.pbxproj` 補成 `0.1.78`／`79`。
+  2. `workflow_dispatch`：ref `ios-poc`，version `0.1.78`、build_number `79`，release notes 為 `artifacts/release-notes-0.1.78.txt`。run `38836431741` success（2026-10-16 01:40:59Z → 01:47:37Z，headSha `683ceb1b`）。
+  3. workflow 建立 tag `ios-v0.1.78-b79`（→ `683ceb1b`），並推回 `source.json` commit `18bd01d089ec32b43aec6dab3a9a3d5da41cd10f`（`release(ios): publish WebHTV 0.1.78 (79)`）：`0.1.78` 是 versions 第一筆、date `2026-10-16`、size 35589870、minOSVersion 17.0，`localizedDescription` 與 `release-notes-0.1.78.txt` 逐字相同。
+
+  **沒有手動建 tag。**
+- 產物：
+  - GitHub Release `WebHTV 0.1.78 (79)`：不是 draft，也不是 prerelease，2026-10-16 01:47:27Z 發布，https://github.com/st7833232/webhtv/releases/tag/ios-v0.1.78-b79。
+  - `WebHTV-0.1.78-79.ipa`：**35,589,870 bytes**，SHA-256 `c70e85911c6b90e44fff7ccf804c65f88ca543059bfefa772663273496141019`（W-142 以 `gh release download` 下載重算，與 Release 資產的 digest 相同）。IPA 內 `Info.plist`：`com.webhtv.ios.poc`／`0.1.78`／`79`／minimum iOS 17.0；Payload 只有一個 `WebHTVApp.app`；`WebHTVCore_WebHTVCore.bundle/SpiderBaseline/manifest.json` 與 repo 相同（sha256 `19f4d4c9…`），`Spiders/` 38 個檔（35 支，比 0.1.77 多 Ikanbot、Djuu，＋SDK 3 支）；Release binary 裡 `WEBHTV_RUNTIME_PACK_URL`、`WEBHTV_HIDE_BUNDLED_SPIDERS`、`WEBHTV_DELAY_PACK_LOAD_MS` 都是 0 筆。
+- 發布前驗證（W-140，`artifacts/pre-release-check-0.1.78/`）：截點只含已審 commit、不含 W-125；WebHTVCore 全測試 1307 個全過（第一輪 2 個 5 秒計時斷言因主機負載超時，單獨與第二輪全量重跑都過）；官方包試建 33 支 verify 0 problem、不含 Ikanbot／Djuu；相容包 verify 不變；tag 與 Release 不存在；Simulator：沒有相容包的設定不再顯示「設定檔相容包」列、Djuu 曲庫載入、Ikanbot 進到分類頁。
+- 已知問題與未驗：
+  - Ikanbot 的片單內容在發布前檢查的機器上沒有載入：該網路的 DNS 對網站只回 IPv6，系統 `curl` 也解析失敗，屬環境問題；App 的錯誤提示正確，爬蟲邏輯由 W-41 的 fixture 測試涵蓋。一般網路下的實際內容未驗。
+- **真機尚未驗收。**
+
+### Release notes（實際送出的內容）
+
+```text
+來源相容性：
+- 新增更多影視與音樂來源的支援；這些來源隨 App 提供。
+
+修正：
+- 設定檔沒有附帶相容包時，設定頁「爬蟲工具」不再顯示成更新失敗。
+- 啟動時如果有已下載的官方爬蟲更新，播放中會等關閉播放器後才套用。
+```
+
+## 第七十八次發布：`0.1.77 (78)`（2026-10-15，**已發布**，已被 `0.1.78 (79)` 取代）
 
 - 授權：使用者 2026-10-15 17:15「0.1.77 一起發截點內所有已審功能」（看板 #2403／#2404），發布前檢查（W-132，`.herdr-synapse/webhtv-dev/artifacts/pre-release-check-0.1.77-2026-10-15.md`，六項 PASS）與官方包真網址驗證（W-136 PASS）之後，Manager 依授權觸發（#2446）。截點由 Manager 選定為 `f64be3ba`（W-131 為止，#2337）；發布步驟 W-130（`artifacts/release-steps-2026-10-15.md`）。版號 `0.1.77`，build `78`。
 - 建置來源：workflow 建的是當下的 `ios-poc`＝`81115ea9`，也就是 `f64be3ba` 再加官方包發布的三個 commit（`3f8989fd` 暫時觸發、`b78d9147` 發布物、`81115ea9` revert）。這三個只動 `.github/workflows/ios-spider-pack.yml`（加了又還原，和 `f64be3ba` 相同）與 `spider-pack/official/`，App 內容和 `f64be3ba` 相同。

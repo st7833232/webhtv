@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.79",
+          "date": "2026-10-16",
+          "localizedDescription": "爬蟲工具：\n- 爬蟲工具改由官方爬蟲包提供，App 本體不再內建；之後爬蟲的更新與修正不必等 App 改版。\n- 從舊版升級時，已安裝的爬蟲工具會保留，照常可用；需要新版時首頁會提示下載。\n- 全新安裝或按下「重設」後，請在首頁提示或設定頁「爬蟲工具」下載官方爬蟲包，才能使用需要爬蟲的來源。\n\n修正：\n- 啟動時先載入爬蟲工具再顯示來源，不會先跳到其他來源。\n",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.79-b80/WebHTV-0.1.79-80.ipa",
+          "size": 35444818,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.78",
           "date": "2026-10-16",
           "localizedDescription": "來源相容性：\n- 新增更多影視與音樂來源的支援；這些來源隨 App 提供。\n\n修正：\n- 設定檔沒有附帶相容包時，設定頁「爬蟲工具」不再顯示成更新失敗。\n- 啟動時如果有已下載的官方爬蟲更新，播放中會等關閉播放器後才套用。\n",

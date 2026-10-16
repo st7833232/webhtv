@@ -72,6 +72,13 @@
       "sha256": "8d062fcf811d56caaffb94f9496d58d64bdce876adcef01eca1fdb09449c16ff"
     },
     {
+      "bytes": 7010,
+      "class": "Djuu",
+      "logicalType": "spider.js",
+      "path": "spiders/Djuu.js",
+      "sha256": "8b2fcd75c7eabaaea4422c27563b0ddec0578a41397cd613cd42d040cd332a93"
+    },
+    {
       "bytes": 9781,
       "class": "Duboku",
       "logicalType": "spider.js",
@@ -129,6 +136,13 @@
       "logicalType": "spider.js",
       "path": "spiders/HemaDJ.js",
       "sha256": "a9b3da31b741d77f68e028bc77f776be02d76aba0c93ad1e53e272c8b3a4b944"
+    },
+    {
+      "bytes": 11832,
+      "class": "Ikanbot",
+      "logicalType": "spider.js",
+      "path": "spiders/Ikanbot.js",
+      "sha256": "a310a0cd7f8bc4cd4c90522559f7b24a4de0794b8b8e10943449b6970ed71aeb"
     },
     {
       "aliases": [
@@ -278,6 +292,6 @@
   "scope": {
     "kind": "global"
   },
-  "sequence": 2,
-  "version": "2026-10-15.2"
+  "sequence": 3,
+  "version": "2026-10-16.1"
 }

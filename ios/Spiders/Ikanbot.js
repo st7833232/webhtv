@@ -74,9 +74,10 @@
   }
 
   var spider = {
-    // Ikanbot.java:358–370. `$$$proxy` suffixes (0825's variant) are out of scope (gate §6.6).
+    // Ikanbot.java:358–370. `$$$` starts TVBox add-on flags (qist 0825: `https://v.ikanbot.com$$$proxy`); upstream's
+    // split('[') kept them in the host (W-144). There is no proxy on iOS, so the flags are dropped.
     init: function (extend) {
-      var ext = text(extend);
+      var ext = text(extend).split('$$$')[0];
       site = HOST;
       order = '';
       if (ext.indexOf('http') === 0) site = ext.split('[')[0];

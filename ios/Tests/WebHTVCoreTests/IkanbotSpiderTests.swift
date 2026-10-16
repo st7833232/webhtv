@@ -136,6 +136,15 @@ private func lines(_ rows: [(String, [String])]) throws -> Data {
         #expect(IkanbotSite.requests.first?.headers == ["User-Agent": chrome, "Referer": site])
     }
 
+    // W-144: qist 0825 configures the site as `https://v.ikanbot.com$$$proxy`; `$$$` starts TVBox add-on flags, never
+    // part of the host (the home page used to fail on host `v.ikanbot.com$$$proxy`).
+    @Test func aDollarFlagSuffixIsNotPartOfTheHost() async throws {
+        IkanbotSite.serve(["": try home(), "/": try home()])
+        let items = try list(try await spider(extend: "https://v.ikanbot.com$$$proxy").homeVideoContent())
+        #expect(items.count == 24)
+        #expect(IkanbotSite.requests.map(\.url.absoluteString) == ["https://v.ikanbot.com"])
+    }
+
     // I11/K9 (B1: live values), I12: a hot list is 24 `div.item` (48 with `.item`), each a tagged file.
     @Test func aHotCategoryListsTaggedFiles() async throws {
         IkanbotSite.serve(["/hot/index-movie-热门.html": try hotMovie()])

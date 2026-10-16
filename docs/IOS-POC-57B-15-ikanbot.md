@@ -32,7 +32,7 @@
 - 線路資料畸形：單一 `resData` 不是 JSON 時只略過那條線路（上游整個詳情回空）；`data.list` 缺失或 getResN 非 200 時整個詳情回空。
 - 搜尋關鍵字用 `encodeURIComponent`（空白是 `%20`，上游 `URLEncoder` 是 `+`）。
 - 分類回空時回 `{list:[]}` 形狀而不是上游的 `""`（`SourceClient` 解析 `""` 會丟錯）；失敗請求照既有規則由 runtime 轉成 `SiteUnreachable`。
-- 不在範圍：0825 的 `$$$proxy` ext、XYQ.jar 變體（閘門 §6.6）。
+- 不在範圍：XYQ.jar 變體（閘門 §6.6）。0825 的 `$$$proxy` ext 原本也不在範圍，W-144 已支援（見文末）。
 
 ## 3. Fixture 來源（2026-10-15，公開 GET，桌機 UA＋`Referer: https://www1.ikanbot.com`，沒有代理、沒有被攔截的跡象）
 
@@ -94,3 +94,10 @@ MK2（照抄上游迴圈）沒有單獨做：與 MK11 同一段程式，負向�
 - rebase 到 `31161856` 後第一次全量：1290 個測試只有 1 個失敗——W-122 的 `SpiderBaselineTests.anEmptyScopeIsSeededAndRunsTheSameScripts` 要求每個 `ported` class 都來自種子，而 Ikanbot 依 #2249／#2254 刻意不進種子。修法：同一個 `notInBaseline` 集合裡的 class 改為斷言「仍由內建層提供（`source == .bundled`）且腳本和內建相同」，其餘照舊要求來自種子。
 - 修正後全量 `swift test`：**1290 tests／47 suites 全過**（`artifacts/w41-logs/full-rebased.log`，`Ikanbot.js` sha256 仍是 GUI 受測版 `a310a0cd…aeb`）。
 - commit SHA 與 parent 記在看板與 `work done`（parent＝origin/ios-poc `31161856`）。
+
+## W-144：0825 的 `$$$proxy` 後綴（2026-10-16）
+
+- 問題：W-139 的 Simulator 情境③發現，0825 把這個站設成 `https://v.ikanbot.com$$$proxy`。`init` 只照上游切 `[`，主機變成 `v.ikanbot.com$$$proxy`，首頁報「找不到網域」（Reviewer W-139 N-1）。
+- 修正：`init` 先切掉 `$$$` 之後的 TVBox 附加旗標（同一份設定的荐片用 `$$$1` 也是這種寫法），再照原本規則取主機與 `[排序:`。iOS 沒有代理，旗標直接丟掉。只改 `ios/Spiders/Ikanbot.js`，隨下一個官方包（序號 4）發出，不必改版 App。
+- 驗證（`artifacts/w144-logs/`）：新測試 `aDollarFlagSuffixIsNotPartOfTheHost` 先紅（請求打到帶後綴的主機，`red.log`）後綠，`IkanbotSpiderTests` 15/15（`green.log`）；`test_pack_exclusions.py` PASS、`runtime_pack.py build --sequence 4` 試建 35 支 verify 0 problem（`tools.txt`）。沒驗到：0825 線上首頁的實際內容（要等序號 4 發布後在 App 裡下載）。
+- Ponytail：沒有 finding（一行；`$$$` 不可能是合法主機的一部分，`[排序:` 也不再帶到旗標）。

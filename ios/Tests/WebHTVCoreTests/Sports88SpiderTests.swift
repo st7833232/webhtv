@@ -91,7 +91,7 @@ private func session() -> URLSession {
 private let suite = "Sports88-test"
 
 private func spider(_ name: String = "Sports88", extend: String = "") async throws -> JavaScriptSpiderRuntime {
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let runtime = try JavaScriptSpiderRuntime(
         name: name, script: try #require(registry.entry(for: "csp_" + name)?.script), prelude: registry.prelude,
         storage: SpiderStorage(siteKey: suite, defaults: UserDefaults(suiteName: suite)!), session: session())
@@ -123,10 +123,10 @@ private func same(_ a: [(String, String)], _ b: [(String, String)]) -> Bool { a.
     @Test func csp_KanqiuIsAnAliasOfSports88() throws {
         #expect(SpiderRegistry.ported.isSuperset(of: ["Sports88", "Kanqiu"]))
         #expect(SpiderRegistry.aliases["Kanqiu"] == "Sports88")
-        let folder = try #require(Bundle.module.url(forResource: "Spiders", withExtension: nil))
+        let folder = try #require(Bundle.repoSpiders.url(forResource: "Spiders", withExtension: nil))
         let files = try FileManager.default.contentsOfDirectory(atPath: folder.path)
         #expect(files.filter { $0.lowercased().contains("sports88") || $0.lowercased().contains("kanqiu") } == ["Sports88.js"])
-        let registry = SpiderRegistry.bundled()
+        let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
         #expect(registry.entry(for: "csp_Kanqiu")?.script == registry.entry(for: "csp_Sports88")?.script)
     }
 

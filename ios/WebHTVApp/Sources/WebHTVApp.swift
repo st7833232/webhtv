@@ -144,11 +144,14 @@ private struct ConfigView: View {
     @State private var updatedAt: Date?
     @State private var refreshing = false
     /// What the compatibility pack is doing, shown in settings so a refused pack is visible rather
-    /// than silent. Empty means "bundled scripts", which is the normal state until a pack is served.
+    /// than silent. Empty means no row: no compatibility pack, the normal state (W-138).
     @State private var packStatus = ""
-    /// IOS-POC-61 S3: the official pack that runs (`nil` is the bundled scripts), the last check's sentence, and one
-    /// busy flag every way in shares — settings, the banner, the all-spider screen — so two never run at once.
+    /// IOS-POC-61 S3: the official pack that runs (`nil`: none, so no spider since S5), the last check's sentence, and
+    /// one busy flag every way in shares — settings, the banner, the all-spider screen — so two never run at once.
     @State private var officialPack: OfficialSpiderPack?
+    /// S5: the installed pack has been read at launch. The site list waits for it (nothing is bundled), so until then
+    /// a spinner stands in for every screen that depends on it — never a wrong site, a banner or 尚未載入設定.
+    @State private var officialLoaded = false
     @State private var spiderToolNote = ""
     @State private var spiderToolCheckedAt: Date?
     @State private var spiderToolOutcome: RuntimePackUpdater.Outcome?
@@ -161,7 +164,9 @@ private struct ConfigView: View {
 
     var body: some View {
         Group {
-            if sites.isEmpty && needSpiderTool == 0 {
+            if !officialLoaded {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).appWallpaper()
+            } else if sites.isEmpty && needSpiderTool == 0 {
                 NavigationStack {
                     ContentUnavailableView(
                         "尚未載入設定",
@@ -305,28 +310,13 @@ private struct ConfigView: View {
         }
         .task {
             let launch = Date()
-            // W-131: the site list first, on the bundled scripts; the official pack's disk work (a first seed compiles
-            // 33 scripts, every load re-hashes them) comes after, so the list never waits for it. Never the network.
-            restore()
-            Self.spiderToolLog.notice("site list ready \(Int(Date().timeIntervalSince(launch) * 1000)) ms after launch")
+            // S5 (W-141 M-1): nothing is bundled, so the installed pack is read before the site list — listing first
+            // (W-131) would open on another site and flash the banner until it arrived. No player can be open yet, so
+            // nothing is deferred. Never the network.
             await RuntimePackStore.shared.removeStaging()
-            await seedBaseline()
-            #if DEBUG
-            // W-134 Simulator evidence only: holds the load back so a player can be opened first. Compiled out of Release.
-            if let ms = ProcessInfo.processInfo.environment["WEBHTV_DELAY_PACK_LOAD_MS"].flatMap(Int.init) {
-                try? await Task.sleep(for: .milliseconds(ms))
-            }
-            #endif
-            // A pack with this build's own scripts changes nothing listed: it is set as it is. Another one (a download)
-            // goes through applyOfficialPack like an install, so it waits while a player is open (W-131 review N-1);
-            // that loads it once more, only in this case.
-            let pack = await RuntimePackStore.shared.load(host: .installed())
-            if let pack, pack.generation.contentIdentity != SpiderBaseline.identity {
-                await applyOfficialPack()
-            } else {
-                officialPack = pack
-                ActiveOfficialPack.shared.set(pack)
-            }
+            await loadOfficialPack()
+            restore()
+            Self.spiderToolLog.notice("site list ready \(Int(Date().timeIntervalSince(launch) * 1000)) ms after launch, \(officialPack.map { "\($0.version) seq \($0.generation.sequence)" } ?? "no pack", privacy: .public)")
             await WatchHistoryStore.shared.migrateSiteIdentities(in: sites)
             // The cached pack is adopted before anything is fetched, so an offline launch runs on
             // the last known good scripts rather than waiting for the network.
@@ -489,7 +479,7 @@ private struct ConfigView: View {
     }
 
     /// Fetches a pack in the background. A failure is deliberately quiet in the UI beyond the
-    /// status line: the app keeps running on the pack or the bundled scripts it already had.
+    /// status line: the app keeps running on whatever pack it already had.
     private func refreshSpiderPack() async {
         guard let url = SpiderPackStore.url(for: source) else { return }
         do {
@@ -535,19 +525,17 @@ private struct ConfigView: View {
         }
     }
 
-    /// 重設: forgets the downloaded pack (floor included, so the same version installs again) and runs the bundled
-    /// scripts — through the same apply as an install. Settings, history and the compatibility pack stay.
+    /// 重設: forgets the downloaded pack (floor included, so the same version installs again), so no spider runs until
+    /// the next download — through the same apply as an install. Settings, history and the compatibility pack stay.
     private func resetSpiderTool() {
         guard !spiderToolBusy else { return }
         spiderToolBusy = true
         Task {
             do {
                 try await RuntimePackStore.shared.reset()
-                // Straight back to this build's own scripts as a generation (S4), as a fresh launch would.
-                await seedBaseline()
                 spiderToolOutcome = nil
                 await applyOfficialPack()
-                spiderToolNote = officialPending ? "已重設，關閉播放器後套用" : "已重設，回到內建版本"
+                spiderToolNote = officialPending ? "已重設，關閉播放器後套用" : "已重設，爬蟲工具已移除"
             } catch {
                 spiderToolNote = "重設失敗：\(error.localizedDescription)"
             }
@@ -557,22 +545,10 @@ private struct ConfigView: View {
         }
     }
 
-    /// S4 (W-122): this build's bundled scripts as a generation of the official pack, when its sequence is above
-    /// what is installed. Never the network; a refusal or failure is only logged and the bundled scripts run.
-    private func seedBaseline() async {
-        let start = Date()
-        do {
-            let seeded = try await RuntimePackStore.shared.seedBaseline()
-            let ms = Int(Date().timeIntervalSince(start) * 1000)
-            Self.spiderToolLog.notice("baseline \(seeded.map { "seeded \($0.version) seq \($0.generation.sequence)" } ?? "unchanged", privacy: .public) in \(ms) ms")
-        } catch {
-            Self.spiderToolLog.notice("baseline not seeded: \(String(describing: error), privacy: .public)")
-        }
-    }
-
     private func loadOfficialPack() async {
         officialPack = await RuntimePackStore.shared.load(host: .installed())
         ActiveOfficialPack.shared.set(officialPack)
+        officialLoaded = true
     }
 
     /// The registry, a fresh session cache and the site list, as `refreshSpiderPack` does for the compatibility
@@ -588,7 +564,7 @@ private struct ConfigView: View {
         await loadOfficialPack()
         await SpiderSessionStore.shared.reset()
         rebuildSites()
-        Self.spiderToolLog.notice("applied \(officialPack.map { "\($0.version) seq \($0.generation.sequence)" } ?? "bundled", privacy: .public)")
+        Self.spiderToolLog.notice("applied \(officialPack.map { "\($0.version) seq \($0.generation.sequence)" } ?? "none", privacy: .public)")
     }
 
     private static func describe(_ pack: SpiderPack) -> String {
@@ -2262,7 +2238,7 @@ private extension SettingsView {
             Button("重設", role: .destructive, action: onResetSpiderTool)
             Button("取消", role: .cancel) {}
         } message: {
-            Text("刪除已下載的爬蟲工具，回到 App 內建的版本。已存來源、觀看記錄、收藏與設定都不受影響。")
+            Text("刪除已下載的爬蟲工具，需要爬蟲工具的來源要重新下載後才能使用。已存來源、觀看記錄、收藏與設定都不受影響。")
         }
     }
 
@@ -3951,7 +3927,7 @@ private struct StorageMaintenanceView: View {
             } header: {
                 Text("初始化")
             } footer: {
-                Text("刪除已存來源、觀看記錄、收藏、所有離線下載、設定、網頁登入資料、線上字幕的帳號金鑰與快取，回到剛安裝的狀態；下載的爬蟲工具也會刪除，回到內建版本。完成後 App 會關閉，重新打開即可。")
+                Text("刪除已存來源、觀看記錄、收藏、所有離線下載、設定、網頁登入資料、線上字幕的帳號金鑰與快取，回到剛安裝的狀態；爬蟲工具也會刪除，需要重新下載。完成後 App 會關閉，重新打開即可。")
             }
             .listRowBackground(appSurface)
         }
@@ -3966,7 +3942,7 @@ private struct StorageMaintenanceView: View {
             Button("繼續", role: .destructive) { confirmingResetAgain = true }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("已存來源、觀看記錄、收藏、所有離線下載與設定都會刪除；下載的爬蟲工具也會刪除，回到內建版本。")
+            Text("已存來源、觀看記錄、收藏、所有離線下載與設定都會刪除；爬蟲工具也會刪除，需要重新下載。")
         }
         .alert("確定要初始化？", isPresented: $confirmingResetAgain) {
             Button("初始化", role: .destructive) { Task { await reset() } }

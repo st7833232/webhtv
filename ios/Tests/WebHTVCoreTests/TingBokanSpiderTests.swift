@@ -58,7 +58,7 @@ private let firstEpisode = "01.《葵花向太阳》 引子 心中的桥$http://
 private func tingBokan() async throws -> JavaScriptSpiderRuntime {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [BookanSite.self]
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let runtime = try JavaScriptSpiderRuntime(
         name: "TingBokan", script: try #require(registry.entry(for: "csp_TingBokan")?.script), prelude: registry.prelude,
         storage: SpiderStorage(siteKey: "TingBokan-test", defaults: UserDefaults(suiteName: "TingBokan-test")!),

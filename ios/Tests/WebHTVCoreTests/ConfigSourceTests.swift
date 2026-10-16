@@ -67,7 +67,7 @@ private let base = "https://example.com/group/project/-/raw/main/"
     """#.utf8)
     let config = try ConfigLoader.validate(spiderOnly)
     #expect(config.nativeCMSSites.isEmpty)
-    #expect(config.spiderSites(resolvedBy: CSPSourceResolver()).map(\.key) == ["csp_JianPian"])
+    #expect(config.spiderSites(resolvedBy: CSPSourceResolver(registry: .bundled(bundle: .repoSpiders))).map(\.key) == ["csp_JianPian"])
 }
 
 @Test func countsTheSupportedSitesOfTheSuppliedConfig() throws {

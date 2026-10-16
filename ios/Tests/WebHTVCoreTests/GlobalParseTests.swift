@@ -307,7 +307,7 @@ module.exports = {
         #expect(ParseService.requests.allSatisfy { $0.url?.host == "json-b.invalid" })
 
         // `make` pairs the cached session with the site it was asked for.
-        let resolver = CSPSourceResolver()
+        let resolver = CSPSourceResolver(registry: .bundled(bundle: .repoSpiders))
         let ported = #"{"key":"sp","name":"S","type":3,"api":"csp_AppGet","ext":{"url":"https://example.invalid"}}"#
         let first = try config(#"{"sites":[\#(ported)]}"#).sites[0]
         let second = try config(#"{"sites":[\#(ported)],"parses":[{"name":"B","type":0,"url":"https://web.invalid/?url="}]}"#).sites[0]

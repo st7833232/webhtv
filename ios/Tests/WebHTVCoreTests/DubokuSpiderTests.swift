@@ -63,7 +63,7 @@ private func session() -> URLSession {
 }
 
 private func duboku() async throws -> JavaScriptSpiderRuntime {
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let runtime = try JavaScriptSpiderRuntime(
         name: "Duboku", script: try #require(registry.entry(for: "csp_Duboku")?.script), prelude: registry.prelude,
         storage: SpiderStorage(siteKey: "Duboku-test", defaults: UserDefaults(suiteName: "Duboku-test")!), session: session())
@@ -73,7 +73,7 @@ private func duboku() async throws -> JavaScriptSpiderRuntime {
 
 /// The same script in a bare host context whose clock is pinned to `ms`, so a request carries a known signature.
 private func signedRequest(at ms: Int64) throws -> URLComponents {
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let context = try #require(JSContext())
     CatVodHost.install(into: context, storage: SpiderStorage(siteKey: "Duboku-sign"), cookies: CookieJar(), session: session())
     context.evaluateScript(registry.prelude)
@@ -114,7 +114,7 @@ private func item(_ name: String, did: String = "GdlRGZvZ3L5kDNx8CbpF.MTN", extr
 
 @Suite(.serialized) struct DubokuSpiderTests {
     @Test func theRegistryDrivesCspDuboku() {
-        #expect(SpiderRegistry.bundled().entry(for: "csp_Duboku") != nil)
+        #expect(SpiderRegistry.bundled(bundle: .repoSpiders).entry(for: "csp_Duboku") != nil)
     }
 
     // JDK 17 `Golden.java` (§5.1): no rejection in nextInt(800000000).

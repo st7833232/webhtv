@@ -75,7 +75,7 @@ private func session() -> URLSession {
 private let suite = "SportsKafei-test"
 
 private func kafei() async throws -> JavaScriptSpiderRuntime {
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let runtime = try JavaScriptSpiderRuntime(
         name: "SportsKafei", script: try #require(registry.entry(for: "csp_SportsKafei")?.script), prelude: registry.prelude,
         storage: SpiderStorage(siteKey: suite, defaults: UserDefaults(suiteName: suite)!), session: session())

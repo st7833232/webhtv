@@ -88,7 +88,7 @@ private func session() -> URLSession {
 private let suite = "TingJinxia-test"
 
 private func jinxia() async throws -> JavaScriptSpiderRuntime {
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let runtime = try JavaScriptSpiderRuntime(
         name: "TingJinxia", script: try #require(registry.entry(for: "csp_TingJinxia")?.script), prelude: registry.prelude,
         storage: SpiderStorage(siteKey: suite, defaults: UserDefaults(suiteName: suite)!), session: session())
@@ -110,7 +110,7 @@ private func chapter(book: String = "2117", pay: String = "11", page: String = "
 
 @Suite(.serialized) struct TingJinxiaSpiderTests {
     @Test func theRegistryDrivesCspTingJinxia() {
-        #expect(SpiderRegistry.bundled().entry(for: "csp_TingJinxia") != nil)
+        #expect(SpiderRegistry.bundled(bundle: .repoSpiders).entry(for: "csp_TingJinxia") != nil)
     }
 
     @Test func homeListsNineClassesWithTheOrderFilterAndAsksNothing() async throws {

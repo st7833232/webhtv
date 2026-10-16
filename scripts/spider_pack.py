@@ -30,7 +30,7 @@ NOT_PACKABLE = {"host.js", "drpy-bridge.js", "js-spider.js"}
 # Ports that need the app's folder navigation (vod_tag "folder", catvod.result 1.3, IOS-POC-60) ship with
 # the IPA only: an older app would open a folder as a video and fail (FOLDER-04,
 # artifacts/qist-ikanbot-folder-2026-10-09.md §7.1). This is the compatibility pack's rule (Manager #2166);
-# the official pack, read only by apps that have folders, carries them (IOS-POC-61 S5).
+# the official pack, read only by apps that have folders, carries them (IOS-POC-61 S5: the IPA no longer does).
 IPA_ONLY = {"Ikanbot.js", "Djuu.js"}
 
 # Provenance for the ports this repository carries: which JAR each one was read from, that JAR's

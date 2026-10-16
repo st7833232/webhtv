@@ -5,6 +5,7 @@ import Testing
 
 // IOS-POC-61 S1 (W-119): the official spider pack's generations on disk, and the registry's three layers —
 // a configuration's compatibility pack, then the official pack, then the bundled scripts — class by class.
+// Since S5 the App's bundle has no spider, so these tests use the repository's `ios/Spiders` as that bundle.
 // Unsigned by the user's 2026-10-15 decision: the store never asks for a signature.
 
 private func sha(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
@@ -263,21 +264,13 @@ private func official(_ scripts: [String: String], aliases: [String: String] = [
 }
 
 @Suite struct SpiderRegistryLayerTests {
-    // U1: no official pack and no compatibility pack is exactly today's bundled registry.
-    @Test func withoutPacksEveryClassIsTheBundledOne() {
-        let layered = SpiderRegistry.bundled(official: nil, overlaying: nil)
-        let bundled = SpiderRegistry.bundled()
-        #expect(layered.entries.keys.sorted() == bundled.entries.keys.sorted())
-        for name in SpiderRegistry.ported {
-            #expect(layered.entries[name]?.script == bundled.entries[name]?.script)
-            #expect(layered.entries[name]?.source == .bundled)
-        }
-    }
+    // U1 moved to SpiderDecoupleTests (S5: without packs nothing is driven). The layers below run on the
+    // repository's scripts as their bottom layer, which is what a bundle with spiders would be.
 
     // R1, R2: the compatibility pack beats the official one, the official one beats the bundle, and a class
     // neither pack brings stays bundled.
     @Test func eachClassComesFromTheHighestLayerThatHasIt() throws {
-        let registry = SpiderRegistry.bundled(
+        let registry = SpiderRegistry.bundled(bundle: .repoSpiders,
             official: try official(["AppGet": script("official"), "Bili": script("official")]),
             overlaying: SpiderPack(version: "c1", scripts: ["AppGet": script("compat")]))
         #expect(registry.entry(for: "csp_AppGet")?.script == script("compat"))
@@ -289,23 +282,23 @@ private func official(_ scripts: [String: String], aliases: [String: String] = [
 
     // A2: an official alias follows the official target; without one the Swift alias keeps the bundled copy.
     @Test func anOfficialAliasOnlyRepointsToAnOfficialScript() throws {
-        let declared = SpiderRegistry.bundled(official: try official(["Sports88": script("s88")], aliases: ["Kanqiu": "Sports88"]),
+        let declared = SpiderRegistry.bundled(bundle: .repoSpiders, official: try official(["Sports88": script("s88")], aliases: ["Kanqiu": "Sports88"]),
                                               overlaying: nil)
         #expect(declared.entry(for: "csp_Kanqiu")?.script == script("s88"))
         #expect(declared.entry(for: "csp_Kanqiu")?.source == .official(version: "s1"))
-        let undeclared = SpiderRegistry.bundled(official: try official(["Sports88": script("s88")]), overlaying: nil)
+        let undeclared = SpiderRegistry.bundled(bundle: .repoSpiders, official: try official(["Sports88": script("s88")]), overlaying: nil)
         #expect(undeclared.entry(for: "csp_Kanqiu")?.source == .bundled)
-        #expect(undeclared.entry(for: "csp_Kanqiu")?.script == SpiderRegistry.bundled().entry(for: "csp_Sports88")?.script)
+        #expect(undeclared.entry(for: "csp_Kanqiu")?.script == SpiderRegistry.bundled(bundle: .repoSpiders).entry(for: "csp_Sports88")?.script)
         // A stale official alias whose target the official pack did not bring repoints nothing.
-        let stale = SpiderRegistry.bundled(official: try official(["Bili": script("b")], aliases: ["Kanqiu": "AppGet"]),
+        let stale = SpiderRegistry.bundled(bundle: .repoSpiders, official: try official(["Bili": script("b")], aliases: ["Kanqiu": "AppGet"]),
                                            overlaying: nil)
-        #expect(stale.entry(for: "csp_Kanqiu")?.script == SpiderRegistry.bundled().entry(for: "csp_Sports88")?.script)
+        #expect(stale.entry(for: "csp_Kanqiu")?.script == SpiderRegistry.bundled(bundle: .repoSpiders).entry(for: "csp_Sports88")?.script)
     }
 
     // A3: each layer's aliases point only into that layer. The compatibility pack brings JianPian without the
     // alias, the official pack brings both: Jianpian stays on the official script.
     @Test func eachLayerOnlyRepointsItsOwnAliases() throws {
-        let registry = SpiderRegistry.bundled(
+        let registry = SpiderRegistry.bundled(bundle: .repoSpiders,
             official: try official(["JianPian": script("official")], aliases: ["Jianpian": "JianPian"]),
             overlaying: SpiderPack(version: "c1", scripts: ["JianPian": script("compat")]))
         #expect(registry.entry(for: "csp_JianPian")?.script == script("compat"))
@@ -318,9 +311,9 @@ private func official(_ scripts: [String: String], aliases: [String: String] = [
         let mapping = SpiderPack.ClassMapping(config: "c", site: "s", className: "X", jar: "j",
                                               jarSha256: String(repeating: "0", count: 64), adapter: "AppGet",
                                               adapterSha256: String(repeating: "1", count: 64))
-        let registry = SpiderRegistry.bundled(official: try official(["Bili": script("o")]),
+        let registry = SpiderRegistry.bundled(bundle: .repoSpiders, official: try official(["Bili": script("o")]),
                                               overlaying: SpiderPack(version: "c1", scripts: [:], mappings: [mapping]))
         #expect(registry.mappings == [mapping])
-        #expect(SpiderRegistry.bundled(official: try official(["Bili": script("o")]), overlaying: nil).mappings.isEmpty)
+        #expect(SpiderRegistry.bundled(bundle: .repoSpiders, official: try official(["Bili": script("o")]), overlaying: nil).mappings.isEmpty)
     }
 }

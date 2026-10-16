@@ -12,7 +12,7 @@ private let site0825 = #"{"key":"荐片弹幕版","name":"荐片","type":3,"api"
 /// host.js and JianPian.js in a bare JSContext whose `__http` answers in JS and records every address, so
 /// what `init` and `categoryContent` ask for is visible without a network or a URLProtocol.
 private func jianPian(extend: String) throws -> (run: (String) -> String?, asked: () -> [String]) {
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let context = try #require(JSContext())
     context.evaluateScript("""
         var asked = [], store = {};
@@ -43,7 +43,7 @@ private func jianPian(extend: String) throws -> (run: (String) -> String?, asked
         #expect(SpiderRegistry.ported.contains("Jianpian"))
         #expect(SpiderRegistry.aliases["Jianpian"] == "JianPian")
         // Every ported name, aliased or not, is a file the bundle holds under exactly that spelling.
-        let folder = try #require(Bundle.module.url(forResource: "Spiders", withExtension: nil))
+        let folder = try #require(Bundle.repoSpiders.url(forResource: "Spiders", withExtension: nil))
         let files = Set(try FileManager.default.contentsOfDirectory(atPath: folder.path))
         for name in SpiderRegistry.ported {
             let file = (SpiderRegistry.aliases[name] ?? name) + ".js"
@@ -53,10 +53,10 @@ private func jianPian(extend: String) throws -> (run: (String) -> String?, asked
 
     @Test func the0825SiteResolvesToJianPianAndItsRelativeExt() throws {
         let site = try JSONDecoder().decode(Site.self, from: Data(site0825.utf8))
-        let resolver = CSPSourceResolver(registry: .bundled(),
+        let resolver = CSPSourceResolver(registry: .bundled(bundle: .repoSpiders),
                                          source: .remote(URL(string: "https://raw.githubusercontent.com/qist/tvbox/master/0825.json")!))
         #expect(resolver.resolvedExtend(for: site) == "https://raw.githubusercontent.com/qist/tvbox/master/json/jianpian.json$$$1")
-        let registry = SpiderRegistry.bundled()
+        let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
         #expect(registry.entry(for: "csp_Jianpian")?.script == registry.entry(for: "csp_JianPian")?.script)
     }
 

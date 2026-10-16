@@ -70,7 +70,7 @@ private let image = "https://ottphoto.daoran.tv/HD/OPERATE/PAGE_IMAGE/album/C/69
 private func appLY() async throws -> JavaScriptSpiderRuntime {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [DaoranSite.self]
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let runtime = try JavaScriptSpiderRuntime(
         name: "AppLY", script: try #require(registry.entry(for: "csp_AppLY")?.script), prelude: registry.prelude,
         storage: SpiderStorage(siteKey: "AppLY-test", defaults: UserDefaults(suiteName: "AppLY-test")!),

@@ -430,7 +430,7 @@ private func playURL(_ value: Any?) -> [String] {
     /// Builds the runtime the way `CSPSourceResolver.jsSpiderSession` does, out of the same bundled
     /// pieces — so this exercises the wiring rather than a copy of it.
     private func runtimeDriving(_ script: String) throws -> JavaScriptSpiderRuntime {
-        let registry = SpiderRegistry.bundled()
+        let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
         #expect(!registry.jsSpiderBridge.isEmpty, "js-spider.js must be bundled")
         let prelude = [registry.prelude, DrpyEngine.moduleRuntime,
                        #"globalThis.__jsSpiderModule = "probe";"#,

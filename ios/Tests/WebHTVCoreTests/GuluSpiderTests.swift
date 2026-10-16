@@ -229,7 +229,7 @@ private func detail902056() throws -> Data { try fixture("3aeee602c4289e3d1e0b18
 private func gulu(_ session: URLSession? = nil) async throws -> JavaScriptSpiderRuntime {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [GuluServer.self]
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let runtime = try JavaScriptSpiderRuntime(
         name: "Gulu", script: try #require(registry.entry(for: "csp_Gulu")?.script), prelude: registry.prelude,
         storage: SpiderStorage(siteKey: "Gulu-test", defaults: UserDefaults(suiteName: "Gulu-test")!),

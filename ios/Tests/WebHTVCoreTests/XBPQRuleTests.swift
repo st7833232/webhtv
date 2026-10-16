@@ -46,7 +46,7 @@ final class RuleSite: URLProtocol, @unchecked Sendable {
 func ruleSpider(_ name: String, _ extend: String) async throws -> JavaScriptSpiderRuntime {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [RuleSite.self]
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let script = try #require(registry.entry(for: "csp_\(name)")?.script)
     let runtime = try JavaScriptSpiderRuntime(
         name: name, script: script, prelude: registry.prelude,

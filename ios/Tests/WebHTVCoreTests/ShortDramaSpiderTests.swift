@@ -76,7 +76,7 @@ final class ShortDramaSite: URLProtocol, @unchecked Sendable {
 private func spider(_ name: String, extend: String = "") async throws -> JavaScriptSpiderRuntime {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [ShortDramaSite.self]
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let runtime = try JavaScriptSpiderRuntime(
         name: name, script: try #require(registry.entry(for: "csp_\(name)")?.script), prelude: registry.prelude,
         storage: SpiderStorage(siteKey: "\(name)-test", defaults: UserDefaults(suiteName: "\(name)-test")!),
@@ -903,7 +903,7 @@ private func aes(_ text: String, key: String, iv: String = "", mode: String, enc
 
 @Test func uvodSealsEveryRequestAndOpensRepliesWithItsPrivateKey() async throws {
     let iv = "abcdefghijklmnop"
-    let script = try #require(SpiderRegistry.bundled().entry(for: "csp_Uvod")?.script)
+    let script = try #require(SpiderRegistry.bundled(bundle: .repoSpiders).entry(for: "csp_Uvod")?.script)
     let publicKey = try #require(script.range(of: #"PUBLIC_KEY = '([^']+)'"#, options: .regularExpression).map {
         String(script[$0].dropFirst("PUBLIC_KEY = '".count).dropLast()) })
     let privateKey = try #require(script.range(of: #"PRIVATE_KEY = '([^']+)'"#, options: .regularExpression).map {
@@ -967,7 +967,7 @@ private func aes(_ text: String, key: String, iv: String = "", mode: String, enc
 /// IOS-POC-56: 荐片's VIP portal links ask for the configuration's parse services, as the original's
 /// `parse:1, jx:1` does; its own files stay direct. `playerContent` needs nothing from `init`.
 @Test func jianPianSendsVIPPortalLinksToTheGlobalParse() async throws {
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let runtime = try JavaScriptSpiderRuntime(
         name: "JianPian", script: try #require(registry.entry(for: "csp_JianPian")?.script), prelude: registry.prelude,
         storage: SpiderStorage(siteKey: "JianPian-jx-test", defaults: UserDefaults(suiteName: "JianPian-jx-test")!))

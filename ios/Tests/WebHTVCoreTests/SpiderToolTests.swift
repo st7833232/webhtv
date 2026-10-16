@@ -41,15 +41,20 @@ private let nothingInstalled = CSPSourceResolver(registry: SpiderRegistry(entrie
     }
 
     @Test func theStatusLineNamesWhatRuns() {
-        #expect(SpiderToolText.status(of: nil) == "內建基準（\(SpiderToolText.bundledScripts) 支）")
+        // S5: nothing bundled, so no generation is 未安裝, and a generation the N version seeded is an official pack.
+        #expect(SpiderToolText.status(of: nil) == "未安裝")
         let generation = RuntimeGeneration(sequence: 12, manifestSHA256: "a", contentIdentity: "b")
         let pack = OfficialSpiderPack(generation: generation, version: "2026-10-20.1",
                                       scripts: ["AppGet": "", "Bili": ""], aliases: ["Jys": "AppGet"])
-        #expect(SpiderToolText.status(of: pack, baseline: "other") == "官方包 2026-10-20.1（序號 12，2 支）")
-        // W-122: the seeded generation is the bundled content, named as such.
-        #expect(SpiderToolText.status(of: pack, baseline: "b") == "內建基準 2026-10-20.1（序號 12，2 支）")
-        // Scripts, not class names: an alias is not another spider.
-        #expect(SpiderToolText.bundledScripts < SpiderRegistry.ported.count)
+        #expect(SpiderToolText.status(of: pack) == "官方包 2026-10-20.1（序號 12，2 支）")
+    }
+
+    // Plan §2.4: with nothing installed there is no version to keep using.
+    @Test func nothingInstalledHasNoVersionToKeep() {
+        func text(_ outcome: RuntimePackUpdater.Outcome) -> String { SpiderToolText.result(of: outcome, scripts: 0, playing: false) }
+        #expect(text(.unreachable("offline")) == "無法連線，請稍後再試")
+        #expect(text(.failed("HTTP 503")) == "下載沒有完成，請稍後再試")
+        #expect(text(.rejected(.digestMismatch("spiders/AppGet.js"))) == "更新包驗證失敗，沒有採用，請稍後再試")
     }
 
     // W-138: most configurations publish no compatibility pack, so their 404 is the normal answer and shows no row;
@@ -67,8 +72,8 @@ private let nothingInstalled = CSPSourceResolver(registry: SpiderRegistry(entrie
     // The banner counts only what the 爬蟲工具 could bring: a class the pack provides that does not run today.
     @Test func onlyAProvidableClassThatDoesNotRunCountsAsNeedingTheTool() throws {
         let mixed = try config([cms, ported, unported, drpy, python].joined(separator: ","))
-        // N: everything providable is bundled, so nothing is missing and there is no banner.
-        #expect(mixed.sitesNeedingSpiderTool(resolvedBy: CSPSourceResolver()).isEmpty)
+        // Everything providable runs (the tool installed; the repository scripts stand in), so there is no banner.
+        #expect(mixed.sitesNeedingSpiderTool(resolvedBy: CSPSourceResolver(registry: .bundled(bundle: .repoSpiders))).isEmpty)
         // N+1 before a download: only the ported class counts, never an unported one, drpy or Python.
         #expect(mixed.sitesNeedingSpiderTool(resolvedBy: nothingInstalled).map(\.key) == ["app"])
         // An alias counts as the class it is.

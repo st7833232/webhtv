@@ -75,7 +75,7 @@ private func ok(_ text: String) -> Result<(Data, Int), Error> { .success((Data(t
     #expect(pack.scripts["AppGet"] == body)
 
     // The registry must prefer it, and must say so rather than looking identical to the bundle.
-    let registry = SpiderRegistry.bundled(overlaying: pack)
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders, overlaying: pack)
     let entry = try #require(registry.entry(for: "csp_AppGet"))
     #expect(entry.source == .pack(version: "2026-09-17.1"))
     #expect(entry.script == body)
@@ -92,7 +92,7 @@ private func ok(_ text: String) -> Result<(Data, Int), Error> { .success((Data(t
     ], directory: scratch())
     let pack = try await subject.refresh(from: packURL)
 
-    let registry = SpiderRegistry.bundled(overlaying: pack)
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders, overlaying: pack)
     let runtime = try registry.makeRuntime(for: "csp_AppGet", siteKey: "t")
     let home = try await runtime.homeContent(filter: true)
     #expect(home.contains("pack-driven"), "the remote script, not the bundled one, must be what ran")
@@ -108,7 +108,7 @@ private func ok(_ text: String) -> Result<(Data, Int), Error> { .success((Data(t
         "https://example.invalid/spiders/JianPian.js": ok(body)
     ], directory: scratch())
     let pack = try await subject.refresh(from: packURL)
-    let registry = SpiderRegistry.bundled(overlaying: pack)
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders, overlaying: pack)
 
     #expect(registry.canDrive("csp_JPianAmns"))
     #expect(registry.entry(for: "csp_JPianAmns")?.script == body)
@@ -133,7 +133,7 @@ private func ok(_ text: String) -> Result<(Data, Int), Error> { .success((Data(t
     }
     // Nothing adopted, so the app is still on the bundled scripts.
     #expect(await subject.installedPack() == nil)
-    #expect(SpiderRegistry.bundled(overlaying: nil).entry(for: "csp_AppGet")?.source == .bundled)
+    #expect(SpiderRegistry.bundled(bundle: .repoSpiders, overlaying: nil).entry(for: "csp_AppGet")?.source == .bundled)
     await subject.reset()
 }
 
@@ -250,7 +250,7 @@ private func ok(_ text: String) -> Result<(Data, Int), Error> { .success((Data(t
 }
 
 @Test func withoutAPackTheBundledScriptsAreWhatRun() throws {
-    let registry = SpiderRegistry.bundled(overlaying: nil)
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders, overlaying: nil)
     #expect(registry.entry(for: "csp_AppGet")?.source == .bundled)
     #expect(registry.canDrive("csp_JPianAmns"), "the bundled alias still resolves without a pack")
     #expect(!registry.prelude.isEmpty)
@@ -291,7 +291,7 @@ private func isolatedDefaults() -> UserDefaults {
 @Test func aMappingAppliesOnlyInsideItsWholeScope() async throws {
     let pack = try await mappingPack(adapter: script(marking: "adapter"))
     #expect(pack.mappings.count == 1)
-    let registry = SpiderRegistry.bundled(overlaying: pack)
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders, overlaying: pack)
     let source = ConfigSource.remote(mappedConfig)
 
     #expect(registry.mapping(for: try csp("瓜子-改名", "csp_GuaziTZ"), in: source)?.adapter == "GuaziTY")
@@ -313,7 +313,7 @@ private func isolatedDefaults() -> UserDefaults {
     #expect(registry.mapping(for: try csp("瓜子-改名", "csp_GuaziTY"), in: source) == nil)
     #expect(registry.canDrive("csp_GuaziTY"))
     // Without the pack nothing maps at all.
-    #expect(SpiderRegistry.bundled(overlaying: nil).mapping(for: try csp("瓜子-改名", "csp_GuaziTZ"), in: source) == nil)
+    #expect(SpiderRegistry.bundled(bundle: .repoSpiders, overlaying: nil).mapping(for: try csp("瓜子-改名", "csp_GuaziTZ"), in: source) == nil)
 }
 
 @Test func aMappingIsDroppedWhenTheAdapterIsNotTheAnalysedVersion() async throws {
@@ -335,7 +335,7 @@ private func isolatedDefaults() -> UserDefaults {
         return (served.value, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
                                               headerFields: ["ETag": served.value == jarBytes ? "\"v1\"" : "\"v2\""]))
     }
-    let resolver = CSPSourceResolver(registry: SpiderRegistry.bundled(overlaying: pack),
+    let resolver = CSPSourceResolver(registry: SpiderRegistry.bundled(bundle: .repoSpiders, overlaying: pack),
                                      source: .remote(mappedConfig), defaults: isolatedDefaults(), jars: jars)
     let site = try csp("瓜子-改名", "csp_GuaziTZ")
 
@@ -384,7 +384,7 @@ private func isolatedDefaults() -> UserDefaults {
     let pack = try await store.refresh(from: URL(string: "https://pack.invalid/manifest.json")!)
     let config = try JSONDecoder().decode(WebHTVConfig.self, from: Data(contentsOf: configURL))
     let source = ConfigSource.remote(configURL)
-    let resolver = CSPSourceResolver(registry: .bundled(overlaying: pack), source: source,
+    let resolver = CSPSourceResolver(registry: .bundled(bundle: .repoSpiders, overlaying: pack), source: source,
                                      jars: JarFingerprints(defaults: isolatedDefaults()))
     let mapped = config.sites.filter { resolver.registry.mapping(for: $0, in: source) != nil }
     print("[pack] \(pack.version): \(pack.mappings.count) mapping(s), \(mapped.count) in this configuration, "

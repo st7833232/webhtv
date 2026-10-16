@@ -93,7 +93,7 @@ struct TuXiaoBeiSpiderTests {
     private func runtime() async throws -> JavaScriptSpiderRuntime {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [TuXiaoBeiMockProtocol.self]
-        let registry = SpiderRegistry.bundled()
+        let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
         let entry = try #require(registry.entry(for: "csp_TuXiaoBei"))
         let runtime = try JavaScriptSpiderRuntime(
             name: "TuXiaoBei", script: entry.script, prelude: registry.prelude,
@@ -116,7 +116,7 @@ struct TuXiaoBeiSpiderTests {
     }
 
     @Test func theRegistryDrivesTuXiaoBei() {
-        #expect(SpiderRegistry.bundled().canDrive("csp_TuXiaoBei"))
+        #expect(SpiderRegistry.bundled(bundle: .repoSpiders).canDrive("csp_TuXiaoBei"))
     }
 
     @Test func homeDeclaresTheFourCategoriesAndFortyFourSubjects() async throws {

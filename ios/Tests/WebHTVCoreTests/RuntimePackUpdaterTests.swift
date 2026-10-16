@@ -114,7 +114,7 @@ private struct Rig {
         #expect(await rig.check() == .installed(version: "v2", needsNewerApp: []))
         let state = try #require(await rig.store.state())
         #expect(state.active?.sequence == 2 && state.lastKnownGood?.sequence == 1)
-        let registry = SpiderRegistry.bundled(official: await rig.store.load(host: host), overlaying: nil)
+        let registry = SpiderRegistry.bundled(bundle: .repoSpiders, official: await rig.store.load(host: host), overlaying: nil)
         #expect(registry.entry(for: "csp_AppGet")?.script == script("two"))
         #expect(registry.entry(for: "csp_AppGet")?.source == .official(version: "v2"))
     }
@@ -181,7 +181,8 @@ private struct Rig {
         _ = await rig.check()
         let later = try #require(await rig.store.load(host: host))
         #expect(later.scripts["AppGet"] == script("a3") && later.scripts["Gulu"] == nil)
-        #expect(SpiderRegistry.bundled(official: later, overlaying: nil).entry(for: "csp_Gulu")?.source == .bundled)
+        // S5: no bundled copy is left to fall back to; the App's own registry no longer drives it (P3).
+        #expect(SpiderRegistry.bundled(official: later, overlaying: nil).entry(for: "csp_Gulu") == nil)
     }
 
     // A pack that does not compile is remembered as bad: the next check refuses it without downloading again.
@@ -279,10 +280,10 @@ private struct Rig {
             Issue.record("the built pack did not install"); return
         }
         #expect(tooNew.isEmpty)
-        let registry = SpiderRegistry.bundled(official: await store.load(host: host), overlaying: nil)
+        let registry = SpiderRegistry.bundled(bundle: .repoSpiders, official: await store.load(host: host), overlaying: nil)
         for name in SpiderRegistry.ported {
             guard case .official = registry.entries[name]?.source else { Issue.record("\(name) is not official"); continue }
-            #expect(registry.entries[name]?.script == SpiderRegistry.bundled().entries[name]?.script)
+            #expect(registry.entries[name]?.script == SpiderRegistry.bundled(bundle: .repoSpiders).entries[name]?.script)
         }
     }
 }

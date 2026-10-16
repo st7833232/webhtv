@@ -68,7 +68,7 @@ private let chrome = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.
 private func qingtingFM() async throws -> JavaScriptSpiderRuntime {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [QtfmSite.self]
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let runtime = try JavaScriptSpiderRuntime(
         name: "QingtingFM", script: try #require(registry.entry(for: "csp_QingtingFM")?.script), prelude: registry.prelude,
         storage: SpiderStorage(siteKey: "QingtingFM-test", defaults: UserDefaults(suiteName: "QingtingFM-test")!),

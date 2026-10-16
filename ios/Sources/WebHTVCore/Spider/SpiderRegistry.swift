@@ -15,8 +15,8 @@ public struct SpiderRegistry: Sendable {
     }
 
     /// Where a script came from. Resolution order is exactly this order: a configuration's verified
-    /// compatibility pack first, the official pack second (IOS-POC-61), the bundled copy last, and absent
-    /// means "not ported".
+    /// compatibility pack first, the official pack second (IOS-POC-61), a bundle's copy last, and absent
+    /// means "not driven". Since S5 the App's own bundle carries no spider, so only the tests' `bundle:` has one.
     public enum Source: Sendable, Equatable {
         case bundled
         case pack(version: String)
@@ -44,8 +44,13 @@ public struct SpiderRegistry: Sendable {
         self.mappings = mappings
     }
 
-    /// Adding a port is a new `.js` resource plus one line here — never a Swift rewrite. Each line
-    /// names the audit category and the JAR the original shipped in, so the audit stays traceable.
+    /// The classes the 爬蟲工具 (official pack) brings: a new port is a new `ios/Spiders/*.js` plus one line here.
+    /// IOS-POC-61 S5: only names — what runs, and under which alias, is whatever an installed pack carries; this list
+    /// counts the sites a download would bring before any pack is installed (`sitesNeedingSpiderTool`) and feeds
+    /// the pack tools and the JAR audit. It must name exactly what the official pack built from `ios/Spiders` drives
+    /// (`scripts/test_pack_exclusions.py`, W-141 M-3): withdrawing a spider from the pack means removing it here too,
+    /// in an IPA, or every App would keep asking to download a class no pack brings. Each line names the audit category
+    /// and the JAR the original shipped in.
     static let ported: Set = [
         "AppGet",     // http-crypto: river-fman.jar, xiaosa-0807.jar
         // The rest of the 苹果CMS App-API family, ported in IOS-POC-5L.
@@ -134,21 +139,11 @@ public struct SpiderRegistry: Sendable {
     /// One line on purpose: `scripts/audit_spider_jars.py` (`registry_names`) reads it with a single-line regex.
     static let aliases = ["JPianAmns": "JianPian", "Jianpian": "JianPian", "Jys": "Jpys", "ShortHema": "HemaDJ", "ShortQimao": "QimaoDJ", "ShortHaokan": "HaokanDJ", "ShortWeiguan": "WeiguanDJ", "SportsGuazi": "GuaziTY", "Kanqiu": "Sports88"]
 
-    /// The registry the app actually runs on: the bundled scripts, the official pack over them, a verified
-    /// compatibility pack on top. `CSPSourceResolver` uses this, so every call site picks up a pack
-    /// without knowing one exists.
+    /// The registry the app actually runs on: the official pack, a verified compatibility pack over it, and
+    /// nothing else since S5 — with neither, no `csp_*` class is driven. `CSPSourceResolver` uses this, so every
+    /// call site picks up a pack without knowing one exists.
     public static func active(bundle: Bundle? = nil) -> SpiderRegistry {
-        let registry = bundled(bundle: bundle, official: ActiveOfficialPack.shared.current,
-                               overlaying: InstalledSpiderPack.shared.current)
-        #if DEBUG
-        // W-121 Simulator evidence only: the N+1 state, where nothing is bundled. Compiled out of Release.
-        if ProcessInfo.processInfo.environment["WEBHTV_HIDE_BUNDLED_SPIDERS"] == "1" {
-            return SpiderRegistry(entries: registry.entries.filter { $0.value.source != .bundled }, prelude: registry.prelude,
-                                  drpyBridge: registry.drpyBridge, jsSpiderBridge: registry.jsSpiderBridge,
-                                  mappings: registry.mappings)
-        }
-        #endif
-        return registry
+        bundled(bundle: bundle, official: ActiveOfficialPack.shared.current, overlaying: InstalledSpiderPack.shared.current)
     }
 
     public static func bundled(bundle: Bundle? = nil) -> SpiderRegistry {
@@ -185,20 +180,21 @@ public struct SpiderRegistry: Sendable {
         }
     }
 
+    /// The SDK (`host.js` and the two bridges) is always the App's own; `bundle` only says where spiders come from,
+    /// and the App's bundle has none since S5 (the tests pass the repository's `ios/Spiders`).
     private static func bundledOnly(bundle: Bundle? = nil) -> SpiderRegistry {
-        let bundle = bundle ?? .module
-        func load(_ name: String) -> String {
+        func load(_ name: String, from bundle: Bundle) -> String {
             guard let url = bundle.url(forResource: name, withExtension: "js", subdirectory: "Spiders"),
                   let text = try? String(contentsOf: url, encoding: .utf8) else { return "" }
             return text
         }
         var entries = [String: Entry]()
         for name in ported {
-            let script = load(aliases[name] ?? name)
+            let script = load(aliases[name] ?? name, from: bundle ?? .module)
             if !script.isEmpty { entries[name] = Entry(script: script, source: .bundled) }
         }
-        return SpiderRegistry(entries: entries, prelude: load("host"), drpyBridge: load("drpy-bridge"),
-                              jsSpiderBridge: load("js-spider"))
+        return SpiderRegistry(entries: entries, prelude: load("host", from: .module),
+                              drpyBridge: load("drpy-bridge", from: .module), jsSpiderBridge: load("js-spider", from: .module))
     }
 
     public func entry(for api: String) -> Entry? { entries[Self.className(from: api)] }

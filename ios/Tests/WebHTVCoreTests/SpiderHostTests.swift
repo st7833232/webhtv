@@ -9,7 +9,7 @@ private func site(_ json: String) throws -> Site {
 }
 
 private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScriptSpiderRuntime {
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     #expect(!registry.prelude.isEmpty, "host.js must be bundled as a resource")
     return try JavaScriptSpiderRuntime(
         name: "test", script: script, prelude: registry.prelude,
@@ -29,7 +29,7 @@ private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScri
     // A python type-3 is not a csp_ spider and must not be routed to the registry.
     #expect(!python.isCSPSpider)
 
-    let resolver = CSPSourceResolver()
+    let resolver = CSPSourceResolver(registry: .bundled(bundle: .repoSpiders))
     #expect(resolver.canResolve(appGet))
     #expect(!resolver.canResolve(unported))
     #expect(throws: SpiderError.notRegistered("csp_NotPortedYet")) {
@@ -91,7 +91,7 @@ private func runtime(_ script: String, siteKey: String = "t") throws -> JavaScri
 }
 
 @Test func rejectsAScriptThatNeverExportsASpider() throws {
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     #expect(throws: SpiderError.self) {
         _ = try JavaScriptSpiderRuntime(name: "bad", script: "var x = 1;", prelude: registry.prelude,
                                         storage: SpiderStorage(siteKey: "bad"))
@@ -844,7 +844,7 @@ private final class EchoProtocol: URLProtocol {
 @Test func binaryBodiesCrossTheBridgeByteForByte() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [EchoProtocol.self]
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let spider = try JavaScriptSpiderRuntime(name: "echo", script: """
     module.exports = {
       init: function () { return ''; },

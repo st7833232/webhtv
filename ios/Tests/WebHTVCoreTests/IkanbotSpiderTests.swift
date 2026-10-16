@@ -69,7 +69,7 @@ private func session() -> URLSession {
 private let suite = "Ikanbot-test"
 
 private func spider(extend: String = "") async throws -> JavaScriptSpiderRuntime {
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let runtime = try JavaScriptSpiderRuntime(
         name: "Ikanbot", script: try #require(registry.entry(for: "csp_Ikanbot")?.script), prelude: registry.prelude,
         storage: SpiderStorage(siteKey: suite, defaults: UserDefaults(suiteName: suite)!), session: session())
@@ -105,7 +105,7 @@ private func lines(_ rows: [(String, [String])]) throws -> Data {
 @Suite(.serialized) struct IkanbotSpiderTests {
     // K1/I28: the registry drives csp_Ikanbot from its own file (RED before this task).
     @Test func registryDrivesIkanbot() {
-        let registry = SpiderRegistry.bundled()
+        let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
         #expect(registry.canDrive("csp_Ikanbot"))
         #expect(SpiderRegistry.aliases["Ikanbot"] == nil)
     }
@@ -314,8 +314,9 @@ private func lines(_ rows: [(String, [String])]) throws -> Data {
         #expect(IkanbotSite.requests.isEmpty)
     }
 
-    // FOLDER-04, Manager #2249: neither pack tool may carry Ikanbot (scripts/test_pack_exclusions.py builds both).
-    @Test func neitherPackToolPacksIkanbot() throws {
+    // FOLDER-04: the compatibility pack never carries Ikanbot; since IOS-POC-61 S5 the official pack must, being the
+    // only way it reaches an App (scripts/test_pack_exclusions.py builds both).
+    @Test func onlyTheOfficialPackCarriesIkanbot() throws {
         let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
         let python = Process()

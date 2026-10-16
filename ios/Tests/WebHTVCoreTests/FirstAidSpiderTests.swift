@@ -65,7 +65,7 @@ struct FirstAidSpiderTests {
     private func makeRuntime() async throws -> JavaScriptSpiderRuntime {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [FirstAidMockProtocol.self]
-        let registry = SpiderRegistry.bundled()
+        let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
         let entry = try #require(registry.entry(for: "FirstAid"))
         let runtime = try JavaScriptSpiderRuntime(
             name: "FirstAid",

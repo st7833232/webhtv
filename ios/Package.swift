@@ -7,8 +7,10 @@ let package = Package(
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [.library(name: "WebHTVCore", targets: ["WebHTVCore"])],
     targets: [
-        .target(name: "WebHTVCore", resources: [.copy("Resources/Spiders"), .copy("Resources/SpiderBaseline"), .copy("Resources/OpenCC"),
-                                                      .copy("Resources/SubtitleFont")]),
+        // IOS-POC-61 S5: the IPA carries no spider and no baseline. SpiderBaseline/manifest.json stays in the repository,
+        // frozen at sequence 1, only for .github/workflows/ios-spider-pack.yml's "above the App's baseline" check.
+        .target(name: "WebHTVCore", exclude: ["Resources/SpiderBaseline"],
+                resources: [.copy("Resources/Spiders"), .copy("Resources/OpenCC"), .copy("Resources/SubtitleFont")]),
         .testTarget(name: "WebHTVCoreTests", dependencies: ["WebHTVCore"]),
     ]
 )

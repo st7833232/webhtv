@@ -1,7 +1,7 @@
 import Foundation
 
 /// IOS-POC-61 S1 (W-119). A verified generation of the official spider pack, loaded: what `SpiderRegistry`
-/// lays between a configuration's compatibility pack and the bundled scripts.
+/// runs under a configuration's compatibility pack. Since S5 nothing is bundled beneath it.
 public struct OfficialSpiderPack: Sendable, Equatable {
     public let generation: RuntimeGeneration
     public let version: String
@@ -9,47 +9,6 @@ public struct OfficialSpiderPack: Sendable, Equatable {
     public let scripts: [String: String]
     /// Alias → class name, only ever to a script this same pack brought.
     public let aliases: [String: String]
-}
-
-/// IOS-POC-61 S4 (W-122): the bundled scripts as the official pack describes them — `Resources/SpiderBaseline/
-/// manifest.json`, written by `scripts/runtime_pack.py build` from `Resources/Spiders` with the same `packId`
-/// and sequence space as a published pack. A new baseline always needs a new, higher sequence
-/// (`SpiderBaselineTests.shipped`).
-public struct SpiderBaseline: Sendable {
-    public let manifest: Data
-    public let candidate: RuntimePackCandidate
-    private let spiders: URL?
-
-    /// `nil` when this build carries no baseline. shortcut: S5 removes the bundled scripts and this file with them.
-    public init?(bundle: Bundle? = nil, host: RuntimeHost = .installed()) throws {
-        let bundle = bundle ?? .module
-        guard let url = Self.manifestURL(in: bundle) else { return nil }
-        manifest = try Data(contentsOf: url)
-        // The bundle's own bytes; the compiled-in address only stands where the origin check expects one.
-        candidate = try RuntimePackValidator.validateOfficial(manifest: manifest, fetchedFrom: RuntimePackUpdater.manifestURL,
-                                                              host: host)
-        spiders = bundle.url(forResource: "Spiders", withExtension: nil)
-    }
-
-    /// Path in the manifest → the bundled file's bytes. Read only for a seed that will write (W-122 review F-2).
-    public func files() throws -> [String: Data] {
-        var files = [String: Data]()
-        for file in candidate.manifest.files {
-            guard let url = spiders?.appendingPathComponent((file.path as NSString).lastPathComponent),
-                  let data = try? Data(contentsOf: url) else { throw RuntimePackRejection.fileMissing(file.path) }
-            files[file.path] = data
-        }
-        return files
-    }
-
-    /// What the settings page calls 內建基準: a generation with exactly this build's bundled content. The manifest
-    /// alone says it, so drawing the page never reads the scripts.
-    public static let identity: String? = manifestURL(in: .module).flatMap { try? Data(contentsOf: $0) }
-        .flatMap { try? RuntimePackManifest.decode($0).contentIdentity }
-
-    private static func manifestURL(in bundle: Bundle) -> URL? {
-        bundle.url(forResource: "manifest", withExtension: "json", subdirectory: "SpiderBaseline")
-    }
 }
 
 /// The official pack the registry reads, held outside the store because building a registry is synchronous
@@ -103,12 +62,13 @@ public actor RuntimePackStore {
     }
 
     /// The generation that runs, re-verified on the way in: the active one, else the last known good, else
-    /// `nil` — the bundled scripts. One that fails for a deterministic reason (edited files, a manifest that
+    /// `nil` — no spider at all since S5. One that fails for a deterministic reason (edited files, a manifest that
     /// no longer parses) is marked bad and never tried again; one this build cannot run — an older IPA
     /// reinstalled over the container — is skipped but kept, so updating the App brings it back.
     ///
     /// A class the running generation has but this build is too old for (its own `minHostApi`) keeps the last
-    /// known good's copy of it, when that one runs here; otherwise it stays bundled (plan §5.1, §5.3).
+    /// known good's copy of it, when that one runs here; otherwise it is not driven (plan §5.1, §5.3) — S5 removed the
+    /// bundled copy it used to fall back to, so the result text's 「需要較新的 App」 is then the whole answer.
     public func load(host: RuntimeHost) -> OfficialSpiderPack? {
         guard var state = state() else { return nil }
         var changed = false
@@ -233,27 +193,9 @@ public actor RuntimePackStore {
         prune(keeping: next)
     }
 
-    /// IOS-POC-61 S4 (W-122): the bundled scripts become a generation of the official pack, at launch and without
-    /// the network. Through `install`, so the sequence floor decides (Manager #2112 ①): it lands on a first launch
-    /// and whenever a new IPA brings a baseline above what was downloaded — an IPA's spider fixes are never hidden
-    /// under an older download. The same baseline again writes nothing; a lower one throws `.rollback` and leaves
-    /// everything as it is. Any failure only means the bundled scripts keep running; nothing is marked bad.
-    @discardableResult
-    public func seedBaseline(bundle: Bundle? = nil, host: RuntimeHost = .installed()) throws -> OfficialSpiderPack? {
-        guard let baseline = try SpiderBaseline(bundle: bundle, host: host) else { return nil }
-        // Every launch gets here: decide on the manifest alone, so the usual "already seeded" reads no script and
-        // the site list (which waits for this) is not held up (W-122 review F-2).
-        switch state()?.admission(of: baseline.candidate) {
-        case .unchanged? where has(baseline.candidate.generation): return nil
-        case .reject(let rejection)?: throw rejection
-        default: break
-        }
-        return try install(baseline.candidate, manifest: baseline.manifest, files: baseline.files(), host: host)
-    }
-
     /// 重設 (W-121): forgets the official pack entirely — generations, last known good, the bad list and the
-    /// sequence floor — so the bundled scripts run and the next check installs whatever is published, even the
-    /// same sequence. The floor going back is the user's own choice here. An actor method, so it never lands
+    /// sequence floor — so no spider runs (S5: nothing is bundled) and the next check installs whatever is
+    /// published, even the same sequence. The floor going back is the user's own choice here. An actor method, so it never lands
     /// in the middle of an install.
     public func reset() throws {
         guard files.fileExists(atPath: scopeURL.path) else { return }
@@ -306,7 +248,7 @@ public actor RuntimePackStore {
 
     /// The scripts a generation brings, keyed as the registry keys them. A script whose `minHostApi` is above
     /// `hostApi` is left out with its aliases and named in `tooNew`; `load` gives that class the last known
-    /// good's copy, else it stays bundled.
+    /// good's copy, else it is not driven.
     static func assemble(_ manifest: RuntimePackManifest, generation: RuntimeGeneration, files contents: [String: Data],
                          hostApi: Int) throws -> (pack: OfficialSpiderPack?, tooNew: Set<String>) {
         guard manifest.directive == nil else { return (nil, []) }

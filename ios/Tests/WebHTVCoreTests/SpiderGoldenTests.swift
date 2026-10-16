@@ -39,7 +39,7 @@ private func playURL(_ value: Any?) -> [String] {
 
 @Test func appGetDrivesTheWholeCatVodFlowAgainstTheLiveSite() async throws {
     guard let site = try goldenSite() else { return }
-    let session = try await CSPSourceResolver().session(for: site)
+    let session = try await CSPSourceResolver(registry: .bundled(bundle: .repoSpiders)).session(for: site)
 
     // --- home: the class list the UI renders -------------------------------
     let home = try await object(session.home())
@@ -134,7 +134,7 @@ private func playURL(_ value: Any?) -> [String] {
 @Test func aSpiderDeliveredAsACompatibilityPackDrivesTheLiveSite() async throws {
     guard let site = try goldenSite() else { return }
     let className = SpiderRegistry.className(from: site.api)
-    let bundled = try #require(SpiderRegistry.bundled().entry(for: site.api)?.script,
+    let bundled = try #require(SpiderRegistry.bundled(bundle: .repoSpiders).entry(for: site.api)?.script,
                                "this test publishes the bundled script through the pack path")
 
     let manifestURL = URL(string: "https://example.invalid/spiders/manifest.json")!
@@ -154,7 +154,7 @@ private func playURL(_ value: Any?) -> [String] {
     }
 
     let pack = try await store.refresh(from: manifestURL)
-    let registry = SpiderRegistry.bundled(overlaying: pack)
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders, overlaying: pack)
     #expect(registry.entry(for: site.api)?.source == .pack(version: "golden"))
 
     let session = try await CSPSourceResolver(registry: registry).session(for: site)
@@ -192,7 +192,7 @@ private func playURL(_ value: Any?) -> [String] {
 /// The registry must only ever claim classes it can genuinely drive; everything else stays absent so
 /// the app reports "not ported" rather than failing at the first call.
 @Test func registryClaimsOnlyWhatIsActuallyPorted() {
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     // IOS-POC-5L: every script the registry names must have actually loaded from the bundle.
     #expect(registry.entries.keys.sorted() ==
             ["App3Q", "App99", "AppDrama", "AppGet", "AppLY", "AppQi", "AppYQK", "AppYsV2", "BeiLeHu", "Bili", "Djuu", "Duboku", "Feiyu", "FirstAid", "GuaziTY", "Gulu",
@@ -228,7 +228,7 @@ private func playURL(_ value: Any?) -> [String] {
 @Test func jianPianPostersResolveAndFiltersSurvive() async throws {
     guard let site = try goldenSite(), site.api.contains("JPian") || site.api.contains("JianPian")
     else { return }
-    let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver())
+    let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(registry: .bundled(bundle: .repoSpiders)))
     let home = try await client.home()
 
     #expect(!home.filters.isEmpty, "the filter rows the category chips sit above")
@@ -300,7 +300,7 @@ private func playURL(_ value: Any?) -> [String] {
 /// it needs neither `ext.json` nor a remote configuration base to resolve one.
 @Test func biliOffersMultipleQualityLines() async throws {
     guard let site = try goldenSite(), SpiderRegistry.className(from: site.api) == "Bili" else { return }
-    let session = try await CSPSourceResolver().session(for: site)
+    let session = try await CSPSourceResolver(registry: .bundled(bundle: .repoSpiders)).session(for: site)
 
     let search = try await object(session.search(key: "音樂"))
     let results = try #require(search["list"] as? [[String: Any]])

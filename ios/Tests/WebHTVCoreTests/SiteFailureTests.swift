@@ -41,7 +41,7 @@ private final class FailingSite: URLProtocol, @unchecked Sendable {
 private func client(_ extend: String) throws -> SourceClient {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [FailingSite.self]
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let runtime = try JavaScriptSpiderRuntime(
         name: "XBPQ", script: try #require(registry.entry(for: "csp_XBPQ")?.script), prelude: registry.prelude,
         storage: SpiderStorage(siteKey: "site-failure", defaults: UserDefaults(suiteName: "site-failure")!),

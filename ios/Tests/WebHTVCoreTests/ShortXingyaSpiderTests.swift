@@ -90,7 +90,7 @@ private func session() -> URLSession {
 private let suite = "ShortXingya-test"
 
 private func xingya() async throws -> JavaScriptSpiderRuntime {
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let runtime = try JavaScriptSpiderRuntime(
         name: "ShortXingya", script: try #require(registry.entry(for: "csp_ShortXingya")?.script), prelude: registry.prelude,
         storage: SpiderStorage(siteKey: suite, defaults: UserDefaults(suiteName: suite)!), session: session())
@@ -116,13 +116,13 @@ private func theater(_ fields: [String: Any]) -> [String: Any] {
 
 @Suite(.serialized) struct ShortXingyaSpiderTests {
     @Test func theRegistryDrivesCspShortXingya() {
-        #expect(SpiderRegistry.bundled().entry(for: "csp_ShortXingya") != nil)
+        #expect(SpiderRegistry.bundled(bundle: .repoSpiders).entry(for: "csp_ShortXingya") != nil)
     }
 
     // D5 test 1, with the clock pinned to the gate's request: the body is the gate's, byte for byte.
     @Test func theLoginSendsTheGatesBodyAsAStringWithUpstreamsHeaders() throws {
         XingyaSite.serve([loginPath: loginReply("fake-token-1"), homePath: try category()])
-        let registry = SpiderRegistry.bundled()
+        let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
         let context = try #require(JSContext())
         CatVodHost.install(into: context, storage: SpiderStorage(siteKey: "ShortXingya-login"), cookies: CookieJar(), session: session())
         context.evaluateScript(registry.prelude)

@@ -1,6 +1,6 @@
 # IOS-POC-61：爬蟲工具與主程式分離（spider decouple）
 
-> Recovery anchor（2026-10-15，W-122 S4）：S1–S3 已審過並推上 origin（最新 `aaa14023`）。S4 在分支 `task/W-122` 實作，Core 驗證完成（見「S4 驗證」），Simulator 證據在 `artifacts/w122-gui-evidence/`。下一步：Reviewer code review，之後 S5 要等 N 版發布與真機確認。
+> Recovery anchor（2026-10-16，W-139 S5）：S1–S4 與 W-131／W-134／W-138 隨 0.1.78 發布（截點 `683ceb1b`）。S5 在分支 `task/W-139`：C1 工具 `3095510e` 與 C2 App 已驗證並 commit（rebase 到 `bb3a3e83` 之後，range-diff 相同：`w139-logs/range-diff.txt`）（見「S5」），證據在 `artifacts/w139-logs/`、`w139-gui-evidence/`。下一步：Reviewer 審 C1＋C2 → 一起推 → 官方包序號 3 → App 0.1.79（Manager 控管順序）。
 
 - 編號：工單 W-119 寫的 `IOS-POC-60` 已被 W-40 的 `docs/IOS-POC-60-folder-navigation.md` 用掉，`IOS-POC-59` 預留給直播 L1，所以本任務用 **IOS-POC-61**（Manager #2062）。
 - 來源：計畫 `.herdr-synapse/webhtv-dev/artifacts/spider-decouple-plan-2026-10-15.md`（W-118，Reviewer 撰寫），審查預備 `review-prep-W-119-2026-10-15.md`。下面「計畫」各節照搬，只改了：簽章相關段落改成「不做」、33 支（W-105 加了 Sports88）、檔尾第二個「## 10」改成「## 11」。計畫內的 `檔:行` 以 `a0e6991b` 為準；S1 實際改動的位置以本節為準。
@@ -251,6 +251,56 @@
 - Ponytail（C1 diff）：Ship。1 點留 C2：`IkanbotSpiderTests.neitherPackToolPacksIkanbot` 在 `swift test` 裡跑這支腳本，名稱與註解還寫「兩個工具都不收」，C2 改名（C1 不動 Swift，免得為一個名稱重建）；C1 到 C2 之間兩份爬蟲並存，C2 刪掉 App 那份。
 - 推送與發布：C1、C2 都審過後一起推，再發序號 3、再發 0.1.79（理由：C1 單獨在 `ios-poc` 時一旦發出序號 3，舊的 `SpiderBaselineTests` 第 3 條守門會因腳本和基準不同而紅，要 C2 刪掉基準才恢復）。C2 推上到序號 3 發布之間不能觸發 IPA 發布。
 - 回滾：`git revert` C1 只會讓工具回到舊路徑與排除集合；`ios/Spiders` 的複本消失。App 不受影響。
+
+### C2：App 不再內建爬蟲
+
+#### 決定
+
+- **registry**：`bundled(bundle:official:overlaying:)` 的層次規則不變（相容包 → 官方包 → bundle），只改兩件事：SDK（prelude 與兩個 bridge）一律從 App 自己的 `.module` 讀；`bundle` 只決定爬蟲從哪裡來。App 的 bundle 沒有爬蟲，所以 `active()` 在沒有包時任何 `csp_*` 都 `canDrive == false`。測試傳 `Bundle.repoSpiders`（把 `ios/` 當成 Bundle，它的 `Spiders` 子目錄就是 `ios/Spiders`），拿到整套腳本，所有 golden、層次與別名測試照跑（S-3：用 `#filePath` 定位，一個 helper）。W-121 的 DEBUG 縫 `WEBHTV_HIDE_BUNDLED_SPIDERS` 沒有意義了，移除（S-5）。
+- **`ported`／`aliases`（brief ③，M-3）**：「能跑什麼、用哪個別名」完全由裝上的包決定（官方包 manifest 的 `aliases`，W-120 起已帶齊 9 個；相容包自己的）。Swift 的兩張表留下，只剩「名單」用途：(1) `sitesNeedingSpiderTool` 在**還沒裝任何包**時算缺爬蟲數 N；(2) 建包工具與 JAR 稽核從這裡讀（`registry_names`），不另存第二份。**M-3 採「仍用 `ported`＋一致性測試」**（Reviewer #2594、Manager #2595）：預審原本建議「有包時改用包的類別」，但 0.1.78 升級者裝的是序號 1／2（沒有 Ikanbot／Djuu），那樣兩站不算缺少，M-2 的橫幅就不會出現。一致性：C1 的 `test_pack_exclusions.py` 要求工具建出的「類別＋別名」＝`ported`；C2 的 `everyPortedClassHasItsScriptInTheRepository` 要求 `ios/Spiders` 的檔名集合＝`ported` 經別名換算後的集合。**規則**（寫在 `ported` 的註解）：官方包下架某支，必須同時從 `ported` 拿掉、隨 IPA 發出，否則已裝最新包的 App 會一直顯示「需要爬蟲工具」。
+- **種子退場（brief ④，S-5）**：刪 `SpiderBaseline`、`RuntimePackStore.seedBaseline`、App 的 `seedBaseline()` 與 `SpiderBaselineTests`（連同 `shipped`、`notInBaseline`）。已種子的世代不動：`load` 不分種子或下載，N 版升級上來的人直接用它，離線也可用。
+- **啟動（M-1 採 (a)）**：改成 `removeStaging → 載入官方包 → restore()`。W-131 的「先列站台」在 S5 會先落到別的站、首頁對錯的站發請求、橫幅閃一下；改成先載包後，第一次列出的清單就含爬蟲站，`SiteSelection.choose` 直接選回記住的站。載入完成前整個畫面是轉圈（`officialLoaded`），不會閃「尚未載入設定」或「下載爬蟲工具」。代價是清單要等官方包的重新驗證（截點實測 150～800 ms，見 Simulator 的 `site list ready` 記錄）。清單出現前不可能開著播放器，所以啟動時不必延後套用，W-134 的 DEBUG 縫 `WEBHTV_DELAY_PACK_LOAD_MS` 跟著移除。
+- **狀態與文字（計畫 §2.3、§2.4、§2.5，S-4）**：沒有世代 →「未安裝」；任何世代（含 N 版種子出的）都是「官方包 <版本>（序號 S，N 支）」，不再有「內建基準」與 `bundledScripts`。沒有裝任何包時，「無法連線／下載沒有完成／驗證失敗」的後半句由「繼續使用目前的版本」改成「請稍後再試」（S3 的 `shortcut:` 兌現）。重設 →「已重設，爬蟲工具已移除」；重設確認框、初始化兩處文字改成「需要重新下載」。
+- **workflow 不動（M-4 改案，Manager #2616：使用者不授權改 `.github/workflows/`）**：`ios-spider-pack.yml` 第 44–48 行讀 `Resources/SpiderBaseline/manifest.json` 比序號，所以這個檔**留在 repo、凍結在序號 1**，只給 workflow 讀；`Package.swift` 把它放進 target 的 `exclude`（不再 `.copy`），加註解說明為什麼留著，IPA 裡沒有它（`theAppBundleCarriesOnlyTheSDK`、`build-proof-exclude.txt`）。workflow 的「序號要大於 App 基準 1」照舊成立，已發布的是 2、下一個是 3。本單最早的做法是刪檔並刪 workflow 那一步，已還原。
+- **S-1**：`git grep "Resources/Spiders"` 在程式與工具裡只剩 App 自己的 3 個 SDK 檔（`Package.swift`、`RuntimeABITests`、`CatVodHost.swift` 註解）。**S-2**：`Package.swift` 的 `.copy("Resources/Spiders")` 保留（資料夾裡只剩 3 個檔），`.copy("Resources/SpiderBaseline")` 改成 `exclude`；`bundledOnly` 仍照 `ported` 到 bundle 找爬蟲（App 的 bundle 找不到，測試的找得到），不另寫一條只讀 SDK 的路徑。**S-6**：`IPA_ONLY` 只改註解。
+- **沒做**：觀看紀錄／收藏打開缺爬蟲的站時，畫面仍是「目前設定中找不到原始來源」（`FavoriteUnavailableView`），計畫 §2.5 要的是「需要爬蟲工具」。W-121 留給 S5，但本單 brief ①–⑥ 沒列，屬收藏／紀錄畫面的新行為，回報 Manager 另開單。
+
+#### 已知限制
+
+- **P3（W-120）**：連續兩版官方包的同一支都要求本機沒有的 `minHostApi` 時，第二版會把唯一還能跑的那份（LKG）prune 掉。N 版會退回內建，S5 起那一支就不再有，畫面只有「需要較新的 App」。現在三支有 `minHostApi`（AppDrama／Uvod 3、Gulu 4），本機都是 5，要到未來發布要求 js.host 1.6 以上的爬蟲才會發生；補法是 prune 時保留仍在供應某支的舊世代，屬 store 保留策略的變更，本單沒做（`RuntimePackUpdaterTests.aClassThisAppIsTooOldForKeepsTheCopyThatRanBefore` 改成斷言 App 的 registry 不再驅動它）。
+- **M-2：0.1.77／0.1.78 升級者的 Ikanbot／Djuu**：他們的世代（序號 1 種子或序號 2 下載）只有 33 支。升級到 0.1.79 後其餘 33 支照常、離線可用；這兩支要等使用者按首頁橫幅「下載」裝上序號 3。發布說明不寫站名，可寫「部分來源需要下載爬蟲工具更新」。
+
+#### 改動
+
+| 檔案 | 內容 |
+|---|---|
+| `Resources/Spiders/*.js`（刪 35 支，留 3 個 SDK）、`Package.swift` | App 不帶爬蟲；`Resources/SpiderBaseline` 改 `exclude`（檔案留著給 workflow，IPA 不帶） |
+| `SpiderRegistry.swift` | SDK 一律讀 `.module`；`bundle` 只給爬蟲；移除 DEBUG 縫；`ported` 註解（名單用途與下架規則） |
+| `RuntimePackStore.swift` | 刪 `SpiderBaseline`、`seedBaseline`；註解改成「沒有包就不驅動」 |
+| `SpiderToolText.swift` | `status(of:)`：未安裝／官方包；沒有包時「請稍後再試」 |
+| `WebHTVApp.swift` | 先載包再 `restore()`；`officialLoaded` 轉圈；拿掉種子與 W-134 DEBUG 縫；重設、確認框、初始化文字 |
+| `scripts/spider_pack.py` | 註解：IPA 不再帶資料夾爬蟲 |
+| 測試 | `RepoSpiders.swift`（新）；`SpiderDecoupleTests`（新，4）；`SpiderBaselineTests`（刪，11）；U1 移進新檔；約 30 個測試檔改 `bundle: .repoSpiders`（含 3 個用預設 `CSPSourceResolver()` 的線上 golden 測試，否則開 `CSP_GOLDEN_SITE` 時會失敗）；`SpiderToolTests` 狀態列與「請稍後再試」；`IkanbotSpiderTests.onlyTheOfficialPackCarriesIkanbot`（原 `neitherPackToolPacksIkanbot`，C1 Ponytail） |
+
+#### C2 驗證（證據 `artifacts/w139-logs/`、`w139-gui-evidence/`）
+
+| 項目 | 結果 |
+|---|---|
+| 全測試 | `swift test` 1300／48 通過（`full.log`，exclude 改案後重跑）。和 `683ceb1b` 的 1307 相比，測試名稱逐一比對（`tests-before.txt`／`tests-after.txt`）：只少 `SpiderBaselineTests` 11 個與 U1，多 `SpiderDecoupleTests` 4 個與 `nothingInstalledHasNoVersionToKeep`，其餘名稱相同且都通過 |
+| 每支爬蟲的 golden（S-3、風險 8） | 35 支逐一在檔頭插一行 `throw` 再跑全測試、還原後 sha256 相同（`golden/table.tsv`，每支的紅燈測試名稱在第 4 欄）：33 支各讓 1～30 個測試變紅；App3Q、AppQi 0 個，因為它們在 `683ceb1b` 時就只有要開 `CSP_GOLDEN_SITE` 的線上 golden 與「registry 有這支」的檢查，不是這次造成的；另外把 `App3Q.js` 整個拿走時 `registryClaimsOnlyWhatIsActuallyPorted`、`everyPortedClassHasItsScriptInTheRepository`、`csp_JianpianIsAnAliasOfJianPianNotAFileOfItsOwn` 三個變紅（`golden/missing-App3Q.log`），證明測試讀的是 `ios/Spiders` |
+| Mutant（`mutants-c2.txt`） | MC1 SDK 改從 `bundle` 讀（14 個變紅）、MC2 沒有包時狀態寫「內建基準」、MC3「請稍後再試」改回「繼續使用」、MC4 App 的 bundle 也能驅動爬蟲（`withoutAPackNoSpiderIsDriven` 等）、MC5 `ios/Spiders` 多一支 `ported` 沒列的（一致性檢查 `SpiderDecoupleTests.swift:37`）、MC6 `Package.swift` 把 `SpiderBaseline` 改回 `.copy`（`theAppBundleCarriesOnlyTheSDK`）：6/6 變紅，全部還原後 sha256 相同；MC5 用 `--skip-build`，當時的執行檔還帶著 MC4，所以另有 MC4 的紅燈，但 MC5 自己那條斷言確實變紅；跑完後重建乾淨版再跑相關 suite 全過（`after-mutants-clean.log`） |
+| App build | Simulator Debug `** BUILD SUCCEEDED **`。`.app` 的 `WebHTVCore_WebHTVCore.bundle/Spiders` 只有 `host.js`、`drpy-bridge.js`、`js-spider.js`，整個 `.app` 沒有任何 `SpiderBaseline`，另一個 `.js` 是 Python 套件 urllib3 的檔案（0.1.78 也有）：`build-proof-exclude.txt`。移除的兩個 DEBUG 縫在 binary 裡 0 筆：`build-proof.txt` |
+| Simulator（`w139-gui-evidence/RESULT.md`，sha256 `4aea3509…`） | 暫存機 iPhone 18 Pro／iOS 27.0（測完刪除，臨時 CA 只加在它上面；BC4948DD 全程關機），本機 HTTPS 伺服器提供 `runtime_pack.py` 建的序號 3（35 支）。N+1 每次安裝都核對安裝後的雜湊。全部 PASS：① 新裝、純 CMS 設定：沒有橫幅、狀態「未安裝」、啟動時沒有官方包請求，`site list ready 408 ms, no pack`；② 新裝、0825：橫幅「20 個來源需要爬蟲工具」，下載（manifest＋35 blob）→ `applied … seq 3`、橫幅消失、爬蟲站載入；重開 `303 ms … seq 3`，第一個畫面就是記住的爬蟲站，沒有先載別的站、沒有橫幅閃爍（M-1）；③ 0.1.78（N）先種子序號 1，停掉伺服器後蓋裝 N+1：`116 ms … 2026-10-15.1 seq 1`，記住的爬蟲站直接載入（離線可用），狀態「官方包 2026-10-15.1（序號 1，33 支）」，橫幅「1 個來源需要爬蟲工具」（Ikanbot；線上 0825 沒有 Djuu），下載序號 3 後橫幅消失、Ikanbot 出現（M-2）；④ 0.1.76 蓋裝 N+1：`337 ms, no pack`、狀態「未安裝」、橫幅 20 個，下載後爬蟲站回來；⑤ 重設確認框與初始化兩層確認都是「需要重新下載」，初始化後重開 `1266 ms, no pack`、狀態「未安裝」、橫幅回來、容器沒有 `RuntimePacks`。GUI 用的 build 是 exclude 改案前的那一版：Swift 程式相同，只差 `Package.swift` 從「不 copy」變成「exclude」，`.app` 內容一樣沒有 `SpiderBaseline` |
+| Ponytail（C2 diff） | 自審 Ship，沒有新 finding：啟動多等官方包載入（M-1 的取捨，實測 116～408 ms，初始化後第一次 1266 ms）已寫在決定；`officialLoaded` 只在 `loadOfficialPack` 設定，重設與延後套用都經過它；`migrateSiteIdentities` 只改解析得到的紀錄，不會因為爬蟲站暫時不在而刪資料 |
+
+GUI 順帶發現（不是本單造成，回報 Manager）：0825 的 Ikanbot 首頁失敗，`ext` 是 `https://v.ikanbot.com$$$proxy`，`ios/Spiders/Ikanbot.js:82` 的 `ext.split('[')[0]` 沒去掉 `$$$proxy`（W-41 移植問題，0.1.78 內建版本同樣如此）；下載序號 3 時 35 個 blob 全部重抓，序號 1 已有的 33 支沒有重用（S2 的既有設計，只多流量）。
+
+沒驗到：真機、Release／IPA 實際檔案（以 Simulator `.app` 內容代替）、有設定檔相容包的設定、Djuu 的畫面（線上 0825 沒有這個站）、下載失敗與中斷（S3 已驗、本單沒改那段）、播放、④ 下載後是否自動切回記住的來源。
+
+#### 發布與回滾
+
+- 順序（Manager #2595 控管）：C1、C2 審過後一起推 `ios-poc` → 發官方包序號 3（35 支）並驗包 → 才觸發 App 0.1.79。推上到序號 3 發布完成之間不發 App；否則 0.1.79 的新安裝與升級者按下載只會拿到沒有 Ikanbot／Djuu 的序號 2。
+- 回滾：C2 可獨立 `git revert`：爬蟲回到 App、基準重新 `.copy` 進 App、種子回來，App 回到「內建＋官方包」。已裝序號 3 的裝置上，回滾版本的種子（序號 1）會 `.rollback`、不寫入，registry 照用序號 3（S4 的規則）。C1 單獨 revert 只影響工具。
 
 ---
 

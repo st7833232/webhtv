@@ -12,7 +12,7 @@ private func site(_ json: String) throws -> Site {
 }
 
 @Test func routesNativeCMSSitesToTheCMSClientAndSpidersToTheRegistry() async throws {
-    let resolver = CSPSourceResolver()
+    let resolver = CSPSourceResolver(registry: .bundled(bundle: .repoSpiders))
 
     let cms = try site(#"{"key":"t1","name":"CMS","type":1,"api":"https://example.com/api.php/provide/vod"}"#)
     guard case .cms = try await SourceClient.make(site: cms, resolver: resolver) else {
@@ -37,7 +37,7 @@ private func site(_ json: String) throws -> Site {
 /// would re-fetch the rules a dozen times.
 @Test func reusesOneSpiderSessionPerSiteAndDropsThemOnReset() async throws {
     let store = SpiderSessionStore()
-    let resolver = CSPSourceResolver()
+    let resolver = CSPSourceResolver(registry: .bundled(bundle: .repoSpiders))
     let spider = try site(#"{"key":"reuse","name":"Spider","type":3,"api":"csp_AppGet","ext":{"url":"https://example.invalid"}}"#)
 
     let first = try await store.session(for: spider, resolver: resolver)
@@ -312,7 +312,7 @@ private final class OneShotHTTPServer: @unchecked Sendable {
     // test running in parallel used to be able to change the registry *between* two of the calls
     // here and break their relationship. Taking the snapshot once makes these counts describe one
     // registry instead of whichever one each call happened to observe (IOS-POC-10Y).
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let resolver = CSPSourceResolver(registry: registry)
 
     let native = config.nativeCMSSites
@@ -354,7 +354,7 @@ private final class OneShotHTTPServer: @unchecked Sendable {
     let config = try JSONDecoder().decode(WebHTVConfig.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
     let remote = ConfigSource.remote(URL(string: "https://example.invalid/raw/main/wang-movie.json")!)
 
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     for resolver in [CSPSourceResolver(registry: registry),
                      CSPSourceResolver(registry: registry, source: remote)] {
         let listed = config.drivableSites(resolvedBy: resolver)
@@ -519,7 +519,7 @@ private extension String {
 @Test func sendsChosenFilterValuesBackToTheSpider() async throws {
     guard let raw = ProcessInfo.processInfo.environment["CSP_GOLDEN_SITE"] else { return }
     let site = try JSONDecoder().decode(Site.self, from: Data(raw.utf8))
-    let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver())
+    let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(registry: .bundled(bundle: .repoSpiders)))
     let home = try await client.home()
     guard let category = home.classes.first(where: { !($0.id == "0") }),
           let rows = home.filters[category.id], let row = rows.first,

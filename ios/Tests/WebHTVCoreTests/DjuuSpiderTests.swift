@@ -85,7 +85,7 @@ private func session() -> URLSession {
 private let suite = "Djuu-test"
 
 private func spider() async throws -> JavaScriptSpiderRuntime {
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let runtime = try JavaScriptSpiderRuntime(
         name: "Djuu", script: try #require(registry.entry(for: "csp_Djuu")?.script), prelude: registry.prelude,
         storage: SpiderStorage(siteKey: suite, defaults: UserDefaults(suiteName: suite)!), session: session())
@@ -117,7 +117,7 @@ private func folderPage(_ name: String, _ songs: [(String?, String)]) -> Data {
 @Suite(.serialized) struct DjuuSpiderTests {
     // D22: the registry drives csp_Djuu from its own file (RED before this task).
     @Test func registryDrivesDjuu() {
-        #expect(SpiderRegistry.bundled().canDrive("csp_Djuu"))
+        #expect(SpiderRegistry.bundled(bundle: .repoSpiders).canDrive("csp_Djuu"))
         #expect(SpiderRegistry.aliases["Djuu"] == nil)
     }
 

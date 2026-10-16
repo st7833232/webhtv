@@ -59,7 +59,7 @@ private let chrome = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.
 private func beiLeHu() async throws -> JavaScriptSpiderRuntime {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [BeiLeHuSite.self]
-    let registry = SpiderRegistry.bundled()
+    let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
     let runtime = try JavaScriptSpiderRuntime(
         name: "BeiLeHu", script: try #require(registry.entry(for: "csp_BeiLeHu")?.script), prelude: registry.prelude,
         storage: SpiderStorage(siteKey: "BeiLeHu-test", defaults: UserDefaults(suiteName: "BeiLeHu-test")!),

@@ -1,9 +1,11 @@
 # IOS-POC-11：SideStore 發布流程
 
 
-## Current release — 2026-10-16：0.1.78 (79) / 更多影視與音樂來源、爬蟲工具相容包狀態修正
+## Current release — 2026-10-16：0.1.79 (80) / 爬蟲工具改由官方爬蟲包提供
 
-**目前最新版是 `0.1.78 (79)`**（新增更多影視與音樂來源的支援，片單與曲庫可點進去看清單；沒有附帶相容包的設定檔不再在「爬蟲工具」顯示成更新失敗；啟動時已下載的官方爬蟲更新在播放中會等關閉播放器後才套用）。完整紀錄在下方「第七十九次發布」：run `38836431741` success，tag `ios-v0.1.78-b79` → `683ceb1b`，`source.json` `18bd01d0`，`WebHTV-0.1.78-79.ipa` 35,589,870 bytes。官方爬蟲包仍是序號 2。真機尚未驗收。
+**目前最新版是 `0.1.79 (80)`**（App 本體不再內建爬蟲，需要爬蟲的來源改由設定頁或首頁提示下載官方爬蟲包；從舊版升級時已安裝的爬蟲工具保留可用；啟動時先載入爬蟲工具再顯示來源）。完整紀錄在下方「第八十次發布」：run `38840961157` success，tag `ios-v0.1.79-b80` → `fcb4828c`，`source.json` `05178c17`，`WebHTV-0.1.79-80.ipa` 35,444,818 bytes。官方爬蟲包序號 3（`2026-10-16.1`，35 支）已在 `fcb4828c` 發布。真機尚未驗收。
+
+前一版 `0.1.78 (79)`（新增更多影視與音樂來源的支援，片單與曲庫可點進去看清單；沒有附帶相容包的設定檔不再在「爬蟲工具」顯示成更新失敗；啟動時已下載的官方爬蟲更新在播放中會等關閉播放器後才套用）。完整紀錄在下方「第七十九次發布」：run `38836431741` success，tag `ios-v0.1.78-b79` → `683ceb1b`，`source.json` `18bd01d0`，`WebHTV-0.1.78-79.ipa` 35,589,870 bytes。官方爬蟲包仍是序號 2。真機尚未驗收。
 
 前一版 `0.1.77 (78)`（設定頁「爬蟲工具」可手動下載官方爬蟲更新；新增有聲書與體育直播來源；資料夾項目可以點進去看清單；部分來源只列能直接播放的集數）。完整紀錄在下方「第七十八次發布」：run `38712470365` success，tag `ios-v0.1.77-b78` → `81115ea9`，`source.json` `b8dcbf64`，`WebHTV-0.1.77-78.ipa` 35,582,685 bytes。官方爬蟲包第一版（序號 2）已在 `b78d9147` 發布。真機尚未完整驗收。
 
@@ -967,9 +969,43 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第七十九次發布：`0.1.78 (79)`（2026-10-16，**已發布**）
+## 第八十次發布：`0.1.79 (80)`（2026-10-16，**已發布**）
 
-**目前最新版是 `0.1.78 (79)`。** 前面七十八版都已被取代。
+**目前最新版是 `0.1.79 (80)`。** 前面七十九版都已被取代。
+
+- 授權：使用者 2026-10-15 決定 W-139（IOS-POC-61 S5，把內建爬蟲搬出 App）審過就直接發，順序固定為先發官方包序號 3、再發 App（Manager #2501、#2595）。W-139 由 Reviewer 核准（#2655，`artifacts/w139-review-2026-10-16.md`）後推上 `ios-poc`（`bb3a3e83..5bd8584e`，#2661）。兩個 workflow 都由 repo 擁有者帳號手動觸發（triggering actor `st7833232`）。版號 `0.1.79`，build `80`。
+- 發布序列：
+  1. 官方爬蟲包：`iOS spider pack` run `38840761214` success（2026-10-16 02:30:18Z → 02:30:38Z，headSha `5bd8584e`），推回 `fcb4828c38d40f8f7b3b92194cd6543d7e94711d`（`release(ios): publish the official spider pack 2026-10-16.1 (sequence 3)`）：`spider-pack/official/manifest.json` 序號 3、版本 `2026-10-16.1`、35 支（含 Ikanbot、Djuu）、9 個別名，新增的 blob 只有那兩支（內容定址，其餘 33 支和序號 2 相同）。Manager 從線上網址下載驗過 35 支 verify 0 problem（#2664）。
+  2. App：`iOS SideStore Release` run `38840961157` success（2026-10-16 02:32:32Z → 02:38:42Z，headSha `fcb4828c`），release notes 為 `artifacts/release-notes-0.1.79.txt`。**沒有事先做版號 commit**：版號由 workflow 輸入覆寫，本紀錄所在的 commit 才把 `project.pbxproj` 補成 `0.1.79`／`80`。
+  3. workflow 建立 tag `ios-v0.1.79-b80`（→ `fcb4828c`），並推回 `source.json` commit `05178c1752c7e0d76eb21c5ab6023c211ccd2489`（`release(ios): publish WebHTV 0.1.79 (80)`）：`0.1.79` 是 versions 第一筆、date `2026-10-16`、size 35444818、minOSVersion 17.0，`localizedDescription` 與 `release-notes-0.1.79.txt` 逐字相同。
+
+  **沒有手動建 tag。**
+- 建置來源：run 的 headSha 是 `fcb4828c`＝W-139 C2 `5bd8584e` 再加官方包發布物；那個 commit 只動 `spider-pack/official/`，App 內容和 `5bd8584e` 相同。
+- 內容：`0.1.78 (79)` 的全部，加上 `ios-v0.1.78-b79..fcb4828c` 的 first-parent commit：0.1.78 的 `source.json`（`18bd01d0`，發布 workflow 產物）、0.1.78 發布紀錄（W-142 `bb3a3e83`）、W-139 C1 `3095510e`（建包工具改讀 `ios/Spiders`、官方包收進 Ikanbot／Djuu）、W-139 C2 `5bd8584e`（App 不再內建爬蟲、先載入爬蟲工具再列來源、未安裝時的文字）、官方包序號 3（`fcb4828c`）。W-125（直播入口）、W-143（收藏／紀錄缺爬蟲提示，審查中）不在本版。
+- 產物：
+  - GitHub Release `WebHTV 0.1.79 (80)`：不是 draft，也不是 prerelease，2026-10-16 02:38:32Z 發布，https://github.com/st7833232/webhtv/releases/tag/ios-v0.1.79-b80。
+  - `WebHTV-0.1.79-80.ipa`：**35,444,818 bytes**，SHA-256 `d8cfab51abb21070b63ee53260bd2afd12de25260847cca2d5534b67f03d04f3`（W-145 以 `gh release download` 下載重算，與 Release 資產的 digest 相同）。IPA 內 `Info.plist`：`com.webhtv.ios.poc`／`0.1.79`／`80`／minimum iOS 17.0；Payload 只有一個 `WebHTVApp.app`；`WebHTVCore_WebHTVCore.bundle/Spiders/` 只有 `drpy-bridge.js`、`host.js`、`js-spider.js`，整個 App 沒有任何 `SpiderBaseline`；Release binary 裡 `WEBHTV_RUNTIME_PACK_URL`、`WEBHTV_HIDE_BUNDLED_SPIDERS`、`WEBHTV_DELAY_PACK_LOAD_MS` 都是 0 筆（`artifacts/w145-logs/facts.txt`）。比 0.1.78 小 145,052 bytes。
+- 發布前驗證：W-139 的審查與證據（`docs/IOS-POC-61-spider-decouple.md`「S5」；`swift test` 1300 個、35 支 golden 對照表、mutant、Simulator 五情境：新裝純 CMS、新裝混合設定→下載、0.1.78 容器升級離線可用、0.1.76 容器跳版提示下載、初始化回到未安裝）。
+- 已知問題與未驗：
+  - 從 0.1.77／0.1.78 升級的人，已裝的爬蟲工具是序號 1 或 2（33 支），兩個資料夾來源要等首頁提示按「下載」裝上序號 3 才會出現。
+  - Ikanbot 的設定檔 `ext` 帶 `$$$proxy` 後綴時首頁載入失敗（W-41 起就有，W-144 修正後隨下一個官方包發出，不必改版 App）。
+- **真機尚未驗收。**
+
+### Release notes（實際送出的內容）
+
+```text
+爬蟲工具：
+- 爬蟲工具改由官方爬蟲包提供，App 本體不再內建；之後爬蟲的更新與修正不必等 App 改版。
+- 從舊版升級時，已安裝的爬蟲工具會保留，照常可用；需要新版時首頁會提示下載。
+- 全新安裝或按下「重設」後，請在首頁提示或設定頁「爬蟲工具」下載官方爬蟲包，才能使用需要爬蟲的來源。
+
+修正：
+- 啟動時先載入爬蟲工具再顯示來源，不會先跳到其他來源。
+```
+
+## 第七十九次發布：`0.1.78 (79)`（2026-10-16，**已發布**，已被 `0.1.79 (80)` 取代）
+
+前面七十八版都已被取代。
 
 - 授權：使用者指示 W-138 修好、審過就直接發 App `0.1.78`（version `0.1.78`、build `79`；Manager 交接檔記錄）。發布前檢查 W-140（`.herdr-synapse/webhtv-dev/artifacts/pre-release-check-0.1.78.md`，五項 PASS，Manager 核准 #2575）之後，Manager 觸發 workflow 被權限擋下，改由使用者手動觸發（#2576、#2584；run 的 triggering actor 是 repo 擁有者帳號）。截點 `683ceb1b`（W-138 為止）。版號 `0.1.78`，build `79`。
 - 建置來源：run 的 headSha 就是截點 `683ceb1bb2f3106f41c89c09bb5f24ff765266b9`，沒有額外的 commit。

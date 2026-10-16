@@ -321,6 +321,12 @@ GUI 順帶發現（不是本單造成，回報 Manager）：0825 的 Ikanbot 首
 | Simulator（`w143-gui-evidence/RESULT.md`） | 暫存機 iPhone 18 Pro／iOS 27.0（測完刪除，BC4948DD 全程關機），每次安裝都核對雜湊。0825 → 下載序號 3 → 嗶哩收藏一部並播放留下紀錄 → 重設回「未安裝」：收藏卡片角標「需要爬蟲工具」，點開的頁面標題、說明與「下載爬蟲工具」按鈕正確（主要截圖 `W143-S4-02-favourite-sheet.png`）；紀錄列標「需要爬蟲工具」，點了跳出同一段說明的 alert；在收藏頁按下載 → 「下載中…」→ 裝好後頁面自己關閉、角標消失、詳情頁打得開（連拍 8 張都沒有「來源不可用」）；從紀錄 alert 下載同樣可行。全部 PASS。Build C（改成 `.badge` 之後）複驗：長片名不再被壓到，alert 照常（`W143C-*`）。之後只再加了一行 `accessibilityValue`（讓 VoiceOver 唸列時帶出「需要爬蟲工具」，因為 badge 在無障礙樹裡是獨立元素），只確認編譯，沒有實機 VoiceOver 測試 |
 | Ponytail | 自審抓到 2 點並已修：收藏格子每張卡算兩次 `FavoriteAvailability`（加 `FavoriteAvailability.reason`，卡片直接用）；**在收藏的頁面按下載、成功後**，原因變成 `nil`，頁面會退回「來源不可用／找不到原始來源」——改成原因消失就自動關閉（`onChange(of: reason)`）。GUI 另抓到 1 點並已修：紀錄列的「需要爬蟲工具」用 overlay 會壓到長片名，改成列的 `.badge`。下載失敗時，頁面與 alert 只把按鈕恢復，失敗原因在設定頁「上次檢查」（和首頁橫幅相同），本單沒另加 |
 
+### S5 發布（W-145 紀錄）
+
+- 2026-10-16：W-139 推上 `ios-poc`（`bb3a3e83..5bd8584e`）後，先發官方包序號 3：run `38840761214`（headSha `5bd8584e`）推回 `fcb4828c`，版本 `2026-10-16.1`、35 支（含 Ikanbot、Djuu）、9 個別名，Manager 從線上網址驗過 0 problem；再發 App `0.1.79 (80)`：run `38840961157`（headSha `fcb4828c`），tag `ios-v0.1.79-b80`，IPA 內 `Spiders/` 只有 3 個 SDK 檔、沒有 `SpiderBaseline`。完整紀錄見 `docs/IOS-POC-11-sidestore-release.md`「第八十次發布」。
+- 從此 App 不帶爬蟲；之後爬蟲修正走官方包，不必改版 App。
+- 序號 4（第一個只改爬蟲、不改 App 的更新）：W-144（Ikanbot 去掉 `$$$proxy`，`61bf9a24`）推上後，run `38843911065`（headSha `61bf9a24`，2026-10-16 03:07:12Z → 03:07:32Z）推回 `03c18652dc48170ebaa47c3b674e952f8a0734c3`，版本 `2026-10-16.2`、35 支、9 個別名；和序號 3 只差 `Ikanbot.js`（新 blob `c7c72d88…`＝`61bf9a24` 的檔案）。
+
 ---
 
 # 計畫（W-118，照搬並依決定修正）

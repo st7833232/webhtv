@@ -15,7 +15,7 @@ Simulator 第一輪照音軌的做法（第一份清單套用一次）兩個方�
 1. 原生「關閉」→ MPV：MPV 第一份清單還沒選任何軌（判成已經關閉、沿用結束），之後 MPV 自己挑了 English。
 2. MPV English → 原生：套用了，但原生在 readyToPlay 套自己的預設，3 秒後變回關閉。
 
-第二輪改成「維持 20 秒、偏離就拉回」：選單對了，但**原生在起播前選的字幕只記在選單、畫面不畫**。第三輪改成「新引擎真的在播才套用」（`watchStartup`／`watchHandoff` 起播那一刻再問一次），全部通過。最後依 Ponytail 把 20 秒從「起播那一刻」才開始算，暫停時換引擎、之後才按播放也會沿用。
+第二輪改成「維持 20 秒、偏離就拉回」：選單對了，但**原生在起播前選的字幕只記在選單、畫面不畫**。第三輪改成「新引擎真的在播才套用」（`watchStartup`／`watchHandoff` 起播那一刻再問一次），全部通過。最後依 Ponytail 把 20 秒從「起播那一刻」才開始算，暫停時換引擎、之後（60 秒內，見下方 N-1）才按播放也會沿用。
 
 ## 驗證
 
@@ -41,3 +41,9 @@ Simulator 第一輪照音軌的做法（第一份清單套用一次）兩個方�
 ## 回滾
 
 一個 commit；`git revert` 移除 Core 的沿用型別、PlaybackSession 的接線與測試，音軌沿用（W-154）不受影響。
+
+## 審查退回後修正（W-159 review F-1、N-1，`artifacts/w159-review-2026-10-19.md`）
+
+- **F-1（阻擋）沿用期間會蓋掉線上字幕**：線上字幕（字幕搜尋套用的、來源預設的）走 `router.setExternalSubtitles`，不經 `selectMedia`，所以不會結束沿用；`reselection(carrying:)` 又把選中的線上字幕當成偏離，拉回內嵌軌或關掉。修：`reselection(carrying:)` 一看到選中的是線上字幕（`PlaybackExternalSubtitle.isExternalID`）就回新的 `.online`，`carrySubtitle` 結束沿用並記 `an online subtitle is showing, stopped holding …`；換引擎時只保留**還沒到期**的沿用（到期但因為沒有新清單而沒被清掉的不再延續）。測試 `anOnlineSubtitleShowingEndsTheCarry`（off、語言、CC 三種沿用都回 `.online`）。
+- **N-1 暫停時換引擎的上限**：沿用在新引擎開始播放時套用，而換引擎後的起播監看（`watchHandoff`）只等 60 秒；暫停中換引擎、**超過 60 秒**才按播放時，只有等到引擎再送一份字幕清單才會套用，引擎可能不再送，這時沿用不會發生。60 秒內按播放都會沿用。
+- 驗證：單元 13 個（含音軌）全過、全量 `swift test`、App build（見 commit）；依審查意見不重跑 Simulator。

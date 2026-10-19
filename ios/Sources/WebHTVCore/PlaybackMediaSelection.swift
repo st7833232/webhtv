@@ -327,6 +327,9 @@ public enum PlaybackSubtitleReselection: Sendable, Equatable {
     case unavailable
     /// MPV lists a caption track only once captions arrive (W-155): ask again on the next list.
     case wait
+    /// An online subtitle is showing — the viewer's from 字幕搜尋, or the source's — which the carry must not replace
+    /// (W-159 review F-1): the carry ends.
+    case online
 }
 
 public extension PlaybackMediaTrack {
@@ -335,6 +338,7 @@ public extension PlaybackMediaTrack {
     /// captions without a language match captions. 「關閉」 leaves a forced track on: those are the lines of
     /// foreign dialogue a film shows even with subtitles off.
     func reselection(carrying carry: PlaybackSubtitleCarry) -> PlaybackSubtitleReselection {
+        if PlaybackExternalSubtitle.isExternalID(selectedID) { return .online }
         switch carry {
         case .off:
             guard let selectedOption, !selectedOption.isOff, selectedOption.subtitleRole != .forced else { return .matched }

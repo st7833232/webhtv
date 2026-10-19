@@ -68,6 +68,17 @@ private func subtitles(_ options: [PlaybackMediaOption], selected: String?) -> P
         #expect(normal.description == "zh-TW/normal" && PlaybackSubtitleCarry.off.description == "off")
     }
 
+    // W-159 review F-1: an online subtitle applied during the carry (字幕搜尋, or the source's own) is not a drift
+    // to pull back: whatever was carried, the carry ends and the online one stays.
+    @Test func anOnlineSubtitleShowingEndsTheCarry() throws {
+        let online = PlaybackExternalSubtitle.idPrefix + "1"
+        let list = PlaybackMediaTrack(options: [off, option("mpv-sub-1", "zh"), PlaybackExternalSubtitle.option(id: online)],
+                                      selectedID: online)
+        #expect(list.reselection(carrying: .off) == .online)
+        #expect(list.reselection(carrying: try #require(PlaybackSubtitleCarry(subtitles([option("n", "zh")], selected: "n")))) == .online)
+        #expect(list.reselection(carrying: .track(language: nil, role: .closedCaptions)) == .online)
+    }
+
     @Test func nothingToCarryFromAnOnlineSubtitleOrAnUnlabelledTrack() {
         let online = PlaybackMediaTrack(options: [off, PlaybackExternalSubtitle.option(id: PlaybackExternalSubtitle.idPrefix + "1")],
                                         selectedID: PlaybackExternalSubtitle.idPrefix + "1")

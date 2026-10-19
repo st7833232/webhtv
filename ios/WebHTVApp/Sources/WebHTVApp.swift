@@ -5361,7 +5361,10 @@ struct EpisodeSteps: Equatable {
             // switch made while one is still being carried keeps it: the engine in between only showed its own default.
             if self.router.switchReason == "open" {
                 self.subtitleToCarry = nil
-            } else if let carry = self.subtitleToCarry?.carry ?? PlaybackSubtitleCarry(self.mediaSelection.subtitle) {
+            } else if let carry = self.subtitleToCarry.flatMap({ pending in
+                          pending.until.map { ContinuousClock.now < $0 } ?? true ? pending.carry : nil })
+                        ?? PlaybackSubtitleCarry(self.mediaSelection.subtitle) {
+                // Only a carry still being held survives; an expired one, never cleared while no list came, does not.
                 self.subtitleToCarry = (carry, nil)
             }
             self.mediaSelection = PlaybackMediaSelection()
@@ -6316,6 +6319,9 @@ struct EpisodeSteps: Equatable {
         switch subtitles.reselection(carrying: pending.carry) {
         case .matched, .wait:
             return
+        case .online:
+            subtitleToCarry = nil
+            Self.log.notice("[subtitle] switch to \(engine, privacy: .public): an online subtitle is showing, stopped holding \(carried, privacy: .public)")
         case .unavailable:
             subtitleToCarry = nil
             Self.log.notice("[subtitle] switch to \(engine, privacy: .public): kept the default, no \(carried, privacy: .public)")

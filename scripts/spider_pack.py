@@ -121,6 +121,10 @@ DEFAULT_ORIGINS = {
     "TingShijie":  {"originJar": "spider.jar",
                     "jarSha256": "03bef7dd5f86e4005f00b10e7cfeb0427fe3f8b99893cca7e44b9a6e400cd6b1",
                     "notes": "audio needs an okhttp User-Agent; upstream's config host is not asked (W-148 gate)"},
+    # IOS-POC-57B-19: LIBVIO, read from 摸魚's jar (md5 e521e2cc…; FishGuard .so, but Libvio itself is plain Java).
+    "Libvio":      {"originJar": "439065876_1_1791894280503.jar",
+                    "jarSha256": "8adcedbd51c3ba467fd16ee3b127224dab0ee904c7975607453f64f5d77b138c",
+                    "notes": "CDN SHA-256 PoW cookie; online lines only, net-disk lines never listed (W-162/W-165 gate)"},
 }
 
 # What the app reads from a mapping (`SpiderPack.ClassMapping`). `evidence` is provenance only.

@@ -132,6 +132,8 @@ public struct SpiderRegistry: Sendable {
         "Wwys",         // http-html: qist spider.jar (maccms HTML lists, mac_url m3u8 lines; no relay)
         // IOS-POC-57B-18: 世界听书 audiobooks (m4a its CDN serves only to an okhttp User-Agent)
         "TingShijie",   // http-json: qist spider.jar (md5-signed chapter address; some chapters never resolve)
+        // IOS-POC-57B-19: LIBVIO behind a CDN SHA-256 proof-of-work; only its online lines, never the net-disk ones.
+        "Libvio",       // http-html: 摸魚 jar (stui lists, vod-* detail, player_aaaa; PoW cookie through the jar)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

@@ -128,6 +128,8 @@ public struct SpiderRegistry: Sendable {
         "Ikanbot",      // http-html: qist j-spider.jar (HTML lists, getResN JSON lines; IPA only, FOLDER-04)
         // IOS-POC-57B-16: 呦呦 • DJ (Djuu), audio; its 曲库 playlists are folders (IOS-POC-60).
         "Djuu",         // http-html: qist j-spider.jar (HTML lists, POST /play/music JSON; IPA only, FOLDER-04)
+        // IOS-POC-57B-17: 旺旺 • 影视 (Wwys); only line ② (lzm3u8, standard HLS) is listed.
+        "Wwys",         // http-html: qist spider.jar (maccms HTML lists, mac_url m3u8 lines; no relay)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

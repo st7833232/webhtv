@@ -198,7 +198,7 @@ private func playURL(_ value: Any?) -> [String] {
             ["App3Q", "App99", "AppDrama", "AppGet", "AppLY", "AppQi", "AppYQK", "AppYsV2", "BeiLeHu", "Bili", "Djuu", "Duboku", "Feiyu", "FirstAid", "GuaziTY", "Gulu",
              "HaokanDJ", "HemaDJ", "Ikanbot", "JPianAmns", "JianPian", "Jianpian", "Jpys", "Jys", "Kanqiu", "MiaoWu", "MoDu", "QimaoDJ", "QingtingFM",
              "ShortHaokan", "ShortHema", "ShortQimao", "ShortWeiguan", "ShortXingya", "Sports88", "SportsGuazi", "SportsKafei", "TingBokan", "TingJinxia", "TuXiaoBei", "Uvod",
-             "WeiguanDJ", "XBPQ", "XYQHiker"])
+             "WeiguanDJ", "Wwys", "XBPQ", "XYQHiker"])
     // IOS-POC-44C `Jys`, IOS-POC-57 qist `spider.jar`'s renames: each runs its target's script.
     for (alias, target) in SpiderRegistry.aliases {
         let script = registry.entry(for: "csp_" + alias)?.script

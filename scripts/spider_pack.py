@@ -117,6 +117,10 @@ DEFAULT_ORIGINS = {
                     "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69",
                     "aliases": ["Kanqiu"],
                     "notes": "88player-wrapped HLS lines only; qist 0825's Kanqiu (pg jar) is the same site (W-102)"},
+    # IOS-POC-57B-18: 世界听书 audiobooks (base host API), read from the newer qist spider.jar (md5 bf32cf12…).
+    "TingShijie":  {"originJar": "spider.jar",
+                    "jarSha256": "03bef7dd5f86e4005f00b10e7cfeb0427fe3f8b99893cca7e44b9a6e400cd6b1",
+                    "notes": "audio needs an okhttp User-Agent; upstream's config host is not asked (W-148 gate)"},
 }
 
 # What the app reads from a mapping (`SpiderPack.ClassMapping`). `evidence` is provenance only.

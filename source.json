@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.81",
+          "date": "2026-10-19",
+          "localizedDescription": "播放：\n- 原生播放器與 MPV 之間切換時，會沿用你已選的音軌語言。\n\n修正：\n- 有自己首頁清單的來源，分類列不再誤亮第一個分類。\n",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.81-b82/WebHTV-0.1.81-82.ipa",
+          "size": 35610457,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.80",
           "date": "2026-10-16",
           "localizedDescription": "直播：\n- 新增直播入口：讀取設定檔裡的直播清單，依群組列出頻道，點選即可播放。\n- 播放中在畫面中間上下滑動即可換台。\n- 一條線路播不出來時，會自動改試下一條線路；全部線路都失敗時停下並顯示提示，不會自動跳台。\n- 播放中可從線路選單手動切換線路。\n- 會記住上次看的頻道，並可將常看的頻道加入收藏。\n\n爬蟲工具：\n- 從收藏或觀看紀錄打開需要爬蟲工具的來源時，會提示「需要爬蟲工具」並可直接下載。\n",

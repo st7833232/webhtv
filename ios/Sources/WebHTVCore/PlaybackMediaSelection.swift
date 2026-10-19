@@ -290,3 +290,73 @@ public extension PlaybackMediaTrack {
         return best.id
     }
 }
+
+// MARK: - W-159: the embedded subtitle across an engine switch
+
+/// The embedded subtitle the viewer had when the engine changed, in terms the other engine can match:
+/// its language and kind, or 「關閉」. An online subtitle is not one: the router hands it to every engine.
+public enum PlaybackSubtitleCarry: Sendable, Equatable, CustomStringConvertible {
+    case off
+    case track(language: String?, role: PlaybackSubtitleRole)
+
+    /// Nil when there is nothing the other engine could match: no selection, an online subtitle, or a
+    /// track with neither a language nor a kind of its own.
+    public init?(_ track: PlaybackMediaTrack?) {
+        guard let selected = track?.selectedOption, !PlaybackExternalSubtitle.isExternalID(selected.id) else { return nil }
+        if selected.isOff { self = .off; return }
+        let language = PlaybackMediaOption.canonicalLanguageCode(selected.language) == "und" ? nil : selected.language
+        guard language != nil || selected.subtitleRole == .closedCaptions else { return nil }
+        self = .track(language: language, role: selected.subtitleRole)
+    }
+
+    /// For the log: a language code and a kind, nothing else.
+    public var description: String {
+        switch self {
+        case .off: return "off"
+        case .track(let language, let role): return "\(language ?? "-")/\(role.rawValue)"
+        }
+    }
+}
+
+/// What the engine taking over should do with a subtitle list it reports.
+public enum PlaybackSubtitleReselection: Sendable, Equatable {
+    case select(String)
+    /// It already shows what was carried — for now: an engine may still pick its own default afterwards.
+    case matched
+    /// Nothing of it in this engine: the engine's own choice stays.
+    case unavailable
+    /// MPV lists a caption track only once captions arrive (W-155): ask again on the next list.
+    case wait
+}
+
+public extension PlaybackMediaTrack {
+    /// The option to select so the viewer keeps the subtitle they had. A language matches as audio's does
+    /// (`reselection(carryingLanguage:)`), the same kind (CC, SDH, 強制) and then the same full tag preferred;
+    /// captions without a language match captions. 「關閉」 leaves a forced track on: those are the lines of
+    /// foreign dialogue a film shows even with subtitles off.
+    func reselection(carrying carry: PlaybackSubtitleCarry) -> PlaybackSubtitleReselection {
+        switch carry {
+        case .off:
+            guard let selectedOption, !selectedOption.isOff, selectedOption.subtitleRole != .forced else { return .matched }
+            guard let off = options.first(where: \.isOff) else { return .unavailable }
+            return .select(off.id)
+        case .track(let language, let role):
+            func tag(_ raw: String?) -> String? {
+                raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().replacingOccurrences(of: "_", with: "-")
+            }
+            // Not one the build cannot decode: MPV would turn it off again, and the carry would put it back until the deadline.
+            let embedded = options.filter { !$0.isOff && !$0.isUnsupportedSubtitle && !PlaybackExternalSubtitle.isExternalID($0.id) }
+            let best: PlaybackMediaOption?
+            if let root = PlaybackMediaOption.canonicalLanguageCode(language) {
+                let same = embedded.filter { PlaybackMediaOption.canonicalLanguageCode($0.language) == root }
+                let kind = same.filter { $0.subtitleRole == role }
+                let pool = kind.isEmpty ? same : kind
+                best = pool.first { tag($0.language) == tag(language) } ?? pool.first
+            } else {
+                best = embedded.first { $0.subtitleRole == role }
+            }
+            guard let best else { return role == .closedCaptions ? .wait : .unavailable }
+            return best.id == selectedID ? .matched : .select(best.id)
+        }
+    }
+}

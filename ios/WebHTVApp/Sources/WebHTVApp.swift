@@ -5357,6 +5357,13 @@ struct EpisodeSteps: Equatable {
             // fallback, a startup timeout); a new item ("open") starts on its own default.
             self.audioLanguageToCarry = self.router.switchReason == "open" ? nil
                 : self.mediaSelection.audio?.selectedOption?.language ?? self.audioLanguageToCarry
+            // W-159: so does the embedded subtitle, or 「關閉」, for 20 s once the new engine plays (`carrySubtitle`). A
+            // switch made while one is still being carried keeps it: the engine in between only showed its own default.
+            if self.router.switchReason == "open" {
+                self.subtitleToCarry = nil
+            } else if let carry = self.subtitleToCarry?.carry ?? PlaybackSubtitleCarry(self.mediaSelection.subtitle) {
+                self.subtitleToCarry = (carry, nil)
+            }
             self.mediaSelection = PlaybackMediaSelection()
             self.onMediaSelectionChange?(self.mediaSelection)
             self.onEngineChange?(kind)
@@ -5367,6 +5374,7 @@ struct EpisodeSteps: Equatable {
             self.onMediaSelectionChange?(selection)
             self.restoreTracksAfterReload(selection)
             self.carryAudioLanguage(selection)
+            self.carrySubtitle(selection)
         }
         // IOS-POC-45: a downloaded subtitle goes to the router, which hands it to whichever engine
         // plays now and to every engine that takes over; an ended subtitle session empties it.
@@ -5424,6 +5432,9 @@ struct EpisodeSteps: Equatable {
     /// W-154: the audio language selected before an engine switch, chosen again once the engine
     /// taking over lists its own tracks.
     private var audioLanguageToCarry: String?
+    /// W-159: the embedded subtitle (or 「關閉」) from before an engine switch, and until when it is held — counted from
+    /// the new engine's first moment of playing, so a switch made while paused still carries when play is pressed.
+    private var subtitleToCarry: (carry: PlaybackSubtitleCarry, until: ContinuousClock.Instant?)?
     /// Kept by the player screen: AVKit or MPV has the video in a Picture in Picture window.
     /// IOS-POC-36.2: set by each window's own start and stop too, because a window closed with the
     /// app in the background is judged right then, and SwiftUI's `onChange` promises no moment.
@@ -5484,6 +5495,8 @@ struct EpisodeSteps: Equatable {
 
     /// Through the router, so an online subtitle chosen here is also the next engine's (IOS-POC-45).
     func selectMedia(_ kind: PlaybackMediaKind, id: String) async {
+        // W-159: a subtitle the viewer picks is theirs; a carried one must not replace it.
+        if kind == .subtitle { subtitleToCarry = nil }
         await router.selectMedia(kind, id: id)
     }
 
@@ -6285,6 +6298,34 @@ struct EpisodeSteps: Equatable {
         Task { @MainActor in await self.selectMedia(.audio, id: id) }
     }
 
+    /// W-159: held until the deadline, not applied once — an engine picks its own default after its first list
+    /// (MPV) or when the item is ready (AVPlayer), so a list that drifts from the carried subtitle is put back.
+    /// The viewer's own choice ends it (`selectMedia`); so does an engine without that subtitle. Only once the engine
+    /// plays: AVPlayer keeps a legible choice made before it starts but draws nothing for it (W-159 Simulator run 2);
+    /// the start itself asks again (`watchStartup`, `watchHandoff`).
+    private func carrySubtitle(_ selection: PlaybackMediaSelection) {
+        guard let pending = subtitleToCarry, let subtitles = selection.subtitle, engine?.isPlaying == true else { return }
+        let engine = engineKind.shortName, carried = pending.carry.description
+        let until = pending.until ?? ContinuousClock.now + .seconds(20)
+        if pending.until == nil { subtitleToCarry = (pending.carry, until) }
+        guard ContinuousClock.now < until else {
+            subtitleToCarry = nil
+            Self.log.notice("[subtitle] switch to \(engine, privacy: .public): stopped holding \(carried, privacy: .public)")
+            return
+        }
+        switch subtitles.reselection(carrying: pending.carry) {
+        case .matched, .wait:
+            return
+        case .unavailable:
+            subtitleToCarry = nil
+            Self.log.notice("[subtitle] switch to \(engine, privacy: .public): kept the default, no \(carried, privacy: .public)")
+        case .select(let id):
+            Self.log.notice("[subtitle] switch to \(engine, privacy: .public): carried \(carried, privacy: .public) id=\(id, privacy: .public)")
+            // The router directly: `selectMedia` is the viewer's, and ends the carry.
+            Task { @MainActor in await self.router.selectMedia(.subtitle, id: id) }
+        }
+    }
+
     /// IOS-POC-24: the app is the one owner of the audio session both engines share; mpv is told to
     /// leave it alone (`MPVPlayerCore`). The system deactivates it when it suspends the app or a call
     /// or Siri interrupts it, and mpv's audio unit, unlike AVPlayer, does not activate it again, so every
@@ -6455,6 +6496,7 @@ struct EpisodeSteps: Equatable {
         pausedBackground.cancel()
         tracksToRestore = nil
         audioLanguageToCarry = nil
+        subtitleToCarry = nil
         // IOS-POC-36.3 (D10): nor does its failure. The router clears its own; the screen's message
         // waited for an engine change, which an item opened on the session's engine — the next
         // episode, a WebHome page's playUrl — never brings.
@@ -6662,6 +6704,7 @@ struct EpisodeSteps: Equatable {
                     notePlayHealth(succeeded: true)
                     lineObserver?(.started)
                     Self.log.notice("[playback] started \(self.itemTitle, privacy: .public) on \(self.engineKind.shortName, privacy: .public) in \(milliseconds)ms after open; resolve \(self.resolution, privacy: .public)")
+                    carrySubtitle(mediaSelection)
                     return
                 }
                 try? await Task.sleep(for: .milliseconds(100))
@@ -6682,6 +6725,7 @@ struct EpisodeSteps: Equatable {
                 if let engine, engine.kind == kind, engine.isPlaying {
                     let milliseconds = Int((ContinuousClock.now - since) / .milliseconds(1))
                     Self.log.notice("[playback] started \(self.itemTitle, privacy: .public) on \(kind.shortName, privacy: .public) in \(milliseconds)ms after the switch (\(reason, privacy: .public))")
+                    self.carrySubtitle(self.mediaSelection)
                     return
                 }
                 try? await Task.sleep(for: .milliseconds(100))

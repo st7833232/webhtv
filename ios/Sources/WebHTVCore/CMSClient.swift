@@ -10,6 +10,9 @@ public struct CMSResponse: Decodable, Sendable {
     /// IOS-POC-41A: why `list` is empty when a spider home fell back to a category that could not
     /// be fetched. Never decoded; `SourceClient.home` sets it so the categories stay on screen.
     public var failure: SiteUnreachable?
+    /// W-156: the category a home call listed in place of its own list (a type-4 home, or a spider
+    /// home with no list), so the caller highlights only what is really on screen. Never decoded.
+    public var listedCategoryID: String?
 
     enum CodingKeys: String, CodingKey {
         case classes = "class"
@@ -428,7 +431,9 @@ public struct CMSClient: Sendable {
         // Match what the caller will offer for browsing, so the listed category is the highlighted one.
         guard let first = categories.firstListableCategory else { return categories }
         let listing = try await category(id: first.id, page: page)
-        return CMSResponse(classes: categories.classes, list: listing.list)
+        var response = CMSResponse(classes: categories.classes, list: listing.list)
+        response.listedCategoryID = first.id
+        return response
     }
 
     /// Both type-1 and type-4 list a category with the same `t=` / `pg=` contract.

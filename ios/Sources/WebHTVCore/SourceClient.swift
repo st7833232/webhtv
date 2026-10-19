@@ -34,18 +34,21 @@ public enum SourceClient: Sendable {
             return try await explained { try await client.home(page: page) }
         case .spider(let session, _):
             let home = try await decode(CMSResponse.self, from: session.home())
-            // XBPQ always returns an empty home list and XYQHiker only fills one when its rule file
-            // sets 首页推荐链接, so a spider home would otherwise render an empty grid. This is the
-            // same fallback a type-4 home already uses: list the first browsable category.
+            // A spider whose home list is still empty (XYQHiker without 首页推荐链接, a rule without a
+            // home) would otherwise render an empty grid; XBPQ.js fills its own from its first category.
+            // This is the same fallback a type-4 home already uses: list the first browsable category.
             guard home.list.isEmpty, let first = home.firstListableCategory else { return home }
             // Keep the home response's filters: the fallback only borrows the category's titles.
             do {
                 let listing = try await category(id: first.id, page: page)
-                return CMSResponse(classes: home.classes, list: listing.list, filters: home.filters)
+                var response = CMSResponse(classes: home.classes, list: listing.list, filters: home.filters)
+                response.listedCategoryID = first.id
+                return response
             } catch let failure as SiteUnreachable {
                 // IOS-POC-41A: the categories stay, so another one can still be tried.
                 var response = CMSResponse(classes: home.classes, list: [], filters: home.filters)
                 response.failure = failure
+                response.listedCategoryID = first.id
                 return response
             }
         }

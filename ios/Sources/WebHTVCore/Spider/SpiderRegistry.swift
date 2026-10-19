@@ -125,9 +125,9 @@ public struct SpiderRegistry: Sendable {
         "Sports88",     // http-html: spider.jar (HTML lists, base64-wrapped JSON lines per match)
         "Kanqiu",       // http-html: qist pg jar (as Sports88; its own detail route answers 404)
         // IOS-POC-57B-15: 爱看 • 影视 (Ikanbot), the first port whose 片单 lists are folders (IOS-POC-60).
-        "Ikanbot",      // http-html: qist j-spider.jar (HTML lists, getResN JSON lines; IPA only, FOLDER-04)
+        "Ikanbot",      // http-html: qist j-spider.jar (HTML lists, getResN JSON lines; official pack only since IOS-POC-61 S5)
         // IOS-POC-57B-16: 呦呦 • DJ (Djuu), audio; its 曲库 playlists are folders (IOS-POC-60).
-        "Djuu",         // http-html: qist j-spider.jar (HTML lists, POST /play/music JSON; IPA only, FOLDER-04)
+        "Djuu",         // http-html: qist j-spider.jar (HTML lists, POST /play/music JSON; official pack only since IOS-POC-61 S5)
         // IOS-POC-57B-17: 旺旺 • 影视 (Wwys); only line ② (lzm3u8, standard HLS) is listed.
         "Wwys",         // http-html: qist spider.jar (maccms HTML lists, mac_url m3u8 lines; no relay)
         // IOS-POC-57B-18: 世界听书 audiobooks (m4a its CDN serves only to an okhttp User-Agent)

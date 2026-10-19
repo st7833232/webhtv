@@ -1596,10 +1596,12 @@ private struct CMSView: View {
             if !response.classes.isEmpty { groups = response.categoryGroups }
             // Same for the filter rows: only the home call carries them.
             if !response.filters.isEmpty { filterRows = response.filters }
-            // A type-4 home already lists its first category, and a spider home falls back to the
-            // same behaviour because most spiders return no home list at all — highlight that chip.
-            if site.type == 4 || site.isCSPSpider, selectedCategory == nil {
-                selectedCategory = response.firstListableCategory?.id
+            // A type-4 home already lists its first category, and a spider home with no list of its
+            // own falls back to the same — highlight that chip. W-156: a spider home that has its own
+            // list (Wwys 今日更新) highlights no category (Android lights its 推荐 tab, not 电影), so
+            // the first tap on 电影 loads it.
+            if selectedCategory == nil, let listed = response.listedCategoryID {
+                selectedCategory = listed
             }
         } catch {
             guard generation == listingGeneration else { return }

@@ -532,3 +532,35 @@ private extension String {
     // The listing must still come back — a rejected filter would empty it.
     #expect(!filtered.list.isEmpty, "filtering \(row.key)=\(option.value) returned nothing")
 }
+
+/// W-156: the home page may only highlight a category it really listed. 旺旺 • 影视 (Wwys) returns its
+/// own 今日更新 list, and the app lit 电影 above it, so a tap on 电影 looked like a no-op.
+@Test func aSpiderHomeNamesTheCategoryOnlyWhenItListedOne() async throws {
+    func home(_ homeList: String) async throws -> CMSResponse {
+        let script = """
+        module.exports = {
+          init: function () {},
+          homeContent: function () {
+            return JSON.stringify({ class: [{ type_id: "1", type_name: "电影" }], list: \(homeList) });
+          },
+          categoryContent: function (tid) {
+            return JSON.stringify({ list: [{ vod_id: "c" + tid, vod_name: "category " + tid }] });
+          }
+        };
+        """
+        let registry = SpiderRegistry(entries: ["Probe": .init(script: script, source: .bundled)],
+                                      prelude: SpiderRegistry.bundled().prelude)
+        let site = try JSONDecoder().decode(Site.self, from: Data(
+            #"{"key":"w156","name":"w156","type":3,"api":"csp_Probe","ext":null}"#.utf8))
+        let session = try await SpiderSessionStore().session(for: site, resolver: CSPSourceResolver(registry: registry))
+        return try await SourceClient.spider(session, site).home()
+    }
+
+    let own = try await home(#"[{ vod_id: "h", vod_name: "今日更新" }]"#)
+    #expect(own.list.map(\.id) == ["h"])
+    #expect(own.listedCategoryID == nil, "a home list is not 电影; nothing may be highlighted")
+
+    let fallback = try await home("[]")
+    #expect(fallback.list.map(\.id) == ["c1"])
+    #expect(fallback.listedCategoryID == "1")
+}

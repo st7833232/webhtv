@@ -80,3 +80,28 @@
 ## 6. 回滾
 
 刪 `ios/Spiders/Wwys.js` 與 `WwysSpiderTests.swift`，還原 `SpiderRegistry.ported` 的那一行與 `SpiderGoldenTests` 名單的 `"Wwys"`（或 `git revert` 該 commit）。之後 registry 不再宣稱 `csp_Wwys`，打包工具也不再收它；本單沒有發布物要收回。
+
+## 7. W-156：爬蟲站首頁第一個分類「已選取卻沒載入」
+
+- **問題**：W-152 Simulator（`artifacts/w152-gui-evidence/RESULT.md` §2 第 2、3 列）看到旺旺 • 影視首頁載入後，「電影」底線已亮，片單卻是爬蟲 `homeVod` 的「今日更新」；回報寫「再點電影不會載入」。
+- **Android 對照**：
+  - `app/src/mobile/java/com/fongmi/android/tv/ui/adapter/TypeAdapter.java:45-50`：首頁結果有片單（`result.getList()` 非空）時，在分類最前面插一個「推薦」（`home()`，`:33-38`，`vod_home`），選取的是「推薦」；沒有片單時才選第一個真分類，而該分頁會自己載入那個分類。
+  - `app/src/mobile/java/com/fongmi/android/tv/ui/fragment/VodFragment.java:504-507`：點分類只做 `pager.setCurrentItem(position)` 和 `setSelected`；再點已選的分類頁碼不變，不重載也不捲動。Android 不會出現「亮著卻沒載入」的分類，所以再點不需要重載。
+- **根因**：`ios/WebHTVApp/Sources/WebHTVApp.swift:1599-1603`（改前）對所有爬蟲站一律把第一個分類設成選取，但 `ios/Sources/WebHTVCore/SourceClient.swift:40` 只有在首頁沒片單時才真的改列第一個分類。Wwys 有自己的首頁片單，畫面於是亮著「電影」卻顯示「今日更新」，往下捲的「載入更多」也會把電影第 2 頁接在今日更新後面。
+  - 「再點不會載入」不成立：`parentChip`（`WebHTVApp.swift:1446-1450`）與子分類 `chip`（`:1485-1489`）點下去不論 `selectCategory` 的 `guard selectedCategory != id` 是否擋下，都會執行 `load(category:)`，也就是已選的分類再點會重載。W-152 當時沒有實際點電影，是看程式推論的。
+- **改法**：`CMSResponse` 加 `listedCategoryID`（不解碼），只有首頁真的改列某分類時才填：type-4 首頁（`CMSClient.home`）、爬蟲首頁沒片單的退回路徑（成功或 41A 失敗都填）。App 只在 `selectedCategory == nil` 且有 `listedCategoryID` 時亮那個分類。結果：Wwys 首頁不亮任何分類，點一下「電影」就因為分類改變而載入；XBPQ 這類沒有首頁片單的爬蟲站、type-4 站行為不變。已選分類再點仍重載（比 Android 多，屬既有行為，保留）。iOS 沒有「推薦」分類鈕（IOS-POC-8I 刻意不加合成分類），離開今日更新後只能重新進入來源回到它，屬既有行為，未改。
+- **同單附帶**：`ios/Sources/WebHTVCore/Spider/SpiderRegistry.swift` 的 `Ikanbot`、`Djuu` 註解由「IPA only, FOLDER-04」改為「official pack only since IOS-POC-61 S5」（只改註解）。
+- **驗證**（log 在 `artifacts/w156-logs/`）：
+  - 先紅：新測試 `SourceClientTests.aSpiderHomeNamesTheCategoryOnlyWhenItListedOne` 在沒有實作前編譯失敗（`red-build.log`：`CMSResponse` 沒有 `listedCategoryID`）。測試用內嵌爬蟲：有首頁片單時 `listedCategoryID == nil`；首頁片單空時列第一分類且 `listedCategoryID == "1"`。
+  - 全量 swift test：1332 個測試／50 組，新測試通過；1 個失敗是 `GlobalParseTests.aSniffEndsWhenItsCallerGivesUp`（WebView 嗅探要在 5 秒內結束，牆鐘計時），當時和 App build 同時跑、主執行緒被拖慢（同一段其他 MainActor 測試都花約 6 秒），與本單無關；build 完後單獨重跑一次 0.667 秒通過（`swift-test.log`、`swift-test-rerun-sniff.log`）。
+  - App build（Debug、iOS Simulator BC4948DD 目標，只建置不開機）：`BUILD SUCCEEDED`，0 個 error（`xcodebuild.log`）。build 開始後只再改了 `WebHTVApp.swift` 一段註解的措辭，不影響產物。
+- **沒驗到**：Simulator GUI（交給 Manager 實機操作：Wwys 首頁不亮分類、點電影載入電影、再點電影重載、XBPQ 類站首頁仍亮第一分類）；type-4 站的 App 畫面；真機。App 的高亮判斷是 SwiftUI 接線，沒有另寫原始碼文字測試，靠 Core 測試加 build。
+- **回滾**：`git revert` 本單 commit；或還原 `CMSResponse.listedCategoryID`、兩個 home 填值處與 `WebHTVApp.swift` 那段判斷。
+
+#### W-156 Simulator（`artifacts/w156-gui-evidence/RESULT.md`，2026-10-19 14:13–14:23 CST）
+
+- 熱點出口 `111.71.119.15`，暫存機 iPhone 18 Pro／iOS 27.0（測完刪除，BC4948DD 全程關機），安裝後雜湊與 build 相同；正式通道的官方包（套用 `2026-10-19.2 seq 6`），dianshi 真網址，只看清單、不播放。
+- A 旺旺 • 影視：首頁 12 部（今日更新），6 個分類標籤都沒亮。**PASS**。
+- B 點「電影」：亮起、片單換成 30 部電影；再點已亮的「電影」：site-health `browseSuccess` 2→3（點擊後 1 秒內），真的重抓。**PASS**。
+- C 沒設 `首页` 的 XBPQ 站（果果 • 短剧）：首頁 30 部、8 個標籤都沒亮。驗證子代理記成 FAIL（修正前會亮第一個）。判斷：**和 Android 一致，不是倒退**。`XBPQ.js` 的 `homeVideoContent`（:544–547）在沒有 `首页` 時自己抓第一個分類當首頁片單，所以首頁片單不是空的；Android `TypeAdapter.addAll`（`app/src/mobile/java/com/fongmi/android/tv/ui/adapter/TypeAdapter.java:45-49`）只要首頁片單不是空的就在最前面加「首頁」標籤並選它，不會亮第一個分類。iOS 沒有「首頁」標籤（IOS-POC-8I），所以「沒有任何分類亮」就是 Android 的對應狀態；點第一個分類照常載入並亮起。`SourceClient.swift` 那段寫「XBPQ always returns an empty home list」的過時註解一併改正。
+- 沒驗到：「首頁片單是空的、而且第一個分類抓得到」會亮第一個分類那條路沒有 App 實證（麵包 • 影视 走到這條路，但站方要 Cloudflare 驗證，分類抓不到；由 `SourceClientTests.aSpiderHomeNamesTheCategoryOnlyWhenItListedOne` 涵蓋）；type-4 站（這份設定沒有）、子分類與篩選的亮燈、Release、實機。

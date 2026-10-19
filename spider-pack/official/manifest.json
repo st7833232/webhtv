@@ -260,6 +260,13 @@
       "sha256": "55535d6ae2625de2fb63bbeafa9f115535ec39ad1a233a0070c7b018dcbe3863"
     },
     {
+      "bytes": 7061,
+      "class": "Wwys",
+      "logicalType": "spider.js",
+      "path": "spiders/Wwys.js",
+      "sha256": "bc54e9886cb508f41a08e2afa1c8c64a1ecacad0421140b9480d90cb107519e6"
+    },
+    {
       "bytes": 34026,
       "class": "XBPQ",
       "logicalType": "spider.js",
@@ -292,6 +299,6 @@
   "scope": {
     "kind": "global"
   },
-  "sequence": 4,
-  "version": "2026-10-16.2"
+  "sequence": 5,
+  "version": "2026-10-19.1"
 }

@@ -491,6 +491,8 @@ final class MPVPlayerCore: @unchecked Sendable {
     private var lastSubtitleList: String?
     private var subtitleCodecs = [Int64: String]()
     private var chosenSubtitle: (id: Int64, at: ContinuousClock.Instant)?
+    /// W-155 (W-149 F-5): the picture size last logged, so a reconfigure to the same size says nothing. `queue` only.
+    private var loggedVideoSize: (width: Int64, height: Int64)?
 
     var snapshot: Snapshot {
         lock.lock(); defer { lock.unlock() }
@@ -516,6 +518,8 @@ final class MPVPlayerCore: @unchecked Sendable {
         #endif
         mpv_set_option_string(handle, "video-rotate", "no")
         mpv_set_option_string(handle, "subs-fallback", "yes")
+        // W-155: no `sub-create-cc-track`. mpv already adds a CEA-608/708 track once caption data arrives in the
+        // video; the option only creates it up front — on every video, empty, and selected as the default subtitle.
         // IOS-POC-45D: libass draws through FreeType, which cannot read iOS 18+'s PingFang (hvgl
         // outlines only): Chinese was boxes, and each missing character re-ran the font search on
         // every frame (the stutter). The bundled CFF subset is the style font of text subtitles and
@@ -797,6 +801,7 @@ final class MPVPlayerCore: @unchecked Sendable {
                 }
             case MPV_EVENT_FILE_LOADED:
                 update { $0.loading = false; $0.loaded = true }
+                loggedVideoSize = nil
                 // IOS-POC-45: the session's online subtitles go onto every file, the chosen one shown.
                 if !externals.isEmpty { attachExternals(mpv, select: true) }
                 refreshMediaSelection(mpv)
@@ -809,6 +814,17 @@ final class MPVPlayerCore: @unchecked Sendable {
                 var width: Int64 = 0, height: Int64 = 0
                 mpv_get_property(mpv, "dwidth", MPV_FORMAT_INT64, &width)
                 mpv_get_property(mpv, "dheight", MPV_FORMAT_INT64, &height)
+                // W-155 (W-149 F-5): the size mpv actually decodes and shows, at the start and whenever it changes —
+                // numbers only, never the address. The bitrates are the HLS variant's and mpv's estimate, when known.
+                if width > 0, height > 0, loggedVideoSize.map({ $0 != (width, height) }) ?? true {
+                    loggedVideoSize = (width, height)
+                    let decoded = "\(stringProperty(mpv, "video-params/w") ?? "?")x\(stringProperty(mpv, "video-params/h") ?? "?")"
+                    let variant = stringProperty(mpv, "current-tracks/video/hls-bitrate") ?? "n/a"
+                    let estimate = stringProperty(mpv, "video-bitrate") ?? "n/a"
+                    let line = "[playback] mpv video \(width)x\(height) decoded=\(decoded) hls-bitrate=\(variant)"
+                        + " video-bitrate=\(estimate)"
+                    Task { @MainActor in PlaybackSession.log.notice("\(line, privacy: .public)") }
+                }
                 onEvent?(.videoReconfigured(width: Int(width), height: Int(height)))
             case MPV_EVENT_LOG_MESSAGE:
                 if let message = event.pointee.data?.assumingMemoryBound(to: mpv_event_log_message.self).pointee,

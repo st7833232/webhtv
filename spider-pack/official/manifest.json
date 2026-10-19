@@ -166,6 +166,13 @@
       "sha256": "22604251f34c2b3fa113fddb15b568f60df1be3900372b973b5c984c60b32502"
     },
     {
+      "bytes": 11555,
+      "class": "Libvio",
+      "logicalType": "spider.js",
+      "path": "spiders/Libvio.js",
+      "sha256": "2814d472548ca8dfa710f8c4ef46d22a01628541a149be284e41eafeff29feff"
+    },
+    {
       "bytes": 8848,
       "class": "MiaoWu",
       "logicalType": "spider.js",
@@ -306,6 +313,6 @@
   "scope": {
     "kind": "global"
   },
-  "sequence": 6,
-  "version": "2026-10-19.2"
+  "sequence": 7,
+  "version": "2026-10-19.3"
 }

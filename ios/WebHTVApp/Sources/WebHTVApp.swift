@@ -5351,6 +5351,10 @@ struct EpisodeSteps: Equatable {
             self.adSkip.engineReloaded()
             // Track ids belong to one engine adapter; the other engine's would match nothing.
             self.tracksToRestore = nil
+            // W-154: the audio language does cross over, on a switch of this item (the viewer's, a
+            // fallback, a startup timeout); a new item ("open") starts on its own default.
+            self.audioLanguageToCarry = self.router.switchReason == "open" ? nil
+                : self.mediaSelection.audio?.selectedOption?.language ?? self.audioLanguageToCarry
             self.mediaSelection = PlaybackMediaSelection()
             self.onMediaSelectionChange?(self.mediaSelection)
             self.onEngineChange?(kind)
@@ -5360,6 +5364,7 @@ struct EpisodeSteps: Equatable {
             self.mediaSelection = selection
             self.onMediaSelectionChange?(selection)
             self.restoreTracksAfterReload(selection)
+            self.carryAudioLanguage(selection)
         }
         // IOS-POC-45: a downloaded subtitle goes to the router, which hands it to whichever engine
         // plays now and to every engine that takes over; an ended subtitle session empties it.
@@ -5414,6 +5419,9 @@ struct EpisodeSteps: Equatable {
     private var heartbeat: Task<Void, Never>?
     /// The embedded tracks from before a reload, selected again once the reloaded item lists its own.
     private var tracksToRestore: PlaybackMediaSelection?
+    /// W-154: the audio language selected before an engine switch, chosen again once the engine
+    /// taking over lists its own tracks.
+    private var audioLanguageToCarry: String?
     /// Kept by the player screen: AVKit or MPV has the video in a Picture in Picture window.
     /// IOS-POC-36.2: set by each window's own start and stop too, because a window closed with the
     /// app in the background is judged right then, and SwiftUI's `onChange` promises no moment.
@@ -6262,6 +6270,19 @@ struct EpisodeSteps: Equatable {
         }
     }
 
+    /// W-154: the first audio list the new engine reports decides it, once: the same language if
+    /// the engine has it, otherwise the engine's default stays.
+    private func carryAudioLanguage(_ selection: PlaybackMediaSelection) {
+        guard let language = audioLanguageToCarry, let audio = selection.audio else { return }
+        audioLanguageToCarry = nil
+        guard let id = audio.reselection(carryingLanguage: language) else {
+            Self.log.notice("[audio] switch to \(self.engineKind.shortName, privacy: .public): kept default for language=\(language, privacy: .public)")
+            return
+        }
+        Self.log.notice("[audio] switch to \(self.engineKind.shortName, privacy: .public): carried language=\(language, privacy: .public) id=\(id, privacy: .public)")
+        Task { @MainActor in await self.selectMedia(.audio, id: id) }
+    }
+
     /// IOS-POC-24: the app is the one owner of the audio session both engines share; mpv is told to
     /// leave it alone (`MPVPlayerCore`). The system deactivates it when it suspends the app or a call
     /// or Siri interrupts it, and mpv's audio unit, unlike AVPlayer, does not activate it again, so every
@@ -6431,6 +6452,7 @@ struct EpisodeSteps: Equatable {
         // an item that starts playing needs the audio session active.
         pausedBackground.cancel()
         tracksToRestore = nil
+        audioLanguageToCarry = nil
         // IOS-POC-36.3 (D10): nor does its failure. The router clears its own; the screen's message
         // waited for an engine change, which an item opened on the session's engine — the next
         // episode, a WebHome page's playUrl — never brings.

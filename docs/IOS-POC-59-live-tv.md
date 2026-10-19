@@ -951,3 +951,24 @@ Ponytail（最終 diff）：Ship。兩項 nice-to-have：①評論位置錯（`.
 
 - 2026-10-16：U2（W-125 `57562e59`）、U3（W-126 `00931cca`）、U4（W-127 `61f0b060`）審過後一起推上 `ios-poc`（`13bfac42..61f0b060`），隨 App `0.1.80 (81)` 發布：run `38845998865`（headSha `61f0b060`），tag `ios-v0.1.80-b81`，`source.json` `085cd974`，IPA 35,603,927 B。完整紀錄見 `docs/IOS-POC-11-sidestore-release.md`「第八十一次發布」。
 - 使用者決定直播多畫質／多音軌不擋本版；W-149 發布後實測。W-127 審查 N-1（清單自帶「收藏」群組撞名）、N-2 待評估。真機尚未驗收。
+
+## 20. W-154 換引擎沿用音軌語言（2026-10-19）
+
+- **問題**（W-149 F-1）：原生播放器選了 Japanese，切到 MPV 後回到 English（`live-tracks-check/applog.txt`：`engine=AVPlayer selected=Japanese … language=ja` 之後是 `engine=MPV selected=English … language=en`）。點播與直播都一樣。
+- **根因**：`PlaybackSession` 的 `router.onEngineChange`（`ios/WebHTVApp/Sources/WebHTVApp.swift:5353`，改前行號）在換引擎時把 `tracksToRestore` 清成 nil、`mediaSelection` 清空；唯一的還原機制 `PlaybackMediaSelection.reselections(after:)`（`ios/Sources/WebHTVCore/PausedBackgroundReload.swift:103`）只比對 id，而 id 屬於各引擎（`native-audio-N`／`mpv-audio-N`），所以換引擎後沒有任何東西把語言帶過去，新引擎停在自己的預設。
+- **改法**：
+  - Core：`PlaybackMediaTrack.reselection(carryingLanguage:)`（`PlaybackMediaSelection.swift`）——純函式，給上一個引擎選中音軌的語言，回傳新引擎要選的 id；語言用既有的 `canonicalLanguageCode` 正規化（大小寫、`_`/`-`、`jpn`＝`ja`、`ja-JP`＝`ja`），完整標籤相同（如 `zh-HK`）優先於同語系；沒有語言、沒有同語言音軌、或預設已是該語言時回 nil（保留預設）。
+  - App：`onEngineChange` 在清空前記下 `audioLanguageToCarry`（只在同一項目的換引擎：觀眾切換、失敗改用、起播逾時；`switchReason == "open"` 的新項目不帶）；`router.onMediaSelectionChange` 收到新引擎第一份音軌清單時呼叫 `carryAudioLanguage` 決定一次，經 `selectMedia(.audio, id:)` 選取，並寫一行 `[audio] switch to <引擎>: carried language=… id=…`／`kept default for language=…`。`load()` 開新項目時清掉。
+  - 所有換引擎都走 `PlayerRouter.run` → `onEngineChange` 這一條：觀眾切換（`selectEngine`）、速度超過 AVPlayer 能力（`nativeCannotPlayRate`）、播放失敗改用（`engineFailed`）、起播逾時（`startupTimedOut`），所以一次修好。**直播換線不在範圍**：換線是 `session.open(freshEngine: true)` 開新項目（`switchReason == "open"`），照舊回到預設引擎與預設音軌。
+  - 沒動音軌選單 UI、自動換引擎規則、直播換線邏輯。
+- **驗證**：
+  - 先紅後綠：`swift test --filter AudioLanguageCarryTests` 7 個測試，stub 回 nil 時 4 個失敗（`red.log`），實作後 7/7 通過（`green.log`）。涵蓋原生 ja → MPV 選 ja、MPV ja → 原生選 ja、沒有同語言保留預設、沒有先前選擇保留預設、預設已是該語言不動、`jpn`/`ja-JP`/`JA_jp` 互通、`zh-HK` 優先。
+  - 全部 `swift test`：1325 個測試、50 個 suite 全過（`full.log`）。
+  - App 以 Simulator 為目標 Debug 建置：`** BUILD SUCCEEDED **`（`app-build.log`），改動處沒有新增警告。
+  - log 位置：`.herdr-synapse/webhtv-dev/artifacts/w154-logs/`。
+  - Simulator（`artifacts/w154-gui-evidence/RESULT.md`，2026-10-19 13:42–13:58 CST）：暫存機 iPhone 18 Pro／iOS 27.0（測完刪除，BC4948DD 全程關機），安裝後雜湊與 build 相同。樣本是本機 ffmpeg 合成的 HLS（300 秒、English 440 Hz 預設＋Japanese 880 Hz，`127.0.0.1:18154`，掛在自製直播源，不連外網），點擊用 XCUITest 單次腳本。A 原生選 Japanese → 切 MPV：`switch to MPV: carried language=ja id=mpv-audio-2` → `engine=MPV selected=Japanese`，選單勾 Japanese；B1 接著切回原生：`switch to 原生: carried language=ja id=native-audio-1` → `engine=AVPlayer selected=Japanese`；B2 在 MPV 親手由 English 改選 Japanese 再切回原生，同樣沿用；C 對照組沒改音軌就切換：`kept default for language=en`，一直是 English。全部 PASS。新引擎會先回報一次預設 English，30–90 ms 內改成 Japanese（在 `started` 之前）；關掉播放器重新開（`open`）回到 English，和設計一致。
+  - Ponytail（最終 diff）：Ship，沒有 finding。純函式一個、App 三處接線（記下、套用一次、開新項目清掉），沒有多餘選項；只決定一次是刻意的，避免之後蓋掉觀眾手動的選擇。
+- **沒驗到**：
+  - Simulator 只測觀眾手動切換（`viewer`）；播放失敗改用、起播逾時、速度造成的自動切換走同一條 `onEngineChange`，只讀碼。新引擎沒有該語言的情況只由單元測試涵蓋。判斷依據是 log 與選單勾選，沒有聽聲音。真實直播、換線、Release、實機都沒測（樣本有 ENDLIST，App 當點播處理）。
+  - 兩個引擎回報的語言碼：W-149 的合成樣本兩邊都是 `en`／`ja`（原生取 `extendedLanguageTag ?? locale.identifier`，MPV 取 `track-list/N/lang`）。其他來源（如 MKV 的 `jpn`、原生的 `ja-JP`）只由單元測試涵蓋，沒有實機證據。
+  - MPV 第一份音軌清單是否列出所有 HLS 替代音軌：合成樣本上是（A 情境直接 carried）；其他來源若第一份不完整，會記 `kept default` 而不沿用（只決定一次，避免之後蓋掉觀眾的手動選擇）。

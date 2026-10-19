@@ -267,3 +267,26 @@ public enum SubtitleTrackSummary {
             + " codecs=\(codecs.isEmpty ? "-" : codecs.joined(separator: ","))"
     }
 }
+
+// MARK: - W-154: the audio language across an engine switch
+
+public extension PlaybackMediaTrack {
+    /// The audio option to select after an engine switch so the viewer keeps the language they had
+    /// (`language`, the previous engine's selected option's). Nil keeps this engine's own default:
+    /// no language, no option in it, or the default already speaks it. Ids belong to one engine
+    /// adapter, so the match is by language: case, `_`/`-` and three-letter codes are folded
+    /// (`ja` = `ja-JP` = `jpn`), and the same full tag (`zh-HK`) wins over the same language.
+    func reselection(carryingLanguage language: String?) -> String? {
+        guard let root = PlaybackMediaOption.canonicalLanguageCode(language), root != "und" else { return nil }
+        func tag(_ raw: String?) -> String? {
+            raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().replacingOccurrences(of: "_", with: "-")
+        }
+        let wanted = tag(language)
+        let same = options.filter { !$0.isOff && PlaybackMediaOption.canonicalLanguageCode($0.language) == root }
+        let best = same.first { tag($0.language) == wanted }
+            ?? same.first { $0.id == selectedID }
+            ?? same.first
+        guard let best, best.id != selectedID else { return nil }
+        return best.id
+    }
+}

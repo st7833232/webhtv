@@ -235,6 +235,13 @@
       "sha256": "63f7d24b97e431403cd0a5ebc793947c191a18e2c22e1550a40bcf7a3f78b8be"
     },
     {
+      "bytes": 6372,
+      "class": "TingShijie",
+      "logicalType": "spider.js",
+      "path": "spiders/TingShijie.js",
+      "sha256": "de2827490e7875de8367d8d00f7b0d2b36458d5d97ee99080a543abbfa562703"
+    },
+    {
       "bytes": 7457,
       "class": "TuXiaoBei",
       "logicalType": "spider.js",
@@ -299,6 +306,6 @@
   "scope": {
     "kind": "global"
   },
-  "sequence": 5,
-  "version": "2026-10-19.1"
+  "sequence": 6,
+  "version": "2026-10-19.2"
 }

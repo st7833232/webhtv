@@ -288,11 +288,11 @@
       "sha256": "bc54e9886cb508f41a08e2afa1c8c64a1ecacad0421140b9480d90cb107519e6"
     },
     {
-      "bytes": 34026,
+      "bytes": 36386,
       "class": "XBPQ",
       "logicalType": "spider.js",
       "path": "spiders/XBPQ.js",
-      "sha256": "66e7f59df554bacdb710af01f293933e38829fd29c0058474b0fb1d62b6ab219"
+      "sha256": "91c051c927327eaac586d2160062405c0c5ede2edb8dab517d5cca6dcfba9c50"
     },
     {
       "bytes": 16753,
@@ -320,6 +320,6 @@
   "scope": {
     "kind": "global"
   },
-  "sequence": 10,
-  "version": "2026-10-20.3"
+  "sequence": 11,
+  "version": "2026-10-20.4"
 }

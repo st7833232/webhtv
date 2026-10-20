@@ -446,8 +446,10 @@ public struct CMSClient: Sendable {
     /// chosen filter values, keyed as the home response's filter rows name them.
     public func category(id: String, page: Int = 1, extend: [String: String] = [:]) async throws -> CMSResponse {
         let query = listingQuery(categoryID: id, page: page) + filterQuery(extend)
+        // Only the parameters this client adds are public: a configured api may carry its own key or token.
+        let sent = query.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&")
         let url = try requestURL(query).absoluteString
-        Self.log.info("[cms] category \(url, privacy: .public)")
+        Self.log.info("[cms] category \(sent, privacy: .public) \(url, privacy: .private)")
         return try await request(query)
     }
 

@@ -74,7 +74,8 @@
 - 2026-10-20 16:15 Reviewer 核准設計（看板 #3622，紀錄 `.herdr-synapse/webhtv-dev/artifacts/w184-design-review-2026-10-20.md`）；D-2 type 4 另開 W-187。
 - `CMSClient.home()` type 0/1：保留分類回應的 `filters`。
 - `CMSClient.category(id:page:extend:)`＋`filterQuery(_:)`：只對 type 1；略過空值與 `protocolNames`（`ac t pg f ids wd h at`）；鍵排序，`f` 以 `JSONSerialization` `.sortedKeys .withoutEscapingSlashes` 產生。
-- `CMSClient.log`（subsystem `com.webhtv.ios.poc`，category `cms`）：每次分類請求以 info 等級印出實際網址 `[cms] category <url>`，供 Simulator 驗證與日後排查（Reviewer 要求 ②）。
+- `CMSClient.log`（subsystem `com.webhtv.ios.poc`，category `cms`）：每次分類請求以 info 等級印出 `[cms] category <本 client 加的參數> <完整網址>`，供 Simulator 驗證與日後排查（Reviewer 要求 ②）。
+- 2026-10-20 Reviewer 退回 F1（`.herdr-synapse/webhtv-dev/artifacts/w184-review-2026-10-20.md`）：初版以 `.public` 記完整網址，設定檔 `api` 可能自帶 key／token。修正：公開部分只有本 client 加的參數（`ac`、`t`、`pg`、篩選鍵值、`f`），完整網址 `.private`（Simulator 上 `log stream` 預設顯示 `<private>`）。Simulator 驗證用的是初版，表中網址即當時的公開輸出。
 - `SourceClient.category` `.cms` 分支傳 `extend`；更新兩處註解。
 - 測試：`sendsAType1SitesChosenFiltersAsParametersAndAsF`（含第 2 頁仍帶篩選、空值／協定同名鍵略過、type 0／4 不送）。全量 `swift test` 1378 通過（原 1376＋當時 2 個新測試）。
 - Ponytail review（2026-10-20）：①刪除 `keepsTheFilterRowsAType1HomePublishes`——只測既有的 `filters` 解碼（`SourceClientTests.swift:498` 已涵蓋），碰不到 `home()` 那一行；`home()` 走固定的 `URLSession.webHTV`，不能注入，改由 Simulator 驗證（已採納）。②分類網址為了 log 多組一次，成本可忽略，不改。結論：修 ① 後可交付。

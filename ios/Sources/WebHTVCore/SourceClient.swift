@@ -31,9 +31,14 @@ public enum SourceClient: Sendable {
     public func home(page: Int = 1) async throws -> CMSResponse {
         switch self {
         case .cms(let client):
-            return try await explained { try await client.home(page: page) }
-        case .spider(let session, _):
+            // IOS-POC-63: a type-0/1 home lists the newest titles of every category, so they are kept
+            // to the site's `categories` too (FongMi's `fetchPic`); a type-4 home lists one category.
+            let home = try await explained { try await client.home(page: page) }
+            return home.restricted(to: client.site.categories, listing: client.site.type != 4)
+        case .spider(let session, let site):
+            // Restricted before the fallback below picks its first category, so it never lists one the site hides.
             let home = try await decode(CMSResponse.self, from: session.home())
+                .restricted(to: site.categories, listing: false)
             // A spider whose home list is still empty (XYQHiker without 首页推荐链接, a rule without a
             // home) would otherwise render an empty grid; XBPQ.js fills its own from its first category.
             // This is the same fallback a type-4 home already uses: list the first browsable category.

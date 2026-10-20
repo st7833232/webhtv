@@ -185,6 +185,31 @@ private func site(key: String, type: Int, api: String, ext: String = "null") thr
     }
 }
 
+@Test func showsOnlyTheCategoriesASiteNamesInItsOrderAndFlat() throws {
+    // IOS-POC-63, from 360zy (2026-10-20): its `categories` names children only and leaves out 伦理片.
+    let data = Data(#"{"class":[{"type_id":1,"type_pid":0,"type_name":"电影"},{"type_id":5,"type_pid":0,"type_name":"伦理片"},{"type_id":6,"type_pid":1,"type_name":"动作片"},{"type_id":13,"type_pid":2,"type_name":"国产剧"}],"list":[{"vod_id":1,"vod_name":"甲","type_name":"动作片"},{"vod_id":2,"vod_name":"乙","type_name":"伦理片"},{"vod_id":3,"vod_name":"丙","type_name":""}],"filters":{"6":[{"key":"area","name":"地区","value":[{"n":"全部","v":""}]}]}}"#.utf8)
+    let home = try JSONDecoder().decode(CMSResponse.self, from: data)
+
+    let kept = home.restricted(to: ["国产剧", "不存在", "动作片", "国产剧"], listing: true)
+    #expect(kept.classes.map(\.name) == ["国产剧", "动作片"])
+    #expect(kept.categoryGroups.map(\.parent.name) == ["国产剧", "动作片"])
+    #expect(kept.list.map(\.name) == ["甲"])
+    #expect(kept.filters["6"] != nil)
+
+    // A spider home keeps its titles; a name list matching nothing keeps every category, as Android does.
+    #expect(home.restricted(to: ["动作片"], listing: false).list.count == 3)
+    #expect(home.restricted(to: ["国产劇"], listing: true).classes.count == 4)
+    // No `categories`: untouched.
+    #expect(home.restricted(to: [], listing: true).classes.count == 4)
+    #expect(home.restricted(to: [], listing: true).list.count == 3)
+}
+
+@Test func decodesASitesCategories() throws {
+    #expect(try site(key: "a", type: 1, api: "https://example.com/api.php/provide/vod").categories.isEmpty)
+    let json = #"{"key":"b","name":"b","type":1,"api":"https://example.com/api.php/provide/vod","categories":["动作片","国产剧"]}"#
+    #expect(try JSONDecoder().decode(Site.self, from: Data(json.utf8)).categories == ["动作片", "国产剧"])
+}
+
 @Test func usesABoundedRequestTimeout() {
     // Guards the fix for unreachable sources hanging the screen; the URLSession default is 60 s.
     #expect(URLSession.webHTV.configuration.timeoutIntervalForRequest == 10)

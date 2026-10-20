@@ -52,6 +52,26 @@ public struct CMSResponse: Decodable, Sendable {
         self.list = list
         self.filters = filters
     }
+
+    /// IOS-POC-63, FongMi's `SiteApi.setTypes` and `fetchPic`: only the categories a site's
+    /// `categories` names, matched by exact name and listed flat in that order (it usually names
+    /// child categories, whose parents would otherwise drop the whole group). Nothing matching keeps
+    /// every category, as Android does. `listing` also keeps only the titles of those categories.
+    func restricted(to names: [String], listing: Bool) -> CMSResponse {
+        guard !names.isEmpty else { return self }
+        let byName = Dictionary(classes.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        // A name listed twice (飘零 lists 电影 twice) would give two categories with one id.
+        var seen = Set<String>()
+        let kept = names.filter { seen.insert($0).inserted }.compactMap { byName[$0] }
+            .map { CMSCategory(id: $0.id, name: $0.name, parentID: 0) }
+        let allowed = Set(names)
+        var response = CMSResponse(classes: kept.isEmpty ? classes : kept,
+                                   list: listing ? list.filter { allowed.contains($0.typeName) } : list,
+                                   filters: filters)
+        response.failure = failure
+        response.listedCategoryID = listedCategoryID
+        return response
+    }
 }
 
 /// One row of filter chips — CatVod's `{key, name, value: [{n, v}]}`.

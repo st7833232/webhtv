@@ -110,12 +110,15 @@ public struct Site: Decodable, Identifiable, Sendable {
     /// CatVod's site-level `playUrl` (IOS-POC-56): a parse prefix a type-0/1 CMS site puts in front of
     /// every episode — `json:<api>`, `parse:<name>` or a web parse URL. Empty on almost every site.
     public let playUrl: String
+    /// IOS-POC-63: FongMi's `categories`, the category names a site shows, in that order. Empty
+    /// means all of them. See `CMSResponse.restricted(to:listing:)`.
+    public let categories: [String]
     /// IOS-POC-56: the global parse settings of the configuration this site was decoded from, filled
     /// in by `WebHTVConfig`. Not part of `id`.
     public internal(set) var parsing = ParseSettings()
 
     enum CodingKeys: String, CodingKey {
-        case key, name, type, api, ext, searchable, jar, playUrl
+        case key, name, type, api, ext, searchable, jar, playUrl, categories
     }
 
     /// Whether a search across every site asks this one (IOS-POC-20). Android's rule exactly: only
@@ -199,6 +202,7 @@ public struct Site: Decodable, Identifiable, Sendable {
             ?? (try? values.decode(String.self, forKey: .searchable)).flatMap { Int($0) }
         jar = (try? values.decode(String.self, forKey: .jar)) ?? ""
         playUrl = (try? values.decode(String.self, forKey: .playUrl)) ?? ""
+        categories = (try? values.decode([String].self, forKey: .categories)) ?? []
     }
 }
 

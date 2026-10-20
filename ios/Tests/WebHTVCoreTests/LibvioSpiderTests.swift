@@ -287,10 +287,12 @@ private func paths() -> [String] { LibvioSite.requests.map { $0.url.host! + $0.u
     }
 
     // W-171 (W-167 review N-4): a net-disk line is one named for a net-disk — the brand alone, or 视频下载（brand）, or
-    // any 网盘／云盘 — not every name that happens to contain 115 or 移动.
+    // any 网盘／云盘 — not every name that happens to contain 115 or 移动. W-172 (W-171 review N-1): a brand followed by
+    // a number or 原画／无限／下载 is still that net-disk.
     @Test func netDiskNamesAreWholeNamesNotSubstrings() async throws {
         let online = ["115线路", "移动高清", "BD5播放"], disk = ["视频下载 (夸克)", "视频下载(迅雷)", "UC", "115", "123原画",
-                                                                       "百度网盘", "阿里云盘", "夸克", "（天翼）"]
+                                                                       "百度网盘", "阿里云盘", "夸克", "（天翼）",
+                                                                       "夸克1", "迅雷2", "迅雷下载", "百度原画", "UC无限"]
         let panels = (online + disk).enumerated().map { index, name in
             "<div class=\"playlist-panel\"><h3>\(name)</h3><ul><li><a href=\"/w/714893735-\(index + 1)-1.html\">正片</a></li></ul></div>"
         }.joined()

@@ -23,8 +23,9 @@
   var HEADERS = { 'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                   'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8' };
   // Upstream's net-disk names ($host$62d5…, plus 百度), but whole: the brand alone or as 视频下载（brand）, or any
-  // 网盘／云盘 — so an online line that merely contains 115 or 移动 is not taken for one (W-167 review N-4).
-  var NETDISK_NAME = /[网網][盘盤]|[云雲][盘盤]|^\s*(?:视频下载\s*)?[(（]?\s*(?:夸克|UC|优视|阿里|天翼|天意|移动|迅雷|百度|pan123|123|115)(?:原画|无限)?\s*[)）]?\s*$/i;
+  // 网盘／云盘 — so an online line that merely contains 115 or 移动 is not taken for one (W-167 review N-4). The brand may
+  // carry a number or 原画／无限／下载 (夸克1, 迅雷下载; W-171 review N-1), but no other word (115线路, 移动高清).
+  var NETDISK_NAME = /[网網][盘盤]|[云雲][盘盤]|^\s*(?:视频下载\s*)?[(（]?\s*(?:夸克|UC|优视|阿里|天翼|天意|移动|迅雷|百度|pan123|123|115)(?:\d+|原画|无限|下载)?\s*[)）]?\s*$/i;
   // A title whose every line is a net-disk gets this one line instead of none: its episode id fails playerContent's
   // check, so 立即播放 reports no address at once (W-171) rather than staying greyed out with no reason.
   var DISK_ONLY = { from: '網盤線路（App 不支援）', url: '只有網盤資源$netdisk:none' };

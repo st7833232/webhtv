@@ -29,6 +29,19 @@ private func spiderClient() throws -> SourceClient {
 }
 
 struct FolderVodTests {
+    // IOS-POC-57B-20 (W-175): a `msearch:` id is a title with no lines of its own (豆瓣 rankings); the App searches the
+    // other sites for its name instead of opening a detail, as FongMi's VideoActivity.checkId() does. Case-sensitive,
+    // prefix only, and independent of the folder tag.
+    @Test func onlyAMsearchPrefixIsAMultiSearchTitle() throws {
+        let list = try decode(#"""
+            {"list":[{"vod_id":"msearch:1292052","vod_name":"肖申克的救赎"},{"vod_id":"MSEARCH:1","vod_name":"a"},
+            {"vod_id":"x msearch:1","vod_name":"b"},{"vod_id":"msearch","vod_name":"c"},{"vod_id":"/play/1","vod_name":"d"},
+            {"vod_id":"msearch:2","vod_name":"e","vod_tag":"folder"}]}
+            """#).list
+        #expect(list.map(\.isMultiSearch) == [true, false, false, false, false, true])
+        #expect(list.last?.isFolder == true)
+    }
+
     // T1 (W-30 synthetic-folder-mixed.json): only an exact "folder" string is a folder; any other tag reads as
     // empty and never fails the record or the page.
     @Test func onlyAnExactFolderTagIsAFolderAndNoTagShapeFailsTheRecord() throws {

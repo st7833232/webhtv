@@ -1,6 +1,6 @@
 # IOS-POC-57B-20：豆瓣「熱播排行榜」（`csp_Douban`）＋App「點片單自動搜尋」
 
-> Recovery anchor（2026-10-20 CST）：W-175，分支 `task/W-175`（從 `origin/ios-poc` `ac490ee3`），兩個 guard session：`W-175-A`（爬蟲＋本文件）、`W-175-B`（App 路由），`--no-tag`。閘門 W-173 **條件 GO**：`.herdr-synapse/webhtv-dev/artifacts/spider-gate-batch5-2026-10-20.md` §Douban，審查 `w173-review-2026-10-20.md`。使用者 10/20 核准（Manager #3353）。**狀態：** 設計第 1 輪審查（#3364）方案 C 同意，D-1～D-3 已補（§6.1、§6.2、§7、§8），待 Reviewer 確認；設計第 2 輪（#3369）同意。commit A 已實作並驗證（§10）。唯一下一步：實作 commit B（guard `W-175-B`）。
+> Recovery anchor（2026-10-20 CST）：W-175，分支 `task/W-175`（從 `origin/ios-poc` `ac490ee3`），兩個 guard session：`W-175-A`（爬蟲＋本文件）、`W-175-B`（App 路由），`--no-tag`。閘門 W-173 **條件 GO**：`.herdr-synapse/webhtv-dev/artifacts/spider-gate-batch5-2026-10-20.md` §Douban，審查 `w173-review-2026-10-20.md`。使用者 10/20 核准（Manager #3353）。**狀態：** 設計第 1 輪審查（#3364）方案 C 同意，D-1～D-3 已補（§6.1、§6.2、§7、§8），待 Reviewer 確認；設計第 2 輪（#3369）同意。commit A `d396e52c`、commit B 已實作並驗證（§10）。唯一下一步：Reviewer 審 commit A、B。
 
 ## 1. 要做什麼
 
@@ -114,3 +114,31 @@
 | 全量 | `swift test` 1375 tests／55 suites 通過 | `A-swift-test-full.log` |
 | 官方包試建 | `runtime_pack.py build --sequence 9 --version 2026-10-20.w175`：39 支、0 problem（試建輸出在 scratchpad，不入庫）；`test_pack_exclusions.py` PASS（相容 37、官方 39） | `pack.txt`、`pack-exclusions.txt` |
 | Ponytail review | Ship，無 finding | — |
+
+### commit B：App 路由（guard `W-175-B`，2026-10-20）
+
+| 檔案 | 內容 |
+|---|---|
+| `ios/Sources/WebHTVCore/CMSClient.swift` | `Vod.isMultiSearch`：`id.hasPrefix("msearch:")`（區分大小寫，同 FongMi） |
+| `ios/Tests/WebHTVCoreTests/FolderVodTests.swift` | `onlyAMsearchPrefixIsAMultiSearchTitle`：只有開頭是 `msearch:`（小寫）才算，與 folder 標記無關 |
+| `ios/WebHTVApp/Sources/WebHTVApp.swift` | `vodDestination` 加 `isMultiSearch` 分支 → `AggregateSearchView(…, initialQuery: vod.name, embedded: true)`；`AggregateSearchView` 加 `embedded`：body 拆成 `page`，非 embedded 仍是 `NavigationStack { page.toolbar(.hidden, for: .navigationBar) }`，原本的 `.task`／`.onDisappear`／`.onChange(of: source)` 原樣移到外層；embedded 用 `.appNavigationBar()`＋inline 片名、頁首片名＋副標；新子 view `SearchCanceller` |
+
+**與設計不同的兩處**
+
+1. **站台清單**：不另加 environment 鍵，改讀既有的 `OfflineAppContext.shared.sites`（`ConfigView` 在設定載入與每次變更時就同步它，離線下載本來就靠它找「目前載入的設定」）。少一個 environment 鍵與根畫面修飾；`vodDestination` 是 `@MainActor`，讀它安全。
+2. **D-2 的停止方式**（GUI 實測推翻原設計）：
+   - 第 1 版照設計用 `@Environment(\.isPresented)`：Simulator 上推入詳情的同一秒 `isPresented` 就變 `false`、log 出現停止（`w175-gui-evidence/RESULT.md` N3 FAIL）——它分不出「被 pop」與「被蓋住」。
+   - 第 2 版把取消物件放在頁面自己的 `@State`、`deinit` 取消：推入不停了，但 pop 後要等全部站回應（49 秒）才停，因為 `submit()` 的搜尋 Task 帶住整個頁面與它的 state（`retest-d2/RESULT.md` R5b FAIL）。
+   - **第 3 版（採用）**：取消物件放在背景子 view `SearchCanceller` 的 `@State`。搜尋 Task 帶住的是頁面，不含子 view；頁面被 pop 時子 view 與它的 state 一起移除 → `deinit` 取消並 log `[search] msearch page left, search stopped`；被詳情蓋住時子 view 仍在，搜尋繼續。
+
+| 驗證 | 結果 | 證據 |
+|---|---|---|
+| 紅／綠 | `isMultiSearch` 測試先編譯失敗、加上後通過 | — |
+| 全量 | `swift test` 1376 tests／55 suites 通過 | `w175-logs/B-swift-test-full.log` |
+| App 建置 | Debug-iphonesimulator（arm64）成功，沒有新警告 | `w175-logs/B-app-build-3.log` |
+| Simulator 第 1 輪（新版第 1 版＋舊版） | N1 片單海報、N2 推入搜尋頁（返回鍵、片名標題、預填）、N4 結果→詳情→播放 `started … in 1012ms`、N6 回歸（搜尋分頁不變、CMS 站照舊開詳情）、**O1 舊版**（`d396e52c`，無路由）點豆瓣 → 「豆瓣片單（需更新 App）」→ 播放跳「這一集沒有可播放的網址」：PASS；N3（D-2）FAIL | `artifacts/w175-gui-evidence/RESULT.md` |
+| Simulator 第 2 輪（第 2 版） | R3 推入不停 PASS；R5b pop 要 49 秒才停 FAIL | `…/retest-d2/RESULT.md` |
+| Simulator 第 3 輪（第 3 版，採用） | R3 推入詳情時 39→60 站繼續、無停止 log；R5a／R5b／R5c pop 後約 1 秒 `msearch page left`、之後 30 秒 `[search]` 0 行（三部片重現）；R6 搜尋分頁不變 | `…/retest-d2-2/RESULT.md` |
+| Ponytail review | Ship，無 finding（備註：搜尋已自然跑完時 pop，log 仍寫 stopped，取消是空操作） | — |
+
+**沒驗到**：「熱播排行榜｜自動切換」那筆（與「可選站」同一路由）；長時間播放；Android 端。

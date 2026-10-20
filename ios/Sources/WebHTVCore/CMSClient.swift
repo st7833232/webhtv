@@ -256,6 +256,10 @@ public struct Vod: Decodable, Identifiable, Sendable {
     /// Case-sensitive, as on Android.
     public var isFolder: Bool { tag == "folder" }
 
+    /// A title with no lines of its own (豆瓣 rankings, IOS-POC-57B-20): the App searches the other sites for its name
+    /// instead of opening a detail, as FongMi's `VideoActivity.checkId()` does. Case-sensitive, as there.
+    public var isMultiSearch: Bool { id.hasPrefix("msearch:") }
+
     public var flags: [Flag] {
         zip(playFrom.components(separatedBy: "$$$"), playURL.components(separatedBy: "$$$"))
             .filter { !$0.0.isEmpty && !$0.1.isEmpty }

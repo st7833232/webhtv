@@ -1092,6 +1092,11 @@ struct FolderTarget: Hashable {
                                                     extend: [String: String]) -> some View {
     if vod.isFolder {
         CMSView(site: site, source: source, folder: FolderTarget(id: vod.id, name: vod.name, extend: extend))
+    } else if vod.isMultiSearch {
+        // IOS-POC-57B-20: a title with no lines (豆瓣 rankings) is searched for on the other sites, and the viewer
+        // picks a result, instead of FongMi's automatic pick (task document §5). The sites are the configuration's,
+        // which ConfigView keeps in OfflineAppContext.
+        AggregateSearchView(sites: OfflineAppContext.shared.sites, source: source, initialQuery: vod.name, embedded: true)
     } else {
         VodView(site: site, summary: vod, source: source)
     }
@@ -1638,12 +1643,37 @@ private struct VodCard: View {
 /// Its own tab, so the results stay while the user looks elsewhere, and a sheet over WebHome for
 /// `app.search`. Only a submitted keyword is searched, never each keystroke: every search can leave
 /// spider calls running that nothing can stop (`AggregateSearch`).
+/// IOS-POC-57B-20 (review D-2): cancels an embedded search page's search when the page is popped, and only then.
+/// A detail pushed on top fires the page's `onDisappear` and clears `isPresented` too (W-175 GUI), so neither can
+/// tell the two apart; a popped page's views and their state go away, a covered one's stay. The holder lives in this
+/// child, not in the page, because the search task captures the page — and with it the page's own state.
+private struct SearchCanceller: View {
+    let task: Task<Void, Never>?
+    @State private var holder = Holder()
+
+    final class Holder {
+        var task: Task<Void, Never>?
+        deinit {
+            guard let task, !task.isCancelled else { return }
+            Logger(subsystem: "com.webhtv.ios.poc", category: "search").notice("[search] msearch page left, search stopped")
+            task.cancel()
+        }
+    }
+
+    var body: some View {
+        Color.clear.onChange(of: task, initial: true) { holder.task = task }
+    }
+}
+
 private struct AggregateSearchView: View {
     let sites: [Site]
     let source: ConfigSource
     var initialQuery: String?
     /// Presented as a sheet: closing it stops the search. A tab keeps searching while another is shown.
     var isSheet = false
+    /// IOS-POC-57B-20: pushed onto the caller's stack for a `msearch:` title — no stack of its own, a back button,
+    /// the title as heading, and the search stops only when popped, not when a result's detail is pushed on top.
+    var embedded = false
 
     @State private var query = ""
     /// The keyword of the results on screen, which is what 載入更多 pages through.
@@ -1681,48 +1711,17 @@ private struct AggregateSearchView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("搜尋").font(.largeTitle.weight(.bold))
-                    Text("在所有內容來源尋找作品").font(.subheadline).foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 20).padding(.top, 12)
-                CinematicSearchField(text: $query, prompt: "搜尋所有站台", onSubmit: { submit() })
-                    .padding(.horizontal, 20)
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        if !groups.isEmpty { chipRow }
-                        if searching || answered > 0 { progressRow }
-                        if hits.isEmpty { emptyState.padding(.top, 48) }
-                        LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
-                            ForEach(hits) { hit in
-                                NavigationLink {
-                                    vodDestination(hit.vod, site: hit.site, source: source, extend: [:])
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        VodCard(vod: hit.vod)
-                                        Text(zhTW: hit.site.name.displayName)
-                                            .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                                .onAppear {
-                                    if let selected, hit.id == hits.last?.id { Task { await loadMore(selected) } }
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 20)
-                        if selectedGroup?.loadingMore == true { ProgressView().frame(maxWidth: .infinity) }
-                    }
-                    .padding(.bottom, 24)
-                }
-                .scrollDismissesKeyboard(.immediately)
+        Group {
+            if embedded {
+                page
+                    .navigationTitle(Text(zhTW: initialQuery ?? ""))
+                    .navigationBarTitleDisplayMode(.inline)
+                    .appNavigationBar()
+            } else {
+                NavigationStack { page.toolbar(.hidden, for: .navigationBar) }
             }
-            .dismissKeyboardOnBackgroundTap()
-            .appWallpaper()
-            .toolbar(.hidden, for: .navigationBar)
         }
+        .background { if embedded { SearchCanceller(task: task) } }
         .task {
             guard keyword.isEmpty, let initialQuery, !initialQuery.isEmpty else { return }
             query = initialQuery
@@ -1735,6 +1734,53 @@ private struct AggregateSearchView: View {
             keyword = ""
             generation += 1
         }
+    }
+
+    private var page: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                if embedded {
+                    Text(zhTW: initialQuery ?? "").font(.largeTitle.weight(.bold))
+                    Text("從其他來源找可播放的版本").font(.subheadline).foregroundStyle(.secondary)
+                } else {
+                    Text("搜尋").font(.largeTitle.weight(.bold))
+                    Text("在所有內容來源尋找作品").font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 20).padding(.top, 12)
+            CinematicSearchField(text: $query, prompt: "搜尋所有站台", onSubmit: { submit() })
+                .padding(.horizontal, 20)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if !groups.isEmpty { chipRow }
+                    if searching || answered > 0 { progressRow }
+                    if hits.isEmpty { emptyState.padding(.top, 48) }
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
+                        ForEach(hits) { hit in
+                            NavigationLink {
+                                vodDestination(hit.vod, site: hit.site, source: source, extend: [:])
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    VodCard(vod: hit.vod)
+                                    Text(zhTW: hit.site.name.displayName)
+                                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .onAppear {
+                                if let selected, hit.id == hits.last?.id { Task { await loadMore(selected) } }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    if selectedGroup?.loadingMore == true { ProgressView().frame(maxWidth: .infinity) }
+                }
+                .padding(.bottom, 24)
+            }
+            .scrollDismissesKeyboard(.immediately)
+        }
+        .dismissKeyboardOnBackgroundTap()
+        .appWallpaper()
     }
 
     private var engine: AggregateSearch { AggregateSearch(search: Self.search(in: source)) }

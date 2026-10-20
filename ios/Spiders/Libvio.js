@@ -22,8 +22,12 @@
   // Without a browser Accept the CDN answers a plain 403 (`x-cdn-challenge: required`, W-162 #3).
   var HEADERS = { 'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                   'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8' };
-  // Upstream's net-disk line names ($host$62d5…), plus 百度 and 网盘.
-  var NETDISK_NAME = /夸克|UC|优视|阿里|天翼|天意|移动|迅雷|百度|网盘|pan123|123原画|123无限|115/;
+  // Upstream's net-disk names ($host$62d5…, plus 百度), but whole: the brand alone or as 视频下载（brand）, or any
+  // 网盘／云盘 — so an online line that merely contains 115 or 移动 is not taken for one (W-167 review N-4).
+  var NETDISK_NAME = /[网網][盘盤]|[云雲][盘盤]|^\s*(?:视频下载\s*)?[(（]?\s*(?:夸克|UC|优视|阿里|天翼|天意|移动|迅雷|百度|pan123|123|115)(?:原画|无限)?\s*[)）]?\s*$/i;
+  // A title whose every line is a net-disk gets this one line instead of none: its episode id fails playerContent's
+  // check, so 立即播放 reports no address at once (W-171) rather than staying greyed out with no reason.
+  var DISK_ONLY = { from: '網盤線路（App 不支援）', url: '只有網盤資源$netdisk:none' };
   var NETDISK_FROM = /^(kuake|quark|xunlei|thunder|uc|ali|aliyun|alipan|baidu|tianyi|115|123pan)$/i;
   var NETDISK_HOST = /^https?:\/\/([^/]+\.)?(quark\.cn|uc\.cn|aliyundrive\.com|alipan\.com|xunlei\.com|baidu\.com|189\.cn|139\.com|115\.com|115cdn\.com|123pan\.com|123pan\.cn|123684\.com|123865\.com|123912\.com|123592\.com)(\/|$)/i;
   // A web address with no "$" or "#", which would split the play list into extra episodes.
@@ -101,26 +105,28 @@
 
   // The detail page's online panels: playlist-panel without netdisk-panel, named by its h3.
   function panels(root) {
-    var from = [], urls = [];
+    var from = [], urls = [], disk = 0;
     host.pdfa(root, 'div.playlist-panel').forEach(function (panel) {
       var name = host.pdfh(panel, 'h3&&Text');
-      if (/\bnetdisk-panel\b/.test(text(panel.attrs['class'])) || !name || NETDISK_NAME.test(name)) return;
+      if (/\bnetdisk-panel\b/.test(text(panel.attrs['class'])) || NETDISK_NAME.test(name)) { disk++; return; }
+      if (!name) return;
       var list = episodes(host.pdfa(panel, 'a[href]'));
       if (list) { from.push(name); urls.push(list); }
     });
-    return { from: from, urls: urls };
+    return { from: from, urls: urls, disk: disk };
   }
 
   // The play page's tabs and their episode lists, paired in order (W-165 播放頁 4).
   function tabs(html) {
-    var from = [], urls = [], lists = host.pdfa(html, 'div.play-item');
+    var from = [], urls = [], disk = 0, lists = host.pdfa(html, 'div.play-item');
     host.pdfa(html, 'ul.play-tab li a').forEach(function (a, i) {
       var name = host.pdfh(a, 'Text');
-      if (!name || NETDISK_NAME.test(name) || !lists[i]) return;
+      if (NETDISK_NAME.test(name)) { disk++; return; }
+      if (!name || !lists[i]) return;
       var list = episodes(host.pdfa(lists[i], 'ul.stui-play__list a[href*=/w/]'));
       if (list) { from.push(name); urls.push(list); }
     });
-    return { from: from, urls: urls };
+    return { from: from, urls: urls, disk: disk };
   }
 
   var spider = {
@@ -168,8 +174,9 @@
       function row(i, label) { return meta[i] ? host.pdfh(meta[i], 'Text').replace(label, '').trim() : ''; }
       var lines = panels(root);
       if (!lines.from.length) {
-        var first = host.match(host.pdfh(root, 'div.play-btn a&&href'), '^(/w/[\\w-]+\\.html)$');
+        var first = host.match(host.pdfh(root, 'div.play-btn a&&href'), '^(/w/[\\w-]+\\.html)$'), seen = lines.disk;
         if (first) lines = tabs(fetch(first));
+        if (!lines.from.length && (seen || lines.disk)) lines = { from: [DISK_ONLY.from], urls: [DISK_ONLY.url] };
       }
       return host.result.detail({
         vod_id: id,

@@ -272,13 +272,33 @@ private func paths() -> [String] { LibvioSite.requests.map { $0.url.host! + $0.u
         #expect(vod["vod_remarks"] as? String == "7.7")
         let content = try #require(vod["vod_content"] as? String)
         #expect(content.hasPrefix("彼得·帕克（汤姆·霍兰德饰）") && content.hasSuffix("完成破茧重生？"))
-        #expect(vod["vod_play_from"] as? String == "" && vod["vod_play_url"] as? String == "")
+        // W-171 (W-167 review N-3): one line that says so, whose episode gives no address without asking the site,
+        // so 立即播放 answers 「這一集沒有可播放的網址。」 instead of staying greyed out with no reason.
+        #expect(vod["vod_play_from"] as? String == "網盤線路（App 不支援）")
+        #expect(vod["vod_play_url"] as? String == "只有網盤資源$netdisk:none")
+        let play = try object(try await runtime.playerContent(flag: "網盤線路（App 不支援）", id: "netdisk:none", vipFlags: []))
+        #expect(play["url"] as? String == "")
         #expect(paths() == ["libvio.host/detail/714893735.html", "libvio.host/w/714893735-1-1.html"])
         // An id that is not a number never reaches the site.
         for id in ["714893735/../x", "", "1?x=1"] {
             #expect(try list(try await runtime.detailContent(ids: [id])).isEmpty)
         }
         #expect(LibvioSite.requests.count == 2)
+    }
+
+    // W-171 (W-167 review N-4): a net-disk line is one named for a net-disk — the brand alone, or 视频下载（brand）, or
+    // any 网盘／云盘 — not every name that happens to contain 115 or 移动.
+    @Test func netDiskNamesAreWholeNamesNotSubstrings() async throws {
+        let online = ["115线路", "移动高清", "BD5播放"], disk = ["视频下载 (夸克)", "视频下载(迅雷)", "UC", "115", "123原画",
+                                                                       "百度网盘", "阿里云盘", "夸克", "（天翼）"]
+        let panels = (online + disk).enumerated().map { index, name in
+            "<div class=\"playlist-panel\"><h3>\(name)</h3><ul><li><a href=\"/w/714893735-\(index + 1)-1.html\">正片</a></li></ul></div>"
+        }.joined()
+        let detail = try detailPage()
+        let anchor = try #require(detail.range(of: "<div class=\"playlist-panel netdisk-panel\">"))
+        let runtime = try await libvio(.init(pages: pages(["/detail/714893735.html": detail.replacingCharacters(in: anchor.lowerBound..<anchor.lowerBound, with: panels)])))
+        let vod = try #require(try list(try await runtime.detailContent(ids: ["714893735"])).first)
+        #expect(vod["vod_play_from"] as? String == online.joined(separator: "$$$"))
     }
 
     // Upstream's online lines: a playlist-panel that is not netdisk-panel, named by its h3, episodes /w/ or /play/ in page

@@ -402,7 +402,8 @@ var spider = (function () {
    * `地址|地址`), pages count from `起始页`, and a placeholder nothing fills is removed together with
    * a `/名/` segment of the same name — `.../area/{area}/by/{by}/id/1` becomes `.../id/1`.
    */
-  function categoryUrl(tid, page) {
+  function categoryUrl(tid, page, extend) {
+    extend = extend || {};
     var first = pick(['起始页', '分类起始页码', 'qishiye', 'firstpage'], '1');
     var start = parseInt(first, 10);
     var pg = String((parseInt(page, 10) || 1) - 1 + (isNaN(start) ? 1 : start));
@@ -413,7 +414,14 @@ var spider = (function () {
         : url.replace(/\|\|/g, '|').replace(/(.*)[\[|].*/, '$1');
     }
     if (url.charAt(0) === '/' && url.charAt(1) !== '/') url = site() + url;
-    url = url.split('{cateId}').join(tid).split('{catePg}').join(pg);
+    // W-185: 类型 的選取值取代分類 id（{cateId}）；地区/年份/排序/语言/字母 填各自占位符。
+    // 沒選的占位符留著，交給下面既有的「刪除未填占位符」邏輯。
+    var cateId = extend['类型'] || tid;
+    url = url.split('{cateId}').join(cateId).split('{catePg}').join(pg);
+    Object.keys(FILTER_PLACEHOLDER).forEach(function (key) {
+      var v = extend[key];
+      if (v) url = url.split('{' + FILTER_PLACEHOLDER[key] + '}').join(encodeURIComponent(v));
+    });
     (url.match(/\{.*?\}/g) || []).forEach(function (placeholder) {
       url = url.split(placeholder).join('').split('/' + placeholder.slice(1, -1) + '/').join('');
     });
@@ -518,6 +526,39 @@ var spider = (function () {
     return out;
   }
 
+  // W-185: 篩選規則。六個標準鍵；值語法為 `名$值#名$值…`（有 $，如永乐的 类型）或 `名&名&…`
+  // （無 $，`&` 分隔、顯示名即參數值，如多站的 地区）；`｜｜` 依 分类 分組（第 k 組對應第 k 個分類）。
+  var FILTER_KEYS = ['类型', '地区', '年份', '排序', '语言', '字母'];
+  // 篩選鍵 → 分类url 占位符。类型 的值是子分類 type_id，選取取代 {cateId}（＝tid），不是填 {class}。
+  var FILTER_PLACEHOLDER = { '地区': 'area', '年份': 'year', '排序': 'by', '语言': 'lang', '字母': 'letter' };
+  function filterGroups(raw) {
+    return String(raw).split('｜｜').map(function (group) {
+      var items = group.indexOf('$') !== -1 ? group.split('#') : group.split('&');
+      return items.map(function (it) { return it.trim(); }).filter(Boolean).map(function (it) {
+        var i = it.indexOf('$');
+        return i === -1 ? { n: it, v: it } : { n: it.slice(0, i), v: it.slice(i + 1) };
+      });
+    });
+  }
+  // One filter set per category: the rule key is also the extend key, so the chosen value comes back
+  // under that same name. A site that configures none of the six keys gets no filters (unchanged).
+  function buildFilters() {
+    var cats = categories(), out = {}, any = false;
+    cats.forEach(function (c, k) {
+      var rows = [];
+      FILTER_KEYS.forEach(function (key) {
+        var raw = text(key);
+        if (!raw) return;
+        var groups = filterGroups(raw);
+        var group = groups.length > 1 ? groups[k] : groups[0];
+        if (!group || !group.length) return;
+        rows.push({ key: key, name: key, value: [{ n: '全部', v: '' }].concat(group) });
+      });
+      if (rows.length) { out[c.type_id] = rows; any = true; }
+    });
+    return any ? out : undefined;
+  }
+
   return {
     init: function (extend) {
       rule = parseRule(extend);
@@ -533,7 +574,7 @@ var spider = (function () {
     },
 
     homeContent: function () {
-      return host.result.home(categories(), []);
+      return host.result.home(categories(), [], buildFilters());
     },
 
     /**
@@ -561,13 +602,13 @@ var spider = (function () {
       return named ? host.result.list(this.categoryList(named.type_id, '1').slice(0, limit)) : { list: [] };
     },
 
-    categoryList: function (tid, page) {
+    categoryList: function (tid, page, extend) {
       if (!categoryTemplate) return [];
-      return listFrom(fetch(categoryUrl(tid, page)));
+      return listFrom(fetch(categoryUrl(tid, page, extend)));
     },
 
-    categoryContent: function (tid, page) {
-      return host.result.page(this.categoryList(tid, String(page || '1')), page);
+    categoryContent: function (tid, page, filter, extend) {
+      return host.result.page(this.categoryList(tid, String(page || '1'), extend), page);
     },
 
     detailContent: function (ids) {

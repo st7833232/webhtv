@@ -66,6 +66,19 @@ private func classes(_ runtime: JavaScriptSpiderRuntime) async throws -> [String
     }
 }
 
+/// W-185: `filters[typeId]` → `["键:名=值|名=值|…", …]`, so a test reads a category's filter rows flatly.
+private func filters(_ runtime: JavaScriptSpiderRuntime, _ typeId: String) async throws -> [String] {
+    let home = try #require(try JSONSerialization.jsonObject(
+        with: Data(try await runtime.homeContent(filter: false).utf8)) as? [String: Any])
+    let rows = ((home["filters"] as? [String: Any])?[typeId] as? [[String: Any]]) ?? []
+    return rows.map { row in
+        let values = (row["value"] as? [[String: Any]] ?? []).map {
+            "\($0["n"] as? String ?? "")=\($0["v"] as? String ?? "")"
+        }.joined(separator: "|")
+        return "\(row["key"] as? String ?? ""):\(values)"
+    }
+}
+
 // MARK: - S1: rules and URLs
 
 /// 41 sites point `ext` at `./json/x.json`; the resolver hands the spider an https URL, which the
@@ -128,6 +141,43 @@ private func classes(_ runtime: JavaScriptSpiderRuntime) async throws -> [String
     _ = try? await offset.categoryContent(tid: "3", page: "1", filter: false, extend: [:])
     #expect(RuleSite.requests(on: "s7.invalid") == ["https://s7.invalid/list/3/2"])
     await offset.destroy()
+}
+
+// MARK: - W-185: filters (网页站筛选)
+
+/// `homeContent` offers the configured filter keys per category: `类型` groups by `分类` via `｜｜`,
+/// `地区` uses the `&` grammar (name is the value), and every row gets a leading `全部`.
+@Test func homeContentOffersConfiguredFilters() async throws {
+    let ext = #"{"分类url":"https://sf.invalid/show/id/{cateId}/area/{area}/year/{year}/page/{catePg}.html","分类":"电影$1#剧集$2","类型":"动作$6#喜剧$7｜｜国产$13#港台$14","地区":"CN&HK&TW","年份":"2024$y24#2023$y23"}"#
+    let spider = try await xbpq(ext)
+    #expect(try await filters(spider, "1") ==
+        ["类型:全部=|动作=6|喜剧=7", "地区:全部=|CN=CN|HK=HK|TW=TW", "年份:全部=|2024=y24|2023=y23"])
+    // 类型 is grouped by 分类, so category 2 gets the second ｜｜ group.
+    #expect(try await filters(spider, "2").first == "类型:全部=|国产=13|港台=14")
+    await spider.destroy()
+}
+
+/// A site that configures none of the six keys offers no filters, exactly as before.
+@Test func aSiteWithoutFilterRulesOffersNone() async throws {
+    let spider = try await xbpq(#"{"分类url":"https://sn.invalid/show/{cateId}/{catePg}.html","分类":"电影$1"}"#)
+    let home = try #require(try JSONSerialization.jsonObject(
+        with: Data(try await spider.homeContent(filter: false).utf8)) as? [String: Any])
+    #expect(home["filters"] == nil || (home["filters"] as? [String: Any])?.isEmpty == true)
+    await spider.destroy()
+}
+
+/// The chosen `类型` replaces the category id (`{cateId}`); `地区`/`年份` fill their placeholders;
+/// unpicked keys leave their `/名/` segment to be dropped as before.
+@Test func chosenFilterValuesBuildTheCategoryURL() async throws {
+    let ext = #"{"分类url":"https://sf2.invalid/show/id/{cateId}/area/{area}/year/{year}/page/{catePg}.html","分类":"电影$1#剧集$2","类型":"动作$6#喜剧$7","地区":"CN&HK&TW","年份":"2024$y24"}"#
+    let spider = try await xbpq(ext)
+    // 类型=6 becomes the id, 地区=HK fills {area}, 年份=y24 fills {year}.
+    _ = try? await spider.categoryContent(tid: "1", page: "1", filter: true, extend: ["类型": "6", "地区": "HK", "年份": "y24"])
+    #expect(RuleSite.requests(on: "sf2.invalid").last == "https://sf2.invalid/show/id/6/area/HK/year/y24/page/1.html")
+    // Nothing picked: the id stays the tid and both /area/ and /year/ segments drop.
+    _ = try? await spider.categoryContent(tid: "2", page: "1", filter: false, extend: [:])
+    #expect(RuleSite.requests(on: "sf2.invalid").last == "https://sf2.invalid/show/id/2/page/1.html")
+    await spider.destroy()
 }
 
 @Test func pairsCategoryNamesWithTheirValues() async throws {

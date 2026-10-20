@@ -164,6 +164,27 @@ private func site(key: String, type: Int, api: String, ext: String = "null") thr
         == "https://example.com/api.php/provide/vod/?ac=detail&t=6&pg=1")
 }
 
+@Test func sendsAType1SitesChosenFiltersAsParametersAndAsF() throws {
+    // IOS-POC-62, probed 2026-10-20 against 创享: t=9 lists 35683, &area=日本 lists 1934, f= alone changes nothing.
+    let cms = try CMSClient(site: site(key: "cx", type: 1, api: "https://example.com/api/provide/vod"))
+    let query = cms.listingQuery(categoryID: "9", page: 2) + cms.filterQuery(["cid": "5", "area": "日本"])
+    #expect(query.map(\.name) == ["ac", "t", "pg", "area", "cid", "f"])
+    #expect(query.last?.value == #"{"area":"日本","cid":"5"}"#)
+    // Page 2 keeps the filters: the next page of a filtered listing is still filtered.
+    #expect(try cms.requestURL(query).absoluteString.hasPrefix("https://example.com/api/provide/vod?ac=detail&t=9&pg=2&area=%E6%97%A5%E6%9C%AC&cid=5&f="))
+
+    // Nothing chosen, 全部 (an empty value) and a key that would override the listing all leave the request as it was.
+    #expect(cms.filterQuery([:]).isEmpty)
+    #expect(cms.filterQuery(["area": "", "t": "3", "pg": "9"]).isEmpty)
+    #expect(cms.filterQuery(["area": "", "year": "2026"]).map(\.name) == ["year", "f"])
+
+    // Type 0 publishes no rows and type 4 has its own protocol (W-187): neither sends any.
+    for type in [0, 4] {
+        let other = try CMSClient(site: site(key: "o\(type)", type: type, api: "https://example.com/api.php/provide/vod"))
+        #expect(other.filterQuery(["area": "日本"]).isEmpty)
+    }
+}
+
 @Test func usesABoundedRequestTimeout() {
     // Guards the fix for unreachable sources hanging the screen; the URLSession default is 60 s.
     #expect(URLSession.webHTV.configuration.timeoutIntervalForRequest == 10)

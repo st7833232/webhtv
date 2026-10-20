@@ -1,11 +1,12 @@
 import Foundation
+import os
 
 public struct CMSResponse: Decodable, Sendable {
     public let classes: [CMSCategory]
     public let list: [Vod]
-    /// Per-category filter rows, keyed by `type_id`, exactly as CatVod publishes them. Empty for
-    /// every MacCMS source: the protocol has no filter call, so only spiders whose API exposes one
-    /// (`AppGet`'s `filter_type_list`) ever fill this.
+    /// Per-category filter rows, keyed by `type_id`, exactly as CatVod publishes them. Spiders fill
+    /// it (`AppGet`'s `filter_type_list`), and so does a type-1 MacCMS endpoint that publishes its
+    /// own (创享, IOS-POC-62); a stock MacCMS endpoint has no filter call and leaves it empty.
     public let filters: [String: [CMSFilter]]
     /// IOS-POC-41A: why `list` is empty when a spider home fell back to a category that could not
     /// be fetched. Never decoded; `SourceClient.home` sets it so the categories stay on screen.
@@ -428,7 +429,8 @@ public struct CMSClient: Sendable {
             // categories come from a concurrent plain request rather than a second round trip.
             async let categories = request([])
             async let listing = request(listingQuery(categoryID: nil, page: page))
-            return CMSResponse(classes: try await categories.classes, list: try await listing.list)
+            let home = try await categories
+            return CMSResponse(classes: home.classes, list: try await listing.list, filters: home.filters)
         }
         // A type-4 home returns categories without titles, so the first category fills the poster grid.
         let categories = try await request([URLQueryItem(name: "filter", value: "true")])
@@ -440,9 +442,30 @@ public struct CMSClient: Sendable {
         return response
     }
 
-    /// Both type-1 and type-4 list a category with the same `t=` / `pg=` contract.
-    public func category(id: String, page: Int = 1) async throws -> CMSResponse {
-        try await request(listingQuery(categoryID: id, page: page))
+    /// Both type-1 and type-4 list a category with the same `t=` / `pg=` contract. `extend` is the
+    /// chosen filter values, keyed as the home response's filter rows name them.
+    public func category(id: String, page: Int = 1, extend: [String: String] = [:]) async throws -> CMSResponse {
+        let query = listingQuery(categoryID: id, page: page) + filterQuery(extend)
+        let url = try requestURL(query).absoluteString
+        Self.log.info("[cms] category \(url, privacy: .public)")
+        return try await request(query)
+    }
+
+    static let log = Logger(subsystem: "com.webhtv.ios.poc", category: "cms")
+    /// The listing's own parameters: a filter row keyed like one of these would override the category or page.
+    static let protocolNames: Set<String> = ["ac", "t", "pg", "f", "ids", "wd", "h", "at"]
+
+    /// IOS-POC-62: a type-1 site's chosen filters, each as its own parameter and again as `f=<JSON>`,
+    /// as TVBox sends them (`SourceViewModel` `.params(filterSelect)` + `f`). 创享 reads only the
+    /// former; FongMi sends only the latter, so a server built for it still gets what it reads.
+    func filterQuery(_ extend: [String: String]) -> [URLQueryItem] {
+        guard site.type == 1 else { return [] }
+        let chosen = extend.filter { !$0.value.isEmpty && !Self.protocolNames.contains($0.key) }
+        guard !chosen.isEmpty,
+              let json = try? JSONSerialization.data(withJSONObject: chosen, options: [.sortedKeys, .withoutEscapingSlashes])
+        else { return [] }
+        return chosen.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+            + [URLQueryItem(name: "f", value: String(decoding: json, as: UTF8.self))]
     }
 
     /// `SiteApi.ac(int)`: XML sites want `videolist`, everything else `detail`. Both configured

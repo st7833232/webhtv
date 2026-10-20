@@ -55,12 +55,12 @@ public enum SourceClient: Sendable {
     }
 
     /// `extend` carries the chosen filter values, keyed exactly as the source's own filter rows
-    /// name them. A MacCMS endpoint has no filter protocol, so it ignores them.
+    /// name them. Only a type-1 MacCMS endpoint that published rows can have any (IOS-POC-62).
     public func category(id: String, page: Int = 1,
                          extend: [String: String] = [:]) async throws -> CMSResponse {
         switch self {
         case .cms(let client):
-            return try await explained { try await client.category(id: id, page: page) }
+            return try await explained { try await client.category(id: id, page: page, extend: extend) }
         case .spider(let session, _):
             return try await decode(CMSResponse.self,
                                     from: session.category(tid: id, page: String(page), extend: extend))

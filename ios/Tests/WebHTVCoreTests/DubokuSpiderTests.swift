@@ -149,11 +149,11 @@ private func item(_ name: String, did: String = "GdlRGZvZ3L5kDNx8CbpF.MTN", extr
         let home = try object(try await duboku().homeContent(filter: false))
         #expect((home["class"] as? [[String: String]])?.map { $0["type_id"]! + $0["type_name"]! } ==
                 ["1电影", "2电视剧", "3综艺", "4动漫", "21短剧", "20港剧", "13陆剧", "15日韩剧", "14台泰剧"])
-        // Duboku.java:180's JSON constant, compact with sorted keys (18192 bytes). `.sortedKeys` puts "13" after "4",
-        // so the reference hash came from the constant written in that same key order.
+        // Duboku.java:180's JSON constant, compact with sorted keys, plus W-177's 2026 year (the site serves it).
+        // `.sortedKeys` puts "13" after "4", so the reference hash came from the constant written in that same key order.
         let filters = try JSONSerialization.data(withJSONObject: try #require(home["filters"]), options: [.sortedKeys, .withoutEscapingSlashes])
         #expect(SHA256.hash(data: filters).map { String(format: "%02x", $0) }.joined()
-                == "e347520968b9e83830f046bad34cd3984ea61ed76cae9014fed0eda7ce9d354c")
+                == "31928f2596627cfb8d347a56cb15a42088fe0ea7f662246ea36295e990978615")
         #expect(DubokuSite.requests.isEmpty)
     }
 

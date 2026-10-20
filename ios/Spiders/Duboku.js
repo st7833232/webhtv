@@ -15,20 +15,22 @@
   var ALPHA_SIGN = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
   var ALPHA_TOKEN = 'XYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVW';
 
-  // ---- filters: Duboku.java:180, rebuilt from its three distinct sets (a test pins the exact JSON) ----
+  // ---- filters: Duboku.java:180, rebuilt from its three distinct sets (a test pins the exact JSON).
+  // W-177: 2026 prepended to each year row — the live API already serves 2026 titles (fixtures) and
+  // accepts any year, so the dropdown just needs it; upstream Duboku.java adds the new year yearly. ----
   function row(key, names) {
     return { key: key, name: key, value: names.split(' ').map(function (n) { return { n: n, v: n === '时间' ? '' : n }; }) };
   }
   var LETTER = row('letter', 'A B C D E F G H I J K L M N O P Q R S T U V W X Y Z 0~9');
   var BY = row('by', '时间 人气 评分');
   var MOVIE = [row('class', '喜剧 爱情 恐怖 动作 科幻 剧情 警匪 战争 犯罪 动画 奇幻 武侠 冒险 悬疑 惊悚 古装 同性'),
-               row('area', '大陆 香港 台湾 韩国 英国 法国 加拿大 澳大利亚'), row('year', '2025 2024 2023 2022 2020 2019'),
+               row('area', '大陆 香港 台湾 韩国 英国 法国 加拿大 澳大利亚'), row('year', '2026 2025 2024 2023 2022 2020 2019'),
                row('lang', '国语 粤语 韩语 英语 法语'), LETTER, BY];
   var SERIES = [row('class', '悬疑 武侠 科幻 都市 爱情 古装 战争 青春 偶像 喜剧 家庭 奇幻 剧情 乡村 年代 警匪 谍战 历险 罪案 宫廷 经典 动作 惊悚 历史 穿越 同性'),
-                row('area', '大陆 香港 台湾 韩国 日本 新加坡 泰国'), row('year', '2025 2024 2023 2022 2021 2020 2019 2018 2017 更早'),
+                row('area', '大陆 香港 台湾 韩国 日本 新加坡 泰国'), row('year', '2026 2025 2024 2023 2022 2021 2020 2019 2018 2017 更早'),
                 row('lang', '国语 粤语 韩语 泰语 日语'), LETTER, BY];
   var VARIETY = [row('class', '真人秀 选秀 竞演 情感 旅游 音乐 美食 纪实 生活 游戏互动 竞技 搞笑 脱口秀'),
-                 row('area', '大陆 韩国'), row('year', '2025 2024 2023 2022 2021 2020 2019 更早'),
+                 row('area', '大陆 韩国'), row('year', '2026 2025 2024 2023 2022 2021 2020 2019 更早'),
                  row('lang', '国语 韩语'), LETTER, BY];
   var FILTERS = { '1': MOVIE, '2': SERIES, '3': VARIETY, '4': SERIES, '13': SERIES, '14': SERIES,
                   '15': SERIES, '20': SERIES, '21': SERIES };

@@ -134,6 +134,8 @@ public struct SpiderRegistry: Sendable {
         "TingShijie",   // http-json: qist spider.jar (md5-signed chapter address; some chapters never resolve)
         // IOS-POC-57B-19: LIBVIO behind a CDN SHA-256 proof-of-work; only its online lines, never the net-disk ones.
         "Libvio",       // http-html: 摸魚 jar (stui lists, vod-* detail, player_aaaa; PoW cookie through the jar)
+        // IOS-POC-57B-20: 豆瓣 ranking lists; every title is msearch:<id>, which the App turns into a search elsewhere.
+        "Douban",       // http-json: river-fman.jar (frodo.douban.com lists, fixed apikey; no detail or lines)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

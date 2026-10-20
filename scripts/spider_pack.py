@@ -125,6 +125,10 @@ DEFAULT_ORIGINS = {
     "Libvio":      {"originJar": "439065876_1_1791894280503.jar",
                     "jarSha256": "8adcedbd51c3ba467fd16ee3b127224dab0ee904c7975607453f64f5d77b138c",
                     "notes": "CDN SHA-256 PoW cookie; online lines only, net-disk lines never listed (W-162/W-165 gate)"},
+    # IOS-POC-57B-20: 豆瓣 ranking lists, read from recha's river-fman.jar (md5 ca48f92e…; plain Java, no .so).
+    "Douban":      {"originJar": "river-fman.jar",
+                    "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
+                    "notes": "titles are msearch:<id> with no lines; the App searches other sites for the name (W-173 gate)"},
 }
 
 # What the app reads from a mapping (`SpiderPack.ClassMapping`). `evidence` is provenance only.

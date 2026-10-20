@@ -86,11 +86,11 @@
       "sha256": "e64e0989661fa1ddfcba39a29718d7275c939ee1780df82735231cb8d310fc5f"
     },
     {
-      "bytes": 9781,
+      "bytes": 10001,
       "class": "Duboku",
       "logicalType": "spider.js",
       "path": "spiders/Duboku.js",
-      "sha256": "3f900c986ad43c7c48e21832fabdb6c53abc2c3d854d416b48df5b7f6af35823"
+      "sha256": "3a6c962dd6097a46cb71ba367b75f99acfc3c460f6f02ba733620822751d3d76"
     },
     {
       "bytes": 7808,
@@ -320,6 +320,6 @@
   "scope": {
     "kind": "global"
   },
-  "sequence": 9,
-  "version": "2026-10-20.2"
+  "sequence": 10,
+  "version": "2026-10-20.3"
 }

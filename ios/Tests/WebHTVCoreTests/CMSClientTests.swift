@@ -148,15 +148,17 @@ private func site(key: String, type: Int, api: String, ext: String = "null") thr
 
 @Test func asksForTheDetailFormOnlyWhereItSuppliesThePoster() throws {
     // Probed 2026-09-15 against 360zy: the plain listing has no vod_pic at all, while ac=detail
-    // carries it on every item. A type-4 listing already includes the picture, so it stays plain.
+    // carries it on every item. A type-4 listing already includes the picture, but asks ac=detail too (below).
     let macCMS = try CMSClient(site: site(key: "cms", type: 1, api: "https://example.com/api.php/provide/vod"))
     #expect(macCMS.listingQuery(categoryID: "6", page: 1).map(\.name) == ["ac", "t", "pg"])
     #expect(macCMS.listingQuery(categoryID: nil, page: 1).map(\.name) == ["ac"])
     #expect(macCMS.listingQuery(categoryID: nil, page: 2).map(\.name) == ["ac", "pg"])
 
+    // IOS-POC-64, probed 2026-10-20: drpyS (枫林影视) answers t=movie and t=tv without ac with the same
+    // home titles; with ac=detail each lists its own. 采集集合, 88看球 and 爱瓜TV answer the same either way.
     let remote = try CMSClient(site: site(key: "t4", type: 4, api: "https://example.com/php/"))
-    #expect(remote.listingQuery(categoryID: "2", page: 1).map(\.name) == ["t", "pg"])
-    #expect(remote.listingQuery(categoryID: nil, page: 1).isEmpty)
+    #expect(remote.listingQuery(categoryID: "2", page: 1).map(\.name) == ["ac", "t", "pg"])
+    #expect(remote.listingQuery(categoryID: "2", page: 1).first?.value == "detail")
 
     // 天涯 ships ac=list inside its configured api, so the detail form has to win.
     let preset = try CMSClient(site: site(key: "ty", type: 1, api: "https://example.com/api.php/provide/vod/?ac=list"))

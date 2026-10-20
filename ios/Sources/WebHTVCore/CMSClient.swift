@@ -495,11 +495,12 @@ public struct CMSClient: Sendable {
     var detailAction: String { site.type == 0 ? "videolist" : "detail" }
 
     /// A MacCMS listing omits the picture unless the detailed form is asked for, which is why type-1
-    /// posters were blank; a type-4 listing already carries it, so it is left alone. type-0 has the
-    /// same split — the detailed form carries `<pic>` and drops `<class>`.
+    /// posters were blank. type-0 has the same split — the detailed form carries `<pic>` and drops
+    /// `<class>`. A type-4 listing carries the picture either way, but drpyS answers a request without
+    /// `ac` with its home (IOS-POC-64: every 枫林影视 category listed the same titles), and Android
+    /// sends `ac=detail` to every type-4 site too (`SiteApi.ac`).
     func listingQuery(categoryID: String?, page: Int) -> [URLQueryItem] {
-        var query = [URLQueryItem]()
-        if site.type == 0 || site.type == 1 { query.append(URLQueryItem(name: "ac", value: detailAction)) }
+        var query = [URLQueryItem(name: "ac", value: detailAction)]
         if let categoryID { query.append(URLQueryItem(name: "t", value: categoryID)) }
         if categoryID != nil || page > 1 { query.append(URLQueryItem(name: "pg", value: String(page))) }
         return query

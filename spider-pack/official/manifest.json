@@ -79,6 +79,13 @@
       "sha256": "8b2fcd75c7eabaaea4422c27563b0ddec0578a41397cd613cd42d040cd332a93"
     },
     {
+      "bytes": 10711,
+      "class": "Douban",
+      "logicalType": "spider.js",
+      "path": "spiders/Douban.js",
+      "sha256": "e64e0989661fa1ddfcba39a29718d7275c939ee1780df82735231cb8d310fc5f"
+    },
+    {
       "bytes": 9781,
       "class": "Duboku",
       "logicalType": "spider.js",
@@ -313,6 +320,6 @@
   "scope": {
     "kind": "global"
   },
-  "sequence": 8,
-  "version": "2026-10-20.1"
+  "sequence": 9,
+  "version": "2026-10-20.2"
 }

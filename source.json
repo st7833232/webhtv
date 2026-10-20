@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.82",
+          "date": "2026-10-20",
+          "localizedDescription": "探索：\n- 新增「熱播排行榜」來源：瀏覽熱門排行，點任一部片會自動在你其他的來源搜尋它來播放。\n\n播放：\n- 原生播放器與 MPV 之間切換時，會沿用你已選的字幕語言（或維持關閉）。\n",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.82-b83/WebHTV-0.1.82-83.ipa",
+          "size": 35635092,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.81",
           "date": "2026-10-19",
           "localizedDescription": "播放：\n- 原生播放器與 MPV 之間切換時，會沿用你已選的音軌語言。\n\n修正：\n- 有自己首頁清單的來源，分類列不再誤亮第一個分類。\n",

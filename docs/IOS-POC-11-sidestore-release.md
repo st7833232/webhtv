@@ -1,9 +1,11 @@
 # IOS-POC-11：SideStore 發布流程
 
 
-## Current release — 2026-10-19：0.1.81 (82) / 換引擎沿用音軌、分類高亮修正
+## Current release — 2026-10-20：0.1.82 (83) / 熱播排行榜點片自動搜尋、換引擎沿用字幕
 
-**目前最新版是 `0.1.81 (82)`**（原生播放器與 MPV 之間切換時沿用已選的音軌語言；有自己首頁清單的來源，分類列不再誤亮第一個分類）。完整紀錄在下方「第八十二次發布」：run `39211292910` success，tag `ios-v0.1.81-b82` → `5e84be7f`，`source.json` `d5d2749f`，`WebHTV-0.1.81-82.ipa` 35,610,457 bytes。官方爬蟲包線上是序號 6（`2026-10-19.2`，37 支）。真機尚未驗收。
+**目前最新版是 `0.1.82 (83)`**（新增「熱播排行榜」來源：點任一部片會在使用者其他的來源搜尋它，選一個結果播放；原生播放器與 MPV 之間切換時沿用已選的字幕語言或維持關閉）。完整紀錄在下方「第八十三次發布」：run `39373148413` success，tag `ios-v0.1.82-b83` → `6dc207b8`，`source.json` `2ea85f48`，`WebHTV-0.1.82-83.ipa` 35,635,092 bytes。官方爬蟲包線上是序號 9（`2026-10-20.2`，39 支，含 Douban）。真機尚未驗收。
+
+前一版 `0.1.81 (82)`（原生播放器與 MPV 之間切換時沿用已選的音軌語言；有自己首頁清單的來源，分類列不再誤亮第一個分類）。完整紀錄在下方「第八十二次發布」：run `39211292910` success，tag `ios-v0.1.81-b82` → `5e84be7f`，`source.json` `d5d2749f`，`WebHTV-0.1.81-82.ipa` 35,610,457 bytes。當時官方爬蟲包線上是序號 6（`2026-10-19.2`，37 支）。真機尚未驗收。
 
 前一版 `0.1.80 (81)`（新增直播入口：依群組列出頻道、上下滑換台、線路失敗自動改試下一條、手動切換線路、記住上次的頻道與收藏；從收藏或觀看紀錄打開需要爬蟲工具的來源時會提示並可直接下載）。完整紀錄在下方「第八十一次發布」：run `38845998865` success，tag `ios-v0.1.80-b81` → `61f0b060`，`source.json` `085cd974`，`WebHTV-0.1.80-81.ipa` 35,603,927 bytes。官方爬蟲包線上是序號 4（`2026-10-16.2`）。真機尚未驗收。
 
@@ -973,9 +975,44 @@ WebHTV 0.1.31 (32)（未經真機驗收）
 - MPV 回到 App 時仍會為了對齊聲音重新定位一次，位置可能往回數十毫秒（藍牙耳機約 0.1～0.3 秒）。
 ```
 
-## 第八十二次發布：`0.1.81 (82)`（2026-10-19，**已發布**）
+## 第八十三次發布：`0.1.82 (83)`（2026-10-20，**已發布**）
 
-**目前最新版是 `0.1.81 (82)`。** 前面八十一版都已被取代。
+**目前最新版是 `0.1.82 (83)`。** 前面八十二版都已被取代。
+
+- 授權：使用者核准 Douban（W-173 條件 GO → W-175 爬蟲＋App「點片單自動搜尋」），審過後發官方包再發 App `0.1.82`（Manager #3353、#3422）。四個 workflow 都由 repo 擁有者帳號手動觸發（triggering actor `st7833232`）。版號 `0.1.82`，build `83`。
+- 官方爬蟲包（本版之前與本版一起，只改爬蟲、不改 App）：
+  - 序號 7：`iOS spider pack` run `39231844855` success（2026-10-19 09:40:35Z → 09:40:54Z，headSha `2052d77b`，W-167 Libvio），推回 `28e22f6d668b5b2793e6480a8f10c8c936f71dce`，版本 `2026-10-19.3`，38 支、9 個別名。
+  - 序號 8：run `39357345989` success（2026-10-20 02:09:04Z → 02:09:22Z，headSha `7a3ca6a2`，W-171／W-172 Libvio 網盤邊界與名稱後綴），推回 `ac490ee3e1f6ffc3d1e27bbc28be79aea998b21f`，版本 `2026-10-20.1`，38 支、9 個別名。
+  - 序號 9：run `39370505279` success（2026-10-20 04:36:55Z → 04:37:14Z，headSha `54b75839`，W-175 Douban），推回 `6dc207b858adf3735ac5812735a2d1c8f1be4e8f`，版本 `2026-10-20.2`，39 支（新增 `Douban`）、9 個別名。
+- 發布序列：
+  1. W-175 兩個 commit（`d396e52c`、`54b75839`）審過推上 `ios-poc`，先發官方包序號 9（`6dc207b8`），讓舊版 App 先拿到 Douban（舊版點片單會看到「豆瓣片單（需更新 App）」線路，按播放提示沒有網址）。**沒有事先做版號 commit**：版號由 workflow 輸入覆寫，本紀錄所在的 commit 才把 `project.pbxproj` 補成 `0.1.82`／`83`。
+  2. `workflow_dispatch`：ref `ios-poc`，version `0.1.82`、build_number `83`，release notes 為 `artifacts/release-notes-0.1.82.txt`。run `39373148413` success（2026-10-20 05:06:54Z → 05:13:31Z，headSha `6dc207b858adf3735ac5812735a2d1c8f1be4e8f`）。
+  3. workflow 建立 tag `ios-v0.1.82-b83`（→ `6dc207b8`），並推回 `source.json` commit `2ea85f481c521d6ce6319137b0c3da2ab2c46a9c`（`release(ios): publish WebHTV 0.1.82 (83)`）：`0.1.82` 是 versions 第一筆、date `2026-10-20`、size 35635092、minOSVersion 17.0，`localizedDescription` 與 `release-notes-0.1.82.txt` 逐字相同（W-178 以 `cmp` 比對）。
+
+  **沒有手動建 tag。**
+- 建置來源：run 的 headSha 就是 `6dc207b8`（官方包序號 9 的推回 commit），沒有額外的 commit。
+- 內容：`0.1.81 (82)` 的全部，加上 `ios-v0.1.81-b82..6dc207b8` 的 first-parent commit：0.1.81 的 `source.json`（`d5d2749f`）、0.1.81 發布紀錄（W-160 `7cac50d5`）、換引擎沿用字幕（W-159 `e904f07b`、審查 F-1 `4e564abd`）、Libvio（W-167 `2052d77b`）、官方包序號 7（`28e22f6d`）、Libvio 只有網盤時的提示與網盤名稱整詞比對（W-171 `f082fe05`）、網盤名稱可接數字或後綴（W-172 `7a3ca6a2`）、官方包序號 8（`ac490ee3`）、Douban 爬蟲（W-175 A `d396e52c`）、`msearch:` 片單項目改開聚合搜尋（W-175 B `54b75839`）、官方包序號 9（`6dc207b8`）。Libvio、Douban 兩支爬蟲隨官方包發出，不在 IPA 內；`msearch:` 路由在 IPA 內。
+- 產物：
+  - GitHub Release `WebHTV 0.1.82 (83)`：不是 draft，也不是 prerelease，2026-10-20 05:13:22Z 發布，https://github.com/st7833232/webhtv/releases/tag/ios-v0.1.82-b83。
+  - `WebHTV-0.1.82-83.ipa`：**35,635,092 bytes**，SHA-256 `500e40196882fdfa2ccdcb0fa3af89ab780a8fc14a00f449737b5e6a96ef98bc`（W-178 只下載這一次，出口 `220.229.169.180`；重算與 Release 資產的 digest 相同）。IPA 內 `Info.plist`：`com.webhtv.ios.poc`／`0.1.82`／`83`／minimum iOS 17.0；Payload 只有一個 `WebHTVApp.app`；`WebHTVCore_WebHTVCore.bundle/Spiders/` 只有 `drpy-bridge.js`、`host.js`、`js-spider.js`，沒有任何 `SpiderBaseline`；Release binary 裡 `WEBHTV_RUNTIME_PACK_URL`、`WEBHTV_HIDE_BUNDLED_SPIDERS`、`WEBHTV_DELAY_PACK_LOAD_MS` 都是 0 筆；W-175 B 的 `[search] msearch page left, search stopped` 字串 1 筆（確認路由在這個 build 內；`msearch:` 本身是 8 bytes 的 Swift 小字串，內嵌在指令裡，`strings` 找不到是預期的）（`artifacts/w178-logs/facts.txt`）。
+- 已知問題與未驗：
+  - 熱播排行榜點片自動搜尋：Simulator 真網址驗過片單、推入搜尋、結果→詳情→播放、推入詳情續搜、返回才停搜（W-175 第 3 輪）；「熱播排行榜｜自動切換」那筆未點過（與「可選站」同一路由）。與 Android 不同：不自動挑結果，由使用者選。
+  - 換引擎沿用字幕只在 Simulator 以本機合成字幕驗過（W-159 三輪，`docs/W-159-subtitle-track-carry.md`）；最後一個改動（20 秒從起播才開始算）只跑了單元測試、全量測試與 App build，沒有再跑 Simulator。
+- **真機尚未驗收。**
+
+### Release notes（實際送出的內容）
+
+```text
+探索：
+- 新增「熱播排行榜」來源：瀏覽熱門排行，點任一部片會自動在你其他的來源搜尋它來播放。
+
+播放：
+- 原生播放器與 MPV 之間切換時，會沿用你已選的字幕語言（或維持關閉）。
+```
+
+## 第八十二次發布：`0.1.81 (82)`（2026-10-19，**已發布**，已被 `0.1.82 (83)` 取代）
+
+前面八十一版都已被取代。
 
 - 授權：使用者授權 W-155、W-156 審過推上後，連同已推的 W-154 直接發 App `0.1.81 (82)`（Manager #2985）；發布前 Reviewer 做截點輕量檢查（`artifacts/pre-release-check-0.1.81.md`）。三個 workflow 都由 repo 擁有者帳號手動觸發（triggering actor `st7833232`）。版號 `0.1.81`，build `82`。
 - 官方爬蟲包（本版之前，只改爬蟲、不改 App）：

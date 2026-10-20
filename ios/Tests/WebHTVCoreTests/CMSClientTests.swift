@@ -180,11 +180,22 @@ private func site(key: String, type: Int, api: String, ext: String = "null") thr
     #expect(cms.filterQuery(["area": "", "t": "3", "pg": "9"]).isEmpty)
     #expect(cms.filterQuery(["area": "", "year": "2026"]).map(\.name) == ["year", "f"])
 
-    // Type 0 publishes no rows and type 4 has its own protocol (W-187): neither sends any.
-    for type in [0, 4] {
-        let other = try CMSClient(site: site(key: "o\(type)", type: type, api: "https://example.com/api.php/provide/vod"))
-        #expect(other.filterQuery(["area": "日本"]).isEmpty)
-    }
+    // Type 0 publishes no rows: it sends none.
+    let xml = try CMSClient(site: site(key: "o0", type: 0, api: "https://example.com/api.php/provide/vod"))
+    #expect(xml.filterQuery(["area": "日本"]).isEmpty)
+}
+
+@Test func sendsAType4SitesChosenFiltersAsOneBase64URLExt() throws {
+    // IOS-POC-64, probed 2026-10-20: 爱瓜TV t=2 with ext={"area":"19"} lists 欧美 titles (权力的游戏…).
+    let remote = try CMSClient(site: site(key: "ag", type: 4, api: "https://example.com/aigua1.php"))
+    let query = remote.listingQuery(categoryID: "2", page: 2) + remote.filterQuery(["area": "19", "sort": ""])
+    #expect(query.map(\.name) == ["ac", "t", "pg", "ext"])
+    #expect(query.last?.value == "eyJhcmVhIjoiMTkifQ==")
+    // URL-safe and padded as FongMi's Util.URL_SAFE: 韩国 is …6Z+p… in plain base64.
+    #expect(remote.filterQuery(["area": "韩国"]).first?.value == "eyJhcmVhIjoi6Z-p5Zu9In0=")
+    // Inside ext a key named like a listing parameter is just a filter.
+    #expect(remote.filterQuery(["t": "x"]).map(\.name) == ["ext"])
+    #expect(remote.filterQuery([:]).isEmpty)
 }
 
 @Test func showsOnlyTheCategoriesASiteNamesInItsOrderAndFlat() throws {

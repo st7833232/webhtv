@@ -47,3 +47,26 @@
 - 測試 `asksForTheDetailFormOnlyWhereItSuppliesThePoster`：type 4 期望改成 `ac, t, pg`，`ac` 為 `detail`。
 - 前後對照（curl，2026-10-20，`.herdr-synapse/webhtv-dev/artifacts/new-sites-filter/raw/`）：drpyS_枫林影视 改前 `t=movie`、`t=tv` 都回同一份首頁片單（《拜託了冰箱2》…，`fl-movie.body`、`fl-tv-noac.body`）；改後 `ac=detail&t=movie` 《廢土戰警》…、`ac=detail&t=tv` 《她的局》…（`fl-movie-ac.body`、`fl-tv-ac.body`）。不退化：采集集合（`cj-t1-*`）、88看球（`kq-t4-*`）、爱瓜TV（`ag-t2`、`ag-t2-ac`）有無 `ac` 結果相同。php_无水印资源首頁無分類，**未驗證**。
 - Simulator 前後截圖與 log 與 commit B 一起做（Manager #3722 的驗收）。
+
+### Commit B — type 4 篩選（task guard `IOS-POC-64-B`）
+- `CMSClient.home()` type 4：重組時帶上 `filter=true` 分類回應的 `filters`。
+- `CMSClient.filterQuery`：type 4 有非空篩選值時回 `[ext=<base64url(JSON)>]`——`JSONSerialization` 鍵排序後 `base64EncodedString()`，`+/` 換 `-_`，保留 `=`（FongMi `Util.URL_SAFE` = `DEFAULT|URL_SAFE|NO_WRAP`）。type 4 的鍵包在 `ext` 裡，不套 `protocolNames` 過濾。type 1 不變。
+- 測試 `sendsAType4SitesChosenFiltersAsOneBase64URLExt`：查詢 `ac, t, pg, ext`；`{"area":"19"}` → `eyJhcmVhIjoiMTkifQ==`；`{"area":"韩国"}` → `…6Z-p…`（標準 base64 為 `…6Z+p…`）；空值略過。type 1 測試改為只斷言 type 0 不送。全量 `swift test` 1380 通過（`.herdr-synapse/webhtv-dev/artifacts/type4-filters/swift-test-B.log`；commit A 時 1379，`swift-test-A.log`）。
+- **`=` 與 `-_` 實測**（Reviewer #3721 要求；`new-sites-filter/raw/ag-*`、`fl-*`）：兩站所有真實篩選值（每類最多三鍵組合）編碼後都**不含** `+/-_`，所以實際送出的字串與標準 base64 相同；未編碼的 `==` 兩站都接受。另以合成鍵讓編碼含 `-`：爱瓜TV 仍套用篩選（地区=欧美 → 权力的游戏…），drpyS_枫林影视 則解錯（篩選失效），標準 base64（`+` 以 `%2B` 送）正常。保留 base64url 的理由：與 Android 對同一伺服器的行為一致；標準 base64 的 `+` 在 `URLComponents` 不會被編碼，PHP 會讀成空白。**限制**：日後若有 drpyS 站的篩選值是中文、編碼出現 `-`／`_`，該篩選會失效（Android 相同）。
+- Ponytail review（2026-10-20，A＋B）：Looks good. Ship.；未測項即上一條 drpyS 中文值的限制。
+- php_无水印资源：首頁無分類，**未驗證**。
+
+### Simulator 驗證（2026-10-20，熱點，臨時模擬器；build = `e75ca72e`＋commit B 工作樹，安裝前後 sha256 `f3a2386e…`）
+證據：`.herdr-synapse/webhtv-dev/artifacts/type4-filters/gui/`（`RESULT.md`、截圖＋無障礙樹、`cms-log.txt`）；每個關鍵請求另以 curl 重打，`new-sites-filter/raw/w187-*.body`。
+
+| 站 | 動作 | 送出（`[cms] category`） | 畫面 | 結果 |
+|---|---|---|---|---|
+| drpyS_枫林影视 | 电影 / 电视剧（commit A） | `ac=detail&t=movie&pg=1` / `t=tv` | 害群之馬… / 男子啦啦隊…，兩分類不同 | PASS |
+| drpyS_枫林影视 | 分类＝动作（commit B） | `…&ext=eyJjYXRlSWQiOiJhY3Rpb24ifQ==` | 廢土戰警×3、營救夜鶯 | PASS |
+| drpyS_枫林影视 | 選回「全部」 | `ext={"cateId":"movie"}`（該站「全部」是伺服器自訂值） | 恢復 | PASS |
+| 爱瓜TV | 电视剧：排序／类型／地区／年代／状态 五列；地区＝欧美 | `…&ext=eyJhcmVhIjoiMTkifQ==` | 莲花楼… → 权力的游戏第1季… | PASS |
+| 爱瓜TV | 再點一次欧美清除（該站列沒有「全部」） | `ac=detail&t=2&pg=1` | 恢復 | PASS |
+| 88看球 | 篮球（無 filters） | `ac=detail&t=4&pg=1` | 1 部，與改前相同 | PASS |
+| 采集集合 | 日常采集集合（無 filters） | `ac=detail&t=1&pg=1` | 56 部 | PASS |
+
+未在 Simulator 驗：爱瓜TV 多列同時篩選、第 2 頁仍帶 `ext`（單元測試以 `page: 2` 涵蓋）、php_无水印资源。兩站真實篩選值編碼都不含 `-_+/`，URL-safe 字元未在實機觸發（見上方實測段）。

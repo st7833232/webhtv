@@ -457,7 +457,7 @@ public struct CMSClient: Sendable {
         // Match what the caller will offer for browsing, so the listed category is the highlighted one.
         guard let first = categories.firstListableCategory else { return categories }
         let listing = try await category(id: first.id, page: page)
-        var response = CMSResponse(classes: categories.classes, list: listing.list)
+        var response = CMSResponse(classes: categories.classes, list: listing.list, filters: categories.filters)
         response.listedCategoryID = first.id
         return response
     }
@@ -480,12 +480,19 @@ public struct CMSClient: Sendable {
     /// IOS-POC-62: a type-1 site's chosen filters, each as its own parameter and again as `f=<JSON>`,
     /// as TVBox sends them (`SourceViewModel` `.params(filterSelect)` + `f`). 创享 reads only the
     /// former; FongMi sends only the latter, so a server built for it still gets what it reads.
+    /// IOS-POC-64: a type-4 site's go as one `ext`, FongMi's `Util.base64(JSON, URL_SAFE)`: base64url
+    /// with its `=` kept, so no `+` reaches a server that would read it as a space.
     func filterQuery(_ extend: [String: String]) -> [URLQueryItem] {
-        guard site.type == 1 else { return [] }
-        let chosen = extend.filter { !$0.value.isEmpty && !Self.protocolNames.contains($0.key) }
+        guard site.type == 1 || site.type == 4 else { return [] }
+        // Inside type 4's `ext` a key cannot override the listing's own parameters.
+        let chosen = extend.filter { !$0.value.isEmpty && (site.type == 4 || !Self.protocolNames.contains($0.key)) }
         guard !chosen.isEmpty,
               let json = try? JSONSerialization.data(withJSONObject: chosen, options: [.sortedKeys, .withoutEscapingSlashes])
         else { return [] }
+        if site.type == 4 {
+            let ext = json.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+            return [URLQueryItem(name: "ext", value: ext)]
+        }
         return chosen.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
             + [URLQueryItem(name: "f", value: String(decoding: json, as: UTF8.self))]
     }

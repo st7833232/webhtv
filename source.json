@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.84",
+          "date": "2026-10-21",
+          "localizedDescription": "瀏覽：\n- 網頁型來源若在設定裡寫了篩選規則，分類頁會顯示篩選列（類型、地區、年份等），選了之後列表會跟著改變。\n- 擴充型來源提供篩選時，分類頁也會顯示篩選列並套用所選條件。\n- 修正部分擴充型來源不論點哪個分類都顯示同一份片單的問題。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.84-b85/WebHTV-0.1.84-85.ipa",
+          "size": 35642366,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.83",
           "date": "2026-10-20",
           "localizedDescription": "瀏覽：\n- 採集來源提供篩選時（例如地區、類型），分類頁會顯示篩選列，選了之後列表會跟著改變，翻頁時篩選條件會保留。\n- 設定檔為來源指定的分類清單現在會生效：只顯示清單上的分類並照清單順序排列，首頁片單也只會出現這些分類的影片。",

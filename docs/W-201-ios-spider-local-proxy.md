@@ -6,9 +6,11 @@
 
 - **問題**：YouTube｜PY 在 iOS 點播放會出現「無法播放（mpv error -13）」。原因是這支 Python 爬蟲按播放時，把影片交給「手機裡的一個小轉送站」（網址 `http://127.0.0.1:9978/proxy…`）。Android 版 FongMi 內建這個轉送站，iOS App 沒有，所以播放器連不上。bili看電影 也是同一個原因（IOS-POC-37 已記錄）。
 - **要做的事**：在 iOS App 裡加一個「只有本 App 自己用得到」的小轉送站。播放器向它要影片時，它去問那支爬蟲的 `localProxy`，再把爬蟲回的內容交給播放器。
-- **另外兩件必要配套**：
+- **另外三件必要配套**：
   1. 這種影片是 DASH 格式。蘋果原生播放器不支援 DASH，所以要直接交給 MPV。
   2. MPV 讀這種 DASH 時會一次跟轉送站要「整部影片」，而爬蟲會把整段先讀進記憶體。轉送站要把大請求拆成一小段一小段跟爬蟲要，否則會吃光記憶體。
+  3. iOS 版 Python 的「暫存」讀回來的格式和 Android 不同：Android 會把存進去的資料還原成原本的樣子，iOS 會變成一串文字。YouTube 腳本靠這份暫存找影片位址，所以也要改成和 Android 一樣。設定檔裡另外兩個有用暫存的站（山楂、MiFun）存的是純文字，不受影響。
+- **只在模擬器驗**：你用的 iPhone（SideStore 安裝）上的記憶體和速度要等新版 IPA 才能實測，模擬器結果不能代表實機。
 - **安全**：只聽本機（127.0.0.1），網址帶每次啟動隨機產生的通行碼，別的裝置連不到，手機上其他 App 也猜不到。Android 版 FongMi 的轉送站對整個區網開放，iOS 不照抄這點。
 - **代價**：中型改動，約 1–2 個工作階段（新增一個小伺服器、Python 執行環境接上 `localProxy`、播放路由認 DASH）。不影響其他站：只有爬蟲回了 9978 網址才會啟動。
 - **需要你決定**：是否核准實作（建議方案 C，見下）。
@@ -95,11 +97,19 @@ IOS-POC-7A（docs/IOS-POC-7A-python-runtime.md:121,203,398）把「本機 proxy 
    - 有 `siteKey` → 該站。
    - `do=js`、jar 類（`do=csp` 等）**本單不做**（iOS 沒有 jar；目前沒有 JS 站用到），回 404 並記 log。
    - 參數 = query ＋ 小寫請求標頭（`range`、`user-agent`），與 FongMi 相同。
-4. **大請求拆段**（解 FFmpeg 整檔讀取＋腳本整段緩衝）
-   - 請求沒有 Range 或是開放式（`bytes=N-`）時，轉送站改用有界 Range 分段呼叫爬蟲。暫定每段 2 MB，實測調整。
-   - 第一段回 206 且 `Content-Range` 帶總長：繼續逐段呼叫並串流給播放器，對播放器回 200（或 206，看原請求），記憶體上限約一段。
-   - 第一段回 200（爬蟲不支援 Range）：照原樣轉送，不再拆。
-   - 小檔（MPD 等文字）不拆。
+4. **大請求拆段**（解 FFmpeg 整檔讀取＋腳本整段緩衝；Reviewer #4102 F2）
+   - 段長暫定 2 MB，實測調整。任何要求範圍大於一段的請求都拆：沒有 Range、開放式 `bytes=N-`、以及有界但很大的 `bytes=0-999999999`。
+   - 拆段方式：第一段以 `bytes=N-(N+段長-1)` 呼叫爬蟲。
+     - 回 206 且 `Content-Range: bytes a-b/總長`：得知總長，之後逐段呼叫、逐段寫給播放器，記憶體上限約一段。
+     - 回 200（爬蟲不支援 Range）：照原樣轉送，不再拆。
+   - 對播放器的回應：
+     - 一律帶 `Accept-Ranges: bytes`。
+     - 原請求有 Range：回 206，`Content-Range: bytes 起-迄/總長`，`Content-Length` = 迄 − 起 + 1。
+     - 原請求沒有 Range：回 200，`Content-Length` = 總長。
+     - 有正確長度，FFmpeg 拖動時才會改發 Range 請求。
+   - HEAD：只以 `bytes=0-0` 問爬蟲一次取得總長與型別，回標頭不回內容，絕不觸發整段抓取。
+   - 播放器斷線（寫入失敗或連線關閉）：立刻停止後續分段呼叫，不再排入 Python 佇列。
+   - 小檔（MPD 等文字、總長小於一段）不拆，照原樣轉送。
 5. **Python runtime 接上 localProxy**
    - `PythonSpiderRuntime.proxy(params:)` 在該站序列佇列上呼叫 `localProxy(params)`。
    - 回傳依 FongMi 格式轉換：`[code, mime, body, headers?, base64旗標?]`；bytes 原樣、str 依旗標 base64 解碼。
@@ -107,6 +117,26 @@ IOS-POC-7A（docs/IOS-POC-7A-python-runtime.md:121,203,398）把「本機 proxy 
 6. **播放路由**
    - `SpiderPlayResponse` 多讀 `format`。
    - `format == application/dash+xml` 或網址副檔名為 `.mpd`：直接用 MPV（不先試 AVPlayer），並把 mpd 納入直連判斷。
+7. **Python base 的 getCache／setCache 對齊 FongMi**（Reviewer #4102 F1，阻擋項）
+   - 現況：
+     - iOS `setCache` 把 dict／list 存成 JSON 字串，`getCache` 原樣回字串，找不到回 `''`（ios/WebHTVApp/Python/base/spider.py:205-217）。
+     - FongMi `getCache`（chaquo/src/main/python/base/spider.py:123-145）：以 `{…}`／`[…]` 包住的值會 `json.loads` 回物件；dict 有 `expiresAt` 且已過期就刪除並回 `None`；找不到回 `None`。`setCache`：int／float 轉字串，dict／list 轉 JSON。
+   - 油管-6.py 在 `playerContent` 以 `setCache` 存 dict（:1771-1779），`_proxy_mpd`／`_proxy_media` 接著在 try 之外對 `getCache` 的結果呼叫 `.get`（:1844-1850、:1888-1899）。不對齊的話，iOS 會丟 AttributeError，只做轉送站仍播不出來。
+   - 設計：iOS `getCache` 改成與 FongMi 相同的解析與過期規則，找不到回 `None`；`setCache` 補 int／float 轉字串。儲存仍用現有的每站檔案，不經本機伺服器。
+   - 對其他站的影響：設定檔（GitLab 線上版 2026-10-27，171 站）共有 44 支 PY 腳本，逐支下載檢查，只有 3 支呼叫 `getCache`：
+     | 站 | 存的值 | 對齊後 |
+     |---|---|---|
+     | YouTube（油管-6.py） | dict（含 `expires` 欄，非 `expiresAt`） | 取回 dict，修好 |
+     | 山楂 | 16 位十六進位字串 `ldid` | 不受影響（非 JSON 形狀，照樣回字串） |
+     | MiFun | md5 字串 `did` | 同上 |
+
+     找不到鍵時由 `''` 改成 `None`，兩支都是 `if not did` 判斷，結果相同。
+   - 單元測試：
+     - dict／list 存取來回一致。
+     - 已過期 `expiresAt` 回 `None` 且被刪除。
+     - 純字串原樣回傳。
+     - 找不到回 `None`。
+     - int 存入後取回字串。
 
 ## 安全
 
@@ -118,7 +148,13 @@ IOS-POC-7A（docs/IOS-POC-7A-python-runtime.md:121,203,398）把「本機 proxy 
 
 ## 效能與相容
 
-- 同站 Python 呼叫一次一個：音軌和視訊軌的分段會輪流取，起播與拖動可能比 Android 慢。驗收時量首幀時間與拖動等待。
+- **同站 Python 序列佇列**（Reviewer #4102 F3）
+  - 現象：同一站的呼叫一次一個（PythonSpiderRuntime.swift:22-43）。每段 2 MB 下載期間，該站的其他呼叫都在排隊：另一軌的分段、下一集 `playerContent`、詳情等。
+  - 單段逾時：轉送站等每次 `localProxy` 呼叫最多 20 秒，超過就對播放器回 504 並停止該請求的後續分段。
+  - 限制：已在執行中的 Python 呼叫無法從外部中斷，佇列要等腳本自己的網路逾時才釋放（油管-6.py 媒體請求 timeout=30 秒）。最壞情況該站卡住約 30 秒。
+  - 減輕：段長小（2 MB）讓單次呼叫短；播放器斷線就不再排新段；離開播放頁時取消該 session 尚未開始的分段。
+  - 備案：若實測起播或拖動太慢，原型階段評估「每站另開一個專供 `localProxy` 的 Python runtime」。iOS 的 Python 暫存是每站共用的檔案，兩個 runtime 看得到同一份暫存。是否採用依量測結果，另行回報。
+- 驗收要記數字：首幀時間（從按播放到出畫面）、拖動到中段後恢復播放的等待時間，各量 3 次取中位數。
 - 每段多一次 googlevideo 往返，2 MB 段長是折衷。
 - 記憶體上限：每個進行中的請求約一段大小。
 - FFmpeg DASH 讀單檔時的拖動行為未知（dashdec 對單 fragment 的 seek）。要實測；若拖動不可用，記為已知限制或改段長策略。
@@ -134,10 +170,20 @@ IOS-POC-7A（docs/IOS-POC-7A-python-runtime.md:121,203,398）把「本機 proxy 
 5. 回歸：
    - 一般 m3u8／mp4 站、離線播放、YouTube 直播（腳本 HLS 分支）行為不變。
    - 不回 9978 的站不會啟動服務。
+   - 山楂、MiFun（另外兩支用 getCache 的 PY 站）首頁與播放不退化。
 6. bili看電影 同步測一次並記錄結果（不列為必過）。
+6a. 首幀時間與拖動等待時間（各 3 次中位數）寫進任務文件。
+6b. **實機未驗**（Reviewer #4102 F4）：本單只有 Simulator。使用者的 iPhone（SideStore 安裝）的記憶體、耗電與起播速度，要等發新版 IPA 後由使用者實測；發布說明與回報必須明寫「實機未驗」。
 7. 單元測試：
    - 網址與 MPD 內文改寫。
-   - 開放式 Range 拆段（含爬蟲回 200 的退回路徑）。
+   - Range 拆段：
+     - 開放式、有界大範圍、無 Range 三種輸入。
+     - 爬蟲回 200 的退回路徑。
+     - HEAD 只送 `bytes=0-0`。
+     - 回應的 Content-Length／Content-Range／Accept-Ranges 正確。
+     - 斷線後不再呼叫。
+     - 單段逾時回 504。
+   - getCache／setCache 對齊（見設計 7）。
    - Python 回傳格式轉換（bytes／str／base64／headers）。
    - token 驗證。
    - `format` 解碼與 DASH 路由。
@@ -149,7 +195,10 @@ IOS-POC-7A（docs/IOS-POC-7A-python-runtime.md:121,203,398）把「本機 proxy 
 
 ## 工作量與風險
 
-- 估計 1–2 個工作階段：伺服器與改寫約半天；Python 接線與格式轉換約半天；播放路由與 Simulator 驗證半天到一天。
+- 估計 1–2 個工作階段：
+  - 伺服器與改寫：約半天。
+  - Python 接線、格式轉換、getCache 對齊：約半天。
+  - 播放路由與 Simulator 驗證：半天到一天。
 - 最大風險：
   1. FFmpeg DASH 對 YouTube 單檔 webm/mp4 的實際播放與拖動（未在裝置驗過）。
   2. 序列化 Python 呼叫造成的起播延遲。

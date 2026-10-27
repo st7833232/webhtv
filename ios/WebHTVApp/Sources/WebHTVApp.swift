@@ -5289,7 +5289,8 @@ struct EpisodeSteps: Equatable {
     static let log = Logger(subsystem: "com.webhtv.ios.poc", category: "playback")
 
     // IOS-POC-15D: what one item did, reported once when it is replaced or closed.
-    private var itemTitle = ""
+    /// W-204: also the player's top-row title — every path, the next episode included, loads through here.
+    private(set) var itemTitle = ""
     private var loadedAt: ContinuousClock.Instant?
     private var startupMilliseconds: Int?
     private var startupWatch: Task<Void, Never>?
@@ -5560,6 +5561,8 @@ struct EpisodeSteps: Equatable {
     /// was handed to the engine.
     var onOnlineSubtitlesChange: ((OnlineSubtitleSession?) -> Void)?
     var onOnlineSubtitleApplied: (() -> Void)?
+    /// W-204: a new item loaded under this title.
+    var onTitleChange: ((String) -> Void)?
 
     /// The cues the AVPlayer overlay draws now; nil under MPV, which draws its own.
     var nativeOnlineSubtitleCues: SubtitleCues? { (engine as? AVPlayerEngine)?.activeExternalCues }
@@ -6584,6 +6587,7 @@ struct EpisodeSteps: Equatable {
                                        preferredLanguage: Locale.preferredLanguages.first)
         }
         itemTitle = title
+        onTitleChange?(title)
         resolution = nextResolution
         nextResolution = ""
         worstState = .normal
@@ -7425,6 +7429,8 @@ private struct PlayerControlBar: View {
     /// IOS-POC-17: the engine **actually** playing — not the settings page's default.
     let engine: PlaybackEngineKind
     let selectEngine: (PlaybackEngineKind) -> Void
+    /// W-204: 片名 and 集數 beside the close button; empty draws nothing.
+    var title = ""
     /// IOS-POC-59 U3: live plays at 1× only, so it offers no speed menu.
     var live = false
     /// The open panel, if any. `PlayerView`'s `PlayerChrome` owns it.
@@ -7537,7 +7543,15 @@ private struct PlayerControlBar: View {
             }
             .accessibilityLabel("關閉播放器")
 
-            Spacer()
+            // Takes only what the buttons leave (priority -1), so a long title truncates instead —
+            // in the middle, so the 集數 at its end stays readable.
+            Text(zhTW: title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(-1)
 
             // What the running engine cannot do is not drawn, rather than drawn and dead. A choice
             // of one decides nothing, so a track button needs more than one option (IOS-POC-5Q).
@@ -8538,6 +8552,8 @@ private struct PlayerView: View {
     /// a plain class every other screen drives imperatively; making it observable so two capsules
     /// could redraw would put a dependency on every one of those callers.
     @State private var watching: WatchHistory?
+    /// W-204: what is playing — 片名 and 集數 — mirrored the same way.
+    @State private var itemTitle = ""
     /// IOS-POC-16: **our** control-bar visibility, not a guess at AVKit's — and since IOS-POC-16B,
     /// which of its panels is open.
     ///
@@ -8663,6 +8679,8 @@ private struct PlayerView: View {
                 watching: watching, media: media, online: online,
                 engine: engineKind,
                 selectEngine: { session.selectEngine($0) },
+                // Live already names the channel in its own overlay.
+                title: live == nil ? itemTitle : "",
                 live: live != nil,
                 panel: chrome.panel,
                 toggle: { panel in
@@ -8725,6 +8743,7 @@ private struct PlayerView: View {
             session.endOnlineSubtitles()
             session.onOnlineSubtitlesChange = nil
             session.onOnlineSubtitleApplied = nil
+            session.onTitleChange = nil
             // IOS-POC-36.5 (D12): with a Picture in Picture window open too. IOS-POC-10H returned
             // here in PiP, assuming that starting PiP closes this screen; it does not (measured on
             // the iPad simulator), so a close in PiP is the last episode ending there, and leaving
@@ -8763,6 +8782,8 @@ private struct PlayerView: View {
             session.onNotice = { showNotice($0) }
             online = session.onlineSubtitles.session
             session.onOnlineSubtitlesChange = { online = $0 }
+            itemTitle = session.itemTitle
+            session.onTitleChange = { itemTitle = $0 }
             // A chosen file is on screen: the panel closes, as choosing any track does.
             session.onOnlineSubtitleApplied = { chrome.dismissPanel() }
             startObserving()

@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.85",
+          "date": "2026-10-27",
+          "localizedDescription": "播放：\n- 播放器控制列上方會顯示片名與集數，換集時自動更新。\n\n直播：\n- 卡住的線路改為等待 30 秒才自動換下一條線路。\n- 投放到電視或子母畫面時，直播卡住也會在合理時間內換線或改用另一個播放器，不會一直停在載入中。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.85-b86/WebHTV-0.1.85-86.ipa",
+          "size": 35645812,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.84",
           "date": "2026-10-21",
           "localizedDescription": "瀏覽：\n- 網頁型來源若在設定裡寫了篩選規則，分類頁會顯示篩選列（類型、地區、年份等），選了之後列表會跟著改變。\n- 擴充型來源提供篩選時，分類頁也會顯示篩選列並套用所選條件。\n- 修正部分擴充型來源不論點哪個分類都顯示同一份片單的問題。",

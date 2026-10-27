@@ -78,8 +78,9 @@ public struct LiveSource: Decodable, Equatable, Sendable {
     public var isURLList: Bool { type == 0 && api.isEmpty }
 
     /// Seconds one line may take to start: the source's `timeout`, but never under 10 (D§6.3.3).
+    /// 30 when the source sets none (user 2026-10-27, W-203; Android's default is 15).
     /// shortcut: no upper bound (a `timeout` of 600 waits ten minutes); U3 revisits it with real use.
-    public var lineBudget: Int { max(timeout ?? 15, 10) }
+    public var lineBudget: Int { max(timeout ?? 30, 10) }
 
     /// What the list itself is fetched with: `Live.getHeaders()`.
     public var listHeaders: [String: String] {

@@ -98,8 +98,8 @@ private func siteShape(_ config: WebHTVConfig) -> [String] {
 }
 
 @Test func lineBudgetIsTheSourceTimeoutButNeverUnderTenSeconds() {
-    let budgets = [nil, 5, 10, 30, 0, -1].map { LiveSource(name: "a", url: "http://x", timeout: $0).lineBudget }
-    #expect(budgets == [15, 10, 10, 30, 10, 10])
+    let budgets = [nil, 5, 10, 15, 30, 0, -1].map { LiveSource(name: "a", url: "http://x", timeout: $0).lineBudget }
+    #expect(budgets == [30, 10, 10, 15, 30, 10, 10])
 }
 
 @Test func listHeadersPutTheNamedFieldsOverTheHeaderMap() {

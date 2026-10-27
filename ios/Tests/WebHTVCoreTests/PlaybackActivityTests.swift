@@ -128,6 +128,15 @@ import Testing
     #expect(PlayerRouter.startupTimeout(for: .mpv) == 20)
 }
 
+@Test func onAirPlayOrPiPALiveLineIsLeftToItsBudgetOnlyWhileTheBudgetCounts() {
+    // W-203 (Reviewer #4295): the 30 s budget changes lines instead of a 20 s switch to MPV — but the
+    // budget stops in the background (PiP), and there the 20 s must stay or a stuck line spins forever.
+    #expect(PlayerRouter.startupTimeout(for: .native, presentedElsewhere: true, liveBudgetCounting: true) == .infinity)
+    #expect(PlayerRouter.startupTimeout(for: .native, presentedElsewhere: true, liveBudgetCounting: false) == 20)
+    #expect(PlayerRouter.startupTimeout(for: .native, presentedElsewhere: false, liveBudgetCounting: true) == 10)
+    #expect(PlayerRouter.startupTimeout(for: .mpv, presentedElsewhere: false, liveBudgetCounting: true) == 20)
+}
+
 // MARK: - What a given-up native start says
 
 @Test func anHTTPErrorIsTheReasonWhateverElseIsTrue() {

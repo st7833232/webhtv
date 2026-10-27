@@ -6736,10 +6736,10 @@ struct EpisodeSteps: Equatable {
                     // out of the window, so a native start keeps the pre-27A 20 s there.
                     let presentedElsewhere = stuck == .native
                         && (player.isExternalPlaybackActive || pictureInPictureActive)
-                    // W-203: a live line's own budget (30 s by default) now outlasts that 20 s, so
-                    // there a stuck line is left to the budget to change lines, as before, not to MPV.
-                    let timeout = presentedElsewhere && lineObserver != nil
-                        ? .infinity : PlayerRouter.startupTimeout(for: presentedElsewhere ? .mpv : stuck)
+                    // W-203: re-read each tick — the live budget counts only in the foreground.
+                    let timeout = PlayerRouter.startupTimeout(
+                        for: stuck, presentedElsewhere: presentedElsewhere,
+                        liveBudgetCounting: lineObserver != nil && UIApplication.shared.applicationState != .background)
                     // The switch restarts the clock for the engine taking over, through `onEngineChange`.
                     if startupClock.timedOut(now: monotonicSeconds, intends: engine.rate != 0,
                                              stuck: [.preparing, .buffering].contains(engine.state),

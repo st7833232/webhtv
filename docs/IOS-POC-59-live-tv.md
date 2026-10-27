@@ -379,7 +379,7 @@ exhausted ──「重試」──▶ opening(起始線路，新的一輪)
 - **點播的 `PlayerRouter.startupTimeout(for:)`（原生 10、MPV 20）一行都不改**。直播的 budget 是另外一個計時器，蓋在它上面：
   - 線路格式不對（例如 FLV）→ AVPlayer 很快報錯 → router 換到 MPV（同一條線路內，`fallback`）→ MPV 播出來，或報不可恢復的錯誤 → 換線。
   - 線路卡住不動 → 10 秒時 router 把原生換成 MPV → 30 秒時 budget 到期 → 換線（W-203 起 MPV 有 20 秒；原本 15 秒時 MPV 只拿到 5 秒）。
-  - AirPlay／PiP 時，原生的起播逾時是 20 秒（`W/:6266-6271`），budget 15 秒時是 budget 先到期、直接換線，不會換到 MPV。這正好符合現有的意圖：在 AirPlay／PiP 下不要切到 MPV。W-203 把 budget 改成 30 秒後 20 秒會先到，所以 `watchStartup` 在直播（`lineObserver` 有設）且 AirPlay／PiP 時不再換引擎，卡住的線路一律交給 budget 換線（源設的 timeout ≥ 20 秒時，W-203 前會在 20 秒換到 MPV，現在也照這個意圖改成不換）。
+  - AirPlay／PiP 時，原生的起播逾時是 20 秒（`W/:6266-6271`），budget 15 秒時是 budget 先到期、直接換線，不會換到 MPV。這正好符合現有的意圖：在 AirPlay／PiP 下不要切到 MPV。W-203 把 budget 改成 30 秒後 20 秒會先到，所以 `watchStartup` 在直播（`lineObserver` 有設）且 AirPlay／PiP 時，**只要 App 不在背景**（budget 只在前景累計，`LiveTVView.count`）就不換引擎，交給 budget 換線；App 在背景（PiP 通常如此）時 budget 停住，維持原生 20 秒換 MPV，避免卡住的線路永遠轉圈（Reviewer #4295）。判斷集中在 `PlayerRouter.startupTimeout(for:presentedElsewhere:liveBudgetCounting:)`，有單元測試。
 - 最壞情況：每條線路 30 秒（源設了 timeout 的話是 `max(timeout,10)`）。W-203 前是 15 秒；改長是使用者的決定，換來的是起播慢的線路有機會播出來，代價是死線路要多等 15 秒才換。
 
 #### 6.3.4 換線時的引擎（處理 R-4）

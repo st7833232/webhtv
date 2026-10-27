@@ -448,6 +448,17 @@ public final class PlayerRouter {
         kind == .native ? 10 : 20
     }
 
+    /// The watch's timeout for a stuck start. On AirPlay or in PiP (`presentedElsewhere`, native only)
+    /// MPV would take the video off the TV or out of the window, so native keeps MPV's 20 s there —
+    /// and on live, while the line budget is counting, never switches at all (W-203: the 30 s budget
+    /// outlasts 20 s and changes lines instead). The budget stops in the background, PiP's usual
+    /// state, so there the 20 s stays: a stuck line must not spin forever.
+    nonisolated public static func startupTimeout(for kind: PlaybackEngineKind, presentedElsewhere: Bool,
+                                                  liveBudgetCounting: Bool) -> Double {
+        guard presentedElsewhere else { return startupTimeout(for: kind) }
+        return liveBudgetCounting ? .infinity : startupTimeout(for: .mpv)
+    }
+
     /// The session saw the engine not start playing within `startupTimeout(for:)`: try the other
     /// engine, if this attempt has not already switched. Answers whether it did.
     ///

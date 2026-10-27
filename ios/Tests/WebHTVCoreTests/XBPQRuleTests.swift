@@ -157,6 +157,17 @@ private func filters(_ runtime: JavaScriptSpiderRuntime, _ typeId: String) async
     await spider.destroy()
 }
 
+/// W-197: half-width `||` groups like `｜｜` (FongMi's xyqxbpq.jar reads only `||`), alone or mixed.
+@Test func filterGroupsAcceptHalfWidthAndMixedSeparators() async throws {
+    for 类型 in ["动作$6||国产$13||综艺$30", "动作$6｜｜国产$13||综艺$30"] {
+        let spider = try await xbpq(#"{"分类url":"https://sf.invalid/show/id/{cateId}/page/{catePg}.html","分类":"电影$1#剧集$2#综艺$3","类型":"\#(类型)"}"#)
+        #expect(try await filters(spider, "1") == ["类型:全部=|动作=6"])
+        #expect(try await filters(spider, "2") == ["类型:全部=|国产=13"])
+        #expect(try await filters(spider, "3") == ["类型:全部=|综艺=30"])
+        await spider.destroy()
+    }
+}
+
 /// A site that configures none of the six keys offers no filters, exactly as before.
 @Test func aSiteWithoutFilterRulesOffersNone() async throws {
     let spider = try await xbpq(#"{"分类url":"https://sn.invalid/show/{cateId}/{catePg}.html","分类":"电影$1"}"#)

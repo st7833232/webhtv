@@ -528,11 +528,12 @@ var spider = (function () {
 
   // W-185: 篩選規則。六個標準鍵；值語法為 `名$值#名$值…`（有 $，如永乐的 类型）或 `名&名&…`
   // （無 $，`&` 分隔、顯示名即參數值，如多站的 地区）；`｜｜` 依 分类 分組（第 k 組對應第 k 個分類）。
+  // W-197: 半形 `||` 也是分組符號——FongMi 原版 xyqxbpq.jar 只認 `||`，同一份規則才能兩平台通用。
   var FILTER_KEYS = ['类型', '地区', '年份', '排序', '语言', '字母'];
   // 篩選鍵 → 分类url 占位符。类型 的值是子分類 type_id，選取取代 {cateId}（＝tid），不是填 {class}。
   var FILTER_PLACEHOLDER = { '地区': 'area', '年份': 'year', '排序': 'by', '语言': 'lang', '字母': 'letter' };
   function filterGroups(raw) {
-    return String(raw).split('｜｜').map(function (group) {
+    return String(raw).split(/｜｜|\|\|/).map(function (group) {
       var items = group.indexOf('$') !== -1 ? group.split('#') : group.split('&');
       return items.map(function (it) { return it.trim(); }).filter(Boolean).map(function (it) {
         var i = it.indexOf('$');

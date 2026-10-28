@@ -30,6 +30,10 @@ public final class SpiderProxyServer: @unchecked Sendable {
     private var waiting = [CheckedContinuation<URL?, Never>]()
     /// FongMi's "most recent Python spider": the one whose play address was rewritten last.
     private var session: (any SpiderProxying)?
+    /// Sizes read from the `sidx` of files a spider serves with no total, by request without its Range.
+    private var totals = [String: Int64]()
+    /// Manifests already given their segment lists: FFmpeg reads a manifest twice when it opens it.
+    private var listed = [String: String]()
     private var dash = Set<String>()
     public let token = UUID().uuidString.lowercased()
 
@@ -60,6 +64,40 @@ public final class SpiderProxyServer: @unchecked Sendable {
 
     static func rewrite(_ text: String, base: URL) -> String {
         text.replacingOccurrences(of: androidPrefix, with: base.absoluteString + "proxy")
+    }
+
+    /// A DASH manifest cut to one video and one audio Representation (W-210). FFmpeg's dashdec opens and
+    /// probes every Representation before playing, each read from its first byte through the spider one
+    /// call at a time: bili's six qualities and three audio tracks took more than MPV's 20 s to start.
+    /// The one kept has the highest bandwidth among the H.264 ones when there are any (every iPhone decodes
+    /// them in hardware), else among all. Adaptation sets left empty go too; anything else is untouched.
+    static func oneRepresentationPerType(_ mpd: String) -> String {
+        let sets = mpd.matches(of: /(?s)<AdaptationSet\b.*?<\/AdaptationSet>/).map { String($0.output) }
+        func kind(_ set: String) -> String? {
+            let open = set.prefixMatch(of: /<AdaptationSet\b[^>]*>/).map { String($0.output) } ?? ""
+            return ["video", "audio"].first { open.contains("\"\($0)/") || open.contains("contentType=\"\($0)\"") }
+        }
+        func reps(_ set: String) -> [String] {
+            set.matches(of: /(?s)<Representation\b[^>]*?(?:\/>|>.*?<\/Representation>)/).map { String($0.output) }
+        }
+        func rank(_ rep: String) -> (Int, Int) {
+            let codecs = rep.firstMatch(of: /\bcodecs="([^"]*)"/).map { String($0.1) } ?? ""
+            return (codecs.hasPrefix("avc1") ? 1 : 0, rep.firstMatch(of: /\bbandwidth="(\d+)"/).flatMap { Int($0.1) } ?? 0)
+        }
+        var out = mpd
+        for type in ["video", "audio"] {
+            let ofType = sets.filter { kind($0) == type }
+            let all = ofType.flatMap(reps)
+            guard all.count > 1, let keep = all.max(by: { rank($0) < rank($1) }) else { continue }
+            for set in ofType {
+                var trimmed = set
+                for rep in reps(set) where rep != keep {
+                    trimmed = trimmed.replacingOccurrences(of: rep, with: "")
+                }
+                out = out.replacingOccurrences(of: set, with: reps(set).contains(keep) ? trimmed : "")
+            }
+        }
+        return out
     }
 
     // MARK: - Listener (OfflineMediaServer's lifecycle: loopback, any port, reopened when suspended)
@@ -134,6 +172,8 @@ public final class SpiderProxyServer: @unchecked Sendable {
         let method: String
         /// FongMi's map: the query, then every request header by its lower-cased name.
         let params: [String: String]
+        /// The query as sent: which file is asked for, whatever headers come with it.
+        var query = ""
     }
 
     static func parse(_ head: String, token: String) -> Request? {
@@ -149,7 +189,7 @@ public final class SpiderProxyServer: @unchecked Sendable {
             params[line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()] =
                 line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
         }
-        return Request(method: String(parts[0]), params: params)
+        return Request(method: String(parts[0]), params: params, query: components.percentEncodedQuery ?? "")
     }
 
     /// The bytes a request asks for: `bytes=a-b` or `bytes=a-`, or all of it without a Range.
@@ -212,6 +252,9 @@ public final class SpiderProxyServer: @unchecked Sendable {
     func handle(_ request: Request, target: any SpiderProxying, writer: some ProxyWriting) async {
         var params = request.params
         let original = params["range"]
+        let file = request.query.isEmpty
+            ? params.filter { $0.key != "range" }.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "&")
+            : request.query
         if request.method == "HEAD" {
             params["range"] = "bytes=0-0"
             guard let answer = await call(target, params) else { return await writer.status(504) }
@@ -221,29 +264,41 @@ public final class SpiderProxyServer: @unchecked Sendable {
                                                                  ranged: original != nil), body: nil)
                 return
             }
-            await writer.write(head: forwarded(answer).head, body: nil)
+            await writer.write(head: forwarded(answer, target: target).head, body: nil)
             return
         }
         guard let window = Self.window(original),
               window.end.map({ $0 - window.start + 1 > Self.segment }) ?? true else {
-            guard let answer = await call(target, params) else { return await writer.status(504) }
-            let reply = forwarded(answer)
+            guard var answer = await call(target, params) else { return await writer.status(504) }
+            // A bare 206 for part of a file whose size is known gets the Content-Range FFmpeg checks.
+            if answer.status == 206, !answer.headers.keys.contains(where: { $0.lowercased() == "content-range" }),
+               let window = Self.window(original), let total = lock.withLock({ totals[file] }), window.start < total {
+                let end = min(window.start + Int64(answer.body.count), total) - 1
+                answer.headers["Content-Range"] = "bytes \(window.start)-\(end)/\(total)"
+            }
+            let reply = await forwarded(answer, target: target)
             await writer.write(head: reply.head, body: reply.body)
             return
         }
         params["range"] = "bytes=\(window.start)-\(window.start + Self.segment - 1)"
         guard let first = await call(target, params) else { return await writer.status(504) }
         // A 206 with no Content-Range still honoured the range when it is a whole segment long (py/哔哩.py
-        // answers bare `[206, mime, body]`); the total is then unknown and the stream ends with an empty answer.
+        // answers bare `[206, mime, body]`); unless its index says otherwise, the total is then unknown.
         let range = Self.contentRange(first.headers)
         guard first.status == 206, range.map({ $0.start == window.start }) ?? (Int64(first.body.count) == Self.segment) else {
             // The spider ignores Range: what it answered is the whole thing.
-            let reply = forwarded(first)
+            let reply = await forwarded(first, target: target)
             await writer.write(head: reply.head, body: reply.body)
             return
         }
-        let end: Int64? = range.map { min(window.end ?? $0.total - 1, $0.total - 1) } ?? window.end
-        let head = range.map { Self.streamHead(first, window: window, total: $0.total, ranged: original != nil) }
+        // A fragmented MP4 says its size in its index, which comes in its first bytes (W-210): kept per file,
+        // so a later seek is answered with the Content-Range FFmpeg needs to land there.
+        if range == nil, window.start == 0, let size = Self.sidxTotal(first.body) {
+            remember(size, of: file)
+        }
+        let total = range?.total ?? lock.withLock { totals[file] }.flatMap { window.start < $0 ? $0 : nil }
+        let end: Int64? = total.map { min(window.end ?? $0 - 1, $0 - 1) } ?? window.end
+        let head = total.map { Self.streamHead(first, window: window, total: $0, ranged: original != nil) }
             ?? Self.openHead(first, ranged: original != nil)
         var next = window.start
         var part = first
@@ -267,6 +322,39 @@ public final class SpiderProxyServer: @unchecked Sendable {
         await writer.close()
     }
 
+    /// The size of a fragmented MP4 from its `sidx` box: where the box ends, plus its first offset, plus
+    /// every referenced size, reaches the last byte. Nil when the bytes hold no `sidx` among the top boxes.
+    static func sidxTotal(_ data: Data) -> Int64? {
+        sidx(data).map { $0.firstByte + $0.references.reduce(0) { $0 + $1.size } }
+    }
+
+    /// The top-level `sidx` box in `data`: its timescale, where the first referenced byte is (relative
+    /// to `data`), and each reference's size and duration. Nil without one, or for a nested index.
+    static func sidx(_ data: Data) -> (timescale: Int64, firstByte: Int64, references: [(size: Int64, duration: Int64)])? {
+        let bytes = [UInt8](data)
+        func int(_ at: Int, _ count: Int) -> Int64? {
+            guard at >= 0, at + count <= bytes.count else { return nil }
+            return bytes[at..<at + count].reduce(0) { $0 << 8 | Int64($1) }
+        }
+        var at = 0
+        while let size = int(at, 4), size >= 8, let type = int(at + 4, 4) {
+            guard type == 0x7369_6478 else { at += Int(size); continue } // "sidx"
+            // version, flags, reference_ID and timescale, then two times 32 or 64 bits wide by version
+            guard let version = int(at + 8, 1) else { return nil }
+            let wide = version == 0 ? 4 : 8, times = at + 20
+            guard let timescale = int(at + 16, 4), let offset = int(times + wide, wide),
+                  let count = int(times + 2 * wide + 2, 2) else { return nil }
+            var references = [(size: Int64, duration: Int64)]()
+            for index in 0..<Int(count) {
+                let entry = times + 2 * wide + 4 + 12 * index
+                guard let reference = int(entry, 4), reference >> 31 == 0, let duration = int(entry + 4, 4) else { return nil }
+                references.append((reference & 0x7fff_ffff, duration))
+            }
+            return (timescale, Int64(at) + size + offset, references)
+        }
+        return nil
+    }
+
     /// The head of a stream whose total the spider never said: no Content-Length, so the body ends when
     /// the connection closes; Accept-Ranges still lets the player seek with a new request.
     static func openHead(_ answer: SpiderProxyResponse, ranged: Bool) -> Data {
@@ -285,11 +373,75 @@ public final class SpiderProxyServer: @unchecked Sendable {
         return OfflineMediaServer.head(status: ranged ? "206 Partial Content" : "200 OK", headers: headers)
     }
 
+    private func remember(_ size: Int64, of file: String) {
+        lock.withLock {
+            if totals.count > 64 { totals.removeAll() }
+            totals[file] = size
+        }
+    }
+
+    /// Each of this server's files a manifest gives as a `SegmentBase` (one MP4 and its index), given
+    /// instead as a `SegmentList` of the index's references, with their times in the set's
+    /// `SegmentTimeline` (W-210). FFmpeg's dashdec reads a `SegmentBase` file as one fragment it cannot
+    /// seek in, so a resume at 19 minutes read 75 MB from the start; with a list it opens the fragment
+    /// that holds the time asked for. The index costs one small spider call per file, and the file's
+    /// size is kept for the Content-Range of the parts asked later. Files it cannot index stay as they are.
+    func segmentLists(_ mpd: String, base: URL, target: any SpiderProxying) async -> String {
+        if let done = lock.withLock({ listed[mpd] }) { return done }
+        var out = mpd
+        for set in mpd.matches(of: /(?s)<AdaptationSet\b.*?<\/AdaptationSet>/).map({ String($0.output) }) {
+            var converted = set, timeline = ""
+            for representation in set.matches(of: /(?s)<Representation\b[^>]*?>.*?<\/Representation>/).map({ String($0.output) }) {
+                guard let address = representation.firstMatch(of: /<BaseURL>([^<]*)<\/BaseURL>/)
+                        .map({ String($0.1).replacingOccurrences(of: "&amp;", with: "&") }),
+                      address.hasPrefix(base.absoluteString + "proxy?"), let query = URLComponents(string: address),
+                      let segmentBase = representation.firstMatch(of: /(?s)<SegmentBase\b[^>]*?(?:\/>|>.*?<\/SegmentBase>)/),
+                      let index = segmentBase.output.firstMatch(of: /indexRange="(\d+)-(\d+)"/),
+                      let indexStart = Int64(index.1),
+                      let initialization = segmentBase.output.firstMatch(of: /<Initialization\b[^>]*\brange="(\d+-\d+)"/)
+                else { continue }
+                var params = [String: String]()
+                for item in query.queryItems ?? [] { params[item.name] = item.value ?? "" }
+                params["range"] = "bytes=\(index.1)-\(index.2)"
+                guard let answer = await call(target, params), answer.status == 200 || answer.status == 206,
+                      let sidx = Self.sidx(answer.body), !sidx.references.isEmpty else { continue }
+                var offset = indexStart + sidx.firstByte
+                let segments = sidx.references.map { reference in
+                    defer { offset += reference.size }
+                    return "<SegmentURL mediaRange=\"\(offset)-\(offset + reference.size - 1)\"/>"
+                }
+                remember(offset, of: query.percentEncodedQuery ?? "")
+                converted = converted.replacingOccurrences(of: representation, with: representation.replacingOccurrences(
+                    of: String(segmentBase.output),
+                    with: "<SegmentList timescale=\"\(sidx.timescale)\"><Initialization range=\"\(initialization.1)\"/>"
+                        + segments.joined() + "</SegmentList>"))
+                // dashdec reads a SegmentTimeline only from the set's SegmentList: one per set, so per
+                // kept Representation (oneRepresentationPerType leaves one).
+                timeline = "<SegmentList timescale=\"\(sidx.timescale)\"><SegmentTimeline>"
+                    + sidx.references.map { "<S d=\"\($0.duration)\"/>" }.joined() + "</SegmentTimeline></SegmentList>"
+            }
+            guard !timeline.isEmpty, let open = converted.prefixMatch(of: /<AdaptationSet\b[^>]*>/) else { continue }
+            converted.insert(contentsOf: timeline, at: open.range.upperBound)
+            out = out.replacingOccurrences(of: set, with: converted)
+        }
+        if out != mpd {
+            lock.withLock {
+                if listed.count > 8 { listed.removeAll() }
+                listed[mpd] = out
+            }
+        }
+        return out
+    }
+
     /// The spider's own answer, with its length recomputed and Android's prefix rewritten in text.
-    private func forwarded(_ answer: SpiderProxyResponse) -> (head: Data, body: Data) {
+    private func forwarded(_ answer: SpiderProxyResponse, target: any SpiderProxying) async -> (head: Data, body: Data) {
         var body = answer.body
         if Self.isText(answer.mime), let base = lock.withLock({ port.flatMap(base) }) {
-            body = Data(Self.rewrite(String(decoding: body, as: UTF8.self), base: base).utf8)
+            var text = Self.rewrite(String(decoding: body, as: UTF8.self), base: base)
+            if answer.mime.lowercased().contains("dash+xml") {
+                text = await segmentLists(Self.oneRepresentationPerType(text), base: base, target: target)
+            }
+            body = Data(text.utf8)
         }
         var headers = answer.headers.filter {
             !["content-length", "transfer-encoding", "connection", "content-type"].contains($0.key.lowercased())
@@ -305,8 +457,10 @@ public final class SpiderProxyServer: @unchecked Sendable {
     /// relayed, not retried: googlevideo's per-address quota does not reset by waiting (W-202).
     private func call(_ target: any SpiderProxying, _ params: [String: String]) async -> SpiderProxyResponse? {
         let answer = await timed(target, params)
-        // The request's shape only — never the address, which carries the token.
-        Self.log.notice("[proxy] type=\(params["type"] ?? "", privacy: .public) track=\(params["track"] ?? "", privacy: .public) itag=\(params["itag"] ?? "", privacy: .public) range=\(params["range"] ?? "", privacy: .public) → \(answer.map { "\($0.status) \($0.body.count)B" } ?? "none", privacy: .public)")
+        // The request's shape only — never the address, which carries the token. `file` tells the files of
+        // one manifest apart without printing their (signed) addresses.
+        let file = params["url"].map { String(UInt32(truncatingIfNeeded: $0.hashValue), radix: 36) } ?? ""
+        Self.log.notice("[proxy] type=\(params["type"] ?? "", privacy: .public) file=\(file, privacy: .public) track=\(params["track"] ?? "", privacy: .public) itag=\(params["itag"] ?? "", privacy: .public) range=\(params["range"] ?? "", privacy: .public) → \(answer.map { "\($0.status) \($0.body.count)B" } ?? "none", privacy: .public)")
         return answer
     }
 

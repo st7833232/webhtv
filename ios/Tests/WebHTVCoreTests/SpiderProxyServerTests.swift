@@ -245,6 +245,102 @@ struct SpiderProxyServerTests {
         #expect(SpiderProxyServer.isText("application/dash+xml") && !SpiderProxyServer.isText("video/mp4"))
     }
 
+    /// A fragmented MP4 of `total` bytes: `ftyp`, then a `sidx` whose two references reach the last byte.
+    static func indexedFile(total: Int64) -> Data {
+        func be(_ value: Int64, _ count: Int) -> [UInt8] { (0..<count).reversed().map { UInt8(value >> (8 * $0) & 0xff) } }
+        let head = be(16, 4) + Array("ftypisom".utf8) + be(0, 4)
+        let sidx = be(56, 4) + Array("sidx".utf8) + be(0, 4) + be(1, 4) + be(1000, 4) + be(0, 4) + be(0, 4) + be(0, 2)
+            + be(2, 2) + be(Self.seg, 4) + be(4000, 4) + be(0, 4) + be(total - 72 - Self.seg, 4) + be(2000, 4) + be(0, 4)
+        return Data(head + sidx) + Media.bytes(72...(total - 1))
+    }
+
+    /// py/哔哩.py serving such a file: bare 206 answers, no Content-Range.
+    final class Indexed: SpiderProxying, @unchecked Sendable {
+        let file: Data
+        private let lock = NSLock()
+        private var count = 0
+        var calls: Int { lock.withLock { count } }
+        init(_ file: Data) { self.file = file }
+        func proxy(params: [String: String]) async throws -> SpiderProxyResponse? {
+            lock.withLock { count += 1 }
+            let window = SpiderProxyServer.window(params["range"])!
+            let end = min(Int(window.end ?? Int64(file.count - 1)), file.count - 1)
+            return SpiderProxyResponse(status: 206, mime: "video/mp4",
+                                       body: Int(window.start) > end ? Data() : file[Int(window.start)...end])
+        }
+    }
+
+    @Test func aBareMP4TellsItsSizeThroughItsIndexSoASeekLands() async {
+        let total = 3 * Self.seg + 10
+        let file = Self.indexedFile(total: total)
+        #expect(SpiderProxyServer.sidxTotal(file) == total)
+        #expect(SpiderProxyServer.sidxTotal(Media.bytes(0...4095)) == nil)
+        let server = SpiderProxyServer(), spider = Indexed(file)
+        let whole = Sink()
+        await server.handle(.init(method: "GET", params: ["do": "py", "url": "a", "range": "bytes=0-"]),
+                            target: spider, writer: whole)
+        #expect(await whole.header("Content-Length") == String(total))
+        #expect(await whole.body == file)
+        let start = 2 * Self.seg + 5
+        let seek = Sink()
+        await server.handle(.init(method: "GET", params: ["do": "py", "url": "a", "range": "bytes=\(start)-"]),
+                            target: spider, writer: seek)
+        #expect(await seek.header("Content-Range") == "bytes \(start)-\(total - 1)/\(total)")
+        #expect(await seek.body == file[Int(start)...])
+    }
+
+    @Test func aSegmentBaseFileIsListedByItsIndexAndItsPartsSayWhereTheyAre() async {
+        let total = 3 * Self.seg + 10
+        let spider = Indexed(Self.indexedFile(total: total)), server = SpiderProxyServer()
+        let address = "http://127.0.0.1:1/t/proxy?do=py&amp;url=a"
+        func manifest(_ inside: String, set: String = "") -> String {
+            "<MPD><Period><AdaptationSet mimeType=\"video/mp4\">\(set)<Representation id=\"v\"><BaseURL>\(address)</BaseURL>"
+                + inside + "</Representation></AdaptationSet></Period></MPD>"
+        }
+        let listed = await server.segmentLists(manifest("<SegmentBase indexRange=\"16-71\"><Initialization range=\"0-15\"/></SegmentBase>"),
+                                               base: URL(string: "http://127.0.0.1:1/t/")!, target: spider)
+        #expect(listed == manifest(
+            "<SegmentList timescale=\"1000\"><Initialization range=\"0-15\"/><SegmentURL mediaRange=\"72-\(71 + Self.seg)\"/>"
+                + "<SegmentURL mediaRange=\"\(72 + Self.seg)-\(total - 1)\"/></SegmentList>",
+            set: "<SegmentList timescale=\"1000\"><SegmentTimeline><S d=\"4000\"/><S d=\"2000\"/></SegmentTimeline></SegmentList>"))
+        let calls = spider.calls
+        #expect(await server.segmentLists(manifest("<SegmentBase indexRange=\"16-71\"><Initialization range=\"0-15\"/></SegmentBase>"),
+                                          base: URL(string: "http://127.0.0.1:1/t/")!, target: spider) == listed)
+        #expect(spider.calls == calls) // the second read of the manifest asks the spider nothing
+        let part = Sink()
+        await server.handle(.init(method: "GET", params: ["do": "py", "url": "a", "range": "bytes=100-199"], query: "do=py&url=a"),
+                            target: spider, writer: part)
+        #expect(await part.header("Content-Range") == "bytes 100-199/\(total)")
+    }
+
+    static func rep(_ codecs: String, _ bandwidth: Int) -> String {
+        "<Representation bandwidth=\"\(bandwidth)\" codecs=\"\(codecs)\" id=\"\(codecs)-\(bandwidth)\">"
+            + "<BaseURL>u\(bandwidth)</BaseURL><SegmentBase indexRange=\"9-99\"/></Representation>"
+    }
+
+    /// py/哔哩.py's manifest: six video qualities in one set, three audio tracks in another.
+    @Test func aManifestKeepsTheBestH264AndTheBestAudio() {
+        let mpd = "<MPD><Period><AdaptationSet mimeType=\"video/mp4\">"
+            + [Self.rep("avc1.64001F", 517065), Self.rep("hvc1.1.6", 349849), Self.rep("av01.0", 995837),
+               Self.rep("avc1.64001E", 305202)].joined()
+            + "</AdaptationSet><AdaptationSet mimeType=\"audio/mp4\">"
+            + [Self.rep("mp4a.40.2", 67177), Self.rep("mp4a.40.2", 166920)].joined()
+            + "</AdaptationSet></Period></MPD>"
+        #expect(SpiderProxyServer.oneRepresentationPerType(mpd) == "<MPD><Period><AdaptationSet mimeType=\"video/mp4\">"
+            + Self.rep("avc1.64001F", 517065) + "</AdaptationSet><AdaptationSet mimeType=\"audio/mp4\">"
+            + Self.rep("mp4a.40.2", 166920) + "</AdaptationSet></Period></MPD>")
+    }
+
+    /// py/油管-6.py's manifest: one set per video track; the sets left without a Representation go.
+    @Test func aManifestDropsTheVideoSetsItNoLongerNeeds() {
+        let mpd = "<MPD><Period><AdaptationSet mimeType=\"video/webm\">" + Self.rep("vp9", 900) + "</AdaptationSet>"
+            + "<AdaptationSet mimeType=\"video/webm\">" + Self.rep("vp9", 2000) + "</AdaptationSet>"
+            + "<AdaptationSet mimeType=\"audio/mp4\">" + Self.rep("mp4a.40.2", 128000) + "</AdaptationSet></Period></MPD>"
+        #expect(SpiderProxyServer.oneRepresentationPerType(mpd) == "<MPD><Period>"
+            + "<AdaptationSet mimeType=\"video/webm\">" + Self.rep("vp9", 2000) + "</AdaptationSet>"
+            + "<AdaptationSet mimeType=\"audio/mp4\">" + Self.rep("mp4a.40.2", 128000) + "</AdaptationSet></Period></MPD>")
+    }
+
     @Test func windowsAndContentRanges() {
         #expect(SpiderProxyServer.window(nil)! == (0, nil))
         #expect(SpiderProxyServer.window("bytes=5-")! == (5, nil))

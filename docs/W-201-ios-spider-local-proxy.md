@@ -239,9 +239,41 @@ IOS-POC-7A（docs/IOS-POC-7A-python-runtime.md:121,203,398）把「本機 proxy 
 **已知限制**
 - **YouTube｜PY 透過 9978 只能播開頭約 75 秒、不能拖到中段。** googlevideo 對腳本拿到的網址有每個網址的讀取配額（音訊讀到 1 MB 之後一律 403）。Android FongMi 5.8.4＋Python 模組 1.1.0 同一部能播，是因為那邊腳本的 `playerContent` 因 Python Spider 沒有 `setCache` 而丟 `AttributeError`，改回 `parse: 1` 的 `youtube.com/embed` 網址，再由 FongMi 自己把 YouTube 網址轉成 DASH（直連 googlevideo），根本沒經過 9978。使用者已決定 iOS 也比照 FongMi 自己處理 YouTube 網址，另開 W-209 設計；不補 PO Token、不繞過 YouTube 防護。
 - bili看電影 有一次從觀看紀錄續播時，CDN 對轉向後的 Range 請求回了 282 B，MPV 失敗後 App 自動改用原生播放器並播完；之後重試 6 次無法重現，判為 CDN 一次性回應。
-- **bili看電影 完整一集的 DASH（第1話；MPD 用 `SegmentBase`、腳本回 206 不帶總長）在 MPV 起播不了**：MPV 20 秒內沒開始播 → 改用原生播放器也失敗（Operation Stopped）。退回前的 356035f0 build 播同一集結果完全一樣，不是退回修正造成的（`sim-bili-ep1-356035f0.log`、`sim-bili-ep1-f1.log`）。原因：FFmpeg 不讀 `SegmentBase`、整檔讀，總長未知時多次從 0 重開連線，每段約 0.7–1 秒，20 秒內讀不完；逾時後還在跑的 Python 呼叫會塞住同站的序列佇列，接著下一集的 MPD 也逾時。Manager #4490 決定另開單處理（先確認原因，方向：讓轉址服務拿到總長，或 MPV 對這類 DASH 換讀法）。
+- **bili看電影 完整一集的 DASH（第1話；MPD 用 `SegmentBase`、腳本回 206 不帶總長）在 MPV 起播不了**：MPV 20 秒內沒開始播 → 改用原生播放器也失敗（Operation Stopped）。退回前的 356035f0 build 播同一集結果完全一樣，不是退回修正造成的（`sim-bili-ep1-356035f0.log`、`sim-bili-ep1-f1.log`）。原因：FFmpeg 不讀 `SegmentBase`、整檔讀，總長未知時多次從 0 重開連線，每段約 0.7–1 秒，20 秒內讀不完；逾時後還在跑的 Python 呼叫會塞住同站的序列佇列，接著下一集的 MPD 也逾時。Manager #4490 決定另開單處理，**已由 W-210 修好**（見文末「bili 完整集數 DASH（W-210）」）。
 
 **退回修正（Reviewer #4421，attempt 3）**
 - F1：後續分段只接受起點相符的 206（見上「做了什麼」）；沒有 Content-Range 時短回應即為最後一段，不再往檔尾後面要（避免把錯誤頁接進影片）。新增單元測試：後續段回 200、起點不符、總長剛好整數段。
 - F2：`getProxyUrl` 由 '' 改回 9978 的影響。現行設定 46 支 Python 爬蟲只有 MiFun、農民、真狼 呼叫它，9978 只會出現在播放網址與轉址服務回的文字內容（兩處都會改寫），不會進圖片、字幕或詳情。用 Mac 直接跑改前／改後的 Python runtime：農民 的 9978 路徑需要 `@` 格式的集數 id，但它的 detailContent 只產生完整網址 → 走不到；真狼 試 10 部各線路都是 `parse: 1`（站內播放頁回「播放页未返回媒体地址」或外站解析），代理那條也走不到；兩站改前改後輸出逐行相同（`f2-nongmin-py.log`、`f2-zhenlang-py.log`）。MiFun 先前已驗兩版相同。
 - F3：`PlaybackEngine` 對 DASH 的 `selection.choose(.mpv)` 刻意在整個觀看 session 有效，已加註解。
+
+## bili 完整集數 DASH（W-210）
+
+**白話摘要**：bili看電影 的完整集數（例如 JOJO 黃金之風 第1話）以前在 iOS 按播放 20 秒都起不來，拖動或從觀看紀錄續播也會整集中斷。現在 2.6 秒起播，拖到片中任何位置約 2–4 秒接著播，下一集 1.4 秒起播。只改 App 內的本機轉址服務，沒有動 FFmpeg、Android 或站方的任何防護。
+
+**根因（Simulator log 與 FFmpeg n8.1.2 原始碼取證）**
+1. FFmpeg 的 DASH 讀取器（`libavformat/dashdec.c` `dash_read_header`）開檔時把 MPD 裡每個 Representation 都開來探測。bili 第1話有 6 種畫質＋3 條音軌，每個都從檔頭讀約 1.5 MB；爬蟲一次只處理一個請求、每 512 KB 約 0.8 秒，加起來超過 MPV 的 20 秒起播期限（`artifacts/w210-bili-dash/sim-ep1-before.log`：9 個不同檔依序從 0 讀）。
+2. 腳本回 206 卻不帶 Content-Range（總長未知），FFmpeg 跳到別處時收不到起點就判錯（`http: Unexpected offset … got 0`），該集直接結束。
+3. `SegmentBase` 的檔案被 dashdec 當成「單一片段」，而且它把內部讀取通道設成不可跳轉（`dashdec.c:1931` `seekable = 0`），往後跳只能從目前位置一路讀過去：從觀看紀錄續播到 19 分要先讀約 75 MB（`sim-ep1-resume.log`）。
+4. 逾時後還在跑的 Python 呼叫塞住同站佇列：是 1. 的後果（9 條連線各排著呼叫）；起播不再逾時後就不再出現。Python 呼叫本身仍無法中途取消（設計如此，`SpiderProxyServer.call` 註解）。
+
+**修法（`SpiderProxyServer`）**
+- 回給 MPV 的 MPD 每種只留一個 Representation：H.264 中頻寬最高的（每支 iPhone 都能硬體解碼），沒有 H.264 就取頻寬最高的；音訊取頻寬最高的（`oneRepresentationPerType`）。
+- 對本服務提供的 `SegmentBase` 檔，先向腳本要 `indexRange`（每檔一次約 4 KB 的呼叫），讀出 MP4 的 `sidx` 索引，把它改寫成 `SegmentList`（每段一個 `mediaRange`）＋ AdaptationSet 層的 `SegmentTimeline`（dashdec 只從這一層讀時間軸）。dashdec 因此能直接開啟目標時間所在的那一段（`segmentLists`）。改寫結果快取（FFmpeg 會讀同一份 MPD 兩次）。
+- 由 `sidx` 算出檔案總長並記住（Mac 上對 9 個 CDN 檔逐一比對，和 CDN 回報的總長完全一致）；之後這個檔的片段回應都帶正確的 `Content-Range`／`Content-Length`（`sidx`、`sidxTotal`、`totals`）。
+- log 多一欄 `file=`（`url` 參數的雜湊），能分辨同一份 MPD 的不同檔，不印出網址本身。
+
+**驗收（Simulator iPhone 17 Pro／iOS 27，`artifacts/w210-bili-dash/sim-final.log`）**
+| 項目 | 改前 | 改後 |
+|---|---|---|
+| 第1話起播 | MPV 20 s 逾時 → 退原生也失敗 | 2.65 s |
+| 拖動 119→1067 s | 會整集結束 | 2.33 s 落點，之後有畫面（`after-seek-1067s.png`） |
+| 拖動 1108→405 s（往回） | 會整集結束 | 2.58 s 落點 |
+| 拖動 244→1437 s | — | 4.4 s 落點，直接跳讀檔尾片段（`sim-segmentlist.log`） |
+| 下一集（第2話） | MPD 也逾時 | 1.40 s 起播 |
+| 單元測試 | — | 全量 `cd ios && swift test` 1406 個通過（`SpiderProxyServerTests` 新增 5 個：精簡 MPD 兩例、sidx 總長與拖動、SegmentList 改寫＋快取＋片段 Content-Range） |
+
+**限制**
+- 畫質固定為上述規則選出的那一條，MPV 裡不能再切換 bili 的其他畫質（原本也沒有切換介面）。
+- 只認頂層、非巢狀的 `sidx`；拿不到索引的檔維持原樣（舊行為）。
+- 實機未驗，要等新版 IPA。
+- Ponytail：已跑，沒有必須修的發現。未查：只在 Representation 上標 mimeType、AdaptationSet 沒標的 MPD 不會被精簡，且整組會套用最後一個 Representation 的時間軸（bili 與 YouTube 都標在 AdaptationSet 上）。

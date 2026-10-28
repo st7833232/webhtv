@@ -9,6 +9,7 @@
 # them into the strings the rest of the app already consumes is this file's other job.
 #
 # IOS-POC-7G.
+import base64
 import json
 import os
 import re
@@ -132,6 +133,36 @@ def invoke(handle, name, args_json):
         if isinstance(result, bytes):
             return _ok(result.decode('utf-8', errors='replace'))
         return _ok(json.dumps(result, ensure_ascii=False))
+    except Exception:
+        return _fail(traceback.format_exc(limit=6))
+
+
+def proxy(handle, params_json):
+    """W-202: `localProxy(params)`, its CatVod answer `[code, mime, body, headers?, base64?]` made text.
+
+    Read the way Android's chaquo Spider.proxy reads it: bytes as they are; a str body is UTF-8, or
+    base64 (after any `base64,` prefix) when the fifth entry is 1. The body travels base64-encoded.
+    """
+    spider = _spiders.get(handle)
+    if spider is None:
+        return _fail(f'no spider loaded for handle {handle}')
+    try:
+        answer = list(spider.localProxy(json.loads(params_json)) or [])
+        if len(answer) < 3:
+            return _fail('localProxy answered fewer than three values')
+        body = answer[2]
+        if body is None:
+            body = b''
+        elif not isinstance(body, (bytes, bytearray)):
+            body = str(body)
+            if len(answer) > 4 and answer[4] == 1:
+                body = base64.b64decode(body.split('base64,')[-1])
+            else:
+                body = body.encode('utf-8')
+        headers = answer[3] if len(answer) > 3 and isinstance(answer[3], dict) else {}
+        return _ok(json.dumps({'code': int(answer[0]), 'mime': str(answer[1] or ''),
+                               'headers': {str(k): str(v) for k, v in headers.items()},
+                               'body': base64.b64encode(bytes(body)).decode('ascii')}, ensure_ascii=False))
     except Exception:
         return _fail(traceback.format_exc(limit=6))
 

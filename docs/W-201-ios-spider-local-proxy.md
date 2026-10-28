@@ -1,6 +1,6 @@
-# W-201 iOS 爬蟲本機轉址服務（設計，待核准）
+# W-201 iOS 爬蟲本機轉址服務（設計已核准，W-202 實作）
 
-狀態：設計稿，**未實作**。Reviewer 審過後由 Manager 轉使用者核准，核准前不改 App。
+狀態：設計經使用者核准（方案 C），W-202 已實作；實測結果與限制見文末「實作結果（W-202）」。
 
 ## 白話摘要（給使用者）
 
@@ -209,3 +209,33 @@ IOS-POC-7A（docs/IOS-POC-7A-python-runtime.md:121,203,398）把「本機 proxy 
 
 1. 是否核准方案 C 進入實作（建議核准）。
 2. 若實測拖動不可用，是否接受「能播但拖動受限」先上線。
+
+## 實作結果（W-202）
+
+只在 Simulator（iPhone 17 Pro／iOS 27，Debug build）驗；**實機未驗**，要等新版 IPA 由使用者實測。證據在團隊資料夾 `artifacts/w202-proxy/`（不進 git），`FINDINGS.md` 有完整過程。
+
+**做了什麼**（和上面設計的差異用粗體標出）
+- `SpiderProxyServer`：只聽 127.0.0.1、OS 指派埠、每次啟動一個隨機通行碼；改寫 9978 網址與文字內容；拆段讀取。
+- 段長 **512 KB**（設計暫定 2 MB）：googlevideo 對 2 MB 的第一個音訊請求直接回 403。
+- **爬蟲回 206 但不帶 Content-Range、長度剛好一段時**（py/哔哩.py 的 `get_media`），視為有照 Range 回、總長未知：逐段讀到空回應為止，回給播放器的回應不帶長度、以關連線結束。
+- 播放網址含 **`type=mpd`** 也算 DASH（bili 沒給 `format`）。
+- MPV 開本服務網址時用 `cache-secs=10,demuxer-readahead-secs=10` 限制預讀。
+- 403 照原樣轉給播放器、**不重試**：YouTube 的配額是每個網址固定的，等待或重試都不會放行。
+- Python：`proxy` 接上 `localProxy`；`getProxyUrl` 回 9978；`getCache`／`setCache`／`delCache` 對齊 FongMi 原始碼。
+- Runtime ABI：`catvod.result` 1.4（`proxy` 成為有呼叫端的方法、多讀 `format`）、`python.host` 1.6。
+
+**驗收結果**
+| 項目 | 結果 |
+|---|---|
+| 1. YouTube｜PY 回放有畫面＋聲音、MPV 直接播 | MPV 直接開、有畫面聲音，**約 75 秒後中斷**（見下方限制） |
+| 2. 5 分鐘記憶體 | bili看電影 播放中每 30 秒取樣：起播後 98–115 MB 並維持，不隨播放時間成長 |
+| 3. 拖到中段 | bili看電影 可以；YouTube 不行（同上） |
+| 4. 安全 | `lsof` 只聽 127.0.0.1；沒帶或帶錯通行碼回 404 |
+| 5. 回歸 | YouTube 直播（HLS 分支，不經 9978）：改動前後的 build 行為相同（原生約 2 秒起播，之後 YouTube 回 403，是既有問題、另案）；MiFun：改動前後腳本回傳相同（站方佔位影片）；山楂：站點主機從 Mac 也連不上，無法驗 |
+| 6. bili看電影 | 起播 4966／2317／2037 ms，中位數 2.32 s；拖動 1.05／1.13／0.09 s，中位數 1.05 s，落點都正確（512 KB）。B 站未登入只給 6 分鐘試看 |
+| 7. 單元測試 | 全量 `cd ios && swift test` 1400 個通過（含 `SpiderProxyServerTests` 15 個、Runtime ABI 升版）；`ios/Tests/Python` 14 個通過 |
+| Ponytail 審查 | 已跑：唯一發現是一個沒人呼叫的 `write(body:more:)`，已刪；未查：bili `get_media` 總長未知時，CDN 超出檔尾若回非空的錯誤內容會被接到串流後面 |
+
+**已知限制**
+- **YouTube｜PY 透過 9978 只能播開頭約 75 秒、不能拖到中段。** googlevideo 對腳本拿到的網址有每個網址的讀取配額（音訊讀到 1 MB 之後一律 403）。Android FongMi 5.8.4＋Python 模組 1.1.0 同一部能播，是因為那邊腳本的 `playerContent` 因 Python Spider 沒有 `setCache` 而丟 `AttributeError`，改回 `parse: 1` 的 `youtube.com/embed` 網址，再由 FongMi 自己把 YouTube 網址轉成 DASH（直連 googlevideo），根本沒經過 9978。使用者已決定 iOS 也比照 FongMi 自己處理 YouTube 網址，另開 W-209 設計；不補 PO Token、不繞過 YouTube 防護。
+- bili看電影 有一次從觀看紀錄續播時，CDN 對轉向後的 Range 請求回了 282 B，MPV 失敗後 App 自動改用原生播放器並播完；之後重試 6 次無法重現，判為 CDN 一次性回應。

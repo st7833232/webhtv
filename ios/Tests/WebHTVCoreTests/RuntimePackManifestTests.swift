@@ -150,8 +150,8 @@ private func globalDocument(_ edit: (inout [String: Any]) -> Void = { _ in }) ->
 
 @Test func aMissingNativeCapabilityRefusesThePackBeforeAnyFileIsFetched() {
     // `js.host.rsaDecrypt` played the missing capability here until IOS-POC-44G gave the host one.
-    let missing = rejection { try validateConfig(document(requires { $0["capabilities"] = ["js.host.webview", "js.host.aesDecryptIV", "catvod.result.proxy"] })) }
-    #expect(missing == .missingCapabilities(["catvod.result.proxy", "js.host.webview"]))
+    let missing = rejection { try validateConfig(document(requires { $0["capabilities"] = ["js.host.webview", "js.host.aesDecryptIV", "catvod.result.action"] })) }
+    #expect(missing == .missingCapabilities(["catvod.result.action", "js.host.webview"]))
     #expect(missing?.requiresNewerApp == true)
     #expect(rejection { try validateConfig(document(requires { $0["capabilities"] = ["js.host.aesDecryptIV", "catvod.result.playerContent"] })) } == nil)
 }

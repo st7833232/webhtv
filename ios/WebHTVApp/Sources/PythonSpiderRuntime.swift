@@ -95,6 +95,16 @@ final class PythonSpiderRuntime: SpiderRuntime, @unchecked Sendable {
         try await call("action", [action])
     }
 
+    /// W-202: `localProxy`, through `webhtv_runtime.proxy`, which sends the body base64-encoded.
+    func proxy(params: [String: String]) async throws -> SpiderProxyResponse? {
+        let encoded = String(decoding: try JSONSerialization.data(withJSONObject: params), as: UTF8.self)
+        let text = try await call(bridging: "proxy", encoded, method: "localProxy")
+        struct Answer: Decodable { let code: Int; let mime: String; let headers: [String: String]; let body: String }
+        let answer = try JSONDecoder().decode(Answer.self, from: Data(text.utf8))
+        return SpiderProxyResponse(status: answer.code, mime: answer.mime, headers: answer.headers,
+                                   body: Data(base64Encoded: answer.body) ?? Data())
+    }
+
     /// Queued behind any call still running, so the instance is never unloaded under a method in
     /// progress. Not awaited: callers go on at once, as they did when this ran in place.
     func destroy() async {
@@ -106,13 +116,17 @@ final class PythonSpiderRuntime: SpiderRuntime, @unchecked Sendable {
     // MARK: - The bridge
 
     private func call(_ name: String, _ arguments: [Any]) async throws -> String {
-        let encoded = try Self.jsonArray(arguments)
-        return try await withCheckedThrowingContinuation { continuation in
+        try await call(bridging: "invoke", name, try Self.jsonArray(arguments), method: name)
+    }
+
+    /// One bridge function on this site's queue: `invoke(handle, name, args)` or `proxy(handle, params)`.
+    private func call(bridging function: String, _ arguments: String..., method: String) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
             queue.async { [handle, siteKey] in
                 do {
-                    continuation.resume(returning: try PythonSpiderRuntime.bridge("invoke", [handle, name, encoded]))
+                    continuation.resume(returning: try PythonSpiderRuntime.bridge(function, [handle] + arguments))
                 } catch let failure as PythonFailure {
-                    continuation.resume(throwing: PythonSpiderRuntime.surfaced(failure, siteKey: siteKey, method: name))
+                    continuation.resume(throwing: PythonSpiderRuntime.surfaced(failure, siteKey: siteKey, method: method))
                 } catch {
                     continuation.resume(throwing: error)
                 }

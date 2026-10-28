@@ -594,7 +594,14 @@ final class MPVPlayerCore: @unchecked Sendable {
             mpv_set_property_string(mpv, "start", startSeconds > 0 ? String(startSeconds) : "none")
             mpv_set_property_string(mpv, "speed", String(rate))
             mpv_set_property_string(mpv, "pause", autoplay ? "no" : "yes")
-            command(mpv, ["loadfile", url, "replace"])
+            // W-202: a spider proxy stream is read about as fast as it plays, as ExoPlayer does on
+            // Android — googlevideo answers 403 to a reader far ahead of the playback position.
+            // Per-file options, so the next file gets the defaults back.
+            if let address = URL(string: url), SpiderProxyServer.serves(address) {
+                command(mpv, ["loadfile", url, "replace", "-1", "cache-secs=10,demuxer-readahead-secs=10"])
+            } else {
+                command(mpv, ["loadfile", url, "replace"])
+            }
         }
     }
 

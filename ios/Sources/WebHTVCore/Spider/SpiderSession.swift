@@ -51,6 +51,12 @@ public actor SpiderSession {
         return try await runtime.playerContent(flag: flag, id: id, vipFlags: vipFlags)
     }
 
+    /// W-202: `localProxy`, for the loopback server a 9978 play address is rewritten to.
+    public func proxy(params: [String: String]) async throws -> SpiderProxyResponse? {
+        try await start()
+        return try await runtime.proxy(params: params)
+    }
+
     public func destroy() async {
         await runtime.destroy()
         started = false

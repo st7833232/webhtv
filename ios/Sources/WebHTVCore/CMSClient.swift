@@ -533,7 +533,7 @@ public struct CMSClient: Sendable {
 
     // ponytail: path-extension heuristic; probe the content type only if a real site needs it.
     static func isDirectMedia(_ url: URL) -> Bool {
-        ["m3u8", "mp4", "flv", "mkv", "ts", "mov"].contains(url.pathExtension.lowercased())
+        ["m3u8", "mp4", "flv", "mkv", "ts", "mov", "mpd"].contains(url.pathExtension.lowercased())
     }
 
     public func search(_ keyword: String, page: Int = 1) async throws -> CMSResponse {

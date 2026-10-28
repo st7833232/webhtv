@@ -17,7 +17,7 @@ public protocol SpiderRuntime: AnyObject, Sendable {
     func liveContent(url: String) async throws -> String
     func isVideoFormat(url: String) async throws -> Bool
     func manualVideoCheck() async throws -> Bool
-    func proxy(params: [String: String]) async throws -> [String]
+    func proxy(params: [String: String]) async throws -> SpiderProxyResponse?
     func action(_ action: String) async throws -> String
     func destroy() async
 }
@@ -28,9 +28,24 @@ public extension SpiderRuntime {
     func liveContent(url: String) async throws -> String { "" }
     func isVideoFormat(url: String) async throws -> Bool { false }
     func manualVideoCheck() async throws -> Bool { false }
-    func proxy(params: [String: String]) async throws -> [String] { [] }
+    func proxy(params: [String: String]) async throws -> SpiderProxyResponse? { nil }
     func action(_ action: String) async throws -> String { "" }
     func destroy() async {}
+}
+
+/// W-202: CatVod `localProxy`'s `[status, mime, body, headers]`, the body already bytes.
+public struct SpiderProxyResponse: Sendable, Equatable {
+    public var status: Int
+    public var mime: String
+    public var headers: [String: String]
+    public var body: Data
+
+    public init(status: Int, mime: String, headers: [String: String] = [:], body: Data) {
+        self.status = status
+        self.mime = mime
+        self.headers = headers
+        self.body = body
+    }
 }
 
 public enum SpiderError: Error, Equatable, LocalizedError {

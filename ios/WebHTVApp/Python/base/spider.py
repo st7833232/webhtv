@@ -9,6 +9,7 @@
 #
 # IOS-POC-7G.
 import json
+import time
 import re
 import urllib.error
 import urllib.parse
@@ -202,16 +203,42 @@ class Spider(metaclass=ABCMeta):
         except (OSError, ValueError):
             return {}
 
+    # W-202: the same reading as the Android original (chaquo base/spider.py getCache): a value shaped
+    # like JSON comes back as the object it was, an expired `expiresAt` dict is deleted, and a
+    # missing key is None. YouTube｜PY stores a dict here and calls `.get` on what it reads back.
     def getCache(self, key):
         if not getattr(self, '_webhtv_cache_dir', ''):
-            return ''
-        return self._cache_all().get(key, '')
+            return None
+        value = self._cache_all().get(key)
+        if not value:
+            return None
+        if value.startswith('{') and value.endswith('}') or value.startswith('[') and value.endswith(']'):
+            try:
+                value = json.loads(value)
+            except ValueError:
+                return value
+            if isinstance(value, dict) and 'expiresAt' in value and value['expiresAt'] < int(time.time()):
+                self.delCache(key)
+                return None
+        return value
+
+    def delCache(self, key):
+        if not getattr(self, '_webhtv_cache_dir', ''):
+            return
+        store = self._cache_all()
+        if store.pop(key, None) is not None:
+            self._cache_write(store)
 
     def setCache(self, key, value):
         if not getattr(self, '_webhtv_cache_dir', ''):
             return
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            value = str(value)
         store = self._cache_all()
         store[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        self._cache_write(store)
+
+    def _cache_write(self, store):
         try:
             with open(self._cache_file(), 'w', encoding='utf-8') as handle:
                 json.dump(store, handle, ensure_ascii=False)
@@ -219,11 +246,10 @@ class Spider(metaclass=ABCMeta):
             pass  # a cache that cannot be written is not a reason to fail a page
 
     def getProxyUrl(self, local=True):
-        # Android answers with its local proxy server's address. iOS runs no such server — the
-        # project ruled one out — so this is empty and the three scripts that read it degrade
-        # rather than receive a URL that goes nowhere. Same handling as the WebHome bridge's
-        # existing deviations.
-        return ''
+        # W-202: Android's own address. The app serves `localProxy` on a loopback port with a
+        # per-launch token and rewrites this prefix wherever it reaches the player (the play url and
+        # the proxy's text answers, such as a DASH manifest), so a script sees what it sees on Android.
+        return 'http://127.0.0.1:9978/proxy?do=py'
 
     # --- pure helpers, copied from the Android original ---------------------------------------
 

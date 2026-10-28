@@ -127,11 +127,30 @@ public enum SourceClient: Sendable {
         case .spider(let session, let site):
             let play = try await decode(SpiderPlayResponse.self,
                                         from: session.player(flag: flag, id: episode.url, vipFlags: site.parsing.flags))
-            return try await Self.target(from: play.url, headers: play.header ?? [:], parse: play.parse,
+            return try await Self.target(from: await Self.servingAndroidProxy(play, session: session),
+                                         headers: play.header ?? [:], parse: play.parse,
                                          subtitles: play.subs,
                                          global: (play.parse, play.jx, play.playUrl, play.flag.isEmpty ? flag : play.flag),
                                          settings: site.parsing)
         }
+    }
+
+    /// W-202: a play address on Android's local proxy (`127.0.0.1:9978/proxy`) moved to the app's own.
+    private static func servingAndroidProxy(_ play: SpiderPlayResponse, session: SpiderSession) async -> PlayURL {
+        #if canImport(Network)
+        let dash = play.format.lowercased().contains("dash")
+        var values = play.url.values
+        for index in values.indices {
+            if let served = await SpiderProxyServer.shared.serve(values[index].v, for: session,
+                                                                 dash: dash || values[index].v.contains(".mpd")
+                                                                     || values[index].v.contains("type=mpd")) {
+                values[index] = PlayURL.Value(n: values[index].n, v: served)
+            }
+        }
+        return PlayURL(values: values, position: play.url.position)
+        #else
+        return play.url
+        #endif
     }
 
     /// The one place a CatVod `url` becomes something the player can open, so the CMS and spider
@@ -159,7 +178,7 @@ public enum SourceClient: Sendable {
         guard !qualities.isEmpty else { return nil }
         let index = PlaybackQuality.defaultIndex(in: qualities, position: play.position)
         let chosen = qualities[index].url
-        let plan = CMSClient.isDirectMedia(chosen) ? .none
+        let plan = CMSClient.isDirectMedia(chosen) || Self.isSpiderProxy(chosen) ? .none
             : GlobalParse.plan(parse: global.parse, jx: global.jx, playUrl: global.playUrl, flag: global.flag,
                                header: headers, settings: settings)
         switch plan {
@@ -180,6 +199,8 @@ public enum SourceClient: Sendable {
             // parse:1 is the spider saying outright "this is a page, sniff it" — no need to probe.
             sniffed = await MediaSniffer.shared.sniffWithSubtitles(
                 page: chosen, referer: headers["Referer"] ?? headers["referer"])
+        } else if Self.isSpiderProxy(chosen) {
+            sniffed = MediaSniffResult(mediaURL: chosen)
         } else {
             sniffed = await Self.resolveMedia(chosen, headers: headers)
         }
@@ -188,6 +209,14 @@ public enum SourceClient: Sendable {
         return PlaybackTarget(url: sniffed.mediaURL, headers: headers,
                               qualities: qualities, position: play.position, defaultIndex: index,
                               subtitles: allSubtitles)
+    }
+
+    private static func isSpiderProxy(_ url: URL) -> Bool {
+        #if canImport(Network)
+        SpiderProxyServer.serves(url)
+        #else
+        false
+        #endif
     }
 
     /// A resolved URL may still be a player page rather than a stream: three type-1 sources hand
@@ -266,8 +295,10 @@ struct SpiderPlayResponse: Decodable, Sendable {
     let header: [String: String]?
     /// IOS-POC-45H: the source's own subtitles, entry by entry (`SourceSubtitle.list`).
     let subs: [SourceSubtitle]
+    /// W-202: the stream's type when the address does not say, e.g. `application/dash+xml`.
+    let format: String
 
-    enum CodingKeys: String, CodingKey { case parse, url, header, subs, jx, playUrl, flag }
+    enum CodingKeys: String, CodingKey { case parse, url, header, subs, jx, playUrl, flag, format }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -279,6 +310,7 @@ struct SpiderPlayResponse: Decodable, Sendable {
         // header must not cost the whole play result, so anything undecodable is simply no headers.
         header = try? values.decodeIfPresent([String: String].self, forKey: .header)
         subs = SourceSubtitle.list(in: values, forKey: .subs)
+        format = (try? values.decode(String.self, forKey: .format)) ?? ""
         parse = Self.flexibleInt(values, .parse)
     }
 

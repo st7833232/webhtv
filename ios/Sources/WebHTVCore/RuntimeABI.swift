@@ -56,7 +56,9 @@ public enum RuntimeABI {
             // `parse` — additions only; a result without them means what it did in 1.1.
             // 1.3 (IOS-POC-60, W-40): a list item's `vod_tag` "folder" opens it as a category — additions
             // only; an item without it means what it did in 1.2.
-            case .catvodResult: Version(1, 3)
+            // 1.4 (W-202): `proxy` is called (the loopback 9978 proxy) and a play result's `format`
+            // is read — additions only; a spider that never returns a 9978 URL is unaffected.
+            case .catvodResult: Version(1, 4)
             // Minor 1 is `SpiderPackStore.hostApiVersion` 1, so a schema-1 compatibility pack's
             // `minHostApi` n means `js.host` {1, n} with no translation table.
             // 1.2 (IOS-POC-54): `host.isVideoFormat` and `host.firstURL`, which the ported spiders
@@ -80,7 +82,9 @@ public enum RuntimeABI {
             // 1.5 (IOS-POC-37.3.1): construction is `Spider()` again — a metaclass's own `__call__`
             // runs, an `__init__` returning a value fails the load — and one instance for two sites
             // is refused.
-            case .pythonHost: Version(1, 5)
+            // 1.6 (W-202): `getProxyUrl` answers FongMi's 9978 URL, `proxy` is bridged, and `getCache`
+            // decodes JSON values and honours `expiresAt` as FongMi does; `delCache` is added.
+            case .pythonHost: Version(1, 6)
             case .webhomeBridge: Version(1, 0)
             }
         }
@@ -103,12 +107,12 @@ public enum RuntimeABI {
         + pythonPackages.map { "python.host.\($0)" }
     )
 
-    /// The eight of `SpiderRuntime`'s thirteen methods with a production caller. `liveContent`,
-    /// `isVideoFormat`, `manualVideoCheck`, `proxy` and `action` exist in the protocol but nothing
-    /// calls them, so a spider that relies on them is not supported.
+    /// The nine of `SpiderRuntime`'s thirteen methods with a production caller. `liveContent`,
+    /// `isVideoFormat`, `manualVideoCheck` and `action` exist in the protocol but nothing calls
+    /// them, so a spider that relies on them is not supported.
     static let catvodMethods = [
         "initialize", "homeContent", "homeVideoContent", "categoryContent",
-        "detailContent", "searchContent", "playerContent", "destroy",
+        "detailContent", "searchContent", "playerContent", "proxy", "destroy",
     ]
 
     static let jsHostExports = [

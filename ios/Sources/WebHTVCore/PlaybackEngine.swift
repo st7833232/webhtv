@@ -411,10 +411,19 @@ public final class PlayerRouter {
             selection.startSession()
             sessionActive = true
         }
+        // W-202: AVFoundation does not play DASH, so a manifest starts on MPV whatever the default.
+        if Self.needsMPV(request.target.url) { selection.choose(.mpv) }
         failure = nil
         self.request = request
         switchReason = "open"
         run(request)
+    }
+
+    nonisolated static func needsMPV(_ url: URL) -> Bool {
+        #if canImport(Network)
+        if SpiderProxyServer.prefersMPV(url) { return true }
+        #endif
+        return url.pathExtension.lowercased() == "mpd"
     }
 
     /// The control bar's choice, or the session's when the engine cannot play the speed asked

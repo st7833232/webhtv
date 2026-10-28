@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.86",
+          "date": "2026-10-28",
+          "localizedDescription": "播放：\n- 部分網頁站的完整集數在 iPhone 上可以播放了，拖動進度和從觀看紀錄續播會直接跳到那個位置。\n- 需要本機轉址的 PY 站在 iOS 也能播放。\n- 影片網站的網址可以直接用 App 播放器以高畫質播放，設定裡可以關閉；遇到需要驗證或年齡確認的影片會停下並提供改用官方 App 開啟；這類影片不提供下載。\n\n片單：\n- 片單捲到底時某一頁載入失敗或回空，不會再從此停止翻頁；再往下捲會重新載入那一頁（連續 3 次才停）。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.86-b87/WebHTV-0.1.86-87.ipa",
+          "size": 35736089,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.85",
           "date": "2026-10-27",
           "localizedDescription": "播放：\n- 播放器控制列上方會顯示片名與集數，換集時自動更新。\n\n直播：\n- 卡住的線路改為等待 30 秒才自動換下一條線路。\n- 投放到電視或子母畫面時，直播卡住也會在合理時間內換線或改用另一個播放器，不會一直停在載入中。",

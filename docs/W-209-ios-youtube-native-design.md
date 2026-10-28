@@ -283,6 +283,10 @@
 - **10.7 範圍修正**（已寫入 10.7）：YouTube｜PY 在 iOS 正常回 9978 代理網址，所以多判斷 `do=py&type=mpd&vid=` 代理網址；不加的話這站驗收不會過。
 - YouTube｜PY 每次播放，腳本自己的 `playerContent` 會先向 YouTube 取一次資料，本模組再取一次（visitor_id 每個 App 生命週期一次＋player 一次）。
 
+### 11.2a Manager 判斷（#4754）
+- 已知限制：播放中網址過期（約 6 小時）或被拒時不自動重取，使用者重新點播即重取。
+- 9978 代理只比對一種樣式：網址須由 App 的爬蟲本機代理服務（`SpiderProxyServer.serves`），且 query 同時是 `do=py`、`type=mpd`、`vid`＝11 碼 `[A-Za-z0-9_-]`；缺任一條件（例如 bili看電影 的其他 `type`、沒有 `vid`、非本機代理的網址）都不攔截（`YouTubeURL.proxiedVideoID`，單元測試含 `type=m3u8` 與短 `vid` 兩個反例）。
+
 ### 11.3 驗證
 - `swift test`：1410 項全過（新增 `YouTubeExtractorTests` 7 項：網址判斷、HLS／單檔／SABR、驗證／年齡／內容警告／會員各自停止、請求為 visionOS 且不含兩個旗標、visitor 只取一次、429 冷卻期間不再送、下載拒絕 YouTube、開關預設開）。
 - 原型重測：不帶 `contentCheckOk`／`racyCheckOk` 時 visionOS 仍 `OK`、有 HLS、master 200。

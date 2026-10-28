@@ -9,10 +9,12 @@ public enum YouTubeURL {
         return ["youtube.com", "youtu.be", "youtube-nocookie.com"].contains { name == $0 || name.hasSuffix("." + $0) }
     }
 
-    /// An address YouTube serves a video from: its own pages or googlevideo.com, where the HLS and files live.
+    /// An address a YouTube video plays from: its own pages, googlevideo.com (the HLS and files), or a Python
+    /// spider's DASH proxy for one (W-217: with the switch off, YouTube｜PY still plays through that proxy).
     public static func isYouTubeStream(_ url: URL) -> Bool {
         guard let host = url.host?.lowercased() else { return false }
         return isYouTubeHost(host) || host == "googlevideo.com" || host.hasSuffix(".googlevideo.com")
+            || proxiedVideoID(in: url) != nil
     }
 
     /// The video a Python spider's own DASH proxy address names (`…/proxy?do=py&type=mpd&vid=<id>`, YouTube｜PY):

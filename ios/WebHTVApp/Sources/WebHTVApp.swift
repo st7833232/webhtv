@@ -2669,6 +2669,9 @@ private struct VodView: View {
     @State private var playing = false
     @State private var error: String?
     @State private var playbackError: String?
+    /// W-217: the YouTube video a stopped play can still be watched at.
+    @State private var playbackYouTube: URL?
+    @Environment(\.openURL) private var openURL
     /// The episode the built-in player is on, so an auto-advance knows where it is in the line
     /// (IOS-POC-14). Held here rather than in `PlaybackSession`, which deliberately knows nothing
     /// about sites, flags or how an episode becomes a URL.
@@ -2784,6 +2787,9 @@ private struct VodView: View {
             Task { watched = await WatchHistoryStore.shared.record(forKey: historyKey) }
         }) { PlayerView() }
         .alert("無法播放", isPresented: Binding(get: { playbackError != nil }, set: { if !$0 { playbackError = nil } })) {
+            if let playbackYouTube {
+                Button("用 YouTube App 開啟") { openURL(playbackYouTube) }
+            }
             Button("好", role: .cancel) {}
         } message: {
             Text(playbackError ?? "")
@@ -3225,6 +3231,7 @@ private struct VodView: View {
             if offline == nil {
                 let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
                 guard let resolved = try await client.playbackURL(for: episode, flag: flag) else {
+                    playbackYouTube = nil
                     playbackError = "這一集沒有可播放的網址。"
                     return
                 }
@@ -3259,6 +3266,7 @@ private struct VodView: View {
             // network state; this screen decides *what*, because it holds the episode list.
             PlaybackSession.shared.prefetchNext = { await prefetchNextEpisode(flag: flag) }
         } catch {
+            playbackYouTube = (error as? YouTubeStopped)?.watchURL
             playbackError = error.localizedDescription
         }
     }

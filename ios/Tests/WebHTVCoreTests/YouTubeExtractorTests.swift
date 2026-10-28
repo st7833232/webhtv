@@ -79,8 +79,12 @@ import Testing
         let extractor = YouTubeExtractor(send: recorder.send, now: { clock.now })
         recorder.replies = [try reply(["responseContext": ["visitorData": "V"]])]
         recorder.status = [200, 429]
-        await #expect(throws: YouTubeError.rateLimited) { _ = try await extractor.stream(videoID: "dQw4w9WgXcQ") }
-        await #expect(throws: YouTubeError.rateLimited) { _ = try await extractor.stream(videoID: "dQw4w9WgXcQ") }
+        let stopped = YouTubeStopped(reason: .rateLimited, videoID: "dQw4w9WgXcQ")
+        await #expect(throws: stopped) { _ = try await extractor.stream(videoID: "dQw4w9WgXcQ") }
+        await #expect(throws: stopped) { _ = try await extractor.stream(videoID: "dQw4w9WgXcQ") }
+        // W-217: a stop names where the video can still be watched.
+        #expect(stopped.watchURL.absoluteString == "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        #expect(stopped.localizedDescription == YouTubeError.rateLimited.localizedDescription)
         #expect(recorder.requests.count == 2)
         clock.now = clock.now.addingTimeInterval(YouTubeExtractor.cooldown + 1)
         recorder.status = [200]
@@ -88,15 +92,18 @@ import Testing
         #expect(try await extractor.stream(videoID: "dQw4w9WgXcQ").absoluteString == "https://m.googlevideo.com/c")
     }
 
-    @Test func aYouTubeStreamIsNeverDownloaded() async {
+    @Test func aYouTubeStreamIsNeverDownloadedWhateverTheSwitchSays() async {
         let harness = OfflineHarness(network: Fixture.simpleNetwork())
         await harness.manager.start()
-        let result = await harness.manager.enqueue(
-            identity: Fixture.identity(), title: Fixture.title(),
-            target: PlaybackTarget(url: URL(string: "https://manifest.googlevideo.com/api/manifest/hls_variant/x")!),
-            choice: OfflineDownloadChoice(mode: .smart), estimate: OfflineSizeEstimate(bytes: 1, basis: .averageBandwidth),
-            autoDeleteAfterWatching: true, allowsCellular: false)
-        #expect(result == .refused(OfflineDownloadManager.youtubeRefusal))
+        // The extractor's HLS, and (W-217) YouTube｜PY's own proxy, which is what plays with the switch off.
+        for address in ["https://manifest.googlevideo.com/api/manifest/hls_variant/x",
+                        "http://127.0.0.1:52164/proxy?do=py&type=mpd&vid=dQw4w9WgXcQ&quality=1080p"] {
+            let result = await harness.manager.enqueue(
+                identity: Fixture.identity(), title: Fixture.title(), target: PlaybackTarget(url: URL(string: address)!),
+                choice: OfflineDownloadChoice(mode: .smart), estimate: OfflineSizeEstimate(bytes: 1, basis: .averageBandwidth),
+                autoDeleteAfterWatching: true, allowsCellular: false)
+            #expect(result == .refused(OfflineDownloadManager.youtubeRefusal), "\(address)")
+        }
         #expect(await harness.manager.snapshot().assets.isEmpty)
     }
 

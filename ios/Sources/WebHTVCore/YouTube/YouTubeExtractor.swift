@@ -39,15 +39,20 @@ public actor YouTubeExtractor {
         self.now = now
     }
 
-    /// The address to play for `videoID`: the HLS master, else the best single-file stream.
+    /// The address to play for `videoID`: the HLS master, else the best single-file stream. A stop carries
+    /// the video so the player can offer it to the YouTube app (W-217).
     public func stream(videoID: String) async throws -> URL {
-        if let coolingUntil, now() < coolingUntil { throw YouTubeError.rateLimited }
-        let visitor = try await visitor()
-        var body = Self.context(visitorData: visitor)
-        body["videoId"] = videoID
-        body["cpn"] = Self.random(16)
-        let url = URL(string: "https://youtubei.googleapis.com/youtubei/v1/player?prettyPrint=false&t=\(Self.random(12))&id=\(videoID)")!
-        return try Self.stream(fromPlayerResponse: try await post(url, body))
+        do {
+            if let coolingUntil, now() < coolingUntil { throw YouTubeError.rateLimited }
+            let visitor = try await visitor()
+            var body = Self.context(visitorData: visitor)
+            body["videoId"] = videoID
+            body["cpn"] = Self.random(16)
+            let url = URL(string: "https://youtubei.googleapis.com/youtubei/v1/player?prettyPrint=false&t=\(Self.random(12))&id=\(videoID)")!
+            return try Self.stream(fromPlayerResponse: try await post(url, body))
+        } catch let error as YouTubeError {
+            throw YouTubeStopped(reason: error, videoID: videoID)
+        }
     }
 
     /// Reads a player response. Internal so tests can feed recorded replies.
@@ -115,6 +120,16 @@ public actor YouTubeExtractor {
         let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
         return String((0..<count).map { _ in alphabet.randomElement()! })
     }
+}
+
+/// Why a YouTube video did not play here, and where it can be watched instead.
+public struct YouTubeStopped: LocalizedError, Equatable {
+    public let reason: YouTubeError
+    public let videoID: String
+
+    /// Opens in the YouTube app when installed (universal link), else in Safari.
+    public var watchURL: URL { URL(string: "https://www.youtube.com/watch?v=\(videoID)")! }
+    public var errorDescription: String? { reason.errorDescription }
 }
 
 public enum YouTubeError: LocalizedError, Equatable {

@@ -1,6 +1,6 @@
 # W-209 iOS 自己處理 youtube.com 網址（設計，待使用者核准）
 
-> 狀態：設計稿第 2 版（依 Reviewer #4537 F1／F2 修改），**只寫設計、不實作、不改 App**。Reviewer 核准後由 Manager 轉使用者決定是否開實作單。
+> 狀態：第 1–9 節為 W-209 設計（已核准）；使用者 10/28 選方案 3，第 10 節為 W-212 實作設計（待 Reviewer 審），核准後才寫 App。
 > 範圍邊界（工單）：不補 PO Token、不偽造驗證、不繞簽章；若 FongMi 本身用了這類手段要明說並建議不採。
 
 ## 白話摘要
@@ -179,7 +179,93 @@
 - 嵌入播放器是否出廣告、畫質上限由 YouTube 決定。
 - googlevideo 網址有效期長度未實測（方案 C 不用直連，無影響）。
 
+## 10. 方案 3 實作設計（W-212，使用者 2026-10-28 選定）
+
+> 使用者回覆 W-209 選項 (3)：照 FongMi／NewPipe 做法。Manager #4585 記錄的界線：**允許**冒充 YouTube 官方 App client、執行播放器 JS 解簽章與 n 參數；**仍禁止** PO Token／BotGuard、CAPTCHA、登入／會員／付費、年齡限制繞過、使用者 Google 帳號或 cookie、下載或快取 YouTube 影片、去廣告、改播放統計、遇 429 換 IP／proxy／client 硬試。本節取代第 3、4 節對方案 B 的「不採」結論，第 4 節方案 C 保留作為退路參考。
+
+### 10.1 白話摘要
+- 原型（10.3）證實：在 Mac 上照 NewPipe v0.26.5 冒充 YouTube 的 **visionOS App** 去要影片資料，會直接拿到可播的網址，連 **HLS**（AVPlayer 原生格式）都有；這次不需要解簽章或 n 參數。
+- 所以 iOS 第一版只做「visionOS client 取 HLS → 交給我們的 AVPlayer 播」，不需要在手機上執行 YouTube 的 JavaScript。程式小、好維護。
+- 解簽章／n 參數（JavaScriptCore）先不做：目前用不到，而且 NewPipe 的抓法對現在的 YouTube 播放器程式已經失效（10.3）；等 YouTube 真的要求時再另案評估。
+- 整個功能是一個獨立模組，有設定開關一鍵關閉；關閉或失敗時回到現在的行為。
+
+### 10.2 iOS 上的做法比較
+
+| | A Swift 移植 visionOS client（建議） | B Swift＋JavaScriptCore 完整移植 NewPipe（含 sig／n） | C App 內 Python 跑現成抽取器（yt-dlp 等） |
+|---|---|---|---|
+| 做法 | `URLSession` 送兩個 InnerTube 請求（visitor_id、player），取 `hlsManifestUrl` | A＋下載 player JS、用 regex 抽 sig／n 函式、JavaScriptCore 執行 | 把抽取器 Python 原始碼放進 App 的 Python 執行環境 |
+| 原型結果 | ✅ 兩支影片都拿到可播 HLS／直連 | sig／n 目前用不到；NewPipe v0.26.5 的 regex 對 player `096efeec` **全部比對不到** | 未測；yt-dlp 現在解 n 要外部 JS 執行環境，iOS Python 內不易提供 |
+| 程式量 | 小（約 200 行＋測試） | 大，且 regex 已失效要自己追 | 大（抽取器很大）＋授權與更新流程 |
+| 維護 | 追 client 版本號（VISIONOS 1.02）與請求欄位；對照 NewPipe 的 `ClientsConstants` 更新 | 每次 YouTube 改 player JS 都要追 | 每次上游更新要重包 |
+| 結論 | **採用** | 暫緩：等 visionOS 也被要求 n／cipher 時另案 | 不採 |
+
+### 10.3 原型證據（2026-10-28，Mac，兩支公開影片 jNQXAC9IVRw、dQw4w9WgXcQ）
+- 腳本與結果：`.herdr-synapse/webhtv-dev/artifacts/w212-youtube-proto/`（`yt_proto.py`、`results.json`、`log.jsonl`；不進 repo）。請求格式照 NewPipe v0.26.5（`f9e6bb808f82bf3e4dc1f2a29a16fd376931c8ef`）的 `YoutubeStreamHelper`、`YoutubeParsingHelper.prepareJsonBuilder`、`ClientsConstants`。
+- **VISIONOS**（`POST https://youtubei.googleapis.com/youtubei/v1/player`）：`playabilityStatus=OK`；所有 adaptive 格式直接帶 `url`，無 `signatureCipher`、無 `n=`；itag 137（1080p avc1）與 140（音訊）前段、50% 位置、音訊 1.1 MB 以後的 Range 都回 206（W-202 那條路在 1 MB 後 403，這裡沒有）。有 `hlsManifestUrl`：master 200（dQw4w9WgXcQ 17 個 variant，avc1 到 1080p、vp09 到 2160p、獨立音訊群組、VTT 字幕），media playlist 200，segment 200 且為 MPEG-TS。
+- **ANDROID**（`reel/reel_item_watch`）：adaptive 格式**沒有網址**（只有 `serverAbrStreamingUrl`，SABR），只剩 itag 18（360p 影音合一）可用。
+- 網址 `expire` 約 21600 秒（6 小時），網址綁請求者 IP。
+- 全程 26 次請求，**沒有** 429、bot-check、LOGIN_REQUIRED。
+- 未做：AVPlayer 實際播放（只驗 HTTP 狀態與檔頭）、第三支影片、其他 IP。
+
+### 10.4 流程（只在使用者點播時執行）
+1. **判斷**：沿用第 4.1 節的 YouTube 網址判斷（host 規則與 `LivePlaylistParser.isYouTube` 一致，抽成共用函式），取出 11 字元影片 ID。只在 `SourceClient.target(from:…)`（`SourceClient.swift:171`）決定要嗅探之前插入；判斷不符或開關關閉 → 完全走現在的流程。
+2. **visitorData**：`POST https://www.youtube.com/youtubei/v1/visitor_id?prettyPrint=false`，body 為 visionOS 的 `context`。每個 App 生命週期快取一份（只在記憶體，不存檔）。
+3. **player**：`POST https://youtubei.googleapis.com/youtubei/v1/player?prettyPrint=false&t=<12 碼隨機>&id=<videoId>`。
+   - `context.client`：`clientName=VISIONOS`、`clientVersion=1.02`、`clientScreen=WATCH`、`platform=MOBILE`、`deviceMake=Apple`、`deviceModel=RealityDevice14,1`、`osName=visionOS`、`osVersion=25.6.0.23O471`、`hl`／`gl`（依 App 語系，預設 zh-TW／TW）、`utcOffsetMinutes`、`visitorData`。
+   - 其他：`request.internalExperimentFlags=[]`、`request.useSsl=true`、`user.lockedSafetyMode=false`、`videoId`、`cpn`（16 碼）、`contentCheckOk=true`、`racyCheckOk=true`（同 NewPipe；**不**用來繞年齡限制，見 10.6）。
+   - Header：`User-Agent: com.google.visionos.youtube/1.02(RealityDevice14,1; U; CPU visionOS 25_6_0 like Mac OS X; <國家>)`、`X-Goog-Api-Format-Version: 2`、`Content-Type: application/json`。
+4. **選串流**（對齊 FongMi 123cc086 `YouTube.getPlayUrl`：直播用 HLS、隨選組 DASH；iOS 的 AVPlayer 不播 DASH，所以統一優先 HLS）：
+   - 有 `hlsManifestUrl` → `PlaybackTarget(url: hls)`，AVPlayer 自己挑畫質（同 FongMi 交給 ExoPlayer 自選的精神）。
+   - 沒有 HLS、有 adaptive `url` → 第一版**不**自己合併影音；退到 itag 22／18 這類影音合一檔（有就用）。
+   - 都沒有 → 失敗（10.6）。
+   - 字幕：HLS 內含 VTT 字幕群組，由 AVPlayer 呈現；第一版不另抓 caption track。
+5. **播放**：交給現有 AVPlayer 路徑；MPV 引擎也可播 HLS，但第一版只保證 AVPlayer。播放請求不加冒充 UA（googlevideo 對 HLS 不需要；若實作時發現需要，限定只對 googlevideo 主機加）。
+6. **過期與刷新**：網址綁 IP、約 6 小時過期。不預存網址；每次點播（含續播、換集、App 從背景回來後重新起播）都重新取 player。播放中 segment 回 403 時，自動重取 player 一次並從目前時間點續播；再失敗就停並提示。
+
+### 10.5 開關與模組邊界
+- 新檔集中在 `ios/Sources/WebHTVCore/YouTube/`（例如 `YouTubeExtractor.swift`、`YouTubeURL.swift`）；`SourceClient` 只多一個呼叫點。整包移除＝刪資料夾＋拿掉那一行呼叫。
+- 設定開關：`UserDefaults` 鍵 `youtubeExtractorEnabled`，預設開；設定頁「播放」區加一列「YouTube 直接播放」。關閉時 YouTube 網址回到現在的嗅探行為。
+- **下載**：`OfflineDownloadManager.enqueue`／`enqueueAutomatic`（`OfflineDownloadManager.swift:389`、`:401`）遇到 YouTube 來源一律拒絕並提示「YouTube 影片不提供下載」；下載按鈕對 YouTube 集數不顯示。
+- **不預抓**：下一集預取（`PlaybackTargetPrefetch`，`WebHTVApp.swift:3299-3348` 一帶）對 YouTube 集數跳過，只在使用者真的點播或自動接續時才解析。
+- 不碰 Android。
+
+### 10.6 失敗與界線處理
+- `playabilityStatus` 非 `OK`：
+  - `LOGIN_REQUIRED`、含「not a bot」「Sign in」→ 停止，提示「YouTube 要求驗證，暫時無法在 App 內播放」，**不**換 client 重試。
+  - `AGE_CHECK_REQUIRED`／年齡限制、會員或付費（`UNPLAYABLE` 且 reason 提到 members／purchase）→ 停止並說明原因，不嘗試繞過。
+  - 其他（私人、已刪除、地區限制）→ 顯示 YouTube 給的 reason。
+- HTTP 429 或回應要求 CAPTCHA → 停止並提示「YouTube 暫時限制了請求，請稍後再試」；同一 App 生命週期內 10 分鐘不再對 YouTube 發請求（只是冷卻，不換 IP／client）。
+- 不產生、不偽造 PO Token；回應若表示需要 PO Token（只有 SABR、沒有 HLS／url）→ 視為不可播，提示並停止。
+- 失敗時「用 YouTube App／Safari 開啟」按鈕（同第 4.2 節）。
+- 不擋廣告、不回報或修改播放統計（不送 `videostatsPlaybackUrl` 等，也不偽造）。
+
+### 10.7 對其他站的影響
+- 只影響「播放網址是 YouTube 影片頁／嵌入網址」的情況；其他站、直連媒體、解析接口、9978 本機代理流程都不變。
+- W-202 的 YouTube｜PY 正常路徑（腳本自己回 googlevideo 直連、經 9978）不受影響；該站改回 `parse: 1` 的 `youtube.com/embed` 時才會走本功能。
+- 直播清單的 YouTube 頻道第一版仍標「不支援」。
+
+### 10.8 驗收（階段 2）
+- `swift test` 全過；新增單元測試：網址判斷（各種 YouTube 網址取 ID、非 YouTube 回 nil）、player 回應解析（用原型存下的 VISIONOS／ANDROID 回應當固定資料：有 HLS 取 HLS、只有 SABR 判不可播、LOGIN_REQUIRED／年齡限制回正確錯誤）、開關關閉時不發請求、下載拒絕 YouTube。
+- iOS Simulator（本分支 build），YouTube｜PY 一部公開影片：
+  1. 點播 10 秒內起播、有畫面有聲音；
+  2. 拖到中段後 10 秒內續播；
+  3. 連續播放 5 分鐘以上不中斷（對照 W-202 的 75 秒）；
+  4. 下載按鈕不出現／被拒；
+  5. 關閉開關後回到原本行為；
+  6. 回歸：一般 m3u8 站、一個 `parse: 1` 非 YouTube 站、一個經 9978 的 PY 站行為不變。
+- 實機：照慣例只做 device build 證明可編，交 IPA，不直接安裝。
+
+### 10.9 回退
+- 設定開關關閉即停用（不需發版）。
+- 程式回退：revert 該 commit，或刪 `YouTube/` 資料夾＋`SourceClient` 那一行。不改資料格式，回退後播放紀錄仍可讀。
+
+### 10.10 維護成本與風險
+- client 版本號、`deviceModel`、`osVersion` 寫死在一處常數；YouTube 擋版本時，對照 NewPipe `ClientsConstants.java` 更新。建議每次 NewPipe 發版看一次。
+- YouTube 隨時可能對 visionOS 加上 n／cipher／PO Token：屆時本功能會落到 10.6 的「不可播」並提示，不會壞其他站；是否做 JavaScriptCore 解 n 另案評估（NewPipe 的 regex 目前已失效，需要新的抽法）。
+- 違反 YouTube 服務條款與 API 開發者政策，只適合個人自用；App Store 不會過，只能 SideStore 自用（使用者已知悉，#4568）。
+- 原型只在一個 IP、兩支影片測過；實作時至少再測三支（含一部長片、一部直播）。
+
 ## Recovery anchor
-- 目標：W-209 設計稿，Reviewer 核准後 Manager 轉使用者決定。
-- 狀態：第 2 版（回應 #4537 F1、F2 與兩個小問題），待 Reviewer 複審。
-- 下一步：Reviewer 複審；核准後通知 Manager。
+- 目標：W-212 iOS 照 FongMi 自己解析 YouTube。
+- 狀態：第 10 節設計＋原型完成（2026-10-28），待 Reviewer 審；核准後階段 2 實作。
+- 下一步：Reviewer 審第 10 節。

@@ -249,14 +249,18 @@ public final class SpiderProxyServer: @unchecked Sendable {
         var part = first
         while true {
             let wanted = end.map { Int($0 - next + 1) } ?? part.body.count
-            // With no total, a short answer is not the end (a CDN may cap one response); an empty or
-            // failed one is (past the last byte: 416).
-            let last = end.map { next + Int64(part.body.count) > $0 } ?? false
+            // With no Content-Range a short answer is the last one: asking past the end of the file can
+            // bring back an error page, which would be appended as video.
+            let last = (end.map { next + Int64(part.body.count) > $0 } ?? false)
+                || (range == nil && part.body.count < Self.segment)
             guard await writer.write(head: next == window.start ? head : nil, body: part.body.prefix(wanted), more: !last),
                   !last else { break }
             next += Int64(part.body.count)
             params["range"] = "bytes=\(next)-\(end.map { min(next + Self.segment - 1, $0) } ?? next + Self.segment - 1)"
-            guard let answer = await call(target, params), [200, 206].contains(answer.status), !answer.body.isEmpty
+            // Only a 206 starting where the stream stands continues it. Anything else ends the stream short:
+            // with a length sent the player asks again from there; without one it sees the end of the file.
+            guard let answer = await call(target, params), answer.status == 206, !answer.body.isEmpty,
+                  Self.contentRange(answer.headers).map({ $0.start == next }) ?? (range == nil)
             else { break }
             part = answer
         }

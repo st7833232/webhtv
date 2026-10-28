@@ -217,7 +217,7 @@ IOS-POC-7A（docs/IOS-POC-7A-python-runtime.md:121,203,398）把「本機 proxy 
 **做了什麼**（和上面設計的差異用粗體標出）
 - `SpiderProxyServer`：只聽 127.0.0.1、OS 指派埠、每次啟動一個隨機通行碼；改寫 9978 網址與文字內容；拆段讀取。
 - 段長 **512 KB**（設計暫定 2 MB）：googlevideo 對 2 MB 的第一個音訊請求直接回 403。
-- **爬蟲回 206 但不帶 Content-Range、長度剛好一段時**（py/哔哩.py 的 `get_media`），視為有照 Range 回、總長未知：逐段讀到空回應為止，回給播放器的回應不帶長度、以關連線結束。
+- **爬蟲回 206 但不帶 Content-Range、長度剛好一段時**（py/哔哩.py 的 `get_media`），視為有照 Range 回、總長未知：逐段讀到短於一段或空的回應為止，回給播放器的回應不帶長度、以關連線結束。第二段以後**只接受 206**，有 Content-Range 時起點必須等於目前位置，否則停止串流、關連線（有總長時播放器會自己帶 Range 重新要；沒總長時播放器當成檔尾），不把錯的內容接進影片（Reviewer #4421 F1）。
 - 播放網址含 **`type=mpd`** 也算 DASH（bili 沒給 `format`）。
 - MPV 開本服務網址時用 `cache-secs=10,demuxer-readahead-secs=10` 限制預讀。
 - 403 照原樣轉給播放器、**不重試**：YouTube 的配額是每個網址固定的，等待或重試都不會放行。
@@ -232,10 +232,16 @@ IOS-POC-7A（docs/IOS-POC-7A-python-runtime.md:121,203,398）把「本機 proxy 
 | 3. 拖到中段 | bili看電影 可以；YouTube 不行（同上） |
 | 4. 安全 | `lsof` 只聽 127.0.0.1；沒帶或帶錯通行碼回 404 |
 | 5. 回歸 | YouTube 直播（HLS 分支，不經 9978）：改動前後的 build 行為相同（原生約 2 秒起播，之後 YouTube 回 403，是既有問題、另案）；MiFun：改動前後腳本回傳相同（站方佔位影片）；山楂：站點主機從 Mac 也連不上，無法驗 |
-| 6. bili看電影 | 起播 4966／2317／2037 ms，中位數 2.32 s；拖動 1.05／1.13／0.09 s，中位數 1.05 s，落點都正確（512 KB）。B 站未登入只給 6 分鐘試看 |
-| 7. 單元測試 | 全量 `cd ios && swift test` 1400 個通過（含 `SpiderProxyServerTests` 15 個、Runtime ABI 升版）；`ios/Tests/Python` 14 個通過 |
-| Ponytail 審查 | 已跑：唯一發現是一個沒人呼叫的 `write(body:more:)`，已刪；未查：bili `get_media` 總長未知時，CDN 超出檔尾若回非空的錯誤內容會被接到串流後面 |
+| 6. bili看電影 | 試看集數（第9／11話，腳本回 302 轉 CDN 的 MP4）：起播 4966／2317／2037 ms，中位數 2.32 s；拖動 1.05／1.13／0.09 s，中位數 1.05 s，落點都正確（512 KB）。B 站未登入只給 6 分鐘試看。完整一集的 DASH（第1話）起播不了，見已知限制 |
+| 7. 單元測試 | 全量 `cd ios && swift test` 1402 個通過（含 `SpiderProxyServerTests`、Runtime ABI 升版）；`ios/Tests/Python` 14 個通過 |
+| Ponytail 審查 | 第一次：唯一發現是一個沒人呼叫的 `write(body:more:)`，已刪。退回修正後再跑一次：唯一發現是分段迴圈註解寫「播放器會自己帶 Range 重新要」，但總長未知時播放器會當成檔尾、不會重新要，已改註解。未查：CDN 若在總長未知的串流中途回不滿一段，現在會提早結束（bili 實測每段都是滿的） |
 
 **已知限制**
 - **YouTube｜PY 透過 9978 只能播開頭約 75 秒、不能拖到中段。** googlevideo 對腳本拿到的網址有每個網址的讀取配額（音訊讀到 1 MB 之後一律 403）。Android FongMi 5.8.4＋Python 模組 1.1.0 同一部能播，是因為那邊腳本的 `playerContent` 因 Python Spider 沒有 `setCache` 而丟 `AttributeError`，改回 `parse: 1` 的 `youtube.com/embed` 網址，再由 FongMi 自己把 YouTube 網址轉成 DASH（直連 googlevideo），根本沒經過 9978。使用者已決定 iOS 也比照 FongMi 自己處理 YouTube 網址，另開 W-209 設計；不補 PO Token、不繞過 YouTube 防護。
 - bili看電影 有一次從觀看紀錄續播時，CDN 對轉向後的 Range 請求回了 282 B，MPV 失敗後 App 自動改用原生播放器並播完；之後重試 6 次無法重現，判為 CDN 一次性回應。
+- **bili看電影 完整一集的 DASH（第1話；MPD 用 `SegmentBase`、腳本回 206 不帶總長）在 MPV 起播不了**：MPV 20 秒內沒開始播 → 改用原生播放器也失敗（Operation Stopped）。退回前的 356035f0 build 播同一集結果完全一樣，不是退回修正造成的（`sim-bili-ep1-356035f0.log`、`sim-bili-ep1-f1.log`）。原因：FFmpeg 不讀 `SegmentBase`、整檔讀，總長未知時多次從 0 重開連線，每段約 0.7–1 秒，20 秒內讀不完；逾時後還在跑的 Python 呼叫會塞住同站的序列佇列，接著下一集的 MPD 也逾時。Manager #4490 決定另開單處理（先確認原因，方向：讓轉址服務拿到總長，或 MPV 對這類 DASH 換讀法）。
+
+**退回修正（Reviewer #4421，attempt 3）**
+- F1：後續分段只接受起點相符的 206（見上「做了什麼」）；沒有 Content-Range 時短回應即為最後一段，不再往檔尾後面要（避免把錯誤頁接進影片）。新增單元測試：後續段回 200、起點不符、總長剛好整數段。
+- F2：`getProxyUrl` 由 '' 改回 9978 的影響。現行設定 46 支 Python 爬蟲只有 MiFun、農民、真狼 呼叫它，9978 只會出現在播放網址與轉址服務回的文字內容（兩處都會改寫），不會進圖片、字幕或詳情。用 Mac 直接跑改前／改後的 Python runtime：農民 的 9978 路徑需要 `@` 格式的集數 id，但它的 detailContent 只產生完整網址 → 走不到；真狼 試 10 部各線路都是 `parse: 1`（站內播放頁回「播放页未返回媒体地址」或外站解析），代理那條也走不到；兩站改前改後輸出逐行相同（`f2-nongmin-py.log`、`f2-zhenlang-py.log`）。MiFun 先前已驗兩版相同。
+- F3：`PlaybackEngine` 對 DASH 的 `selection.choose(.mpv)` 刻意在整個觀看 session 有效，已加註解。

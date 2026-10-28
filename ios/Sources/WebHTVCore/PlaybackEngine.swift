@@ -412,6 +412,8 @@ public final class PlayerRouter {
             sessionActive = true
         }
         // W-202: AVFoundation does not play DASH, so a manifest starts on MPV whatever the default.
+        // Kept for the rest of the session on purpose, like a user's pick: the site's next episode is
+        // DASH too, MPV plays anything else as well, and a failure still falls back as usual.
         if Self.needsMPV(request.target.url) { selection.choose(.mpv) }
         failure = nil
         self.request = request

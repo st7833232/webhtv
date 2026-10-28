@@ -126,11 +126,11 @@ struct SpiderProxyServerTests {
         #expect(await sink.header("Content-Length") == "3000")
     }
 
-    @Test func aBare206IsReadOnUntilAnEmptyAnswerWithNoLength() async {
+    @Test func aBare206IsReadOnUntilAShortAnswerWithNoLength() async {
         let total = 2 * Self.seg + 777
         let media = Media(total: total, bare: true)
         let sink = await run(range: nil, media: media)
-        #expect(media.ranges.count == 4)
+        #expect(media.ranges.count == 3) // nothing asked past the short last answer
         #expect(await sink.head.hasPrefix("HTTP/1.1 200 OK"))
         #expect(await sink.header("Content-Length") == nil)
         #expect(await sink.header("Accept-Ranges") == "bytes")
@@ -146,6 +146,40 @@ struct SpiderProxyServerTests {
         #expect(media.ranges.first == "bytes=\(start)-\(start + Self.seg - 1)")
         #expect(await sink.head.hasPrefix("HTTP/1.1 206"))
         #expect(await sink.body == Media.bytes(start...(total - 1)))
+    }
+
+    @Test func aBare206OfWholeSegmentsEndsAtTheEmptyAnswer() async {
+        let media = Media(total: 2 * Self.seg, bare: true)
+        let sink = await run(range: nil, media: media)
+        #expect(media.ranges.count == 3)
+        #expect(await sink.body == Media.bytes(0...(2 * Self.seg - 1)))
+    }
+
+    /// A spider that answers the first segment properly, then `later` for every segment after it.
+    final class Drifting: SpiderProxying, @unchecked Sendable {
+        let media: Media
+        let later: SpiderProxyResponse
+        init(total: Int64, bare: Bool = false, later: SpiderProxyResponse) {
+            media = Media(total: total, bare: bare)
+            self.later = later
+        }
+        func proxy(params: [String: String]) async throws -> SpiderProxyResponse? {
+            media.ranges.isEmpty ? try await media.proxy(params: params) : later
+        }
+    }
+
+    @Test(arguments: [
+        SpiderProxyResponse(status: 200, mime: "video/mp4", body: Media.bytes(0...99)),
+        SpiderProxyResponse(status: 206, mime: "video/mp4", headers: ["Content-Range": "bytes 0-99/999999999"],
+                            body: Media.bytes(0...99)),
+    ])
+    func aLaterSegmentThatIsNotTheNextBytesEndsTheStream(later: SpiderProxyResponse) async {
+        let spider = Drifting(total: 3 * Self.seg, later: later)
+        let sink = Sink()
+        await SpiderProxyServer().handle(.init(method: "GET", params: ["do": "py", "range": "bytes=0-"]),
+                                         target: spider, writer: sink)
+        #expect(await sink.body == Media.bytes(0...(Self.seg - 1)))
+        #expect(await sink.closed)
     }
 
     @Test func headAsksForOneByteAndSendsNoBody() async {

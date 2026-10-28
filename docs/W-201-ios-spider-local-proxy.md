@@ -259,6 +259,7 @@ IOS-POC-7A（docs/IOS-POC-7A-python-runtime.md:121,203,398）把「本機 proxy 
 **修法（`SpiderProxyServer`）**
 - 回給 MPV 的 MPD 每種只留一個 Representation：H.264 中頻寬最高的（每支 iPhone 都能硬體解碼），沒有 H.264 就取頻寬最高的；音訊取頻寬最高的（`oneRepresentationPerType`）。
 - 對本服務提供的 `SegmentBase` 檔，先向腳本要 `indexRange`（每檔一次約 4 KB 的呼叫），讀出 MP4 的 `sidx` 索引，把它改寫成 `SegmentList`（每段一個 `mediaRange`）＋ AdaptationSet 層的 `SegmentTimeline`（dashdec 只從這一層讀時間軸）。dashdec 因此能直接開啟目標時間所在的那一段（`segmentLists`）。改寫結果快取（FFmpeg 會讀同一份 MPD 兩次）。
+- 只改寫腳本回 bare 206（不帶 Content-Range）的檔。腳本自己回 Content-Range 的檔（YouTube｜PY）維持原樣：審查時發現 a8aee094 把 YouTube 的 MP4 音軌也改成按片段讀，googlevideo 開始回 403 後每段都立刻 403；改回原路後與 3f499399 走同一套讀法。
 - 由 `sidx` 算出檔案總長並記住（Mac 上對 9 個 CDN 檔逐一比對，和 CDN 回報的總長完全一致）；之後這個檔的片段回應都帶正確的 `Content-Range`／`Content-Length`（`sidx`、`sidxTotal`、`totals`）。
 - log 多一欄 `file=`（`url` 參數的雜湊），能分辨同一份 MPD 的不同檔，不印出網址本身。
 
@@ -270,10 +271,14 @@ IOS-POC-7A（docs/IOS-POC-7A-python-runtime.md:121,203,398）把「本機 proxy 
 | 拖動 1108→405 s（往回） | 會整集結束 | 2.58 s 落點 |
 | 拖動 244→1437 s | — | 4.4 s 落點，直接跳讀檔尾片段（`sim-segmentlist.log`） |
 | 下一集（第2話） | MPD 也逾時 | 1.40 s 起播 |
+| 從觀看紀錄續播（Reviewer E1，最終 build） | 從頭一路讀，10 s 無資料判失敗 | 第1話拖到約 20 分→離開→片庫紀錄 20:10/24:01→立即播放：從 1210.7 s 續播，3.68 s 起播，直接跳讀第 77,363,510 位元組，畫面在 20:33 有畫面字幕（`e1-history-2010.png`、`e1-resumed-controls.png`、`sim-e1e2.log`） |
+| 回歸：bili 試看集（MP4 302，Reviewer E2） | — | 第6話 1.95 s 起播；拖動 0.93／2.10 s（另一次 9.8 s，當時主機負載 46）（`sim-e1e2.log`）。這條路轉址服務只回 302，W-210 沒改到 |
+| 回歸：YouTube｜PY（Reviewer E2，同一部 10/26 TVBS 回放、同樣從觀看紀錄 63 s 續播） | 3f499399：1.03 s 起播，約 4 s 後在 12,058,624 位元組 403 中斷（`sim-e2-youtube-3f499399.log`） | 1.33 s 起播，約 7 s 後同一位置 403 中斷（`sim-e2-youtube.log`）：沒有變差。從 63 s 續播要先從頭讀到 63 s，所以比 W-202 記錄的「從頭播約 75 秒」更早撞到配額，兩版相同 |
 | 單元測試 | — | 全量 `cd ios && swift test` 1406 個通過（`SpiderProxyServerTests` 新增 5 個：精簡 MPD 兩例、sidx 總長與拖動、SegmentList 改寫＋快取＋片段 Content-Range） |
 
 **限制**
 - 畫質固定為上述規則選出的那一條，MPV 裡不能再切換 bili 的其他畫質（原本也沒有切換介面）。
+- 音訊挑頻寬最高的一條：若 bili 日後在 MPD 給 FLAC 或 E-AC-3（杜比），會選到它們（Reviewer 附帶①）；MPV 的 FFmpeg 能解，但頻寬較大。
 - 只認頂層、非巢狀的 `sidx`；拿不到索引的檔維持原樣（舊行為）。
 - 實機未驗，要等新版 IPA。
-- Ponytail：已跑，沒有必須修的發現。未查：只在 Representation 上標 mimeType、AdaptationSet 沒標的 MPD 不會被精簡，且整組會套用最後一個 Representation 的時間軸（bili 與 YouTube 都標在 AdaptationSet 上）。
+- Ponytail：已跑（a8aee094 前），沒有必須修的發現；E2 修正（YouTube 不改寫）為 3 行條件＋1 個測試。未查：只在 Representation 上標 mimeType、AdaptationSet 沒標的 MPD 不會被精簡，且整組會套用最後一個 Representation 的時間軸（bili 與 YouTube 都標在 AdaptationSet 上）。

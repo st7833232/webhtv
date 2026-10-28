@@ -385,7 +385,8 @@ public final class SpiderProxyServer: @unchecked Sendable {
     /// `SegmentTimeline` (W-210). FFmpeg's dashdec reads a `SegmentBase` file as one fragment it cannot
     /// seek in, so a resume at 19 minutes read 75 MB from the start; with a list it opens the fragment
     /// that holds the time asked for. The index costs one small spider call per file, and the file's
-    /// size is kept for the Content-Range of the parts asked later. Files it cannot index stay as they are.
+    /// size is kept for the Content-Range of the parts asked later. Files it cannot index, or whose spider
+    /// answers with a Content-Range of its own, stay as they are.
     func segmentLists(_ mpd: String, base: URL, target: any SpiderProxying) async -> String {
         if let done = lock.withLock({ listed[mpd] }) { return done }
         var out = mpd
@@ -403,7 +404,11 @@ public final class SpiderProxyServer: @unchecked Sendable {
                 var params = [String: String]()
                 for item in query.queryItems ?? [] { params[item.name] = item.value ?? "" }
                 params["range"] = "bytes=\(index.1)-\(index.2)"
+                // Only a file served bare (no Content-Range, py/哔哩.py) needs it. One whose spider says its range
+                // (YouTube｜PY) already seeks; listed, each part became its own request, and googlevideo's 403s
+                // ended playback within seconds instead of after the ~75 s buffered (W-202 limit).
                 guard let answer = await call(target, params), answer.status == 200 || answer.status == 206,
+                      !answer.headers.keys.contains(where: { $0.lowercased() == "content-range" }),
                       let sidx = Self.sidx(answer.body), !sidx.references.isEmpty else { continue }
                 var offset = indexStart + sidx.firstByte
                 let segments = sidx.references.map { reference in

@@ -257,15 +257,18 @@ struct SpiderProxyServerTests {
     /// py/哔哩.py serving such a file: bare 206 answers, no Content-Range.
     final class Indexed: SpiderProxying, @unchecked Sendable {
         let file: Data
+        /// YouTube｜PY says the range it answers; py/哔哩.py does not.
+        let says: Bool
         private let lock = NSLock()
         private var count = 0
         var calls: Int { lock.withLock { count } }
-        init(_ file: Data) { self.file = file }
+        init(_ file: Data, says: Bool = false) { self.file = file; self.says = says }
         func proxy(params: [String: String]) async throws -> SpiderProxyResponse? {
             lock.withLock { count += 1 }
             let window = SpiderProxyServer.window(params["range"])!
             let end = min(Int(window.end ?? Int64(file.count - 1)), file.count - 1)
             return SpiderProxyResponse(status: 206, mime: "video/mp4",
+                                       headers: says ? ["Content-Range": "bytes \(window.start)-\(end)/\(file.count)"] : [:],
                                        body: Int(window.start) > end ? Data() : file[Int(window.start)...end])
         }
     }
@@ -303,6 +306,10 @@ struct SpiderProxyServerTests {
             "<SegmentList timescale=\"1000\"><Initialization range=\"0-15\"/><SegmentURL mediaRange=\"72-\(71 + Self.seg)\"/>"
                 + "<SegmentURL mediaRange=\"\(72 + Self.seg)-\(total - 1)\"/></SegmentList>",
             set: "<SegmentList timescale=\"1000\"><SegmentTimeline><S d=\"4000\"/><S d=\"2000\"/></SegmentTimeline></SegmentList>"))
+        let ranged = await SpiderProxyServer().segmentLists(
+            manifest("<SegmentBase indexRange=\"16-71\"><Initialization range=\"0-15\"/></SegmentBase>"),
+            base: URL(string: "http://127.0.0.1:1/t/")!, target: Indexed(Self.indexedFile(total: total), says: true))
+        #expect(ranged == manifest("<SegmentBase indexRange=\"16-71\"><Initialization range=\"0-15\"/></SegmentBase>"))
         let calls = spider.calls
         #expect(await server.segmentLists(manifest("<SegmentBase indexRange=\"16-71\"><Initialization range=\"0-15\"/></SegmentBase>"),
                                           base: URL(string: "http://127.0.0.1:1/t/")!, target: spider) == listed)

@@ -1130,7 +1130,7 @@ private struct CMSView: View {
     nonisolated private static let topSlack: CGFloat = 300
     @State private var searching = false
     @State private var query = ""
-    @State private var page = 1
+    @State private var pager = ListingPager()
     @State private var canLoadMore = true
     /// IOS-POC-33: where a search's 載入更多 is, per keyword form. Nil for a category or the home list.
     @State private var searchCursor: DualScriptSearch.Cursor?
@@ -1527,21 +1527,28 @@ private struct CMSView: View {
             return
         }
         do {
-            let next = page + 1
-            let response = try await listing(page: next)
+            let response = try await listing(page: pager.next)
             guard generation == listingGeneration else { return }
             let merged = items.merging(newTitlesFrom: response.list)
-            guard merged.count > items.count else { canLoadMore = false; return }
+            pager.loaded(adding: merged.count - items.count)
+            Logger(subsystem: "com.webhtv.ios.poc", category: "listing")
+                .notice("[listing] page \(pager.page, privacy: .public) +\(merged.count - items.count, privacy: .public) ended=\(pager.ended, privacy: .public)")
             items = merged
-            page = next
         } catch {
             guard generation == listingGeneration else { return }
-            // Keep what is already on screen and stop rather than retrying a failing page on every scroll.
-            canLoadMore = false
+            // W-214: keep what is on screen and ask the same page again on the next scroll to the bottom.
+            pager.failed()
+            Logger(subsystem: "com.webhtv.ios.poc", category: "listing")
+                .notice("[listing] page \(pager.next, privacy: .public) failed \(pager.failures, privacy: .public)/\(ListingPager.retries, privacy: .public)")
         }
+        canLoadMore = pager.canLoadMore
     }
 
     private func listing(page: Int) async throws -> CMSResponse {
+        #if DEBUG
+        // W-214 Simulator check: launched with `-failListingPageOnce N`, page N fails the first time.
+        if page == ListingFault.pending { ListingFault.pending = 0; throw URLError(.timedOut) }
+        #endif
         let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
         // Simplified as Android does, since IOS-POC-20: the sources index simplified titles.
         if searching, !query.isEmpty { return try await client.search(TraditionalSimplified.toSimplified(query), page: page) }
@@ -1558,7 +1565,7 @@ private struct CMSView: View {
         let searched = !(search ?? "").isEmpty
         loading = true
         error = nil
-        page = 1
+        pager = ListingPager()
         canLoadMore = true
         searchCursor = nil
         loadingMore = false
@@ -9423,3 +9430,9 @@ private struct WebHomeWebView: UIViewRepresentable {
         }
     }
 }
+
+#if DEBUG
+@MainActor enum ListingFault {
+    static var pending = UserDefaults.standard.integer(forKey: "failListingPageOnce")
+}
+#endif

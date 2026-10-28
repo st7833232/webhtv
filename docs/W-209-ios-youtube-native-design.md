@@ -244,7 +244,7 @@
 
 ### 10.7 對其他站的影響
 - 只影響「播放網址是 YouTube 影片頁／嵌入網址」的情況；其他站、直連媒體、解析接口、9978 本機代理流程都不變。
-- W-202 的 YouTube｜PY 正常路徑（腳本自己回 googlevideo 直連、經 9978）不受影響；該站改回 `parse: 1` 的 `youtube.com/embed` 時才會走本功能。
+- **實作時修正（W-212 階段 2）**：YouTube｜PY（`油管-6.py`）在 iOS 的 `playerContent` 正常回的是 9978 DASH 代理網址 `…/proxy?do=py&type=mpd&vid=<影片ID>`，不是 youtube.com 網址；照原寫法這站仍只能播約 75 秒（W-202），驗收不會過。所以判斷多一條：**爬蟲本機代理（`SpiderProxyServer.serves`）且 query 為 `do=py`、`type=mpd`、`vid`＝11 碼影片 ID** 時，也改走本功能（`YouTubeURL.proxiedVideoID`）。其他 9978 用途（bili看電影 等，`type` 不同或沒有 `vid`）不受影響；開關關閉時回到 9978 路徑。
 - 直播清單的 YouTube 頻道第一版仍標「不支援」。
 
 ### 10.8 驗收（階段 2）
@@ -268,7 +268,32 @@
 - 違反 YouTube 服務條款與 API 開發者政策，只適合個人自用；App Store 不會過，只能 SideStore 自用（使用者已知悉，#4568）。
 - 原型只在一個 IP、兩支影片測過；實作時至少再測三支（含一部長片、一部直播）。
 
+## 11. 階段 2 實作結果（W-212，2026-10-28）
+
+### 11.1 改動
+- 新模組 `ios/Sources/WebHTVCore/YouTube/`：`YouTubeURL.swift`（YouTube 網址與影片 ID、9978 代理網址的 `vid`、googlevideo 判斷）、`YouTubeExtractor.swift`（visionOS client 的 visitor_id＋player 請求、HLS 優先、單檔備援、playability 對應錯誤、429 冷卻 10 分鐘、開關 `youtubeExtractorEnabled`、預取旗標）。
+- `SourceClient.target(from:…)`：YouTube 影片網址或 YouTube｜PY 的 9978 `type=mpd&vid=` 代理網址 → 本模組（10.7）。預取時回 nil（不解析）。
+- `OfflineDownloadManager`：手動 `enqueue` 與自動下載重新解析後，網址屬 YouTube／googlevideo 一律拒絕（「YouTube 影片不提供下載」）。
+- `WebHTVApp.swift`：下一集預取包在 `YouTubeExtractor.$prefetching`；設定頁「YouTube 直接播放」開關。
+- `LivePlaylistParser.isYouTube` 改用共用 host 規則（多認 youtube-nocookie.com）。
+- 不送 `contentCheckOk`／`racyCheckOk`；App 自己的 log 不印 googlevideo 網址、`hlsManifestUrl`、`visitorData`（實測 App log 0 筆）。
+
+### 11.2 與第 10 節的差異（請 Reviewer 判斷）
+- **10.4 第 6 步「播放中 segment 403 自動重取一次」未實作**：App 目前沒有播放中重新解析網址的機制，要加得改播放器錯誤處理流程，超出本次範圍。網址約 6 小時過期，重新點播（含續播）就會重取。如需要，另開單。
+- **10.7 範圍修正**（已寫入 10.7）：YouTube｜PY 在 iOS 正常回 9978 代理網址，所以多判斷 `do=py&type=mpd&vid=` 代理網址；不加的話這站驗收不會過。
+- YouTube｜PY 每次播放，腳本自己的 `playerContent` 會先向 YouTube 取一次資料，本模組再取一次（visitor_id 每個 App 生命週期一次＋player 一次）。
+
+### 11.3 驗證
+- `swift test`：1410 項全過（新增 `YouTubeExtractorTests` 7 項：網址判斷、HLS／單檔／SABR、驗證／年齡／內容警告／會員各自停止、請求為 visionOS 且不含兩個旗標、visitor 只取一次、429 冷卻期間不再送、下載拒絕 YouTube、開關預設開）。
+- 原型重測：不帶 `contentCheckOk`／`racyCheckOk` 時 visionOS 仍 `OK`、有 HLS、master 200。
+- iOS Simulator（本分支 build，GitLab 正式設定、站點「YouTube｜PY」、影片「10/27 TVBS NEWS 午間整點新聞」2:00:26 回放；證據 `.herdr-synapse/webhtv-dev/artifacts/w212-youtube-impl/`）：
+  1. 起播：原生播放器 1080p，open 後 1534 ms 起播，串流來自 manifest.googlevideo.com HLS（y05、applog-webhtv.txt）。
+  2. 拖到中段：seek 到 1:00:12，landed、15 秒後 1:00:29（y07）。
+  3. 連播：1:00:12 → 1:06:39（6 分 27 秒），stalls=0、buffer 約 62 秒、無錯誤（y08）。
+  4. 開關關閉：同一部影片回到 9978 代理路徑，MPV 在讀到 1 MB 時 `Stream ends prematurely`（即 W-202 的限制），證明開關有效且關閉即回原行為（y09）。
+- 未做：其他站回歸的 GUI 實測（以 1410 項單元測試代替）、下載按鈕的 GUI 實測（單元測試覆蓋）、實機。
+
 ## Recovery anchor
 - 目標：W-212 iOS 照 FongMi 自己解析 YouTube。
-- 狀態：第 10 節設計＋原型完成（2026-10-28），待 Reviewer 審；核准後階段 2 實作。
-- 下一步：Reviewer 審第 10 節。
+- 狀態：階段 2 實作完成並在 Simulator 驗證（2026-10-28），待 Reviewer 審（work done）。
+- 下一步：Reviewer 審實作與 11.2 的差異。

@@ -178,6 +178,13 @@ public enum SourceClient: Sendable {
         guard !qualities.isEmpty else { return nil }
         let index = PlaybackQuality.defaultIndex(in: qualities, position: play.position)
         let chosen = qualities[index].url
+        // W-212: a YouTube video plays from YouTube's own HLS, as FongMi's extractor does, instead of a sniff.
+        if YouTubeExtractor.isEnabled(),
+           let videoID = YouTubeURL.videoID(in: chosen) ?? (Self.isSpiderProxy(chosen) ? YouTubeURL.proxiedVideoID(in: chosen) : nil) {
+            if YouTubeExtractor.prefetching { return nil }
+            return PlaybackTarget(url: try await YouTubeExtractor.shared.stream(videoID: videoID),
+                                  qualities: qualities, position: play.position, defaultIndex: index, subtitles: subtitles)
+        }
         let plan = CMSClient.isDirectMedia(chosen) || Self.isSpiderProxy(chosen) ? .none
             : GlobalParse.plan(parse: global.parse, jx: global.jx, playUrl: global.playUrl, flag: global.flag,
                                header: headers, settings: settings)

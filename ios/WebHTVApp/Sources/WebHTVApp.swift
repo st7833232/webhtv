@@ -2071,6 +2071,7 @@ private struct SettingsView: View {
     @State private var defaultEngine = PlaybackSession.shared.globalDefaultEngine
     /// IOS-POC-25: Android's 智慧去廣. Mirrored here only so the switch redraws.
     @State private var adSkip = PlaybackSession.shared.adSkipEnabled
+    @AppStorage(YouTubeExtractor.enabledKey) private var youtubeDirect = true
     /// IOS-POC-29: the speed a new title starts at. Mirrored here only so the checkmark redraws.
     @State private var defaultSpeed = PlaybackSpeedPreference().defaultSpeed
     /// IOS-POC-32 D. Mirrored here only so the checkmark redraws.
@@ -2143,6 +2144,13 @@ private struct SettingsView: View {
                     .onChange(of: adSkip) { _, enabled in PlaybackSession.shared.setAdSkipEnabled(enabled) }
             } footer: {
                 Text("HLS 點播影片偵測到插入的廣告片段時自動跳過。判斷不確定時照常播放。")
+            }
+
+            // W-212: YouTube addresses play from YouTube's own stream, as on FongMi; off goes back to sniffing.
+            Section {
+                Toggle("YouTube 直接播放", isOn: $youtubeDirect)
+            } footer: {
+                Text("YouTube 影片網址改用 App 的播放器直接播放。只在點播時向 YouTube 取得串流；遇到驗證、年齡或會員限制會停止並提示。YouTube 影片不提供下載。")
             }
 
             // IOS-POC-31: one row that opens the list, not 67 rows on the settings page. Not a menu:
@@ -3268,7 +3276,10 @@ private struct VodView: View {
         let began = Date()
         do {
             let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
-            guard let target = try await client.playbackURL(for: next, flag: flag) else {
+            // W-212: a YouTube episode is not resolved ahead; it resolves when it actually plays.
+            guard let target = try await YouTubeExtractor.$prefetching.withValue(true, operation: {
+                try await client.playbackURL(for: next, flag: flag)
+            }) else {
                 PlaybackSession.shared.prefetch.failed()
                 PlaybackSession.log.notice("[playback] prefetch \(next.name, privacy: .public) found no address after \(Self.milliseconds(since: began))ms — an optimization miss")
                 return

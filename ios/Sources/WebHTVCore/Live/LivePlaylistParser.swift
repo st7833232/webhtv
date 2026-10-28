@@ -369,8 +369,7 @@ public enum LivePlaylistParser {
     private static func isYouTube(_ rest: Substring) -> Bool {
         var host = rest.prefix { !"/?#".contains($0) }
         if let at = host.lastIndex(of: "@") { host = host[host.index(after: at)...] }
-        let name = host.prefix { $0 != ":" }.lowercased()
-        return ["youtube.com", "youtu.be"].contains { name == $0 || name.hasSuffix("." + $0) }
+        return YouTubeURL.isYouTubeHost(String(host.prefix { $0 != ":" }))
     }
 }
 

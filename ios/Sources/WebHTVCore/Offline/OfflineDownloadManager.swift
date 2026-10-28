@@ -389,6 +389,8 @@ public actor OfflineDownloadManager {
     public func enqueue(identity: OfflineIdentity, title: OfflineTitleInfo, target: PlaybackTarget,
                         choice: OfflineDownloadChoice, estimate: OfflineSizeEstimate,
                         autoDeleteAfterWatching: Bool, allowsCellular: Bool) -> OfflineEnqueueResult {
+        // W-212: YouTube videos are played, never stored.
+        if YouTubeURL.isYouTubeStream(target.url) { return .refused(Self.youtubeRefusal) }
         let sidecars = OfflineOptionsBuilder.sidecars(target.subtitles).filter { choice.subtitleIDs.contains($0.id) }
         let request = OfflineDownloadRequest(mediaURL: target.url, headers: target.headers, choice: choice, sidecars: sidecars)
         return queue(identity: identity, title: title, request: request, estimate: estimate,
@@ -410,6 +412,8 @@ public actor OfflineDownloadManager {
         return queue(identity: identity, title: title, request: request, estimate: .unknown,
                      autoDeleteAfterWatching: autoDeleteAfterWatching, allowsCellular: allowsCellular)
     }
+
+    static let youtubeRefusal = OfflineFailure(.unsupported, detail: "YouTube 影片不提供下載")
 
     private func queue(identity: OfflineIdentity, title: OfflineTitleInfo, request: OfflineDownloadRequest,
                        estimate: OfflineSizeEstimate, autoDeleteAfterWatching: Bool, allowsCellular: Bool) -> OfflineEnqueueResult {
@@ -706,6 +710,7 @@ public actor OfflineDownloadManager {
                 return
             }
             guard isCurrent(id, generation, .preparing) else { return }
+            if YouTubeURL.isYouTubeStream(target.url) { fail(id, Self.youtubeRefusal); return }
             request.mediaURL = target.url
             request.headers = target.headers
             // IOS-POC-52 (F20): the chosen subtitle files at their fresh addresses.

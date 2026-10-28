@@ -212,7 +212,8 @@
 2. **visitorData**：`POST https://www.youtube.com/youtubei/v1/visitor_id?prettyPrint=false`，body 為 visionOS 的 `context`。每個 App 生命週期快取一份（只在記憶體，不存檔）。
 3. **player**：`POST https://youtubei.googleapis.com/youtubei/v1/player?prettyPrint=false&t=<12 碼隨機>&id=<videoId>`。
    - `context.client`：`clientName=VISIONOS`、`clientVersion=1.02`、`clientScreen=WATCH`、`platform=MOBILE`、`deviceMake=Apple`、`deviceModel=RealityDevice14,1`、`osName=visionOS`、`osVersion=25.6.0.23O471`、`hl`／`gl`（依 App 語系，預設 zh-TW／TW）、`utcOffsetMinutes`、`visitorData`。
-   - 其他：`request.internalExperimentFlags=[]`、`request.useSsl=true`、`user.lockedSafetyMode=false`、`videoId`、`cpn`（16 碼）、`contentCheckOk=true`、`racyCheckOk=true`（同 NewPipe；**不**用來繞年齡限制，見 10.6）。
+   - 其他：`request.internalExperimentFlags=[]`、`request.useSsl=true`、`user.lockedSafetyMode=false`、`videoId`、`cpn`（16 碼）。
+   - **不送** `contentCheckOk`、`racyCheckOk`（NewPipe 會送 `true`，作用是讓 player 跳過內容警告／敏感內容確認，屬於禁止的年齡限制繞過；Reviewer #4702 F1）。
    - Header：`User-Agent: com.google.visionos.youtube/1.02(RealityDevice14,1; U; CPU visionOS 25_6_0 like Mac OS X; <國家>)`、`X-Goog-Api-Format-Version: 2`、`Content-Type: application/json`。
 4. **選串流**（對齊 FongMi 123cc086 `YouTube.getPlayUrl`：直播用 HLS、隨選組 DASH；iOS 的 AVPlayer 不播 DASH，所以統一優先 HLS）：
    - 有 `hlsManifestUrl` → `PlaybackTarget(url: hls)`，AVPlayer 自己挑畫質（同 FongMi 交給 ExoPlayer 自選的精神）。
@@ -220,7 +221,8 @@
    - 都沒有 → 失敗（10.6）。
    - 字幕：HLS 內含 VTT 字幕群組，由 AVPlayer 呈現；第一版不另抓 caption track。
 5. **播放**：交給現有 AVPlayer 路徑；MPV 引擎也可播 HLS，但第一版只保證 AVPlayer。播放請求不加冒充 UA（googlevideo 對 HLS 不需要；若實作時發現需要，限定只對 googlevideo 主機加）。
-6. **過期與刷新**：網址綁 IP、約 6 小時過期。不預存網址；每次點播（含續播、換集、App 從背景回來後重新起播）都重新取 player。播放中 segment 回 403 時，自動重取 player 一次並從目前時間點續播；再失敗就停並提示。
+6. **過期與刷新**：網址綁 IP、約 6 小時過期。不預存網址；每次點播（含續播、換集、App 從背景回來後重新起播）都重新取 player。播放中 segment 回 403 時，同一部影片在一次播放裡**只重取 player 一次**並從目前時間點續播，且受 10.6 的 429 冷卻約束（冷卻中不重取）；再失敗就停並提示。
+7. **記錄**：log 只記影片 ID、client 名稱、HTTP 狀態與 `playabilityStatus`；**不印** googlevideo 網址、`hlsManifestUrl`、`visitorData`。
 
 ### 10.5 開關與模組邊界
 - 新檔集中在 `ios/Sources/WebHTVCore/YouTube/`（例如 `YouTubeExtractor.swift`、`YouTubeURL.swift`）；`SourceClient` 只多一個呼叫點。整包移除＝刪資料夾＋拿掉那一行呼叫。
@@ -233,6 +235,7 @@
 - `playabilityStatus` 非 `OK`：
   - `LOGIN_REQUIRED`、含「not a bot」「Sign in」→ 停止，提示「YouTube 要求驗證，暫時無法在 App 內播放」，**不**換 client 重試。
   - `AGE_CHECK_REQUIRED`／年齡限制、會員或付費（`UNPLAYABLE` 且 reason 提到 members／purchase）→ 停止並說明原因，不嘗試繞過。
+  - 要求內容確認（`CONTENT_CHECK_REQUIRED`，或 reason 提到 content warning／inappropriate）→ 停止並提示「這部影片需要在 YouTube 確認內容警告」，**不**帶 `contentCheckOk`／`racyCheckOk` 重送。
   - 其他（私人、已刪除、地區限制）→ 顯示 YouTube 給的 reason。
 - HTTP 429 或回應要求 CAPTCHA → 停止並提示「YouTube 暫時限制了請求，請稍後再試」；同一 App 生命週期內 10 分鐘不再對 YouTube 發請求（只是冷卻，不換 IP／client）。
 - 不產生、不偽造 PO Token；回應若表示需要 PO Token（只有 SABR、沒有 HLS／url）→ 視為不可播，提示並停止。
@@ -245,7 +248,7 @@
 - 直播清單的 YouTube 頻道第一版仍標「不支援」。
 
 ### 10.8 驗收（階段 2）
-- `swift test` 全過；新增單元測試：網址判斷（各種 YouTube 網址取 ID、非 YouTube 回 nil）、player 回應解析（用原型存下的 VISIONOS／ANDROID 回應當固定資料：有 HLS 取 HLS、只有 SABR 判不可播、LOGIN_REQUIRED／年齡限制回正確錯誤）、開關關閉時不發請求、下載拒絕 YouTube。
+- `swift test` 全過；新增單元測試：網址判斷（各種 YouTube 網址取 ID、非 YouTube 回 nil）、player 回應解析（用原型存下的 VISIONOS／ANDROID 回應當固定資料：有 HLS 取 HLS、只有 SABR 判不可播、LOGIN_REQUIRED／年齡限制回正確錯誤、要求內容確認 → 停止）、送出的請求 body 不含 `contentCheckOk`／`racyCheckOk`、segment 403 只重取一次、開關關閉時不發請求、下載拒絕 YouTube。
 - iOS Simulator（本分支 build），YouTube｜PY 一部公開影片：
   1. 點播 10 秒內起播、有畫面有聲音；
   2. 拖到中段後 10 秒內續播；

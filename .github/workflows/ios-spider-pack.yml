@@ -13,6 +13,9 @@ on:
       version:
         description: "Version shown in Settings, e.g. 2026-10-20.1"
         required: true
+      release_notes:
+        description: "版本說明（必填）：這次為什麼發、改了什麼；多項用「；」或換行分開。不寫站名、設定檔名、站數或成人內容"
+        required: true
 
 # Same group as the IPA release: both push to ios-poc, so they never run at the same time.
 concurrency:
@@ -32,8 +35,11 @@ jobs:
       - name: Refuse a sequence that is not above the published one or the App's baseline
         env:
           SEQUENCE: ${{ inputs.sequence }}
+          NOTES: ${{ inputs.release_notes }}
         run: |
           case "$SEQUENCE" in ''|*[!0-9]*) echo "sequence must be a whole number"; exit 1;; esac
+          # W-199: every pack says why it was published.
+          if [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]-')" ]; then echo "release_notes must not be empty"; exit 1; fi
           published=0
           if [ -f spider-pack/official/manifest.json ]; then
             published=$(python3 -c 'import json; print(json.load(open("spider-pack/official/manifest.json"))["sequence"])')
@@ -51,9 +57,12 @@ jobs:
         env:
           SEQUENCE: ${{ inputs.sequence }}
           VERSION: ${{ inputs.version }}
+          NOTES: ${{ inputs.release_notes }}
         run: |
-          python3 -I scripts/runtime_pack.py build --sequence "$SEQUENCE" --version "$VERSION" --out spider-pack/official
+          python3 -I scripts/runtime_pack.py build --sequence "$SEQUENCE" --version "$VERSION" --notes "$NOTES" --out spider-pack/official
           python3 -I scripts/runtime_pack.py verify --dir spider-pack/official
+          python3 -I scripts/runtime_pack.py changelog --sequence "$SEQUENCE" --version "$VERSION" --notes "$NOTES" \
+            --commit "$(git rev-parse HEAD)" --date "$(TZ=Asia/Taipei date +%F)"
 
       - name: Publish
         env:
@@ -62,7 +71,7 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add spider-pack/official
+          git add spider-pack/official spider-pack/CHANGELOG.md
           git commit -m "release(ios): publish the official spider pack $VERSION (sequence $SEQUENCE)"
           git pull --rebase origin ios-poc
           git push origin HEAD:ios-poc

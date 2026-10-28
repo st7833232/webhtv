@@ -112,6 +112,14 @@ private func globalDocument(_ edit: (inout [String: Any]) -> Void = { _ in }) ->
     #expect(candidate.generation.id.hasPrefix("gen-3-"))
 }
 
+// W-199: the official pack now carries its release notes in `notes`; they change nothing else about the pack.
+@Test func releaseNotesInTheManifestAreReadAndChangeNothingElse() throws {
+    let plain = try RuntimePackManifest.decode(try data(globalDocument { $0.removeValue(forKey: "notes") }))
+    let noted = try RuntimePackManifest.decode(try data(globalDocument { $0["notes"] = "網頁站分類篩選補上字母條件。" }))
+    #expect(plain.notes == nil && noted.notes == "網頁站分類篩選補上字母條件。")
+    #expect(noted.files == plain.files && noted.sequence == plain.sequence && noted.version == plain.version)
+}
+
 @Test func aNewerMinorOrAnotherMajorIsRefusedAsNeedingANewerApp() {
     let installed = RuntimeABI.Surface.jsHost.version.minor
     let minor = rejection { try validateConfig(document(requires { $0["abi"] = ["js.host": ["major": 1, "minMinor": installed + 1], "catvod.result": ["major": 1, "minMinor": 0]] })) }

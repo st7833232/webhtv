@@ -9,8 +9,9 @@ served beside a configuration), and the two live side by side; this tool never t
 **Unsigned** by the user's 2026-10-15 decision: there is no `sign` or `keygen`. The trust is the App's
 compiled-in HTTPS address, every blob's SHA-256 and the sequence floor.
 
-    build  --sequence N --version V [--scripts DIR] --out DIR   write the pack; existing blobs are kept
+    build  --sequence N --version V [--notes TEXT] [--scripts DIR] --out DIR   write the pack; existing blobs are kept
     verify --dir DIR                                            0 problems or exit 1
+    changelog --file F --sequence N --version V --notes TEXT --commit SHA     add the release's section on top (W-199)
 
 Provenance, per-script `minHostApi` and pack aliases come from `spider_pack.DEFAULT_ORIGINS`, and the
 App's own Swift aliases (`SpiderRegistry.aliases`) are added, so every name the App binds runs the
@@ -75,6 +76,8 @@ def build(args) -> int:
                 "sequence": args.sequence, "version": args.version,
                 "requires": {"abi": {"js.host": JS_HOST, "catvod.result": CATVOD_RESULT}},
                 "files": files}
+    if args.notes and args.notes.strip():  # W-199: the App reads `notes` as untrusted plain text
+        manifest["notes"] = args.notes.strip()
     (out / "manifest.json").write_bytes(encode(manifest))
     print(f"official pack {args.version} (sequence {args.sequence}): {len(files)} scripts → {out}")
     return verify_dir(out)
@@ -95,6 +98,8 @@ def problems_in(directory: pathlib.Path) -> list[str]:
         found.append(f"requires.abi js.host is {abi.get('js.host')}, not the base {JS_HOST}")
     if "catvod.result" not in abi:
         found.append("requires.abi has no catvod.result")
+    if "notes" in manifest and not (isinstance(manifest["notes"], str) and manifest["notes"].strip()):
+        found.append("notes must be non-empty text")
     for key in ("revokeKeyIds", "directive"):
         if key in manifest:
             found.append(f"{key} is not used by the unsigned official pack")
@@ -142,6 +147,26 @@ def verify_dir(directory: pathlib.Path) -> int:
     return 1 if found else 0
 
 
+def changelog(args) -> int:
+    """W-199: the newest release goes first, under the file's introduction."""
+    # One item per line or per 「；」: the Actions form has a single-line box.
+    notes = [item.strip(" -") for line in args.notes.splitlines() for item in line.split("；") if item.strip(" -")]
+    if not notes:
+        print("release notes are empty")
+        return 1
+    path = pathlib.Path(args.file)
+    text = path.read_text(encoding="utf-8")
+    heading = f"## 第 {args.sequence} 包 · {args.version}"
+    if heading in text:
+        print(f"{heading} is already in {path}")
+        return 1
+    section = "\n".join([f"{heading}（{args.date}）", *[f"- {line}" for line in notes],
+                         f"- 依據：打包 `{args.commit[:8]}`。", "", ""])
+    at = text.find("\n## ") + 1 if "\n## " in text else len(text)
+    path.write_text(text[:at] + section + text[at:], encoding="utf-8")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -151,9 +176,19 @@ def main() -> int:
     b.add_argument("--out", required=True)
     b.add_argument("--sequence", type=int, required=True)
     b.add_argument("--version", required=True)
+    b.add_argument("--notes", default="")
     v = sub.add_parser("verify")
     v.add_argument("--dir", required=True)
+    c = sub.add_parser("changelog")
+    c.add_argument("--file", default="spider-pack/CHANGELOG.md")
+    c.add_argument("--sequence", type=int, required=True)
+    c.add_argument("--version", required=True)
+    c.add_argument("--notes", required=True)
+    c.add_argument("--commit", required=True)
+    c.add_argument("--date", required=True)
     args = parser.parse_args()
+    if args.command == "changelog":
+        return changelog(args)
     if args.command == "build":
         if args.sequence < 1:
             parser.error("--sequence must be ≥ 1")

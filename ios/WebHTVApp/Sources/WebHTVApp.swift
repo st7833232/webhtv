@@ -1530,7 +1530,7 @@ private struct CMSView: View {
             let response = try await listing(page: pager.next)
             guard generation == listingGeneration else { return }
             let merged = items.merging(newTitlesFrom: response.list)
-            pager.loaded(adding: merged.count - items.count)
+            pager.loaded(listing: response.list.count, adding: merged.count - items.count)
             Logger(subsystem: "com.webhtv.ios.poc", category: "listing")
                 .notice("[listing] page \(pager.page, privacy: .public) +\(merged.count - items.count, privacy: .public) ended=\(pager.ended, privacy: .public)")
             items = merged

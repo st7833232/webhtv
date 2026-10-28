@@ -125,15 +125,18 @@
       return host.result.list(all);
     },
 
-    // /vodshow/{cateId}-{area}-{by}-{class}-{lang}----{pg}---{year} (Duboku.java:96–107), each part URL-encoded.
+    // /vodshow/{cateId}-{area}-{by}-{class}-{lang}-{letter}---{pg}---{year}, each part URL-encoded. Duboku.java:96–107
+    // leaves the letter out, so its 字母 row did nothing (W-213).
     categoryContent: function (tid, pg, filter, extend) {
       var ext = extend || {}, page = pageNumber(pg);
       function part(key, fallback) { return encodeURIComponent(text(ext[key] === undefined ? fallback : ext[key])); }
       var path = '/vodshow/' + part('cateId', tid) + '-' + part('area', '') + '-' + part('by', '') + '-'
-        + part('class', '') + '-' + part('lang', '') + '----' + page + '---' + part('year', '');
-      var data = api(path);
-      // Upstream's paging, unbounded: 48 a page, ceil(2^31-1 / 48) pages (Duboku.java:111, :130).
-      return host.result.page(vods(data && data.VodList), page, 44739243, 48, 2147483647);
+        + part('class', '') + '-' + part('lang', '') + '-' + part('letter', '') + '---' + page + '---' + part('year', '');
+      var data = api(path), raw = data && data.VodList;
+      // 48 a page; a short page is the last, counted before vods() drops unusable items. A failed request is
+      // not the end, so FongMi's next scroll retries it.
+      var count = Array.isArray(raw) ? raw.length : 0, last = Array.isArray(raw) && count < 48;
+      return host.result.page(vods(raw), page, last ? page : page + 1, 48, (page - 1) * 48 + count + (last ? 0 : 1));
     },
 
     detailContent: function (ids) {

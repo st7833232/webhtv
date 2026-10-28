@@ -169,20 +169,33 @@ private func item(_ name: String, did: String = "GdlRGZvZ3L5kDNx8CbpF.MTN", extr
     @Test func aCategoryBuildsUpstreamsPathFromTheFiltersAndAWholePage() async throws {
         let reply = try json(["VodList": [item("兰香如故")]])
         DubokuSite.serve(["/vodshow/2-大陆-人气-古装-国语----3---2024": reply, "/vodshow/13--------1---": reply,
-                          "/vodshow/1--------1---": reply])
+                          "/vodshow/1--------1---": reply, "/vodshow/2-----A---1---": reply])
         let spider = try await duboku()
         let page = try object(try await spider.categoryContent(
             tid: "2", page: "3", filter: true, extend: ["area": "大陆", "year": "2024", "by": "人气", "class": "古装", "lang": "国语"]))
         #expect(DubokuSite.requests.last?.url.path == "/vodshow/2-大陆-人气-古装-国语----3---2024")
         #expect(DubokuSite.requests.last?.url.absoluteString.contains("/vodshow/2-%E5%A4%A7%E9%99%86-") == true)
-        #expect(page["page"] as? Int == 3 && page["pagecount"] as? Int == 44739243)
-        #expect(page["limit"] as? Int == 48 && page["total"] as? Int == 2147483647)
+        // One title is a short page, so the last one (W-213).
+        #expect(page["page"] as? Int == 3 && page["pagecount"] as? Int == 3)
+        #expect(page["limit"] as? Int == 48 && page["total"] as? Int == 97)
         #expect((page["list"] as? [[String: Any]])?.first?["vod_id"] as? String == "/voddetail/149953")
         // extend.cateId wins over tid; a page that is not a whole number, or below 1, is page 1.
         _ = try await spider.categoryContent(tid: "2", page: "x", filter: false, extend: ["cateId": "13"])
         #expect(DubokuSite.requests.last?.url.path == "/vodshow/13--------1---")
         _ = try await spider.categoryContent(tid: "1", page: "0", filter: false, extend: [:])
         #expect(DubokuSite.requests.last?.url.path == "/vodshow/1--------1---")
+        // The 字母 row goes between 语言 and the page, where Duboku.java left it out (W-213).
+        _ = try await spider.categoryContent(tid: "2", page: "1", filter: true, extend: ["letter": "A"])
+        #expect(DubokuSite.requests.last?.url.path == "/vodshow/2-----A---1---")
+    }
+
+    @Test func aWholePageGoesOnEvenWhenATitleIsDropped() async throws {
+        // 48 from the site, one of which does not decode: still a whole page, so paging goes on (W-213).
+        let titles: [Any] = (0..<47).map { item("第\($0)部") } + [item("坏DId", did: "!!!!")]
+        DubokuSite.serve(["/vodshow/1--------2---": try json(["VodList": titles])])
+        let page = try object(try await duboku().categoryContent(tid: "1", page: "2", filter: false, extend: [:]))
+        #expect((page["list"] as? [Any])?.count == 47)
+        #expect(page["pagecount"] as? Int == 3 && page["total"] as? Int == 97)
     }
 
     @Test func listItemsThatDoNotDecodeAreSkippedAndRatingsPrintLikeJava() async throws {

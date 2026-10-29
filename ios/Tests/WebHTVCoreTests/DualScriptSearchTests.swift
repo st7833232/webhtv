@@ -56,8 +56,8 @@ import Testing
 }
 
 @Test func pagesEachFormOnlyWhileItAddsTitles() async {
-    // "a" has a page 2 and then ends; "b" repeats a title already shown, as a source that ignores pg does.
-    let pages: [String: [Int: [Vod]]] = ["a": [2: [title("3")], 3: []], "b": [2: [title("2")]]]
+    // "a" has a page 2 and then repeats itself; "b" repeats a title already shown, as a source that ignores pg does.
+    let pages: [String: [Int: [Vod]]] = ["a": [2: [title("3")], 3: [title("3")]], "b": [2: [title("2")]]]
     let start = DualScriptSearch.Cursor(pending: [.init(keyword: "a", page: 2), .init(keyword: "b", page: 2)])
     let first = await DualScriptSearch.nextPage(after: [title("1"), title("2")], cursor: start) { keyword, page in
         pages[keyword]?[page] ?? []
@@ -83,7 +83,7 @@ import Testing
     #expect(next.cursor.pending == [.init(keyword: "a", page: 3), .init(keyword: "b", page: 2)])
 }
 
-@Test func aFailingFormStopsWithoutStoppingTheOther() async {
+@Test func aFailingFormIsAskedAgainWithoutStoppingTheOther() async {
     struct Refused: Error {}
     let start = DualScriptSearch.Cursor(pending: [.init(keyword: "庆余年", page: 2), .init(keyword: "慶餘年", page: 2)])
     let next = await DualScriptSearch.nextPage(after: [title("1")], cursor: start) { keyword, _ in
@@ -91,7 +91,35 @@ import Testing
         return [title("2")]
     }
     #expect(next.vods.map(\.id) == ["1", "2"])
-    #expect(next.cursor.pending == [.init(keyword: "慶餘年", page: 3)])
+    #expect(next.cursor.pending == [.init(keyword: "庆余年", page: 2, failures: 1), .init(keyword: "慶餘年", page: 3)])
+}
+
+/// W-216: py/duboku.py answers a failed request with an empty list; the same page is tried again, and
+/// the search pages on once it answers.
+@Test func anEmptyOrFailedPageIsAskedAgainUntilItAnswers() async {
+    struct Refused: Error {}
+    var cursor = DualScriptSearch.Cursor(pending: [.init(keyword: "a", page: 2)])
+    var vods = [title("1")]
+    for attempt in 1...2 {
+        let next = await DualScriptSearch.nextPage(after: vods, cursor: cursor) { _, _ in
+            if attempt == 1 { return [] }
+            throw Refused()
+        }
+        #expect(next.cursor.pending == [.init(keyword: "a", page: 2, failures: attempt)])
+        (vods, cursor) = (next.vods, next.cursor)
+    }
+    let answered = await DualScriptSearch.nextPage(after: vods, cursor: cursor) { _, _ in [title("2")] }
+    #expect(answered.vods.map(\.id) == ["1", "2"])
+    #expect(answered.cursor.pending == [.init(keyword: "a", page: 3)])
+}
+
+@Test func aFormIsDroppedAfterThreeEmptyPagesInARow() async {
+    var cursor = DualScriptSearch.Cursor(pending: [.init(keyword: "a", page: 2)])
+    for _ in 0..<ListingPager.retries {
+        #expect(!cursor.isFinished)
+        cursor = await DualScriptSearch.nextPage(after: [title("1")], cursor: cursor) { _, _ in [] }.cursor
+    }
+    #expect(cursor.isFinished)
 }
 
 @Test func oneFormPagesAsLoadMoreAlwaysHas() async throws {

@@ -73,9 +73,11 @@ public enum DualScriptSearch {
     }
 
     /// The next page of every form still adding titles, one after the other, merged onto `shown`. A
-    /// form whose page adds nothing (the end of its list, or a source that ignores the page number and
-    /// repeats itself) or fails is not asked again; the others carry on. With one form this is the
-    /// rule 載入更多 has always had.
+    /// form whose page lists only titles already shown (the end of its list, or a source that ignores
+    /// the page number and repeats itself) is not asked again; the others carry on. A page that fails
+    /// or comes back empty is asked again next time, as `ListingPager` does (W-216): a Python spider
+    /// answers its network errors with an empty list. A form is dropped after `ListingPager.retries`
+    /// such pages in a row.
     public static func nextPage(
         after shown: [Vod], cursor: Cursor,
         search: @Sendable (_ keyword: String, _ page: Int) async throws -> [Vod]
@@ -87,7 +89,12 @@ public enum DualScriptSearch {
                 pending.append(form)
                 continue
             }
-            guard let page = try? await search(form.keyword, form.page) else { continue }
+            guard let page = try? await search(form.keyword, form.page), !page.isEmpty else {
+                if form.failures + 1 < ListingPager.retries {
+                    pending.append(Cursor.Form(keyword: form.keyword, page: form.page, failures: form.failures + 1))
+                }
+                continue
+            }
             let merged = vods.merging(newTitlesFrom: page)
             guard merged.count > vods.count else { continue }
             vods = merged
@@ -102,6 +109,8 @@ public enum DualScriptSearch {
         public struct Form: Sendable, Equatable {
             public let keyword: String
             public let page: Int
+            /// Pages in a row that failed or came back empty (W-216).
+            public var failures = 0
         }
 
         /// In the order the forms were first asked.

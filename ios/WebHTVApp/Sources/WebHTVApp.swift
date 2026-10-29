@@ -1512,10 +1512,15 @@ private struct CMSView: View {
                 let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
                 let shown = items
                 let next = await DualScriptSearch.nextPage(after: shown, cursor: cursor) { keyword, page in
-                    try await client.search(keyword, page: page).list
+                    #if DEBUG
+                    if page == ListingFault.searchPending { ListingFault.searchPending = 0; throw URLError(.timedOut) }
+                    #endif
+                    return try await client.search(keyword, page: page).list
                 }
                 // Another keyword, or a listing, came on screen meanwhile: this page belongs to the old one.
                 guard generation == listingGeneration, searchCursor == cursor else { return }
+                Logger(subsystem: "com.webhtv.ios.poc", category: "listing").notice(
+                    "[listing] search +\(next.vods.count - shown.count, privacy: .public) next=\(next.cursor.pending.map { "\($0.page)/\($0.failures)" }.joined(separator: ","), privacy: .public)")
                 // Onto what is on screen now, which a refresh of the same keyword may have replaced.
                 items = items.merging(newTitlesFrom: Array(next.vods.dropFirst(shown.count)))
                 searchCursor = next.cursor
@@ -1795,6 +1800,9 @@ private struct AggregateSearchView: View {
     /// One page of one site, through the same client the home screen uses.
     private static func search(in source: ConfigSource) -> AggregateSearch.Search {
         { site, keyword, page in
+            #if DEBUG
+            if page == ListingFault.searchPending { ListingFault.searchPending = 0; throw URLError(.timedOut) }
+            #endif
             let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
             return try await client.search(keyword, page: page).list
         }
@@ -9442,5 +9450,7 @@ private struct WebHomeWebView: UIViewRepresentable {
 #if DEBUG
 @MainActor enum ListingFault {
     static var pending = UserDefaults.standard.integer(forKey: "failListingPageOnce")
+    /// W-216: `-failSearchPageOnce N` makes a search's page N fail the first time.
+    nonisolated(unsafe) static var searchPending = UserDefaults.standard.integer(forKey: "failSearchPageOnce")
 }
 #endif

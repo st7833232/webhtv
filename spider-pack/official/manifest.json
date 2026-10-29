@@ -288,11 +288,11 @@
       "sha256": "bc54e9886cb508f41a08e2afa1c8c64a1ecacad0421140b9480d90cb107519e6"
     },
     {
-      "bytes": 36519,
+      "bytes": 36678,
       "class": "XBPQ",
       "logicalType": "spider.js",
       "path": "spiders/XBPQ.js",
-      "sha256": "fb9020d6d5aa6de5b66c5b75886d01142417b956e9a470eea98f9f3bdd5c829c"
+      "sha256": "ae8ea7c7071f9446849d3b1a12e4117b114c594a9da98d979ede4ae0c7e9c629"
     },
     {
       "bytes": 16753,
@@ -303,6 +303,7 @@
     }
   ],
   "format": "webhtv.runtime-pack",
+  "notes": "網頁站播放時，跳轉後的頁面若不是影片網址，改從跳轉後的頁面找影片（與 Android 做法一致）",
   "packId": "webhtv.spiders",
   "requires": {
     "abi": {
@@ -320,6 +321,6 @@
   "scope": {
     "kind": "global"
   },
-  "sequence": 13,
-  "version": "2026-10-28.1"
+  "sequence": 14,
+  "version": "2026-10-29.1"
 }

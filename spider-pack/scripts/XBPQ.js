@@ -679,7 +679,8 @@ var spider = (function () {
       var target = String(id);
       if (isVideo(target)) return host.result.play(target, false, headers);
       var raw = fetch(target);
-      var url = jumpedUrl(compact(raw));
+      var jumped = jumpedUrl(compact(raw));
+      var url = jumped;
       if (!isVideo(url) && pick(['免嗅', 'mac', 'Anal_MacPlayer'], '1') !== '0') url = macPlayerUrl(raw) || url;
       if (!isVideo(url)) url = host.match(raw, '"url"\\s*:\\s*"([^"]+)"').replace(/\\\//g, '/') || url;
       // Several stui templates publish the stream as `var now="https://.../index.m3u8"` instead.
@@ -687,7 +688,8 @@ var spider = (function () {
       // Last resort, and what the original's 嗅探 amounts to: the page contains exactly one stream.
       if (!isVideo(url)) url = host.match(raw, '(https?:[^"\'\\s\\\\$#]+\\.(?:m3u8|mp4|mkv|flv)[^"\'\\s\\\\$#]*)') || url;
       if (isVideo(url)) return host.result.play(url, false, headers);
-      return host.result.play(target, true, headers);
+      // As xyqxbpq.jar does: a jump that stopped on a player page hands that page, not the episode page, to the sniffer.
+      return host.result.play(jumped || target, true, headers);
     },
 
     isVideoFormat: function (url) { return isVideo(url); },

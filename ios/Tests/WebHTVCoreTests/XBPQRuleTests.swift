@@ -490,6 +490,17 @@ func play(_ spider: JavaScriptSpiderRuntime, _ id: String) async throws -> (url:
     await hops.destroy()
 }
 
+/// W-222: when the hops end on a player page rather than a stream, that page is what gets sniffed, as
+/// FongMi's xyqxbpq.jar answers (光速影视: `var now` → a share page whose `const vid` uses double quotes).
+@Test func sniffsThePageTheJumpReachedWhenItIsNotAStream() async throws {
+    RuleSite.serve([
+        "https://s21.invalid/play/4.html": #"<script>var now="https://share.invalid/share/abc";</script>"#,
+        "https://share.invalid/share/abc": #"<script>const vid = "abc"; const url = "/20261029/abc/index.m3u8";</script>"#])
+    let spider = try await xbpq(#"{"分类url":"https://s21.invalid/{cateId}","跳转播放链接":"var now=\"&&\"","二次跳转播放链接":"const vid = '&&'"}"#)
+    #expect(try await play(spider, "https://s21.invalid/play/4.html") == ("https://share.invalid/share/abc", 1))
+    await spider.destroy()
+}
+
 /// 免嗅 reads the `player_*` JSON, including encrypt 2 (base64 of the escaped address); `嗅探词` decides
 /// what counts as a stream, so a site that only accepts `.mp4` hands an m3u8 page to the sniffer.
 @Test func readsThePlayerJSONAndHonoursTheSniffWords() async throws {

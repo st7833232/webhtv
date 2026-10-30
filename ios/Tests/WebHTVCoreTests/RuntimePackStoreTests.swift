@@ -28,7 +28,7 @@ private struct Built {
 }
 
 private func built(_ sequence: UInt64, _ scripts: [Script], jsHostMinor: Int = 1,
-                   packId: String = "webhtv.spiders") throws -> Built {
+                   packId: String = "webhtv.spiders", notes: String? = nil) throws -> Built {
     var files = [String: Data]()
     let entries: [[String: Any]] = scripts.map { s in
         let data = Data(s.body.utf8)
@@ -45,7 +45,9 @@ private func built(_ sequence: UInt64, _ scripts: [Script], jsHostMinor: Int = 1
         "requires": ["abi": ["js.host": ["major": 1, "minMinor": jsHostMinor], "catvod.result": ["major": 1, "minMinor": 0]]],
         "files": entries,
     ]
-    let manifest = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    var withNotes = object
+    if let notes { withNotes["notes"] = notes }
+    let manifest = try JSONSerialization.data(withJSONObject: withNotes, options: [.sortedKeys])
     let decoded = try RuntimePackManifest.decode(manifest)
     let candidate = RuntimePackCandidate(manifest: decoded, scope: .global, manifestSHA256: sha(manifest),
                                          contentIdentity: decoded.contentIdentity, signer: nil)
@@ -175,6 +177,21 @@ private func host(jsHost: RuntimeABI.Version) -> RuntimeHost {
         #expect(generations(root) == Set(ids.suffix(2)))
         let state = try #require(await store.state())
         #expect(state.active?.id == ids[2] && state.lastKnownGood?.id == ids[1])
+    }
+
+    // W-232: the kept generations' notes, newest first, trimmed; a generation without notes adds nothing.
+    @Test func releaseNotesListTheKeptGenerationsNewestFirst() async throws {
+        let store = RuntimePackStore(root: temporaryRoot())
+        #expect(await store.releaseNotes().isEmpty)
+        for (sequence, notes) in [(1, "一"), (2, "  二\n "), (3, nil)] as [(UInt64, String?)] {
+            let pack = try built(sequence, [Script(name: "AppGet", body: script("\(sequence)"))], notes: notes)
+            try await store.install(pack.candidate, manifest: pack.manifest, files: pack.files)
+            if sequence == 2 {
+                #expect(await store.releaseNotes() == [RuntimePackReleaseNote(version: "s2", sequence: 2, notes: "二"),
+                                                       RuntimePackReleaseNote(version: "s1", sequence: 1, notes: "一")])
+            }
+        }
+        #expect(await store.releaseNotes() == [RuntimePackReleaseNote(version: "s2", sequence: 2, notes: "二")])
     }
 
     // G7: the sequence floor holds; the same pack again is a no-op.

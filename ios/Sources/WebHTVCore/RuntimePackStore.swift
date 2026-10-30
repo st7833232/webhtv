@@ -11,6 +11,13 @@ public struct OfficialSpiderPack: Sendable, Equatable {
     public let aliases: [String: String]
 }
 
+/// W-232: one kept generation's release notes, for the 爬蟲工具 section. Untrusted plain text.
+public struct RuntimePackReleaseNote: Sendable, Equatable {
+    public let version: String
+    public let sequence: UInt64
+    public let notes: String
+}
+
 /// The official pack the registry reads, held outside the store because building a registry is synchronous
 /// and happens on every content call — the lock box `InstalledSpiderPack` is for the compatibility pack.
 public final class ActiveOfficialPack: @unchecked Sendable {
@@ -108,6 +115,21 @@ public actor RuntimePackStore {
             aliases[alias] = target
         }
         return OfficialSpiderPack(generation: pack.generation, version: pack.version, scripts: scripts, aliases: aliases)
+    }
+
+    /// W-232: the notes of the generations still on disk, newest first: the active one, then the last known good
+    /// (an older sequence, since sequences only increase).
+    /// One without notes, missing, or no longer matching its digest is left out.
+    public func releaseNotes() -> [RuntimePackReleaseNote] {
+        guard let state = state() else { return [] }
+        return [state.active, state.lastKnownGood].compactMap { $0 }.compactMap { generation in
+            guard let data = try? Data(contentsOf: generationURL(generation).appendingPathComponent("manifest.json")),
+                  runtimeSHA256(data) == generation.manifestSHA256,
+                  let manifest = try? RuntimePackManifest.decode(data),
+                  let notes = manifest.notes?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty
+            else { return nil }
+            return RuntimePackReleaseNote(version: manifest.version, sequence: manifest.sequence, notes: notes)
+        }
     }
 
     /// Whether `generation`'s files are on disk (a restore leaves them out).

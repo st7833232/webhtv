@@ -155,6 +155,7 @@ private struct ConfigView: View {
     /// a spinner stands in for every screen that depends on it — never a wrong site, a banner or 尚未載入設定.
     @State private var officialLoaded = false
     @State private var spiderToolNote = ""
+    @State private var spiderToolReleaseNotes: [RuntimePackReleaseNote] = []
     @State private var spiderToolCheckedAt: Date?
     @State private var spiderToolOutcome: RuntimePackUpdater.Outcome?
     @State private var spiderToolBusy = false
@@ -246,6 +247,7 @@ private struct ConfigView: View {
                             packStatus: packStatus,
                             spiderToolStatus: SpiderToolText.status(of: officialPack),
                             spiderToolNote: spiderToolNote,
+                            spiderToolReleaseNotes: spiderToolReleaseNotes,
                             spiderToolCheckedAt: spiderToolCheckedAt,
                             spiderToolBusy: spiderToolBusy,
                             onCheckSpiderTool: checkSpiderTool,
@@ -552,6 +554,7 @@ private struct ConfigView: View {
 
     private func loadOfficialPack() async {
         officialPack = await RuntimePackStore.shared.load(host: .installed())
+        spiderToolReleaseNotes = await RuntimePackStore.shared.releaseNotes()
         ActiveOfficialPack.shared.set(officialPack)
         officialLoaded = true
     }
@@ -2061,6 +2064,8 @@ private struct SettingsView: View {
     /// IOS-POC-61 S3
     let spiderToolStatus: String
     let spiderToolNote: String
+    /// W-232: newest first; empty shows nothing.
+    let spiderToolReleaseNotes: [RuntimePackReleaseNote]
     let spiderToolCheckedAt: Date?
     let spiderToolBusy: Bool
     let onCheckSpiderTool: () -> Void
@@ -2311,6 +2316,12 @@ private extension SettingsView {
     @ViewBuilder var spiderToolSection: some View {
         Section {
             LabeledContent("狀態", value: spiderToolStatus)
+            ForEach(spiderToolReleaseNotes, id: \.sequence) { note in
+                // Untrusted plain text: `verbatim` renders no Markdown or links; collapsed, so 4 KB never buries the buttons.
+                DisclosureGroup("版本說明 \(note.version)（序號 \(note.sequence)）") {
+                    Text(verbatim: note.notes).font(.footnote).textSelection(.enabled)
+                }
+            }
             // A configuration's own compatibility pack still wins over the official one (plan §3.4).
             if !packStatus.isEmpty { LabeledContent("設定檔相容包", value: packStatus) }
             if let spiderToolCheckedAt {

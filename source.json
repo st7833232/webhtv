@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.88",
+          "date": "2026-10-30",
+          "localizedDescription": "設定：\n- 設定檔不是明碼時，App 會自動嘗試解開 TVBox 常見的加密格式（base64 與 AES 包裝），不需要另外選擇或設定；做法和 Android 版相同。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.88-b89/WebHTV-0.1.88-89.ipa",
+          "size": 35738591,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.87",
           "date": "2026-10-29",
           "localizedDescription": "搜尋：\n- 搜尋結果捲到底時某一頁載入失敗或回空，不會再從此停止翻頁；再往下捲會重新載入那一頁（連續 3 次才停）。片單內搜尋、搜尋分頁和全站搜尋都適用。\n\n播放：\n- 部分網頁站的線路需要先跳到分享頁才拿得到影片，現在會改從跳轉後的頁面找影片，和 Android 的做法一致，原本顯示「沒有可播放的網址」的線路可以播了。",

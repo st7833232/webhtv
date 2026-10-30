@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.89",
+          "date": "2026-10-30",
+          "localizedDescription": "設定：\n- 「設定 → 爬蟲工具」可以查看爬蟲包的版本說明。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.89-b90/WebHTV-0.1.89-90.ipa",
+          "size": 35744229,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.88",
           "date": "2026-10-30",
           "localizedDescription": "設定：\n- 設定檔不是明碼時，App 會自動嘗試解開 TVBox 常見的加密格式（base64 與 AES 包裝），不需要另外選擇或設定；做法和 Android 版相同。",

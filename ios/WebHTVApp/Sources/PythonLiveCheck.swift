@@ -55,7 +55,7 @@ enum PythonLiveCheck {
                                                         in: .userDomainMask,
                                                         appropriateFor: nil, create: false),
               let data = try? Data(contentsOf: support.appendingPathComponent("wang-movie.json")),
-              let config = try? JSONDecoder().decode(WebHTVConfig.self, from: data)
+              let config = try? ConfigLoader.decode(data)
         else { return nil }
         return (config, .remote(url))
     }

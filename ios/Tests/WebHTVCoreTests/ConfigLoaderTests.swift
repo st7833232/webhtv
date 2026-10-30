@@ -64,3 +64,44 @@ import Testing
     #expect(config.sites.first { $0.key == "t4str" }?.ext == nil)
     #expect(config.sites.first { $0.key == "t4num" }?.ext == nil)
 }
+
+// W-228: FongMi's wrapped configuration formats (`Decoder.verify`), built here from a synthetic config.
+private let wrappedSource = #"{"sites":[{"key":"cms","name":"CMS","type":1,"api":"https://example.com/api.php/provide/vod"}]}"#
+
+/// `Decoder.cbc` read backwards: hex of `$#<key>#$`, the AES-CBC ciphertext, then the 13-character IV.
+private func cbcWrapped(_ plain: String, key: String = "w228key", iv: String = "1234567890123") -> String {
+    func hex(_ text: String) -> String { Data(text.utf8).map { String(format: "%02x", $0) }.joined() }
+    let pad = { (value: String) in value + String(repeating: "0", count: 16 - value.count) }
+    let cipher = CryptoHost.run(algorithm: "aes", encrypt: true, input: plain, key: pad(key), iv: pad(iv),
+                                mode: "CBC", inputEncoding: "hex")
+    return hex("$#\(key)#$") + cipher + hex(iv)
+}
+
+@Test func decodesFongMiBase64AndCBCWrappedConfigs() throws {
+    let base64 = "// header\nAbCd1234**" + Data(wrappedSource.utf8).base64EncodedString()
+    let cbc = cbcWrapped(wrappedSource)
+    let cbcWithWhitespace = String(cbc.prefix(40)) + "\n  " + String(cbc.dropFirst(40))
+    let both = "Zz9Yy8Xx**" + Data(cbc.utf8).base64EncodedString()
+    for text in [base64, cbc, cbcWithWhitespace, both] {
+        let config = try ConfigLoader.decode(Data(text.utf8))
+        #expect(config.sites.map(\.key) == ["cms"], "\(text.prefix(12))")
+        #expect(config.sites[0].api == "https://example.com/api.php/provide/vod")
+    }
+    #expect(cbc.hasPrefix("2423"))
+}
+
+@Test func leavesJSONAloneAndRejectsBrokenWrappers() throws {
+    // A real JSON object is never unwrapped, even when a value happens to contain the markers.
+    let json = #"{"sites":[{"key":"k","name":"AbCd1234**x","type":1,"api":"https://example.com/2423"}]}"#
+    #expect(ConfigLoader.unwrapped(Data(json.utf8)) == Data(json.utf8))
+    #expect(try ConfigLoader.decode(Data(json.utf8)).sites[0].name == "AbCd1234**x")
+
+    let cbc = cbcWrapped(wrappedSource)
+    for broken in ["2423zz", "2423" + String(repeating: "00", count: 20), String(cbc.dropLast(26)),
+                   // The same ciphertext behind a different `$#key#$` (18 hex digits instead of 22): wrong key.
+                   String(cbcWrapped("x", key: "other").prefix(18)) + String(cbc.dropFirst(22)),
+                   "AbCd1234**%%%not base64%%%", "ab**" + Data(wrappedSource.utf8).base64EncodedString()] {
+        #expect(throws: (any Error).self, "\(broken.prefix(16))") { try ConfigLoader.decode(Data(broken.utf8)) }
+    }
+    #expect(ConfigLoader.cbc("2423zz") == nil)
+}

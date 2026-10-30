@@ -43,7 +43,39 @@ public enum ConfigLoader {
         // QIST-JSONC: shared configs such as qist XYQ.json carry `//` comments. JSON5 is a superset
         // of JSON, so standard configs decode exactly as before and invalid data is still rejected.
         decoder.allowsJSON5 = true
-        return try decoder.decode(WebHTVConfig.self, from: data)
+        return try decoder.decode(WebHTVConfig.self, from: unwrapped(data))
+    }
+
+    /// W-228: FongMi's `Decoder.verify` — a configuration that is not already a JSON object may be
+    /// wrapped as `<8 alphanumerics>**<base64>`, as `2423…` hex AES-CBC, or the first around the
+    /// second. Anything else is returned untouched and left for the JSON decoder to judge.
+    static func unwrapped(_ data: Data) -> Data {
+        if (try? JSONSerialization.jsonObject(with: data, options: [.json5Allowed])) is [String: Any] { return data }
+        guard var text = String(data: data, encoding: .utf8) else { return data }
+        // `Decoder.extract`: everything after the first marker; a body that will not decode is kept as is.
+        if text.contains("**"), let marker = text.range(of: "[A-Za-z0-9]{8}\\*\\*", options: .regularExpression),
+           let decoded = Data(base64Encoded: String(text[marker.upperBound...]), options: .ignoreUnknownCharacters),
+           let plain = String(data: decoded, encoding: .utf8) {
+            text = plain
+        }
+        if text.hasPrefix("2423"), let plain = cbc(text.filter { !$0.isWhitespace }) { text = plain }
+        return Data(text.utf8)
+    }
+
+    /// `Decoder.cbc`: the hex spells `$#key#$ … <13-character IV>`; key and IV are padded with `0` to 16,
+    /// and the ciphertext runs from after the first `2324` to 26 hex digits (the IV) before the end.
+    static func cbc(_ hex: String) -> String? {
+        let spelled = String(decoding: Data(hex: hex), as: UTF8.self).lowercased()
+        guard let open = spelled.range(of: "$#"), let close = spelled.range(of: "#$"), open.upperBound <= close.lowerBound,
+              let body = hex.range(of: "2324"), hex.distance(from: body.upperBound, to: hex.endIndex) >= 26
+        else { return nil }
+        let pad = { (value: String) in value.count >= 16 ? value : value + String(repeating: "0", count: 16 - value.count) }
+        let key = pad(String(spelled[open.upperBound..<close.lowerBound]))
+        let iv = pad(String(spelled.suffix(13)))
+        let cipher = String(hex[body.upperBound..<hex.index(hex.endIndex, offsetBy: -26)])
+        let plain = CryptoHost.run(algorithm: "aes", encrypt: false, input: cipher, key: key, iv: iv,
+                                   mode: "CBC", inputEncoding: "hex")
+        return plain.isEmpty ? nil : plain
     }
 
     /// Decodes and requires at least one usable source, so a syntactically valid but useless payload

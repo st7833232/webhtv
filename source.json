@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.90",
+          "date": "2026-11-03",
+          "localizedDescription": "播放：\n- 自動跳過廣告更準確：長片裡的廣告如果被切成兩小段、而且重複插入好幾次，以前會判斷不出來照樣播出，現在也能自動跳過；其他情況維持原本的判斷，不會多跳正片。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.90-b91/WebHTV-0.1.90-91.ipa",
+          "size": 35745350,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.89",
           "date": "2026-10-30",
           "localizedDescription": "設定：\n- 「設定 → 爬蟲工具」可以查看爬蟲包的版本說明。",

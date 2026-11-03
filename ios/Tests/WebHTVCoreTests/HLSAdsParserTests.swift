@@ -10,6 +10,8 @@ import Testing
 // playlist is byte for byte the one Android saw; `filtered` is the SHA-256 of the playlist Android
 // rebuilt (nil where it returned its input); the ranges, duration and reason are
 // `HlsAdTimeline.from(input, filtered)`'s. A port that drifts from Android's behaviour fails here.
+// The one intended difference (W-235: a two-block ad break counts once) and its limits are tested
+// in HLSAdsParserMergeTests.swift; none of these 26 playlists is affected by it.
 
 struct AndroidGolden: Sendable, CustomTestStringConvertible {
     let name: String

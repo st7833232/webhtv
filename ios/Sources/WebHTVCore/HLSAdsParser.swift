@@ -4,8 +4,10 @@ import Foundation
 ///
 /// The source is the Media3 fork Android main ships
 /// (`third_party/maven/androidx/media3/media3-exoplayer-hls/1.11.0-alpha01-fongmi/…-sources.jar`,
-/// `androidx/media3/exoplayer/hls/playlist/HlsAdsParser.java`). This file invents nothing: the two
-/// strategies, their order, every threshold and every tie-break are that class's. ExoPlayer plays
+/// `androidx/media3/exoplayer/hls/playlist/HlsAdsParser.java`). The two strategies, their order,
+/// every threshold and every tie-break are that class's, with one deliberate exception (W-235,
+/// `findAdsByDiscontinuity`): a run of exactly two adjacent small blocks lasting 60 s or less counts
+/// as one ad break against the runtime limit, where Android counts two. ExoPlayer plays
 /// the playlist this returns; WebHTV never does — it only compares it with the original to learn
 /// *which* segments the detector dropped (`HLSAdTimeline`), and both engines keep playing the
 /// original playlist.
@@ -34,6 +36,8 @@ public enum HLSAdsParser {
     static let durationTierShort = 30.0
     static let durationTierMedium = 60.0
     static let durationTierLong = 90.0
+    /// W-235: the longest two-block run still counted as a single ad break.
+    static let splitBreakMaxSeconds = 60.0
 
     /// `HlsAdsParser.process`: the playlist unchanged when it is not a finished (VOD) playlist or
     /// nothing looks like an ad; otherwise the playlist rebuilt without the ad segments.
@@ -66,13 +70,27 @@ public enum HLSAdsParser {
         var ads = Set<Int>()
         let threshold = Double(mode) * adBlockSizeRatio
         var maxBlockSize = 0
+        // W-235 (not Android): some CDNs split one ad break across two discontinuities, so a long
+        // video with four breaks shows eight small blocks and exceeds the limit of six. A run of
+        // exactly two adjacent small blocks lasting 60 s or less counts once; any longer run still
+        // counts block by block, so a stretch of short programme blocks stays over the limit.
+        let seconds = segmentDurations(lines)
+        var run = [[Int]]()
+        func countRun() {
+            let runSeconds = run.joined().reduce(0.0) { $0 + seconds[$1] }
+            minorityBlocks += run.count == 2 && runSeconds <= splitBreakMaxSeconds ? 1 : run.count
+            run = []
+        }
         for block in analysis {
             maxBlockSize = max(maxBlockSize, block.count)
             if Double(block.count) < threshold {
-                minorityBlocks += 1
                 ads.formUnion(block)
+                run.append(block)
+            } else if !run.isEmpty {
+                countRun()
             }
         }
+        if !run.isEmpty { countRun() }
         if minorityBlocks == 0 && mode * 2 < maxBlockSize {
             for block in analysis where block.count <= mode {
                 minorityBlocks += 1
@@ -107,6 +125,22 @@ public enum HLSAdsParser {
             if let duration = extInfDurationSeconds(line) { seconds += duration }
         }
         return seconds / 60
+    }
+
+    /// Each segment's `#EXTINF` seconds, indexed like `discontinuityBlocks`; malformed counts as 0.
+    private static func segmentDurations(_ lines: [[UInt16]]) -> [Double] {
+        var durations = [Double]()
+        var pending = 0.0
+        for raw in lines {
+            let line = JavaText.trim(raw)
+            if JavaText.starts(line, with: tagDuration) {
+                pending = extInfDurationSeconds(line) ?? 0
+            } else if isSegmentLine(line) {
+                durations.append(pending)
+                pending = 0
+            }
+        }
+        return durations
     }
 
     private static func extInfDurationSeconds(_ line: [UInt16]) -> Double? {

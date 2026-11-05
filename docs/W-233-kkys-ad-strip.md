@@ -397,6 +397,7 @@
   - 這等於整份含廣告照播，維持「寧可播廣告，不可刪正片」。
 - 比 13.5 原本寫的「`TYPE=AUDIO` 帶 `URI=`」範圍稍大：字幕清單（`SUBTITLES`）同樣會跟刪過的影片錯開，所以一起退回。
 - 不帶 `URI=` 的 `CLOSED-CAPTIONS`（字幕在影片裡）不受影響，照常代理。
+- `#EXT-X-I-FRAME-STREAM-INF` 的 `URI` 仍然直連，不處理（Reviewer #6033）：它只影響拖動進度條時的預覽縮圖，不影響聲音和畫面對齊。
 - 只改 `py/kkys.py`：程式 3 行，自我檢查加 3 例。sha256 `e16d818b0262a1a740739a94b8e85687a2dfe531c2cdae0b7d3bc56ae27e851e`。
 
 ### 14.4 驗證
@@ -414,6 +415,27 @@
 - Ponytail review（未 commit 的 diff）：Ship，沒有發現問題。已檢查三個呼叫端的 `None` 退路、負結果不進快取、正則逐行比對。
 - 沒做兩平台實播。現有線路的清單輸出逐字相同，播放器拿到的內容不變；受影響的線路目前也不存在。要不要補實播請 Reviewer 決定。
 
-### 14.5 回滾與上線
+### 14.5 commit 與冒煙（Reviewer #6033／#6034、Manager #6031）
+- recha 分支 `w237-kkys-ext-x-media`，commit `dea21411eec64a62bbe4da9a7abd393cfc3dbe83`：
+  - parent `96b154cc`，只改 `py/kkys.py`；
+  - sha256 `e16d818b0262a1a740739a94b8e85687a2dfe531c2cdae0b7d3bc56ae27e851e`；
+  - 沒有 push。
+- iOS 冒煙（webhtv-w202，App 0.1.82 (83)，2026-11-05 15:32；`artifacts/w237-kkys-ext-x-media/ios-smoke/`）：
+  - 本機設定伺服器送出的 `py/kkys.py` 就是上面的 sha256（`served-sha256.txt`；`https.log` 15:32:26 `GET /py/kkys.py 200`）。
+  - 冷啟 App，切到「可可影視（新）」，進空槍，選 FF 線路，播国语。
+  - log 有 `[proxy] type=adm3u8 … → 200 218B`（master）和 `→ 200 286294B`（variant），代表經代理播放。
+  - `started 空枪 国语 on 原生 in 3740ms after open; resolve 2881ms`。
+  - 量測時主機負載很高（loadavg 229／170／87，當時 Android 模擬器批次在跑），秒數只能當「起播成功」看，不和 13.4 的中位數比較。
+  - 截圖 `w237-ff.png`：正片畫面（接續觀看紀錄在 07:21），總長 2:40:25，和 13.4 去廣告後一樣。
+  - App 去廣告 log 是 `long-blocks-preserved ranges=none`，代表清單層已經刪乾淨。
+- Android 沒有實測，理由（Manager #6031、Reviewer #6034）：
+  - 兩平台跑的是同一份檔案；
+  - 60/60 份清單輸出逐字相同；
+  - 新分支目前 0 份清單會觸發；
+  - 改動只在既有方法裡加 3 行，沒碰 `init`／`destroy`、回傳型別或 base 契約；
+  - 5560 歸 dev-2 在用。
+- 收尾：Simulator 已關機，Probe 的 derivedData 已刪，設定伺服器和 log 都停了。
+
+### 14.6 回滾與上線
 - 回滾：revert 這個 commit，或 GitLab 改回 96b154cc 的 `py/kkys.py`（sha256 `a886e3ae…`）。
 - Reviewer 核准後才在 recha commit。推 GitLab recha main 要使用者單次授權。

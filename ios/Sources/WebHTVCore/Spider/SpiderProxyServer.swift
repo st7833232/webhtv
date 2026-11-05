@@ -199,7 +199,7 @@ public final class SpiderProxyServer: @unchecked Sendable {
         guard range.lowercased().hasPrefix("bytes="), !range.contains(",") else { return nil }
         let bounds = range.dropFirst(6).split(separator: "-", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespaces) }
-        guard bounds.count == 2, let start = Int64(bounds[0]) else { return nil }
+        guard bounds.count == 2, let start = Int64(bounds[0]), start >= 0 else { return nil }
         if bounds[1].isEmpty { return (start, nil) }
         guard let end = Int64(bounds[1]), end >= start else { return nil }
         return (start, end)
@@ -252,6 +252,8 @@ public final class SpiderProxyServer: @unchecked Sendable {
     func handle(_ request: Request, target: any SpiderProxying, writer: some ProxyWriting) async {
         var params = request.params
         let original = params["range"]
+        // A complete 200 can mean the If-Range validator did not match. Keep that full response.
+        let adaptedRange = params["if-range"] == nil ? original : nil
         let file = request.query.isEmpty
             ? params.filter { $0.key != "range" }.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "&")
             : request.query
@@ -264,11 +266,11 @@ public final class SpiderProxyServer: @unchecked Sendable {
                                                                  ranged: original != nil), body: nil)
                 return
             }
-            await writer.write(head: forwarded(answer, target: target).head, body: nil)
+            await writer.write(head: forwarded(Self.rangedMP4(answer, range: nil), target: target).head, body: nil)
             return
         }
         guard let window = Self.window(original),
-              window.end.map({ $0 - window.start + 1 > Self.segment }) ?? true else {
+              window.end.map({ $0 - window.start >= Self.segment }) ?? true else {
             guard var answer = await call(target, params) else { return await writer.status(504) }
             // A bare 206 for part of a file whose size is known gets the Content-Range FFmpeg checks.
             if answer.status == 206, !answer.headers.keys.contains(where: { $0.lowercased() == "content-range" }),
@@ -276,18 +278,19 @@ public final class SpiderProxyServer: @unchecked Sendable {
                 let end = min(window.start + Int64(answer.body.count), total) - 1
                 answer.headers["Content-Range"] = "bytes \(window.start)-\(end)/\(total)"
             }
-            let reply = await forwarded(answer, target: target)
+            let reply = await forwarded(Self.rangedMP4(answer, range: adaptedRange), target: target)
             await writer.write(head: reply.head, body: reply.body)
             return
         }
-        params["range"] = "bytes=\(window.start)-\(window.start + Self.segment - 1)"
+        let firstEnd = window.start + min(Self.segment - 1, Int64.max - window.start)
+        params["range"] = "bytes=\(window.start)-\(firstEnd)"
         guard let first = await call(target, params) else { return await writer.status(504) }
         // A 206 with no Content-Range still honoured the range when it is a whole segment long (py/哔哩.py
         // answers bare `[206, mime, body]`); unless its index says otherwise, the total is then unknown.
         let range = Self.contentRange(first.headers)
         guard first.status == 206, range.map({ $0.start == window.start }) ?? (Int64(first.body.count) == Self.segment) else {
             // The spider ignores Range: what it answered is the whole thing.
-            let reply = await forwarded(first, target: target)
+            let reply = await forwarded(Self.rangedMP4(first, range: adaptedRange), target: target)
             await writer.write(head: reply.head, body: reply.body)
             return
         }
@@ -320,6 +323,34 @@ public final class SpiderProxyServer: @unchecked Sendable {
             part = answer
         }
         await writer.close()
+    }
+
+    /// Some spiders return a complete MP4 even for AVPlayer's two-byte probe. Serve the requested
+    /// bytes ourselves; errors, manifests and spiders already serving 206 keep their own semantics.
+    static func rangedMP4(_ answer: SpiderProxyResponse, range: String?) -> SpiderProxyResponse {
+        guard answer.status == 200,
+              answer.mime.lowercased().split(separator: ";").first?.trimmingCharacters(in: .whitespaces) == "video/mp4",
+              !answer.body.isEmpty,
+              !answer.headers.contains(where: { $0.key.lowercased() == "content-encoding" && $0.value.lowercased() != "identity" })
+        else { return answer }
+        var reply = answer
+        reply.headers = answer.headers.filter { $0.key.lowercased() != "content-range" && $0.key.lowercased() != "accept-ranges" }
+        reply.headers["Accept-Ranges"] = "bytes"
+        guard let range else { return reply }
+        let size = Int64(answer.body.count)
+        let header = range.trimmingCharacters(in: .whitespaces).lowercased()
+        guard header.hasPrefix("bytes=") else { return reply }
+        guard header.range(of: #"^bytes=(?:[0-9]+-[0-9]*|-[0-9]+)$"#, options: .regularExpression) != nil,
+              let window = OfflineMediaServer.byteRange(header, size: size) else {
+            reply.status = 416
+            reply.headers["Content-Range"] = "bytes */\(size)"
+            reply.body = Data()
+            return reply
+        }
+        reply.status = 206
+        reply.headers["Content-Range"] = "bytes \(window.lowerBound)-\(window.upperBound)/\(size)"
+        reply.body = answer.body.subdata(in: Int(window.lowerBound)..<Int(window.upperBound + 1))
+        return reply
     }
 
     /// The size of a fragmented MP4 from its `sidx` box: where the box ends, plus its first offset, plus

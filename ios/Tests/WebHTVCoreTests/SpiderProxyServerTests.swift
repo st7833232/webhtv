@@ -2,6 +2,9 @@
 import Foundation
 import Testing
 @testable import WebHTVCore
+#if canImport(AVFoundation)
+import AVFoundation
+#endif
 
 /// W-202: the loopback `localProxy` server — range splitting, HEAD, the stream's head, disconnects,
 /// timeouts, the token and the 9978 rewrite. The spider and the connection are stand-ins.
@@ -118,13 +121,147 @@ struct SpiderProxyServerTests {
         #expect(await sink.body == Media.bytes(10...99))
     }
 
-    @Test func aSpiderThatIgnoresRangeIsForwardedAsItAnswered() async {
+    @Test func aWholeMP4StillHonoursThePlayersOpenEndedRange() async {
         let media = Media(total: 3000, honoursRange: false)
         let sink = await run(range: "bytes=0-", media: media)
         #expect(media.ranges.count == 1)
+        #expect(await sink.head.hasPrefix("HTTP/1.1 206"))
+        #expect(await sink.header("Content-Length") == "3000")
+        #expect(await sink.header("Content-Range") == "bytes 0-2999/3000")
+        #expect(await sink.header("Accept-Ranges") == "bytes")
+    }
+
+    @Test func aWholeMP4AnswersTheNativeTwoByteProbe() async {
+        let media = Media(total: 3000, honoursRange: false)
+        let sink = await run(range: "bytes=0-1", media: media)
+        #expect(await sink.head.hasPrefix("HTTP/1.1 206"))
+        #expect(await sink.header("Content-Length") == "2")
+        #expect(await sink.header("Content-Range") == "bytes 0-1/3000")
+        #expect(await sink.body == Media.bytes(0...1))
+    }
+
+    @Test(arguments: ["bytes=1200-1299", "bytes=2990-9999", "bytes=-10"])
+    func aWholeMP4CanSeekAndClampToItsEnd(range: String) async {
+        let media = Media(total: 3000, honoursRange: false)
+        let sink = await run(range: range, media: media)
+        let bounds = OfflineMediaServer.byteRange(range, size: 3000)!
+        #expect(await sink.head.hasPrefix("HTTP/1.1 206"))
+        #expect(await sink.header("Content-Range") == "bytes \(bounds.lowerBound)-\(bounds.upperBound)/3000")
+        #expect(await sink.body == Media.bytes(bounds))
+    }
+
+    @Test(arguments: ["bytes=3000-", "bytes=-0", "bytes=-1-2", "bytes=0-nope"])
+    func aWholeMP4RejectsAnUnsatisfiableOrInvalidRange(range: String) async {
+        let sink = await run(range: range, media: Media(total: 3000, honoursRange: false))
+        #expect(await sink.head.hasPrefix("HTTP/1.1 416"))
+        #expect(await sink.header("Content-Range") == "bytes */3000")
+        #expect(await sink.body.isEmpty)
+    }
+
+    @Test func headOfAWholeMP4SaysItsSizeWithoutSendingIt() async {
+        let sink = await run("HEAD", range: nil, media: Media(total: 3000, honoursRange: false))
         #expect(await sink.head.hasPrefix("HTTP/1.1 200"))
         #expect(await sink.header("Content-Length") == "3000")
+        #expect(await sink.header("Accept-Ranges") == "bytes")
+        #expect(await sink.body.isEmpty)
     }
+
+    @Test func aWholeMP4WithoutARangeStillReturnsTheWholeFile() async {
+        let sink = await run(range: nil, media: Media(total: 3000, honoursRange: false))
+        #expect(await sink.head.hasPrefix("HTTP/1.1 200"))
+        #expect(await sink.header("Content-Range") == nil)
+        #expect(await sink.body == Media.bytes(0...2999))
+    }
+
+    @Test func rangeAdaptationLeavesErrorsManifestsAndRealPartialResponsesUntouched() {
+        for answer in [
+            SpiderProxyResponse(status: 403, mime: "video/mp4", body: Data("forbidden".utf8)),
+            SpiderProxyResponse(status: 200, mime: "application/dash+xml", body: Data("<MPD/>".utf8)),
+            SpiderProxyResponse(status: 206, mime: "video/mp4", headers: ["Content-Range": "bytes 5-6/100"], body: Data([5, 6])),
+            SpiderProxyResponse(status: 200, mime: "video/mp4", headers: ["Content-Encoding": "gzip"], body: Data([1, 2, 3])),
+        ] {
+            #expect(SpiderProxyServer.rangedMP4(answer, range: "bytes=0-1") == answer)
+        }
+    }
+
+    struct Fixed: SpiderProxying {
+        let response: SpiderProxyResponse
+        func proxy(params: [String: String]) async throws -> SpiderProxyResponse? { response }
+    }
+
+    @Test func aWholeMP4DoesNotOverrideIfRange() async {
+        let source = SpiderProxyResponse(status: 200, mime: "video/mp4", headers: ["ETag": #""new""#], body: Media.bytes(0...99))
+        let sink = Sink()
+        await SpiderProxyServer().handle(.init(method: "GET", params: ["do": "py", "range": "bytes=10-19", "if-range": #""old""#]),
+                                         target: Fixed(response: source), writer: sink)
+        #expect(await sink.head.hasPrefix("HTTP/1.1 200"))
+        #expect(await sink.header("Content-Range") == nil)
+        #expect(await sink.header("ETag") == #""new""#)
+        #expect(await sink.body == source.body)
+    }
+
+    @Test func aWholeMP4IgnoresUnknownRangeUnits() async {
+        let sink = await run(range: "items=0-1", media: Media(total: 100, honoursRange: false))
+        #expect(await sink.head.hasPrefix("HTTP/1.1 200"))
+        #expect(await sink.header("Content-Range") == nil)
+        #expect(await sink.body == Media.bytes(0...99))
+    }
+
+    @Test(arguments: ["bytes=0-9223372036854775807", "bytes=9223372036854775807-"])
+    func aWholeMP4HandlesInt64RangeBoundariesWithoutOverflow(range: String) async {
+        let sink = await run(range: range, media: Media(total: 100, honoursRange: false))
+        if range.hasPrefix("bytes=0-") {
+            #expect(await sink.head.hasPrefix("HTTP/1.1 206"))
+            #expect(await sink.body == Media.bytes(0...99))
+        } else {
+            #expect(await sink.head.hasPrefix("HTTP/1.1 416"))
+            #expect(await sink.body.isEmpty)
+        }
+    }
+
+    final class WholeFile: SpiderRuntime, @unchecked Sendable {
+        let data: Data
+        init(_ data: Data) { self.data = data }
+        func initialize(extend: String) async throws {}
+        func homeContent(filter: Bool) async throws -> String { "{}" }
+        func categoryContent(tid: String, page: String, filter: Bool, extend: [String: String]) async throws -> String { "{}" }
+        func detailContent(ids: [String]) async throws -> String { "{}" }
+        func searchContent(key: String, quick: Bool, page: String) async throws -> String { "{}" }
+        func playerContent(flag: String, id: String, vipFlags: [String]) async throws -> String { "{}" }
+        func proxy(params: [String: String]) async throws -> SpiderProxyResponse? {
+            SpiderProxyResponse(status: 200, mime: "video/mp4", body: data)
+        }
+    }
+
+    #if canImport(AVFoundation)
+    /// Opt-in real AVFoundation check. The fixture is generated locally, never downloaded drama content.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["WEBHTV_NATIVE_PROXY_MP4"] != nil))
+    @MainActor func nativePlayerPlaysAndSeeksAWholeFileSpider() async throws {
+        let path = try #require(ProcessInfo.processInfo.environment["WEBHTV_NATIVE_PROXY_MP4"])
+        let file = try Data(contentsOf: URL(fileURLWithPath: path))
+        let site = try JSONDecoder().decode(Site.self, from: Data(#"{"key":"whole","name":"whole","type":3,"api":"./whole.py"}"#.utf8))
+        let session = SpiderSession(site: site, runtime: WholeFile(file))
+        let server = SpiderProxyServer()
+        let address = try #require(await server.serve("http://127.0.0.1:9978/proxy?do=py&vid=123", for: session, dash: false))
+        let url = try #require(URL(string: address))
+        #expect(!PlayerRouter.needsMPV(url))
+        let item = AVPlayerItem(url: url)
+        let player = AVPlayer(playerItem: item)
+        player.isMuted = true
+        defer { player.pause(); player.replaceCurrentItem(with: nil) }
+        player.play()
+        let clock = ContinuousClock()
+        let deadline = clock.now + .seconds(10)
+        while clock.now < deadline && item.status != .failed && player.currentTime().seconds < 0.2 {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(item.status == .readyToPlay, "\(String(describing: item.error))")
+        #expect(player.currentTime().seconds >= 0.2)
+        let sought = await player.seek(to: CMTime(seconds: 1, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        #expect(sought)
+        #expect(player.currentTime().seconds >= 0.9)
+    }
+    #endif
 
     @Test func aBare206IsReadOnUntilAShortAnswerWithNoLength() async {
         let total = 2 * Self.seg + 777

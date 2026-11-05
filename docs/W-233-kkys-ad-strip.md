@@ -373,4 +373,47 @@
 - 還原：點播、直播改回 `http://10.0.2.2:18226/wang-movie-jp.json`，無痕模式關掉，空枪的觀看紀錄已刪；18:13 存快照（default_boot）後關機，交還 dev-2。
 
 ### 13.7 未完成
-- 無。13.5 的 `#EXT-X-MEDIA` 獨立音軌列為後續項目，這次不改。
+- 無。13.5 的 `#EXT-X-MEDIA` 獨立音軌列為後續項目，這次不改（後續見第 14 節，W-237）。
+
+## 14. W-237：master 的 `#EXT-X-MEDIA` 獨立音軌不經代理（13.5 後續，2026-11-05）
+證據在 `artifacts/w237-kkys-ext-x-media/`。
+
+### 14.1 受影響線路：目前沒有
+- 15:13 前後在手機熱點下，重抓 W-233 全部 224 條樣本的 master（`scan.py`、`scan.txt`）。
+- 5 條代理線路都抓到了，**0 份有 `#EXT-X-MEDIA:`**（只算這個標籤，不含 `#EXT-X-MEDIA-SEQUENCE`）：
+  - FF 11 份、LZ 11 份、蓝光 12 份、蓝光3 12 份是 master；
+  - 蓝光1 12 份本身就是 media 清單，沒有 master。
+- 被熱點 DNS 擋的線路（憑證錯誤＝RPZ）沒抓到，也沒有繞過。這些線路本來就不代理，不受影響。
+
+### 14.2 重現（合成 master，`repro.py`）
+用 96b154cc 處理一份「影片 variant＋`TYPE=AUDIO,URI="audio/zh.m3u8"`」的 master：
+- 影片 variant 包成本機代理，會刪廣告；
+- 音軌只改成絕對位址、直連 CDN，不刪廣告。
+- 結果：哪天白名單線路改成影音分開，聲音會比畫面多出廣告的秒數。
+
+### 14.3 最小修法（recha 分支 `w237-kkys-ext-x-media`，parent `96b154cc`，尚未 commit；diff 在 `kkys-w237.diff`）
+- `_ad_answer` 處理 master 時，只要有任何一行 `#EXT-X-MEDIA:` 帶 `URI=`（音軌、另一路影片、字幕清單），就回 `None`。
+  - 之後走既有退路：預抓失敗就播原位址，代理回 302。
+  - 這等於整份含廣告照播，維持「寧可播廣告，不可刪正片」。
+- 比 13.5 原本寫的「`TYPE=AUDIO` 帶 `URI=`」範圍稍大：字幕清單（`SUBTITLES`）同樣會跟刪過的影片錯開，所以一起退回。
+- 不帶 `URI=` 的 `CLOSED-CAPTIONS`（字幕在影片裡）不受影響，照常代理。
+- 只改 `py/kkys.py`：程式 3 行，自我檢查加 3 例。sha256 `e16d818b0262a1a740739a94b8e85687a2dfe531c2cdae0b7d3bc56ae27e851e`。
+
+### 14.4 驗證
+- 自我檢查 `python3 kkys.py fixtures`：47 例通過（原本 44 例），新加的 3 例是：
+  - 獨立音軌時，`_ad_play_url` 回原位址；
+  - 獨立音軌時，`localProxy` 回 302；
+  - 只有內嵌 `CLOSED-CAPTIONS` 時仍走代理。
+- 3 個刻意改壞的版本（mutant）都被抓到：
+  - 拿掉判斷；
+  - `URI=` 改錯字；
+  - 任何 `#EXT-X-MEDIA` 都退回。
+- 既有線路回歸（`regress.py`）：60 份白名單清單（14.1 的實抓檔）用 96b154cc 和新版各跑一次 `_ad_answer`。
+  - 輸出**逐字相同 60/60**；
+  - 其中 46 份 master 照舊把 variant 包成代理。
+- Ponytail review（未 commit 的 diff）：Ship，沒有發現問題。已檢查三個呼叫端的 `None` 退路、負結果不進快取、正則逐行比對。
+- 沒做兩平台實播。現有線路的清單輸出逐字相同，播放器拿到的內容不變；受影響的線路目前也不存在。要不要補實播請 Reviewer 決定。
+
+### 14.5 回滾與上線
+- 回滾：revert 這個 commit，或 GitLab 改回 96b154cc 的 `py/kkys.py`（sha256 `a886e3ae…`）。
+- Reviewer 核准後才在 recha commit。推 GitLab recha main 要使用者單次授權。

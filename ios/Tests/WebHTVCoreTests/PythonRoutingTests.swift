@@ -111,6 +111,16 @@ private func withRuntime<T>(_ body: () async throws -> T) async rethrows -> T {
         }
     }
 
+    /// W-239. The cap is 1 MiB and a script of exactly that size still loads.
+    @Test func aScriptOfExactlyTheCapIsLoaded() async throws {
+        #expect(PythonSpiderSource.maximumScriptBytes == 1024 * 1024)
+        let target = try site(#"{"key":"p","name":"p","type":3,"api":"./py/edge.py"}"#)
+        let script = try await PythonSpiderSource.script(
+            for: target, source: .remote(URL(string: "https://py.invalid/base/config.json")!),
+            session: stubbedSession())
+        #expect(script.utf8.count == PythonSpiderSource.maximumScriptBytes)
+    }
+
     @Test func aScriptFromTheConfigurationsOwnOriginReachesTheRuntime() async throws {
         let target = try site(#"{"key":"pipi","name":"p","type":3,"api":"./py/small.py","ext":"HOST"}"#)
         try await withRuntime {
@@ -135,9 +145,11 @@ private final class ScriptServer: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         let path = request.url?.lastPathComponent ?? ""
-        let body = path == "huge.py"
-            ? Data(repeating: UInt8(ascii: "#"), count: PythonSpiderSource.maximumScriptBytes + 1)
-            : Data("from base.spider import Spider\nclass Spider(Spider):\n    pass\n".utf8)
+        let body = switch path {
+        case "huge.py": Data(repeating: UInt8(ascii: "#"), count: PythonSpiderSource.maximumScriptBytes + 1)
+        case "edge.py": Data(repeating: UInt8(ascii: "#"), count: PythonSpiderSource.maximumScriptBytes)
+        default: Data("from base.spider import Spider\nclass Spider(Spider):\n    pass\n".utf8)
+        }
         let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
                                        headerFields: ["Content-Type": "text/plain"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)

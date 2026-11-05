@@ -56,8 +56,9 @@ public enum DrpyEngine {
     public static let maximumFileBytes = 512 * 1024
     public static let maximumBundleBytes = 2 * 1024 * 1024
     /// A site's rule script is not hash-pinned, so for it this cap is the only bound. The largest
-    /// real one is 12 KB.
-    public static let maximumRuleBytes = 256 * 1024
+    /// real one is 12 KB; the cap was raised from 256 KB to 1 MiB at the user's request (W-239,
+    /// 2026-11-05), matching `PythonSpiderSource.maximumScriptBytes`.
+    public static let maximumRuleBytes = 1024 * 1024
 
     /// The engine's dependency graph in evaluation order: every library first, the engine last.
     ///

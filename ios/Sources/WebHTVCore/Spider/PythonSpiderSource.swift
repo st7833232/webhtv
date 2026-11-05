@@ -9,9 +9,10 @@ import Foundation
 ///
 /// IOS-POC-7H.
 public enum PythonSpiderSource {
-    /// 256 KB. Measured 2026-09-21 across all 31 same-origin `.py` scripts in the user's
-    /// configuration: 569 KB in total, and the largest single script — `油管-6.py` — is 93.7 KB.
-    public static let maximumScriptBytes = 256 * 1024
+    /// 1 MiB. Raised from 256 KB at the user's request (W-239, 2026-11-05) so a larger script is not
+    /// refused; the largest in use is 93.7 KB (`油管-6.py`, measured 2026-09-21) and `kkys.py` is
+    /// 54 KB. The download still counts bytes as they arrive and stops past this cap.
+    public static let maximumScriptBytes = 1024 * 1024
 
     public enum Failure: Error, Equatable, LocalizedError {
         case noRemoteConfiguration

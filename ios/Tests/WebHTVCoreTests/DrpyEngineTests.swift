@@ -121,6 +121,37 @@ private func playURL(_ value: Any?) -> [String] {
     #expect(try DrpyEngine.checked(allowed, origin: base) == allowed)
 }
 
+/// W-239. A rule of exactly the cap is kept; one byte more is refused while it streams in (the
+/// stub sends no Content-Length, so only the running count can catch it).
+@Test func aRuleOfExactlyTheCapIsKeptAndOneByteMoreIsRefused() async throws {
+    let cap = DrpyEngine.maximumRuleBytes
+    #expect(cap == 1024 * 1024)
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [SizedRuleServer.self]
+    let session = URLSession(configuration: configuration)
+    let kept = try await DrpyEngine.script(at: "./drpy_js/\(cap).js", source: origin, session: session)
+    #expect(kept.text.utf8.count == cap)
+    await #expect(throws: DrpyError.tooLarge("\(cap + 1).js", cap + 1, cap)) {
+        _ = try await DrpyEngine.script(at: "./drpy_js/\(cap + 1).js", source: origin, session: session)
+    }
+}
+
+/// Answers `<n>.js` with n bytes of text and no Content-Length.
+private final class SizedRuleServer: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "example.invalid" }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+
+    override func startLoading() {
+        let count = Int(request.url?.deletingPathExtension().lastPathComponent ?? "") ?? 0
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                       headerFields: ["Content-Type": "text/plain"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(repeating: UInt8(ascii: "a"), count: count))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+}
+
 /// An imported file has no origin, so there is nothing to be same-origin with and drpy is refused
 /// rather than defaulting to "anywhere".
 @Test func anImportedConfigurationCannotLoadADrpyEngine() throws {

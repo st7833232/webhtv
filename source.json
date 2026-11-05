@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.92",
+          "date": "2026-11-05",
+          "localizedDescription": "爬蟲：\n- 改善爬蟲影片相容性：有些爬蟲會一次回傳整集 MP4，原生播放器以前可能載不起來或不能拖動進度，現在會依播放器需要分段提供，讓原生播放器可以載入與快轉；其他影片格式維持原本的處理方式。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.92-b93/WebHTV-0.1.92-93.ipa",
+          "size": 35748310,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.91",
           "date": "2026-11-05",
           "localizedDescription": "爬蟲：\n- 放寬爬蟲腳本大小上限：單一 Python 爬蟲或 drpy 規則檔的上限由 256 KiB 提高到 1 MiB，較大的腳本也能正常載入；下載時超過上限仍會拒絕，來源與安全檢查不變。",

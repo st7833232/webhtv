@@ -236,6 +236,7 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 |---|---|---|
 | 單一 variant 的 HLS VOD（或直接就是 media 播放清單） | **預抓** | 設定檔中大部分 CMS 來源屬於這類 |
 | 多 variant 的 master | 第一版不預抓，只預解析 | AVPlayer 起播選哪一條，官方沒有明說（11.12 #R7）；猜錯就是白抓 20 MB。設定檔裡目前幾乎沒有這類來源 |
+| master 帶 `#EXT-X-MEDIA` 且有 `URI=`（獨立音軌或字幕清單），或帶 `#EXT-X-I-FRAME-STREAM-INF` 且有 `URI=` | 不預抓，只預解析（適用所有 HLS，含可可影視） | 改寫成本機 master 後，這些相對網址會壞掉。跳過最簡單，和 W-237 處理可可影視的方式一致 |
 | 明文 AES-128 加密的 HLS（`METHOD=AES-128`，沒有 `KEYFORMAT` 或 `KEYFORMAT="identity"`） | **預抓片段，金鑰不存**：`#EXT-X-KEY` 的 URI 改成來源的絕對網址，播放器開播時自己向來源抓金鑰 | Reviewer 要求 App 不存金鑰。代價是起播時多一次向來源抓金鑰的請求（通常整份播放清單只用一把）。`#EXT-X-MEDIA-SEQUENCE` 和 `#EXT-X-DISCONTINUITY-SEQUENCE` 不變，因為沒寫 `IV` 時，片段序號就是 IV（RFC 8216 §5.2） |
 | SAMPLE-AES、`skd://`（FairPlay）、`KEYFORMAT` 不是 `identity` | 不預抓，只預解析 | 不碰授權；判斷沿用 `HLSKey.isDRM` 和 `OfflinePackageBuilder.validate` |
 | 帶 headers 的來源（Referer、User-Agent、Cookie） | **預抓**。App 抓片段時帶同樣的 headers；帶憑證的 headers 只送同源，轉址時重新判斷（`OfflineRequestPolicy`） | 播放器向來源抓後面的片段時，headers 照現在的方式帶，不變：AVPlayer 用 `AVURLAssetHTTPHeaderFieldsKey`（`WebHTVApp.swift:6956` `asset(for:headers:)`，作用於這個 asset 發出的所有請求，現有需要 Referer 的 HLS 來源就是靠它抓片段）；MPV 每次載入前重設 `http-header-fields`（`MPVEngine.swift:592-593`），套用到這個檔案的每個 HTTP 請求 |
@@ -305,6 +306,7 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 開發端（Claude，單元測試＋Simulator）：
 1. 單元測試：
    - 改寫：只有已存的片段和它們用到的 MAP 指到本機；其他片段和所有 KEY 都是來源的絕對網址；標籤、片段順序、`MEDIA-SEQUENCE`、`DISCONTINUITY-SEQUENCE`、片段長度都不變。
+   - master 帶 `#EXT-X-MEDIA … URI=` 或 `#EXT-X-I-FRAME-STREAM-INF … URI=` 時跳過。
    - 加密：沒寫 IV 的 AES-128 播放清單改寫後，序號不變；SAMPLE-AES、`skd://`、`KEYFORMAT` 不是 identity 的都跳過。
    - 起點：預抓起點和 `WatchHistory.startPosition(resuming: false)` 一致。
    - 會轉址的播放清單：相對網址以最終網址為基準。
@@ -409,7 +411,7 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
   1. 用 App 的 `URLSession` 向 `127.0.0.1` 的 `SpiderProxyServer` 要 master（代理網址本身帶 token）。`localProxy` 從快取回答，不另外連網。
   2. master 只有一條 variant 才繼續（多 variant 照 11.3 跳過）。那條 variant 的網址也是代理網址，同樣向本機要，拿到刪過廣告的 media 播放清單。
   3. 片段已經是來源的絕對網址，所以從這裡開始和一般 HLS 完全一樣：抓起播點後 15 秒、上限 20 MB；改寫時只有已存的片段指向預抓的本機資料夾，其他片段保持來源網址；金鑰指向來源。
-  4. 交棒時，播放器開的是**預抓資料夾裡的 master**，它指向預抓資料夾裡的 media 播放清單。所以換集當下**不再呼叫 Python `localProxy`**。現在每次換集至少要呼叫 2～4 次，預抓後反而少了這幾次 Python 往返。
+  4. 交棒時，播放器開的是**預抓資料夾裡的 master**，它指向預抓資料夾裡的 media 播放清單。所以**起播路徑上不再呼叫 Python `localProxy`**（現在起播前要呼叫 2～4 次）。開播之後，智慧去廣告（`watchAds`）仍照 11.4 第 7 步用原始網址（對可可影視就是代理網址），讀兩次播放清單，所以開播後仍會有 `type=adm3u8` 的呼叫，只是不擋起播，和現在相同。
 - **廣告不會回來**：預抓存的就是 `localProxy` 刪過廣告的清單，片段集合和直接播代理網址時一樣。iOS 的智慧去廣告（`watchAds`）照規定用原始網址，也就是預解析得到的代理網址，和現在相同。
 - **302 退路並存**：預抓向代理要清單時若收到 302，`URLSession` 會跟著轉到原始網址，拿到的是**沒刪廣告的原始清單**，和播放器直接遇到 302 時拿到的一樣。所以預抓照常進行，相對網址以轉址後的最終網址為基準（11.4 第 2 步）。行為和現在相同，只是更快開播。
 - **5 秒逾時直連並存**：`playerContent` 超過 5 秒時回的是原始網址，不是代理網址，預抓就當一般 HLS 處理（有廣告，和現在一樣）。
@@ -420,12 +422,12 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 
 | 項目 | 估計 | 依據 |
 |---|---|---|
-| **使用者換集時** | **不會變慢，預期更快**：換集時不必再等 `localProxy` 和來源 | Simulator 上可可影視現在的起播中位數是 2163 ms（W-233 log，n=40，全部是現場解析）。預抓命中後估計和其他 HLS 一樣剩 0.2～0.5 秒，真機未量 |
+| **使用者換集時** | **不會變慢，預期更快**：起播前不必再等 `localProxy` 和來源 | Simulator 上可可影視現在的起播中位數是 2163 ms（W-233 log，n=40，全部是現場解析）。預抓命中後估計和其他 HLS 一樣剩 0.2～0.5 秒，真機未量 |
 | 預抓時的背景工作 | 多 1～2 次 `localProxy` 呼叫，從快取回答，估計每次數十毫秒；網路流量只有 15 秒的片段（上限 20 MB），和其他來源相同 | 片段本來就是播放器直接向來源抓，預抓只是提早抓 |
 | **實作多花** | **約 2～3 小時**：允許 `type=adm3u8` 的本機代理網址當播放清單來源（0.5 小時）、單元測試（代理回 200、代理回 302 轉到原始清單、5 秒逾時回原始網址三種，1 小時）、Simulator 上可可影視連播 3 集（沿用 W-233 的測試設定，1～1.5 小時） | 整個 W-243 的實作預估因此由約 1.5 天變成**約 1.8 天**（Claude 實際工時約 14～15 小時） |
 
 #### 可可影視的驗收（加進 11.8）
 
 - 單元測試：上面三種情況（代理 200、302、逾時回原始網址）都會預抓，而且改寫後的清單沒有被刪掉的廣告片段又跑回來。
-- Simulator：可可影視連播 3 集，log 出現 `content=hit`；換集時 `[proxy] type=adm3u8` 的呼叫只發生在預抓階段，交棒時沒有；廣告區段仍被刪除。
+- Simulator：可可影視連播 3 集，log 出現 `content=hit`；**起播前**沒有 `[proxy] type=adm3u8` 的呼叫（只在預抓階段有），開播後 `watchAds` 的呼叫照舊；廣告區段仍被刪除。
 - 真機（請使用者回報）：可可影視連播時，換集是否幾乎立刻開始播，而且沒有廣告。

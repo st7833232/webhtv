@@ -497,5 +497,15 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 
 ### 12.7 審查補件（Reviewer #6267）
 
-- **C1 已修**：`NextEpisodePrefetch.take(_:addressMiss:)` 一開始就放掉上一集的資料夾。沒取到副本時（`stillFetching`、`identityChanged`、預抓 `skipped`／`failed`），起播行記的是真正原因，不再被上一集的副本蓋成 `otherAddress`。預解析本身沒命中時（例如 `expired`），記成 `miss: address <原因>`，副本也不打開。驗證：Simulator 編譯成功；這條路徑沒有在 Simulator 上觸發過（見下一點）。
-- **C2：BLOCKED（權限拒絕）**。要補跑三種失敗注入（404、逾時、過期），以及 AES-128、master 一條 variant 各一輪，需要用 W-244 工具的伺服器提供測試來源。但工具的媒體網址是 `127.0.0.1`，App 依設計會把它當成本機代理而跳過預抓。所以要讓伺服器聽區網位址，這個動作被 Claude Code 的自動權限分類器拒絕（沒有說明原因）。依團隊規則不繞過，等使用者決定是否核准，或改用其他方式。
+- **C1 已修**：`NextEpisodePrefetch.take(_:addressMiss:)` 一開始就放掉上一集的資料夾。沒取到副本時（`stillFetching`、`identityChanged`、預抓 `skipped`／`failed`），起播行記的是真正原因，不再被上一集的副本蓋成 `otherAddress`。預解析本身沒命中時（例如 `expired`），記成 `miss: address <原因>`，副本也不打開。驗證：Simulator 編譯成功；C2 的三種失敗都在 Simulator 上記出正確原因（下表）。
+- **C2 已補跑**。測試來源用 W-244 工具 `kit_server.py --host ::1`：只聽 IPv6 本機位址，不對區網開放，這是 Reviewer #6274 提的做法；先前要讓伺服器聽區網位址的嘗試被權限分類器拒絕，沒有重試。App 只把字面上的 `127.0.0.1`／`localhost` 當本機代理，所以 `[::1]` 的來源會照真實來源預抓。Simulator，原生播放器，Debug 版（`89c99e85`）：
+
+| 案例 | 結果 |
+|---|---|
+| 預抓請求 404（`fail=404&who=app`，單 variant） | 預抓記 `skipped: failed: HTTP 404`；第 2 集照常開播，118 ms，`content=miss: failed: HTTP 404` |
+| 預抓請求掛住（`fail=timeout&who=app`，master 一條 variant） | 預抓 20 秒後逾時；第 2 集 9 ms 開播，`content=miss: failed: The request timed out.`。解除注入後，第 3 集由 master 來源預抓 4 段，`content=hit`，107 ms |
+| 預抓還沒完成就按「下一集」（`fail=timeout`，簽名會過期） | `content=miss: stillFetching`，13 ms 開播，**沒有等預抓** |
+| AES-128 無 IV | 預抓 seg000～003（加密片段，沒抓金鑰）；第 2 集 `content=hit`，111 ms。開播時播放器才向來源要 `key.bin`，接著從 seg004 開始要，沒有重抓預抓過的片段；正常播放，代表序號沒被改壞 |
+| 網址過期（`fail=expire&who=player`，簽名會過期） | 第 3 集 `content=hit`，118 ms；播完本機片段後，向來源要下一段收到 403，走現有的失敗處理：12 秒處切到 MPV，MPV 也收到 403，這集結束。舊做法遇到過期網址也是這條路徑 |
+
+證據：`.herdr-synapse/webhtv-dev/artifacts/w243/evidence/c2-*`。另外注意：逾時注入期間，智慧去廣告也讀不到原始清單（`plan fetch-failed`），因為它和預抓都是 App 發出的請求；這是注入方式造成的，不是預抓的問題。

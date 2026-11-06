@@ -7085,8 +7085,13 @@ struct EpisodeSteps: Equatable {
                     if copyRetryUntil == nil { retryWithoutPrefetch = nil }
                     notePlayHealth(succeeded: true)
                     lineObserver?(.started)
-                    Self.log.notice("[playback] started \(self.itemTitle, privacy: .public) on \(self.engineKind.shortName, privacy: .public) in \(milliseconds)ms after open (ready \(self.readyMilliseconds.map { "\($0)ms" } ?? "?", privacy: .public)); resolve \(self.resolution, privacy: .public); content=\(self.contentNote, privacy: .public)")
                     carrySubtitle(mediaSelection)
+                    // W-247: the moment the old `started` line used, kept to show how far it ran ahead.
+                    Self.log.notice("[playback] playing \(self.itemTitle, privacy: .public) on \(self.engineKind.shortName, privacy: .public) in \(milliseconds)ms after open")
+                    // The started line waits for the picture to move.
+                    guard let moved = await firstAdvance(on: engine.kind, since: loadedAt) else { return }
+                    startupMilliseconds = moved // the summary's startup=; every other reader only asks whether it is set
+                    Self.log.notice("[playback] started \(self.itemTitle, privacy: .public) on \(self.engineKind.shortName, privacy: .public) in \(moved)ms after open (ready \(self.readyMilliseconds.map { "\($0)ms" } ?? "?", privacy: .public)); resolve \(self.resolution, privacy: .public); content=\(self.contentNote, privacy: .public)")
                     return
                 }
                 try? await Task.sleep(for: .milliseconds(100))
@@ -7105,14 +7110,32 @@ struct EpisodeSteps: Equatable {
         handoffWatch = Task { @MainActor in
             while !Task.isCancelled, ContinuousClock.now - since < .seconds(60) {
                 if let engine, engine.kind == kind, engine.isPlaying {
-                    let milliseconds = Int((ContinuousClock.now - since) / .milliseconds(1))
-                    Self.log.notice("[playback] started \(self.itemTitle, privacy: .public) on \(kind.shortName, privacy: .public) in \(milliseconds)ms after the switch (\(reason, privacy: .public))")
                     self.carrySubtitle(self.mediaSelection)
+                    guard let milliseconds = await firstAdvance(on: kind, since: since) else { return }
+                    Self.log.notice("[playback] started \(self.itemTitle, privacy: .public) on \(kind.shortName, privacy: .public) in \(milliseconds)ms after the switch (\(reason, privacy: .public))")
                     return
                 }
                 try? await Task.sleep(for: .milliseconds(100))
             }
         }
+    }
+
+    /// W-247: milliseconds from `since` until `kind` plays with its playhead moving forward. AVPlayer
+    /// said `.playing` 72 ms into an item it had no byte of yet (W-246), so `isPlaying` alone is not a
+    /// start. A forward step under 2 s between two 50 ms ticks is playback; a seek landing is not.
+    /// Nil once `kind` is no longer the engine, or after a minute — the caller then logs no start.
+    private func firstAdvance(on kind: PlaybackEngineKind, since: ContinuousClock.Instant) async -> Int? {
+        var last: Double?
+        while !Task.isCancelled, ContinuousClock.now - since < .seconds(60) {
+            guard let engine, engine.kind == kind else { return nil }
+            let now = engine.currentTime
+            if engine.isPlaying, let last, now > last, now - last < 2 {
+                return Int((ContinuousClock.now - since) / .milliseconds(1))
+            }
+            last = engine.isPlaying ? now : nil
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return nil
     }
 
     /// IOS-POC-27A: what the native item holds when its start is given up on — its status, why the

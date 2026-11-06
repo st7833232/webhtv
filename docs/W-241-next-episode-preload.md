@@ -632,3 +632,30 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 - **為什麼不在代理重試**：腳本裡每個分段已經重試 3 次，失敗一次要 13.5 秒；代理再重試一次，真正失敗時會再等十幾秒。現有的退回 MPV 本身就等於重試一次，這次換集總共 14 秒＋4.6 秒恢復，畫面最後有播出來。代理要不要對腳本的 5xx 重試，要等有更多次真實失敗的資料再決定。
 - **沒做**：沒有用 w243-kit 架假來源。現場 log 已經有代理對 AVPlayer 的完整請求與回應，再加上 500 → -1008 的實驗，已經能判定原因，假來源不會改變結論。
 - **順帶看到（範圍外，沒改）**：App 在 AVPlayer 還沒有任何資料時就記了 `started … in 72ms (ready 72ms)`，開播時間的統計在這種情況下會失真。這是 `WebHTVApp.swift` 開播記錄的問題，不在 W-246 範圍，交 Manager 決定要不要開單。
+
+### 13.6 W-247：起播時間改成「播放位置真的前進」才記
+
+- **問題**：`[playback] started … in Nms` 原本在播放器第一次回報「正在播放」時就記下（原生是 `timeControlStatus == .playing`，MPV 是已載入、沒暫停、沒在緩衝）。原生播放器在還沒拿到任何資料時就可能回報「正在播放」：W-246 的第 26 集在 72 ms 時記了 started，實際上 14 秒後才失敗。
+- **改動**（`ios/WebHTVApp/Sources/WebHTVApp.swift`，只改記錄）：
+  - 新增 `firstAdvance(on:since:)`：每 50 ms 看一次，播放中、而且播放位置比上次前進（不到 2 秒，排除跳轉落點）才算開始播放。換成另一個播放器、被取消或超過 60 秒都回 nil，這時不記 started。
+  - `watchStartup`：播放健康紀錄、字幕帶入、`lineObserver(.started)`、逾時判斷的時點都不變；舊的那一刻改記成 `[playback] playing … in Nms after open`，started 行等 `firstAdvance` 才記。格式不變，w243-kit 的 `log_parse.py` 照樣讀得到。summary 的 `startup=` 也改用新時點（其他地方讀 `startupMilliseconds` 只看有沒有值）。
+  - `watchHandoff`（切換播放器後的 started 行）也改用 `firstAdvance`。
+- **量測解析度**：新時點會比畫面真正開始動晚 0～約 50 ms（兩次取樣之間的間隔）。MPV 的 `playing` 和 `started` 一直差約 53 ms，就是這段間隔。
+- **重量**（Simulator webhtv-w202，Debug 版，本分支編譯）。測試來源和 12.3 一樣：`origin.py` 提供 3 集 60 秒 HLS，每個請求延遲 0.5 秒，必須帶 Referer。這次只聽 `[::1]`（`evidence/w247-origin6.py`），`w243.py` 的來源網址暫時改成 `[::1]`，測完已改回。「沒預抓」是預設的低數據模式（`skipped: lowData`）；「有預抓」用 `SIMCTL_CHILD_WEBHTV_PREFETCH_IGNORE_LOW_DATA=1` 啟動。每輪都從第 1 集開始，按兩次「下一集」：
+
+| 情境 | 第 2／3 集 started（新） | 同一次的 playing（舊時點） | `content=` | 證據 |
+|---|---|---|---|---|
+| 原生、沒預抓 | **1259／1183 ms** | 1154／**8** ms | miss | `evidence/w247-nat-base-key.txt` |
+| 原生、有預抓 | **224／185 ms** | 38／10 ms | hit | `evidence/w247-nat-pre-key.txt` |
+| MPV、沒預抓 | **1631／1637 ms** | 1577／1583 ms | miss | `evidence/w247-mpv-base-key.txt` |
+| MPV、有預抓 | **161／161 ms** | 108／108 ms | hit | `evidence/w247-mpv-pre-key.txt` |
+
+- **先前的數字偏差多少**：
+  - 原生的舊時點平均早了 100～200 ms，最嚴重的一次早了 1175 ms：沒預抓第 3 集，舊時點 8 ms，實際 1183 ms，和 W-246 的情況一樣。
+  - MPV 只差取樣間隔（約 50 ms）。
+  - 結論不變：原生預抓省約 1 秒（1259／1183 → 224／185），MPV 省約 1.5 秒（1631／1637 → 161／161）。
+  - 12.3 的 runB 原生 543／111 ms、13.4 紅果原生 398／598／190 ms 都是舊時點，實際大概慢 100～200 ms；紅果這次沒有重量。12.3 的 MPV 數字只偏差約 50 ms。
+- **另外看到（KIT，來源沒有延遲）**：原生沒預抓 211／162 ms、有預抓 498／177 ms。來源在本機又沒有延遲時，預抓沒有好處，所以效果要用有延遲的來源才量得出來。
+- **Ponytail**：最終 diff 審查 Looks good。沒查的：原生在還沒有資料時就回報「正在播放」，這時仍會先記播放成功（`notePlayHealth`），這是本來就有的行為，本單不改播放行為；`firstAdvance` 沒有單元測試（在 App target 裡），以上表四輪 Simulator 為據。
+- **沒驗到**：真機；紅果（整集 MP4）的重量。
+- **回退**：單一 commit，`git revert` 即可。

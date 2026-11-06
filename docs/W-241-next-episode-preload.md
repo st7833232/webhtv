@@ -217,14 +217,17 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 
 | 項目 | 規則 | 理由 |
 |---|---|---|
-| 從哪裡開始 | 下一集的起播點，也就是使用者設的片頭跳過秒數；沒設就是 0 | 開播時本來就會 seek 到這一點，剛好落在已存的片段上 |
+| 從哪裡開始 | 和實際開播**同一個來源**：`WatchHistory.startPosition(resuming: false)`（`ios/Sources/WebHTVCore/WatchHistory.swift:206`），用 `open(url:…)` 合併後的同一筆紀錄（`WebHTVApp.swift:5820-5826`）。自動連播和「下一集」都是 `resuming: false`，所以結果是片頭跳過秒數，沒設就是 0；換集不會沿用上一集的續播位置 | 預抓的片段必須正好是開播時 seek 到的地方 |
+| 第 0 段 | `loadNative` 先 `replaceCurrentItem` 再 `seek`（`WebHTVApp.swift:6924`、`6930-6940`），seek 要等 item ready 才生效。AVPlayer 有可能先向來源抓第 0 段。**實作時先在 Simulator 用本機伺服器的 log 確認**；如果會先抓第 0 段，就把第 0 段也納入預抓（仍算在 20 MB 內） | 否則起播仍要等一次網路請求 |
 | 預抓長度 | 累計片段長度到 **15 秒** 為止 | AVPlayer 起播只需要幾秒的緩衝；15 秒足夠在背景接上來源 |
 | 單集上限 | **20 MB**，和 15 秒先到先停；第一段就超過 20 MB 時整個不做 | 1080p 每秒約 0.5～1 MB，15 秒大約 8～15 MB |
-| 網路 | **Wi-Fi 和行動網路都做**（使用者決定）。唯一例外：系統開了「低數據模式」（`NWPath.isConstrained`）時只預解析 | 低數據模式是使用者在系統裡明確要求省流量，不等於「只限 Wi-Fi」。這是我的預設，使用者要改成照樣預抓也只是一行 |
+| 網路 | **Wi-Fi 和行動網路都做**（使用者決定，#6180）。不加設定開關 | 失敗本來就退回現行路徑 |
+| 低數據模式 | **待 Manager 決定**：系統開了「低數據模式」（`NWPath.isConstrained`）時，是否仍跳過預抓、只預解析。Reviewer 和我都建議跳過 | 低數據模式是使用者在系統裡明確要求省流量，和「只限 Wi-Fi」不同；兩種決定都只差一行 |
 | 何時開始 | 第一輪的預解析存入之後立刻開始，沿用同一個閘門：已播 ≥ 20 秒、距交棒點 ≤ 90 秒、網路狀態 ≥ `.normal`、片長是有限正數 | 不另立一套觸發條件 |
 | 同時存放 | 最多一集 | 和 `PlaybackTargetPrefetch` 一致 |
 | 存放位置 | `Caches/next-episode-prefetch/<預解析身分>/`，不放記憶體 | 系統空間不足時可清；App 啟動時清掉殘留 |
-| 取消並刪除 | 沿用所有 `prefetch.invalidate()` 的呼叫點：手動選集、換線路、換畫質、關閉播放器；另外是身分不符、超過 5 分鐘。取消時停止進行中的下載並刪資料夾 | 和第一輪的失效規則一致 |
+| 取消並刪除 | 沿用所有 `prefetch.invalidate()` 的呼叫點：手動選集、換線路、換畫質、關閉播放器；另外是身分不符、超過 5 分鐘。取消時**先 `cancel()` 進行中的 `URLSessionTask`**，再刪資料夾 | 和第一輪的失效規則一致；只刪資料夾的話，下載還會繼續花流量 |
+| 啟動清理 | App 啟動時刪掉整個 `next-episode-prefetch` 資料夾 | 閃退或被系統終止後留下的殘留 |
 | 用完刪除 | 用這份內容開播的那一集被換掉、或播放器關閉時才刪 | 播放中往回拖到開頭，仍可從本機讀 |
 
 ### 11.3 哪些來源適用、哪些排除
@@ -233,9 +236,9 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 |---|---|---|
 | 單一 variant 的 HLS VOD（或直接就是 media 播放清單） | **預抓** | 設定檔中大部分 CMS 來源屬於這類 |
 | 多 variant 的 master | 第一版不預抓，只預解析 | AVPlayer 起播選哪一條，官方沒有明說（11.12 #R7）；猜錯就是白抓 20 MB。設定檔裡目前幾乎沒有這類來源 |
-| 明文 AES-128 加密的 HLS | **預抓**，金鑰也一起抓，由本機交出 | 離線下載已經這樣做（`HLSKey.isClearAES128`，存成 `keys/kN.key`）。金鑰若留在來源，起播仍要等一次網路請求 |
-| FairPlay、其他 DRM、SAMPLE-AES | 不預抓 | 沿用 `OfflinePackageBuilder.validate` 的拒絕規則（`drmProtected`、`unsupportedEncryption`），不碰授權 |
-| 帶 headers 的來源（Referer、User-Agent、Cookie） | **預抓**。App 抓片段時帶同樣的 headers；帶憑證的 headers 只送同源，轉址時重新判斷（`OfflineRequestPolicy`） | 播放器向來源抓後面的片段時，headers 照現在的方式帶（AVPlayer 用 `AVURLAssetHTTPHeaderFieldsKey`，MPV 用 `http-header-fields`），不變 |
+| 明文 AES-128 加密的 HLS（`METHOD=AES-128`，沒有 `KEYFORMAT` 或 `KEYFORMAT="identity"`） | **預抓片段，金鑰不存**：`#EXT-X-KEY` 的 URI 改成來源的絕對網址，播放器開播時自己向來源抓金鑰 | Reviewer 要求 App 不存金鑰。代價是起播時多一次向來源抓金鑰的請求（通常整份播放清單只用一把）。`#EXT-X-MEDIA-SEQUENCE` 和 `#EXT-X-DISCONTINUITY-SEQUENCE` 不變，因為沒寫 `IV` 時，片段序號就是 IV（RFC 8216 §5.2） |
+| SAMPLE-AES、`skd://`（FairPlay）、`KEYFORMAT` 不是 `identity` | 不預抓，只預解析 | 不碰授權；判斷沿用 `HLSKey.isDRM` 和 `OfflinePackageBuilder.validate` |
+| 帶 headers 的來源（Referer、User-Agent、Cookie） | **預抓**。App 抓片段時帶同樣的 headers；帶憑證的 headers 只送同源，轉址時重新判斷（`OfflineRequestPolicy`） | 播放器向來源抓後面的片段時，headers 照現在的方式帶，不變：AVPlayer 用 `AVURLAssetHTTPHeaderFieldsKey`（`WebHTVApp.swift:6956` `asset(for:headers:)`，作用於這個 asset 發出的所有請求，現有需要 Referer 的 HLS 來源就是靠它抓片段）；MPV 每次載入前重設 `http-header-fields`（`MPVEngine.swift:592-593`），套用到這個檔案的每個 HTTP 請求 |
 | 帶時效的簽名網址 | **預抓** | 已存的片段不會過期；後面的片段仍用原網址，曝險時間和現在一樣（90 秒窗口＋5 分鐘上限） |
 | 可可（kkys）等 Python 本機代理網址（`127.0.0.1` 的 `SpiderProxyServer`） | 不預抓，只預解析 | 透過本機代理讀，每次都會呼叫 Python `localProxy`，等於替爬蟲多做一份工；也避免兩層本機代理 |
 | 302 退路 | 不受影響 | 本機代理網址直接跳過，它的 302 退路完全照舊。一般來源的轉址由 App 的下載跟著走，改寫時以轉址後的最終網址為基準 |
@@ -245,20 +248,37 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 | 下一集已下載 | 不預抓 | 直接離線播放（IOS-POC-47） |
 | 交棒時正在用 AirPlay | 不用本機網址，改用來源網址 | 電視收到 `127.0.0.1` 會連不回手機（11.12 #R8，C 級） |
 
+#### 第一版會跳過的來源大概佔多少（Manager #6183）
+
+依據：
+- 使用者主設定檔的最後一份本機副本：`.herdr-synapse/webhtv-dev/artifacts/wang-movie-gitlab/wang-movie.20261028-0926.json`，共 171 站，其中 Python 站 46 個。
+- 先前 Simulator 測試的 App log：原生播放的每集摘要行，共 134 集。
+- 本機有副本的 Python 腳本。
+
+| 跳過的類別 | 估計多常見 | 依據與限制 |
+|---|---|---|
+| 多 variant 的 HLS | **很少，可能沒有**：134 集原生播放中，107 集沒有 master（`variants=0`，直接是 media 播放清單或 MP4），27 集的 master 只有一條 variant，**0 集是多 variant** | 只涵蓋測過的站，不是全部 171 站；IOS-POC-15 第七節也記錄設定檔裡沒有多 variant 的來源 |
+| 透過 Python 本機代理播放 | **很少**：本機有副本的腳本中，`playerContent` 回傳本機代理網址的只有**可可影視**（`kkys.py`，開了去廣告時）、bili（`哔哩.py`，DASH）和 YouTube（`油管-6.py`）。後兩個本來就因為 DASH、YouTube 而排除。其他有 `localProxy` 的腳本（`lxyy.py`、`sotvla.py`、`zndy.py`、`永乐视频修复搜索.py` 等），`playerContent` 都沒有回傳本機代理 | 46 個 Python 站中，只有大約一半的腳本在本機有副本；其餘沒有檢查 |
+| MP4 | **未知**：上面 107 集 `variants=0` 的裡面混著 MP4 和直接的 media 播放清單，現有 log 分不出來 | 實作版的分段 log 會記 `skipped: mp4`，上線後就能知道比例 |
+| DASH、直播、YouTube、DRM | 少數特定站 | 本來就各有專屬的播放路徑 |
+
+**結論**：第一版涵蓋的「單一 variant HLS VOD」看起來是常用站的主流。被跳過的站中，明確知道會常用到的只有可可影視；MP4 的比例要等上線後的 log 才知道。
+
 ### 11.4 做法
 
 1. 預解析存入後，`PlaybackSession` 啟動一個預抓工作，跟第一輪預解析用同一個身分，也一起失效。
 2. 用 App 的 `URLSession` 抓播放清單，headers 依 `OfflineRequestPolicy`，跟著轉址並記下最終網址。若是 master：只有一條 variant 才繼續，接著抓那條 media 播放清單。
 3. 用 `OfflinePackageBuilder.validate` 檢查。DRM、SAMPLE-AES、直播一律停止。
-4. 從起播點所在的片段開始往後累加，直到 15 秒或 20 MB；需要時加上 `#EXT-X-MAP` 初始化片段和明文 AES-128 金鑰。依序下載，第一段失敗就整個放棄；後面失敗就只用已經連續抓到的那幾段。
-5. 改寫播放清單：沿用 `OfflinePackageBuilder.rewrite`（`ios/Sources/WebHTVCore/Offline/OfflinePackage.swift:272`）的輸出，加一個參數「只把已存的片段，以及它們用到的 `#EXT-X-KEY`／`#EXT-X-MAP`，指到本機；其他網址寫成來源的絕對網址」。`#EXT-X-DISCONTINUITY`、序號、片段長度一律不動（RFC 8216 §6.2.1 不允許改變 media 播放清單的內容，11.12 #R4）。原本有 master 的話，再沿用 `localMaster` 寫一份只指向本機 media 播放清單的 master。
+4. 從起播點所在的片段開始往後累加，直到 15 秒或 20 MB（第 0 段依 11.2 的規則決定是否納入）；需要時加上 `#EXT-X-MAP` 初始化片段。金鑰不抓。依序下載，第一段失敗就整個放棄；後面失敗就只用已經連續抓到的那幾段。
+5. 改寫播放清單：沿用 `OfflinePackageBuilder.rewrite`（`ios/Sources/WebHTVCore/Offline/OfflinePackage.swift:272`）的輸出，加一個參數「只把已存的片段和它們用到的 `#EXT-X-MAP` 指到本機；其他片段和所有 `#EXT-X-KEY` 寫成來源的絕對網址」。**整份播放清單的標籤和片段順序全部保留**，不刪掉起播點之前的片段。`#EXT-X-DISCONTINUITY`、序號、片段長度一律不動（RFC 8216 §6.2.1 不允許改變 media 播放清單的內容，11.12 #R4）。原本有 master 的話，再沿用 `localMaster` 寫一份只指向本機 media 播放清單的 master。
 6. 用 `OfflineMediaServer` 交出這個資料夾（給它一個預抓專用的 root）。只綁 loopback、每次啟動用亂數 token、只讀資料夾內的檔案、支援 Range、IOS-POC-58 的健康檢查，全部沿用。
-7. 交棒時，`start(_:flag:usingPrefetch:)` 拿到預解析結果後，若預抓內容已備妥、身分相符、本機伺服器有回應、不在 AirPlay 中，就把 `PlaybackTarget` 的網址換成本機網址，headers 保留。**原始網址另外交給 `watchAds`**，廣告計畫照原始網址算。
+7. 交棒時，`start(_:flag:usingPrefetch:)` 拿到預解析結果後，若預抓內容已備妥、身分相符、本機伺服器有回應、不在 AirPlay 中，就把 `PlaybackTarget` 的網址換成本機網址，headers 保留。**只有播放器載入用本機網址，其他地方一律用原始網址**：廣告計畫（`watchAds`）、來源字幕的 `SourceSubtitleProvider(mediaURL:)` 和線上字幕的 `OnlineSubtitleIdentity(address:)`（`WebHTVApp.swift:6620-6632`）、`self.url`（觀看紀錄），以及換畫質、重新載入時的網址。
 8. MPV 用本機網址開檔時帶 `cache=yes`（11.12 #R9：`cache=auto` 可能把 `127.0.0.1` 當成本機檔案而預讀太少，這是推論）。
 
 ### 11.5 預抓的片段播完後怎麼接回網路
 
-- 播放器看到的是**同一份連續的播放清單**，只是前幾段的網址在本機、後面的在來源，中間不換播放器也不換 item。HLS 允許每個片段用任意絕對網址（RFC 8216 §4.1）。
+- 播放器看到的是**同一份連續的播放清單**，只是前幾段的網址在本機、後面的在來源，中間不換播放器也不換 item，**也不加 `#EXT-X-DISCONTINUITY`**：內容本來就連續，只是網址的主機不同。HLS 允許每個片段用任意絕對網址（RFC 8216 §4.1）。
+- 向來源抓的片段照常帶 headers（見 11.3 的「帶 headers 的來源」一列和它附的程式位置）。
 - AVPlayer 開播後會一路往後抓到它的緩衝目標，MPV 也一樣。所以**向來源抓第 k+1 段，在起播當下就同時開始**，比播放進度領先約 15 秒。
 - 網路慢到 15 秒內連下一段都抓不到時，會在約 15 秒處卡一下。這和今天的卡頓行為一樣，只是發生得比較晚；既有的網路狀態模型（IOS-POC-15A）照常運作。
 - 播放中往回拖到開頭時，資料夾還在，所以仍從本機讀。
@@ -283,13 +303,18 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 
 開發端（Claude，單元測試＋Simulator）：
 1. 單元測試：
-   - 改寫：只有已存的片段和它們用到的 KEY、MAP 指到本機；其他網址都是來源的絕對網址；`DISCONTINUITY`、序號、片段長度不變。
+   - 改寫：只有已存的片段和它們用到的 MAP 指到本機；其他片段和所有 KEY 都是來源的絕對網址；標籤、片段順序、`MEDIA-SEQUENCE`、`DISCONTINUITY-SEQUENCE`、片段長度都不變。
+   - 加密：沒寫 IV 的 AES-128 播放清單改寫後，序號不變；SAMPLE-AES、`skd://`、`KEYFORMAT` 不是 identity 的都跳過。
+   - 起點：預抓起點和 `WatchHistory.startPosition(resuming: false)` 一致。
    - 會轉址的播放清單：相對網址以最終網址為基準。
    - 15 秒、20 MB 兩個上限都會停；第一段超過 20 MB 時整個不做。
    - 排除條件：多 variant、DRM、SAMPLE-AES、本機代理、MP4、直播、低數據模式、AirPlay 中，都只預解析或改用來源網址。
-   - 失效：手動選集、換線路、換畫質、關閉、逾時都會刪掉資料夾。
+   - 失效：手動選集、換線路、換畫質、關閉、逾時都會先取消進行中的下載，再刪掉資料夾；啟動時會清掉殘留。
 2. Simulator 連播 3 集（AVPlayer 和 MPV 各一次）：log 出現 `content=hit`；第 2、3 集的起播時間比沒有預抓的基線短；廣告計畫和用原始網址算的一樣；有片頭跳過時，開播位置正確。
-3. 不退化：故意讓預抓失敗、本機伺服器不回應、網址過期，都照現在的流程開播；DASH、本機代理來源的行為不變。
+3. Simulator 確認本機伺服器的 log：AVPlayer 開播時第一批片段請求就是已存的片段，沒有先向來源抓第 0 段（否則依 11.2 把第 0 段納入預抓）。
+4. Simulator 播過預抓的 15 秒之後不卡，log 看得到改向來源抓片段的請求。
+5. 至少測一個需要 Referer 的 HLS 來源：預抓和之後向來源抓的片段都沒有 403。
+6. 不退化：故意讓預抓失敗、本機伺服器不回應、網址過期，都照現在的流程開播；DASH、本機代理來源的行為不變。
 
 真機（請使用者用 SideStore 安裝後回報）：
 1. 同一部劇在 **Wi-Fi** 上連播 3 集：換集是否幾乎立刻開始播。接著 Mac 的話，在「主控台」看 `[playback] started` 行，回報第 2、3 集的毫秒數和 `content=` 欄位。
@@ -351,7 +376,9 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 
 - E 能省多少時間是推估（命中時估計剩 0.2～0.5 秒），要靠 11.7 的分段 log 在 Simulator 和真機上確認。
 - 行動網路上每集最多多用 20 MB；使用者沒看下一集時，這些流量就浪費了。這是使用者接受的取捨（#6180）。
-- 「低數據模式時不預抓」是我定的預設，使用者可以推翻。
+- 低數據模式要不要跳過，待 Manager 決定（建議跳過）。
+- AVPlayer 會不會先向來源抓第 0 段，要在 Simulator 確認後才定案（11.2）。
+- 金鑰不存在本機，起播時仍多一次向來源抓金鑰的請求；這一點的耗時沒量過。
 - AirPlay 和本機網址的衝突只有 C 級來源；子母畫面完全沒有資料。兩者都列入真機驗收。
 - 「mpv 把 `127.0.0.1` 當成本機檔案而少預讀」是推論。
 - 多 variant 和 MP4 不在第一版範圍。

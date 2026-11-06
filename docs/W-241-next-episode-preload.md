@@ -509,3 +509,21 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 | 網址過期（`fail=expire&who=player`，簽名會過期） | 第 3 集 `content=hit`，118 ms；播完本機片段後，向來源要下一段收到 403，走現有的失敗處理：12 秒處切到 MPV，MPV 也收到 403，這集結束。舊做法遇到過期網址也是這條路徑 |
 
 證據：`.herdr-synapse/webhtv-dev/artifacts/w243/evidence/c2-*`。另外注意：逾時注入期間，智慧去廣告也讀不到原始清單（`plan fetch-failed`），因為它和預抓都是 App 發出的請求；這是注入方式造成的，不是預抓的問題。
+
+### 12.8 審查補件 C3：預抓之後網址過期（Reviewer #6291）
+
+- **問題（Reviewer 指出，成立）**：舊流程裡，交棒時預解析的網址若已過期，播放器一開就失敗，會走 `retryWithoutPrefetch` 重新即時解析（IOS-POC-15D）。新流程先用本機副本開播成功，這個重試在起播時就被清掉；約 16 秒後向來源要片段才收到 403，只剩切 MPV，這集就失敗結束。簽名壽命短於「預解析到交棒」（約 90 秒）就會發生，5 分鐘的 `maximumAge` 擋不住。
+- **修法**：
+  - `PlayerRouter.recoversFailure`（`ios/Sources/WebHTVCore/PlaybackEngine.swift`）：每次播放器失敗時先問 session，session 自己處理的就不切換播放器、也不顯示錯誤。
+  - App：用本機副本開播的那一集，起播後**保留**原本的重試，但只在 `起播點 + 副本秒數 + 30 秒` 以內有效（`copyRetryUntil`）。範圍內的失敗會重新即時解析一次，並從失敗時的位置接著播（`retryResumeSeconds`），不從頭。範圍外、或重試已經用過，就照原本的流程（切 MPV，再顯示錯誤）。
+- **單元測試**：新增 `aFailureTheSessionRecoversIsNotFallenBackOrShown`；`PlaybackEngineTests` 與 `NextEpisodeContentTests` 合計 58 個全過（`evidence/unit-tests-c3.txt`）。
+- **Simulator 驗證**：W-244 工具 `kit_server.py --host ::1 --expire-after 60`，不注入失敗。測試爬蟲 `w243exp.py`（`evidence/`）每次 `playerContent` 都向工具要新簽名，像真實爬蟲解析短效網址一樣。簽名在預抓時（約第 30 秒）有效、交棒時（約第 120 秒）已過期：
+
+| 情況 | 結果 |
+|---|---|
+| 預抓命中（新流程） | 第 2 集 `content=hit`，120 ms 開播；12 秒處向來源要 `seg004` 收到 403 → `fetched copy's source failed (HTTP 403) at 12s — resolving live` → 新簽名，105 ms 重新開播，**從 `seg003`（12 秒）接著播**，之後全部 200。另一輪第 3 集同樣通過 |
+| 基準（預抓請求注入 404，交棒用過期的預解析網址＝舊流程） | 原生 403 → 切 MPV → MPV 失敗 → `prefetched address failed — resolving live` → 在 MPV 上**從 0 秒**重新開播 |
+
+兩者都會重新解析並繼續播放；新流程還少一次切換播放器，而且從失敗位置接著播。
+
+- **行為差異（刻意的）**：副本範圍內的失敗，現在先重新解析一次，再考慮切 MPV（舊流程是先切 MPV）。如果失敗原因是 AVPlayer 的 headers（重解析後還是同一個錯），重試已經用掉，就照原本的流程切到 MPV，這條退路仍在，只是晚一步。

@@ -5225,10 +5225,11 @@ struct EpisodeSteps: Equatable {
         let source: URL
         let folder: URL
         var local: URL?
+        var seconds = 0.0
         let task: Task<Void, Never>
     }
     private var ahead: Ahead?
-    private var playing: (source: URL, local: URL, folder: URL)?
+    private var playing: (source: URL, local: URL, folder: URL, seconds: Double)?
     /// Why the last handoff found nothing to play from, for its `started` line.
     private var miss = "notRequested"
     private var lastSkip: String?
@@ -5256,6 +5257,7 @@ struct EpisodeSteps: Equatable {
                 guard let self, self.ahead?.folder == folder else { return Self.remove(folder) }
                 self.ahead?.local = base.appendingPathComponent(folder.lastPathComponent, isDirectory: true)
                     .appendingPathComponent(result.entry)
+                self.ahead?.seconds = result.seconds
                 let milliseconds = Int((ContinuousClock.now - began) / .milliseconds(1))
                 PlaybackSession.log.notice("[playback] content-prefetch \(episode, privacy: .public) \(result.segments) segments \(Int(result.seconds))s \(String(format: "%.1f", Double(result.bytes) / 1_048_576), privacy: .public)MB in \(milliseconds)ms")
             } catch {
@@ -5281,23 +5283,24 @@ struct EpisodeSteps: Equatable {
         guard let held = ahead else { miss = lastSkip ?? "notRequested"; return }
         guard held.identity == identity else { miss = "identityChanged"; return }
         guard let local = held.local else { miss = "stillFetching"; return }
-        playing = (held.source, local, held.folder)
+        playing = (held.source, local, held.folder, held.seconds)
         ahead = nil
         miss = "notRequested"
     }
 
     /// The address an engine should open for `url`: the local copy for the item it was fetched for,
-    /// or nil to open `url` itself. Another item lets the previous folder go.
-    func engineURL(for url: URL, external: Bool) -> (url: URL?, note: String) {
+    /// or nil to open `url` itself, and how many seconds the copy holds. Another item lets the
+    /// previous folder go.
+    func engineURL(for url: URL, external: Bool) -> (url: URL?, note: String, seconds: Double) {
         guard let playing, playing.source == url else {
             // A copy handed over for another address: the quality chosen at the switch differed.
             let why = self.playing == nil ? miss : "otherAddress"
             release()
             miss = "notRequested"
-            return (nil, "miss: \(why)")
+            return (nil, "miss: \(why)", 0)
         }
         // A TV handed 127.0.0.1 would look for the stream on itself (W-242 §11.3).
-        return external ? (nil, "miss: airplay") : (playing.local, "hit")
+        return external ? (nil, "miss: airplay", 0) : (playing.local, "hit", playing.seconds)
     }
 
     /// Stops and deletes what was fetched ahead. The folder an item is playing from stays.
@@ -5477,6 +5480,10 @@ struct EpisodeSteps: Equatable {
     /// unrecoverable failure, and dropped once playback actually starts — after that a failure is
     /// the stream's, and re-opening the episode from the start would be wrong.
     private var retryWithoutPrefetch: (() async -> Bool)?
+    /// W-243 C3: the position up to which an item playing from a fetched copy keeps that retry.
+    private var copyRetryUntil: Double?
+    /// W-243 C3: where the item the retry replaces had got to.
+    private var retryResumeSeconds: Double?
 
     /// The `[playback]` diagnostics (IOS-POC-15D). `Logger`, not `print`: a SideStore Release build
     /// has no debugger attached, and stdout goes nowhere there, while the unified log reaches
@@ -5647,6 +5654,27 @@ struct EpisodeSteps: Equatable {
             if shown != nil {
                 Self.log.notice("[subtitle] source default shown on \(self.engineKind.shortName, privacy: .public)")
             }
+        }
+        // W-243 review C3: a copy's source address that expired before the switch fails only once
+        // the player reaches past the copy, after the start; the retry the start used to get runs
+        // then instead of an engine fallback that would fail the same way.
+        router.recoversFailure = { [weak self] failure in
+            guard let self, let until = self.copyRetryUntil, let retry = self.retryWithoutPrefetch else { return false }
+            let position = self.engine?.currentTime ?? 0
+            guard position <= until else { return false }
+            self.copyRetryUntil = nil
+            self.retryWithoutPrefetch = nil
+            self.retryResumeSeconds = position > 0 ? position : nil
+            Self.log.notice("[playback] fetched copy's source failed (\(failure.message, privacy: .public)) at \(Int(position))s — resolving live")
+            Task { @MainActor in
+                if await retry() == false {
+                    self.retryResumeSeconds = nil
+                    self.notePlayHealth(succeeded: false)
+                    self.onFailure?(failure)
+                    self.lineObserver?(.failed)
+                }
+            }
+            return true
         }
         router.onUnrecoverable = { [weak self] failure in
             guard let self else { return }
@@ -5981,7 +6009,9 @@ struct EpisodeSteps: Equatable {
             let merged = await WatchHistoryStore.shared.record(forKey: history.key)
                 .map { history.carryingOver(from: $0) } ?? history
             record = merged
-            let from = merged.startPosition(resuming: resuming)
+            // W-243 C3: a copy that failed is resolved again where it was, not from the start.
+            let from = self.retryResumeSeconds.map { $0 * 1000 } ?? merged.startPosition(resuming: resuming)
+            self.retryResumeSeconds = nil
             resumeTo = from > 0 ? from : nil
             start(at: 0)
         }
@@ -6809,6 +6839,10 @@ struct EpisodeSteps: Equatable {
         // quality switch all keep the source's own address.
         let content = nextContent.engineURL(for: url, external: player.isExternalPlaybackActive)
         contentNote = content.note
+        // W-243 review C3: a copy hides an address that expired between the prefetch and the switch
+        // until the player asks the source for what follows it, after the start. Near the copy, such
+        // a failure is resolved live once, as a pre-resolved address that fails to start always was.
+        copyRetryUntil = content.url == nil ? nil : start + content.seconds + 30
         router.open(PlaybackLoadRequest(target: PlaybackTarget(url: content.url ?? url, headers: headers),
                                         startSeconds: start, rate: chosenRate, autoplay: autoplay,
                                         title: title, history: record), freshEngine: freshEngineOnce)
@@ -6971,7 +7005,8 @@ struct EpisodeSteps: Equatable {
                 if let engine, engine.isPlaying, let loadedAt {
                     let milliseconds = Int((ContinuousClock.now - loadedAt) / .milliseconds(1))
                     startupMilliseconds = milliseconds
-                    retryWithoutPrefetch = nil
+                    // A copy keeps its retry past the start (W-243 C3); `recoversFailure` bounds it.
+                    if copyRetryUntil == nil { retryWithoutPrefetch = nil }
                     notePlayHealth(succeeded: true)
                     lineObserver?(.started)
                     Self.log.notice("[playback] started \(self.itemTitle, privacy: .public) on \(self.engineKind.shortName, privacy: .public) in \(milliseconds)ms after open (ready \(self.readyMilliseconds.map { "\($0)ms" } ?? "?", privacy: .public)); resolve \(self.resolution, privacy: .public); content=\(self.contentNote, privacy: .public)")

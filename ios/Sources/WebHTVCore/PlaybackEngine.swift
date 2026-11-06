@@ -392,6 +392,9 @@ public final class PlayerRouter {
     public var onMediaSelectionChange: ((PlaybackMediaSelection) -> Void)?
     /// A failure that will be shown rather than recovered from.
     public var onUnrecoverable: ((PlaybackFailure) -> Void)?
+    /// W-243: asked first about every engine failure; true means the session recovers it itself (a
+    /// fetched copy whose source address expired is resolved again), so no engine fallback runs.
+    public var recoversFailure: ((PlaybackFailure) -> Bool)?
 
     private let makeEngine: (PlaybackEngineKind) -> PlaybackEngine
 
@@ -690,6 +693,7 @@ public final class PlayerRouter {
 
     private func engineFailed(_ error: Error, httpStatus: Int?) {
         let classified = PlaybackFailure.classify(error, httpStatus: httpStatus)
+        if recoversFailure?(classified) == true { return }
         guard selection.fallback(after: classified) != nil else {
             failure = classified
             onUnrecoverable?(classified)

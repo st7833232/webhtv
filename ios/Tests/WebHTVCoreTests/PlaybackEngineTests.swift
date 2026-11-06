@@ -452,6 +452,20 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     #expect(shown == .network("HTTP 403"))
 }
 
+/// W-243: a failure the session recovers itself neither switches engine nor is shown.
+@MainActor @Test func aFailureTheSessionRecoversIsNotFallenBackOrShown() {
+    let harness = Harness()
+    var shown: PlaybackFailure?
+    var asked: PlaybackFailure?
+    harness.router.onUnrecoverable = { shown = $0 }
+    harness.router.recoversFailure = { asked = $0; return true }
+    harness.router.open(request)
+    harness.engine.fail(avError(-11800), httpStatus: 403)
+    #expect(asked == .network("HTTP 403"))
+    #expect(harness.engine.kind == .native && harness.made.count == 1)
+    #expect(shown == nil)
+}
+
 @MainActor @Test func offlineIsShownWithoutSwitching() {
     let harness = Harness()
     var shown: PlaybackFailure?

@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.93",
+          "date": "2026-11-06",
+          "localizedDescription": "原生播放與 MPV：\n- 換下一集更快：快看完當集時，App 會先在背景準備好下一集開頭（每集最多 20 MB，行動網路也會準備；開啟系統「低數據模式」時不做），換集後幾乎立刻開始播放；手動換集、換線路或關閉播放器時會自動取消。準備失敗或網址過期時會自動改回原本的播放方式，不影響觀看。\n- 一次回傳整集影片的爬蟲來源，也會提早準備下一集，換集等待時間大幅縮短。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.93-b94/WebHTV-0.1.93-94.ipa",
+          "size": 35803041,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.92",
           "date": "2026-11-05",
           "localizedDescription": "爬蟲：\n- 改善爬蟲影片相容性：有些爬蟲會一次回傳整集 MP4，原生播放器以前可能載不起來或不能拖動進度，現在會依播放器需要分段提供，讓原生播放器可以載入與快轉；其他影片格式維持原本的處理方式。",

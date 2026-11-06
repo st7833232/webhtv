@@ -158,6 +158,26 @@ public enum NextEpisodeContent {
                       seconds: seconds, bytes: byteLimit - budget)
     }
 
+    /// What an engine failure means for an item playing from a fetched copy (W-243 review C3, C3a, C4).
+    public enum CopyFailure: Equatable, Sendable {
+        /// The source stopped answering near the copy — an address that expired between the prefetch
+        /// and the switch: resolve it again, once.
+        case recover
+        /// Anything else once playing: the failure takes its usual course, and the retry kept for the
+        /// copy goes, or a later failure would reopen the episode from its start.
+        case dropRetry
+        /// Before the start the retry stays, as it always did for a pre-resolved address.
+        case keep
+    }
+
+    /// `until` is the position the copy's window ends at; only the source's own answer is recovered —
+    /// a codec the native player cannot play still goes to MPV first.
+    public static func copyFailure(_ failure: PlaybackFailure, position: Double, until: Double,
+                                   started: Bool) -> CopyFailure {
+        if case .network = failure, position <= until { return .recover }
+        return started ? .dropRetry : .keep
+    }
+
     /// The segment playing at `seconds`, or nil past the end.
     static func firstSegment(_ segments: [HLSSegment], at seconds: Double) -> Int? {
         var elapsed = 0.0

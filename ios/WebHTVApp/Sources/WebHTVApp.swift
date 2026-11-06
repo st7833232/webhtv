@@ -3244,6 +3244,7 @@ private struct VodView: View {
         // A new episode, line or quality was picked by hand, so anything resolved for the old one is
         // about a playback that is no longer happening.
         PlaybackSession.shared.prefetch.invalidate()
+        PlaybackSession.shared.forgetRetryPosition()
         let began = Date()
         do {
             // IOS-POC-47: a downloaded episode plays from this device; the source is not asked.
@@ -5480,10 +5481,14 @@ struct EpisodeSteps: Equatable {
     /// unrecoverable failure, and dropped once playback actually starts — after that a failure is
     /// the stream's, and re-opening the episode from the start would be wrong.
     private var retryWithoutPrefetch: (() async -> Bool)?
-    /// W-243 C3: the position up to which an item playing from a fetched copy keeps that retry.
+    /// W-243 C3: the position up to which an item playing from a fetched copy keeps that retry, and
+    /// when that window closes on the clock — mpv reports no position for a stream it ended.
     private var copyRetryUntil: Double?
+    private var copyRetryDeadline: ContinuousClock.Instant?
     /// W-243 C3: where the item the retry replaces had got to.
     private var retryResumeSeconds: Double?
+    /// A hand-picked episode is not the retried one and must not start where that one failed.
+    func forgetRetryPosition() { retryResumeSeconds = nil }
 
     /// The `[playback]` diagnostics (IOS-POC-15D). `Logger`, not `print`: a SideStore Release build
     /// has no debugger attached, and stdout goes nowhere there, while the unified log reaches
@@ -5659,22 +5664,13 @@ struct EpisodeSteps: Equatable {
         // the player reaches past the copy, after the start; the retry the start used to get runs
         // then instead of an engine fallback that would fail the same way.
         router.recoversFailure = { [weak self] failure in
-            guard let self, let until = self.copyRetryUntil, let retry = self.retryWithoutPrefetch else { return false }
-            let position = self.engine?.currentTime ?? 0
-            guard position <= until else { return false }
-            self.copyRetryUntil = nil
-            self.retryWithoutPrefetch = nil
-            self.retryResumeSeconds = position > 0 ? position : nil
-            Self.log.notice("[playback] fetched copy's source failed (\(failure.message, privacy: .public)) at \(Int(position))s — resolving live")
-            Task { @MainActor in
-                if await retry() == false {
-                    self.retryResumeSeconds = nil
-                    self.notePlayHealth(succeeded: false)
-                    self.onFailure?(failure)
-                    self.lineObserver?(.failed)
-                }
+            guard let self, let until = self.copyRetryUntil else { return false }
+            switch NextEpisodeContent.copyFailure(failure, position: self.engine?.currentTime ?? 0, until: until,
+                                                  started: self.startupMilliseconds != nil) {
+            case .recover: return self.recoverCopy(failure)
+            case .dropRetry: self.dropCopyRetry(); return false
+            case .keep: return false
             }
-            return true
         }
         router.onUnrecoverable = { [weak self] failure in
             guard let self else { return }
@@ -6719,7 +6715,38 @@ struct EpisodeSteps: Equatable {
         seconds.isFinite ? (seconds * 1000).rounded() : 0
     }
 
+    /// W-243 review C3: resolves an item playing from a fetched copy again, once, where it got to.
+    /// False when it has no retry left, and the failure takes its usual course.
+    private func recoverCopy(_ failure: PlaybackFailure) -> Bool {
+        guard copyRetryUntil != nil, let retry = retryWithoutPrefetch else { return false }
+        let position = engine?.currentTime ?? 0
+        dropCopyRetry()
+        retryResumeSeconds = position > 0 ? position : nil
+        Self.log.notice("[playback] fetched copy's source failed (\(failure.message, privacy: .public)) at \(Int(position))s — resolving live")
+        Task { @MainActor in
+            if await retry() == false {
+                self.retryResumeSeconds = nil
+                self.notePlayHealth(succeeded: false)
+                self.onFailure?(failure)
+                self.lineObserver?(.failed)
+            }
+        }
+        return true
+    }
+
+    private func dropCopyRetry() {
+        copyRetryUntil = nil
+        copyRetryDeadline = nil
+        retryWithoutPrefetch = nil
+    }
+
     private func finished(reason: String) {
+        // W-243 review C3: mpv ends a stream whose source stopped answering as if it were done (seen
+        // with an expired address past the copy). An end while the copy's window is still open, of an
+        // episode longer than that window, is that failure — not the episode's end.
+        if reason == "end", let deadline = copyRetryDeadline, deadline > .now,
+           duration > (copyRetryUntil ?? 0) + 30,
+           recoverCopy(.network("ended inside the fetched copy's window")) { return }
         // IOS-POC-36: once per item — the viewer's ending, then the real end while the next episode
         // resolves, used to advance twice and skip an episode. A 上一集／下一集 already in flight is
         // what moves on, not a second start beside it. IOS-POC-36.1: looping too — it replays once
@@ -6843,6 +6870,7 @@ struct EpisodeSteps: Equatable {
         // until the player asks the source for what follows it, after the start. Near the copy, such
         // a failure is resolved live once, as a pre-resolved address that fails to start always was.
         copyRetryUntil = content.url == nil ? nil : start + content.seconds + 30
+        copyRetryDeadline = content.url == nil ? nil : .now + .seconds(content.seconds + 30)
         router.open(PlaybackLoadRequest(target: PlaybackTarget(url: content.url ?? url, headers: headers),
                                         startSeconds: start, rate: chosenRate, autoplay: autoplay,
                                         title: title, history: record), freshEngine: freshEngineOnce)

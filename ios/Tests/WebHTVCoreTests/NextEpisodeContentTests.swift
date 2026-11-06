@@ -188,6 +188,19 @@ private func segmentLines(_ text: String) -> [String] { text.split(separator: "\
         }
     }
 
+    /// W-243 review C3, C3a, C4.
+    @Test func onlyTheSourceFailingNearTheCopyIsResolvedAgain() {
+        let network = PlaybackFailure.network("HTTP 403")
+        let codec = PlaybackFailure.engineCapability("unsupported")
+        #expect(NextEpisodeContent.copyFailure(network, position: 12, until: 46, started: true) == .recover)
+        #expect(NextEpisodeContent.copyFailure(network, position: 0, until: 46, started: false) == .recover)
+        // Thirty minutes in, the retry the copy kept must not reopen the episode from its start.
+        #expect(NextEpisodeContent.copyFailure(network, position: 1800, until: 46, started: true) == .dropRetry)
+        // A codec goes to MPV first, as it always did; once playing, without the copy's retry.
+        #expect(NextEpisodeContent.copyFailure(codec, position: 5, until: 46, started: true) == .dropRetry)
+        #expect(NextEpisodeContent.copyFailure(codec, position: 0, until: 46, started: false) == .keep)
+    }
+
     @Test func aFailedFirstSegmentFetchesNothingAndALaterOneEndsTheRun() async throws {
         let source = Source()
         source.text("https://cdn.example/index.m3u8", media(4))

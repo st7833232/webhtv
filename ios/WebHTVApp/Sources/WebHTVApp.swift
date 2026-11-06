@@ -68,6 +68,8 @@ struct WebHTVApp: App {
         // feature's session folders in the app's temporary directory, before any player can open.
         let staleSubtitles = SubtitleSessionCache.removeStaleSessions()
         if staleSubtitles > 0 { print("[subtitle] removed \(staleSubtitles) stale session folder(s)") }
+        // W-243: likewise the next episode's fetched seconds a crash or a force quit left behind.
+        try? FileManager.default.removeItem(at: NextEpisodePrefetch.root)
         // IOS-POC-47: offline downloads — their records, a delete a crash interrupted, and the
         // transfers the background session kept going — before any screen asks about them.
         Task { @MainActor in
@@ -3321,6 +3323,15 @@ private struct VodView: View {
             PlaybackSession.shared.prefetch.store(NextPlaybackTarget(identity: wanted, target: target,
                                                                      episodeName: next.name))
             PlaybackSession.log.notice("[playback] prefetched \(next.name, privacy: .public) in \(Self.milliseconds(since: began))ms")
+            // W-243: then its first seconds, from where `start` will open it — the same quality
+            // choice and the same start position (the title's opening; a new episode never resumes).
+            let stored = await WatchHistoryStore.shared.record(forKey: historyKey)
+            let template = record(for: next, flag: flag)
+            let from = (stored.map { template.carryingOver(from: $0) } ?? template).startPosition(resuming: false)
+            guard PlaybackSession.shared.prefetch.miss(for: wanted) == nil else { return }
+            PlaybackSession.shared.nextContent.begin(
+                wanted, source: PlaybackQualityChoice(target: target, preferred: stored?.quality ?? "").url,
+                headers: target.headers, startSeconds: from / 1000, episode: next.name)
         } catch {
             PlaybackSession.shared.prefetch.failed()
             PlaybackSession.log.notice("[playback] prefetch \(next.name, privacy: .public) failed after \(Self.milliseconds(since: began))ms: \(error.localizedDescription, privacy: .public) — an optimization miss")
@@ -3391,6 +3402,14 @@ private struct VodView: View {
             let wanted = identity(for: next, flag: flag)
             let session = PlaybackSession.shared
             let miss = usingPrefetch ? session.prefetch.miss(for: wanted, now: began) : nil
+            // W-243: the fetched folder before the address, which consumes it; `load` then opens it.
+            // Without the prefetch — going back, or the retry after a fetched copy would not play —
+            // nothing fetched may be opened, including the copy that just failed.
+            if !usingPrefetch {
+                session.nextContent.dropAll()
+            } else if miss == nil {
+                session.nextContent.take(wanted)
+            }
             let prefetched = usingPrefetch ? session.prefetch.take(matching: wanted, now: began)?.target : nil
             let target: PlaybackTarget
             if let prefetched {
@@ -5180,6 +5199,130 @@ struct EpisodeSteps: Equatable {
 /// One `AVPlayer` for the app's lifetime with items swapped into it, so no view has to observe a
 /// changing player object. Everything else Android tracks — the playlist, the page-supplied title
 /// and artwork, the repeat flag — is what `AVPlayer` has no concept of.
+/// W-243 — the next episode's first seconds, fetched ahead (`NextEpisodeContent`) into a folder of
+/// their own and served on loopback to either engine. At most one episode ahead, plus the one now
+/// playing from its folder; every miss plays the pre-resolved address exactly as before.
+@MainActor final class NextEpisodePrefetch {
+    nonisolated static let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("next-episode-prefetch", isDirectory: true)
+    nonisolated static let server = OfflineMediaServer(root: root)
+
+    /// Whether an engine is opening a copy fetched ahead.
+    nonisolated static func serves(_ url: URL) -> Bool {
+        url.host == "127.0.0.1" && url.path.hasPrefix("/\(server.token)/")
+    }
+    /// Low Data Mode (`isConstrained`) is the one network that is not fetched ahead on (Manager #6199).
+    private static let path = NWPathMonitor()
+    #if DEBUG
+    /// Simulator runs only: the Mac they run on may share a phone's hotspot, which it marks Low Data.
+    private static let ignoresLowData = ProcessInfo.processInfo.environment["WEBHTV_PREFETCH_IGNORE_LOW_DATA"] != nil
+    #else
+    private static let ignoresLowData = false
+    #endif
+
+    private struct Ahead {
+        let identity: PlaybackTargetIdentity
+        let source: URL
+        let folder: URL
+        var local: URL?
+        let task: Task<Void, Never>
+    }
+    private var ahead: Ahead?
+    private var playing: (source: URL, local: URL, folder: URL)?
+    /// Why the last handoff found nothing to play from, for its `started` line.
+    private var miss = "notRequested"
+    private var lastSkip: String?
+
+    init() {
+        Self.path.start(queue: .global(qos: .utility))
+    }
+
+    var aheadIdentity: PlaybackTargetIdentity? { ahead?.identity }
+
+    func begin(_ identity: PlaybackTargetIdentity, source: URL, headers: [String: String], startSeconds: Double,
+               episode: String) {
+        drop()
+        lastSkip = nil
+        guard Self.ignoresLowData || !Self.path.currentPath.isConstrained else { return skipped("lowData", episode: episode) }
+        if let skip = NextEpisodeContent.eligible(source) { return skipped(skip.reason, episode: episode) }
+        let folder = Self.root.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let began = ContinuousClock.now
+        let task = Task { @MainActor [weak self] in
+            do {
+                let result = try await NextEpisodeContent.fetch(
+                    source, headers: headers, startSeconds: startSeconds, into: folder,
+                    using: OfflineHTTP.fetcher(origin: source, originalHeaders: headers))
+                guard let base = await Self.server.start() else { throw NextEpisodeContent.Skip.failed("local server") }
+                guard let self, self.ahead?.folder == folder else { return Self.remove(folder) }
+                self.ahead?.local = base.appendingPathComponent(folder.lastPathComponent, isDirectory: true)
+                    .appendingPathComponent(result.entry)
+                let milliseconds = Int((ContinuousClock.now - began) / .milliseconds(1))
+                PlaybackSession.log.notice("[playback] content-prefetch \(episode, privacy: .public) \(result.segments) segments \(Int(result.seconds))s \(String(format: "%.1f", Double(result.bytes) / 1_048_576), privacy: .public)MB in \(milliseconds)ms")
+            } catch {
+                Self.remove(folder)
+                guard !(error is CancellationError), let self, self.ahead?.folder == folder else { return }
+                self.ahead = nil
+                self.skipped((error as? NextEpisodeContent.Skip)?.reason ?? "failed: \(error.localizedDescription)",
+                             episode: episode)
+            }
+        }
+        ahead = Ahead(identity: identity, source: source, folder: folder, local: nil, task: task)
+    }
+
+    /// Hands the fetched folder to the episode about to play when it was fetched for exactly it.
+    /// Anything still downloading is a miss and stops: the handoff does not wait.
+    func take(_ identity: PlaybackTargetIdentity) {
+        defer { drop() }
+        guard let held = ahead else { miss = lastSkip ?? "notRequested"; return }
+        guard held.identity == identity else { miss = "identityChanged"; return }
+        guard let local = held.local else { miss = "stillFetching"; return }
+        release()
+        playing = (held.source, local, held.folder)
+        ahead = nil
+        miss = "notRequested"
+    }
+
+    /// The address an engine should open for `url`: the local copy for the item it was fetched for,
+    /// or nil to open `url` itself. Another item lets the previous folder go.
+    func engineURL(for url: URL, external: Bool) -> (url: URL?, note: String) {
+        guard let playing, playing.source == url else {
+            // A copy handed over for another address: the quality chosen at the switch differed.
+            let why = self.playing == nil ? miss : "otherAddress"
+            release()
+            miss = "notRequested"
+            return (nil, "miss: \(why)")
+        }
+        // A TV handed 127.0.0.1 would look for the stream on itself (W-242 §11.3).
+        return external ? (nil, "miss: airplay") : (playing.local, "hit")
+    }
+
+    /// Stops and deletes what was fetched ahead. The folder an item is playing from stays.
+    func drop() {
+        guard let held = ahead else { return }
+        held.task.cancel()
+        Self.remove(held.folder)
+        ahead = nil
+    }
+
+    /// The player closed: nothing is playing from a folder any more.
+    func dropAll() {
+        drop()
+        release()
+    }
+
+    private func release() {
+        if let folder = playing?.folder { Self.remove(folder) }
+        playing = nil
+    }
+
+    private func skipped(_ reason: String, episode: String) {
+        lastSkip = reason
+        PlaybackSession.log.notice("[playback] content-prefetch \(episode, privacy: .public) skipped: \(reason, privacy: .public)")
+    }
+
+    private static func remove(_ folder: URL) { try? FileManager.default.removeItem(at: folder) }
+}
+
 @MainActor final class PlaybackSession {
     static let shared = PlaybackSession()
 
@@ -5316,7 +5459,15 @@ struct EpisodeSteps: Equatable {
     /// able to drop it — the control bar's quality menu above all. The session still knows nothing
     /// about sites, lines or how an episode becomes a URL: the identity is opaque to it, and the
     /// detail screen is still the only thing that builds one, resolves one or takes one.
-    var prefetch = PlaybackTargetPrefetch()
+    var prefetch = PlaybackTargetPrefetch() {
+        // W-243: what was fetched ahead goes with the address it was fetched for — a hand-picked
+        // episode, another line or quality, a closed player, a stale address.
+        didSet { if let held = nextContent.aheadIdentity, prefetch.miss(for: held) != nil { nextContent.drop() } }
+    }
+    /// W-243: the next episode's first seconds, fetched once `prefetch` holds its address.
+    let nextContent = NextEpisodePrefetch()
+    /// `hit` or `miss: <why>` for the item loading now, for its `started` line.
+    private var contentNote = ""
     /// Resolves the episode just opened again, live, if its pre-resolved address turns out not to
     /// play (IOS-POC-15D). Set only by an open that used a prefetched target; spent on the first
     /// unrecoverable failure, and dropped once playback actually starts — after that a failure is
@@ -5338,6 +5489,9 @@ struct EpisodeSteps: Equatable {
     private(set) var itemTitle = ""
     private var loadedAt: ContinuousClock.Instant?
     private var startupMilliseconds: Int?
+    /// W-243: when the engine stopped preparing — the native item ready to play, mpv's file loaded —
+    /// so a slow start can be split into opening the stream and buffering it. 100 ms resolution.
+    private var readyMilliseconds: Int?
     private var startupWatch: Task<Void, Never>?
     private var handoffWatch: Task<Void, Never>?
     /// When the engine now under the item was handed it (IOS-POC-17F): the open, or the last engine
@@ -5731,6 +5885,7 @@ struct EpisodeSteps: Equatable {
         favoriteLibrary.playerClosed()
         // A retry belongs to a player that is open; a late failure after closing must not reopen it.
         retryWithoutPrefetch = nil
+        nextContent.dropAll()
         reportItem()
         // IOS-POC-47: a downloaded episode that really ended is unloaded, so the player lets go of it
         // and an armed auto-delete can run. Any other item stays loaded and paused, as it always did.
@@ -6646,7 +6801,11 @@ struct EpisodeSteps: Equatable {
         prefetchTask = nil
         let start = resumeTo.map { $0 / 1000 } ?? 0
         resumeTo = nil
-        router.open(PlaybackLoadRequest(target: PlaybackTarget(url: url, headers: headers),
+        // W-243: only the engine reads the copy fetched ahead; the ad plan, subtitles, history and a
+        // quality switch all keep the source's own address.
+        let content = nextContent.engineURL(for: url, external: player.isExternalPlaybackActive)
+        contentNote = content.note
+        router.open(PlaybackLoadRequest(target: PlaybackTarget(url: content.url ?? url, headers: headers),
                                         startSeconds: start, rate: chosenRate, autoplay: autoplay,
                                         title: title, history: record), freshEngine: freshEngineOnce)
         freshEngineOnce = false
@@ -6773,8 +6932,12 @@ struct EpisodeSteps: Equatable {
         loadedAt = .now
         startupClock.restart(at: monotonicSeconds)
         startupMilliseconds = nil
+        readyMilliseconds = nil
         startupWatch = Task { @MainActor in
             while !Task.isCancelled {
+                if readyMilliseconds == nil, let engine, ![.idle, .preparing].contains(engine.state), let loadedAt {
+                    readyMilliseconds = Int((ContinuousClock.now - loadedAt) / .milliseconds(1))
+                }
                 if let engine, !engine.isPlaying {
                     let stuck = engineKind
                     // On AirPlay or in AVKit's PiP window, MPV would take the video off the TV or
@@ -6807,7 +6970,7 @@ struct EpisodeSteps: Equatable {
                     retryWithoutPrefetch = nil
                     notePlayHealth(succeeded: true)
                     lineObserver?(.started)
-                    Self.log.notice("[playback] started \(self.itemTitle, privacy: .public) on \(self.engineKind.shortName, privacy: .public) in \(milliseconds)ms after open; resolve \(self.resolution, privacy: .public)")
+                    Self.log.notice("[playback] started \(self.itemTitle, privacy: .public) on \(self.engineKind.shortName, privacy: .public) in \(milliseconds)ms after open (ready \(self.readyMilliseconds.map { "\($0)ms" } ?? "?", privacy: .public)); resolve \(self.resolution, privacy: .public); content=\(self.contentNote, privacy: .public)")
                     carrySubtitle(mediaSelection)
                     return
                 }

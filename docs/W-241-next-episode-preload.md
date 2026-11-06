@@ -1,6 +1,6 @@
 # W-241 — 看當集時預載入下一集（評估，不實作）
 
-- 狀態：**第一輪（W-241）已核准；第二輪（W-242，第十一節）評估完成，待審。未實作、未改任何程式或設定**。第十一節的建議取代第七節。
+- 狀態：第一輪（W-241）、第二輪（W-242，第十一節）設計已核准；**W-243 已實作（第十二節），待審；可可影視真站連播因網路 BLOCKED，真機未測**。第十一節的建議取代第七節。
 - 需求來源：使用者 2026-11-06（Manager #6151、#6152 派工）。希望切到下一集時（自動連播或按「下一集」）幾乎立刻開播。
 - 範圍：以 iOS App 為主。Android（FongMi）只盤點現況。
 - 基線：`origin/ios-poc` `ddeedd7c`（0.1.92 (93)）；分支 `task/W-241`。
@@ -431,3 +431,66 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 - 單元測試：上面三種情況（代理 200、302、逾時回原始網址）都會預抓，而且改寫後的清單沒有被刪掉的廣告片段又跑回來。
 - Simulator：可可影視連播 3 集，log 出現 `content=hit`；**起播前**沒有 `[proxy] type=adm3u8` 的呼叫（只在預抓階段有），開播後 `watchAds` 的呼叫照舊；廣告區段仍被刪除。
 - 真機（請使用者回報）：可可影視連播時，換集是否幾乎立刻開始播，而且沒有廣告。
+
+## 十二、W-243 實作紀錄
+
+- 分支 `task/W-243`（從 `task/W-241` 開，即 `origin/ios-poc` `ddeedd7c` 加上只改文件的 commit）；task guard `W-243`，lane `standard`。
+- 照第十一節（核准版 `f91ea2d9`，加上 11.14 和 `d401fa08`）實作。下面列出和設計不同、或設計沒寫到的地方。
+
+### 12.1 改了哪些檔案
+
+| 檔案 | 內容 |
+|---|---|
+| `ios/Sources/WebHTVCore/NextEpisodeContent.swift`（新） | `eligible`：本機網址只放行 `type=adm3u8`；`fetch`：先讀 64 KB 判斷是不是播放清單（MP4 不會被讀 8 MB），單一 variant 的 master 才繼續、master 有任何 `URI=` 就跳過，`OfflinePackageBuilder.validate` 擋 DRM／SAMPLE-AES／直播，`EXT-X-BYTERANGE` 跳過，從起播點所在的片段依序抓到 15 秒或 20 MB；`rewrite`：逐行改寫，只動網址，其餘標籤原樣保留；`localMaster` |
+| `ios/Tests/WebHTVCoreTests/NextEpisodeContentTests.swift`（新） | 10 個測試（含參數化的 8 種跳過情況、可可影視 200 和 302 兩種） |
+| `ios/WebHTVApp/Sources/WebHTVApp.swift` | `NextEpisodePrefetch`（預抓的生命週期、低數據模式、本機伺服器、log）；`PlaybackSession.prefetch` 的 `didSet`（預解析失效時一起丟掉預抓）；`load()` 唯一換網址的地方（只有交給播放器的網址換成本機，其餘都用原始網址）；`closePlayer()` 清除；`start(_:flag:usingPrefetch:)` 交棒時取用、不用預抓時清除；`prefetchNextEpisode` 預解析存入後開始預抓；起播行加 `ready` 和 `content=`；App 啟動時清殘留 |
+| `ios/WebHTVApp/Sources/MPVEngine.swift` | 預抓的本機網址用 `cache=yes` 開 |
+
+### 12.2 和設計不同或補充的地方
+
+1. **分段 log 只有兩個時間點**：`ready`（播放器離開 preparing：AVPlayer 的 item 可以播、mpv 的檔案載入完成）和 `started`（第一次 playing）。設計寫的「asset 屬性載入完成」要另外呼叫 `load(.duration)` 才觀察得到，那會改變起播路徑，所以沒加。`ready` 每 100 毫秒檢查一次。
+2. **第 0 段**：AVPlayer 開播時直接從起播點那段開始要，**不會先要第 0 段**（12.3 runC），所以不需要納入預抓。MPV 在有片頭跳過時，會先向來源讀前面的片段再跳過去。試過把第 0 段也納入預抓（runF），MPV 改成向來源要第 1 段，起播沒有改善，已撤回。所以 **MPV＋片頭跳過**時，起播路徑上仍有一次向來源的請求；從 0 秒開始的 MPV 則完全從本機起播（runG）。
+3. **Debug 專用環境變數**：測試用的 Mac 走手機熱點時，系統把網路標成低數據模式，預抓會依規則跳過。只在 Debug 版讀環境變數 `WEBHTV_PREFETCH_IGNORE_LOW_DATA`（`#if DEBUG`）；Release 版編的是 `ignoresLowData = false` 那一支，執行檔裡也沒有這個字串（12.3 Release 編譯）。
+4. **啟動清殘留**：原本寫在 `NextEpisodePrefetch.init`，要等第一次播放才會執行。Ponytail 審查後在 Simulator 實測確認了這個問題，改到 App 的 `init()`，和線上字幕清暫存的位置放在一起。
+5. **log 的 miss 原因**：已經把本機副本交出去、但最後開的網址不同時（交棒時選的畫質變了），記成 `miss: otherAddress`。
+6. **交棒後的那一次原始播放清單請求**：每次換集後，來源都會收到一次原始 `index.m3u8` 的請求（12.3 runB），這是智慧去廣告照設計用原始網址讀清單，不在起播路徑上。
+
+### 12.3 驗證
+
+測試來源：自製的 3 集 60 秒 HLS（每段 6 秒，H.264＋AAC），由 `origin.py` 提供。它只接受帶 `Referer: https://w243.test/` 的請求（否則回 403），每個請求延遲 0.5 秒來模擬遠端 CDN，並記錄每個請求。測試爬蟲 `w243.py` 回傳這些網址和 Referer。工具都在 `.herdr-synapse/webhtv-dev/artifacts/w243/work/`。Simulator：webhtv-w202（iOS Simulator，Debug 版，本分支編譯）。
+
+| 項目 | 結果 | 等級 |
+|---|---|---|
+| 單元測試 `swift test --filter NextEpisodeContentTests` | 10 個全過 | macOS |
+| 反證 | 讓改寫時不處理 `#EXT-X-KEY`，`onlyTheFetchedSegmentsPointHomeAndEveryTagStays` 失敗；還原後通過 | macOS |
+| Simulator 編譯（Debug／Release） | 都 BUILD SUCCEEDED；`WebHTVApp.swift` 只有既有的 7 條警告。Release 要加 `ARCHS=arm64 ONLY_ACTIVE_ARCH=YES`：本機的 Python 框架沒有 arm64＋x86_64 合併的 Simulator 版本（環境限制，CI 編的是真機版，不受影響）。Release 執行檔裡沒有 `WEBHTV_PREFETCH_IGNORE_LOW_DATA` 字串，`content-prefetch` 有 | 模擬器 |
+| runA 原生、只預解析（基準） | 第 2、3 集起播 **1165／1263 ms**，`content=miss: lowData` | 模擬器 |
+| runB 原生、預抓 | 第 2、3 集 **543／111 ms**，`content=hit`；三集 `stalls=0`（播過預抓的 15 秒不卡）；來源紀錄：第 0～2 段在交棒前約 37 秒由預抓抓走，交棒後播放器只向來源要第 3 段以後，全部帶 Referer、全部 200 | 模擬器 |
+| runC 原生、片頭跳過 20 秒 | 預抓抓第 3～5 段（含 20 秒的那段起）；交棒後播放器直接要第 6 段，**沒有要第 0 段**；第 3 集 113 ms `content=hit` | 模擬器 |
+| runE MPV、片頭 20 秒、只預解析（基準） | 1676／1659 ms | 模擬器 |
+| runD MPV、片頭 20 秒、預抓 | 654／623 ms `content=hit`；交棒後 MPV 先向來源要第 0 段才要第 6 段 | 模擬器 |
+| runF MPV、片頭 20 秒、預抓加第 0 段（已撤回） | 715／635 ms；改成向來源要第 1 段，沒有改善 | 模擬器 |
+| runG MPV、從 0 秒、預抓 | **318／215 ms** `content=hit`；交棒後只向來源要第 3 段以後 | 模擬器 |
+| runH 失效清除 | 預抓完成 1 個資料夾（1.8 MB）→ 關閉播放器 0 個；第 2 集預抓完成 1 個 → 按「上一集」0 個 | 模擬器 |
+| 啟動清殘留 | 預抓完成後殺掉 App 重開：1 → 0 個（修正前是 1 → 1） | 模擬器 |
+
+### 12.4 沒有驗到的
+
+- **可可影視真站連播 3 集：BLOCKED（網路）**。這台 Mac 改走公司網路後連不到可可影視（`curl` 回 000，Manager #6250 也提過公司 DNS 擋過這個網域）。單元測試已涵蓋代理回 200、302 兩種情況；真站要等 Mac 回到熱點再跑。
+- 換畫質、手動選另一集造成的失效，只驗了「關閉播放器」和「上一集」兩條路徑；手動選集和換畫質走的是同一個 `prefetch.invalidate()` → `didSet` → `drop()`。
+- 下載進行中被取消（`Task.cancel()`）沒有實測：測試來源 2 秒內就抓完。
+- 加密 HLS、多 variant、帶 `#EXT-X-MEDIA URI=` 的來源，只有單元測試，沒在 Simulator 上播過。
+- **真機一次都沒測**；起播時間全部是 Simulator 加上人為 0.5 秒延遲的數字，真實網路的效果要等使用者回報 11.8 的 6 項。
+- AirPlay、子母畫面沒測（Simulator 沒有 AirPlay 裝置）。
+
+### 12.5 Ponytail
+
+最終 diff 審查（`ponytail:ponytail-review`）提出兩點，都已處理：
+1. App 端的清除沒有被測到 → 在 Simulator 實測（12.3 runH、啟動清殘留），並因此找出、修正了「啟動清殘留要等第一次播放才執行」。
+2. 交棒時網址不同，log 寫成 `notRequested` → 改成 `otherAddress`。
+
+沒有查的：關閉播放器後，有沒有任何路徑會繼續播放那個已載入的 item（資料夾已刪）；程式裡找不到這樣的路徑。
+
+### 12.6 回退
+
+單一 commit，`git revert` 即可，不改資料格式或設定。預抓的暫存資料夾在 App 下次啟動時會清掉。

@@ -599,6 +599,10 @@ final class MPVPlayerCore: @unchecked Sendable {
             // Per-file options, so the next file gets the defaults back.
             if let address = URL(string: url), SpiderProxyServer.serves(address) {
                 command(mpv, ["loadfile", url, "replace", "-1", "cache-secs=10,demuxer-readahead-secs=10"])
+            } else if let address = URL(string: url), NextEpisodePrefetch.serves(address) {
+                // W-243: the first segments are local but the rest come from the source; mpv's
+                // `cache=auto` might take a 127.0.0.1 playlist for a local file and read ahead too little.
+                command(mpv, ["loadfile", url, "replace", "-1", "cache=yes"])
             } else {
                 command(mpv, ["loadfile", url, "replace"])
             }

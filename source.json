@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.94",
+          "date": "2026-11-06",
+          "localizedDescription": "播放紀錄：\n- 開播時間的紀錄更準確：改成畫面真正開始播放時才記錄，回報換集或開播速度問題時，數字會更接近實際等待時間；播放行為沒有改變。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.94-b95/WebHTV-0.1.94-95.ipa",
+          "size": 35804892,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.93",
           "date": "2026-11-06",
           "localizedDescription": "原生播放與 MPV：\n- 換下一集更快：快看完當集時，App 會先在背景準備好下一集開頭（每集最多 20 MB，行動網路也會準備；開啟系統「低數據模式」時不做），換集後幾乎立刻開始播放；手動換集、換線路或關閉播放器時會自動取消。準備失敗或網址過期時會自動改回原本的播放方式，不影響觀看。\n- 一次回傳整集影片的爬蟲來源，也會提早準備下一集，換集等待時間大幅縮短。",

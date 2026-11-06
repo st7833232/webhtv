@@ -217,7 +217,7 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 
 | 項目 | 規則 | 理由 |
 |---|---|---|
-| 從哪裡開始 | 和實際開播**同一個來源**：`WatchHistory.startPosition(resuming: false)`（`ios/Sources/WebHTVCore/WatchHistory.swift:206`），用 `open(url:…)` 合併後的同一筆紀錄（`WebHTVApp.swift:5820-5826`）。自動連播和「下一集」都是 `resuming: false`，所以結果是片頭跳過秒數，沒設就是 0；換集不會沿用上一集的續播位置 | 預抓的片段必須正好是開播時 seek 到的地方 |
+| 從哪裡開始 | 和實際開播**同一個來源**：`WatchHistory.startPosition(resuming: false)`（`ios/Sources/WebHTVCore/WatchHistory.swift:206`），用 `open(url:…)` 合併後的同一筆紀錄（`WebHTVApp.swift:5820-5826`）。自動連播和「下一集」都是 `resuming: false`（`WebHTVApp.swift:3417` `session.open(… resuming: false)`），而 `startPosition(resuming: false)` 是 `max(openingOffset, 0)`，**不看續播位置**。所以結果是片頭跳過秒數，沒設就是 0。實作時直接呼叫同一個函式，將來若改成換集也續播，預抓起點會跟著變 | 預抓的片段必須正好是開播時 seek 到的地方 |
 | 第 0 段 | `loadNative` 先 `replaceCurrentItem` 再 `seek`（`WebHTVApp.swift:6924`、`6930-6940`），seek 要等 item ready 才生效。AVPlayer 有可能先向來源抓第 0 段。**實作時先在 Simulator 用本機伺服器的 log 確認**；如果會先抓第 0 段，就把第 0 段也納入預抓（仍算在 20 MB 內） | 否則起播仍要等一次網路請求 |
 | 預抓長度 | 累計片段長度到 **15 秒** 為止 | AVPlayer 起播只需要幾秒的緩衝；15 秒足夠在背景接上來源 |
 | 單集上限 | **20 MB**，和 15 秒先到先停；第一段就超過 20 MB 時整個不做 | 1080p 每秒約 0.5～1 MB，15 秒大約 8～15 MB |
@@ -236,7 +236,7 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 |---|---|---|
 | 單一 variant 的 HLS VOD（或直接就是 media 播放清單） | **預抓** | 設定檔中大部分 CMS 來源屬於這類 |
 | 多 variant 的 master | 第一版不預抓，只預解析 | AVPlayer 起播選哪一條，官方沒有明說（11.12 #R7）；猜錯就是白抓 20 MB。設定檔裡目前幾乎沒有這類來源 |
-| 明文 AES-128 加密的 HLS（`METHOD=AES-128`，沒有 `KEYFORMAT` 或 `KEYFORMAT="identity"`） | **預抓片段，金鑰不存**：`#EXT-X-KEY` 的 URI 改成來源的絕對網址，播放器開播時自己向來源抓金鑰 | Reviewer 要求 App 不存金鑰。代價是起播時多一次向來源抓金鑰的請求（通常整份播放清單只用一把）。`#EXT-X-MEDIA-SEQUENCE` 和 `#EXT-X-DISCONTINUITY-SEQUENCE` 不變，因為沒寫 `IV` 時，片段序號就是 IV（RFC 8216 §5.2） |
+| 明文 AES-128 加密的 HLS（`METHOD=AES-128`，沒有 `KEYFORMAT` 或 `KEYFORMAT="identity"`） | **預抓片段，金鑰也一起抓，由本機交出** | 離線下載已經這樣做（`HLSKey.isClearAES128`，存成 `keys/kN.key`），Reviewer #6189 同意。金鑰若留在來源，起播仍要等一次網路請求。一把金鑰同時涵蓋本機片段和來源片段時，`#EXT-X-KEY` 指向本機那一份，兩邊共用。`#EXT-X-MEDIA-SEQUENCE` 和 `#EXT-X-DISCONTINUITY-SEQUENCE` 不變，因為沒寫 `IV` 時，片段序號就是 IV（RFC 8216 §5.2） |
 | SAMPLE-AES、`skd://`（FairPlay）、`KEYFORMAT` 不是 `identity` | 不預抓，只預解析 | 不碰授權；判斷沿用 `HLSKey.isDRM` 和 `OfflinePackageBuilder.validate` |
 | 帶 headers 的來源（Referer、User-Agent、Cookie） | **預抓**。App 抓片段時帶同樣的 headers；帶憑證的 headers 只送同源，轉址時重新判斷（`OfflineRequestPolicy`） | 播放器向來源抓後面的片段時，headers 照現在的方式帶，不變：AVPlayer 用 `AVURLAssetHTTPHeaderFieldsKey`（`WebHTVApp.swift:6956` `asset(for:headers:)`，作用於這個 asset 發出的所有請求，現有需要 Referer 的 HLS 來源就是靠它抓片段）；MPV 每次載入前重設 `http-header-fields`（`MPVEngine.swift:592-593`），套用到這個檔案的每個 HTTP 請求 |
 | 帶時效的簽名網址 | **預抓** | 已存的片段不會過期；後面的片段仍用原網址，曝險時間和現在一樣（90 秒窗口＋5 分鐘上限） |
@@ -269,8 +269,8 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 1. 預解析存入後，`PlaybackSession` 啟動一個預抓工作，跟第一輪預解析用同一個身分，也一起失效。
 2. 用 App 的 `URLSession` 抓播放清單，headers 依 `OfflineRequestPolicy`，跟著轉址並記下最終網址。若是 master：只有一條 variant 才繼續，接著抓那條 media 播放清單。
 3. 用 `OfflinePackageBuilder.validate` 檢查。DRM、SAMPLE-AES、直播一律停止。
-4. 從起播點所在的片段開始往後累加，直到 15 秒或 20 MB（第 0 段依 11.2 的規則決定是否納入）；需要時加上 `#EXT-X-MAP` 初始化片段。金鑰不抓。依序下載，第一段失敗就整個放棄；後面失敗就只用已經連續抓到的那幾段。
-5. 改寫播放清單：沿用 `OfflinePackageBuilder.rewrite`（`ios/Sources/WebHTVCore/Offline/OfflinePackage.swift:272`）的輸出，加一個參數「只把已存的片段和它們用到的 `#EXT-X-MAP` 指到本機；其他片段和所有 `#EXT-X-KEY` 寫成來源的絕對網址」。**整份播放清單的標籤和片段順序全部保留**，不刪掉起播點之前的片段。`#EXT-X-DISCONTINUITY`、序號、片段長度一律不動（RFC 8216 §6.2.1 不允許改變 media 播放清單的內容，11.12 #R4）。原本有 master 的話，再沿用 `localMaster` 寫一份只指向本機 media 播放清單的 master。
+4. 從起播點所在的片段開始往後累加，直到 15 秒或 20 MB（第 0 段依 11.2 的規則決定是否納入）；需要時加上 `#EXT-X-MAP` 初始化片段和明文 AES-128 金鑰。依序下載，第一段失敗就整個放棄；後面失敗就只用已經連續抓到的那幾段。
+5. 改寫播放清單：沿用 `OfflinePackageBuilder.rewrite`（`ios/Sources/WebHTVCore/Offline/OfflinePackage.swift:272`）的輸出，加一個參數「只把已存的片段，以及它們用到的 `#EXT-X-KEY`、`#EXT-X-MAP` 指到本機；其他網址寫成來源的絕對網址」。**整份播放清單的標籤和片段順序全部保留**，不刪掉起播點之前的片段。`#EXT-X-DISCONTINUITY`、序號、片段長度一律不動（RFC 8216 §6.2.1 不允許改變 media 播放清單的內容，11.12 #R4）。原本有 master 的話，再沿用 `localMaster` 寫一份只指向本機 media 播放清單的 master。
 6. 用 `OfflineMediaServer` 交出這個資料夾（給它一個預抓專用的 root）。只綁 loopback、每次啟動用亂數 token、只讀資料夾內的檔案、支援 Range、IOS-POC-58 的健康檢查，全部沿用。
 7. 交棒時，`start(_:flag:usingPrefetch:)` 拿到預解析結果後，若預抓內容已備妥、身分相符、本機伺服器有回應、不在 AirPlay 中，就把 `PlaybackTarget` 的網址換成本機網址，headers 保留。**只有播放器載入用本機網址，其他地方一律用原始網址**：廣告計畫（`watchAds`）、來源字幕的 `SourceSubtitleProvider(mediaURL:)` 和線上字幕的 `OnlineSubtitleIdentity(address:)`（`WebHTVApp.swift:6620-6632`）、`self.url`（觀看紀錄），以及換畫質、重新載入時的網址。
 8. MPV 用本機網址開檔時帶 `cache=yes`（11.12 #R9：`cache=auto` 可能把 `127.0.0.1` 當成本機檔案而預讀太少，這是推論）。
@@ -303,8 +303,8 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 
 開發端（Claude，單元測試＋Simulator）：
 1. 單元測試：
-   - 改寫：只有已存的片段和它們用到的 MAP 指到本機；其他片段和所有 KEY 都是來源的絕對網址；標籤、片段順序、`MEDIA-SEQUENCE`、`DISCONTINUITY-SEQUENCE`、片段長度都不變。
-   - 加密：沒寫 IV 的 AES-128 播放清單改寫後，序號不變；SAMPLE-AES、`skd://`、`KEYFORMAT` 不是 identity 的都跳過。
+   - 改寫：只有已存的片段和它們用到的 KEY、MAP 指到本機；其他網址都是來源的絕對網址；標籤、片段順序、`MEDIA-SEQUENCE`、`DISCONTINUITY-SEQUENCE`、片段長度都不變。
+   - 加密：沒寫 IV 的 AES-128 播放清單改寫後，序號不變；同一條 `#EXT-X-KEY` 同時涵蓋本機片段和來源片段時，金鑰指向本機；SAMPLE-AES、`skd://`、`KEYFORMAT` 不是 identity 的都跳過。
    - 起點：預抓起點和 `WatchHistory.startPosition(resuming: false)` 一致。
    - 會轉址的播放清單：相對網址以最終網址為基準。
    - 15 秒、20 MB 兩個上限都會停；第一段超過 20 MB 時整個不做。
@@ -378,7 +378,6 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 - 行動網路上每集最多多用 20 MB；使用者沒看下一集時，這些流量就浪費了。這是使用者接受的取捨（#6180）。
 - 低數據模式要不要跳過，待 Manager 決定（建議跳過）。
 - AVPlayer 會不會先向來源抓第 0 段，要在 Simulator 確認後才定案（11.2）。
-- 金鑰不存在本機，起播時仍多一次向來源抓金鑰的請求；這一點的耗時沒量過。
 - AirPlay 和本機網址的衝突只有 C 級來源；子母畫面完全沒有資料。兩者都列入真機驗收。
 - 「mpv 把 `127.0.0.1` 當成本機檔案而少預讀」是推論。
 - 多 variant 和 MP4 不在第一版範圍。

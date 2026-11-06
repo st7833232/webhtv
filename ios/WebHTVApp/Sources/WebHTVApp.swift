@@ -3405,10 +3405,10 @@ private struct VodView: View {
             // W-243: the fetched folder before the address, which consumes it; `load` then opens it.
             // Without the prefetch — going back, or the retry after a fetched copy would not play —
             // nothing fetched may be opened, including the copy that just failed.
-            if !usingPrefetch {
+            if usingPrefetch {
+                session.nextContent.take(wanted, addressMiss: miss?.rawValue)
+            } else {
                 session.nextContent.dropAll()
-            } else if miss == nil {
-                session.nextContent.take(wanted)
             }
             let prefetched = usingPrefetch ? session.prefetch.take(matching: wanted, now: began)?.target : nil
             let target: PlaybackTarget
@@ -5271,12 +5271,16 @@ struct EpisodeSteps: Equatable {
 
     /// Hands the fetched folder to the episode about to play when it was fetched for exactly it.
     /// Anything still downloading is a miss and stops: the handoff does not wait.
-    func take(_ identity: PlaybackTargetIdentity) {
+    /// `addressMiss` is why the pre-resolved address itself missed: its copy is not opened either.
+    func take(_ identity: PlaybackTargetIdentity, addressMiss: String?) {
         defer { drop() }
+        // The episode before is being replaced either way; left standing, its copy would make the
+        // next `engineURL` report `otherAddress` instead of why this one missed (W-243 review C1).
+        release()
+        if let addressMiss { miss = "address \(addressMiss)"; return }
         guard let held = ahead else { miss = lastSkip ?? "notRequested"; return }
         guard held.identity == identity else { miss = "identityChanged"; return }
         guard let local = held.local else { miss = "stillFetching"; return }
-        release()
         playing = (held.source, local, held.folder)
         ahead = nil
         miss = "notRequested"

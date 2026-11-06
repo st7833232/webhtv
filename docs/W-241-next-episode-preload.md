@@ -494,3 +494,8 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 ### 12.6 回退
 
 單一 commit，`git revert` 即可，不改資料格式或設定。預抓的暫存資料夾在 App 下次啟動時會清掉。
+
+### 12.7 審查補件（Reviewer #6267）
+
+- **C1 已修**：`NextEpisodePrefetch.take(_:addressMiss:)` 一開始就放掉上一集的資料夾。沒取到副本時（`stillFetching`、`identityChanged`、預抓 `skipped`／`failed`），起播行記的是真正原因，不再被上一集的副本蓋成 `otherAddress`。預解析本身沒命中時（例如 `expired`），記成 `miss: address <原因>`，副本也不打開。驗證：Simulator 編譯成功；這條路徑沒有在 Simulator 上觸發過（見下一點）。
+- **C2：BLOCKED（權限拒絕）**。要補跑三種失敗注入（404、逾時、過期），以及 AES-128、master 一條 variant 各一輪，需要用 W-244 工具的伺服器提供測試來源。但工具的媒體網址是 `127.0.0.1`，App 依設計會把它當成本機代理而跳過預抓。所以要讓伺服器聽區網位址，這個動作被 Claude Code 的自動權限分類器拒絕（沒有說明原因）。依團隊規則不繞過，等使用者決定是否核准，或改用其他方式。

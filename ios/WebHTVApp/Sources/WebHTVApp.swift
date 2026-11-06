@@ -3332,7 +3332,8 @@ private struct VodView: View {
             guard PlaybackSession.shared.prefetch.miss(for: wanted) == nil else { return }
             PlaybackSession.shared.nextContent.begin(
                 wanted, source: PlaybackQualityChoice(target: target, preferred: stored?.quality ?? "").url,
-                headers: target.headers, startSeconds: from / 1000, episode: next.name)
+                headers: target.headers, startSeconds: from / 1000,
+                currentURL: PlaybackSession.shared.currentAddress, episode: next.name)
         } catch {
             PlaybackSession.shared.prefetch.failed()
             PlaybackSession.log.notice("[playback] prefetch \(next.name, privacy: .public) failed after \(Self.milliseconds(since: began))ms: \(error.localizedDescription, privacy: .public) — an optimization miss")
@@ -5239,14 +5240,29 @@ struct EpisodeSteps: Equatable {
         Self.path.start(queue: .global(qos: .utility))
     }
 
-    var aheadIdentity: PlaybackTargetIdentity? { ahead?.identity }
+    var aheadIdentity: PlaybackTargetIdentity? { ahead?.identity ?? warming?.identity }
 
+    /// W-245 (§13): a spider proxy that answers whole episodes is warmed, not copied — asked for two
+    /// bytes ahead, the script fetches the next episode into its own cache. `outcome` is nil while that
+    /// runs, empty once it answered 200 or 206, else why it did not.
+    private var warming: (identity: PlaybackTargetIdentity, task: Task<Void, Never>, outcome: String?)?
+
+    /// `currentURL` is the address the episode playing now was opened with.
     func begin(_ identity: PlaybackTargetIdentity, source: URL, headers: [String: String], startSeconds: Double,
-               episode: String) {
+               currentURL: URL?, episode: String) {
         drop()
         lastSkip = nil
         guard Self.ignoresLowData || !Self.path.currentPath.isConstrained else { return skipped("lowData", episode: episode) }
-        if let skip = NextEpisodeContent.eligible(source) { return skipped(skip.reason, episode: episode) }
+        if let skip = NextEpisodeContent.eligible(source) {
+            // Only the next episode of an address this one was served as a whole MP4 through, so no
+            // other spider proxy (DASH, YouTube) is asked for anything. The script always fetches all
+            // of it: this episode's size stands in for the next one's.
+            guard skip == .localProxy, SpiderProxyServer.serves(source), let currentURL,
+                  let bytes = SpiderProxyServer.shared.wholeMP4Bytes(of: currentURL)
+            else { return skipped(skip.reason, episode: episode) }
+            guard bytes <= NextEpisodeContent.byteLimit else { return skipped("warm: over 20 MB", episode: episode) }
+            return warm(identity, source: source, episode: episode)
+        }
         let folder = Self.root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let began = ContinuousClock.now
         let task = Task { @MainActor [weak self] in
@@ -5272,6 +5288,29 @@ struct EpisodeSteps: Equatable {
         ahead = Ahead(identity: identity, source: source, folder: folder, local: nil, task: task)
     }
 
+    private func warm(_ identity: PlaybackTargetIdentity, source: URL, episode: String) {
+        let began = ContinuousClock.now
+        let task = Task { @MainActor [weak self] in
+            var request = URLRequest(url: source, timeoutInterval: 60)
+            request.setValue("bytes=0-1", forHTTPHeaderField: "Range")
+            let outcome: String
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                // A 504 is the proxy giving up on a slow script, which still finishes into its cache.
+                outcome = [200, 206].contains(status) ? "" : "HTTP \(status)"
+            } catch {
+                if Task.isCancelled { return }
+                outcome = error.localizedDescription
+            }
+            guard let self, self.warming?.identity == identity else { return }
+            self.warming?.outcome = outcome
+            let milliseconds = Int((ContinuousClock.now - began) / .milliseconds(1))
+            PlaybackSession.log.notice("[playback] content-warm \(episode, privacy: .public) \(outcome.isEmpty ? "ok" : "failed: \(outcome)", privacy: .public) in \(milliseconds)ms")
+        }
+        warming = (identity, task, nil)
+    }
+
     /// Hands the fetched folder to the episode about to play when it was fetched for exactly it.
     /// Anything still downloading is a miss and stops: the handoff does not wait.
     /// `addressMiss` is why the pre-resolved address itself missed: its copy is not opened either.
@@ -5281,6 +5320,11 @@ struct EpisodeSteps: Equatable {
         // next `engineURL` report `otherAddress` instead of why this one missed (W-243 review C1).
         release()
         if let addressMiss { miss = "address \(addressMiss)"; return }
+        if let warmed = warming, warmed.identity == identity {
+            // Never waited for: the handoff goes on, and the script answers the player when it can.
+            miss = warmed.outcome.map { $0.isEmpty ? "warm" : "warm failed: \($0)" } ?? "warm: stillRunning"
+            return
+        }
         guard let held = ahead else { miss = lastSkip ?? "notRequested"; return }
         guard held.identity == identity else { miss = "identityChanged"; return }
         guard let local = held.local else { miss = "stillFetching"; return }
@@ -5298,7 +5342,7 @@ struct EpisodeSteps: Equatable {
             let why = self.playing == nil ? miss : "otherAddress"
             release()
             miss = "notRequested"
-            return (nil, "miss: \(why)", 0)
+            return (nil, why.hasPrefix("warm") ? why : "miss: \(why)", 0)
         }
         // A TV handed 127.0.0.1 would look for the stream on itself (W-242 §11.3).
         return external ? (nil, "miss: airplay", 0) : (playing.local, "hit", playing.seconds)
@@ -5306,6 +5350,8 @@ struct EpisodeSteps: Equatable {
 
     /// Stops and deletes what was fetched ahead. The folder an item is playing from stays.
     func drop() {
+        warming?.task.cancel()
+        warming = nil
         guard let held = ahead else { return }
         held.task.cancel()
         Self.remove(held.folder)
@@ -5485,6 +5531,8 @@ struct EpisodeSteps: Equatable {
     /// when that window closes on the clock — mpv reports no position for a stream it ended.
     private var copyRetryUntil: Double?
     private var copyRetryDeadline: ContinuousClock.Instant?
+    /// The address the item playing now was opened with (the source's own, never a fetched copy).
+    var currentAddress: URL? { URL(string: url) }
     /// W-243 C3: where the item the retry replaces had got to.
     private var retryResumeSeconds: Double?
     /// A hand-picked episode is not the retried one and must not start where that one failed.

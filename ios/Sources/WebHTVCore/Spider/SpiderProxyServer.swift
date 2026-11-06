@@ -35,6 +35,9 @@ public final class SpiderProxyServer: @unchecked Sendable {
     /// Manifests already given their segment lists: FFmpeg reads a manifest twice when it opens it.
     private var listed = [String: String]()
     private var dash = Set<String>()
+    /// W-245: whole episodes a spider answered as one `200 video/mp4` (W-240), by the file asked for —
+    /// what tells the next episode of that same address apart as one worth warming, and its cost.
+    private var wholeMP4 = [String: Int64]()
     public let token = UUID().uuidString.lowercased()
 
     init() {}
@@ -214,6 +217,13 @@ public final class SpiderProxyServer: @unchecked Sendable {
         return (start, end, total)
     }
 
+    /// The size of the whole episode `url` was last answered with as one `200 video/mp4`, or nil when
+    /// it was not — a real 206, a manifest, an error, or never asked (W-245).
+    public func wholeMP4Bytes(of url: URL) -> Int64? {
+        let file = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedQuery ?? ""
+        return lock.withLock { wholeMP4[file] }
+    }
+
     static func isText(_ mime: String) -> Bool {
         let mime = mime.lowercased()
         return mime.hasPrefix("text/") || mime.contains("xml") || mime.contains("mpegurl") || mime.contains("json")
@@ -266,7 +276,7 @@ public final class SpiderProxyServer: @unchecked Sendable {
                                                                  ranged: original != nil), body: nil)
                 return
             }
-            await writer.write(head: forwarded(Self.rangedMP4(answer, range: nil), target: target).head, body: nil)
+            await writer.write(head: forwarded(adapted(answer, range: nil, file: file), target: target).head, body: nil)
             return
         }
         guard let window = Self.window(original),
@@ -278,7 +288,7 @@ public final class SpiderProxyServer: @unchecked Sendable {
                 let end = min(window.start + Int64(answer.body.count), total) - 1
                 answer.headers["Content-Range"] = "bytes \(window.start)-\(end)/\(total)"
             }
-            let reply = await forwarded(Self.rangedMP4(answer, range: adaptedRange), target: target)
+            let reply = await forwarded(adapted(answer, range: adaptedRange, file: file), target: target)
             await writer.write(head: reply.head, body: reply.body)
             return
         }
@@ -290,7 +300,7 @@ public final class SpiderProxyServer: @unchecked Sendable {
         let range = Self.contentRange(first.headers)
         guard first.status == 206, range.map({ $0.start == window.start }) ?? (Int64(first.body.count) == Self.segment) else {
             // The spider ignores Range: what it answered is the whole thing.
-            let reply = await forwarded(Self.rangedMP4(first, range: adaptedRange), target: target)
+            let reply = await forwarded(adapted(first, range: adaptedRange, file: file), target: target)
             await writer.write(head: reply.head, body: reply.body)
             return
         }
@@ -325,14 +335,30 @@ public final class SpiderProxyServer: @unchecked Sendable {
         await writer.close()
     }
 
+    /// A complete, uncompressed `200 video/mp4` — the answer `rangedMP4` serves in ranges itself.
+    static func isWholeMP4(_ answer: SpiderProxyResponse) -> Bool {
+        answer.status == 200
+            && answer.mime.lowercased().split(separator: ";").first?.trimmingCharacters(in: .whitespaces) == "video/mp4"
+            && !answer.body.isEmpty
+            && !answer.headers.contains(where: { $0.key.lowercased() == "content-encoding" && $0.value.lowercased() != "identity" })
+    }
+
+    /// `rangedMP4`, noting the whole episode it was served from (W-245).
+    private func adapted(_ answer: SpiderProxyResponse, range: String?, file: String) -> SpiderProxyResponse {
+        if Self.isWholeMP4(answer) {
+            lock.withLock {
+                // A handful of recent episodes is all a next-episode check reads.
+                if wholeMP4.count >= 16 { wholeMP4.removeAll() }
+                wholeMP4[file] = Int64(answer.body.count)
+            }
+        }
+        return Self.rangedMP4(answer, range: range)
+    }
+
     /// Some spiders return a complete MP4 even for AVPlayer's two-byte probe. Serve the requested
     /// bytes ourselves; errors, manifests and spiders already serving 206 keep their own semantics.
     static func rangedMP4(_ answer: SpiderProxyResponse, range: String?) -> SpiderProxyResponse {
-        guard answer.status == 200,
-              answer.mime.lowercased().split(separator: ";").first?.trimmingCharacters(in: .whitespaces) == "video/mp4",
-              !answer.body.isEmpty,
-              !answer.headers.contains(where: { $0.key.lowercased() == "content-encoding" && $0.value.lowercased() != "identity" })
-        else { return answer }
+        guard isWholeMP4(answer) else { return answer }
         var reply = answer
         reply.headers = answer.headers.filter { $0.key.lowercased() != "content-range" && $0.key.lowercased() != "accept-ranges" }
         reply.headers["Accept-Ranges"] = "bytes"

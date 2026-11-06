@@ -189,6 +189,35 @@ struct SpiderProxyServerTests {
         func proxy(params: [String: String]) async throws -> SpiderProxyResponse? { response }
     }
 
+    /// W-245: a whole episode is noted under the address it was asked by — and only one that really was
+    /// a whole `200 video/mp4`, on any of the three paths that serve one in ranges.
+    @Test func aWholeEpisodeIsNotedByTheAddressItWasAskedBy() async {
+        let server = SpiderProxyServer()
+        let whole = SpiderProxyResponse(status: 200, mime: "video/mp4", body: Media.bytes(0...99))
+        // The small-window path (a two-byte probe), the HEAD path and the "ignores Range" open-ended path.
+        await server.handle(.init(method: "GET", params: ["do": "py", "range": "bytes=0-1"], query: "do=py&vid=1"),
+                            target: Fixed(response: whole), writer: Sink())
+        await server.handle(.init(method: "HEAD", params: ["do": "py"], query: "do=py&vid=2"),
+                            target: Fixed(response: whole), writer: Sink())
+        await server.handle(.init(method: "GET", params: ["do": "py", "range": "bytes=0-"], query: "do=py&vid=3"),
+                            target: Fixed(response: whole), writer: Sink())
+        // The same spider, another address that is not a whole MP4: a real 206, a manifest, an error.
+        for (vid, answer) in [
+            ("4", SpiderProxyResponse(status: 206, mime: "video/mp4", headers: ["Content-Range": "bytes 0-1/100"], body: Data([0, 1]))),
+            ("5", SpiderProxyResponse(status: 200, mime: "application/vnd.apple.mpegurl", body: Data("#EXTM3U".utf8))),
+            ("6", SpiderProxyResponse(status: 403, mime: "video/mp4", body: Data("no".utf8))),
+        ] {
+            await server.handle(.init(method: "GET", params: ["do": "py", "range": "bytes=0-1"], query: "do=py&vid=\(vid)"),
+                                target: Fixed(response: answer), writer: Sink())
+        }
+        func bytes(_ vid: String) -> Int64? {
+            server.wholeMP4Bytes(of: URL(string: "http://127.0.0.1:9/token/proxy?do=py&vid=\(vid)")!)
+        }
+        #expect(bytes("1") == 100 && bytes("2") == 100 && bytes("3") == 100)
+        #expect(bytes("4") == nil && bytes("5") == nil && bytes("6") == nil)
+        #expect(bytes("7") == nil, "never asked")
+    }
+
     @Test func aWholeMP4DoesNotOverrideIfRange() async {
         let source = SpiderProxyResponse(status: 200, mime: "video/mp4", headers: ["ETag": #""new""#], body: Media.bytes(0...99))
         let sink = Sink()

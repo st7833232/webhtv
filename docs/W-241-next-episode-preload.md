@@ -619,3 +619,16 @@ L3 只在 L1 成功存入之後才開始，同樣由 sampler 觸發。
 - **不觸發**：可可影視（`adm3u8`）和 HLS 來源在 `eligible` 就走第十一節的副本路徑，碰不到預熱分支。這一點沒有另外跑 Simulator，以程式路徑和單元測試為據。
 - **Ponytail**：對最終 diff 審查，Looks good；沒查的是真機上兩集同時在記憶體的情況。
 - **沒驗到**：真機（換集時間、記憶體）。
+
+### 13.5 W-246：第 26 集原生 `NSURLError -1008` 退回 MPV 的根因
+
+- **結論**：是紅果腳本當下自己下載失敗，不是本機代理的回應有問題。不改程式。
+- **時間序列**（`.herdr-synapse/webhtv-dev/artifacts/w243/evidence/w246-ep26-key.txt`，取自 W-245 驗收的 applog）：
+  - 16:32:26.527 記「started 26 on 原生 in 72ms」，但這時代理還沒拿到任何資料；之後 AVPlayer 一直 `waiting reason=AVPlayerWaitingWithNoItemToPlayReason`。13.4 寫的「72 ms 後報錯」是誤讀，錯誤其實在 14 秒後才出現。
+  - 16:32:40.051 代理記 `range=bytes=0-1 → 500 60B`：AVPlayer 的兩位元組探測送進腳本，13.5 秒後腳本回 500。
+  - 16:32:40.450 原生報 `NSURLError -1008`，改用 MPV；16:32:44.414 MPV 再問同一集，腳本回 `200 3057278B`，順利播放。
+- **500 從哪來**：`红果短剧.py` 的 `localProxy` 在每個畫質都下載或解密失敗時，回 `[500, "text/plain", "hg localProxy failed: <最後的錯誤>"]`，長度和 60 B 吻合；沒有快取時第一次要從上游整集下載（`_multi_download`，每段重試 3 次）。4 秒後重試就成功，表示是上游暫時性失敗。60 B 的內文沒記在 log，沒辦法知道是哪一種錯誤。
+- **代理行為正確**：500 不是整集 `200 video/mp4`，所以 `rangedMP4` 不處理，`forwarded` 照原樣轉出 500 和 `Content-Length`。用本機伺服器對 AVPlayer 的 `bytes=0-1` 回同樣的 `500 text/plain 60B`，AVPlayer 92 ms 內報 `NSURLErrorDomain -1008`（底層 `NSOSStatusErrorDomain -16847`），和現場一致（`.herdr-synapse/webhtv-dev/artifacts/w243/evidence/w246-avplayer-500-probe.txt`）。
+- **為什麼不在代理重試**：腳本裡每個分段已經重試 3 次，失敗一次要 13.5 秒；代理再重試一次，真正失敗時會再等十幾秒。現有的退回 MPV 本身就等於重試一次，這次換集總共 14 秒＋4.6 秒恢復，畫面最後有播出來。代理要不要對腳本的 5xx 重試，要等有更多次真實失敗的資料再決定。
+- **沒做**：沒有用 w243-kit 架假來源。現場 log 已經有代理對 AVPlayer 的完整請求與回應，再加上 500 → -1008 的實驗，已經能判定原因，假來源不會改變結論。
+- **順帶看到（範圍外，沒改）**：App 在 AVPlayer 還沒有任何資料時就記了 `started … in 72ms (ready 72ms)`，開播時間的統計在這種情況下會失真。這是 `WebHTVApp.swift` 開播記錄的問題，不在 W-246 範圍，交 Manager 決定要不要開單。

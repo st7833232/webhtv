@@ -4,7 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "WebHTVCore",
-    platforms: [.iOS(.v17), .macOS(.v14)],
+    platforms: [.iOS(.v16), .macOS(.v14)],
     products: [.library(name: "WebHTVCore", targets: ["WebHTVCore"])],
     targets: [
         // IOS-POC-61 S5: the IPA carries no spider and no baseline. SpiderBaseline/manifest.json stays in the repository,

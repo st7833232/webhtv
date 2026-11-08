@@ -1,5 +1,5 @@
 import Foundation
-import Observation
+import Combine
 import os
 
 /// IOS-POC-45 — which video the online subtitles belong to.
@@ -35,8 +35,8 @@ public struct OnlineSubtitleIdentity: Sendable, Equatable, Hashable {
 /// **One download at a time, the latest tap wins**, and a file this session already has is used
 /// again without a download. Nothing here can stop or reset playback: a failure is a state of this
 /// object, shown in the panel, and the player keeps its embedded subtitles and its picture.
-@MainActor @Observable
-public final class OnlineSubtitleSession {
+@MainActor
+public final class OnlineSubtitleSession: ObservableObject {
     public enum Phase: Equatable, Sendable {
         case idle
         case searching(SubtitleSearchQuery)
@@ -61,38 +61,38 @@ public final class OnlineSubtitleSession {
 
     public let identity: OnlineSubtitleIdentity
     public let providerEntries: [ProviderEntry]
-    public var selectedProviderID: String
+    @Published public var selectedProviderID: String
     /// The editable search field.
-    public var queryText: String
-    public private(set) var keywords: SubtitleSearchKeywords
-    public private(set) var phase = Phase.idle
-    public private(set) var results = [RemoteSubtitleTrack]()
+    @Published public var queryText: String
+    @Published public private(set) var keywords: SubtitleSearchKeywords
+    @Published public private(set) var phase = Phase.idle
+    @Published public private(set) var results = [RemoteSubtitleTrack]()
     /// How many results the last search listed and opened (`SubtitleSearchResult`).
-    public private(set) var listedCount = 0
-    public private(set) var openedCount = 0
-    public private(set) var downloads = [RemoteSubtitleTrack.ID: DownloadState]()
+    @Published public private(set) var listedCount = 0
+    @Published public private(set) var openedCount = 0
+    @Published public private(set) var downloads = [RemoteSubtitleTrack.ID: DownloadState]()
     /// Everything downloaded in this session, in the order it was.
-    public private(set) var attached = [PlaybackExternalSubtitle]()
+    @Published public private(set) var attached = [PlaybackExternalSubtitle]()
 
     /// A file is ready; `OnlineSubtitleCoordinator` hands it to the player.
-    @ObservationIgnored var onAttach: ((PlaybackExternalSubtitle) -> Void)?
+    var onAttach: ((PlaybackExternalSubtitle) -> Void)?
     /// IOS-POC-45H: one of the source's own subtitles is ready, and whether to show it.
-    @ObservationIgnored var onSourceAttach: ((PlaybackExternalSubtitle, Bool) -> Void)?
+    var onSourceAttach: ((PlaybackExternalSubtitle, Bool) -> Void)?
     /// The viewer picked a subtitle for this video — in the panel, or by downloading one — so a
     /// source's default is no longer shown in its place.
-    @ObservationIgnored public private(set) var viewerChoseSubtitle = false
-    @ObservationIgnored private var sourceTask: Task<Void, Never>?
-    @ObservationIgnored private var sourceGeneration = 0
-    @ObservationIgnored private var sourceAttached = false
-    @ObservationIgnored private var sourceShown = false
-    @ObservationIgnored public let cache: SubtitleSessionCache
-    @ObservationIgnored private let providers: [any SubtitleProvider]
-    @ObservationIgnored private let downloader: SubtitleDownloadService
-    @ObservationIgnored private var searchTask: Task<Void, Never>?
-    @ObservationIgnored private var downloadTask: Task<Void, Never>?
-    @ObservationIgnored private var searchGeneration = 0
-    @ObservationIgnored private var downloadGeneration = 0
-    @ObservationIgnored public private(set) var hasEnded = false
+    public private(set) var viewerChoseSubtitle = false
+    private var sourceTask: Task<Void, Never>?
+    private var sourceGeneration = 0
+    private var sourceAttached = false
+    private var sourceShown = false
+    public let cache: SubtitleSessionCache
+    private let providers: [any SubtitleProvider]
+    private let downloader: SubtitleDownloadService
+    private var searchTask: Task<Void, Never>?
+    private var downloadTask: Task<Void, Never>?
+    private var searchGeneration = 0
+    private var downloadGeneration = 0
+    public private(set) var hasEnded = false
 
     static let log = Logger(subsystem: "com.webhtv.ios.poc", category: "subtitle")
 

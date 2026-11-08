@@ -2,7 +2,7 @@ import AVKit
 import AudioToolbox
 import CoreMedia
 import Network
-import Observation
+import Combine
 import os
 import SwiftUI
 // IOS-POC-32 D. Weakly linked (OTHER_LDFLAGS): the app still starts on iOS 17.0, which lacks it.
@@ -125,6 +125,9 @@ struct WebHTVApp: App {
 }
 
 private struct ConfigView: View {
+    @ObservedObject private var favoritesModel = favoriteLibrary
+    @ObservedObject private var downloadsModel = offlineLibrary
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     @State private var sites = [Site]()
     /// IOS-POC-59: the configuration's live lists, adopted with its sites so the two never describe different ones.
     @State private var lives = [LiveSource]()
@@ -175,7 +178,7 @@ private struct ConfigView: View {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).appWallpaper()
             } else if sites.isEmpty && needSpiderTool == 0 {
                 NavigationStack {
-                    ContentUnavailableView(
+                    CompatContentUnavailableView(
                         "尚未載入設定",
                         systemImage: "play.rectangle.on.rectangle",
                         description: Text("匯入 wang-movie.json，或直接貼上它的 HTTPS 網址。")
@@ -300,14 +303,14 @@ private struct ConfigView: View {
             keyboardVisible = false
         }
         // IOS-POC-47: a retried download resolves its episode against the configuration loaded now.
-        .onChange(of: sites.map(\.id), initial: true) { OfflineAppContext.shared.sites = sites }
-        .onChange(of: source, initial: true) { OfflineAppContext.shared.source = source }
+        .onChangeCompat(of: sites.map(\.id), initial: true) { OfflineAppContext.shared.sites = sites }
+        .onChangeCompat(of: source, initial: true) { OfflineAppContext.shared.source = source }
         // IOS-POC-48: favourites learn which configuration is loaded, under which name.
-        .onChange(of: sites.map(\.id), initial: true) { adoptFavoriteContext() }
-        .onChange(of: source) { adoptFavoriteContext() }
-        .onChange(of: saved) { adoptFavoriteContext() }
+        .onChangeCompat(of: sites.map(\.id), initial: true) { adoptFavoriteContext() }
+        .onChangeCompat(of: source) { adoptFavoriteContext() }
+        .onChangeCompat(of: saved) { adoptFavoriteContext() }
         // C17: what was installed while the player was open is applied the moment it closes.
-        .onChange(of: favoriteLibrary.playerOpen) { _, open in
+        .onChangeCompat(of: favoriteLibrary.playerOpen) { _, open in
             guard !open, officialPending else { return }
             Self.spiderToolLog.notice("player closed")
             Task {
@@ -963,7 +966,7 @@ private struct CinematicPosterArt: View {
                 }
             }
             .clipped()
-            .clipShape(.rect(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
             .accessibilityHidden(true)
     }
 }
@@ -1219,7 +1222,7 @@ private struct CMSView: View {
                 .dismissKeyboardOnBackgroundTap()
             }
             .scrollDismissesKeyboard(.immediately)
-            .onChange(of: topRequest) {
+            .onChangeCompat(of: topRequest) {
                 withAnimation { proxy.scrollTo(Self.topAnchor, anchor: .top) }
             }
             .overlay(alignment: .bottomTrailing) { topButton(proxy) }
@@ -1232,7 +1235,7 @@ private struct CMSView: View {
         .toolbar(folder == nil ? .hidden : .visible, for: .navigationBar)
         .navigationTitle(folder.map { zhTW($0.name) } ?? "")
         .navigationBarTitleDisplayMode(.inline)
-        .onChange(of: query) { _, text in
+        .onChangeCompat(of: query) { _, text in
             if searching && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 searching = false
                 Task { await load(category: selectedCategory) }
@@ -1338,10 +1341,10 @@ private struct CMSView: View {
         if loading {
             ProgressView("載入中")
         } else if let error {
-            ContentUnavailableView("載入失敗", systemImage: "exclamationmark.triangle", description: Text(error))
+            CompatContentUnavailableView("載入失敗", systemImage: "exclamationmark.triangle", description: Text(error))
         } else {
             // A source can answer normally with nothing; say so instead of showing a blank screen.
-            ContentUnavailableView("沒有內容", systemImage: "tray", description: Text("這個來源或分類沒有回傳任何項目。"))
+            CompatContentUnavailableView("沒有內容", systemImage: "tray", description: Text("這個來源或分類沒有回傳任何項目。"))
         }
     }
 
@@ -1678,7 +1681,7 @@ private struct SearchCanceller: View {
     }
 
     var body: some View {
-        Color.clear.onChange(of: task, initial: true) { holder.task = task }
+        Color.clear.onChangeCompat(of: task, initial: true) { holder.task = task }
     }
 }
 
@@ -1745,7 +1748,7 @@ private struct AggregateSearchView: View {
             submit()
         }
         .onDisappear { if isSheet { stop() } }
-        .onChange(of: source) {
+        .onChangeCompat(of: source) {
             stop()
             clear()
             keyword = ""
@@ -1866,7 +1869,7 @@ private struct AggregateSearchView: View {
 
     @ViewBuilder private var emptyState: some View {
         if keyword.isEmpty {
-            ContentUnavailableView(
+            CompatContentUnavailableView(
                 "全站台搜尋", systemImage: "magnifyingglass",
                 description: Text("輸入關鍵字後按搜尋，會同時搜尋這個資訊源的 \(AggregateSearch.sites(from: sites).count) 個站台。")
             )
@@ -1875,13 +1878,13 @@ private struct AggregateSearchView: View {
         } else if searching {
             ProgressView("搜尋中 \(answered)/\(total)")
         } else if total == 0 {
-            ContentUnavailableView("沒有可搜尋的站台", systemImage: "magnifyingglass",
+            CompatContentUnavailableView("沒有可搜尋的站台", systemImage: "magnifyingglass",
                                    description: Text("這個資訊源的站台都沒有開放搜尋。"))
         } else if answered < total {
-            ContentUnavailableView("已停止搜尋", systemImage: "stop.circle",
+            CompatContentUnavailableView("已停止搜尋", systemImage: "stop.circle",
                                    description: Text("已完成 \(answered)/\(total) 個站台，還沒有結果。"))
         } else if failed + timedOut + busy == total {
-            ContentUnavailableView {
+            CompatContentUnavailableView {
                 Label("搜尋失敗", systemImage: "exclamationmark.triangle")
             } description: {
                 Text("\(total) 個站台都失敗、逾時或仍在執行上一輪。")
@@ -1892,7 +1895,7 @@ private struct AggregateSearchView: View {
                 }
             }
         } else {
-            ContentUnavailableView("沒有找到「\(keyword)」", systemImage: "magnifyingglass",
+            CompatContentUnavailableView("沒有找到「\(keyword)」", systemImage: "magnifyingglass",
                                    description: Text("\(total) 個站台都沒有結果。"))
         }
     }
@@ -2163,7 +2166,7 @@ private struct SettingsView: View {
             // IOS-POC-25: Android's 智慧去廣 (`Setting.isAdblock()`), on by default.
             Section {
                 Toggle("智慧去廣", isOn: $adSkip)
-                    .onChange(of: adSkip) { _, enabled in PlaybackSession.shared.setAdSkipEnabled(enabled) }
+                    .onChangeCompat(of: adSkip) { _, enabled in PlaybackSession.shared.setAdSkipEnabled(enabled) }
             } footer: {
                 Text("HLS 點播影片偵測到插入的廣告片段時自動跳過。判斷不確定時照常播放。")
             }
@@ -2212,19 +2215,19 @@ private struct SettingsView: View {
                 }
                 .pickerStyle(.menu)
                 Toggle("看完後自動刪除", isOn: $offlineAutoDelete)
-                    .onChange(of: offlineAutoDelete) { _, on in
+                    .onChangeCompat(of: offlineAutoDelete) { _, on in
                         OfflineDownloadPreferences().autoDeleteAfterWatching = on
                         // IOS-POC-52 (F13): every download follows it, not only the next ones.
                         Task { await OfflineDownloads.manager.setAutoDeleteEnabled(on) }
                     }
                 Toggle("允許使用行動網路下載", isOn: $offlineCellular)
-                    .onChange(of: offlineCellular) { _, on in
+                    .onChangeCompat(of: offlineCellular) { _, on in
                         OfflineDownloadPreferences().allowsCellular = on
                         // IOS-POC-49: downloads already queued or running follow the change too.
                         Task { await OfflineDownloads.manager.setAllowsCellular(OfflineDownloadPreferences().allowsCellular) }
                     }
                 Toggle("下載 60fps 高幀率版本", isOn: $offlineHighFrameRate)
-                    .onChange(of: offlineHighFrameRate) { _, on in OfflineDownloadPreferences().prefersHighFrameRate = on }
+                    .onChangeCompat(of: offlineHighFrameRate) { _, on in OfflineDownloadPreferences().prefersHighFrameRate = on }
             } header: {
                 Text("離線下載")
             } footer: {
@@ -2683,6 +2686,8 @@ private struct JapaneseTranslationBar: View {
 }
 
 private struct VodView: View {
+    @ObservedObject private var favoritesModel = favoriteLibrary
+    @ObservedObject private var downloadsModel = offlineLibrary
     let site: Site
     let summary: Vod
     let source: ConfigSource
@@ -2765,7 +2770,7 @@ private struct VodView: View {
                     .padding(.bottom, 28)
                 }
             } else if let error {
-                ContentUnavailableView("詳情載入失敗", systemImage: "exclamationmark.triangle", description: Text(error))
+                CompatContentUnavailableView("詳情載入失敗", systemImage: "exclamationmark.triangle", description: Text(error))
                     .padding(.top, 80)
             } else {
                 ProgressView("載入詳情").frame(maxWidth: .infinity).padding(.top, 80)
@@ -3464,7 +3469,7 @@ private struct HistoryView: View {
     var body: some View {
         Group {
             if records.isEmpty {
-                ContentUnavailableView(
+                CompatContentUnavailableView(
                     "還沒有觀看記錄",
                     systemImage: "clock.arrow.circlepath",
                     description: Text(loaded ? "播放任何一集之後，這裡會記住看到哪裡。" : "載入中…")
@@ -3559,7 +3564,7 @@ private struct HistoryView: View {
                 }
             }
             .frame(width: 56, height: 84)
-            .clipShape(.rect(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(zhTW: record.vodName).font(.headline).lineLimit(2)
@@ -3599,22 +3604,21 @@ private struct HistoryView: View {
 /// under now. Owns no data of its own: every change goes through the store and is read back.
 @MainActor let favoriteLibrary = FavoriteLibrary()
 
-@MainActor @Observable
-final class FavoriteLibrary {
+@MainActor final class FavoriteLibrary: ObservableObject {
     /// Every favourite, the most recently favourited first.
-    private(set) var favorites = [Favorite]()
+    @Published private(set) var favorites = [Favorite]()
     /// The loaded configuration's name, as a new snapshot records it.
-    private(set) var configSourceName = ""
+    @Published private(set) var configSourceName = ""
     /// A13: the 復原 after an automatic removal, while it is open.
-    private(set) var undoOffer: FavoriteUndoOffer?
+    @Published private(set) var undoOffer: FavoriteUndoOffer?
     /// Whether the player screen is up. The 復原 banner waits until it has gone, so the offer's
     /// window is time the viewer can actually see it.
-    private(set) var playerOpen = false
+    @Published private(set) var playerOpen = false
     /// Each title's lines as its detail screen last loaded them, for telling the real final episode
     /// (A12). Memory only: they are the source's listing, not the favourite's metadata — and only the
     /// most recent titles', since a long session opens hundreds of details.
-    @ObservationIgnored private var lines = [FavoriteIdentity: [Flag]]()
-    @ObservationIgnored private var linesOrder = [FavoriteIdentity]()
+    private var lines = [FavoriteIdentity: [Flag]]()
+    private var linesOrder = [FavoriteIdentity]()
     private static let linesKept = 32
 
     /// A configuration was loaded: its favourites follow a site whose identity provably did not
@@ -3733,6 +3737,8 @@ private struct LibraryView: View {
 /// What the watch history and the downloads know is shown beside each one and
 /// never written into it.
 private struct FavoritesView: View {
+    @ObservedObject private var favoritesModel = favoriteLibrary
+    @ObservedObject private var downloadsModel = offlineLibrary
     let sites: [Site]
     let source: ConfigSource
     let waiting: [Site]
@@ -3753,11 +3759,11 @@ private struct FavoritesView: View {
             Text("\(shown.count) 部收藏").font(.caption).foregroundStyle(.secondary)
                 .padding(.horizontal, 20)
             if favoriteLibrary.favorites.isEmpty {
-                ContentUnavailableView("還沒有收藏", systemImage: "heart",
+                CompatContentUnavailableView("還沒有收藏", systemImage: "heart",
                                        description: Text("在作品詳情頁右上角點「收藏」，作品就會出現在這裡。"))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if shown.isEmpty {
-                ContentUnavailableView.search(text: query).frame(maxWidth: .infinity, maxHeight: .infinity)
+                CompatContentUnavailableView.search(text: query).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
@@ -3856,7 +3862,7 @@ private struct FavoriteCard: View {
             }
         }
         // IOS-POC-28: the tappable area is the card's own shape.
-        .contentShape(.rect)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
 
@@ -3934,7 +3940,7 @@ private struct FavoriteUnavailableView: View {
             .navigationTitle((reason ?? .siteMissing).title)
             .navigationBarTitleDisplayMode(.inline)
             // W-143: a download made from here lists the site again; the favourite opens from the grid now.
-            .onChange(of: reason) { _, now in if now == nil { dismiss() } }
+            .onChangeCompat(of: reason) { _, now in if now == nil { dismiss() } }
             .appNavigationBar()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -3958,16 +3964,15 @@ private struct FavoriteToggle: View {
             HStack(spacing: 4) {
                 Image(systemName: isFavorite ? "heart.fill" : "heart")
                     .foregroundStyle(isFavorite ? Color.pink : .primary)
-                    .contentTransition(.symbolEffect(.replace))
-                    .symbolEffect(.bounce, value: bounces)
+                    .modifier(CompatHeartEffect(bounces: bounces))
             }
             .font(.title3.weight(.medium))
             .frame(width: 44, height: 44)
             .contentShape(Rectangle())
-            .animation(reduceMotion ? nil : .snappy, value: isFavorite)
+            .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: isFavorite)
         }
         .buttonStyle(.plain)
-        .onChange(of: isFavorite) { _, now in
+        .onChangeCompat(of: isFavorite) { _, now in
             if now && !reduceMotion { bounces += 1 }
         }
         .accessibilityLabel(Text(isFavorite ? "已收藏" : "收藏"))
@@ -4016,7 +4021,7 @@ private struct SpiderToolNeededView: View {
 
     var body: some View {
         NavigationStack {
-            ContentUnavailableView {
+            CompatContentUnavailableView {
                 Label("設定已載入", systemImage: "puzzlepiece.extension")
             } description: {
                 Text(note.isEmpty ? "有 \(count) 個來源需要爬蟲工具。" : "有 \(count) 個來源需要爬蟲工具。\n\(note)")
@@ -4250,9 +4255,9 @@ private struct StorageMaintenanceView: View {
 
 /// IOS-POC-49: whether the only route right now is cellular, so a Wi-Fi-only download reads
 /// 等待 Wi-Fi rather than a 0% that looks stuck.
-@MainActor @Observable final class OfflineNetwork {
+@MainActor final class OfflineNetwork: ObservableObject {
     static let shared = OfflineNetwork()
-    private(set) var cellularOnly = false
+    @Published private(set) var cellularOnly = false
     private let monitor = OfflineNetwork.startMonitor()
 
     /// Built off the main actor, so the handler iOS calls on the monitor's queue is not main-actor code.
@@ -4381,6 +4386,7 @@ final class OfflineAppDelegate: NSObject, UIApplicationDelegate {
 /// Plays a download from a downloads screen, with 上一集／下一集 and auto-next over the line's other
 /// downloads. The detail screen does not need this: its own play path checks for a download first.
 private struct OfflinePlaybackPresenter: ViewModifier {
+    @ObservedObject private var downloadsModel = offlineLibrary
     @Binding var asset: OfflineAsset?
     @State private var playing = false
     @State private var current: OfflineAsset?
@@ -4388,7 +4394,7 @@ private struct OfflinePlaybackPresenter: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onChange(of: asset?.id) { _, id in
+            .onChangeCompat(of: asset?.id) { _, id in
                 guard id != nil, let asset else { return }
                 self.asset = nil
                 Task { await start(asset) }
@@ -4549,6 +4555,7 @@ private struct OfflineActions: View {
 /// The corner of an episode button on the detail screen: its download state, and a menu of what
 /// can be done about it.
 private struct OfflineEpisodeMenu: View {
+    @ObservedObject private var downloadsModel = offlineLibrary
     let identity: OfflineIdentity
     let onDownload: () -> Void
     let onPlay: () -> Void
@@ -4574,6 +4581,8 @@ private struct OfflineEpisodeMenu: View {
 
 /// The line under an episode's name: 「742 MB」「68%」「下載失敗」. Nothing when not downloaded.
 private struct OfflineEpisodeStatus: View {
+    @ObservedObject private var downloadsModel = offlineLibrary
+    @ObservedObject private var networkModel = OfflineNetwork.shared
     let identity: OfflineIdentity
 
     var body: some View {
@@ -4706,7 +4715,7 @@ private struct OfflineDownloadSheet: View {
                 prepared = true
                 applyDefaults()
             }
-            .onChange(of: mode) { applyDefaults() }
+            .onChangeCompat(of: mode) { applyDefaults() }
             .task(id: measureKey) { await measure() }
         }
         .presentationDetents([.medium, .large])
@@ -4917,6 +4926,8 @@ private struct OfflineAssetRow: View {
 /// The 下載 tab: how much space offline content takes against what is free, then one group per
 /// title (IOS-POC-57) — opened to show its episodes, and paused, resumed or deleted all at once.
 private struct OfflineDownloadsView: View {
+    @ObservedObject private var downloadsModel = offlineLibrary
+    @ObservedObject private var networkModel = OfflineNetwork.shared
     @State private var playing: OfflineAsset?
     @State private var available = OfflineText.available
     @State private var deletion: OfflineDeletion?
@@ -4938,7 +4949,7 @@ private struct OfflineDownloadsView: View {
                 }
                 if groups.isEmpty && snapshot.unreadable.isEmpty {
                     Section {
-                        ContentUnavailableView("沒有下載內容", systemImage: "arrow.down.circle",
+                        CompatContentUnavailableView("沒有下載內容", systemImage: "arrow.down.circle",
                                                description: Text("在作品詳情頁下載單集，或使用「全部下載」。"))
                     }
                 }
@@ -4971,7 +4982,7 @@ private struct OfflineDownloadsView: View {
         .offlineDeleteConfirmation($deletion)
         .modifier(OfflinePlaybackPresenter(asset: $playing))
         // The free space moves with everything else on the phone; read it whenever the list changes.
-        .onChange(of: snapshot.sequence) { available = OfflineText.available }
+        .onChangeCompat(of: snapshot.sequence) { available = OfflineText.available }
         .onAppear { available = OfflineText.available }
     }
 
@@ -5072,6 +5083,7 @@ private struct OfflineTitleGroupRow: View {
 /// 管理下載 for one title: pick episodes, see what they free, delete them — or the watched ones, the
 /// failed ones, or all of them.
 private struct OfflineTitleDownloadsView: View {
+    @ObservedObject private var downloadsModel = offlineLibrary
     let historyKey: String
     let title: String
     @State private var selected = Set<String>()
@@ -5136,12 +5148,13 @@ private struct OfflineTitleDownloadsView: View {
         .offlineDeleteConfirmation($deletion)
         .modifier(OfflinePlaybackPresenter(asset: $playing))
         // Deleted rows leave the selection too.
-        .onChange(of: assets.map(\.id)) { _, ids in selected.formIntersection(ids) }
+        .onChangeCompat(of: assets.map(\.id)) { _, ids in selected.formIntersection(ids) }
     }
 }
 
 /// 管理下載 on the detail screen, only when the title has downloads.
 private struct OfflineTitleLink: View {
+    @ObservedObject private var downloadsModel = offlineLibrary
     let historyKey: String
     let title: String
 
@@ -5171,10 +5184,10 @@ private struct VodPoster: View {
         RemoteImage(picture) { phase in
             switch phase {
             case .success(let image):
-                image.resizable().scaledToFit().clipShape(.rect(cornerRadius: 18))
+                image.resizable().scaledToFit().clipShape(RoundedRectangle(cornerRadius: 18))
             default:
                 appRaisedSurface.overlay { Image(systemName: "film").foregroundStyle(.secondary) }
-                    .clipShape(.rect(cornerRadius: 18))
+                    .clipShape(RoundedRectangle(cornerRadius: 18))
             }
         }
         .frame(maxWidth: .infinity)
@@ -7870,7 +7883,7 @@ private struct PlayerControlBar: View {
         }
         // After the padding, so a panel spans the whole safe area rather than the bar's margins.
         .overlay { panelHost }
-        .onChange(of: panel) { old, new in
+        .onChangeCompat(of: panel) { old, new in
             if new == nil, let old { barFocus = old }
         }
     }
@@ -8129,7 +8142,7 @@ private struct PlayerControlBar: View {
                 panelRows(panel)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { rowsHeight = $0 }
             }
-            .scrollBounceBehavior(.basedOnSize)
+            
             .frame(height: rowsHeight > 0 ? min(rowsHeight, rowsLimit) : rowsLimit)
             // A different panel starts at its own top, not at the last one's scroll offset.
             .id(panel)
@@ -8412,7 +8425,7 @@ private struct SubtitleDelayRow: View {
 }
 
 private struct OnlineSubtitleSection: View {
-    @Bindable var online: OnlineSubtitleSession
+    @ObservedObject var online: OnlineSubtitleSession
     /// The subtitle the player shows now, to mark the row of a file that is in use.
     let selectedSubtitleID: String?
     @FocusState private var fieldFocused: Bool
@@ -8877,7 +8890,7 @@ enum LiveLineEvent { case started, failed }
 
 /// IOS-POC-59: the player as the live screen (`LiveTVView.swift`) shows it; `PlayerView` itself stays private.
 struct LivePlayerScreen: View {
-    let controller: LiveTVController
+    @ObservedObject var controller: LiveTVController
     var body: some View { PlayerView(live: controller) }
 }
 
@@ -9076,10 +9089,10 @@ private struct PlayerView: View {
         .statusBarHidden()
         // IOS-POC-16B. Every change to the bar or its panels restarts the countdown — or stops it,
         // when a panel has just opened. One place, so no path can open or close a panel and forget.
-        .onChange(of: chrome) { scheduleHide() }
+        .onChangeCompat(of: chrome) { scheduleHide() }
         // The tap that brings a hidden bar back is not something VoiceOver can reach, so turning it
         // on brings the bar back instead.
-        .onChange(of: voiceOver) { if voiceOver { chrome.show() } }
+        .onChangeCompat(of: voiceOver) { if voiceOver { chrome.show() } }
         // Closing the screen pauses rather than tears down, so a page can read the position it
         // reached and resume it with player.control.
         .onDisappear {
@@ -9461,7 +9474,7 @@ private struct WebHomeView: View {
                     onBack: { dismiss() }
                 )
             } else {
-                ContentUnavailableView("找不到頁面", systemImage: "doc.questionmark", description: Text("WebHome 展示頁沒有打包進 App。"))
+                CompatContentUnavailableView("找不到頁面", systemImage: "doc.questionmark", description: Text("WebHome 展示頁沒有打包進 App。"))
                     .appWallpaper()
             }
         }
@@ -9499,14 +9512,13 @@ private struct WebHomeView: View {
 /// every view that asked is redrawn when it arrives, because Observation tracks the read of
 /// `converter`. **Display only**: a converted string never goes back into search, watch history,
 /// identity values or the WebHome bridge.
-@MainActor @Observable
-final class TaiwanDisplay {
+@MainActor final class TaiwanDisplay: ObservableObject {
     static let shared = TaiwanDisplay()
 
-    private var converter: TaiwanTraditional? = nil
-    @ObservationIgnored private var loading = false
+    @Published private var converter: TaiwanTraditional? = nil
+    private var loading = false
     /// What each string became, so a redrawn grid does not convert its titles again. Cleared when full.
-    @ObservationIgnored private var cache: [Key: String] = [:]
+    private var cache: [Key: String] = [:]
 
     private struct Key: Hashable {
         let text: String
@@ -9766,3 +9778,91 @@ private struct WebHomeWebView: UIViewRepresentable {
     nonisolated(unsafe) static var searchPending = UserDefaults.standard.integer(forKey: "failSearchPageOnce")
 }
 #endif
+
+
+ 
+// iOS 16 backports. iOS 17-only SwiftUI symbols never execute on an older system.
+struct CompatContentUnavailableView: View {
+    private let label: AnyView
+    private let description: AnyView
+    private let actions: AnyView
+
+    init(_ title: String, systemImage: String, description: Text? = nil) {
+        label = AnyView(Label(title, systemImage: systemImage))
+        self.description = AnyView(description ?? Text(""))
+        actions = AnyView(EmptyView())
+    }
+
+    init<L: View, D: View, A: View>(
+        @ViewBuilder label: () -> L,
+        @ViewBuilder description: () -> D,
+        @ViewBuilder actions: () -> A
+    ) {
+        self.label = AnyView(label())
+        self.description = AnyView(description())
+        self.actions = AnyView(actions())
+    }
+
+    static func search(text: String) -> Self {
+        Self("沒有找到「\(text)」", systemImage: "magnifyingglass", description: Text("請試試其他關鍵字。"))
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            label.font(.title3.weight(.semibold))
+            description.font(.subheadline).foregroundStyle(.secondary)
+            actions.padding(.top, 6)
+        }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 36)
+    }
+}
+
+private struct CompatChangeModifier<Value: Equatable>: ViewModifier {
+    let value: Value
+    let initial: Bool
+    let action: (Value, Value) -> Void
+    @State private var previous: Value?
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                guard previous == nil else { return }
+                previous = value
+                if initial { action(value, value) }
+            }
+            .onChange(of: value) { newValue in
+                let oldValue = previous ?? value
+                previous = newValue
+                action(oldValue, newValue)
+            }
+    }
+}
+
+extension View {
+    func onChangeCompat<Value: Equatable>(
+        of value: Value, initial: Bool = false, _ action: @escaping (Value, Value) -> Void
+    ) -> some View {
+        modifier(CompatChangeModifier(value: value, initial: initial, action: action))
+    }
+
+    func onChangeCompat<Value: Equatable>(
+        of value: Value, initial: Bool = false, _ action: @escaping () -> Void
+    ) -> some View {
+        onChangeCompat(of: value, initial: initial) { _, _ in action() }
+    }
+}
+
+private struct CompatHeartEffect: ViewModifier {
+    let bounces: Int
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content.contentTransition(.symbolEffect(.replace)).symbolEffect(.bounce, value: bounces)
+        } else {
+            content
+        }
+    }
+}

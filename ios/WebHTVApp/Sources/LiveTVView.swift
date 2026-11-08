@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import WebHTVCore
 
 /// IOS-POC-59 U2 (W-125): the configuration's live lists — a source menu, groups on the left, channels on the right
@@ -52,7 +53,7 @@ struct LiveTVView: View {
                 Divider()
                 content.frame(maxHeight: .infinity)
             } else {
-                ContentUnavailableView("此設定沒有直播源", systemImage: "tv")
+                CompatContentUnavailableView("此設定沒有直播源", systemImage: "tv")
             }
         }
         .navigationTitle("直播")
@@ -86,7 +87,7 @@ struct LiveTVView: View {
                 load = .failed(error.localizedDescription)
             }
         }
-        .onChange(of: sourceIndex) { _, index in
+        .onChangeCompat(of: sourceIndex) { _, index in
             guard lives.indices.contains(index) else { return }
             Task { await store.setLastLive(lives[index].name, config: config) }
         }
@@ -135,7 +136,7 @@ struct LiveTVView: View {
         case .loading:
             ProgressView("載入清單中（最多 30 秒）")
         case .failed(let reason):
-            ContentUnavailableView {
+            CompatContentUnavailableView {
                 Label("無法載入此直播源", systemImage: "antenna.radiowaves.left.and.right.slash")
             } description: {
                 Text(reason)
@@ -143,7 +144,7 @@ struct LiveTVView: View {
                 Button("重試") { refresh = true; reload += 1 }
             }
         case .loaded(let groups) where groups.isEmpty:
-            ContentUnavailableView("此直播源沒有可顯示的頻道", systemImage: "tv")
+            CompatContentUnavailableView("此直播源沒有可顯示的頻道", systemImage: "tv")
         case .loaded(let visible):
             let groups = visible.withFavorites(favorites)
             let current = groups.firstIndex { $0.name == groupName } ?? 0
@@ -191,7 +192,7 @@ struct LiveTVView: View {
 
     @ViewBuilder private func channelColumn(_ group: LiveGroup, scrollTo target: Int?) -> some View {
         if group.channels.isEmpty {
-            ContentUnavailableView("此群組沒有頻道", systemImage: "tv")
+            CompatContentUnavailableView("此群組沒有頻道", systemImage: "tv")
         } else {
             ScrollViewReader { proxy in
                 List(group.channels.indices, id: \.self) { index in
@@ -256,7 +257,7 @@ struct LiveTVView: View {
 /// failure or a spent budget moves to the next line. A round tries every usable line once, wrapping (X-3), then
 /// stops: no automatic channel change. Every line opens on the global default engine (`freshEngine`) at 1×, with no
 /// watch history. `attempt` drops what an earlier line reports after a newer one opened.
-@MainActor @Observable final class LiveTVController: Identifiable {
+@MainActor final class LiveTVController: ObservableObject, Identifiable {
     enum Phase: Equatable { case opening, playing, exhausted, ended }
 
     let source: LiveSource
@@ -264,16 +265,16 @@ struct LiveTVView: View {
     /// The group shown when it was opened (「收藏」 too), for the last channel (U4).
     let group: String
     let channels: [LiveChannel]
-    private(set) var channelIndex: Int
-    private(set) var favorites: [String]
-    private(set) var lineIndex = 0
-    private(set) var phase = Phase.opening
+    @Published private(set) var channelIndex: Int
+    @Published private(set) var favorites: [String]
+    @Published private(set) var lineIndex = 0
+    @Published private(set) var phase = Phase.opening
     /// Lines tried in this round, for 「已試 N 條線路」.
-    private(set) var tried = 0
-    @ObservationIgnored private var switcher: LiveLineSwitcher
-    @ObservationIgnored private var attempt = 0
-    @ObservationIgnored private var budget: Task<Void, Never>?
-    @ObservationIgnored private let session = PlaybackSession.shared
+    @Published private(set) var tried = 0
+    private var switcher: LiveLineSwitcher
+    private var attempt = 0
+    private var budget: Task<Void, Never>?
+    private let session = PlaybackSession.shared
 
     init(source: LiveSource, config: String, group: String, channels: [LiveChannel], start: Int, favorites: [String]) {
         self.source = source
@@ -397,7 +398,7 @@ struct LiveTVView: View {
 /// IOS-POC-59 U3 (D§6.4.3): the live layer over the player — channel, line and its menu, 上一台／下一台 with the bar;
 /// the "all lines tried" or ended card whatever the bar does.
 struct LivePlayerOverlay: View {
-    let controller: LiveTVController
+    @ObservedObject var controller: LiveTVController
     let controlsVisible: Bool
 
     var body: some View {

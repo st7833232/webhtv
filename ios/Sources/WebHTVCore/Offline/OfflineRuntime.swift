@@ -1,5 +1,5 @@
 import Foundation
-import Observation
+import Combine
 #if canImport(AVFoundation)
 import AVFoundation
 #endif
@@ -9,9 +9,8 @@ import FoundationNetworking
 
 /// IOS-POC-47 — the downloads screens' view of the manager: the latest snapshot, on the main actor.
 @MainActor
-@Observable
-public final class OfflineLibrary {
-    public private(set) var snapshot = OfflineSnapshot()
+public final class OfflineLibrary: ObservableObject {
+    @Published public private(set) var snapshot = OfflineSnapshot()
 
     public init() {}
 

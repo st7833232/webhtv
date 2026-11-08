@@ -1,0 +1,59 @@
+name: iOS 16 Compatibility Build
+
+on:
+  push:
+    branches: [ios16-compat]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up host Python
+        id: host-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Prepare CPython payload
+        env:
+          PYTHON_HOST: ${{ steps.host-python.outputs.python-path }}
+        run: scripts/fetch_python_ios.sh --sdk iphoneos
+      - name: Build iOS 16 compatible unsigned app
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios/WebHTVApp/WebHTVApp.xcodeproj \
+            -scheme WebHTVApp \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            EXPANDED_CODE_SIGN_IDENTITY=- \
+            EXPANDED_CODE_SIGN_IDENTITY_NAME='Ad Hoc' \
+            build
+      - name: Package unsigned IPA for TrollStore testing
+        run: |
+          set -euo pipefail
+          APP="build/DerivedData/Build/Products/Release-iphoneos/WebHTVApp.app"
+          MIN="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")"
+          BUNDLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")"
+          echo "MinimumOSVersion=$MIN Bundle=$BUNDLE"
+          [[ "$MIN" == 16.* ]] || { echo "::error::Expected iOS 16 MinimumOSVersion, got $MIN"; exit 1; }
+          [[ "$BUNDLE" == "com.webhtv.ios.poc" ]] || exit 1
+          mkdir -p package/Payload dist
+          ditto "$APP" package/Payload/WebHTVApp.app
+          (cd package && ditto -c -k --sequesterRsrc --keepParent Payload "../dist/WebHTV-iOS16-test.ipa")
+      - name: Upload test IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: WebHTV-ios16-unsigned-test
+          path: dist/WebHTV-iOS16-test.ipa
+          retention-days: 7

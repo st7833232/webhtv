@@ -4978,7 +4978,7 @@ private struct OfflineDownloadsView: View {
         }
         .scrollContentBackground(.hidden)
         .listStyle(.insetGrouped)
-        .listSectionSpacing(20)
+        .modifier(CompatListSectionSpacing())
         .appWallpaper()
         .navigationTitle("下載")
         .navigationBarTitleDisplayMode(.large)

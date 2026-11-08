@@ -35,6 +35,8 @@ jobs:
             -derivedDataPath build/DerivedData \
             MARKETING_VERSION=0.1.95 \
             CURRENT_PROJECT_VERSION=96 \
+            MARKETING_VERSION=0.1.96 \
+            CURRENT_PROJECT_VERSION=97 \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY='' \
@@ -50,12 +52,15 @@ jobs:
           echo "MinimumOSVersion=$MIN Bundle=$BUNDLE"
           [[ "$MIN" == 16.* ]] || { echo "::error::Expected iOS 16 MinimumOSVersion, got $MIN"; exit 1; }
           [[ "$BUNDLE" == "com.webhtv.ios.poc" ]] || exit 1
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")"
+          BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")"
+          [[ "$VERSION" == "0.1.96" && "$BUILD" == "97" ]] || { echo "::error::Unexpected version $VERSION ($BUILD)"; exit 1; }
           mkdir -p package/Payload dist
           ditto "$APP" package/Payload/WebHTVApp.app
-          (cd package && ditto -c -k --sequesterRsrc --keepParent Payload "../dist/WebHTV-iOS16-test.ipa")
+          (cd package && ditto -c -k --sequesterRsrc --keepParent Payload "../dist/WebHTV-iOS16-0.1.96-b97.ipa")
       - name: Upload test IPA
         uses: actions/upload-artifact@v4
         with:
-          name: WebHTV-ios16-unsigned-test
-          path: dist/WebHTV-iOS16-test.ipa
+          name: WebHTV-ios16-0.1.96-b97
+          path: dist/WebHTV-iOS16-0.1.96-b97.ipa
           retention-days: 7

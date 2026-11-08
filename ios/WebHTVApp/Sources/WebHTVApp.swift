@@ -211,14 +211,14 @@ private struct ConfigView: View {
                             HomeView(sites: sites, selectedSiteID: pickedSite, source: source, topRequest: homeTopRequest, lives: lives)
                         }
                     }
-                        .toolbar(.hidden, for: .tabBar)
+                        .modifier(PlatformTabBarVisibility())
                         .tag(0)
                         .tabItem { Label("首頁", systemImage: "play.rectangle.fill") }
 
                     // IOS-POC-20. Tag 3 rather than renumbering: the other tabs keep the tags code
                     // already switches to.
                     AggregateSearchView(sites: sites, source: source)
-                        .toolbar(.hidden, for: .tabBar)
+                        .modifier(PlatformTabBarVisibility())
                         .tag(3)
                         .tabItem { Label("搜尋", systemImage: "magnifyingglass") }
 
@@ -230,7 +230,7 @@ private struct ConfigView: View {
                     }
                     .environment(\.tabReturnActions, libraryNavigation)
                     .tag(1)
-                    .toolbar(.hidden, for: .tabBar)
+                    .modifier(PlatformTabBarVisibility())
                     .tabItem { Label("片庫", systemImage: "rectangle.stack.fill") }
 
                     // IOS-POC-47. Tag 4: the other tabs keep the tags code already switches to.
@@ -238,7 +238,7 @@ private struct ConfigView: View {
                         OfflineDownloadsView()
                     }
                     .tag(4)
-                    .toolbar(.hidden, for: .tabBar)
+                    .modifier(PlatformTabBarVisibility())
                     .tabItem { Label("下載", systemImage: "arrow.down.circle") }
 
                     NavigationStack {
@@ -272,10 +272,10 @@ private struct ConfigView: View {
                     }
                     .environment(\.tabReturnActions, settingsNavigation)
                     .tag(2)
-                    .toolbar(.hidden, for: .tabBar)
+                    .modifier(PlatformTabBarVisibility())
                     .tabItem { Label("設定", systemImage: "gearshape.fill") }
                 }
-                .toolbar(.hidden, for: .tabBar)
+                .modifier(PlatformTabBarVisibility())
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // A sibling reserves actual height even when the native TabView does not pass an
                 // outer safeAreaInset through to its navigation/scroll containers (iOS 27).
@@ -288,7 +288,11 @@ private struct ConfigView: View {
                             SpiderToolBanner(count: needSpiderTool, busy: spiderToolBusy, onDownload: checkSpiderTool)
                                 .padding(.vertical, 8)
                         }
-                        if !keyboardVisible { CinematicTabBar(selection: selectedTab, onSelect: selectTab) }
+                        // iOS 16: keep the system TabView bar only; its hide preference is not reliable there.
+                        // iOS 17+: use the existing Cinematic bar with the system bar hidden.
+                        if #available(iOS 17.0, *), !keyboardVisible {
+                            CinematicTabBar(selection: selectedTab, onSelect: selectTab)
+                        }
                     }
                 }
                 .appWallpaper()
@@ -9881,6 +9885,21 @@ private struct CompatListSectionSpacing: ViewModifier {
             content.listSectionSpacing(20)
         } else {
             content
+        }
+    }
+}
+
+ 
+/// Keeps exactly one bottom navigation surface on every supported iOS version.
+/// iOS 16 uses the native tab bar because SwiftUI's hide preference does not
+/// consistently hide the bar in this nested NavigationStack/TabView hierarchy.
+/// iOS 17+ preserves the existing custom CinematicTabBar.
+private struct PlatformTabBarVisibility: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content.toolbar(.hidden, for: .tabBar)
+        } else {
+            content.toolbar(.visible, for: .tabBar)
         }
     }
 }

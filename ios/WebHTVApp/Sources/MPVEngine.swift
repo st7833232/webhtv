@@ -1103,7 +1103,7 @@ final class MPVSoftwareRenderer: @unchecked Sendable {
     /// ponytail: a fixed cap on CPU time; per-device limits once measured (P1).
     private static let maximumWidth = 1280
 
-    private let output: AVSampleBufferVideoRenderer
+    private let output: any AVQueuedSampleBufferRendering
     private let queue = DispatchQueue(label: "mpv.software-render", qos: .userInitiated)
     private let lock = NSLock()
     private var videoSize = (width: 0, height: 0)   // under `lock`
@@ -1115,7 +1115,7 @@ final class MPVSoftwareRenderer: @unchecked Sendable {
     private var poolSize = (width: 0, height: 0)
     private var format: CMVideoFormatDescription?
 
-    init(output: AVSampleBufferVideoRenderer) { self.output = output }
+    init(output: any AVQueuedSampleBufferRendering) { self.output = output }
 
     func setVideoSize(width: Int, height: Int) { lock.lock(); videoSize = (width, height); lock.unlock() }
     /// Called once, from the render queue, when the next decoded frame has gone to the layer (IOS-POC-17H-3:
@@ -1313,7 +1313,11 @@ final class MPVSoftwareRenderer: @unchecked Sendable {
         }
         // A failed renderer shows nothing until flushed (VLC, `VLCSampleBufferDisplay.m`), and neither
         // does one whose decoder the system took back, behind the lock screen (Apple forums 745840).
-        if output.status == .failed || output.requiresFlushToResumeDecoding { output.flush() }
+        if #available(iOS 17.0, *), let renderer = output as? AVSampleBufferVideoRenderer {
+            if renderer.status == .failed || renderer.requiresFlushToResumeDecoding { renderer.flush() }
+        }
+        // iOS 16 enqueues through AVSampleBufferDisplayLayer, the older implementation of
+        // AVQueuedSampleBufferRendering; iOS 17+ continues using sampleBufferRenderer.
         output.enqueue(sample)
     }
 }
@@ -1361,7 +1365,11 @@ final class MPVPictureInPicture: NSObject, @preconcurrency AVPictureInPictureCon
     init(engine: MPVEngine, core: MPVPlayerCore, layer: AVSampleBufferDisplayLayer) {
         self.engine = engine
         self.core = core
-        renderer = MPVSoftwareRenderer(output: layer.sampleBufferRenderer)
+        if #available(iOS 17.0, *) {
+            renderer = MPVSoftwareRenderer(output: layer.sampleBufferRenderer)
+        } else {
+            renderer = MPVSoftwareRenderer(output: layer)
+        }
         var timebase: CMTimebase?
         CMTimebaseCreateWithSourceClock(allocator: kCFAllocatorDefault, sourceClock: CMClockGetHostTimeClock(),
                                         timebaseOut: &timebase)

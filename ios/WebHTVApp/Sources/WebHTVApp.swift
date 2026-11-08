@@ -126,7 +126,6 @@ struct WebHTVApp: App {
 
 private struct ConfigView: View {
     @ObservedObject private var favoritesModel = favoriteLibrary
-    @ObservedObject private var downloadsModel = offlineLibrary
     @ObservedObject private var displayModel = TaiwanDisplay.shared
     @State private var sites = [Site]()
     /// IOS-POC-59: the configuration's live lists, adopted with its sites so the two never describe different ones.
@@ -1178,7 +1177,7 @@ private struct CMSView: View {
                     // W-107: the Top button follows how far the top has scrolled, not which card last
                     // appeared or disappeared; that missed short and empty results and a hidden featured card.
                     Color.clear.frame(height: 0).id(Self.topAnchor)
-                        .onGeometryChange(for: Bool.self) { $0.frame(in: .scrollView).minY > -Self.topSlack } action: {
+                        .onGeometryChange(for: Bool.self) { $0.frame(in: .named("webhtv.home.scroll")).minY > -Self.topSlack } action: {
                             atTop = $0
                         }
                     if folder == nil {
@@ -1221,6 +1220,7 @@ private struct CMSView: View {
                 .padding(.bottom, 24)
                 .dismissKeyboardOnBackgroundTap()
             }
+            .coordinateSpace(name: "webhtv.home.scroll")
             .scrollDismissesKeyboard(.immediately)
             .onChangeCompat(of: topRequest) {
                 withAnimation { proxy.scrollTo(Self.topAnchor, anchor: .top) }
@@ -2148,15 +2148,15 @@ private struct SettingsView: View {
                     }
                 )) {
                     ForEach(PlaybackSpeedPreference.choices, id: \.self) { speed in
-                        Text(speed.formatted(.number.precision(.fractionLength(0...2))) + "×")
-                            .accessibilityLabel(speed.formatted(.number.precision(.fractionLength(0...2))) + " 倍")
+                        Text(String(format: "%g×", Double(speed)))
+                            .accessibilityLabel(String(format: "%g 倍", Double(speed)))
                             .tag(speed)
                     }
                 }
                 .pickerStyle(.menu)
                 // The collapsed row is what VoiceOver meets first, and nothing guarantees an option's
                 // label reaches it; stated here so it reads 「2 倍」, never 「2 乘」.
-                .accessibilityValue(defaultSpeed.formatted(.number.precision(.fractionLength(0...2))) + " 倍")
+                .accessibilityValue(String(format: "%g 倍", Double(defaultSpeed)))
             } header: {
                 Text("預設播放速度")
             } footer: {
@@ -2286,7 +2286,7 @@ private struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .appWallpaper()
         .listStyle(.insetGrouped)
-        .listSectionSpacing(20)
+        .modifier(CompatListSectionSpacing())
         .navigationTitle("設定")
         .navigationBarTitleDisplayMode(.large)
         .appNavigationBar()
@@ -3547,7 +3547,7 @@ private struct HistoryView: View {
                 .buttonStyle(.plain)
                 .accessibilityValue(FavoriteAvailability.Reason.needsSpiderTool.title)
                 // A row badge sits at the trailing edge beside the content; an overlay covered long titles.
-                .badge(Text(FavoriteAvailability.Reason.needsSpiderTool.title).foregroundStyle(appAccent))
+                .badge(Text(FavoriteAvailability.Reason.needsSpiderTool.title))
         } else {
             // The configuration changed under the record. Show it, greyed, rather than dropping it:
             // deleting someone's history because a site was renamed is worse than a dead row.
@@ -4071,7 +4071,11 @@ private struct FavoriteUndoBanner: View {
             let lasting = voiceOver ? 30 : FavoriteUndoOffer.window
             favoriteLibrary.offerShown(offer, lasting: lasting)
             let message = "已看完，已從收藏移除：" + zhTW(offer.favorite.name)
-            AccessibilityNotification.Announcement(message).post()
+            if #available(iOS 17.0, *) {
+                AccessibilityNotification.Announcement(message).post()
+            } else {
+                UIAccessibility.post(notification: .announcement, argument: message)
+            }
             // Cancelled means hidden again, not answered: the offer stays and starts over when it is back.
             guard (try? await Task.sleep(for: .seconds(lasting))) != nil else { return }
             favoriteLibrary.dismiss(offer)
@@ -8290,8 +8294,12 @@ private struct PlayerControlBar: View {
         // different one — refreshed on screen and spoken, since the focused button is not the label.
         let edited = {
             skipEdited()
-            AccessibilityNotification.Announcement(
-                "目前：\(PlayerView.skipLabel(session.record?[keyPath: offset] ?? 0))").post()
+            let message = "目前：\(PlayerView.skipLabel(session.record?[keyPath: offset] ?? 0))"
+            if #available(iOS 17.0, *) {
+                AccessibilityNotification.Announcement(message).post()
+            } else {
+                UIAccessibility.post(notification: .announcement, argument: message)
+            }
         }
         let nudge = { (delta: Double) in
             apply((session.record?[keyPath: offset] ?? 0) + delta)
@@ -9861,6 +9869,16 @@ private struct CompatHeartEffect: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         if #available(iOS 17.0, *) {
             content.contentTransition(.symbolEffect(.replace)).symbolEffect(.bounce, value: bounces)
+        } else {
+            content
+        }
+    }
+}
+
+private struct CompatListSectionSpacing: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content.listSectionSpacing(20)
         } else {
             content
         }

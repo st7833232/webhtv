@@ -99,3 +99,9 @@
   - `VodLineSwitcherTests` 11/11。
   - 重新編譯（Debug，Simulator）成功。
   - Simulator 重跑換線：線路1 -1008 → 換線路2 → 畫面前進後才記 started（`sw3-key.txt`、`sw3-notice.png`、`sw3-end.png`）。
+- Ponytail（`ponytail:ponytail-review`，審 a2c7ced9）：沒有發現問題，可以出貨。已確認：
+  - 引擎在起播時互換，`.started` 仍由同一個 `watchStartup` 迴圈送出。
+  - 直播的 `lineObserver` 不變。
+  - 修正前 S01E05 測試會失敗。
+
+  未查：一開始就暫停超過 1 分鐘（`firstAdvance` 放棄），之後播放中途失敗、而先前那一輪已超過 120 秒上限時，這次失敗會直接顯示、不換線。屬於邊角情況，沒有修。

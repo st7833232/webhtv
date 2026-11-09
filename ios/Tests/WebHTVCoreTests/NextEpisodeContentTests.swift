@@ -221,6 +221,17 @@ private func segmentLines(_ text: String) -> [String] { text.split(separator: "\
         #expect(NextEpisodeContent.copyFailure(codec, position: 0, until: 46, started: false) == .keep)
     }
 
+    // W-261: an end inside the copy's window is the source failing, except one the viewer sought to.
+    @Test func anEndInsideTheCopyIsAFailureUnlessTheViewerSoughtToTheEnd() {
+        #expect(NextEpisodeContent.endIsCopyFailure(windowOpen: true, until: 46, duration: 120, playhead: 16))
+        #expect(NextEpisodeContent.endIsCopyFailure(windowOpen: true, until: 46, duration: 120, playhead: 0))
+        #expect(!NextEpisodeContent.endIsCopyFailure(windowOpen: true, until: 46, duration: 120, playhead: 117))
+        #expect(!NextEpisodeContent.endIsCopyFailure(windowOpen: true, until: 46, duration: 120, playhead: 120))
+        #expect(!NextEpisodeContent.endIsCopyFailure(windowOpen: false, until: 46, duration: 120, playhead: 16))
+        // An episode no longer than the window really ends inside it.
+        #expect(!NextEpisodeContent.endIsCopyFailure(windowOpen: true, until: 46, duration: 70, playhead: 16))
+    }
+
     @Test func aFailedFirstSegmentFetchesNothingAndALaterOneEndsTheRun() async throws {
         let source = Source()
         source.text("https://cdn.example/index.m3u8", media(4))

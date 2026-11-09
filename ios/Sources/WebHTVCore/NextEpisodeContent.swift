@@ -178,6 +178,14 @@ public enum NextEpisodeContent {
         return started ? .dropRetry : .keep
     }
 
+    /// W-243 review C3: mpv ends a stream whose source stopped answering as if it were done, so an end
+    /// while the copy's window is open, of an episode longer than that window, is that failure. W-261:
+    /// unless the playhead had reached the last five seconds — the viewer sought to the end.
+    public static func endIsCopyFailure(windowOpen: Bool, until: Double, duration: Double,
+                                        playhead: Double) -> Bool {
+        windowOpen && duration > until + 30 && duration - playhead > 5
+    }
+
     /// What a warm-up's answers so far say about the next episode (W-253).
     public enum WarmVerdict: Equatable, Sendable {
         case ok

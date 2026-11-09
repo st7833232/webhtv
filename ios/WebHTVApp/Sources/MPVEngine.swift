@@ -136,6 +136,8 @@ final class MPVEngine: PlaybackEngine {
         return now.loaded ? now.position : now.reached
     }
     var duration: Double { core.snapshot.duration }
+    /// W-261: the last playhead this load reported; `currentTime` reads 0 once mpv ends the stream.
+    var reachedSeconds: Double { core.snapshot.reached }
     var rate: Float { core.snapshot.paused ? 0 : Float(core.snapshot.speed) }
     var isLoaded: Bool { core.snapshot.loaded }
     var isPlaying: Bool { core.snapshot.loaded && !core.snapshot.paused && !core.snapshot.buffering }

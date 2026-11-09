@@ -6841,7 +6841,7 @@ struct EpisodeSteps: Equatable {
     /// False when it has no retry left, and the failure takes its usual course.
     private func recoverCopy(_ failure: PlaybackFailure) -> Bool {
         guard copyRetryUntil != nil, let retry = retryWithoutPrefetch else { return false }
-        let position = engine?.currentTime ?? 0
+        let position = lastPlayhead
         dropCopyRetry()
         retryResumeSeconds = position > 0 ? position : nil
         Self.log.notice("[playback] fetched copy's source failed (\(failure.message, privacy: .public)) at \(Int(position))s — resolving live")
@@ -6856,6 +6856,13 @@ struct EpisodeSteps: Equatable {
         return true
     }
 
+    /// W-261: where playback had got to. mpv drops its playhead once it ends a stream — the copy's
+    /// early end, a seek to the end — and the last one it reported stands in.
+    private var lastPlayhead: Double {
+        let reported = engine?.currentTime ?? 0
+        return reported > 0 ? reported : (engine as? MPVEngine)?.reachedSeconds ?? 0
+    }
+
     private func dropCopyRetry() {
         copyRetryUntil = nil
         copyRetryDeadline = nil
@@ -6863,11 +6870,10 @@ struct EpisodeSteps: Equatable {
     }
 
     private func finished(reason: String) {
-        // W-243 review C3: mpv ends a stream whose source stopped answering as if it were done (seen
-        // with an expired address past the copy). An end while the copy's window is still open, of an
-        // episode longer than that window, is that failure — not the episode's end.
-        if reason == "end", let deadline = copyRetryDeadline, deadline > .now,
-           duration > (copyRetryUntil ?? 0) + 30,
+        // W-243 review C3 (seen with an expired address past the copy); W-261: not a seek to the end.
+        if reason == "end", let deadline = copyRetryDeadline,
+           NextEpisodeContent.endIsCopyFailure(windowOpen: deadline > .now, until: copyRetryUntil ?? 0,
+                                               duration: duration, playhead: lastPlayhead),
            recoverCopy(.network("ended inside the fetched copy's window")) { return }
         // IOS-POC-36: once per item — the viewer's ending, then the real end while the next episode
         // resolves, used to advance twice and skip an episode. A 上一集／下一集 already in flight is

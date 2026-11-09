@@ -370,6 +370,59 @@ struct SpiderProxyServerTests {
         #expect(await sink.head.hasPrefix("HTTP/1.1 504"))
     }
 
+    /// W-252: a slow spider answering one fixed response, counting how often it is asked.
+    final class Slow: SpiderProxying, @unchecked Sendable {
+        let response: SpiderProxyResponse
+        private let lock = NSLock()
+        private var calls = 0
+        var count: Int { lock.withLock { calls } }
+        init(_ response: SpiderProxyResponse) { self.response = response }
+        func proxy(params: [String: String]) async throws -> SpiderProxyResponse? {
+            lock.withLock { calls += 1 }
+            try await Task.sleep(for: .milliseconds(300))
+            return response
+        }
+    }
+
+    /// The native probe, then MPV's open while the cold script still runs: one script call, both answered.
+    @Test(arguments: [SpiderProxyResponse(status: 500, mime: "text/plain", body: Data("failed".utf8)),
+                      SpiderProxyResponse(status: 200, mime: "video/mp4", body: Media.bytes(0...2999))])
+    func aRequestJoinsTheSameFileAlreadyBeingAnswered(answer: SpiderProxyResponse) async {
+        let server = SpiderProxyServer()
+        let spider = Slow(answer)
+        let probe = Sink(), open = Sink()
+        async let first: Void = server.handle(.init(method: "GET", params: ["do": "py", "vid": "1", "range": "bytes=0-1"]),
+                                              target: spider, writer: probe)
+        try? await Task.sleep(for: .milliseconds(100))
+        await server.handle(.init(method: "GET", params: ["do": "py", "vid": "1", "range": "bytes=0-524287"]),
+                            target: spider, writer: open)
+        await first
+        #expect(spider.count == 1)
+        let status = answer.status == 500 ? "HTTP/1.1 500" : "HTTP/1.1 206"
+        #expect(await probe.head.hasPrefix(status))
+        #expect(await open.head.hasPrefix(status))
+        if answer.status == 200 { #expect(await open.body == Media.bytes(0...2999)) }
+        // Once answered, the next request asks the spider again: a passing failure gets its retry (W-246).
+        await server.handle(.init(method: "GET", params: ["do": "py", "vid": "1", "range": "bytes=0-1"]),
+                            target: spider, writer: Sink())
+        #expect(spider.count == 2)
+    }
+
+    /// A spider serving real ranges answers each one itself; another file is never joined.
+    @Test func aRangeAnswerIsNotSharedWithAnotherRangeOrFile() async {
+        let server = SpiderProxyServer()
+        let media = Media(total: 3000, delay: .milliseconds(300))
+        let a = Sink(), b = Sink()
+        async let first: Void = server.handle(.init(method: "GET", params: ["do": "py", "range": "bytes=0-9"]),
+                                              target: media, writer: a)
+        try? await Task.sleep(for: .milliseconds(100))
+        await server.handle(.init(method: "GET", params: ["do": "py", "range": "bytes=10-19"]), target: media, writer: b)
+        await first
+        #expect(await a.body == Media.bytes(0...9))
+        #expect(await b.body == Media.bytes(10...19))
+        #expect(media.ranges.count == 2)
+    }
+
     /// googlevideo's 403 to a reader too far ahead, relayed by the spider once, then the bytes.
     final class Refusing: SpiderProxying, @unchecked Sendable {
         private let lock = NSLock()

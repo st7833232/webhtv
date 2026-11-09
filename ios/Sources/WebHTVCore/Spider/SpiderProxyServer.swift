@@ -38,6 +38,8 @@ public final class SpiderProxyServer: @unchecked Sendable {
     /// W-245: whole episodes a spider answered as one `200 video/mp4` (W-240), by the file asked for —
     /// what tells the next episode of that same address apart as one worth warming, and its cost.
     private var wholeMP4 = [String: Int64]()
+    /// W-252: the call each request (bar its range) is waiting on, while it runs on the site's serial queue.
+    private var running = [String: (id: UUID, range: String?, task: Task<SpiderProxyResponse?, Never>)]()
     public let token = UUID().uuidString.lowercased()
 
     init() {}
@@ -518,7 +520,7 @@ public final class SpiderProxyServer: @unchecked Sendable {
     /// cannot be interrupted; it finishes on the site's queue and its answer is dropped). A 403 is
     /// relayed, not retried: googlevideo's per-address quota does not reset by waiting (W-202).
     private func call(_ target: any SpiderProxying, _ params: [String: String]) async -> SpiderProxyResponse? {
-        let answer = await timed(target, params)
+        let answer = await shared(target, params)
         // The request's shape only — never the address, which carries the token. `file` tells the files of
         // one manifest apart without printing their (signed) addresses.
         let file = params["url"].map { String(UInt32(truncatingIfNeeded: $0.hashValue), radix: 36) } ?? ""
@@ -526,9 +528,36 @@ public final class SpiderProxyServer: @unchecked Sendable {
         return answer
     }
 
-    private func timed(_ target: any SpiderProxying, _ params: [String: String]) async -> SpiderProxyResponse? {
+    /// W-252: a request the spider is already answering (but for its range) waits for that answer instead
+    /// of queuing the same work behind it — a cold whole-episode script takes 10-16 s, so the native
+    /// player's probe and MPV's open after the 10 s fallback used to run it twice and the second hit
+    /// `callTimeout`. The answer is reused when it cannot depend on the range: the same range, a server
+    /// error, or a whole MP4 (which `rangedMP4` cuts for each request); a 206 or a 403 is asked again.
+    private func shared(_ target: any SpiderProxying, _ params: [String: String]) async -> SpiderProxyResponse? {
+        let key = params.filter { $0.key != "range" }.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }
+            .joined(separator: "&")
+        if let ongoing = lock.withLock({ running[key] }) {
+            let answer = await timed(ongoing.task)
+            if let answer, ongoing.range == params["range"] || answer.status >= 500 || Self.isWholeMP4(answer) {
+                return answer
+            }
+            if answer == nil { return nil }
+        }
+        // Kept until the spider answers, not until this request gives up: the call still occupies the queue.
+        // Dropped before the answer is handed out, so a request after it (a retry) asks the spider again.
+        let id = UUID()
+        let task = Task { [weak self] in
+            let answer = try? await target.proxy(params: params)
+            self?.lock.withLock { if self?.running[key]?.id == id { self?.running[key] = nil } }
+            return answer
+        }
+        lock.withLock { running[key] = (id, params["range"], task) }
+        return await timed(task)
+    }
+
+    private func timed(_ task: Task<SpiderProxyResponse?, Never>) async -> SpiderProxyResponse? {
         await withTaskGroup(of: SpiderProxyResponse?.self) { group in
-            group.addTask { try? await target.proxy(params: params) }
+            group.addTask { await task.value }
             group.addTask { [callTimeout] in try? await Task.sleep(for: callTimeout); return nil }
             let first = await group.next() ?? nil
             group.cancelAll()

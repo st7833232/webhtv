@@ -189,6 +189,26 @@ private func segmentLines(_ text: String) -> [String] { text.split(separator: "\
     }
 
     /// W-243 review C3, C3a, C4.
+    /// W-253: only the same source failing twice with a 5xx is an episode known not to play.
+    @Test func onlyTwoFiveHundredsInARowMeanTheEpisodeFails() {
+        typealias V = NextEpisodeContent.WarmVerdict
+        #expect(NextEpisodeContent.warmVerdict([200]) == V.ok)
+        #expect(NextEpisodeContent.warmVerdict([206]) == V.ok)
+        #expect(NextEpisodeContent.warmVerdict([500]) == V.askAgain)
+        #expect(NextEpisodeContent.warmVerdict([500, 500]) == V.failed(500))
+        #expect(NextEpisodeContent.warmVerdict([500, 502]) == V.failed(502))
+        // W-246: a script's cold cache answers 500 once and plays the second time.
+        #expect(NextEpisodeContent.warmVerdict([500, 200]) == V.ok)
+        // A 504 is a slow script still finishing; a timeout or transport error is no answer at all.
+        #expect(NextEpisodeContent.warmVerdict([504]) == V.unsure)
+        #expect(NextEpisodeContent.warmVerdict([504, 504]) == V.unsure)
+        #expect(NextEpisodeContent.warmVerdict([500, 504]) == V.unsure)
+        #expect(NextEpisodeContent.warmVerdict([nil]) == V.unsure)
+        #expect(NextEpisodeContent.warmVerdict([500, nil]) == V.unsure)
+        #expect(NextEpisodeContent.warmVerdict([404]) == V.unsure)
+        #expect(NextEpisodeContent.warmVerdict([]) == V.unsure)
+    }
+
     @Test func onlyTheSourceFailingNearTheCopyIsResolvedAgain() {
         let network = PlaybackFailure.network("HTTP 403")
         let codec = PlaybackFailure.engineCapability("unsupported")

@@ -138,6 +138,17 @@ public enum PlaybackStartupReason: Sendable, Equatable {
         else { self = .unknown }
     }
 
+    /// W-253: with no engine left to try, a start that timed out for one of these reasons is shown
+    /// failed instead of spinning on. Ready and slow (`tooSlow`, `evaluating`) is data arriving, and
+    /// `unknown` says nothing either way: those are still left to start when they can.
+    public var givenUp: PlaybackFailure? {
+        switch self {
+        case .http(let status): return .network("HTTP \(status)")
+        case .neverReady: return .unclassified("影片一直沒有準備好")
+        case .tooSlow, .evaluating, .unknown: return nil
+        }
+    }
+
     /// One line for the player screen, e.g. 「原生播放器無法開始播放（伺服器回應 403），已改用 MPV」.
     public func notice(from: PlaybackEngineKind, to: PlaybackEngineKind) -> String {
         let why: String

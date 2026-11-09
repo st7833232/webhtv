@@ -178,6 +178,30 @@ public enum NextEpisodeContent {
         return started ? .dropRetry : .keep
     }
 
+    /// What a warm-up's answers so far say about the next episode (W-253).
+    public enum WarmVerdict: Equatable, Sendable {
+        case ok
+        /// One 5xx: asked once more before anything is decided — a script's cold cache answered 500
+        /// once and played on the second ask (W-246).
+        case askAgain
+        /// The same source failed twice with a 5xx: the episode is shown failed at the handoff.
+        case failed(Int)
+        /// A timeout, a transport error, a 504 or any other status: the handoff goes on as it always
+        /// did, since none of them says the episode cannot play.
+        case unsure
+    }
+
+    /// `statuses` are the warm-up's answers in order; nil is a request that got no HTTP answer.
+    /// A 504 is the proxy giving up on a slow script, which still finishes into its cache.
+    public static func warmVerdict(_ statuses: [Int?]) -> WarmVerdict {
+        func broken(_ status: Int?) -> Bool { status.map { (500...599).contains($0) && $0 != 504 } ?? false }
+        guard let last = statuses.last ?? nil else { return .unsure }
+        if [200, 206].contains(last) { return .ok }
+        guard broken(last) else { return .unsure }
+        guard statuses.count >= 2 else { return .askAgain }
+        return broken(statuses[statuses.count - 2]) ? .failed(last) : .unsure
+    }
+
     /// The segment playing at `seconds`, or nil past the end.
     static func firstSegment(_ segments: [HLSSegment], at seconds: Double) -> Int? {
         var elapsed = 0.0

@@ -487,6 +487,15 @@ public final class PlayerRouter {
         return true
     }
 
+    /// W-253: an item that will not play here and has no engine left to try — a start given up on
+    /// after the fallback, or an episode already known to fail. The engine lets go of it and the
+    /// failure goes the way an engine's unrecoverable one does, so no spinner waits on it forever.
+    public func giveUp(_ failure: PlaybackFailure) {
+        stop()
+        self.failure = failure
+        onUnrecoverable?(failure)
+    }
+
     /// The speed the viewer picked, so a switch carries it even while paused.
     public func setRate(_ rate: Float) {
         if let request { self.request = request.resumed(at: request.startSeconds, rate: rate,

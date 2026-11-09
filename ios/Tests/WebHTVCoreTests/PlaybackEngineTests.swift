@@ -497,6 +497,23 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     #expect(harness.engine.kind == .native)
 }
 
+/// W-253: what the session gives up on is shown the way an engine's unrecoverable failure is, and the
+/// engine holding it lets go — so the spinner, which waits only while nothing has failed, stops.
+@MainActor @Test func aStartGivenUpOnIsShownAndReleased() {
+    let harness = Harness()
+    var shown: PlaybackFailure?
+    harness.router.onUnrecoverable = { shown = $0 }
+    harness.router.open(PlaybackLoadRequest(target: target, startSeconds: 0, history: episode))
+    let native = harness.engine
+    harness.router.giveUp(.unclassified("影片一直沒有準備好"))
+    #expect(shown == .unclassified("影片一直沒有準備好"))
+    #expect(harness.router.failure == shown)
+    #expect(native.tornDown && harness.router.engine == nil)
+    // The next episode opens a fresh engine, with no failure left over.
+    harness.router.open(request)
+    #expect(harness.router.failure == nil && harness.router.engine != nil)
+}
+
 @MainActor @Test func theNextEpisodeGetsItsOwnFallback() {
     let harness = Harness()
     harness.router.open(request)

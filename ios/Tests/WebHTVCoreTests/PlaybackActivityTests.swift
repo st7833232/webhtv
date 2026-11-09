@@ -161,6 +161,16 @@ import Testing
         == .unknown)
 }
 
+/// W-253: with no engine left, only a start that is evidently not coming is given up on.
+@Test func onlyAStartThatIsNotComingIsGivenUpOn() {
+    #expect(PlaybackStartupReason.http(500).givenUp == .network("HTTP 500"))
+    #expect(PlaybackStartupReason.neverReady.givenUp == .unclassified("影片一直沒有準備好"))
+    // Ready and slow is data arriving; nothing known is no evidence: both are left to start.
+    #expect(PlaybackStartupReason.tooSlow.givenUp == nil)
+    #expect(PlaybackStartupReason.evaluating.givenUp == nil)
+    #expect(PlaybackStartupReason.unknown.givenUp == nil)
+}
+
 @Test func theNoticeNamesBothEnginesAndTheReason() {
     #expect(PlaybackStartupReason.http(403).notice(from: .native, to: .mpv)
         == "原生播放器無法開始播放（伺服器回應 403），已改用 MPV")

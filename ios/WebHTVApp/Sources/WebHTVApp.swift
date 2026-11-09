@@ -5283,8 +5283,12 @@ struct EpisodeSteps: Equatable {
 
     /// W-245 (§13): a spider proxy that answers whole episodes is warmed, not copied — asked for two
     /// bytes ahead, the script fetches the next episode into its own cache. `outcome` is nil while that
-    /// runs, empty once it answered 200 or 206, else why it did not.
-    private var warming: (identity: PlaybackTargetIdentity, task: Task<Void, Never>, outcome: String?)?
+    /// runs, empty once it answered 200 or 206, else why it did not. `failed` is the status of a source
+    /// that answered a 5xx twice (`NextEpisodeContent.warmVerdict`, W-253).
+    private var warming: (identity: PlaybackTargetIdentity, source: URL, task: Task<Void, Never>, outcome: String?,
+                          failed: Int?)?
+    /// W-253: the address handed over that the warm-up already found failing, with that status.
+    private var knownFailing: (source: URL, status: Int)?
 
     /// `currentURL` is the address the episode playing now was opened with.
     func begin(_ identity: PlaybackTargetIdentity, source: URL, headers: [String: String], startSeconds: Double,
@@ -5330,24 +5334,34 @@ struct EpisodeSteps: Equatable {
     private func warm(_ identity: PlaybackTargetIdentity, source: URL, episode: String) {
         let began = ContinuousClock.now
         let task = Task { @MainActor [weak self] in
-            var request = URLRequest(url: source, timeoutInterval: 60)
-            request.setValue("bytes=0-1", forHTTPHeaderField: "Range")
-            let outcome: String
-            do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                // A 504 is the proxy giving up on a slow script, which still finishes into its cache.
-                outcome = [200, 206].contains(status) ? "" : "HTTP \(status)"
-            } catch {
+            var statuses = [Int?]()
+            var verdict = NextEpisodeContent.WarmVerdict.unsure
+            repeat {
+                // W-253: the second ask, a few seconds after a 5xx, tells a cold cache from a source that is broken.
+                if !statuses.isEmpty { try? await Task.sleep(for: .seconds(5)) }
                 if Task.isCancelled { return }
-                outcome = error.localizedDescription
-            }
-            guard let self, self.warming?.identity == identity else { return }
-            self.warming?.outcome = outcome
-            let milliseconds = Int((ContinuousClock.now - began) / .milliseconds(1))
-            PlaybackSession.log.notice("[playback] content-warm \(episode, privacy: .public) \(outcome.isEmpty ? "ok" : "failed: \(outcome)", privacy: .public) in \(milliseconds)ms")
+                var request = URLRequest(url: source, timeoutInterval: 60)
+                request.setValue("bytes=0-1", forHTTPHeaderField: "Range")
+                let outcome: String
+                do {
+                    let (_, response) = try await URLSession.shared.data(for: request)
+                    let status = (response as? HTTPURLResponse)?.statusCode
+                    statuses.append(status)
+                    outcome = status.map { [200, 206].contains($0) ? "" : "HTTP \($0)" } ?? "no HTTP answer"
+                } catch {
+                    if Task.isCancelled { return }
+                    statuses.append(nil)
+                    outcome = error.localizedDescription
+                }
+                verdict = NextEpisodeContent.warmVerdict(statuses)
+                guard let self, self.warming?.identity == identity else { return }
+                self.warming?.outcome = outcome
+                if case .failed(let status) = verdict { self.warming?.failed = status }
+                let milliseconds = Int((ContinuousClock.now - began) / .milliseconds(1))
+                PlaybackSession.log.notice("[playback] content-warm \(episode, privacy: .public) \(outcome.isEmpty ? "ok" : "failed: \(outcome)", privacy: .public) in \(milliseconds)ms (ask \(statuses.count), \(String(describing: verdict), privacy: .public))")
+            } while verdict == .askAgain
         }
-        warming = (identity, task, nil)
+        warming = (identity, source, task, nil, nil)
     }
 
     /// Hands the fetched folder to the episode about to play when it was fetched for exactly it.
@@ -5358,10 +5372,15 @@ struct EpisodeSteps: Equatable {
         // The episode before is being replaced either way; left standing, its copy would make the
         // next `engineURL` report `otherAddress` instead of why this one missed (W-243 review C1).
         release()
+        knownFailing = nil
         if let addressMiss { miss = "address \(addressMiss)"; return }
         if let warmed = warming, warmed.identity == identity {
             // Never waited for: the handoff goes on, and the script answers the player when it can.
             miss = warmed.outcome.map { $0.isEmpty ? "warm" : "warm failed: \($0)" } ?? "warm: stillRunning"
+            if let status = warmed.failed {
+                knownFailing = (warmed.source, status)
+                miss = "warm failed twice: HTTP \(status)"
+            }
             return
         }
         guard let held = ahead else { miss = lastSkip ?? "notRequested"; return }
@@ -5376,6 +5395,7 @@ struct EpisodeSteps: Equatable {
     /// or nil to open `url` itself, and how many seconds the copy holds. Another item lets the
     /// previous folder go.
     func engineURL(for url: URL, external: Bool) -> (url: URL?, note: String, seconds: Double) {
+        knownFailing = nil
         guard let playing, playing.source == url else {
             // A copy handed over for another address: the quality chosen at the switch differed.
             let why = self.playing == nil ? miss : "otherAddress"
@@ -5385,6 +5405,12 @@ struct EpisodeSteps: Equatable {
         }
         // A TV handed 127.0.0.1 would look for the stream on itself (W-242 §11.3).
         return external ? (nil, "miss: airplay", 0) : (playing.local, "hit", playing.seconds)
+    }
+
+    /// W-253: the status `url` failed with twice while warming, when it is the address just handed
+    /// over — asked before `engineURL`, which forgets it.
+    func knownFailure(for url: URL) -> Int? {
+        knownFailing.flatMap { $0.source == url ? $0.status : nil }
     }
 
     /// Stops and deletes what was fetched ahead. The folder an item is playing from stays.
@@ -6951,6 +6977,7 @@ struct EpisodeSteps: Equatable {
         resumeTo = nil
         // W-243: only the engine reads the copy fetched ahead; the ad plan, subtitles, history and a
         // quality switch all keep the source's own address.
+        let knownFailure = nextContent.knownFailure(for: url)
         let content = nextContent.engineURL(for: url, external: player.isExternalPlaybackActive)
         contentNote = content.note
         // W-243 review C3: a copy hides an address that expired between the prefetch and the switch
@@ -6958,6 +6985,15 @@ struct EpisodeSteps: Equatable {
         // a failure is resolved live once, as a pre-resolved address that fails to start always was.
         copyRetryUntil = content.url == nil ? nil : start + content.seconds + 30
         copyRetryDeadline = content.url == nil ? nil : .now + .seconds(content.seconds + 30)
+        // W-253: an episode the warm-up found failing twice is shown failed at once, not tried on
+        // either engine nor resolved again live — each of those only failed the same way, slowly.
+        if let knownFailure {
+            startupWatch?.cancel()
+            retryWithoutPrefetch = nil
+            Self.log.notice("[playback] \(self.title, privacy: .public) not opened: its source answered HTTP \(knownFailure) twice while warming")
+            router.giveUp(.source("無法播放：這一集的來源連續兩次回應 HTTP \(knownFailure)"))
+            return
+        }
         router.open(PlaybackLoadRequest(target: PlaybackTarget(url: content.url ?? url, headers: headers),
                                         startSeconds: start, rate: chosenRate, autoplay: autoplay,
                                         title: title, history: record), freshEngine: freshEngineOnce)
@@ -7114,6 +7150,14 @@ struct EpisodeSteps: Equatable {
                                 Self.log.notice("\(diagnosis.line, privacy: .public)")
                                 onNotice?(diagnosis.reason.notice(from: stuck, to: engineKind))
                             }
+                        } else if let failure = (diagnosis?.reason
+                                                 ?? (engine.state == .preparing ? .neverReady : .unknown)).givenUp {
+                            // W-253: both engines had their turn; a start that is not coming is shown failed
+                            // rather than spinning on (W-252: native sat on -1008 with nothing to play).
+                            Self.log.notice("[playback] \(self.itemTitle, privacy: .public) not started on \(stuck.shortName, privacy: .public) after \(Int(timeout))s and no engine left — shown failed")
+                            if let diagnosis { Self.log.notice("\(diagnosis.line, privacy: .public)") }
+                            router.giveUp(failure)
+                            return
                         }
                     }
                 }

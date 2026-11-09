@@ -81,6 +81,13 @@ public final class SpiderProxyServer: @unchecked Sendable {
         return known ? await start() : nil
     }
 
+    /// W-270: the per-site spiders let go when the app drops its sessions (`SpiderSessionStore.reset`, a reloaded
+    /// configuration or spider pack), so the old ones are freed; a download makes its site's again from the
+    /// store. The spider that played last stays: a player may still be reading from it.
+    func forgetSites() {
+        lock.withLock { sites.removeAll() }
+    }
+
     /// True for an address `serve` handed out as DASH, or one whose whole MP4 was VVC (W-262): AVPlayer
     /// cannot open either, so it goes to MPV.
     public static func prefersMPV(_ url: URL) -> Bool { shared.prefersMPV(url) }

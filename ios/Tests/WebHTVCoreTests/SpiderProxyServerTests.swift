@@ -701,6 +701,22 @@ extension SpiderProxyServerTests {
         #expect(await get(server, "do=py&f=1&\(OfflineLocalProxy.siteParameter)=a").body == Data("A2".utf8))
     }
 
+    /// W-270: dropping the app's sessions (a reloaded configuration or spider pack) lets the proxy's per-site
+    /// spiders go too, so the old one is freed; a download makes its site's again.
+    @Test func aSessionResetFreesTheSpidersKeptForDownloads() async {
+        let site = "w270-\(UUID().uuidString)"
+        weak var old: Recording?
+        do {
+            let spider = Recording("old")
+            old = spider
+            #expect(await SpiderProxyServer.shared.downloadBase(siteID: site) { spider } != nil)
+        }
+        #expect(old != nil)
+        await SpiderSessionStore().reset()
+        #expect(old == nil)
+        #expect(await get(SpiderProxyServer.shared, "do=py&f=1&\(OfflineLocalProxy.siteParameter)=\(site)").head.hasPrefix("HTTP/1.1 404"))
+    }
+
     @Test func onlyADownloadGetsTheLongerLimit() async {
         let server = SpiderProxyServer()
         server.callTimeout = .milliseconds(50)

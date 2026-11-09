@@ -377,5 +377,8 @@ public actor SpiderSessionStore {
     /// last holder lets go, which is exactly the right moment — later than this method, on purpose.
     public func reset() async {
         sessions.removeAll()
+        #if canImport(Network)
+        SpiderProxyServer.shared.forgetSites() // W-270
+        #endif
     }
 }

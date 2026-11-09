@@ -3065,10 +3065,12 @@ private struct VodView: View {
         defer { resolving = false }
         do {
             let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
-            guard let target = try await client.playbackURL(for: episode, flag: flag) else {
+            guard let resolved = try await client.playbackURL(for: episode, flag: flag) else {
                 downloadError = "這一集沒有可下載的網址。"
                 return
             }
+            // W-270: the sheet reads the stream as the download will, with the download limit on the loopback proxy.
+            let target = OfflineLocalProxy.downloadTarget(resolved, siteID: site.id)
             let options = try await OfflineDownloads.manager.options(
                 for: target, preferredSubtitleLanguage: Locale.preferredLanguages.first,
                 allowHighFrameRate: OfflineDownloadPreferences().prefersHighFrameRate)
@@ -4823,8 +4825,8 @@ private struct OfflineDownloadSheet: View {
                         Toggle("看完後自動刪除", isOn: $autoDelete)
                     } footer: {
                         Text(sizeNote(option) + (OfflineDownloadPreferences().allowsCellular
-                             ? "會使用行動網路下載。離開 App 或鎖定螢幕時，iOS 會在允許時繼續下載。"
-                             : "只在 Wi-Fi 下載（可在「設定」開啟行動網路）。離開 App 或鎖定螢幕時，iOS 會在允許時繼續下載。"))
+                             ? "會使用行動網路下載。" : "只在 Wi-Fi 下載（可在「設定」開啟行動網路）。")
+                             + OfflineLocalProxy.backgroundNote(for: draft.target.url))
                     }
                     if let message {
                         Section { Text(message).foregroundStyle(.orange) }

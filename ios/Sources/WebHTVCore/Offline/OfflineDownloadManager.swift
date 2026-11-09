@@ -746,7 +746,9 @@ public actor OfflineDownloadManager {
                 // the package a 下載 with the sheet untouched would have made.
                 let options: OfflineDownloadOptions
                 do {
-                    options = try await self.options(for: target,
+                    // W-270: read as the download will be, with the download limit on the loopback proxy.
+                    let site = OfflineLocalProxy.siteID(of: asset)
+                    options = try await self.options(for: site.map { OfflineLocalProxy.downloadTarget(target, siteID: $0) } ?? target,
                                                      preferredSubtitleLanguage: automatic.preferredSubtitleLanguage,
                                                      allowHighFrameRate: request.choice.allowHighFrameRate)
                 } catch {

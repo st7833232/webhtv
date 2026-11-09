@@ -126,6 +126,36 @@ struct OfflineLocalProxyTests {
         #expect(Set(sent.map(\.tag)).count == 4)
     }
 
+    /// W-270: the download sheet, and 全部下載's own reading, ask the proxy as the download does (its site named,
+    /// so the download limit); playback's requests keep the 20 s limit.
+    @Test func theSheetAndDownloadAllReadTheProxyAsADownload() async throws {
+        let base = Self.base()
+        let played = try #require(URL(string: base.absoluteString + "proxy?do=py&url=ep%201"))
+        let asDownload = OfflineLocalProxy.downloadTarget(Fixture.target(played), siteID: Self.site)
+        #expect(asDownload.url == OfflineLocalProxy.rewrite(Self.old, base: base, siteID: Self.site))
+        #expect(OfflineLocalProxy.downloadTarget(Fixture.target(), siteID: Self.site) == Fixture.target())
+
+        let harness = OfflineHarness(network: Self.network(base))
+        _ = try await harness.manager.options(for: asDownload)
+        #expect(!harness.log.all.isEmpty && harness.log.all.allSatisfy { $0.url == asDownload.url })
+
+        await harness.manager.setLocalProxy { _ in base }
+        await harness.manager.setResolver { _ in Fixture.target(played) }
+        await harness.manager.start()
+        let result = await harness.manager.enqueueAutomatic(
+            identity: Fixture.identity(), title: Fixture.title(), mode: .smart, allowHighFrameRate: false,
+            preferredSubtitleLanguage: nil, autoDeleteAfterWatching: false, allowsCellular: false)
+        guard case .created(let asset) = result else { throw HarnessFailure() }
+        _ = try #require(await harness.waitFor(asset.id, .downloading))
+        #expect(harness.log.all.allSatisfy { $0.url == asDownload.url })
+        #expect(SpiderProxyServer().callTimeout == .seconds(20))
+    }
+
+    @Test func theSheetSaysALoopbackProxyDownloadNeedsTheAppOpen() {
+        #expect(OfflineLocalProxy.backgroundNote(for: Self.old).contains("要開著 App"))
+        #expect(OfflineLocalProxy.backgroundNote(for: Fixture.master).contains("iOS 會在允許時繼續下載"))
+    }
+
     @Test func aSiteWhoseSpiderCannotBeMadeNeedsAttention() async throws {
         let harness = OfflineHarness(network: Self.network(Self.base()))
         await harness.manager.setLocalProxy { _ in nil }

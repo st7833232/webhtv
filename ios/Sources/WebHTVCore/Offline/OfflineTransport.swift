@@ -300,6 +300,27 @@ public enum OfflineLocalProxy {
         return components.url ?? url
     }
 
+    /// W-270: `target` as a download asks for it — at its own proxy, naming `siteID` — so the download sheet's
+    /// reading of a slow script gets the download limit too. Anything not on the loopback proxy is unchanged.
+    public static func downloadTarget(_ target: PlaybackTarget, siteID: String) -> PlaybackTarget {
+        guard matches(target.url), var base = URLComponents(url: target.url, resolvingAgainstBaseURL: false) else {
+            return target
+        }
+        base.percentEncodedQuery = nil
+        base.path.removeLast("proxy".count)
+        guard let baseURL = base.url else { return target }
+        return PlaybackTarget(url: rewrite(target.url, base: baseURL, siteID: siteID), headers: target.headers,
+                              qualities: target.qualities, position: target.position,
+                              defaultIndex: target.defaultIndex, subtitles: target.subtitles)
+    }
+
+    /// W-270: the sheet's note on leaving the app. A loopback-proxy download runs in the app (W-268): it pauses
+    /// when the app does and goes on when it is back, which the background session's note did not say.
+    public static func backgroundNote(for url: URL) -> String {
+        matches(url) ? "這個來源要開著 App 才會下載；離開 App 會暫停，回到 App 後自動繼續。"
+            : "離開 App 或鎖定螢幕時，iOS 會在允許時繼續下載。"
+    }
+
     /// The site a download was made from: its history key is the site's id, the separator, the vod id.
     public static func siteID(of asset: OfflineAsset) -> String? {
         let suffix = WatchHistory.separator + asset.title.vodId

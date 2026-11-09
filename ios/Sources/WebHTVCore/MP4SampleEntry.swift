@@ -65,3 +65,48 @@ public enum MP4SampleEntry {
         String(decoding: bytes[at..<at + 4], as: Unicode.ASCII.self)
     }
 }
+
+#if canImport(Network)
+/// W-269: an MP4 on a loopback address the spider proxy does not serve — a script's own local service,
+/// as the new 红果 PY runs — is read from its first bytes while native playback opens it, so a VVC one
+/// moves to MPV without waiting for native to fail or time out. Nothing is read from any other address.
+public enum LoopbackMP4Probe {
+    /// A moov at the front of an episode fits (a 168 s bvc2 episode's is 206 KB, at byte 28); one at the end is not looked for.
+    static let limit = 512 * 1024
+    /// Loopback answers at once when it answers at all; a script still fetching gives up the probe, not the play.
+    static let timeout: TimeInterval = 3
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var vvc = Set<String>()
+
+    /// A loopback http address the spider proxy does not serve, and not a playlist or manifest.
+    public static func applies(to url: URL) -> Bool {
+        url.scheme == "http" && ["127.0.0.1", "::1", "localhost"].contains(url.host ?? "")
+            && !SpiderProxyServer.serves(url) && !["m3u8", "mpd", "ts"].contains(url.pathExtension.lowercased())
+    }
+
+    /// Whether a probe found `url` to be VVC (or ByteVC2).
+    public static func isVVC(_ url: URL) -> Bool { lock.withLock { vvc.contains(url.absoluteString) } }
+
+    /// Reads up to `limit` bytes of `url` and notes whether its video is VVC; nil when nothing could be read.
+    public static func probe(_ url: URL, headers: [String: String]) async -> Bool? {
+        var request = URLRequest(url: url)
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+        request.setValue("bytes=0-\(limit - 1)", forHTTPHeaderField: "Range")
+        request.timeoutInterval = timeout
+        let fetch = OfflineHTTP.fetcher(origin: url, originalHeaders: headers)
+        guard let response = try? await fetch(request, limit), (200...299).contains(response.status) else { return nil }
+        return record(url, prefix: response.data)
+    }
+
+    /// Notes what `prefix` (the file's first bytes) says about `url`; nil when it holds no whole moov.
+    static func record(_ url: URL, prefix: Data) -> Bool? {
+        guard let fourCC = MP4SampleEntry.videoFourCC(prefix) else { return nil }
+        let isVVC = MP4SampleEntry.needsMPV.contains(fourCC)
+        lock.withLock {
+            if vvc.count >= 64 { vvc.removeAll() }
+            if isVVC { vvc.insert(url.absoluteString) } else { vvc.remove(url.absoluteString) }
+        }
+        return isVVC
+    }
+}
+#endif

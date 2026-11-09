@@ -48,3 +48,33 @@ struct MP4SampleEntryTests {
         #expect(MP4SampleEntry.videoFourCC(huge) == nil)
     }
 }
+
+#if canImport(Network)
+/// W-269: a script's own loopback service, read from its first bytes.
+struct LoopbackMP4ProbeTests {
+    @Test func onlyALoopbackFileTheProxyDoesNotServeIsProbed() throws {
+        #expect(LoopbackMP4Probe.applies(to: try #require(URL(string: "http://127.0.0.1:18447/media/ep1.mp4"))))
+        #expect(LoopbackMP4Probe.applies(to: try #require(URL(string: "http://[::1]:9000/v?id=1"))))
+        #expect(!LoopbackMP4Probe.applies(to: try #require(URL(string: "https://cdn.example.com/ep1.mp4"))))
+        #expect(!LoopbackMP4Probe.applies(to: try #require(URL(string: "http://127.0.0.1:9000/index.m3u8"))))
+        let proxied = try #require(URL(string: "http://127.0.0.1:9/\(SpiderProxyServer.shared.token)/proxy?do=py&vid=1"))
+        #expect(!LoopbackMP4Probe.applies(to: proxied))
+    }
+
+    @Test func aVVCFrontOpensOnMPVAndAnythingElseKeepsTheUsualWay() throws {
+        let vvc = try #require(URL(string: "http://127.0.0.1:18447/\(UUID().uuidString).mp4"))
+        let avc = try #require(URL(string: "http://127.0.0.1:18447/\(UUID().uuidString).mp4"))
+        let tail = try #require(URL(string: "http://127.0.0.1:18447/\(UUID().uuidString).mp4"))
+        let bvc2 = MP4Fixture.file([MP4Fixture.track(handler: "soun", entry: "mp4a"), MP4Fixture.track(handler: "vide", entry: "bvc2")])
+        #expect(LoopbackMP4Probe.record(vvc, prefix: bvc2) == true)
+        #expect(LoopbackMP4Probe.isVVC(vvc) && PlayerRouter.needsMPV(vvc))
+        #expect(LoopbackMP4Probe.record(avc, prefix: MP4Fixture.file([MP4Fixture.track(handler: "vide", entry: "avc1")])) == false)
+        #expect(!PlayerRouter.needsMPV(avc))
+        // A moov at the end, or one cut by the byte limit, says nothing: the usual way.
+        let moovLast = MP4Fixture.file([MP4Fixture.track(handler: "vide", entry: "bvc2")], moovLast: true)
+        #expect(LoopbackMP4Probe.record(tail, prefix: moovLast.prefix(64)) == nil)
+        #expect(LoopbackMP4Probe.record(tail, prefix: bvc2.prefix(100)) == nil)
+        #expect(!PlayerRouter.needsMPV(tail))
+    }
+}
+#endif

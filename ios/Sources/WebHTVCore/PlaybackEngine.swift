@@ -426,7 +426,7 @@ public final class PlayerRouter {
 
     nonisolated static func needsMPV(_ url: URL) -> Bool {
         #if canImport(Network)
-        if SpiderProxyServer.prefersMPV(url) { return true }
+        if SpiderProxyServer.prefersMPV(url) || LoopbackMP4Probe.isVVC(url) { return true }
         #endif
         return url.pathExtension.lowercased() == "mpd"
     }

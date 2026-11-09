@@ -7134,6 +7134,21 @@ struct EpisodeSteps: Equatable {
                                         startSeconds: start, rate: chosenRate, autoplay: autoplay,
                                         title: title, history: record), freshEngine: freshEngineOnce)
         freshEngineOnce = false
+        // W-269: a script's own loopback service is read from its first bytes beside the native open, which
+        // goes on unchanged. VVC moves to MPV even once native has "started": with Range, AVPlayer plays such
+        // a file as sound over a blank picture and never fails, so neither the timeout nor a failure would.
+        if engineKind == .native, let target = router.request?.target, LoopbackMP4Probe.applies(to: target.url),
+           !LoopbackMP4Probe.isVVC(target.url) {
+            Task { @MainActor [weak self] in
+                let started = ContinuousClock.now
+                let isVVC = await LoopbackMP4Probe.probe(target.url, headers: target.headers)
+                guard let self else { return }
+                Self.log.notice("[playback] \(self.itemTitle, privacy: .public) loopback probe vvc=\(isVVC.map { $0 ? "yes" : "no" } ?? "unknown", privacy: .public) in \(Int((ContinuousClock.now - started) / .milliseconds(1)))ms")
+                guard isVVC == true, self.engineKind == .native, self.router.request?.target.url == target.url,
+                      self.router.select(.mpv, playing: true) else { return }
+                Self.log.notice("[playback] \(self.itemTitle, privacy: .public) is VVC — moved to MPV (loopback probe)")
+            }
+        }
         startSampling()
         watchAds(url)
     }

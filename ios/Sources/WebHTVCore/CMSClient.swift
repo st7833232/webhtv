@@ -452,10 +452,11 @@ public struct CMSClient: Sendable {
             let home = try await categories
             return CMSResponse(classes: home.classes, list: try await listing.list, filters: home.filters)
         }
-        // A type-4 home returns categories without titles, so the first category fills the poster grid.
+        // A type-4 home without titles has the first category fill the poster grid; one with titles keeps
+        // them, as Android shows them (W-249: 無水's 电影 lists nothing, its home lists 20).
         let categories = try await request([URLQueryItem(name: "filter", value: "true")])
         // Match what the caller will offer for browsing, so the listed category is the highlighted one.
-        guard let first = categories.firstListableCategory else { return categories }
+        guard categories.list.isEmpty, let first = categories.firstListableCategory else { return categories }
         let listing = try await category(id: first.id, page: page)
         var response = CMSResponse(classes: categories.classes, list: listing.list, filters: categories.filters)
         response.listedCategoryID = first.id
@@ -549,7 +550,10 @@ public struct CMSClient: Sendable {
 
     func requestURL(_ query: [URLQueryItem]) throws -> URL {
         guard var components = URLComponents(string: site.api) else { throw CMSClientError.invalidURL }
-        let added = query + (site.ext ?? [:]).map { URLQueryItem(name: $0.key, value: $0.value) }.sorted { $0.name < $1.name }
+        // W-249: the site's `ext` travels whole as `extend`, replacing search's empty one (`SiteApi.call`).
+        // shortcut: Android POSTs an `ext` over 1000 characters; none in use comes near, switch if one does.
+        let added = site.rawExtJSON.isEmpty ? query
+            : query.filter { $0.name != "extend" } + [URLQueryItem(name: "extend", value: site.rawExtJSON)]
         let names = Set(added.map(\.name))
         components.queryItems = (components.queryItems ?? []).filter { !names.contains($0.name) } + added
         guard let url = components.url else { throw CMSClientError.invalidURL }

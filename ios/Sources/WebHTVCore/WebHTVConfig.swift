@@ -93,10 +93,9 @@ public struct Site: Decodable, Identifiable, Sendable {
     public let name: String
     public let type: Int
     public let api: String
-    public let ext: [String: String]?
     /// The site's `ext` exactly as CatVod hands it to `Spider.init(Context, String)`: the raw JSON
-    /// text for an object or array, or the literal string when `ext` is one. Kept because the
-    /// `[String: String]` form above silently drops numbers, nested objects and string `ext`s — and
+    /// text for an object or array, or the literal string when `ext` is one. A `[String: String]` form
+    /// would silently drop numbers, nested objects and string `ext`s — and
     /// spiders read all of those. `csp_AppDrama` carries an RSA `publicKey`, `csp_App99` a mix of
     /// strings and numbers; decoding only the flat-string shape loses them.
     public let rawExtJSON: String
@@ -191,8 +190,6 @@ public struct Site: Decodable, Identifiable, Sendable {
         name = try values.decode(String.self, forKey: .name)
         type = try values.decode(Int.self, forKey: .type)
         api = try values.decode(String.self, forKey: .api)
-        // `ext` is a string, a number or absent on most sites; only the dictionary form carries query parameters.
-        ext = try? values.decode([String: String].self, forKey: .ext)
         let extend = try? values.decode(JSONValue.self, forKey: .ext)
         rawExtJSON = extend?.extendText ?? ""
         identityExtJSON = extend?.identityText ?? ""

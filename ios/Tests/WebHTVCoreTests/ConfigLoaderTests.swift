@@ -60,9 +60,9 @@ import Testing
 
     #expect(config.sites.count == 5)
     #expect(config.nativeCMSSites.map(\.key) == ["t4dict", "t4str", "t4num", "t4none"])
-    #expect(config.sites.first { $0.key == "t4dict" }?.ext == ["module_name": "CmsSuggest"])
-    #expect(config.sites.first { $0.key == "t4str" }?.ext == nil)
-    #expect(config.sites.first { $0.key == "t4num" }?.ext == nil)
+    #expect(config.sites.first { $0.key == "t4dict" }?.rawExtJSON == #"{"module_name":"CmsSuggest"}"#)
+    #expect(config.sites.first { $0.key == "t4str" }?.rawExtJSON == "whatever")
+    #expect(config.sites.first { $0.key == "t4num" }?.rawExtJSON == "0")
 }
 
 // W-228: FongMi's wrapped configuration formats (`Decoder.verify`), built here from a synthetic config.

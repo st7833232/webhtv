@@ -41,9 +41,25 @@ private func site(key: String, type: Int, api: String, ext: String = "null") thr
     #expect(try type1.requestURL([URLQueryItem(name: "ac", value: "detail"), URLQueryItem(name: "ids", value: "7")]).absoluteString
         == "https://example.com/api.php/provide/vod?ac=detail&ids=7")
 
-    let type4 = try CMSClient(site: site(key: "php", type: 4, api: "https://example.com/php/", ext: #"{"module_name":"CmsSuggest"}"#))
-    #expect(try type4.requestURL([URLQueryItem(name: "filter", value: "true")]).absoluteString
-        == "https://example.com/php/?filter=true&module_name=CmsSuggest")
+    // W-249: `ext` goes whole as `extend`, as Android's `SiteApi.call` sends it; 無水 answers
+    // `module_name is null` to the keys spread out as parameters.
+    let type4 = try CMSClient(site: site(key: "php", type: 4, api: "https://example.com/php/",
+                                         ext: #"{"module_name":"CmsSuggest","url":"https://a.example/vod"}"#))
+    // `rawExtJSON` is re-serialised, so the object is compared parsed, not as text.
+    func extend(_ query: [URLQueryItem]) throws -> [NSDictionary] {
+        let items = try #require(URLComponents(url: type4.requestURL(query), resolvingAgainstBaseURL: false)?.queryItems)
+        return try items.filter { $0.name == "extend" }.map {
+            try #require(JSONSerialization.jsonObject(with: Data(($0.value ?? "").utf8)) as? NSDictionary)
+        }
+    }
+    let expected: NSDictionary = ["module_name": "CmsSuggest", "url": "https://a.example/vod"]
+    #expect(try extend([URLQueryItem(name: "filter", value: "true")]) == [expected])
+    #expect(try type4.requestURL([]).query?.contains("module_name=") == false, "no longer spread as parameters")
+    // Search's own empty `extend` gives way to the site's, once; a string `ext` travels as it is.
+    #expect(try extend([URLQueryItem(name: "wd", value: "x"), URLQueryItem(name: "extend", value: "")]) == [expected])
+    let collect = try CMSClient(site: site(key: "cj", type: 4, api: "http://example.com/cj.php", ext: #""0""#))
+    #expect(try collect.requestURL([URLQueryItem(name: "filter", value: "true")]).absoluteString
+        == "http://example.com/cj.php?filter=true&extend=0")
 
     // A non-ASCII type-4 endpoint must survive percent-encoding rather than fail to build.
     let unicode = try CMSClient(site: site(key: "fl", type: 4, api: "http://192.0.2.1:5757/api/枫林影视?pwd=dzyyds"))

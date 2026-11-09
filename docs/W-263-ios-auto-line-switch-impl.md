@@ -105,3 +105,13 @@
   - 修正前 S01E05 測試會失敗。
 
   未查：一開始就暫停超過 1 分鐘（`firstAdvance` 放棄），之後播放中途失敗、而先前那一輪已超過 120 秒上限時，這次失敗會直接顯示、不換線。屬於邊角情況，沒有修。
+
+## 推送前收尾（Manager #6947／#6988）
+
+- 已 rebase 到 ios-poc `4fba7c09`（沒有衝突；ios-poc 只多了 `source.json`）。
+- `watchHandoff`：已起播的項目換引擎接手時，在 `firstAdvance` 成功後也送 `vodLineObserver?(.started)`，和 `watchStartup` 一致。
+- 測試：App 這層沒有單元測試 target（`PlaybackSession` 在 App target，`WebHTVCoreTests` 碰不到），所以這兩行沒有單元測試。用 Debug build 成功、`VodLineSwitcherTests` 11/11 代替。
+- Ponytail：沒有發現問題，可以出貨。已確認：
+  - `onEngineChange` 只在 `startupMilliseconds` 有值時才呼叫 `watchHandoff`。
+  - 起播前失敗的引擎互換仍走 `watchStartup`。
+  - 手動換引擎或畫質只會清掉一個本來就是空的一輪。

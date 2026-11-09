@@ -7321,6 +7321,8 @@ struct EpisodeSteps: Equatable {
                 if let engine, engine.kind == kind, engine.isPlaying {
                     self.carrySubtitle(self.mediaSelection)
                     guard let milliseconds = await firstAdvance(on: kind, since: since) else { return }
+                    // W-263 review: an engine that took over also ends the line round once it moves.
+                    self.vodLineObserver?(.started)
                     Self.log.notice("[playback] started \(self.itemTitle, privacy: .public) on \(kind.shortName, privacy: .public) in \(milliseconds)ms after the switch (\(reason, privacy: .public))")
                     return
                 }

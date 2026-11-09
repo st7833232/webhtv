@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.97",
+          "date": "2026-11-09",
+          "localizedDescription": "播放：\n- 點播時某條線路試過所有恢復方式仍無法播放，會自動換到下一條線路的同一集，並從原本的位置繼續播；換線一輪最多約 2 分鐘，畫面上可以按「停止換線」。\n- 支援 H.266（VVC）編碼的影片：偵測到這類影片時會直接改用 MPV 播放器。\n\n離線下載：\n- 修正需要本機轉接的來源在下載途中關掉 App 後會一直卡在 0% 的問題，重新開啟後會自動接著下載。\n- 爬蟲準備影片較久時，下載不再因逾時失敗。\n",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.97-b98/WebHTV-0.1.97-98.ipa",
+          "size": 36283323,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.1.96",
           "date": "2026-11-09",
           "localizedDescription": "站台相容：\n- 支援 api 位址寫成相對設定檔路徑的 type 4 站台，片單、詳情與播放都能正常載入。\n- 片單項目沒有影片編號時，點進去會改用片名搜尋找到詳情，不再空白。\n\n爬蟲包：\n- 下載或更新相容爬蟲包後，目前畫面上的片單會直接套用，不用再下拉重新整理。\n\n播放：\n- MPV 播放預先準備好的下一集時，如果影片提早中斷，重新載入後會從中斷的位置繼續播，不會回到開頭。\n- 在預先準備好的影片裡拖到片尾時，會正常換到下一集，不再多重新載入一次。\n",

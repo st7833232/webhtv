@@ -149,7 +149,7 @@ librempeg 本身沒有實跑（建置被拒，見 Recovery anchor）。這不影
 
 | 位置 | 改法 | 行數 | 涵蓋 | 評估 |
 | --- | --- | --- | --- | --- |
-| **libavformat（建議）** | `isom_tags.c` 的 `ff_codec_movvideo_tags` 加 `{ AV_CODEC_ID_VVC, MKTAG('b','v','c','2') }`；`mov.c` 在 sample entry 讀完後，若 tag 是 `bvc2` 且沒有 extradata，給 2 bytes extradata `FE 00`（lengthSizeMinusOne=3、無 PTL、0 個陣列，正是 FFmpeg `vvc.c:693` 寫 vvcC 的同一種排法；`cbs_h266.c` 看到首位元組非 0 就走 MP4 長度前綴模式）。`bv2C` 沒有讀取函式，FFmpeg 本來就略過 | 約 10～15 行＋測試 | 所有走 MPV 的 bvc2：代理整集、直連、下載後播放、fMP4 | 放在 workflow 已在 patch 的 libavformat，和現有 HLS patch 同一套 provenance；授權 LGPL；不碰 App |
+| **libavformat（建議）** | `isom_tags.c` 的 `ff_codec_movvideo_tags` 加 `{ AV_CODEC_ID_VVC, MKTAG('b','v','c','2') }`；`mov.c` 在 sample entry 讀完後，若 tag 是 `bvc2` 且沒有 extradata，給 2 bytes extradata `FE 00`（lengthSizeMinusOne=3、無 PTL、0 個陣列，正是 FFmpeg `vvc.c:693` 寫 vvcC 的同一種排法；`cbs_h266.c` 看到首位元組非 0 就走 MP4 長度前綴模式）。`bv2C` 沒有讀取函式，FFmpeg 本來就略過 | 約 10～15 行＋測試 | 所有走 MPV 的 bvc2：代理整集、直連、下載後播放、fMP4 | 放在 workflow 已在 patch 的 libavformat，和現有 HLS patch 同一套 provenance；授權 LGPL；不碰 App。實作注意（reviewer-2 #6728）：`bvc2` 項目要加在 `ff_codec_movvideo_tags` 既有 VVC 項目**之後**，mov muxer 依表序取第一個符合的標籤，這樣寫檔時仍輸出 `vvc1`／`vvi1` |
 | App 端改寫 MP4（方案 D） | `SpiderProxyServer` 對整集 `200 video/mp4`（`rangedMP4`）就地改寫 moov 的 453 bytes（`bvc2_retag.py` 的做法） | 約 40 行 Swift＋測試 | 只有經代理的整集 MP4 | 仍需重建 libavcodec；容器解析進 App 層、改了代理回應內容，下載檔也要另外處理。不建議 |
 | libavcodec 加 `bvc2` 別名解碼器（照 librempeg 的結構自寫） | 新 codec ID＋註冊 | 約 100 行，動到公開 `codec_id.h` | 同 libavformat 方案 | 改公開 enum、與上游分岔更大；沒有好處。不建議 |
 
@@ -262,3 +262,4 @@ librempeg 本身沒有實跑（建置被拒，見 Recovery anchor）。這不影
 - 12:00 起撰寫本文件 §1–§3、§5、§6 初稿。
 - 12:01 reviewer-2 核准初稿 b9c42513（#6704、#6705）：自行重算三份 framemd5 皆 5056 幀且相同；最小 vvcC 首位元組 0xFE 合 14496-15 排法；授權判斷與方案 C 成立。留給 W-256 一起定稿：§4 建置／體積／真機數字、§6 預估；實作前補讀 ISO/IEC 14496-15 的 VVC 段落；交使用者時明講 H.266 專利風險。
 - 12:06 W-256 改派給我（#6713）；12:10 本機 FFmpeg n8.1.2 iOS `configure` 被權限分類器拒絕（BLOCKED，已報 Manager）。12:09 `vvi1` 改標籤實測 5056／5056 相同；12:08～12:13 vvenc 編 1080p 測試片並量解碼速度；12:20 起寫 §4、§6 定稿。
+- 12:17 reviewer-2 核准 W-254＋W-256 整份 6da41946（#6728）：重算 vvi1 5056 幀與 vvdec 相同、1080p 數字一致、三段可各自回退；體積待 CI 實量；可交使用者決定（含 H.266 專利風險）。

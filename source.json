@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.98",
+          "date": "2026-11-09",
+          "localizedDescription": "播放：\n- 修正部分爬蟲自帶串流服務的 H.266（VVC）影片只有聲音、沒有畫面的問題：開始播放時會先判斷影片編碼，H.266 影片會直接改用 MPV 播放，同一部影片之後也會直接用 MPV。\n",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.98-b99/WebHTV-0.1.98-99.ipa",
+          "size": 36289750,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.1.97",
           "date": "2026-11-09",
           "localizedDescription": "播放：\n- 點播時某條線路試過所有恢復方式仍無法播放，會自動換到下一條線路的同一集，並從原本的位置繼續播；換線一輪最多約 2 分鐘，畫面上可以按「停止換線」。\n- 支援 H.266（VVC）編碼的影片：偵測到這類影片時會直接改用 MPV 播放器。\n\n離線下載：\n- 修正需要本機轉接的來源在下載途中關掉 App 後會一直卡在 0% 的問題，重新開啟後會自動接著下載。\n- 爬蟲準備影片較久時，下載不再因逾時失敗。\n",

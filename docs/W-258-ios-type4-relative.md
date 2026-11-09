@@ -3,7 +3,7 @@
 ## Recovery anchor
 
 - 目標：wang-sex 的番號、女優、薇薇珊（type 4，api 為 `./json/00title0515x.json`，項目沒有 `vod_id`）在 iOS 首頁有片、點片照 FongMi 改走全站搜尋，且至少一部可播。
-- 狀態：完成，待 reviewer-2 審。task/W-258 自 origin/ios-poc 7fccd89f（ios-poc 之後已前進到 f4d67bee，推送前需 rebase）。
+- 狀態：完成，reviewer-2 已核准（#6798）。task/W-258 自 origin/ios-poc 7fccd89f（ios-poc 之後已前進到 f4d67bee，推送前需 rebase）。
 - 下一步：依審查意見修正。
 
 ## 根因（W-250 評估已定位）
@@ -37,3 +37,7 @@
 
 - 真機。Android 對照（W-250 已確認 Android 可用，本單未重測）。
 - 下一頁載入：`merging(newTitlesFrom:)` 以 `vod_id` 去重，空 id 的第二頁會被濾掉；三站首頁一頁就給完（75／139／57），沒有實例。
+
+## 審查
+
+- 2026-11-09 13:14 reviewer-2 核准 3c739c89（#6797、#6798）：相對 api 只在 `drivableSites` 補完整網址、`Site.id` 不變（收藏、紀錄、離線識別不受影響）；空 id 走搜尋與 FongMi 一致；海報格位置識別成立。三站在 wang-sex 都是 `searchable: 0`，不進全站搜尋，所以搜尋結果格的 `站序＋vod_id` 識別不受影響；日後若有可搜尋的站回空 id，再改用位置識別。

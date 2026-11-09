@@ -39,6 +39,14 @@ Simulator webhtv-w185（本分支 Debug build），本機代理來源 `KIT｜bvc
 
 - 換爬蟲包當下有下載進行中：單元測試只證明舊爬蟲被釋放與下一次重建；沒在 Simulator 實際換包。
 
+## 核准後補修：清表後排隊中的請求要能重試（reviewer-2 #7144 的追問）
+
+Reviewer 指出每次啟動 `refreshSpiderPack` 都會 reset，清表後的下一個請求會 404，「靠重試重建」。但 `OfflineDownloadManager.transferFailed` 對 HTTP 401／403／404／410 是**直接判失敗、不重試**。具體情況：HLS 下載一次送出多個分段，超過連線數的會在 URLSession 裡排隊；排隊中發生 reset，之後才到代理的分段拿到 404 → 整個下載變「需要處理」。
+
+修正：代理收到帶站別、但站表裡沒有的下載請求時回 **503**（不是 404）。503 走一般重試，重試時 `localProxyBase` → `downloadBase` 重新建立該站爬蟲；真的建不起來就照 W-268 標 `noLocalProxy`。播放請求（不帶站別）不受影響。
+
+測試：`aSessionResetFreesTheSpidersKeptForDownloads`、`aDownloadIsAnsweredByItsOwnSitesSpiderNotTheOneThatPlayedLast` 改為期待 503；新增 `OfflineLocalProxyTests.aTransferTheProxyLetGoOfIsRetriedWithItsSpiderMadeAgain`：傳輸收到 503 後同一單元重送到同一位址、`localProxy` 被重新呼叫、資產仍在下載中。相關 190/190，全量見提交紀錄。
+
 ## 回退
 
 `git revert` 本單的提交。無資料格式改動。

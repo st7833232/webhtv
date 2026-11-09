@@ -292,6 +292,9 @@ public final class SpiderProxyServer: @unchecked Sendable {
         // W-268: a download names its site; the spider never sees that.
         let site = request.params.removeValue(forKey: OfflineLocalProxy.siteParameter)
         let target = lock.withLock { if let site { sites[site] } else { session } }
+        // W-270: a download whose site's spider was let go (a session reset) is retried, not failed: a 404 fails
+        // the download at once, a 503 is tried again, and the retry makes the spider again (`downloadBase`).
+        if site != nil, target == nil { return await writer.status(503) }
         // shortcut: only `do=py` (or none) for the most recent Python spider, FongMi's default
         // dispatch; `do=js` and jar proxies have no caller on iOS. Add them when a site needs one.
         guard let target, ["py", ""].contains(request.params["do"] ?? "") else { return await writer.status(404) }

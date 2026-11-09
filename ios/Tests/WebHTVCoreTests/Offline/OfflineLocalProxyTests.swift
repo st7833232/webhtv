@@ -156,6 +156,31 @@ struct OfflineLocalProxyTests {
         #expect(OfflineLocalProxy.backgroundNote(for: Fixture.master).contains("iOS 會在允許時繼續下載"))
     }
 
+    /// W-270: after a session reset the proxy answers a transfer for a site it let go with 503; the download
+    /// retries it, asking for the site's spider again, instead of failing as a 404 would.
+    @Test func aTransferTheProxyLetGoOfIsRetriedWithItsSpiderMadeAgain() async throws {
+        let base = Self.base()
+        let asked = Count()
+        let harness = OfflineHarness(network: Self.network(base))
+        await harness.manager.setLocalProxy { _ in asked.add(); return base }
+        await harness.manager.start()
+        let asset = try await enqueue(harness)
+        let first = try #require(await harness.waitForSubmissions(1, assetID: asset.id).first)
+        let before = asked.value
+        await harness.transport.fail(first.tag, OfflineTransferFailure(.http(503)))
+        let sent = await harness.waitForSubmissions(2, assetID: asset.id)
+        #expect(sent.count == 2 && sent[1].url == first.url && sent[1].tag == first.tag)
+        #expect(asked.value > before)
+        #expect(await harness.manager.asset(asset.id)?.state == .downloading)
+    }
+
+    final class Count: @unchecked Sendable {
+        private let lock = NSLock()
+        private var n = 0
+        var value: Int { lock.withLock { n } }
+        func add() { lock.withLock { n += 1 } }
+    }
+
     @Test func aSiteWhoseSpiderCannotBeMadeNeedsAttention() async throws {
         let harness = OfflineHarness(network: Self.network(Self.base()))
         await harness.manager.setLocalProxy { _ in nil }

@@ -691,8 +691,8 @@ extension SpiderProxyServerTests {
         #expect(await get(server, "do=py&f=1").body == Data("B".utf8))
         let b = try #require(site.id.addingPercentEncoding(withAllowedCharacters: .alphanumerics))
         #expect(await get(server, "do=py&f=1&\(OfflineLocalProxy.siteParameter)=\(b)").body == Data("B".utf8))
-        // An unknown site is not handed to whichever spider played last.
-        #expect(await get(server, "do=py&f=1&\(OfflineLocalProxy.siteParameter)=c").head.hasPrefix("HTTP/1.1 404"))
+        // An unknown site is not handed to whichever spider played last; the download tries again (W-270).
+        #expect(await get(server, "do=py&f=1&\(OfflineLocalProxy.siteParameter)=c").head.hasPrefix("HTTP/1.1 503"))
         #expect(downloaded.asked.count == 1 && downloaded.asked[0][OfflineLocalProxy.siteParameter] == nil)
         // The app's current spider replaces the one kept; with none, the kept one still serves.
         #expect(await server.downloadBase(siteID: "a") { Recording("A2") } != nil)
@@ -714,7 +714,9 @@ extension SpiderProxyServerTests {
         #expect(old != nil)
         await SpiderSessionStore().reset()
         #expect(old == nil)
-        #expect(await get(SpiderProxyServer.shared, "do=py&f=1&\(OfflineLocalProxy.siteParameter)=\(site)").head.hasPrefix("HTTP/1.1 404"))
+        // A transfer already queued gets 503, which the download retries (a 404 would fail it), and the retry
+        // makes the site's spider again.
+        #expect(await get(SpiderProxyServer.shared, "do=py&f=1&\(OfflineLocalProxy.siteParameter)=\(site)").head.hasPrefix("HTTP/1.1 503"))
     }
 
     @Test func onlyADownloadGetsTheLongerLimit() async {

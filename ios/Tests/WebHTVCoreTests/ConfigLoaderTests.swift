@@ -105,3 +105,23 @@ private func cbcWrapped(_ plain: String, key: String = "w228key", iv: String = "
     }
     #expect(ConfigLoader.cbc("2423zz") == nil)
 }
+
+// W-258: a type-4 `api` relative to the configuration lists on iOS, resolved against the configuration's address the
+// way a type-3 `.py` is (FongMi `Site.java` `UrlUtil.convert`). An absolute one is untouched; with no address (an
+// imported file) it stays off the list; other types never resolve.
+@Test func aRelativeType4ApiResolvesAgainstTheConfiguration() throws {
+    let config = try ConfigLoader.decode(Data(#"""
+        {"sites":[{"key":"rel","name":"番號","type":4,"api":"./json/00title05152.json"},
+        {"key":"up","name":"女優","type":4,"api":"../shared/x.json?y=1"},
+        {"key":"abs","name":"abs","type":4,"api":"https://other.example/api.php"},
+        {"key":"t1","name":"t1","type":1,"api":"./json/t1.json"}]}
+        """#.utf8))
+    let remote = CSPSourceResolver(source: .remote(URL(string: "https://host.example/cfg/wang-sex.json?t=9")!))
+    let sites = config.drivableSites(resolvedBy: remote)
+    #expect(sites.map(\.key) == ["rel", "up", "abs"])
+    #expect(sites.map(\.api) == ["https://host.example/cfg/json/00title05152.json",
+                                 "https://host.example/shared/x.json?y=1", "https://other.example/api.php"])
+    #expect(sites.allSatisfy { $0.isNativeCMS })
+    #expect(sites[0].id == config.sites[0].id)
+    #expect(config.drivableSites(resolvedBy: CSPSourceResolver(source: .importedFile)).map(\.key) == ["abs"])
+}

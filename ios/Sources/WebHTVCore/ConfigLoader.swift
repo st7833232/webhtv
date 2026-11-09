@@ -84,8 +84,8 @@ public enum ConfigLoader {
         let config = try decode(data)
         // QIST-TYPE3: a spider-only config (qist XYQ.json) is usable when the registry drives one of
         // its classes. Native CMS is checked first so a CMS config never loads the registry.
-        // ponytail: source-less resolver, so drpy, Python and JAR-mapped spiders (they need the
-        // config's own address) do not count; a config with only those is still refused, as before.
+        // ponytail: source-less resolver, so drpy, Python and JAR-mapped spiders and relative type-4 sites (W-258;
+        // they need the config's own address) do not count; a config with only those is still refused, as before.
         // Pass the caller's ConfigSource here if one of those ever has to stand alone.
         // IOS-POC-61 S3 (Manager #2112 ①): a site that only waits for the 爬蟲工具 counts too, so the App can
         // load the configuration and offer the download instead of refusing it.

@@ -42,6 +42,14 @@ struct FolderVodTests {
         #expect(list.last?.isFolder == true)
     }
 
+    // W-258: no `vod_id` at all is searched for too, as FongMi's `getId().isEmpty()` (type-4 番號／女優 list them so).
+    @Test func anItemWithNoIdIsSearchedFor() throws {
+        let list = try decode(#"""
+            {"list":[{"vod_name":"ABC-123"},{"vod_id":"","vod_name":"b"},{"vod_id":"1","vod_name":"c"}]}
+            """#).list
+        #expect(list.map(\.isMultiSearch) == [true, true, false])
+    }
+
     // T1 (W-30 synthetic-folder-mixed.json): only an exact "folder" string is a folder; any other tag reads as
     // empty and never fails the record or the page.
     @Test func onlyAnExactFolderTagIsAFolderAndNoTagShapeFailsTheRecord() throws {

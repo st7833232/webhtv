@@ -75,7 +75,10 @@ public struct WebHTVConfig: Decodable, Sendable {
     /// information: `wang-sex.json` puts 麻豆(js) seventh and the app buried it among the drpy
     /// sites. One filter over `sites` keeps every site exactly where its author put it.
     public func drivableSites(resolvedBy resolver: CSPSourceResolver) -> [Site] {
-        sites.filter { $0.isNativeCMS || ($0.isSpiderShape && resolver.canResolve($0)) }
+        sites.compactMap { site in
+            if let resolved = site.resolvingRelativeCMSAPI(against: resolver.source) { return resolved }
+            return site.isNativeCMS || (site.isSpiderShape && resolver.canResolve(site)) ? site : nil
+        }
     }
 
     /// IOS-POC-61 S3: the `csp_*` sites the 爬蟲工具 would bring — a class it provides (`SpiderRegistry.ported`,
@@ -92,7 +95,8 @@ public struct Site: Decodable, Identifiable, Sendable {
     public let key: String
     public let name: String
     public let type: Int
-    public let api: String
+    /// A type-4 site's relative `api` is made absolute by `resolvingRelativeCMSAPI(against:)`.
+    public internal(set) var api: String
     /// The site's `ext` exactly as CatVod hands it to `Spider.init(Context, String)`: the raw JSON
     /// text for an object or array, or the literal string when `ext` is one. A `[String: String]` form
     /// would silently drop numbers, nested objects and string `ext`s — and
@@ -132,6 +136,19 @@ public struct Site: Decodable, Identifiable, Sendable {
     /// definition of where a site points — which is also why `SpiderSessionStore` keys its cache on
     /// exactly this string.
     public var id: String { key + "\u{0}" + identityExtJSON }
+
+    /// W-258: a type-4 `api` written relative to the configuration (`./json/x.json`), resolved against
+    /// it the way a type-3 `.py`/`.js` reference is (`ConfigSource.resourceURL`), so FongMi's
+    /// `UrlUtil.convert` sites list on iOS too. Nil for any other site, or when there is no base to
+    /// resolve against (an imported file).
+    func resolvingRelativeCMSAPI(against source: ConfigSource) -> Site? {
+        let text = api.trimmingCharacters(in: .whitespaces)
+        guard type == 4, text.hasPrefix("./") || text.hasPrefix("../"),
+              let url = source.resourceURL(for: text) else { return nil }
+        var site = self
+        site.api = url.absoluteString
+        return site
+    }
 
     public var isNativeCMS: Bool {
         guard type == 0 || type == 1 || type == 4, let scheme = URL(string: api)?.scheme else { return false }

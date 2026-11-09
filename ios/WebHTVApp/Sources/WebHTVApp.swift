@@ -1333,10 +1333,12 @@ private struct CMSView: View {
 
     private var posterGrid: some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
-            ForEach(items) { vod in
+            // W-258: by position, not `vod_id`: a type-4 list (番號／女優) leaves every id empty, and identical ids drew one
+            // poster for 75 titles. `items` only grows within a listing and is replaced for a new one.
+            ForEach(Array(items.enumerated()), id: \.offset) { index, vod in
                 NavigationLink { vodDestination(vod, site: site, source: source, extend: linkExtend) } label: { VodCard(vod: vod) }
                     .buttonStyle(.plain)
-                    .onAppear { if vod.id == items.last?.id { Task { await loadMore() } } }
+                    .onAppear { if index == items.count - 1 { Task { await loadMore() } } }
             }
         }
         .id(listingID)

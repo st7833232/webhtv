@@ -13,7 +13,7 @@ public struct CSPSourceResolver: Sendable {
     private nonisolated(unsafe) let defaults: UserDefaults
     private let session: URLSession
     /// Where the configuration came from, so a spider's `ext` can point at a sibling rule file.
-    private let source: ConfigSource
+    let source: ConfigSource
     private let jars: JarFingerprints
 
     public init(registry: SpiderRegistry = .active(),

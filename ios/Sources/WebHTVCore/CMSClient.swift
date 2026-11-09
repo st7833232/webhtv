@@ -279,8 +279,9 @@ public struct Vod: Decodable, Identifiable, Sendable {
     public var isFolder: Bool { tag == "folder" }
 
     /// A title with no lines of its own (豆瓣 rankings, IOS-POC-57B-20): the App searches the other sites for its name
-    /// instead of opening a detail, as FongMi's `VideoActivity.checkId()` does. Case-sensitive, as there.
-    public var isMultiSearch: Bool { id.hasPrefix("msearch:") }
+    /// instead of opening a detail, as FongMi's `VideoActivity.checkId()` does. Case-sensitive, as there. W-258: an
+    /// item with no `vod_id` at all is searched for too (`getId().isEmpty()` there), as type-4 番號／女優 list them.
+    public var isMultiSearch: Bool { id.isEmpty || id.hasPrefix("msearch:") }
 
     public var flags: [Flag] {
         zip(playFrom.components(separatedBy: "$$$"), playURL.components(separatedBy: "$$$"))

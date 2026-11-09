@@ -186,3 +186,91 @@ private func xyq(_ rules: String) async throws -> JavaScriptSpiderRuntime { try 
     let bare = try await list("h13.invalid", "分类截取模式")
     #expect(bare.isEmpty, "no jsonp( … ); to cut, nothing to read")
 }
+
+// MARK: - W-265: filters, filled category addresses, cut mode and `+` joins
+
+/// `filters[typeId]` → `["键:名=值|名=值|…", …]`.
+private func hikerFilters(_ spider: JavaScriptSpiderRuntime, _ typeId: String) async throws -> [String] {
+    let home = try #require(try JSONSerialization.jsonObject(
+        with: Data(try await spider.homeContent(filter: true).utf8)) as? [String: Any])
+    let rows = ((home["filters"] as? [String: Any])?[typeId] as? [[String: Any]]) ?? []
+    return rows.map { row in
+        let values = (row["value"] as? [[String: Any]] ?? []).map {
+            "\($0["n"] as? String ?? "")=\($0["v"] as? String ?? "")"
+        }.joined(separator: "|")
+        return "\(row["key"] as? String ?? ""):\(values)"
+    }
+}
+
+/// X4: kanav, ppp and 12 more write FongMi's own filter shape, keyed by type_id; it is the bar as is.
+@Test func aRuleFileFilterObjectIsTheFilterBar() async throws {
+    let spider = try await xyq(#"""
+    {"分类名称":"最新&热门","分类名称替换词":"1&2",
+     "筛选数据":{"1":[{"key":"by","name":"排序","value":[{"n":"最新","v":"time_add"},{"n":"观看","v":"hits"}]}]}}
+    """#)
+    #expect(try await hikerFilters(spider, "1") == ["by:最新=time_add|观看=hits"])
+    #expect(try await hikerFilters(spider, "2").isEmpty)
+}
+
+/// X4: 农民's "ext" builds the bar from 筛选子分类 (one `||` group per category, 空 for none) and
+/// 筛选地区, whose 替换词 * makes the names the values. Each list opens on 全部, which sends nothing.
+@Test func anExtFilterBuildsOneGroupPerCategory() async throws {
+    let spider = try await xyq(#"""
+    {"分类名称":"电影&综艺","分类名称替换词":"1&3","筛选数据":"ext",
+     "筛选子分类名称":"动作片&喜剧片||空","筛选子分类替换词":"5&6||空",
+     "筛选地区名称":"大陆&香港","筛选地区替换词":"*"}
+    """#)
+    #expect(try await hikerFilters(spider, "1") == ["cateId:全部=|动作片=5|喜剧片=6", "area:全部=|大陆=大陆|香港=香港"])
+    #expect(try await hikerFilters(spider, "3") == ["area:全部=|大陆=大陆|香港=香港"])
+}
+
+/// X5: every chosen filter fills its own `{key}`, and a 子分类 (cateId) replaces the category id.
+/// With nothing chosen, the category and empty keys — kanav's `by//` is its own 最新 listing.
+@Test func aCategoryAddressCarriesEveryChosenFilter() async throws {
+    let spider = try await xyq(#"{"分类链接":"https://w1.invalid/list-{cateId}-{catePg}-by-{by}-area-{area}.html"}"#)
+    _ = try? await spider.categoryContent(tid: "1", page: "1", filter: true,
+                                          extend: ["cateId": "5", "by": "hits", "area": "HK"])
+    _ = try? await spider.categoryContent(tid: "1", page: "2", filter: true, extend: [:])
+    #expect(RuleSite.requests(on: "w1.invalid") == ["https://w1.invalid/list-5-1-by-hits-area-HK.html",
+                                                     "https://w1.invalid/list-1-2-by--area-.html"])
+}
+
+/// X6: 动漫PRO cuts its episode out of the player script (选集标题链接是否Jsoup写法=0); its list rule
+/// names the player node itself, and its line title is quoted text joined with `+`.
+@Test func aCutModePlaylistReadsTheEpisodeFromThePlayerScript() async throws {
+    RuleSite.serve(["https://w2.invalid/vids/1/": """
+    <title>片一</title><div class="video-holder"><div class="player"><script>
+    var flashvars = { video_categories: '中字', video_url: 'https://w2.invalid/get_file/1.mp4/', };
+    </script></div></div>
+    """])
+    let spider = try await xyq(#"""
+    {"链接是否直接播放":"0","线路列表数组规则":".video-holder&&.player","线路标题":"'📽️'+'在线播放'+'📺'",
+     "播放列表数组规则":".video-holder&&.player","选集列表数组规则":".player",
+     "选集标题链接是否Jsoup写法":"0","选集标题":"video_categories: '&&',","选集链接":"video_url: '&&',"}
+    """#)
+    let vod = try await detail(spider, "https://w2.invalid/vids/1/")
+    #expect(vod["vod_play_from"] == "📽️在线播放📺")
+    #expect(vod["vod_play_url"] == "中字$https://w2.invalid/get_file/1.mp4/")
+}
+
+/// X6: 15 rule files set 详情是否Jsoup写法=0 and write 类型详情 as `<p>類型：&&</p>`.
+@Test func cutModeDetailFieldsLoseTheirMarkup() async throws {
+    RuleSite.serve(["https://w3.invalid/v/1": "<title>片</title><p>類型：<a href=\"/t/1\">動作</a></p><p>年代：2024</p>"])
+    let spider = try await xyq(#"{"详情是否Jsoup写法":"0","类型详情":"<p>類型：&&</p>","年代详情":"<p>年代：&&</p>"}"#)
+    let vod = try await detail(spider, "https://w3.invalid/v/1")
+    #expect(vod["type_name"] == "動作")
+    #expect(vod["vod_year"] == "2024")
+}
+
+/// X6: a listing remark written `'⏱️'+.time&&Text+'👁️'+.views&&Text` (17 rule files) is joined.
+@Test func aJoinedRemarkReadsEachPart() async throws {
+    RuleSite.serve(["https://w4.invalid/c/1": """
+    <div class="item"><a href="/v/1">片一</a><span class="time">10:00</span><span class="views">5</span></div>
+    """])
+    let spider = try await xyq(#"""
+    {"分类链接":"https://w4.invalid/c/{cateId}","分类列表数组规则":".item","分类片单标题":"a&&Text",
+     "分类片单链接":"a&&href","分类片单链接加前缀":"https://w4.invalid","分类片单副标题":"'⏱️'+.time&&Text+'👁️'+.views&&Text"}
+    """#)
+    let list = try titles(try await spider.categoryContent(tid: "1", page: "1", filter: false, extend: [:]))
+    #expect(list.first?["vod_remarks"] == "⏱️10:00👁️5")
+}

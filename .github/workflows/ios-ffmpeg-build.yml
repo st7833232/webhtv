@@ -373,7 +373,7 @@ jobs:
           added="$(comm -13 <(symbols -gUj "$ref_lib") <(symbols -gUj "$new_lib"))"
           check "Libavcodec has the vvc decoder" "_ff_vvc_decoder" "$(printf '%s\n' "$added" | grep -x _ff_vvc_decoder || true)"
           # The VVC adaptive loop filter's NEON code (aarch64/vvc/alf.S) is named ff_alf_*.
-          other="$(printf '%s\n' "$added" | sed '/^$/d' | grep -Eiv 'vvc|h266|executor|^_ff_alf_' | words)"
+          other="$(printf '%s\n' "$added" | sed '/^$/d' | { grep -Eiv 'vvc|h266|executor|^_ff_alf_' || true; } | words)"
           check "Libavcodec defined external symbols added outside vvc" "none" "${other:-none}"
           check "Libavcodec framework files other than the binary and the generated config" \
             "$(cd "$ref_fw" && find . -type f ! -name Libavcodec ! -name config.h ! -name config_components.h -exec shasum -a 256 {} + | sort -k 2)" \

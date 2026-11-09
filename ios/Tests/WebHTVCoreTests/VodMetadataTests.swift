@@ -23,7 +23,8 @@ import Testing
     #expect(list.map(\.id) == ["1", "2", "92405"])
     #expect(list.map(\.name) == ["头发", "庆余年", "异能研究所 第二季"])
     #expect(list[0].remarks == "HD")
-    #expect(list[2].remarks == "5")  // W-249: Uvod's numeric remarks once emptied its whole home  // raw: search and history keep source text
+    // W-249: Uvod's numeric remarks once emptied its whole home. Raw: search and history keep source text.
+    #expect(list[2].remarks == "5")
     #expect(list[0].year == "2026")
     #expect(list[0].area.isEmpty)
     #expect(list[0].actor.isEmpty)  // an array is not display text

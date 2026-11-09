@@ -476,8 +476,9 @@ public final class PlayerRouter {
     /// The session saw the engine not start playing within `startupTimeout(for:)`: try the other
     /// engine, if this attempt has not already switched. Answers whether it did.
     ///
-    /// **Never shown as a failure.** The engine may still start — a slow start is not an error — so
-    /// when no switch is possible nothing happens, and playback is left to begin when it can.
+    /// Never shown as a failure here: when no switch is possible this does nothing, and the session
+    /// decides — since W-253 it gives up (`giveUp`) on a start that is evidently not coming
+    /// (`PlaybackStartupReason.givenUp`), and leaves a slow but arriving one to begin when it can.
     @discardableResult
     public func startupTimedOut() -> Bool {
         guard request != nil,

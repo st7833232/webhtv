@@ -134,6 +134,8 @@ private struct ConfigView: View {
     @State private var selectedTab = 0
     @State private var keyboardVisible = false
     @State private var homeTopRequest = 0
+    /// W-260: bumped when the scripts in force change, so the listing on screen loads again.
+    @State private var scriptRevision = 0
     @State private var libraryNavigation = TabReturnActions()
     @State private var settingsNavigation = TabReturnActions()
     @State private var error: String?
@@ -208,7 +210,8 @@ private struct ConfigView: View {
                             SpiderToolNeededView(count: needSpiderTool, note: spiderToolNote, busy: spiderToolBusy,
                                                  onDownload: checkSpiderTool)
                         } else {
-                            HomeView(sites: sites, selectedSiteID: pickedSite, source: source, topRequest: homeTopRequest, lives: lives)
+                            HomeView(sites: sites, selectedSiteID: pickedSite, source: source, topRequest: homeTopRequest, lives: lives,
+                                     scriptRevision: scriptRevision)
                         }
                     }
                         .modifier(PlatformTabBarVisibility())
@@ -330,12 +333,12 @@ private struct ConfigView: View {
             // nothing is deferred. Never the network.
             await RuntimePackStore.shared.removeStaging()
             await loadOfficialPack()
+            // W-260: the cached compatibility pack is in force before the first listing, which otherwise ran on the
+            // official scripts until a pull to refresh. A disk read the launch already did, only earlier.
+            if let pack = await SpiderPackStore.shared.installedPack() { packStatus = Self.describe(pack) }
             restore()
             Self.spiderToolLog.notice("site list ready \(Int(Date().timeIntervalSince(launch) * 1000)) ms after launch, \(officialPack.map { "\($0.version) seq \($0.generation.sequence)" } ?? "no pack", privacy: .public)")
             await WatchHistoryStore.shared.migrateSiteIdentities(in: sites)
-            // The cached pack is adopted before anything is fetched, so an offline launch runs on
-            // the last known good scripts rather than waiting for the network.
-            await adoptCachedSpiderPack()
             // IOS-POC-52 (F32): the saved configuration is in; queued retries may resolve now.
             OfflineAppContext.shared.markLoaded(sites: sites, source: source)
             // Every launch re-fetches a remote configuration, so the app opens on the current one
@@ -485,23 +488,18 @@ private struct ConfigView: View {
         await load(remote: url, showHome: false, reportFailure: !quiet)
     }
 
-    /// Reads whatever pack is already on disk. Verification happens inside the store, so a cache
-    /// that no longer matches its manifest is simply not adopted.
-    private func adoptCachedSpiderPack() async {
-        guard let pack = await SpiderPackStore.shared.installedPack() else { return }
-        packStatus = Self.describe(pack)
-        rebuildSites()
-    }
-
     /// Fetches a pack in the background. A failure is deliberately quiet in the UI beyond the
     /// status line: the app keeps running on whatever pack it already had.
     private func refreshSpiderPack() async {
         guard let url = SpiderPackStore.url(for: source) else { return }
         do {
+            let before = await SpiderPackStore.shared.installedPack()
             let pack = try await SpiderPackStore.shared.refresh(from: url)
             packStatus = Self.describe(pack)
             await SpiderSessionStore.shared.reset()
             rebuildSites()
+            // W-260: other scripts now; the listing on screen came from the old ones.
+            if pack != before { scriptRevision += 1 }
         } catch {
             let current = await SpiderPackStore.shared.installedPack()
             packStatus = SpiderToolText.compatibilityRow(failure: error, installed: current.map(Self.describe))
@@ -580,6 +578,7 @@ private struct ConfigView: View {
         await loadOfficialPack()
         await SpiderSessionStore.shared.reset()
         rebuildSites()
+        scriptRevision += 1
         Self.spiderToolLog.notice("applied \(officialPack.map { "\($0.version) seq \($0.generation.sequence)" } ?? "none", privacy: .public)")
     }
 
@@ -1034,6 +1033,7 @@ private struct HomeView: View {
 
     var topRequest = 0
     var lives: [LiveSource] = []
+    var scriptRevision = 0
 
     @State private var picking = false
     @AppStorage(siteHealthSortKey) private var healthSort = true
@@ -1083,7 +1083,8 @@ private struct HomeView: View {
 
     var body: some View {
         NavigationStack {
-            CMSView(site: selectedSite, source: source, onPickSource: { picking = true }, topRequest: topRequest, lives: lives)
+            CMSView(site: selectedSite, source: source, onPickSource: { picking = true }, topRequest: topRequest, lives: lives,
+                    scriptRevision: scriptRevision)
                 .sheet(isPresented: $picking) { sourcePicker }
         }
         // Keep the established source-switch identity: detail navigation and listing state belong
@@ -1125,6 +1126,8 @@ private struct CMSView: View {
     var folder: FolderTarget?
     /// IOS-POC-59: the configuration's live lists; the header offers 直播 when there is one.
     var lives: [LiveSource] = []
+    /// W-260: a change means other scripts are in force; the listing loads again, as a pull to refresh does.
+    var scriptRevision = 0
     @State private var items = [Vod]()
     @State private var groups = [CategoryGroup]()
     @State private var selectedCategory: String?
@@ -1160,9 +1163,10 @@ private struct CMSView: View {
     private let columns = [GridItem(.adaptive(minimum: 104, maximum: 180), spacing: 12)]
 
     init(site: Site, source: ConfigSource, initialQuery: String? = nil, onPickSource: (() -> Void)? = nil,
-         topRequest: Int = 0, folder: FolderTarget? = nil, lives: [LiveSource] = []) {
+         topRequest: Int = 0, folder: FolderTarget? = nil, lives: [LiveSource] = [], scriptRevision: Int = 0) {
         self.site = site
         self.lives = lives
+        self.scriptRevision = scriptRevision
         self.source = source
         self.initialQuery = initialQuery
         self.onPickSource = onPickSource
@@ -1232,11 +1236,9 @@ private struct CMSView: View {
                 withAnimation { proxy.scrollTo(Self.topAnchor, anchor: .top) }
             }
             .overlay(alignment: .bottomTrailing) { topButton(proxy) }
-            .refreshable {
-                if searching, !query.isEmpty { await load(search: query) }
-                else { await load(category: selectedCategory) }
-            }
+            .refreshable { await reloadListing() }
         }
+        .onChangeCompat(of: scriptRevision) { Task { await reloadListing() } }
         .appWallpaper()
         .toolbar(folder == nil ? .hidden : .visible, for: .navigationBar)
         .navigationTitle(folder.map { zhTW($0.name) } ?? "")
@@ -1254,6 +1256,11 @@ private struct CMSView: View {
             searching = true
             await load(search: initialQuery)
         }
+    }
+
+    private func reloadListing() async {
+        if searching, !query.isEmpty { await load(search: query) }
+        else { await load(category: selectedCategory) }
     }
 
     private func submitSearch() {

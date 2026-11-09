@@ -240,6 +240,21 @@ struct SpiderProxyServerTests {
         #expect(!mpv("1"))
     }
 
+    /// W-262 (Ponytail): with 16 episodes noted, a further range of the one playing must not clear its own mark.
+    @Test func theSixteenthEpisodeKeepsItsVVCMarkAcrossItsOwnRanges() async {
+        let server = SpiderProxyServer()
+        let bvc2 = MP4Fixture.file([MP4Fixture.track(handler: "vide", entry: "bvc2")])
+        let avc1 = MP4Fixture.file([MP4Fixture.track(handler: "vide", entry: "avc1")])
+        func ask(_ vid: Int, _ body: Data) async {
+            await server.handle(.init(method: "GET", params: ["do": "py", "range": "bytes=0-1"], query: "do=py&vid=\(vid)"),
+                                target: Fixed(response: SpiderProxyResponse(status: 200, mime: "video/mp4", body: body)), writer: Sink())
+        }
+        for vid in 1...15 { await ask(vid, avc1) }
+        await ask(16, bvc2)
+        await ask(16, bvc2) // the player's next range of the same episode
+        #expect(server.prefersMPV(URL(string: "http://127.0.0.1:9/token/proxy?do=py&vid=16")!))
+    }
+
     // W-262: what the shared proxy learned decides the engine of the next open of that address.
     @Test func aByteVC2EpisodeTheSharedProxyServedOpensOnMPV() async {
         let query = "do=py&vid=w262-\(UUID().uuidString)"

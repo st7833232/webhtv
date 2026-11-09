@@ -383,8 +383,9 @@ public final class SpiderProxyServer: @unchecked Sendable {
             let seen = lock.withLock { wholeMP4[file] == size }
             let isVVC = seen ? nil : MP4SampleEntry.videoFourCC(answer.body).map(MP4SampleEntry.needsMPV.contains) ?? false
             lock.withLock {
-                // A handful of recent episodes is all a next-episode check reads.
-                if wholeMP4.count >= 16 { wholeMP4.removeAll(); vvc.removeAll() }
+                // A handful of recent episodes is all a next-episode check reads. Cleared only for a new one:
+                // another range of an episode already noted keeps its VVC mark (it is not read again).
+                if wholeMP4[file] == nil, wholeMP4.count >= 16 { wholeMP4.removeAll(); vvc.removeAll() }
                 wholeMP4[file] = size
                 if let isVVC { if isVVC { vvc.insert(file) } else { vvc.remove(file) } }
             }

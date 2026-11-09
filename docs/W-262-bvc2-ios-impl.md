@@ -3,7 +3,7 @@
 ## Recovery anchor
 
 - 目標：照 docs/W-254-bvc2-decoder.md §6 的三段方案，讓 iOS 能播 bvc2 集數：①FFmpeg 認 bvc2、Libavcodec 開 vvc；②代理讀 MP4 `stsd`，判定 bvc2 直接起 MPV；③驗收。使用者 11-09 選「建置走 GitHub Actions」（Manager #6843）。
-- 狀態：完成。prerelease `ffmpeg-n8.1.2-webhtv.2`（run 42586264973）已發布並寫進 Package.swift 與鎖檔；Simulator 用 release 檔重播 bvc2 第 1 集（見「驗證」）。
+- 狀態：完成（reviewer-2 #7062 要求補 Ponytail 與幀 MD5 紀錄，已補）。prerelease `ffmpeg-n8.1.2-webhtv.2`（run 42586264973）已發布並寫進 Package.swift 與鎖檔；Simulator 用 release 檔重播 bvc2 第 1 集（見「驗證」）。
 - 分支：task/W-262（自 ios-poc 85688786）。提交：4370b6ca（FFmpeg patch＋workflow＋鎖檔）、d1ced8c0（預審 P1/P2＋下載重試）、f85bd677（ALF 符號）、2f2727a0（pipefail 修正）、a54a11a1（release zip 改帶 token 下載）；App 端、Package.swift 與鎖檔在最後一個提交。
 - 下一步：reviewer-2 審最後一個提交；核准後由 Manager 推。
 
@@ -65,6 +65,13 @@
 
 - prerelease 從測試分支 `test/W-262-ffmpeg` 發布；release target 指向該分支提交，請保留該分支（reviewer 預審 P1）。
 
+## Ponytail 審查
+
+已跑 `ponytail:ponytail-review`，範圍 `93cfa38b..e7a22afc`（workflow、patch、`MP4SampleEntry`、代理 VVC 標記、起播監看、Package.swift／鎖檔）。一項發現，已修：
+
+- 代理記錄的整集 MP4 滿 16 部時，只要再收到**同一部**的另一段請求就會整批清空，連帶清掉這部的 VVC 標記；之後同一部不會再讀 `stsd`（大小沒變），重開時就回到「原生 → 逾時／失敗 → MPV」。修正：只有新的一部才清空（`SpiderProxyServer.adapted`，一行）。測試 `theSixteenthEpisodeKeepsItsVVCMarkAcrossItsOwnRanges`：修正前失敗、修正後通過；`SpiderProxyServer`＋`MP4SampleEntry`＋`OfflineLocalProxy` 48/48。
+- 其他沒有發現：`MP4SampleEntry` 每一步都檢查邊界；每部只在第一次（或大小改變時）讀；起播監看只在原生、尚未起播、代理判定 VVC 時才換。
+
 ## 回退
 
 - FFmpeg：`ios/Vendor/MPVKit/Package.swift` 與鎖檔的 Libavformat／Libavcodec url＋checksum 指回 `ffmpeg-n8.1.2-webhtv.1` 與 MPVKit 1.0.0（各自原值見 git 歷史）。
@@ -72,6 +79,7 @@
 
 ## 沒驗到
 
+- W-254 §6 驗收第 1 項「新 libavformat 開 bvc2 得到 vvc，逐幀 MD5 與 `ep1-vvdec.framemd5` 相同」：沒做。發布的 Libavformat／Libavcodec 只有 iOS 與 iOS Simulator 的 slice，Mac 上不能直接跑 ffmpeg 算 framemd5；本機自建 FFmpeg 的 configure 被權限分類器拒絕（W-256 已記）。替代證據：①patch 0007 做的對應（`bvc2` → VVC、extradata `FE 00`，即最小 `vvcC` 經 `mov_read_glbl` 跳過 4 bytes 後的內容）與 W-254 §2.4 的改標籤實證相同，那次未改的 FFmpeg 解出 5056 幀、與 vvdec 逐位元相同（`artifacts/w254/exp/retag.framemd5`）；改成 `vvi1` 也一樣（`artifacts/w256/vvi1.framemd5`）；②CI compare 24 項 same，Libavcodec 只多 VVC 解碼器成員；③Simulator 用正式檔解出 720x1280、畫面正常（`artifacts/w262/ra-play.png`、`rb-play.png`），拖曳、2 倍速、下一集正常（第二輪 CI 產物）。
 - 真機（SideStore IPA）；iPhone 上 VVC 軟解的 fps、耗電（W-254 §4.5 推估）。
 - 離線下載後的 bvc2 檔：不經代理，仍走原生 10 秒逾時 → MPV（MPV 能解）。
 - 腳本自己開 127.0.0.1 服務、不經 App 代理的來源（新版紅果 PY，W-267；#6969／#6972）：App 讀不到 `stsd`，第一個 bvc2 集數仍走原生 10 秒逾時 → MPV（MPV 能解；Simulator 上原生約 0.2 秒就失敗換手，見「驗證」，但不保證每個檔都這麼快失敗，最壞是原生 10 秒逾時）。改善另開 W-269（127.0.0.1 MP4 先探測前段）。

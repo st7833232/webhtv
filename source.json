@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.96",
+          "date": "2026-11-09",
+          "localizedDescription": "站台相容：\n- 支援 api 位址寫成相對設定檔路徑的 type 4 站台，片單、詳情與播放都能正常載入。\n- 片單項目沒有影片編號時，點進去會改用片名搜尋找到詳情，不再空白。\n\n爬蟲包：\n- 下載或更新相容爬蟲包後，目前畫面上的片單會直接套用，不用再下拉重新整理。\n\n播放：\n- MPV 播放預先準備好的下一集時，如果影片提早中斷，重新載入後會從中斷的位置繼續播，不會回到開頭。\n- 在預先準備好的影片裡拖到片尾時，會正常換到下一集，不再多重新載入一次。\n",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.96-b97/WebHTV-0.1.96-97.ipa",
+          "size": 35871716,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.1.95",
           "date": "2026-11-09",
           "localizedDescription": "系統支援：\n- 支援 iOS 16：iOS 16 的裝置也能安裝使用（使用系統原生的底部分頁列）；iOS 17 以上的外觀與操作維持不變。\n\n播放：\n- 改善一次回傳整集影片的爬蟲來源：同一集的影片請求會共用同一次準備結果，不再重複排隊，減少連線逾時。\n- 遇到裝置無法播放的影片時，會直接顯示無法播放的原因，不再長時間轉圈；兩個播放器都等不到影片（約 30 秒）時也會顯示失敗。\n- 修正部分網頁站首頁、片單與詳情無法載入的問題。",

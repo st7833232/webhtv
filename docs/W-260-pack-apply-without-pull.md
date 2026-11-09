@@ -30,6 +30,10 @@
 - 測試完已把探測包移出伺服器目錄（`artifacts/w260/served-spiders-v3/`），以免共用的 18445 設定被套用。
 - 未驗證：真機；官方工具包「檢查更新」路徑（`applyOfficialPack` 的 +1）只讀碼，沒有在 Simulator 實際下載新官方包。
 
+## Ponytail
+
+`ponytail:ponytail-review` 審 7accd7c1（Reviewer #6802 指出第一次送審漏了這個必要步驟，補跑）：Looks good. Ship.，沒有需要修改的發現。檢查了 `refreshSpiderPack`（只在啟動呼叫）與 `applyOfficialPack` 三個呼叫端（關播放器、檢查更新、重設；站清單空時首頁不顯示，+1 無作用）、已刪的 `adoptCachedSpiderPack` 沒有其他呼叫端、`onChangeCompat` 只在初值之後變化才觸發（新建的首頁不會多載一次）、重載與第一次載入重疊時由既有 `listingGeneration` 丟掉舊結果、離線啟動仍先用快取包、資料夾片單預設 0 行為不變。未查：真機、官方包「檢查更新」實際下載路徑。
+
 ## 回退
 
 單一 commit，`git revert` 即可。

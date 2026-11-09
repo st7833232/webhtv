@@ -233,12 +233,13 @@ public struct Vod: Decodable, Identifiable, Sendable {
         id = (try? values.decodeString(forKey: .id)) ?? ""
         name = (try? values.decode(String.self, forKey: .name)) ?? ""
         picture = try values.decodeIfPresent(String.self, forKey: .picture) ?? ""
-        remarks = try values.decodeIfPresent(String.self, forKey: .remarks) ?? ""
         playFrom = try values.decodeIfPresent(String.self, forKey: .playFrom) ?? ""
         playURL = try values.decodeIfPresent(String.self, forKey: .playURL) ?? ""
         // Sources send these as strings, numbers, null or even arrays, and the same decoder reads
         // every list and search page, so none of them may fail the record: anything that is not a
         // string or a whole number reads as empty.
+        // W-249: Uvod (py) sends `vod_remarks` as a number (an episode count); Gson reads it as text.
+        remarks = values.decodeText(forKey: .remarks)
         year = values.decodeText(forKey: .year)
         area = values.decodeText(forKey: .area)
         typeName = values.decodeText(forKey: .typeName, orElse: .vodClass)

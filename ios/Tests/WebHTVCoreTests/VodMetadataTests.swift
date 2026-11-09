@@ -14,13 +14,16 @@ import Testing
       {"vod_id":1,"vod_name":"头发","vod_pic":"https://img.example.com/1.jpg","vod_remarks":"HD",
        "vod_year":2026,"vod_area":null,"vod_actor":["甲","乙"],"type_name":"剧情",
        "vod_content":"<p>第一段</p>"},
-      {"vod_id":"2","vod_name":"庆余年","vod_director":{"name":"丙"},"vod_class":"古装,剧情"}
+      {"vod_id":"2","vod_name":"庆余年","vod_director":{"name":"丙"},"vod_class":"古装,剧情"},
+      {"vod_id":"92405","vod_name":"异能研究所 第二季","vod_remarks":5}
     ]}
     """#.utf8)
     let list = try JSONDecoder().decode(CMSResponse.self, from: data).list
 
-    #expect(list.map(\.id) == ["1", "2"])
-    #expect(list.map(\.name) == ["头发", "庆余年"])  // raw: search and history keep source text
+    #expect(list.map(\.id) == ["1", "2", "92405"])
+    #expect(list.map(\.name) == ["头发", "庆余年", "异能研究所 第二季"])
+    #expect(list[0].remarks == "HD")
+    #expect(list[2].remarks == "5")  // W-249: Uvod's numeric remarks once emptied its whole home  // raw: search and history keep source text
     #expect(list[0].year == "2026")
     #expect(list[0].area.isEmpty)
     #expect(list[0].actor.isEmpty)  // an array is not display text

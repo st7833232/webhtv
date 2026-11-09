@@ -1,14 +1,14 @@
 # W-254 ByteVC2（bvc2）播放設計研究
 
-狀態：研究中（只研究與離線實驗，未改 App 程式、鎖檔、二進位）。§1–§3、§5 由 webhtv-dev-claude-dev-2 撰寫；§4（iOS MPV／FFmpeg 建置與整合）由 webhtv-dev-claude-dev 在 W-256 撰寫。使用者 11-09 決定 iOS 先做，Android 暫不做（Manager #6649）。
+狀態：研究完成待審（只研究與離線實驗，未改 App 程式、鎖檔、二進位）。全文由 webhtv-dev-claude-dev-2 撰寫：§1–§3、§5 屬 W-254，§4、§6 定稿屬 W-256（Manager #6713 由 claude-dev 改派）。使用者 11-09 決定 iOS 先做，Android 暫不做（Manager #6649）。
 
 ## Recovery anchor
 
 - 目標：查清 bvc2 是什麼、能不能用現有或可接受授權的解碼器播放，給出 iOS 先行的方案、驗收與回退；Reviewer 核准後由 Manager 交使用者決定是否實作。
-- 完成：§1 版本與原始碼、§2 Mac 實解（兩個獨立解碼器逐幀相同）、§3 授權、§5 iOS 評估、§6 建議初稿。
-- 未完成：§4（claude-dev，W-256）；§6 的體積與 iPhone 實測數字要等 §4 建置。
-- 阻礙：librempeg 原始碼建置（執行其 `configure`）被本機權限分類器拒絕，記為 BLOCKED；改以 Homebrew FFmpeg 9.0.2＋Fraunhofer vvdec 3.2.1 實證，結論不依賴 librempeg 執行檔（見 §2.4）。
-- 下一步：claude-dev 在本文件 §4 補上 iOS 建置、體積與真機數字後，一起送 webhtv-dev-codex-reviewer-2 審。
+- 完成：§1 版本與原始碼、§2 Mac 實解（兩個獨立解碼器逐幀相同）、§3 授權、§4 iOS 盤點／對應位置／自動判斷／1080p 速度、§5 iOS 評估、§6 定稿（W-254 初稿 reviewer-2 已核准）。
+- 未完成：Libavcodec／IPA 體積增量與 iPhone 真機數字（要 CI 或本機建置含 vvc 的 FFmpeg）。
+- 阻礙：本機執行 librempeg 與 FFmpeg 的 `configure` 都被權限分類器拒絕，記為 BLOCKED（W-254 11:41、W-256 12:10）；解碼結論改以 Homebrew FFmpeg 9.0.2＋vvdec 3.2.1 實證，不受影響。
+- 下一步：送 webhtv-dev-codex-reviewer-2 審整份；核准後 Manager 交使用者決定是否實作、以及體積要用 CI 還是放行本機建置來量。
 
 ## 結論摘要
 
@@ -16,7 +16,8 @@
 2. **librempeg 的 `ff_bvc2_decoder` 不是新解碼器**，是把 FFmpeg 的 VVC 解碼器換一個 codec ID 再登記一次，並固定用 4 位元組 NAL 長度、不讀 `bv2C`（`c0984cae71bf1365676497178cde0ac1cab34ff2`、`54e926c86b60a8b44a6a6798b73b9030a18e27be`）。
 3. **不需要 librempeg。** 只把 MP4 裡 `bvc2`→`vvc1`、`bv2C`→最小 `vvcC`（4 位元組長度、0 個參數集陣列）＋`free` 補位（大小不變），未修改的 FFmpeg 9.0.2 就能直接播整集、拖曳正常，結果仍與 vvdec 逐位元相同。
 4. **授權：librempeg 不能用在 iOS。** librempeg 把 VVC 相關檔案改成 GPLv3+，命令列工具要 `--enable-agpl`；WebHTV iOS 依 IOS-POC-9A 只出 LGPL 的 MPVKit 產品。上游 FFmpeg n8.1.2 的同一批檔案是 LGPL 2.1+，可以用。
-5. **iOS：AVPlayer／VideoToolbox 沒有 VVC（iOS 27 SDK 也沒有 VVC codec type），只能走 MPV 軟解。** 現行 iOS FFmpeg n8.1.2 的 libavcodec 用 `--disable-decoders` 白名單，**沒有開 `vvc` 解碼器**，所以要重建 libavcodec（現在 workflow 只重建 libavformat）。效能估計夠：M4 單執行緒 720×1280 約 330 fps，換算 iPhone（含 iOS 16 支援的 A11／A12）720p 單執行緒仍有數倍餘裕；1080p 與耗電要真機量。
+5. **iOS：AVPlayer／VideoToolbox 沒有 VVC（iOS 27 SDK 也沒有 VVC codec type），只能走 MPV 軟解。** 現行 iOS FFmpeg n8.1.2 的 libavcodec 用 `--disable-decoders` 白名單，**沒有開 `vvc` 解碼器**，所以要重建 libavcodec（現在 workflow 只重建 libavformat）。效能估計夠：M4 單執行緒 720×1280 約 330 fps，換算 iPhone（含 iOS 16 支援的 A11／A12）720p 單執行緒仍有數倍餘裕；1080p 在 M4 上 VVC 測試片單執行緒 74 fps、多執行緒 140 fps；舊機（A11／A12）1080p 2 倍速可能掉幀；耗電與體積要真機／CI 量（§4.5、§4.2）。
+6. **建議實作（§6）**：libavformat 加 `bvc2`→VVC 對應（約 15 行，沿用現有 FFmpeg workflow 的 patch 與比對）、重建並發布含 `vvc` 的 Libavcodec、App 依 `stsd` 判到 bvc2 直接起 MPV。
 
 ## §1 librempeg 版本與 bvc2 解碼器原始碼
 
@@ -28,7 +29,7 @@
 | tag | 最新 `v0.6.1`（`e33f58af5a1a630c440eae51a69c35f014d0fa04`），另有 `n7.0`、`n6.2-dev`；**沒有 8.1 tag** |
 | HEAD 的版本字串 | `RELEASE` = `8.0.git`（`77d80657c4`，2025-08-19「RELEASE: update to 8.0」）；`libavcodec` 63.28.100；`Changelog` 頂端是 `version 9.0` 段落（跟上游 FFmpeg 合併來的） |
 | hongguo-drama 固定的版本 | `cb1f8f3eef84999e61b27e2d44664858179bc240`（2026-11-03，`build/ffmpeg/LIBREMPEG-NOTICE.txt`），Manager 提的 cb1f8f3e 就是這個 |
-| 本機 iOS FFmpeg | MPVKit 1.0.0 recipe 重建的 **FFmpeg n8.1.2**（`1c2c67c0b9f7f66ab32c19dcf7f227bcd290aa4c`），見 `.github/workflows/ios-ffmpeg-build.yml` |
+| 本機 iOS FFmpeg | MPVKit 1.0.0 recipe 重建的 **FFmpeg n8.1.2**（`38b88335f99e76ed89ff3c93f877fdefce736c13`），見 `.github/workflows/ios-ffmpeg-build.yml` |
 
 判斷（推論）：librempeg 沒有任何叫 8.1 的版本；「8.1」最可能是把 iOS 現用的 FFmpeg 8.1（n8.1.2）跟 librempeg 混在一起。對結論沒有影響：bvc2 解碼器 2025-11-27 加入、2026-02-24 修回，之後所有提交（含 cb1f8f3e 與 HEAD）都有；而且 §2 證明根本不需要 librempeg。
 
@@ -117,9 +118,66 @@ librempeg 本身沒有實跑（建置被拒，見 Recovery anchor）。這不影
 
 建議做法：用上游 LGPL 的 FFmpeg VVC 解碼器，`bvc2` 的對應由我們自己寫（§2.4 證明只要「標籤對到 VVC＋4 位元組長度」），不搬 librempeg 的 GPLv3 程式碼。
 
-## §4 iOS 建置與整合（W-256，claude-dev 撰寫）
+## §4 iOS 建置與整合（W-256，webhtv-dev-claude-dev-2 撰寫；原派 claude-dev，Manager #6713 改派）
 
-（待補：libavcodec 加 `--enable-decoder=vvc` 的重建方式與 provenance、libavformat 對 `bvc2` 的處理方式、IPA 體積增加、iPhone 真機 fps／耗電、播放器選擇與各功能不退化的驗證。）
+證據在 `.herdr-synapse/webhtv-dev/artifacts/w256/`。
+
+### 4.1 現行 iOS MPV／FFmpeg 怎麼進 App（盤點）
+
+| 元件 | 來源 | 鎖／位置 |
+| --- | --- | --- |
+| App 連結方式 | Xcode 專案用本地套件 `ios/Vendor/MPVKit`（`project.pbxproj` 的 `XCLocalSwiftPackageReference "../Vendor/MPVKit"`），產品 `MPVKit`（LGPL 那組 target `_MPVKit`／`_FFmpeg`；`-GPL` 那組沒有用） | `ios/Vendor/MPVKit/Package.swift` 的 `binaryTarget` url＋checksum |
+| Libmpv | WebHTV 自建 `mpvkit-1.0.0-webhtv.2`（mpv v0.41.0 `41f6a645068483470267271e1d09966ca3b9f413`＋WebHTV patch） | `third_party/mpv-ios-lock.json`（頂層）、`.github/workflows/ios-libmpv-build.yml` |
+| **Libavformat** | WebHTV 自建 `ffmpeg-n8.1.2-webhtv.1`：FFmpeg n8.1.2 `38b88335f99e76ed89ff3c93f877fdefce736c13`＋`third_party/mpv-ios/patches/ffmpeg/0001..0006`（HLS），用 MPVKit 1.0.0 recipe（build_commit `9d057f9c19fa704e242b199d26bc6c5cf23dd5d6`）在 GitHub Actions 建 | `mpv-ios-lock.json` 的 `ffmpeg` 段、`.github/workflows/ios-ffmpeg-build.yml`、`Package.swift:265-267` |
+| **Libavcodec** 與其他 FFmpeg 庫 | **MPVKit 1.0.0 上游二進位**（`Package.swift:255-257`），WebHTV 沒有重建 | 同上 |
+| 解碼器清單 | MPVKit 的 `Sources/BuildScripts/XCFrameworkBuild/main.swift:705-710`（build_commit）寫死 `--disable-decoders` ＋白名單；沒有 `vvc`。parser／bsf 沒有關（`--enable-bsfs`），現行 Libavcodec 已含 92 個名稱含 vvc 的符號（`ff_vvc_put_epel_*_neon` 等 DSP 組語被一起編進來），但沒有 `ff_vvc_decoder` | 以 `nm` 讀 MPVKit 1.0.0 `Libavcodec.xcframework/ios-arm64` |
+| 建置方式 | workflow 用 MPVKit recipe 建完整 FFmpeg，但**只發布 Libavformat**，並逐項比對「上游 1.0.0 Libavformat＋恰好 WebHTV 的變更」（物件增刪、符號增刪、config.h、架構）後以 prerelease 發布 | `ios-ffmpeg-build.yml:233-323`、`:391-413` |
+| 授權 | LGPL 產品（IOS-POC-9A）；notice 在 `third_party/mpv-ios/licenses/` | — |
+
+所以方案 C 不是新建一條建置線，而是**擴充現有 `ios-ffmpeg-build.yml`**：同一次建置多開 `--enable-decoder=vvc`，多發布一個 Libavcodec，並沿用它的逐項比對做 provenance。
+
+### 4.2 本機建置：BLOCKED
+
+- 12:10 在 Mac 為 iOS arm64 交叉編譯 FFmpeg n8.1.2（`configure --disable-everything --enable-decoder=h264,hevc` 對照 `+vvc`，只量 libavcodec 增量）被本機權限分類器拒絕（理由 Code from External），與 W-254 的 librempeg 同類。依團隊規則不繞過，已在看板報 Manager（BLOCKED 貼文，12:11）。
+- 影響：①libavcodec／IPA 體積增量**沒量到**；②「Simulator 內 App 實際解 bvc2」做不到（App 要連含 vvc 的 libavcodec）。
+- 這不是專案正規路徑：iOS FFmpeg 本來就只在 GitHub Actions 建（4.1）。實作時在 CI 量體積最自然；workflow 已有逐項比對，可直接加「Libavcodec 物件增加只有 vvc 相關」與大小紀錄。
+- 推估（未驗證）：增加的是 `libavcodec/vvc/*.o`（15 個檔）＋`cbs_h266.o`、`vvc_sei` 等；VVC 的 NEON 組語已在現行 Libavcodec 裡。粗估（沒有量測依據，只按 HEVC 同級解碼器的經驗量級）：靜態庫約增加 1～2 MB、IPA 壓縮後約 0.5～1 MB。**CI 建好後以實測取代，不可當成結論。**
+
+### 4.3 bvc2→VVC 對應放哪裡（最小改動）
+
+依 ISO/IEC 14496-15 的 VVC 段落（第 11 節；本輪未取得 2024 版全文，見下方「規格補讀」）：`vvc1` 表示參數集**不得**放在位元流裡、只在 `vvcC`；`vvi1` 表示參數集**可以**在位元流裡。bvc2 每個 IDR 前都有 SPS／PPS（§2.2），語意上對應的是 **`vvi1`**。FFmpeg 兩者一視同仁（`isom_tags.c:126-127` 都對到 `AV_CODEC_ID_VVC`），實測改成 `vvi1` 也一樣 5056／5056 幀與 vvdec 相同（`artifacts/w256/vvi1.framemd5`）。
+
+| 位置 | 改法 | 行數 | 涵蓋 | 評估 |
+| --- | --- | --- | --- | --- |
+| **libavformat（建議）** | `isom_tags.c` 的 `ff_codec_movvideo_tags` 加 `{ AV_CODEC_ID_VVC, MKTAG('b','v','c','2') }`；`mov.c` 在 sample entry 讀完後，若 tag 是 `bvc2` 且沒有 extradata，給 2 bytes extradata `FE 00`（lengthSizeMinusOne=3、無 PTL、0 個陣列，正是 FFmpeg `vvc.c:693` 寫 vvcC 的同一種排法；`cbs_h266.c` 看到首位元組非 0 就走 MP4 長度前綴模式）。`bv2C` 沒有讀取函式，FFmpeg 本來就略過 | 約 10～15 行＋測試 | 所有走 MPV 的 bvc2：代理整集、直連、下載後播放、fMP4 | 放在 workflow 已在 patch 的 libavformat，和現有 HLS patch 同一套 provenance；授權 LGPL；不碰 App |
+| App 端改寫 MP4（方案 D） | `SpiderProxyServer` 對整集 `200 video/mp4`（`rangedMP4`）就地改寫 moov 的 453 bytes（`bvc2_retag.py` 的做法） | 約 40 行 Swift＋測試 | 只有經代理的整集 MP4 | 仍需重建 libavcodec；容器解析進 App 層、改了代理回應內容，下載檔也要另外處理。不建議 |
+| libavcodec 加 `bvc2` 別名解碼器（照 librempeg 的結構自寫） | 新 codec ID＋註冊 | 約 100 行，動到公開 `codec_id.h` | 同 libavformat 方案 | 改公開 enum、與上游分岔更大；沒有好處。不建議 |
+
+### 4.4 自動判斷：bvc2 強制走 MPV
+
+- 現況：引擎選擇在 `ios/Sources/WebHTVCore/PlaybackEngine.swift` 的 `PlaybackEngineSelection`（全域預設、這次手動選擇、自動備援各一次），原生 10 秒沒起播才換 MPV（`ios/WebHTVApp/Sources/WebHTVApp.swift:7073`）。AVPlayer 遇到 bvc2 不會報錯，只是一直轉圈（W-252），所以等於每集白等 10 秒。
+- 設計：代理拿到整集 MP4 時已持有 moov（W-240／W-245 的整集快取），在那裡讀第一個影片 `stsd` sample entry 的 fourcc；是 `bvc2`／`vvc1`／`vvi1` 就把這個目標標成「需要 MPV」，`PlaybackEngineSelection` 開始這次播放時直接用 `.mpv`，**不消耗 `fallbackSpent`**、不寫進全域預設。非代理來源先維持現在的 10 秒備援（之後可加 HEAD／Range 前 64 KB 探測，另案）。
+- 不受影響的項目與理由：倍速、拖曳、暫停、自動下一集、預載（W-245）、畫質選擇、續播都在 `PlaybackSession` 這層（`PlaybackEngine.swift` 開頭註解：引擎只負責播放），換引擎不改它們；這些在 MPV 上早已運作（MPV 是現行備援）。H.264／HEVC 片源的 fourcc 不在名單內，路徑完全不變。
+- 驗收時逐項在 bvc2 集數重測（§6）。
+
+### 4.5 效能（Mac M4 arm64；Simulator 用同一顆 CPU 跑原生 arm64，數字等同）
+
+| 樣本 | 執行緒 | fps |
+| --- | --- | --- |
+| 紅果 bvc2 720×1280（§2.5） | 1 | 330～347 |
+| 1080×1920 VVC 測試片（`test-1080x1920-600k.266`：由樣本前 60 秒放大後用 vvenc 1.14.0 `--preset faster -b 600k` 編，1800 幀，隨機存取 GOP、B 幀，577 kbps） | 1／2／4／auto | 74／117／137／140（`speed-1080p-m4.txt`） |
+
+- 測試片比紅果實際串流吃重：紅果是 IDR＋TRAIL（低延遲結構、243 kbps@720p），測試片是 B 幀隨機存取、碼率高一倍以上，所以 1080p 數字是偏保守的上限負載。
+- iPhone 推估（Geekbench 6 單核比例粗估，**未實測**）：A15～A18 約 M4 的 60～90%、iOS 16 最低機種 A11／A12 約 35～45%。
+  - 720p（紅果目前的 bvc2）：單執行緒 115～300 fps，1 倍速 30 fps、2 倍速 60 fps 全機種都有餘裕。
+  - 1080p：A15 以上 2 執行緒約 70～105 fps，2 倍速可行；A11／A12 單執行緒約 26～33 fps、2 執行緒約 41～53 fps，1 倍速可行、**2 倍速可能掉幀**。MPV 預設 `vd-lavc-threads=0`（自動），不需改設定。
+- 耗電與發熱：軟解一定比硬解高，必須真機量 10 分鐘以上連播。
+
+### 4.6 規格補讀（ISO/IEC 14496-15）
+
+- 2024 版全文是付費標準，本輪沒有取得。可公開查到的二手資料：FFmpeg 的 VVC MP4 muxer patch（ffmpeg-devel 2024-01，註明 `vvi1` 允許參數集在 ES、`vvc1` 不允許）、Android Media3 `VvcConfig` 文件（指向 14496-15:2024 第 11.2.4.2.2 節的 VvcDecoderConfigurationRecord）、FFmpeg n8.1.2 `libavformat/vvc.c:690-693` 的 vvcC 寫法（`reserved '11111' | lengthSizeMinusOne<<1 | ptl_present_flag`）。
+- 對設計的影響：bvc2 應對應 `vvi1` 語意；最小 vvcC `FE 00` 的位元排法和 FFmpeg 自己寫出的 vvcC 一致（reviewer-2 在 #6704 也獨立確認）。
+- 剩下的缺口：實作前若要正式對照規格條文，需要使用者或公司提供 14496-15:2024 全文；目前以 FFmpeg 實作＋兩個獨立解碼器一致當作替代證據。
 
 ## §5 iOS 可行性評估
 
@@ -146,14 +204,14 @@ librempeg 本身沒有實跑（建置被拒，見 Recovery anchor）。這不影
 ### 5.4 效能與耗電（推估，未在 iPhone 量）
 
 - M4 單執行緒 720×1280 約 330 fps（§2.5）。以 Geekbench 6 單核比例粗估：A15～A18 約為 M4 的 60～90%，iOS 16 最低支援的 A11／A12 約 35～45%。→ 720p 單執行緒約 115～300 fps，30 fps 播放、2 倍速（60 fps）都有餘裕。
-- 1080p 像素是 720p 的 2.25 倍：A11／A12 單執行緒約 50～65 fps，2 倍速會吃緊，要靠多執行緒；新機沒問題。
+- 1080p：以像素比例推只有 2.25 倍，但 §4.5 實測的 1080p VVC 測試片（B 幀、碼率較高）在 M4 單執行緒只有 74 fps，A11／A12 約 26～33 fps（2 執行緒 41～53 fps），2 倍速可能掉幀；A15 以上用 2 執行緒可行。以 §4.5 為準。
 - 軟解比硬解耗電、發熱；連播短劇要量 10 分鐘以上的電量與溫度。紅果目前看到的 bvc2 都是 720p（同一部的 1080p 檔就是同一個 720 檔，W-252）。
 
 ### 5.5 體積
 
-未量（librempeg 建置被拒，Homebrew dylib 已 strip 無法分符號）。§4 重建 libavcodec 時直接比較前後 IPA／framework 大小。
+未量（本機建置被拒，Homebrew dylib 已 strip 無法分符號），見 §4.2；實作時在 CI 比較前後 Libavcodec 與 IPA 大小。
 
-## §6 方案比較與建議（初稿，§4 補數字後定稿）
+## §6 方案比較與建議（定稿；體積數字待 CI 建置）
 
 | 方案 | 能播 bvc2 | 授權 | 改動 | 建議 |
 | --- | --- | --- | --- | --- |
@@ -162,28 +220,39 @@ librempeg 本身沒有實跑（建置被拒，見 Recovery anchor）。這不影
 | hongguo-drama 式先轉碼 | 是，但要等整集轉完 | 要帶編碼器；行動裝置慢且耗電 | 大 | 不建議（能直接解就不轉） |
 | **上游 FFmpeg VVC＋自寫 `bvc2` 對應（5.2 C）＋MP4 編碼判斷直接走 MPV（5.3）** | 是，邊下邊播 | LGPL 2.1+ | 重建 libavcodec（開 vvc）＋libavformat 小 patch＋App 播放器選擇 | **建議** |
 
+建議的實作分三段，各自可回退：
+
+| 段 | 內容 | 路徑 |
+| --- | --- | --- |
+| 1 FFmpeg | libavformat patch `0007`（`bvc2` 標籤＋`FE 00` extradata，約 15 行）＋FATE 式測試；MPVKit buildscripts patch 在解碼器白名單加 `--enable-decoder=vvc`；workflow 多發布 Libavcodec，比對項加「新增物件只有 vvc 相關、刪除為 0」與大小 | `third_party/mpv-ios/patches/ffmpeg/`、`third_party/mpv-ios/patches/buildscripts/`、`.github/workflows/ios-ffmpeg-build.yml`、`third_party/mpv-ios-lock.json`、`ios/Vendor/MPVKit/Package.swift` |
+| 2 App 判斷 | 代理整集 MP4 讀 `stsd` fourcc → 標記需要 MPV；`PlaybackEngineSelection` 直接起 MPV、不消耗備援次數；單元測試 | `ios/Sources/WebHTVCore/Spider/SpiderProxyServer.swift`、`ios/Sources/WebHTVCore/PlaybackEngine.swift`、對應測試 |
+| 3 驗收 | 下列 1～5 | — |
+
 驗收（實作時）：
-1. 單元／FATE 式測試：`bvc2` 樣本經我們的 libavformat 開檔得到 `vvc`，解碼幀 MD5 與本研究的 `ep1-vvdec.framemd5` 相同。
-2. iPhone 真機（SideStore IPA，不直接安裝）：紅果 bvc2 集數起播、拖曳、暫停、2 倍速、自動下一集、預緩衝、離線下載後播放全部正常；同一部的 H.264 集數照舊走原生。
-3. 真機量 720p（有 1080p 樣本時也量）fps、掉幀、10 分鐘電量與溫度。
-4. 一般 H.264／HEVC 片源的起播時間、播放器選擇不變。
+1. CI：bvc2 樣本經新 libavformat 開檔得到 `vvc`，解碼幀 MD5 與 `artifacts/w254/exp/ep1-vvdec.framemd5` 相同；workflow 的逐項比對全過；記錄 Libavcodec 與 IPA 前後大小。
+2. Simulator（arm64）：紅果 bvc2 集數直接用 MPV 起播（不等 10 秒）、拖曳、暫停、2 倍速、自動下一集、預載；同一部的 H.264 集數照舊走原生。
+3. iPhone 真機（SideStore IPA，不直接安裝）：同 2，外加 10 分鐘連播的掉幀、電量與溫度；最低支援機種若有就測。
+4. 一般 H.264／HEVC 片源：起播時間、播放器選擇、HLS 行為（現有 0001～0006 patch 的測試）不變。
+5. 授權：`third_party/mpv-ios/licenses/` 不需新增（仍是 FFmpeg LGPL）；交使用者時明講 H.266 專利風險。
 
-回退：iOS FFmpeg 是 GitHub release 資產，鎖在 `third_party/mpv-ios-lock.json`；回退＝把鎖檔指回現行 release（libavformat、libavcodec 各自的 checksum），App 層的編碼判斷可單獨 revert（判斷不到就回到現在的原生→MPV 流程）。
+回退：段 1 把 `mpv-ios-lock.json` 與 `Package.swift` 的 Libavformat／Libavcodec url＋checksum 指回現行（`ffmpeg-n8.1.2-webhtv.1`、MPVKit 1.0.0）；段 2 單獨 revert（回到現在的原生 10 秒→MPV 流程）。兩段互不依賴：只回退段 1 時，段 2 的判斷會把 bvc2 交給 MPV，MPV 照舊播不了並顯示錯誤（W-253 的快速提示），不會比現在差。
 
-預估（Claude 執行時間，不含 GitHub Actions 排隊）：libavformat patch＋測試約 1.5 小時；workflow 改成同時重建 libavcodec 並更新 provenance 約 2 小時＋建置 1～2 輪各約 40 分鐘；App 判斷＋測試約 1.5 小時；真機驗收依使用者時間。詳細由 §4 定。
+預估（Claude 執行時間）：段 1 約 2.5 小時＋CI 建置 1～2 輪（每輪約 40～60 分鐘，含排隊）；段 2 約 1.5 小時；段 3 的 Simulator 約 40 分鐘，真機依使用者時間。合計約半天＋真機。前提：發布 prerelease 與推分支需 Manager／使用者授權；若使用者放行本機建置 FFmpeg，段 1 可先在本機驗證再上 CI，省一輪。
 
 ## 證據表
 
 | 來源 | 版本／提交 | 存取 | 等級 | 支持的主張 | 對決定的影響 |
 | --- | --- | --- | --- | --- | --- |
 | librempeg 原始碼 | `c0984cae71bf1365676497178cde0ac1cab34ff2`、`54e926c86b60a8b44a6a6798b73b9030a18e27be`、`cb1f8f3eef84999e61b27e2d44664858179bc240`、HEAD `e375cbb14fc3ba0ce86703465b441b891270d599` | 2026-11-09 | A | bvc2 解碼器＝VVC 解碼器＋標籤＋固定 4 位元組長度；GPLv3 檔頭 | 不需搬 librempeg；不能搬 |
-| FFmpeg n8.1.2 原始碼 | `1c2c67c0b9f7f66ab32c19dcf7f227bcd290aa4c` | 2026-11-09 | A | VVC 相關檔 LGPL 2.1+；`mov_read_glbl` 的 vvcC 處理 | 方案 C 授權可行 |
+| FFmpeg n8.1.2 原始碼 | `38b88335f99e76ed89ff3c93f877fdefce736c13` | 2026-11-09 | A | VVC 相關檔 LGPL 2.1+；`mov_read_glbl` 的 vvcC 處理 | 方案 C 授權可行 |
 | 本機實驗 | FFmpeg 9.0.2、vvdec 3.2.1、樣本 ep1 | 2026-11-09 | A（可重現） | 標準 VVC、逐幀相同、改標籤即可播、M4 fps | 核心結論 |
 | iOS 27 SDK 標頭 | Xcode 27.0.0 | 2026-11-09 | A | 無 VVC codec type | AVPlayer 不可行 |
 | iOS libavcodec 設定字串 | MPVKit 1.0.0 Libavcodec（DerivedData Release-iphoneos） | 2026-11-09 | A | 沒有 `vvc` 解碼器 | 必須重建 libavcodec |
 | jackotom/hongguo-drama | `ccdbc8fec407eb0d2f4f5132a43ee276d36a33eb` | 2026-11-09 | B | 桌面轉碼架構、Android 不支援、轉碼耗時 | 不採轉碼 |
 | zhangbaio/hongguo README | GitHub code search 摘要 | 2026-11-09 | C | 低畫質為 bytevc2 | 只作旁證 |
-| 規格與專利 | ITU-T H.266／ISO/IEC 14496-15（VVC in ISOBMFF）未全文重讀 | — | — | 以兩個標準解碼器一致作為實證替代 | 不影響結論；如 Reviewer 要求再補 |
+| ISO/IEC 14496-15 二手資料 | FFmpeg VVC MP4 muxer patch（ffmpeg-devel 2024-01）、Android Media3 `VvcConfig` 文件、FFmpeg n8.1.2 `libavformat/vvc.c` | 2026-11-09 | B | `vvi1`＝參數集可在 ES、`vvc1` 不可；vvcC 位元排法 | bvc2 對應 `vvi1` 語意；2024 版全文未取得 |
+| MPVKit buildscripts | `main.swift` @ `9d057f9c19fa704e242b199d26bc6c5cf23dd5d6` 第 705-710 行 | 2026-11-09 | A | 解碼器白名單位置 | 段 1 要加 buildscripts patch |
+| 本機 1080p 實驗 | vvenc 1.14.0 編、FFmpeg 9.0.2 解 | 2026-11-09 | A（可重現，測試片非紅果實際串流） | 1080p 解碼 fps | iPhone 推估依據 |
 
 ## 歷程
 
@@ -192,3 +261,4 @@ librempeg 本身沒有實跑（建置被拒，見 Recovery anchor）。這不影
 - 11:41～11:55 樣本解析、兩解碼器逐幀比對、改標籤直接播、速度量測。
 - 12:00 起撰寫本文件 §1–§3、§5、§6 初稿。
 - 12:01 reviewer-2 核准初稿 b9c42513（#6704、#6705）：自行重算三份 framemd5 皆 5056 幀且相同；最小 vvcC 首位元組 0xFE 合 14496-15 排法；授權判斷與方案 C 成立。留給 W-256 一起定稿：§4 建置／體積／真機數字、§6 預估；實作前補讀 ISO/IEC 14496-15 的 VVC 段落；交使用者時明講 H.266 專利風險。
+- 12:06 W-256 改派給我（#6713）；12:10 本機 FFmpeg n8.1.2 iOS `configure` 被權限分類器拒絕（BLOCKED，已報 Manager）。12:09 `vvi1` 改標籤實測 5056／5056 相同；12:08～12:13 vvenc 編 1080p 測試片並量解碼速度；12:20 起寫 §4、§6 定稿。

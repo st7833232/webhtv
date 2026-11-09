@@ -90,6 +90,13 @@
 - 官方規格／平台文件、論文、部落格：不適用——這是產品流程的選擇，不是協定或平台 API 問題；AVFoundation／mpv 的錯誤分類已在 IOS-POC-17、W-253 處理。
 - 未查證：FongMi `PlaybackErrorClassifier` 細節；FongMi 在清單用完後是否可能反覆搜尋（讀碼看不出）；Android 實機換線的實際體驗（熱點恢復後可在 W-255 的 FongMi 實測時順便看）。
 
+## 審查
+
+Reviewer webhtv-dev-codex-reviewer-2 核准 6569d6f9（看板 #6773、#6774），抽查 FongMi 行號正確。實作工單必須納入：
+1. 同一集對應：先比集名，再比集名裡的集數數字；兩條線集數相同時才用同位置 index，否則跳過這條線（多了預告或缺集時 index 會對錯集）。
+2. 一輪總時間要有上限，或每次換線的提示讓使用者可以停止，避免連續換好幾分鐘。
+3. W-253 已知失敗直接換線時，新線路要重新預熱／解析，不能沿用舊線的 `knownFailing`。
+
 ## 狀態
 
-已送審（Reviewer：webhtv-dev-codex-reviewer-2）；核准後由 Manager 交使用者決定是否實作。
+已核准；由 Manager 交使用者決定是否實作（約 4 小時）。

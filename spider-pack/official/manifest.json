@@ -288,11 +288,11 @@
       "sha256": "bc54e9886cb508f41a08e2afa1c8c64a1ecacad0421140b9480d90cb107519e6"
     },
     {
-      "bytes": 36678,
+      "bytes": 36859,
       "class": "XBPQ",
       "logicalType": "spider.js",
       "path": "spiders/XBPQ.js",
-      "sha256": "ae8ea7c7071f9446849d3b1a12e4117b114c594a9da98d979ede4ae0c7e9c629"
+      "sha256": "77620d55617b307c1b18650ffa16c637e47b1da1ecd1b737206a54495ced52d4"
     },
     {
       "bytes": 16753,
@@ -303,7 +303,7 @@
     }
   ],
   "format": "webhtv.runtime-pack",
-  "notes": "網頁站播放時，跳轉後的頁面若不是影片網址，改從跳轉後的頁面找影片（與 Android 做法一致）",
+  "notes": "網頁站在沒有設定首頁、也抓不到分類時，改列網站首頁的影片（與 Android 版做法一致），不會再顯示空白；有分類的站行為不變。",
   "packId": "webhtv.spiders",
   "requires": {
     "abi": {
@@ -321,6 +321,6 @@
   "scope": {
     "kind": "global"
   },
-  "sequence": 14,
-  "version": "2026-10-29.1"
+  "sequence": 15,
+  "version": "2026-11-09.1"
 }

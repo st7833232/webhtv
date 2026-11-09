@@ -49,14 +49,18 @@ public struct VodLineSwitcher: Sendable {
 extension Flag {
     /// The index of `episode` (from line `source`) on this line, or nil when this line cannot be
     /// trusted to hold it (W-259 review condition 1). By name first, then by the episode number in
-    /// the name; the position only when both lines hold the same number of episodes — a line with
-    /// a trailer or a missing episode would otherwise play the wrong one.
+    /// the name when it is unique on both lines; the position only when both lines hold the same
+    /// number of episodes — a line with a trailer or a missing episode would otherwise play the
+    /// wrong one.
     public func sameEpisode(as episode: Episode, in source: Flag) -> Int? {
         let name = episode.name.trimmingCharacters(in: .whitespaces)
         if let byName = episodes.firstIndex(where: {
             $0.name.trimmingCharacters(in: .whitespaces).caseInsensitiveCompare(name) == .orderedSame
         }) { return byName }
-        if let number = Self.episodeNumber(name) {
+        // The number counts only when it names one episode on both lines: S01E05 reads 1, as does
+        // every episode of that season, so on its line the number identifies nothing (review C2).
+        if let number = Self.episodeNumber(name),
+           source.episodes.filter({ Self.episodeNumber($0.name) == number }).count == 1 {
             let numbered = episodes.indices.filter { Self.episodeNumber(episodes[$0].name) == number }
             if numbered.count == 1 { return numbered[0] }
         }

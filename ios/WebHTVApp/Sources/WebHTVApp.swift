@@ -7290,13 +7290,16 @@ struct EpisodeSteps: Equatable {
                     if copyRetryUntil == nil { retryWithoutPrefetch = nil }
                     notePlayHealth(succeeded: true)
                     lineObserver?(.started)
-                    vodLineObserver?(.started)
                     carrySubtitle(mediaSelection)
                     // W-247: the moment the old `started` line used, kept to show how far it ran ahead.
                     Self.log.notice("[playback] playing \(self.itemTitle, privacy: .public) on \(self.engineKind.shortName, privacy: .public) in \(milliseconds)ms after open")
                     // The started line waits for the picture to move.
                     guard let moved = await firstAdvance(on: engine.kind, since: loadedAt) else { return }
                     startupMilliseconds = moved // the summary's startup=; every other reader only asks whether it is set
+                    // W-263 review C1: only a picture that moved ends the line round. AVPlayer can
+                    // report playing with no data (W-246: 72 ms, then -1008 14 s later), and a round
+                    // reset by that would bounce between two dead lines past its time limit.
+                    vodLineObserver?(.started)
                     Self.log.notice("[playback] started \(self.itemTitle, privacy: .public) on \(self.engineKind.shortName, privacy: .public) in \(moved)ms after open (ready \(self.readyMilliseconds.map { "\($0)ms" } ?? "?", privacy: .public)); resolve \(self.resolution, privacy: .public); content=\(self.contentNote, privacy: .public)")
                     return
                 }

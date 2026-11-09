@@ -41,6 +41,15 @@ private func drain(_ switcher: inout VodLineSwitcher, now: Date = Date()) -> [Vo
     #expect(target.sameEpisode(as: source.episodes[1], in: source) == 2)
 }
 
+@Test func aNumberSharedOnTheSourceLineDoesNotMatch() {
+    // Review C2: S01E05 reads 1, as does every episode of the season, so it must not become 第1集.
+    let source = line("A", (1...10).map { String(format: "S01E%02d", $0) })
+    let target = line("B", (1...10).map { "第\($0)集" })
+    #expect(target.sameEpisode(as: source.episodes[4], in: source) == 4)
+    // A different count leaves nothing trustworthy: skip the line.
+    #expect(line("C", (1...12).map { "第\($0)集" }).sameEpisode(as: source.episodes[4], in: source) == nil)
+}
+
 @Test func thePositionOnlyWhenBothLinesHoldTheSameNumberOfEpisodes() {
     let source = line("A", ["正片", "加長版"])
     #expect(line("B", ["HD", "4K"]).sameEpisode(as: source.episodes[1], in: source) == 1)

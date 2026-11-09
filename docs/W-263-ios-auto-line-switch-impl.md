@@ -88,3 +88,14 @@
 2. 手選集數、所有線路都解析失敗、播放器從沒打開時，`showSwitchFailure` 走 `onFailure`（沒有接收者），錯誤被吞掉。修正：沒有播放器時改設 `playbackError`。
 
 修正後重新編譯，並重跑換線情境（上表「修正後重跑」）。審查沒有實測的：「停止換線」按鈕的點擊、播放中途失敗後的續播。
+
+## REVISE 1（Reviewer #6937／#6938，2026-11-09）
+
+- **C1 假起播會重設一輪**：`vodLineObserver?(.started)` 從 `isPlaying` 那一刻移到 `firstAdvance` 成功之後，也就是播放位置真的前進、`[playback] started` 那一行。直播的 `lineObserver?(.started)` 不變。
+  - 理由：AVPlayer 可能沒拿到資料就回報 playing（W-246：72 ms playing，14 秒後 -1008）。在那個時點清掉 `lineRound`／`lineResume`，兩條壞線就可能來回跳，超過 120 秒上限。
+- **C2 集數比對可能對到錯集**：集數規則加了條件，這個數字在**來源線**也必須只對到一集。`S01E05` 讀成 1，而同一季每集都讀成 1，所以不用集數規則，改走「兩線集數相同才用位置」或跳過。
+  - 新測試 `aNumberSharedOnTheSourceLineDoesNotMatch`：S01E01…S01E10 對 第1集…第10集 → 第5集（位置）；對 12 集的線 → nil。修正前會得到第1集。
+- 驗證：
+  - `VodLineSwitcherTests` 11/11。
+  - 重新編譯（Debug，Simulator）成功。
+  - Simulator 重跑換線：線路1 -1008 → 換線路2 → 畫面前進後才記 started（`sw3-key.txt`、`sw3-notice.png`、`sw3-end.png`）。

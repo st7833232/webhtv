@@ -2,7 +2,7 @@
 
 ## Recovery anchor
 - 目標：重現使用者「原生逾時 → 自動切 MPV → MPV error -13，第 3 集之後特別容易，2 倍速」，分層找出逾時在哪一層；我們的上限或處理方式有問題就做最小通用修正，腳本／站方問題寫證據不改。
-- 狀態（2026-11-09 11:10）：根因已分層確認；代理「同檔請求合併」修正已 commit，等 Reviewer。後續「已知失敗集數直接提示、不再卡轉圈」由 W-253 處理。
+- 狀態（2026-11-09 11:35）：根因已分層確認；代理「同檔請求合併」修正＋R1 已 commit，重新送審。後續「已知失敗集數直接提示、不再卡轉圈」由 W-253 處理。
 - 證據：`.herdr-synapse/webhtv-dev/artifacts/w252/`（`*-key.txt` 為篩選後的 log，`*-applog.txt` 為完整 log；驅動 `w252.sh`）。
 - 下一步（唯一）：等 Reviewer 審查；REVISE 就開新 guard session 修正後重跑 `swift test --filter SpiderProxyServerTests`。
 
@@ -22,6 +22,12 @@
 - 測試 `SpiderProxyServerTests`：`aRequestJoinsTheSameFileAlreadyBeingAnswered`（500 與整集 MP4 兩種：兩個不同 range 的同時請求只呼叫腳本 1 次、都拿到結果；結束後再請求會重新呼叫）、`aRangeAnswerIsNotSharedWithAnotherRangeOrFile`（真 206 不共用）。
 - 驗證：`swift test --filter SpiderProxyServerTests` 34/34；反證：還原來源檔後新測試 4 項失敗。Ponytail review：1 項（結束後才清登記會讓重試拿到舊 500）已修正後重測通過。
 - Simulator（修正後，`fix-hg1-key.txt`、`fix-b2-key.txt`）：正常集數照常（第 4 集 964 ms 起播）；換到 bvc2 第 5 集時 MPV 加入原生那次呼叫，沒有另外排隊，一集的腳本呼叫從 4 次降到 3 次。但那次腳本本身跑了 37 秒以上，兩邊仍在 20 秒時 504，最後仍是「mpv error -13」。**這類集數仍然會失敗**，只是佇列少堆一次。
+
+## REVISE R1（Reviewer #6594 C1）
+- 問題：`shared` 先建立 Task 才登記；腳本呼叫立刻回應或丟錯時，Task 內的移除會先於登記執行，登記永遠留著，之後同一檔每個請求都加入已結束的 task（nil→一直 504、5xx→一直舊 500）。
+- 修正：建立 Task 與登記放進同一個 `lock.withLock`；Task 內的移除拿同一把 lock，必定排在登記之後。
+- 測試：新增 `anAnswerAtOnceIsNeverReusedByTheNextRequest`（立即回 500／立即丟錯，同一檔連續 300 次請求，每次都要呼叫腳本）。`swift test --filter SpiderProxyServerTests` 35/35；反證：換回 5adec51b 的來源檔，300 次只呼叫腳本 150 次而失敗。
+- 只改加鎖順序，沒有重跑 Simulator（行為由單元測試覆蓋）。
 
 ## 建議（範圍外，已轉 W-253）
 - 預熱已拿到下一集 5xx 時，換集直接顯示原因（或跳到下一集），不再試原生 10 秒＋MPV＋即時重解析。

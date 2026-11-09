@@ -408,6 +408,33 @@ struct SpiderProxyServerTests {
         #expect(spider.count == 2)
     }
 
+    /// W-252 review C1: a call that answers without ever suspending must not stay noted — every later
+    /// request for the same file asks the spider again, whether it failed or threw.
+    final class Instant: SpiderProxying, @unchecked Sendable {
+        let throwing: Bool
+        private let lock = NSLock()
+        private var calls = 0
+        var count: Int { lock.withLock { calls } }
+        init(throwing: Bool) { self.throwing = throwing }
+        struct Failure: Error {}
+        func proxy(params: [String: String]) async throws -> SpiderProxyResponse? {
+            lock.withLock { calls += 1 }
+            if throwing { throw Failure() }
+            return SpiderProxyResponse(status: 500, mime: "text/plain", body: Data("failed".utf8))
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func anAnswerAtOnceIsNeverReusedByTheNextRequest(throwing: Bool) async {
+        let server = SpiderProxyServer()
+        let spider = Instant(throwing: throwing)
+        for _ in 0..<300 {
+            await server.handle(.init(method: "GET", params: ["do": "py", "vid": "1", "range": "bytes=0-1"]),
+                                target: spider, writer: Sink())
+        }
+        #expect(spider.count == 300)
+    }
+
     /// A spider serving real ranges answers each one itself; another file is never joined.
     @Test func aRangeAnswerIsNotSharedWithAnotherRangeOrFile() async {
         let server = SpiderProxyServer()

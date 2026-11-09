@@ -545,13 +545,18 @@ public final class SpiderProxyServer: @unchecked Sendable {
         }
         // Kept until the spider answers, not until this request gives up: the call still occupies the queue.
         // Dropped before the answer is handed out, so a request after it (a retry) asks the spider again.
+        // Created and noted under one lock: the task's own removal takes the same lock, so even a call that
+        // answers at once is removed after it was noted, never before (which would leave it noted for good).
         let id = UUID()
-        let task = Task { [weak self] in
-            let answer = try? await target.proxy(params: params)
-            self?.lock.withLock { if self?.running[key]?.id == id { self?.running[key] = nil } }
-            return answer
+        let task = lock.withLock {
+            let task = Task { [weak self] in
+                let answer = try? await target.proxy(params: params)
+                self?.lock.withLock { if self?.running[key]?.id == id { self?.running[key] = nil } }
+                return answer
+            }
+            running[key] = (id, params["range"], task)
+            return task
         }
-        lock.withLock { running[key] = (id, params["range"], task) }
         return await timed(task)
     }
 

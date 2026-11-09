@@ -44,6 +44,9 @@ public final class SpiderProxyServer: @unchecked Sendable {
     /// W-245: whole episodes a spider answered as one `200 video/mp4` (W-240), by the file asked for —
     /// what tells the next episode of that same address apart as one worth warming, and its cost.
     private var wholeMP4 = [String: Int64]()
+    /// W-262: whole episodes whose video is VVC or ByteVC2 (`MP4SampleEntry.needsMPV`), by file:
+    /// AVPlayer cannot decode them, so the next open of that address starts on MPV.
+    private var vvc = Set<String>()
     /// W-252: the call each request (bar its range) is waiting on, while it runs on the site's serial queue.
     private var running = [String: (id: UUID, range: String?, task: Task<SpiderProxyResponse?, Never>)]()
     public let token = UUID().uuidString.lowercased()
@@ -78,9 +81,13 @@ public final class SpiderProxyServer: @unchecked Sendable {
         return known ? await start() : nil
     }
 
-    /// True for an address `serve` handed out as DASH: AVPlayer cannot open one, so it goes to MPV.
-    public static func prefersMPV(_ url: URL) -> Bool {
-        shared.lock.withLock { shared.dash.contains(url.absoluteString) }
+    /// True for an address `serve` handed out as DASH, or one whose whole MP4 was VVC (W-262): AVPlayer
+    /// cannot open either, so it goes to MPV.
+    public static func prefersMPV(_ url: URL) -> Bool { shared.prefersMPV(url) }
+
+    func prefersMPV(_ url: URL) -> Bool {
+        let file = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedQuery ?? ""
+        return lock.withLock { dash.contains(url.absoluteString) || vvc.contains(file) }
     }
 
     /// True for any address of this server: already a stream, never probed or sniffed.
@@ -371,10 +378,15 @@ public final class SpiderProxyServer: @unchecked Sendable {
     /// `rangedMP4`, noting the whole episode it was served from (W-245).
     private func adapted(_ answer: SpiderProxyResponse, range: String?, file: String) -> SpiderProxyResponse {
         if Self.isWholeMP4(answer) {
+            let size = Int64(answer.body.count)
+            // Read once per answer: every range of it comes through here again.
+            let seen = lock.withLock { wholeMP4[file] == size }
+            let isVVC = seen ? nil : MP4SampleEntry.videoFourCC(answer.body).map(MP4SampleEntry.needsMPV.contains) ?? false
             lock.withLock {
                 // A handful of recent episodes is all a next-episode check reads.
-                if wholeMP4.count >= 16 { wholeMP4.removeAll() }
-                wholeMP4[file] = Int64(answer.body.count)
+                if wholeMP4.count >= 16 { wholeMP4.removeAll(); vvc.removeAll() }
+                wholeMP4[file] = size
+                if let isVVC { if isVVC { vvc.insert(file) } else { vvc.remove(file) } }
             }
         }
         return Self.rangedMP4(answer, range: range)

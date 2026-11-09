@@ -218,6 +218,40 @@ struct SpiderProxyServerTests {
         #expect(bytes("7") == nil, "never asked")
     }
 
+    // W-262: a whole episode whose video is ByteVC2 opens on MPV next time; H.264 and a real 206 do not.
+    @Test func aWholeByteVC2EpisodeIsMarkedForMPV() async {
+        let server = SpiderProxyServer()
+        let bvc2 = MP4Fixture.file([MP4Fixture.track(handler: "soun", entry: "mp4a"), MP4Fixture.track(handler: "vide", entry: "bvc2")])
+        let avc1 = MP4Fixture.file([MP4Fixture.track(handler: "vide", entry: "avc1")])
+        for (vid, answer) in [
+            ("1", SpiderProxyResponse(status: 200, mime: "video/mp4", body: bvc2)),
+            ("2", SpiderProxyResponse(status: 200, mime: "video/mp4", body: avc1)),
+            ("3", SpiderProxyResponse(status: 206, mime: "video/mp4", headers: ["Content-Range": "bytes 0-1/\(bvc2.count)"], body: bvc2.prefix(2))),
+        ] {
+            await server.handle(.init(method: "GET", params: ["do": "py", "range": "bytes=0-1"], query: "do=py&vid=\(vid)"),
+                                target: Fixed(response: answer), writer: Sink())
+        }
+        func mpv(_ vid: String) -> Bool { server.prefersMPV(URL(string: "http://127.0.0.1:9/token/proxy?do=py&vid=\(vid)")!) }
+        #expect(mpv("1"))
+        #expect(!mpv("2") && !mpv("3") && !mpv("4"))
+        // The same file answered again as H.264 (another quality behind the same address) is no longer marked.
+        await server.handle(.init(method: "GET", params: ["do": "py", "range": "bytes=0-1"], query: "do=py&vid=1"),
+                            target: Fixed(response: SpiderProxyResponse(status: 200, mime: "video/mp4", body: avc1)), writer: Sink())
+        #expect(!mpv("1"))
+    }
+
+    // W-262: what the shared proxy learned decides the engine of the next open of that address.
+    @Test func aByteVC2EpisodeTheSharedProxyServedOpensOnMPV() async {
+        let query = "do=py&vid=w262-\(UUID().uuidString)"
+        let url = URL(string: "http://127.0.0.1:9/\(SpiderProxyServer.shared.token)/proxy?\(query)")!
+        #expect(!PlayerRouter.needsMPV(url))
+        let bvc2 = MP4Fixture.file([MP4Fixture.track(handler: "vide", entry: "bvc2")])
+        await SpiderProxyServer.shared.handle(.init(method: "GET", params: ["do": "py", "range": "bytes=0-1"], query: query),
+                                              target: Fixed(response: SpiderProxyResponse(status: 200, mime: "video/mp4", body: bvc2)),
+                                              writer: Sink())
+        #expect(PlayerRouter.needsMPV(url))
+    }
+
     @Test func aWholeMP4DoesNotOverrideIfRange() async {
         let source = SpiderProxyResponse(status: 200, mime: "video/mp4", headers: ["ETag": #""new""#], body: Media.bytes(0...99))
         let sink = Sink()

@@ -7260,6 +7260,13 @@ struct EpisodeSteps: Equatable {
         readyMilliseconds = nil
         startupWatch = Task { @MainActor in
             while !Task.isCancelled {
+                // W-262: the spider proxy found the episode being opened is VVC (ByteVC2), which AVPlayer
+                // cannot decode: hand it to MPV now instead of after the native start timeout. A warmed
+                // next episode is known before it opens and starts on MPV in `PlayerRouter.open`.
+                if engineKind == .native, startupMilliseconds == nil, let url = router.request?.target.url,
+                   SpiderProxyServer.prefersMPV(url), router.select(.mpv, playing: true) {
+                    Self.log.notice("[playback] \(self.itemTitle, privacy: .public) is VVC — moved to MPV before it started")
+                }
                 if readyMilliseconds == nil, let engine, ![.idle, .preparing].contains(engine.state), let loadedAt {
                     readyMilliseconds = Int((ContinuousClock.now - loadedAt) / .milliseconds(1))
                 }

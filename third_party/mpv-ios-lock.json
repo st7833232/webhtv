@@ -287,10 +287,22 @@
     "artifact": {
       "release_tag": "ffmpeg-n8.1.2-webhtv.2",
       "name": "Libavformat.xcframework.zip",
-      "url": "https://github.com/st7833232/webhtv/releases/download/ffmpeg-n8.1.2-webhtv.1/Libavformat.xcframework.zip",
-      "bytes": 3133759,
-      "sha256": "ba3e718df7a81fcdda220068b8df74b37a2bcdde3f5edb5ae759c967a614c8ff",
-      "note": "Published by run 36226970983 from c1bb4d19a750ca0a4ee8c67bdc342e11b67ecad5 (build-manifest.txt with the release; sha256 checked on the downloaded asset). Only the ios-arm64 and ios-arm64_x86_64-simulator slices, as the libmpv lane's Libmpv. ios/Vendor/MPVKit/Package.swift takes url and sha256 as the Libavformat target's url and checksum since IOS-POC-26-2b-2."
+      "url": "https://github.com/st7833232/webhtv/releases/download/ffmpeg-n8.1.2-webhtv.2/Libavformat.xcframework.zip",
+      "bytes": 3133564,
+      "sha256": "12e55a65d51ad8d0fe65905a3e505e77def00110efa264c6ecedad79aa309db1",
+      "release_commit": "a54a11a1f8acc1b1f1da5a11309f5d909cb7950d",
+      "run": "https://github.com/st7833232/webhtv/actions/runs/42586264973",
+      "note": "W-262: published by run 42586264973 from a54a11a1 (build-manifest.txt with the release; compare.txt 24 same, 0 different). Only the ios-arm64 and ios-arm64_x86_64-simulator slices. ios/Vendor/MPVKit/Package.swift takes url and sha256 as the Libavformat target's url and checksum since IOS-POC-26-2b-2."
+    },
+    "artifact_avcodec": {
+      "release_tag": "ffmpeg-n8.1.2-webhtv.2",
+      "name": "Libavcodec.xcframework.zip",
+      "url": "https://github.com/st7833232/webhtv/releases/download/ffmpeg-n8.1.2-webhtv.2/Libavcodec.xcframework.zip",
+      "bytes": 14075788,
+      "sha256": "5a84e31e068e300ea50f35e023da00a27b8ce203904a861914c22bf5ec4b0079",
+      "release_commit": "a54a11a1f8acc1b1f1da5a11309f5d909cb7950d",
+      "run": "https://github.com/st7833232/webhtv/actions/runs/42586264973",
+      "note": "W-262: the same run's Libavcodec, upstream's 1.0.0 configuration plus --enable-decoder=vvc (ByteVC2). ios/Vendor/MPVKit/Package.swift takes url and sha256 as the Libavcodec target's url and checksum; rollback is reference_avcodec."
     }
   }
 }

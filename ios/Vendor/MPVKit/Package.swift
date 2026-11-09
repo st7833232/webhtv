@@ -253,8 +253,8 @@ let package = Package(
 
         .binaryTarget(
             name: "Libavcodec",
-            url: "https://github.com/mpvkit/MPVKit/releases/download/1.0.0/Libavcodec.xcframework.zip",
-            checksum: "136e432919a8a7b5b80155c68e9dc91b0ef3ae6623970b87bb8bd96a452543cf"
+            url: "https://github.com/st7833232/webhtv/releases/download/ffmpeg-n8.1.2-webhtv.2/Libavcodec.xcframework.zip",
+            checksum: "5a84e31e068e300ea50f35e023da00a27b8ce203904a861914c22bf5ec4b0079"
         ),
         .binaryTarget(
             name: "Libavdevice",
@@ -263,8 +263,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "Libavformat",
-            url: "https://github.com/st7833232/webhtv/releases/download/ffmpeg-n8.1.2-webhtv.1/Libavformat.xcframework.zip",
-            checksum: "ba3e718df7a81fcdda220068b8df74b37a2bcdde3f5edb5ae759c967a614c8ff"
+            url: "https://github.com/st7833232/webhtv/releases/download/ffmpeg-n8.1.2-webhtv.2/Libavformat.xcframework.zip",
+            checksum: "12e55a65d51ad8d0fe65905a3e505e77def00110efa264c6ecedad79aa309db1"
         ),
         .binaryTarget(
             name: "Libavfilter",

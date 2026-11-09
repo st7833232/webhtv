@@ -586,7 +586,12 @@ var spider = (function () {
     homeVideoContent: function () {
       var list = categories();
       var spec = pick(['首页', '热门', 'homeContent', 'shouye']);
-      if (!spec) return list.length ? host.result.list(this.categoryList(list[0].type_id, '1')) : { list: [] };
+      if (!spec && list.length) return host.result.list(this.categoryList(list[0].type_id, '1'));
+      // No category either: the original's default `40`, the home page's own titles (W-250, KISSAV).
+      if (!spec) {
+        if (!homeUrl()) return { list: [] };
+        spec = '40';
+      }
       if (spec === '1' || spec === '首页') spec = '40';
       var name = spec, limit = 40;
       if (spec.indexOf('$') !== -1) {

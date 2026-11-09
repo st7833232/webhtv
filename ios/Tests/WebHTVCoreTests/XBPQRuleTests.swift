@@ -372,6 +372,18 @@ private func category(_ spider: JavaScriptSpiderRuntime, _ tid: String = "1") as
     #expect(try await home(nil) == ["分九"])                // unset: the first category, as before
 }
 
+/// W-250: KISSAV moved its category links, so no `分类ID` matches and the site has no category.
+/// Android's xyqxbpq.jar still lists the home page (its `首页` default is 40); iOS showed nothing.
+@Test func listsTheHomePageWhenUnsetAndNoCategoryWasFound() async throws {
+    RuleSite.serve(["https://s16b.invalid/": #"<i><a href="/v/1" title="首一"></a></i><i><a href="/v/2" title="首二"></a></i>"#])
+    let spider = try await xbpq(#"""
+    {"主页url":"https://s16b.invalid/","分类url":"https://s16b.invalid/c/{cateId}","数组":"<i>&&</i>",
+     "分类数组":"<b&&</b>","分类ID":"/old/&&\""}
+    """#)
+    #expect(try titles(try await spider.homeVideoContent()).map { $0["vod_name"] } == ["首一", "首二"])
+    await spider.destroy()
+}
+
 /// The original's fetch removes every whitespace character but the plain space before a rule sees
 /// the page. 野鸡資源's `vod-img&&/div></div>` is written against that: the site sends
 /// `</div>\n</div>`, and without the normalisation not one title matched.

@@ -45,7 +45,7 @@ Reviewer 指出每次啟動 `refreshSpiderPack` 都會 reset，清表後的下�
 
 修正：代理收到帶站別、但站表裡沒有的下載請求時回 **503**（不是 404）。503 走一般重試，重試時 `localProxyBase` → `downloadBase` 重新建立該站爬蟲；真的建不起來就照 W-268 標 `noLocalProxy`。播放請求（不帶站別）不受影響。
 
-測試：`aSessionResetFreesTheSpidersKeptForDownloads`、`aDownloadIsAnsweredByItsOwnSitesSpiderNotTheOneThatPlayedLast` 改為期待 503；新增 `OfflineLocalProxyTests.aTransferTheProxyLetGoOfIsRetriedWithItsSpiderMadeAgain`：傳輸收到 503 後同一單元重送到同一位址、`localProxy` 被重新呼叫、資產仍在下載中。相關 190/190，全量見提交紀錄。
+測試：`aDownloadIsAnsweredByItsOwnSitesSpiderNotTheOneThatPlayedLast` 改為期待 503；釋放測試拆成兩個——`forgettingTheSitesFreesTheSpidersKeptForDownloads`（獨立的代理實體：留住 → 清表後釋放 → 503）與 `aSessionResetFreesTheSpidersKeptForDownloads`（共用代理：`reset()` 後釋放；原版在全量平行跑時會被 `SpiderGoldenTests` 同時呼叫的 reset 干擾，改成只檢查結果）；新增 `OfflineLocalProxyTests.aTransferTheProxyLetGoOfIsRetriedWithItsSpiderMadeAgain`：傳輸收到 503 後同一單元重送到同一位址、`localProxy` 被重新呼叫、資產仍在下載中。相關 190/190；全量連跑 3 次，本單的測試每次都過，第 3 次全綠（另兩次失敗的是已知平行不穩的 `theFetcherStopsReadingAtTheLimit`——基準版也會失敗——與 WebView 廣告擋除測試）。
 
 ## 回退
 

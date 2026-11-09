@@ -703,20 +703,33 @@ extension SpiderProxyServerTests {
 
     /// W-270: dropping the app's sessions (a reloaded configuration or spider pack) lets the proxy's per-site
     /// spiders go too, so the old one is freed; a download makes its site's again.
-    @Test func aSessionResetFreesTheSpidersKeptForDownloads() async {
-        let site = "w270-\(UUID().uuidString)"
+    @Test func forgettingTheSitesFreesTheSpidersKeptForDownloads() async {
+        let server = SpiderProxyServer()
         weak var old: Recording?
         do {
             let spider = Recording("old")
             old = spider
-            #expect(await SpiderProxyServer.shared.downloadBase(siteID: site) { spider } != nil)
+            #expect(await server.downloadBase(siteID: "a") { spider } != nil)
         }
         #expect(old != nil)
-        await SpiderSessionStore().reset()
+        server.forgetSites()
         #expect(old == nil)
         // A transfer already queued gets 503, which the download retries (a 404 would fail it), and the retry
         // makes the site's spider again.
-        #expect(await get(SpiderProxyServer.shared, "do=py&f=1&\(OfflineLocalProxy.siteParameter)=\(site)").head.hasPrefix("HTTP/1.1 503"))
+        #expect(await get(server, "do=py&f=1&\(OfflineLocalProxy.siteParameter)=a").head.hasPrefix("HTTP/1.1 503"))
+    }
+
+    /// The app's reset is what lets them go. Other tests reset the shared store too, so only the end state is
+    /// checked; without the call in `reset()` the spider stays held and this fails.
+    @Test func aSessionResetFreesTheSpidersKeptForDownloads() async {
+        weak var old: Recording?
+        do {
+            let spider = Recording("old")
+            old = spider
+            _ = await SpiderProxyServer.shared.downloadBase(siteID: "w270-\(UUID().uuidString)") { spider }
+        }
+        await SpiderSessionStore().reset()
+        #expect(old == nil)
     }
 
     @Test func onlyADownloadGetsTheLongerLimit() async {

@@ -157,7 +157,7 @@ jobs:
           while IFS=$'\t' read -r name version url sha256; do
             dir="$WORKDIR/dist/$name-$version"
             mkdir -p "$dir"
-            curl -fsSL --retry 3 -o "$dir/$name.zip" "$url"
+            curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors -o "$dir/$name.zip" "$url"
             echo "$sha256  $dir/$name.zip" | shasum -a 256 -c -
             unzip -q -o "$dir/$name.zip" -d "$dir"
           done < "$RUNNER_TEMP/deps.tsv"
@@ -238,7 +238,7 @@ jobs:
             if lipo -info "$1" | grep -q '^Non-fat'; then cp "$1" "$2"; else lipo -thin arm64 "$1" -output "$2"; fi
           }
           unpack() { # name, url, sha256, dir
-            curl -fsSL --retry 3 -o "$work/$1.zip" "$2"
+            curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors -o "$work/$1.zip" "$2"
             echo "$3  $work/$1.zip" | shasum -a 256 -c -
             mkdir -p "$4"
             unzip -q "$work/$1.zip" -d "$4"
@@ -384,6 +384,12 @@ jobs:
             check "Libavcodec CONFIG_VVC_DECODER" "#define CONFIG_VVC_DECODER 1" \
               "$(grep '^#define CONFIG_VVC_DECODER ' "$new_fw/Headers/config_components.h")"
           fi
+          # Only Libavcodec and Libavformat are replaced; the app keeps the upstream Libavutil, so every
+          # av_/ff_ symbol the new decoder needs from outside Libavcodec must be defined there.
+          external="$(comm -13 <(symbols -guj "$ref_lib") <(symbols -guj "$new_lib") \
+                      | comm -23 - <(symbols -gUj "$new_lib") | grep -E '^_(av|ff|avpriv)_' || true)"
+          missing="$(printf '%s\n' "$external" | sed '/^$/d' | comm -23 - <(symbols -gUj "$work/ref-avutil.a") | words)"
+          check "Libavcodec new av_/ff_ symbols not defined in the upstream Libavutil" "none" "${missing:-none}"
           check "Libavcodec simulator architectures" \
             "$(lipo -archs "$work/ref/Libavcodec.xcframework/ios-arm64_x86_64-simulator/Libavcodec.framework/Libavcodec")" \
             "$(lipo -archs "$work/new/Libavcodec.xcframework/ios-arm64_x86_64-simulator/Libavcodec.framework/Libavcodec")"
@@ -467,6 +473,12 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
+            # W-262: a tag a manual run already published from a test branch is not published again
+            # when the reviewed commit lands on ios-poc; that push only rebuilds and compares.
+            if [[ "${{ github.event_name }}" == push ]]; then
+              echo "::notice title=Release exists::$TAG is already published ($(gh release view "$TAG" --json targetCommitish -q .targetCommitish)); this run verified the build only"
+              exit 0
+            fi
             echo "::error title=Release exists::$TAG is already published; bump ffmpeg.artifact.release_tag in third_party/mpv-ios-lock.json to publish a new build"
             exit 1
           fi

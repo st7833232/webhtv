@@ -242,7 +242,8 @@
         "0003-avformat-hls-rebase-seek-discard-threshold-to-each-p.patch": "8fff53d1bfa8114c430e7154eca046cccb8f45828fcdce2a16e48bfbec235c0a",
         "0004-tests-fate-seek-exclude-hls-seek-test-without-aresam.patch": "2194bf9bc9330949f066a16584ff242f528b71fb4cb2b10d7100f9f27218124d",
         "0005-avformat-hls-normalize-timestamps-across-discontinui.patch": "12617510bdff0273b190a6c843038b424d487e32cb3f983873e2fe8049415cb6",
-        "0006-avformat-hls-anchor-discontinuity-sequences-to-the-p.patch": "173c6328a65943e5e9306809cf7cf5607a28d4ea17340087eb64b80c1220f74b"
+        "0006-avformat-hls-anchor-discontinuity-sequences-to-the-p.patch": "173c6328a65943e5e9306809cf7cf5607a28d4ea17340087eb64b80c1220f74b",
+        "0007-avformat-mov-read-ByteVC2-bvc2-as-VVC.patch": "a69ca09a1a45e2fd4b41a9cbe57991fcdd8d9c64f166984d1c3033f0fc9875a9"
       },
       "sources": {
         "0001": "cherry-pick of FFmpeg f699b3a8f52c151f61318b757abf04cab0811724 (test only)",
@@ -250,13 +251,19 @@
         "0003": "cherry-pick of FFmpeg e27ad5760c0c8eca7c95bb907dc6e4e62dbf129b, two conflicts resolved (new_playlist keeps n8.1.2's code; the EVENT-only lines from 6d98a9a2e8757d6eb616501ade06877389a31597 are left out)",
         "0004": "cherry-pick of FFmpeg c3ca443969af0ef075fff5636c8516e21a1924d6 (test only)",
         "0005": "FongMi/FFmpeg 5805f9364c2e9a5f6ce625c9077b308c3ed4014d, every line identical; hls_timestamp.{c,h} and its test byte-identical to FongMi 177f090e0503b7e013922ca903bde14b1c375f18",
-        "0006": "WebHTV adaptation of 5805f936: on finished playlists a discontinuity sequence keeps its offset only if its first packet continues its stream (within 1.5 frames and 60 ms, or within 1 s when its playlist position is more than 1 s away) and is otherwise anchored to its playlist position, moved just after the previous packet where that would step video back or overlap audio by a packet or more; for playlists with normalized timestamps the seek discard compares in the packet time base (tag-free playlists keep the upstream comparison). Final round 3 (reviewed as 282f102c07371dd33440588c38447552099ee22b; this export only amends its message); accepted consequences and bounds in docs/IOS-POC-26-engine-switch-position.md"
+        "0006": "WebHTV adaptation of 5805f936: on finished playlists a discontinuity sequence keeps its offset only if its first packet continues its stream (within 1.5 frames and 60 ms, or within 1 s when its playlist position is more than 1 s away) and is otherwise anchored to its playlist position, moved just after the previous packet where that would step video back or overlap audio by a packet or more; for playlists with normalized timestamps the seek discard compares in the packet time base (tag-free playlists keep the upstream comparison). Final round 3 (reviewed as 282f102c07371dd33440588c38447552099ee22b; this export only amends its message); accepted consequences and bounds in docs/IOS-POC-26-engine-switch-position.md",
+        "0007": "WebHTV's own (W-262): maps the 'bvc2' sample entry to AV_CODEC_ID_VVC after vvc1/vvi1 and gives such a track the minimal vvcC extradata (fe 00: 4-byte NAL lengths, no arrays). ByteVC2 is VVC with in-band parameter sets (docs/W-254-bvc2-decoder.md). No librempeg code."
       }
     },
     "buildscripts": {
       "path": "third_party/mpv-ios/patches/buildscripts/0002-build-ffmpeg-only.patch",
       "sha256": "1681d736aa2506b6854dbe9a8efd4483ee0d0f5594555f2196b7438a65866a09",
       "note": "Ends the recipe after FFmpeg, so libmpv and its dependencies after FFmpeg are not built in this lane."
+    },
+    "buildscripts_vvc": {
+      "path": "third_party/mpv-ios/patches/buildscripts/0003-enable-vvc-decoder.patch",
+      "sha256": "aadaaa5aac8e346c3a2a713125026f2c7fc6f2cee1192521e43f620e2ac15d57",
+      "note": "W-262: adds --enable-decoder=vvc to the recipe's decoder list (main.swift), applied after 0002."
     },
     "reference": {
       "name": "Libavformat.xcframework.zip",
@@ -271,8 +278,14 @@
       "sha256": "5dc251c8807c501982edfb0bc9bddfee4148733142d6ebb947738c60fb3bf8d8",
       "note": "No WebHTV change reaches Libavutil, so its ios-arm64 slice must match upstream in configuration, archive members and defined and undefined external symbols: the evidence that this lane reproduces the recipe's FFmpeg build."
     },
+    "reference_avcodec": {
+      "name": "Libavcodec.xcframework.zip",
+      "url": "https://github.com/mpvkit/MPVKit/releases/download/1.0.0/Libavcodec.xcframework.zip",
+      "sha256": "136e432919a8a7b5b80155c68e9dc91b0ef3ae6623970b87bb8bd96a452543cf",
+      "note": "W-262: the upstream 1.0.0 Libavcodec the rebuilt one is compared with (its SwiftPM checksum in ios/Vendor/MPVKit/Package.swift)."
+    },
     "artifact": {
-      "release_tag": "ffmpeg-n8.1.2-webhtv.1",
+      "release_tag": "ffmpeg-n8.1.2-webhtv.2",
       "name": "Libavformat.xcframework.zip",
       "url": "https://github.com/st7833232/webhtv/releases/download/ffmpeg-n8.1.2-webhtv.1/Libavformat.xcframework.zip",
       "bytes": 3133759,

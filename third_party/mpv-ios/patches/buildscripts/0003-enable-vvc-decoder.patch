@@ -1,0 +1,13 @@
+diff --git a/Sources/BuildScripts/XCFrameworkBuild/main.swift b/Sources/BuildScripts/XCFrameworkBuild/main.swift
+index 754fa82..2e394a3 100644
+--- a/Sources/BuildScripts/XCFrameworkBuild/main.swift
++++ b/Sources/BuildScripts/XCFrameworkBuild/main.swift
+@@ -713,6 +713,8 @@ private class BuildFFMPEG: BaseBuild {
+         "--enable-decoder=ffv1", "--enable-decoder=ffvhuff", "--enable-decoder=flv",
+         "--enable-decoder=h263", "--enable-decoder=h263i", "--enable-decoder=h263p", "--enable-decoder=h264",
+         "--enable-decoder=hap", "--enable-decoder=hevc", "--enable-decoder=huffyuv",
++        // WebHTV (W-262): VVC, which ByteVC2 ('bvc2') short-drama sources carry.
++        "--enable-decoder=vvc",
+         "--enable-decoder=indeo5",
+         "--enable-decoder=mjpeg", "--enable-decoder=mjpegb", "--enable-decoder=mpeg*", "--enable-decoder=mts2",
+         "--enable-decoder=prores",

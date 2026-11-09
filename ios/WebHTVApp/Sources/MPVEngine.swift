@@ -1315,9 +1315,11 @@ final class MPVSoftwareRenderer: @unchecked Sendable {
         // does one whose decoder the system took back, behind the lock screen (Apple forums 745840).
         if #available(iOS 17.0, *), let renderer = output as? AVSampleBufferVideoRenderer {
             if renderer.status == .failed || renderer.requiresFlushToResumeDecoding { renderer.flush() }
+        } else if let layer = output as? AVSampleBufferDisplayLayer {
+            // iOS 16 enqueues on the layer itself, which carries the same two signals. Swift marks the
+            // layer main-actor (3 warnings); the render queue already enqueues on it, as VLC does.
+            if layer.status == .failed || layer.requiresFlushToResumeDecoding { layer.flush() }
         }
-        // iOS 16 enqueues through AVSampleBufferDisplayLayer, the older implementation of
-        // AVQueuedSampleBufferRendering; iOS 17+ continues using sampleBufferRenderer.
         output.enqueue(sample)
     }
 }

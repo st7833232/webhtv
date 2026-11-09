@@ -4,9 +4,16 @@ on:
   push:
     branches: [ios16-compat]
   workflow_dispatch:
+    inputs:
+      version:
+        description: Test build marketing version
+        default: "0.1.96"
 
 permissions:
   contents: read
+
+env:
+  TEST_VERSION: ${{ inputs.version || '0.1.96' }}
 
 jobs:
   build:
@@ -26,6 +33,9 @@ jobs:
       - name: Build iOS 16 compatible unsigned app
         run: |
           set -euo pipefail
+          # Test builds count from 10000 so they never share a build number with a release.
+          TEST_BUILD=$((10000 + GITHUB_RUN_NUMBER))
+          echo "TEST_BUILD=$TEST_BUILD" >> "$GITHUB_ENV"
           xcodebuild \
             -project ios/WebHTVApp/WebHTVApp.xcodeproj \
             -scheme WebHTVApp \
@@ -33,10 +43,8 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build/DerivedData \
-            MARKETING_VERSION=0.1.95 \
-            CURRENT_PROJECT_VERSION=96 \
-            MARKETING_VERSION=0.1.96 \
-            CURRENT_PROJECT_VERSION=97 \
+            MARKETING_VERSION="$TEST_VERSION" \
+            CURRENT_PROJECT_VERSION="$TEST_BUILD" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY='' \
@@ -54,13 +62,13 @@ jobs:
           [[ "$BUNDLE" == "com.webhtv.ios.poc" ]] || exit 1
           VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")"
           BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")"
-          [[ "$VERSION" == "0.1.96" && "$BUILD" == "97" ]] || { echo "::error::Unexpected version $VERSION ($BUILD)"; exit 1; }
+          [[ "$VERSION" == "$TEST_VERSION" && "$BUILD" == "$TEST_BUILD" ]] || { echo "::error::Unexpected version $VERSION ($BUILD)"; exit 1; }
           mkdir -p package/Payload dist
           ditto "$APP" package/Payload/WebHTVApp.app
-          (cd package && ditto -c -k --sequesterRsrc --keepParent Payload "../dist/WebHTV-iOS16-0.1.96-b97.ipa")
+          (cd package && ditto -c -k --sequesterRsrc --keepParent Payload "../dist/WebHTV-iOS16-$TEST_VERSION-b$TEST_BUILD.ipa")
       - name: Upload test IPA
         uses: actions/upload-artifact@v4
         with:
-          name: WebHTV-ios16-0.1.96-b97
-          path: dist/WebHTV-iOS16-0.1.96-b97.ipa
+          name: WebHTV-ios16-${{ env.TEST_VERSION }}-b${{ env.TEST_BUILD }}
+          path: dist/WebHTV-iOS16-${{ env.TEST_VERSION }}-b${{ env.TEST_BUILD }}.ipa
           retention-days: 7

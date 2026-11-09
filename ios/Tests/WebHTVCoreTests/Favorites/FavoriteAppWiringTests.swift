@@ -53,7 +53,7 @@ private func declaration(_ header: String, in source: String) throws -> String {
 /// A11: the favourites screens read the watch history and the downloads, and never write them.
 @Test func theFavoritesScreensOnlyReadHistoryAndDownloads() throws {
     let source = try appSource()
-    for header in ["final class FavoriteLibrary {", "private struct FavoritesView: View {",
+    for header in ["final class FavoriteLibrary: ObservableObject {", "private struct FavoritesView: View {",
                    "private struct FavoriteCard: View {", "private struct FavoriteUnavailableView: View {"] {
         let body = try declaration(header, in: source)
         for needle in ["WatchHistoryStore.shared.save", "WatchHistoryStore.shared.remove", "WatchHistoryStore.shared.clear",

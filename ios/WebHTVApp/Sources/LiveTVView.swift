@@ -8,6 +8,7 @@ import WebHTVCore
 /// last live source opens first, its last channel is marked and offered as 「繼續看」 — never played by itself
 /// (X-15) — and favourites lead the group column as 「收藏」.
 struct LiveTVView: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     let lives: [LiveSource]
     /// The configuration's own address, for a `./` list.
     let base: URL?
@@ -398,6 +399,7 @@ struct LiveTVView: View {
 /// IOS-POC-59 U3 (D§6.4.3): the live layer over the player — channel, line and its menu, 上一台／下一台 with the bar;
 /// the "all lines tried" or ended card whatever the bar does.
 struct LivePlayerOverlay: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     @ObservedObject var controller: LiveTVController
     let controlsVisible: Bool
 

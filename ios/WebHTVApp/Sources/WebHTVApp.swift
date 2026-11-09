@@ -1025,6 +1025,7 @@ private struct CinematicChoice: View {
 }
 
 private struct HomeView: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     let sites: [Site]
     @Binding var selectedSiteID: Site.ID?
     /// Needed only so a rule-engine spider can resolve a relative `ext` such as
@@ -1114,6 +1115,7 @@ struct FolderTarget: Hashable {
 }
 
 private struct CMSView: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     let site: Site
     let source: ConfigSource
     var initialQuery: String?
@@ -1644,6 +1646,7 @@ private struct CMSView: View {
 }
 
 private struct VodCard: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     let vod: Vod
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -1690,6 +1693,7 @@ private struct SearchCanceller: View {
 }
 
 private struct AggregateSearchView: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     let sites: [Site]
     let source: ConfigSource
     var initialQuery: String?
@@ -2064,6 +2068,7 @@ private struct SubtitleCredentialRow: View {
 }
 
 private struct SettingsView: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     let sites: [Site]
     @Binding var selectedSiteID: Site.ID?
     let source: ConfigSource
@@ -2152,15 +2157,15 @@ private struct SettingsView: View {
                     }
                 )) {
                     ForEach(PlaybackSpeedPreference.choices, id: \.self) { speed in
-                        Text(String(format: "%g×", Double(speed)))
-                            .accessibilityLabel(String(format: "%g 倍", Double(speed)))
+                        Text(speed.formatted(.number.precision(.fractionLength(0...2))) + "×")
+                            .accessibilityLabel(speed.formatted(.number.precision(.fractionLength(0...2))) + " 倍")
                             .tag(speed)
                     }
                 }
                 .pickerStyle(.menu)
                 // The collapsed row is what VoiceOver meets first, and nothing guarantees an option's
                 // label reaches it; stated here so it reads 「2 倍」, never 「2 乘」.
-                .accessibilityValue(String(format: "%g 倍", Double(defaultSpeed)))
+                .accessibilityValue(defaultSpeed.formatted(.number.precision(.fractionLength(0...2))) + " 倍")
             } header: {
                 Text("預設播放速度")
             } footer: {
@@ -2454,6 +2459,7 @@ private struct SiteHealthDot: View {
 /// screen's picker does; choosing one goes back to the home screen with it, as the list on the
 /// settings page used to.
 private struct SiteChoiceList: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     let sites: [Site]
     let source: ConfigSource
     @Binding var selectedSiteID: Site.ID?
@@ -2507,6 +2513,7 @@ private struct SiteChoiceList: View {
 /// cover sites never opened by hand — unless the device turned out to be offline, when nothing is
 /// written. Leaving the screen stops the check; what finished is kept.
 private struct SourceCheckView: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     let sites: [Site]
     let source: ConfigSource
 
@@ -2690,6 +2697,7 @@ private struct JapaneseTranslationBar: View {
 }
 
 private struct VodView: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     @ObservedObject private var favoritesModel = favoriteLibrary
     @ObservedObject private var downloadsModel = offlineLibrary
     let site: Site
@@ -3461,6 +3469,7 @@ private struct VodView: View {
 /// detail screen is where the remembered episode is marked, and it is the screen a viewer needs
 /// anyway to pick a different one.
 private struct HistoryView: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     let sites: [Site]
     let source: ConfigSource
     let waiting: [Site]
@@ -3551,7 +3560,7 @@ private struct HistoryView: View {
                 .buttonStyle(.plain)
                 .accessibilityValue(FavoriteAvailability.Reason.needsSpiderTool.title)
                 // A row badge sits at the trailing edge beside the content; an overlay covered long titles.
-                .badge(Text(FavoriteAvailability.Reason.needsSpiderTool.title))
+                .badge(accentBadge(FavoriteAvailability.Reason.needsSpiderTool.title))
         } else {
             // The configuration changed under the record. Show it, greyed, rather than dropping it:
             // deleting someone's history because a site was renamed is worse than a dead row.
@@ -3827,6 +3836,7 @@ private struct FavoritesView: View {
 /// One favourite: poster and title always; year and source when known; then what the watch history
 /// and the downloads say about it — read here, stored nowhere.
 private struct FavoriteCard: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     let favorite: Favorite
     let watched: WatchHistory?
     let downloaded: Int
@@ -3894,6 +3904,7 @@ private struct FavoriteCard: View {
 /// A14: a favourite whose site is not in the loaded configuration. Shown from its snapshot, kept,
 /// and never matched to anything else; removing it is the viewer's own choice.
 private struct FavoriteUnavailableView: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     let favorite: Favorite
     let reason: FavoriteAvailability.Reason?
     let busy: Bool
@@ -3973,7 +3984,7 @@ private struct FavoriteToggle: View {
             .font(.title3.weight(.medium))
             .frame(width: 44, height: 44)
             .contentShape(Rectangle())
-            .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: isFavorite)
+            .animation(reduceMotion ? nil : favoriteToggleAnimation, value: isFavorite)
         }
         .buttonStyle(.plain)
         .onChangeCompat(of: isFavorite) { _, now in
@@ -4044,6 +4055,7 @@ private struct SpiderToolNeededView: View {
 
 /// A13: 已看完，已從收藏移除 · 復原 — for as long as the offer is open, then gone by itself.
 private struct FavoriteUndoBanner: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     let offer: FavoriteUndoOffer
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
 
@@ -4605,6 +4617,7 @@ private struct OfflineEpisodeStatus: View {
 
 /// 下載資訊.
 private struct OfflineAssetInfoView: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     let asset: OfflineAsset
     @Environment(\.dismiss) private var dismiss
 
@@ -4642,6 +4655,7 @@ struct OfflineDownloadDraft: Identifiable {
 /// The sheet before a download: quality mode, the video it means, audio, subtitles, the estimated
 /// size against the free space, and 看完後自動刪除.
 private struct OfflineDownloadSheet: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     let draft: OfflineDownloadDraft
     @Environment(\.dismiss) private var dismiss
     @State private var mode = OfflineDownloadPreferences().mode
@@ -4859,6 +4873,7 @@ private struct OfflineDownloadSheet: View {
 
 /// One download in a list: what it is, where it got to, and its actions behind 「…」.
 private struct OfflineAssetRow: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     let asset: OfflineAsset
     /// The title is already the screen's on 管理下載.
     var showsTitle = true
@@ -4934,6 +4949,7 @@ private struct OfflineAssetRow: View {
 /// The 下載 tab: how much space offline content takes against what is free, then one group per
 /// title (IOS-POC-57) — opened to show its episodes, and paused, resumed or deleted all at once.
 private struct OfflineDownloadsView: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     @ObservedObject private var downloadsModel = offlineLibrary
     @ObservedObject private var networkModel = OfflineNetwork.shared
     @State private var playing: OfflineAsset?
@@ -5012,6 +5028,7 @@ private struct OfflineDownloadsView: View {
 
 /// IOS-POC-57: one title in the 下載 tab — what it holds, and what can be done to all of it.
 private struct OfflineTitleGroupRow: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     let group: OfflineTitleGroup
     let expanded: Bool
     let onToggle: () -> Void
@@ -5091,6 +5108,7 @@ private struct OfflineTitleGroupRow: View {
 /// 管理下載 for one title: pick episodes, see what they free, delete them — or the watched ones, the
 /// failed ones, or all of them.
 private struct OfflineTitleDownloadsView: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     @ObservedObject private var downloadsModel = offlineLibrary
     let historyKey: String
     let title: String
@@ -7775,6 +7793,7 @@ final class AVPlayerEngine: PlaybackEngine {
 /// Everything here drives `PlaybackSession`. No second playback state, no second player, and the
 /// same bar and panels whichever engine is playing.
 private struct PlayerControlBar: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
     let session: PlaybackSession
     /// Seconds. Owned by `PlayerView`, which runs the periodic observer.
     let position: Double
@@ -8150,7 +8169,7 @@ private struct PlayerControlBar: View {
                 panelRows(panel)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { rowsHeight = $0 }
             }
-            
+            .modifier(CompatScrollBounceBasedOnSize())
             .frame(height: rowsHeight > 0 ? min(rowsHeight, rowsLimit) : rowsLimit)
             // A different panel starts at its own top, not at the last one's scroll offset.
             .id(panel)
@@ -9521,9 +9540,9 @@ private struct WebHomeView: View {
 
 /// IOS-POC-32 C: a source's Simplified Chinese on screen in Taiwan Traditional (`TaiwanTraditional`).
 /// The converter loads once, off the main thread. Until it has, text shows as the source sent it, and
-/// every view that asked is redrawn when it arrives, because Observation tracks the read of
-/// `converter`. **Display only**: a converted string never goes back into search, watch history,
-/// identity values or the WebHome bridge.
+/// every view that asked is redrawn when it arrives: each view that calls `zhTW` holds this object as
+/// `@ObservedObject` (Observation needs iOS 17; W-251 keeps iOS 16). **Display only**: a converted
+/// string never goes back into search, watch history, identity values or the WebHome bridge.
 @MainActor final class TaiwanDisplay: ObservableObject {
     static let shared = TaiwanDisplay()
 
@@ -9792,16 +9811,17 @@ private struct WebHomeWebView: UIViewRepresentable {
 #endif
 
 
- 
 // iOS 16 backports. iOS 17-only SwiftUI symbols never execute on an older system.
+/// iOS 17+ draws the system `ContentUnavailableView` exactly as before; only iOS 16 gets the VStack.
 struct CompatContentUnavailableView: View {
     private let label: AnyView
-    private let description: AnyView
+    private let description: AnyView?
     private let actions: AnyView
+    private var searchText: String?
 
     init(_ title: String, systemImage: String, description: Text? = nil) {
         label = AnyView(Label(title, systemImage: systemImage))
-        self.description = AnyView(description ?? Text(""))
+        self.description = description.map { AnyView($0) }
         actions = AnyView(EmptyView())
     }
 
@@ -9816,19 +9836,29 @@ struct CompatContentUnavailableView: View {
     }
 
     static func search(text: String) -> Self {
-        Self("沒有找到「\(text)」", systemImage: "magnifyingglass", description: Text("請試試其他關鍵字。"))
+        var view = Self("沒有找到「\(text)」", systemImage: "magnifyingglass", description: Text("請試試其他關鍵字。"))
+        view.searchText = text
+        return view
     }
 
     var body: some View {
-        VStack(spacing: 12) {
-            label.font(.title3.weight(.semibold))
-            description.font(.subheadline).foregroundStyle(.secondary)
-            actions.padding(.top, 6)
+        if #available(iOS 17.0, *) {
+            if let searchText {
+                ContentUnavailableView.search(text: searchText)
+            } else {
+                ContentUnavailableView { label } description: { description } actions: { actions }
+            }
+        } else {
+            VStack(spacing: 12) {
+                label.font(.title3.weight(.semibold))
+                description.font(.subheadline).foregroundStyle(.secondary)
+                actions.padding(.top, 6)
+            }
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 36)
         }
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 36)
     }
 }
 
@@ -9838,18 +9868,22 @@ private struct CompatChangeModifier<Value: Equatable>: ViewModifier {
     let action: (Value, Value) -> Void
     @State private var previous: Value?
 
-    func body(content: Content) -> some View {
-        content
-            .onAppear {
-                guard previous == nil else { return }
-                previous = value
-                if initial { action(value, value) }
-            }
-            .onChange(of: value) { newValue in
-                let oldValue = previous ?? value
-                previous = newValue
-                action(oldValue, newValue)
-            }
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content.onChange(of: value, initial: initial) { action($0, $1) }
+        } else {
+            content
+                .onAppear {
+                    guard previous == nil else { return }
+                    previous = value
+                    if initial { action(value, value) }
+                }
+                .onChange(of: value) { newValue in
+                    let oldValue = previous ?? value
+                    previous = newValue
+                    action(oldValue, newValue)
+                }
+        }
     }
 }
 
@@ -9879,6 +9913,31 @@ private struct CompatHeartEffect: ViewModifier {
     }
 }
 
+/// A row badge in the accent colour; `foregroundStyle` returns `Text` only from iOS 17.
+@MainActor private func accentBadge(_ title: String) -> Text {
+    if #available(iOS 17.0, *) {
+        return Text(title).foregroundStyle(appAccent)
+    } else {
+        return Text(title).foregroundColor(appAccent)
+    }
+}
+
+/// `.snappy` is iOS 17; iOS 16 gets the nearest spring.
+private var favoriteToggleAnimation: Animation {
+    if #available(iOS 17.0, *) { return .snappy }
+    return .spring(response: 0.3, dampingFraction: 0.8)
+}
+
+private struct CompatScrollBounceBasedOnSize: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) {
+            content.scrollBounceBehavior(.basedOnSize)
+        } else {
+            content
+        }
+    }
+}
+
 private struct CompatListSectionSpacing: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         if #available(iOS 17.0, *) {
@@ -9889,7 +9948,7 @@ private struct CompatListSectionSpacing: ViewModifier {
     }
 }
 
- 
+
 /// Keeps exactly one bottom navigation surface on every supported iOS version.
 /// iOS 16 uses the native tab bar because SwiftUI's hide preference does not
 /// consistently hide the bar in this nested NavigationStack/TabView hierarchy.

@@ -335,10 +335,7 @@ public final class URLSessionOfflineTransport: NSObject, OfflineTransport, URLSe
 /// through the very path a play uses (`SourceClient.playbackURL`).
 public enum OfflineEpisodeResolver {
     public static func target(for asset: OfflineAsset, sites: [Site], source: ConfigSource) async -> PlaybackTarget? {
-        let suffix = WatchHistory.separator + asset.title.vodId
-        guard asset.identity.historyKey.hasSuffix(suffix) else { return nil }
-        let siteID = String(asset.identity.historyKey.dropLast(suffix.count))
-        guard let site = sites.first(where: { $0.id == siteID }),
+        guard let siteID = OfflineLocalProxy.siteID(of: asset), let site = sites.first(where: { $0.id == siteID }),
               let client = try? await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
         else { return nil }
         let episode = Episode(name: asset.title.episodeName, url: asset.identity.episodeURL)

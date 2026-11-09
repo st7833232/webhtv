@@ -77,6 +77,8 @@ struct WebHTVApp: App {
             // IOS-POC-52 (F32): a retry that must resolve its episode waits for the configuration.
             await OfflineDownloads.manager.setResolver({ asset in await OfflineAppContext.resolve(asset) },
                                                        ready: { await MainActor.run { OfflineAppContext.shared.loaded } })
+            // W-268: a download from the loopback proxy goes to this launch's proxy, to its own site's spider.
+            await OfflineDownloads.manager.setLocalProxy { siteID in await OfflineAppContext.localProxy(siteID) }
             // IOS-POC-52 (F13): before the launch finishes an auto-delete a crash interrupted.
             await OfflineDownloads.manager.setAutoDeleteEnabled(OfflineDownloadPreferences().autoDeleteAfterWatching)
             await OfflineDownloads.manager.start()
@@ -4366,6 +4368,18 @@ private struct StorageMaintenanceView: View {
     nonisolated static func resolve(_ asset: OfflineAsset) async -> PlaybackTarget? {
         let (sites, source) = await MainActor.run { (shared.sites, shared.source) }
         return await OfflineEpisodeResolver.target(for: asset, sites: sites, source: source)
+    }
+
+    /// W-268: this launch's loopback-proxy base for a download's site; its spider is made here when
+    /// the site has not played since the launch.
+    nonisolated static func localProxy(_ siteID: String) async -> URL? {
+        let (sites, source) = await MainActor.run { (shared.sites, shared.source) }
+        return await SpiderProxyServer.shared.downloadBase(siteID: siteID) {
+            guard let site = sites.first(where: { $0.id == siteID }),
+                  case .spider(let session, _)? = try? await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
+            else { return nil }
+            return session
+        }
     }
 }
 

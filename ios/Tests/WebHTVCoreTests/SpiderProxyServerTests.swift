@@ -609,4 +609,60 @@ struct SpiderProxyServerTests {
         #expect(!PlayerRouter.needsMPV(URL(string: "https://a.example/v/index.m3u8")!))
     }
 }
+
+/// W-268: downloads name their site; the spider answering, and how long it may take, follow from that.
+extension SpiderProxyServerTests {
+    final class Recording: SpiderProxying, @unchecked Sendable {
+        let body: String
+        private let lock = NSLock()
+        private var seen = [[String: String]]()
+        var asked: [[String: String]] { lock.withLock { seen } }
+        init(_ body: String) { self.body = body }
+        func proxy(params: [String: String]) async throws -> SpiderProxyResponse? {
+            lock.withLock { seen.append(params) }
+            return SpiderProxyResponse(status: 200, mime: "text/plain", body: Data(body.utf8))
+        }
+    }
+
+    func get(_ server: SpiderProxyServer, _ query: String) async -> Sink {
+        let sink = Sink()
+        await server.respond(to: "GET /\(server.token)/proxy?\(query) HTTP/1.1\r\nHost: 127.0.0.1", on: sink)
+        return sink
+    }
+
+    @Test func aDownloadIsAnsweredByItsOwnSitesSpiderNotTheOneThatPlayedLast() async throws {
+        let server = SpiderProxyServer()
+        let downloaded = Recording("A")
+        #expect(await server.downloadBase(siteID: "a") { downloaded } != nil)
+        let site = try JSONDecoder().decode(Site.self, from: Data(#"{"key":"b","name":"b","type":3,"api":"./b.py"}"#.utf8))
+        _ = try #require(await server.serve("http://127.0.0.1:9978/proxy?do=py&f=1", for: SpiderSession(site: site, runtime: WholeFile(Data("B".utf8))),
+                                            dash: false))
+
+        #expect(await get(server, "do=py&f=1&\(OfflineLocalProxy.siteParameter)=a").body == Data("A".utf8))
+        #expect(await get(server, "do=py&f=1").body == Data("B".utf8))
+        let b = try #require(site.id.addingPercentEncoding(withAllowedCharacters: .alphanumerics))
+        #expect(await get(server, "do=py&f=1&\(OfflineLocalProxy.siteParameter)=\(b)").body == Data("B".utf8))
+        // An unknown site is not handed to whichever spider played last.
+        #expect(await get(server, "do=py&f=1&\(OfflineLocalProxy.siteParameter)=c").head.hasPrefix("HTTP/1.1 404"))
+        #expect(downloaded.asked.count == 1 && downloaded.asked[0][OfflineLocalProxy.siteParameter] == nil)
+        // The app's current spider replaces the one kept; with none, the kept one still serves.
+        #expect(await server.downloadBase(siteID: "a") { Recording("A2") } != nil)
+        #expect(await get(server, "do=py&f=1&\(OfflineLocalProxy.siteParameter)=a").body == Data("A2".utf8))
+        #expect(await server.downloadBase(siteID: "a") { nil } != nil)
+        #expect(await get(server, "do=py&f=1&\(OfflineLocalProxy.siteParameter)=a").body == Data("A2".utf8))
+    }
+
+    @Test func onlyADownloadGetsTheLongerLimit() async {
+        let server = SpiderProxyServer()
+        server.callTimeout = .milliseconds(50)
+        server.downloadTimeout = .seconds(5)
+        let slow = Media(total: 100, delay: .milliseconds(300))
+        _ = await server.downloadBase(siteID: "a") { slow }
+        let downloaded = await get(server, "do=py&type=media&\(OfflineLocalProxy.siteParameter)=a")
+        #expect(await downloaded.head.hasPrefix("HTTP/1.1 200"))
+        #expect(await downloaded.body == Media.bytes(0...99))
+        // The player's request for the same file keeps playback's limit.
+        #expect(await run(range: nil, media: slow, server: server).head.hasPrefix("HTTP/1.1 504"))
+    }
+}
 #endif

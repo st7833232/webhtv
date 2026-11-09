@@ -22,6 +22,10 @@ public final class SpiderProxyServer: @unchecked Sendable {
     /// W-202: googlevideo refuses a first audio request of 2 MB; 512 KB keeps each read short.
     static let segment: Int64 = 512 * 1024
     var callTimeout: Duration = .seconds(20)
+    /// W-268: a download's call, which may be a whole episode (a cold bvc2 script takes up to 37 s, W-252).
+    var downloadTimeout = OfflineLocalProxy.callTimeout
+    /// W-268: whether the request being answered is a download's (`OfflineLocalProxy.siteParameter`).
+    @TaskLocal static var downloading = false
 
     private let queue = DispatchQueue(label: "com.webhtv.ios.poc.spider-proxy")
     private let lock = NSLock()
@@ -30,6 +34,8 @@ public final class SpiderProxyServer: @unchecked Sendable {
     private var waiting = [CheckedContinuation<URL?, Never>]()
     /// FongMi's "most recent Python spider": the one whose play address was rewritten last.
     private var session: (any SpiderProxying)?
+    /// W-268: each site's spider, by site id: a download asks its own site's, whichever played last.
+    private var sites = [String: any SpiderProxying]()
     /// Sizes read from the `sidx` of files a spider serves with no total, by request without its Range.
     private var totals = [String: Int64]()
     /// Manifests already given their segment lists: FFmpeg reads a manifest twice when it opens it.
@@ -50,11 +56,26 @@ public final class SpiderProxyServer: @unchecked Sendable {
     /// Starts the server on first use and makes `session` the one `/proxy` calls.
     public func serve(_ address: String, for session: SpiderSession, dash isDASH: Bool) async -> String? {
         guard address.hasPrefix(Self.androidPrefix) else { return nil }
-        lock.withLock { self.session = session }
+        lock.withLock {
+            self.session = session
+            sites[session.site.id] = session
+        }
         guard let base = await start() else { return nil }
         let rewritten = Self.rewrite(address, base: base)
         if isDASH { lock.withLock { _ = dash.insert(rewritten) } }
         return rewritten
+    }
+
+    /// W-268: this launch's base for a download from `siteID`, served by the spider `make` answers (the
+    /// app's current one, so a refreshed spider pack is used), else the one that last played the site.
+    /// Nil when there is neither or the server cannot start.
+    public func downloadBase(siteID: String, make: () async -> (any SpiderProxying)?) async -> URL? {
+        let made = await make()
+        let known = lock.withLock { () -> Bool in
+            if let made { sites[siteID] = made }
+            return sites[siteID] != nil
+        }
+        return known ? await start() : nil
     }
 
     /// True for an address `serve` handed out as DASH: AVPlayer cannot open one, so it goes to MPV.
@@ -176,7 +197,7 @@ public final class SpiderProxyServer: @unchecked Sendable {
     struct Request: Equatable {
         let method: String
         /// FongMi's map: the query, then every request header by its lower-cased name.
-        let params: [String: String]
+        var params: [String: String]
         /// The query as sent: which file is asked for, whatever headers come with it.
         var query = ""
     }
@@ -253,12 +274,14 @@ public final class SpiderProxyServer: @unchecked Sendable {
     }
 
     func respond(to head: String, on writer: some ProxyWriting) async {
-        guard let request = Self.parse(head, token: token) else { return await writer.status(404) }
-        let target = lock.withLock { session }
+        guard var request = Self.parse(head, token: token) else { return await writer.status(404) }
+        // W-268: a download names its site; the spider never sees that.
+        let site = request.params.removeValue(forKey: OfflineLocalProxy.siteParameter)
+        let target = lock.withLock { if let site { sites[site] } else { session } }
         // shortcut: only `do=py` (or none) for the most recent Python spider, FongMi's default
         // dispatch; `do=js` and jar proxies have no caller on iOS. Add them when a site needs one.
         guard let target, ["py", ""].contains(request.params["do"] ?? "") else { return await writer.status(404) }
-        await handle(request, target: target, writer: writer)
+        await Self.$downloading.withValue(site != nil) { await handle(request, target: target, writer: writer) }
     }
 
     func handle(_ request: Request, target: any SpiderProxying, writer: some ProxyWriting) async {
@@ -561,9 +584,10 @@ public final class SpiderProxyServer: @unchecked Sendable {
     }
 
     private func timed(_ task: Task<SpiderProxyResponse?, Never>) async -> SpiderProxyResponse? {
-        await withTaskGroup(of: SpiderProxyResponse?.self) { group in
+        let limit = Self.downloading ? downloadTimeout : callTimeout
+        return await withTaskGroup(of: SpiderProxyResponse?.self) { group in
             group.addTask { await task.value }
-            group.addTask { [callTimeout] in try? await Task.sleep(for: callTimeout); return nil }
+            group.addTask { try? await Task.sleep(for: limit); return nil }
             let first = await group.next() ?? nil
             group.cancelAll()
             return first

@@ -78,6 +78,7 @@ public struct OfflineTransferRequest: Sendable, Equatable {
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         if let byteRange { request.setValue(byteRange.httpHeader, forHTTPHeaderField: "Range") }
         request.allowsCellularAccess = allowsCellular
+        if OfflineLocalProxy.matches(url) { request.timeoutInterval = OfflineLocalProxy.requestTimeout }
         return request
     }
 }
@@ -185,7 +186,8 @@ public enum OfflineHTTP {
         { request, limit in
             let delegate = RedirectPolicy(origin: origin, headers: originalHeaders)
             let configuration = URLSessionConfiguration.ephemeral
-            configuration.timeoutIntervalForRequest = 20
+            // W-268: the loopback proxy answers when its spider does: a download's probe waits as its transfer does.
+            configuration.timeoutIntervalForRequest = OfflineLocalProxy.matches(origin) ? OfflineLocalProxy.requestTimeout : 20
             let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
             defer { session.invalidateAndCancel() }
             var data = Data()
@@ -261,5 +263,47 @@ public enum OfflineHTTP {
         }
         for (name, value) in allowed { redirected.setValue(value, forHTTPHeaderField: name) }
         return redirected
+    }
+}
+
+/// W-268: a download from the app's loopback spider proxy (`SpiderProxyServer`). Its address is good
+/// for one launch only — the port and the token in the path are new each time — so a stored one is
+/// moved to the proxy of the launch that sends it, and names the download's site: its own spider
+/// answers, not whichever Python site played last, and it gets the time a whole episode takes.
+public enum OfflineLocalProxy {
+    /// The query item naming the site; the proxy takes it off before the spider sees the request.
+    public static let siteParameter = "webhtv-download-site"
+    /// The proxy waits this long for one spider call of a download (playback keeps its 20 s).
+    public static let callTimeout: Duration = .seconds(120)
+    /// A request sees nothing until the spider answers, so it outwaits the proxy (the session's is 30 s).
+    static let requestTimeout: TimeInterval = 150
+
+    /// Android's `127.0.0.1:9978/proxy`, or any launch's `http://127.0.0.1:<port>/<token>/proxy`.
+    public static func matches(_ url: URL) -> Bool {
+        guard url.scheme == "http", url.host == "127.0.0.1" else { return false }
+        let parts = url.path.split(separator: "/", omittingEmptySubsequences: false)
+        if parts == ["", "proxy"] { return url.port == 9978 }
+        return parts.count == 3 && parts[2] == "proxy" && UUID(uuidString: String(parts[1])) != nil
+    }
+
+    /// `url` at the proxy whose base is `base` (`http://127.0.0.1:<port>/<token>/`), for `siteID`;
+    /// anything else unchanged.
+    public static func rewrite(_ url: URL, base: URL, siteID: String) -> URL {
+        guard matches(url), var components = URLComponents(url: base.appendingPathComponent("proxy"), resolvingAgainstBaseURL: false)
+        else { return url }
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+")
+        let kept = (URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedQuery ?? "")
+            .split(separator: "&").filter { !$0.hasPrefix(siteParameter + "=") }.map(String.init)
+        components.percentEncodedQuery = (kept + [siteParameter + "=" + (siteID.addingPercentEncoding(withAllowedCharacters: allowed) ?? "")])
+            .joined(separator: "&")
+        return components.url ?? url
+    }
+
+    /// The site a download was made from: its history key is the site's id, the separator, the vod id.
+    public static func siteID(of asset: OfflineAsset) -> String? {
+        let suffix = WatchHistory.separator + asset.title.vodId
+        guard asset.identity.historyKey.hasSuffix(suffix) else { return nil }
+        return String(asset.identity.historyKey.dropLast(suffix.count))
     }
 }

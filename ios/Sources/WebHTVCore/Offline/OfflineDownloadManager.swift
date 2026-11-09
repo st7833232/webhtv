@@ -115,6 +115,8 @@ public actor OfflineDownloadManager {
     private var resolver: (@Sendable (OfflineAsset) async -> PlaybackTarget?)?
     /// IOS-POC-52 (F32): whether the resolver can answer yet.
     private var resolverReady: @Sendable () async -> Bool = { true }
+    /// W-268: this launch's loopback-proxy base for a site, its spider made again when the app has none.
+    private var localProxy: (@Sendable (_ siteID: String) async -> URL?)?
     private var plans = [String: OfflinePackagePlan]()
     private var done = [String: Set<Int>]()
     /// IOS-POC-51: each finished unit's size, for projecting the package's size as it arrives.
@@ -128,6 +130,8 @@ public actor OfflineDownloadManager {
     /// IOS-POC-52 (F10): credentialed units waiting for room in the window, and those in flight.
     private var waitingCredentialed = [String: [OfflineDownloadUnit]]()
     private var credentialedInFlight = [String: Set<Int>]()
+    /// W-268: assets a `submitMissing` is running for, and whether another was asked meanwhile.
+    private var submitting = [String: Bool]()
     private var lastPublish = Date.distantPast
     private var trailingPublish: Task<Void, Never>?
     private var unitsSinceFlush = 0
@@ -159,8 +163,16 @@ public actor OfflineDownloadManager {
         resolverReady = ready
     }
 
+    /// W-268: where the app's loopback proxy serves a site's spider now (nil when it cannot make one).
+    /// Downloads from that proxy are sent there; without it they fail as `noLocalProxy`.
+    public func setLocalProxy(_ base: @escaping @Sendable (_ siteID: String) async -> URL?) {
+        localProxy = base
+    }
+
     /// IOS-POC-52 (F32): the configuration is loaded; downloads waiting for it can start.
     public func resolverBecameReady() async {
+        // W-268: so can the loopback-proxy transfers a launch held back for it.
+        await resubmitRunning()
         await pump()
     }
 
@@ -196,6 +208,9 @@ public actor OfflineDownloadManager {
         let stale = await deps.transport.activeTags().filter { tag in
             guard let asset = store.asset(tag.assetID) else { return true }
             return asset.state != .downloading || asset.generation != tag.generation
+                // W-268: a transfer to the loopback proxy outlives no launch: that proxy's port and token
+                // are gone. Left listed, it kept `reconnect` from sending the unit again — stuck at 0%.
+                || loadPlan(tag.assetID).map { $0.units.indices.contains(tag.unit) && Self.isLocalProxy($0.units[tag.unit]) } == true
         }
         if !stale.isEmpty {
             OfflineLog.notice("[offline] launch cancelled stale transfers=\(stale.count)")
@@ -453,7 +468,13 @@ public actor OfflineDownloadManager {
         let all = store.all()
         let running = all.filter { $0.state == .preparing || $0.state == .downloading }.count
         // IOS-POC-52 (F32): one that must resolve its episode waits while the resolver cannot.
-        let next = all.filter { $0.state == .queued && (canResolve || store.request(for: $0.id)?.needsFreshSource == false) }
+        // W-268: so does one on the loopback proxy, whose site's spider is made from the configuration.
+        let next = all.filter { asset in
+            guard asset.state == .queued else { return false }
+            if canResolve { return true }
+            guard let request = store.request(for: asset.id) else { return false }
+            return !request.needsFreshSource && !OfflineLocalProxy.matches(request.mediaURL)
+        }
             .sorted { $0.createdAt < $1.createdAt }
             .prefix(max(Self.concurrentDownloads - running, 0))
         let starting = next.compactMap { asset in
@@ -760,6 +781,14 @@ public actor OfflineDownloadManager {
             try? store.saveRequest(request, for: id)
         }
 
+        // W-268: a stream on the loopback proxy is read from this launch's proxy, for the download's site.
+        if OfflineLocalProxy.matches(request.mediaURL) {
+            let base = await localProxyBase(asset)
+            guard isCurrent(id, generation, .preparing) else { return }
+            guard let base, let site = OfflineLocalProxy.siteID(of: asset) else { fail(id, Self.noLocalProxy); return }
+            request.mediaURL = OfflineLocalProxy.rewrite(request.mediaURL, base: base, siteID: site)
+        }
+
         let previous = loadPlan(id)
         let prepared: Prepared
         do {
@@ -920,7 +949,20 @@ public actor OfflineDownloadManager {
 
     /// Sends every unit not yet on disk and not already in flight. The files on disk are the truth:
     /// a unit is done when its final file is there, which survives any crash.
+    ///
+    /// W-268: one at a time per asset. Two at once (a launch's reconnect and the configuration becoming
+    /// ready) both read the session before either sent, and sent every missing unit twice; a call while
+    /// one runs makes it run once more instead, when what the first sent is in flight.
     private func submitMissing(_ id: String, plan: OfflinePackagePlan) async {
+        guard submitting[id] == nil else { submitting[id] = true; return }
+        repeat {
+            submitting[id] = false
+            await submitMissingOnce(id, plan: plan)
+        } while submitting[id] == true
+        submitting[id] = nil
+    }
+
+    private func submitMissingOnce(_ id: String, plan: OfflinePackagePlan) async {
         guard let asset = store.asset(id), asset.state == .downloading else { return }
         let generation = asset.generation
         let manager = FileManager.default
@@ -951,6 +993,15 @@ public actor OfflineDownloadManager {
             await finalize(id, generation: generation)
             return
         }
+        // W-268: units on the loopback proxy go to this launch's proxy. Its site's spider is made from the
+        // configuration, so at a launch they wait for it as a re-resolve does (F32).
+        var proxy: URL?
+        if missing.contains(where: Self.isLocalProxy) {
+            guard await resolverReady() else { return }
+            proxy = await localProxyBase(asset)
+            guard isCurrent(id, generation, .downloading) else { return }
+            guard proxy != nil else { fail(id, Self.noLocalProxy); return }
+        }
         // IOS-POC-52 (F10): credentialed units go through a window; the rest wait their turn.
         let credentialed = missing.filter { isCredentialed($0, plan: plan) }
         let flying = inFlight.filter { plan.units.indices.contains($0) && isCredentialed(plan.units[$0], plan: plan) }
@@ -959,7 +1010,8 @@ public actor OfflineDownloadManager {
         let heldIndices = Set(held.map(\.index))
         waitingCredentialed[id] = held
         credentialedInFlight[id] = flying.union(credentialed.prefix(room).map(\.index))
-        let requests = missing.filter { !heldIndices.contains($0.index) }.map { request(for: $0, asset: asset, plan: plan) }
+        let requests = missing.filter { !heldIndices.contains($0.index) }
+            .map { request(for: $0, asset: asset, plan: plan, proxy: proxy) }
         if !requests.isEmpty {
             OfflineLog.notice("[offline] \(OfflineLog.short(id)) submit=\(requests.count) held=\(held.count) done=\(finished.count)/\(plan.units.count) inflight=\(inFlight.count)")
             await deps.transport.submit(requests)
@@ -975,8 +1027,20 @@ public actor OfflineDownloadManager {
         await deps.transport.cancel(tags: Set(tags))
     }
 
+    /// W-268: a loopback-proxy unit counts too — it runs in the app, like a credentialed one, in the window.
     private func isCredentialed(_ unit: OfflineDownloadUnit, plan: OfflinePackagePlan) -> Bool {
-        OfflineRequestPolicy.isCredentialed(OfflineRequestPolicy.headers(plan.headers, for: unit.remoteURL, origin: plan.origin))
+        Self.isLocalProxy(unit)
+            || OfflineRequestPolicy.isCredentialed(OfflineRequestPolicy.headers(plan.headers, for: unit.remoteURL, origin: plan.origin))
+    }
+
+    static func isLocalProxy(_ unit: OfflineDownloadUnit) -> Bool { OfflineLocalProxy.matches(unit.remoteURL) }
+
+    /// W-268: the app's loopback proxy has no spider for the download's site and cannot make one.
+    static let noLocalProxy = OfflineFailure(.unknown, detail: "無法啟動這個站的本機代理，請重新載入設定後重試")
+
+    private func localProxyBase(_ asset: OfflineAsset) async -> URL? {
+        guard let localProxy, let site = OfflineLocalProxy.siteID(of: asset) else { return nil }
+        return await localProxy(site)
     }
 
     /// A credentialed unit is done (or gone): the next one waiting takes its place in the window.
@@ -987,18 +1051,28 @@ public actor OfflineDownloadManager {
         waitingCredentialed[id] = waiting
         credentialedInFlight[id, default: []].insert(next.index)
         let generation = asset.generation
-        await deps.transport.submit([request(for: next, asset: asset, plan: plan)])
+        let proxy = Self.isLocalProxy(next) ? await localProxyBase(asset) : nil
+        guard isCurrent(id, generation, .downloading) else { return }
+        if Self.isLocalProxy(next) && proxy == nil { fail(id, Self.noLocalProxy); return }
+        await deps.transport.submit([request(for: next, asset: asset, plan: plan, proxy: proxy)])
         await cancelIfStale([OfflineTransferTag(assetID: id, generation: generation, unit: next.index)], id: id, generation: generation)
     }
 
-    private func request(for unit: OfflineDownloadUnit, asset: OfflineAsset, plan: OfflinePackagePlan) -> OfflineTransferRequest {
+    /// `proxy`: this launch's loopback-proxy base, which a unit on that proxy is moved to (W-268).
+    private func request(for unit: OfflineDownloadUnit, asset: OfflineAsset, plan: OfflinePackagePlan,
+                         proxy: URL?) -> OfflineTransferRequest {
         let headers = OfflineRequestPolicy.headers(plan.headers, for: unit.remoteURL, origin: plan.origin)
-        let resume = unit.role == .progressive
+        let onProxy = Self.isLocalProxy(unit)
+        // Resume data replays its own address, an earlier proxy's for a unit on the loopback proxy.
+        let resume = unit.role == .progressive && !onProxy
             ? try? Data(contentsOf: layout.resumeDataFile(for: asset.id, unit: unit.index)) : nil
+        let url = proxy.flatMap { base in
+            OfflineLocalProxy.siteID(of: asset).map { OfflineLocalProxy.rewrite(unit.remoteURL, base: base, siteID: $0) }
+        } ?? unit.remoteURL
         return OfflineTransferRequest(
             tag: OfflineTransferTag(assetID: asset.id, generation: asset.generation, unit: unit.index),
-            url: unit.remoteURL, headers: headers, byteRange: unit.byteRange, allowsCellular: asset.allowsCellular,
-            credentialed: OfflineRequestPolicy.isCredentialed(headers), origin: plan.origin, resumeData: resume,
+            url: url, headers: headers, byteRange: unit.byteRange, allowsCellular: asset.allowsCellular,
+            credentialed: onProxy || OfflineRequestPolicy.isCredentialed(headers), origin: plan.origin, resumeData: resume,
             reportsProgress: unit.role == .progressive)
     }
 
@@ -1173,8 +1247,11 @@ public actor OfflineDownloadManager {
         // IOS-POC-52 (F4): not when the unit is already here or already on its way again.
         if done[tag.assetID]?.contains(unit.index) == true { return }
         if await deps.transport.activeTags().contains(tag) { return }
+        let proxy = Self.isLocalProxy(unit) ? await localProxyBase(asset) : nil
+        guard isCurrent(tag.assetID, tag.generation, .downloading) else { return }
+        if Self.isLocalProxy(unit) && proxy == nil { fail(tag.assetID, Self.noLocalProxy); return }
         OfflineLog.notice("[offline] \(OfflineLog.short(tag.assetID)) retry unit=\(unit.index) attempt=\(count)")
-        await deps.transport.submit([request(for: unit, asset: asset, plan: plan)])
+        await deps.transport.submit([request(for: unit, asset: asset, plan: plan, proxy: proxy)])
         await cancelIfStale([tag], id: tag.assetID, generation: tag.generation)
     }
 

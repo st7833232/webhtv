@@ -42,6 +42,9 @@
   - 非 bvc2 走原路徑：重新打開第 3 集 → `on 原生 … reason=open`，0.79 秒起播。
   - 已判定過的 bvc2：重新打開第 1 集 → 一開就 `on MPV … reason=open`，不經原生。
   - 修正前對照（舊 FFmpeg、新 App）：同樣換到 MPV，但 `Failed to initialize a decoder for codec ''`（只有聲音）。
+- 正式 prerelease 檔（`ffmpeg-n8.1.2-webhtv.2`，rebase 到 ios-poc 93cfa38b 之後建置；`strings WebHTVApp.debug.dylib` 有 `--enable-decoder=vvc`）。Simulator webhtv-w185，預設播放器原生。紀錄 `artifacts/w262/sim-release-native-applog.txt`（另有預設 MPV 時的 `sim-release-applog.txt`）、畫面 `ra-play.png`、`rb-play.png`：
+  - 經 App 代理（KIT｜bvc2）：第 1 集 `on 原生 … reason=open` → `is VVC — moved to MPV before it started`（0.8 秒內）→ MPV 1.6 秒起播、`decoded=720x1280`；看完自動接第 2 集直接在 MPV 0.4 秒起播。
+  - 腳本自有 127.0.0.1 服務、不經代理（KIT｜自有服務，新增在 `kit.json`，模擬新版紅果 PY）：第 1 集 `on 原生` → 原生約 0.2 秒就回 `Operation Stopped` → 失敗換手 MPV，0.74 秒起播、`decoded=720x1280`。也就是 #6969／#6972 說的「原生逾時 → MPV」實測是原生立刻失敗再換手，不必等 10 秒；但這要看原生對該檔的反應，真站沒有 bvc2 可驗。測試伺服器（Python `http.server`）不支援 Range，所以這條路徑 MPV 不能拖曳（`Cannot seek in this stream`）；真站服務若支援 Range 就不受影響，未驗。
 - 紅果真站：新版紅果 PY 這部「裝窮提親」的超清／高清／標準在 iOS 都是 H.264，原生 3 秒起播（另由 W-267 量測新版 PY），所以真站沒有 bvc2 可驗。
 
 ## 體積
@@ -71,4 +74,4 @@
 
 - 真機（SideStore IPA）；iPhone 上 VVC 軟解的 fps、耗電（W-254 §4.5 推估）。
 - 離線下載後的 bvc2 檔：不經代理，仍走原生 10 秒逾時 → MPV（MPV 能解）。
-- 腳本自己開 127.0.0.1 服務、不經 App 代理的來源（新版紅果 PY，W-267；#6969／#6972）：App 讀不到 `stsd`，第一個 bvc2 集數仍走原生 10 秒逾時 → MPV（MPV 能解，只是多等原生的 10 秒逾時）。改善另開 W-269（127.0.0.1 MP4 先探測前段）。
+- 腳本自己開 127.0.0.1 服務、不經 App 代理的來源（新版紅果 PY，W-267；#6969／#6972）：App 讀不到 `stsd`，第一個 bvc2 集數仍走原生 10 秒逾時 → MPV（MPV 能解；Simulator 上原生約 0.2 秒就失敗換手，見「驗證」，但不保證每個檔都這麼快失敗，最壞是原生 10 秒逾時）。改善另開 W-269（127.0.0.1 MP4 先探測前段）。

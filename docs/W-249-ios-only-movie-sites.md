@@ -2,8 +2,8 @@
 
 ## Recovery anchor
 - 目標：wang-movie（GitLab 2a74b1f）裡「Android 能播、iOS 失敗」的 5 站＋drpy 3 站，逐站找根因；iOS 能小修的修並補測試，站方／網路問題寫證據。不改設定檔（建議交 Manager）。
-- 狀態（2026-11-09 10:20）：8 站都有結論，無水 T4 的 iOS 修正已 commit；**Simulator 實播還沒做**（Manager #6539 改派 W-252 優先，W-249 停在這裡）。
-- 下一步（唯一）：Simulator（設定網址用 archive 前的 GitLab `08d25173…/wang-movie.json`，含 drpy 函式庫）實播 無水、飛魚（手動選西瓜線）、七色番，並看 Uvod 備用在 iOS Python 的實際錯誤。
+- 狀態（2026-11-09 11:20，已 rebase 到 ios-poc 4245fca4）：8 站都有結論，無水 T4 的 iOS 修正已 commit；**Simulator 實播還沒做**（Manager #6539 改派 W-252 優先，W-249 停在這裡）。
+- 下一步（唯一）：Simulator（GitLab main 已在 d66e021 補回 drpy 函式庫，直接用正式設定網址）實播 無水、飛魚（手動選西瓜線）、七色番，並看 Uvod 備用在 iOS Python 的實際錯誤。
 - 探測工具：未追蹤的 `ios/Tests/WebHTVCoreTests/W249ProbeTests.swift`（不提交），`cd ios && W249_SITE='<站 JSON>' [W249_BASE=<設定網址>] swift test --filter w249Probe`。
 
 ## 逐站結論（熱點 en0 172.20.10.6，2026-11-09）
@@ -22,4 +22,5 @@
 - `ios/Sources/WebHTVCore/WebHTVConfig.swift`：移除只剩拆參數在用的 `Site.ext`（`rawExtJSON` 保留）。
 - 行為差異：`采集集合`（`ext:"0"`）現在也會送 `extend=0`，與 Android 一致；伺服器因此多列一個分類「瑟瑟采集资源」（Android 本來就有）。
 - 驗證：`swift test --filter "CMSClient|ConfigLoader|…|SourceClient"` 58/58 通過；真站探測無水首頁 20 部→詳情→播放網址 m3u8。首頁分支沒有單元測試（`CMSClient` 無可注入 session），以真站探測證明。
-- 未做：Simulator 實播、Ponytail review（送審前跑）。
+- Ponytail review（2026-11-09，rebase 到 4245fca4 後）：Ship；1 項建議——type 4 首頁分支沒有單元測試（`CMSClient` 不能注入 session），先以真站探測為證，未加注入點。
+- 未做：Simulator 實播。

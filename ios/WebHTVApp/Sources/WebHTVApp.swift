@@ -2723,6 +2723,14 @@ private struct VodView: View {
     /// (IOS-POC-14). Held here rather than in `PlaybackSession`, which deliberately knows nothing
     /// about sites, flags or how an episode becomes a URL.
     @State private var playingEpisode: Episode?
+    /// W-263: the line `playingEpisode` is on; nil for a downloaded episode, which never switches.
+    @State private var playingFlag: String?
+    /// W-263: the round of lines the failing episode is being tried on; nil until a failure.
+    @State private var lineRound: VodLineSwitcher?
+    /// W-263: the viewer stopped the switching for this episode.
+    @State private var lineSwitchStopped = false
+    /// W-263: where the episode had got to before the round, for every line it tries.
+    @State private var lineResume: Double?
     @State private var resolving = false
     /// IOS-POC-47: the download sheet's episode, once its stream has been read.
     @State private var downloadDraft: OfflineDownloadDraft?
@@ -3264,13 +3272,24 @@ private struct VodView: View {
                                quality: PlaybackSession.shared.record?.quality ?? watched?.quality ?? "")
     }
 
-    private func play(_ episode: Episode, flag: String) async {
+    /// `switching`: W-263 is trying the failed episode on another line — the position held for it
+    /// stays, the round goes on, and nothing fetched or warmed for the old line is used.
+    private func play(_ episode: Episode, flag: String, switching: Bool = false) async {
         resolving = true
         defer { resolving = false }
         // A new episode, line or quality was picked by hand, so anything resolved for the old one is
         // about a playback that is no longer happening.
         PlaybackSession.shared.prefetch.invalidate()
-        PlaybackSession.shared.forgetRetryPosition()
+        if switching {
+            // W-259 review condition 3: the new line is resolved and warmed afresh; the old line's
+            // fetched copy and its known failure go.
+            PlaybackSession.shared.nextContent.dropAll()
+        } else {
+            PlaybackSession.shared.forgetRetryPosition()
+            lineRound = nil
+            lineResume = nil
+            lineSwitchStopped = false
+        }
         let began = Date()
         do {
             // IOS-POC-47: a downloaded episode plays from this device; the source is not asked.
@@ -3279,6 +3298,8 @@ private struct VodView: View {
             if offline == nil {
                 let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
                 guard let resolved = try await client.playbackURL(for: episode, flag: flag) else {
+                    if await switchLine(failed: episode, on: flag, playerFailed: false) { return }
+                    if switching { return showSwitchFailure("「\(flag)」沒有可播放的網址。") }
                     playbackYouTube = nil
                     playbackError = "這一集沒有可播放的網址。"
                     return
@@ -3306,6 +3327,7 @@ private struct VodView: View {
             // What the player asks when this episode ends. This screen owns the episode list and
             // the resolving, so it is the only place that can answer (IOS-POC-14).
             playingEpisode = episode
+            observeLine(offline == nil ? flag : nil)
             PlaybackSession.shared.advance = { await step(forward: true, flag: flag) }
             // IOS-POC-35: the bar's 上一集／下一集, answered here for the same reason.
             PlaybackSession.shared.episodeStepper = { forward in await step(forward: forward, flag: flag) }
@@ -3314,9 +3336,66 @@ private struct VodView: View {
             // network state; this screen decides *what*, because it holds the episode list.
             PlaybackSession.shared.prefetchNext = { await prefetchNextEpisode(flag: flag) }
         } catch {
+            if !(error is YouTubeStopped), await switchLine(failed: episode, on: flag, playerFailed: false) { return }
+            if switching { return showSwitchFailure("「\(flag)」無法播放：\(error.localizedDescription)") }
             playbackYouTube = (error as? YouTubeStopped)?.watchURL
             playbackError = error.localizedDescription
         }
+    }
+
+    /// W-263: the last line of a round failed before it reached the player, which is still up with
+    /// the first line's failure: say why there instead of under it on this screen.
+    private func showSwitchFailure(_ message: String) {
+        // No player yet when every line failed to resolve: this screen shows it, as before.
+        guard playing else { return playbackError = message }
+        PlaybackSession.shared.onFailure?(.source(message))
+    }
+
+    /// W-263: listens for this episode starting or finally failing on `flag` (nil: never switch).
+    private func observeLine(_ flag: String?) {
+        playingFlag = flag
+        PlaybackSession.shared.vodLineObserver = { event in
+            switch event {
+            // A later failure of the episode that played is a new round, from the line it is on.
+            case .started:
+                lineRound = nil
+                lineResume = nil
+            case .failed:
+                guard let episode = playingEpisode, let flag = playingFlag else { return }
+                Task { @MainActor in await switchLine(failed: episode, on: flag, playerFailed: true) }
+            }
+        }
+    }
+
+    /// W-263 (W-259 plan C): plays `episode` — which just failed on `flag` after every recovery the
+    /// player has — on the next line of the round that holds it. False when no line is left, the
+    /// round ran out of time, or the viewer stopped it: the failure then shows as it always did.
+    private func switchLine(failed episode: Episode, on flag: String, playerFailed: Bool) async -> Bool {
+        guard !lineSwitchStopped, let flags = detail?.flags,
+              let failed = flags.firstIndex(where: { $0.name == flag }) else { return false }
+        if lineRound == nil {
+            lineRound = VodLineSwitcher(flags: flags, failed: failed, episode: episode, spider: site.isSpiderShape)
+        }
+        guard let step = lineRound?.next() else {
+            lineRound = nil
+            return false
+        }
+        let line = flags[step.flag]
+        let session = PlaybackSession.shared
+        // Started and then failed: the other line continues from there. A failure before the start
+        // keeps whatever position the round already holds (none on a hand-picked play).
+        if playerFailed, let position = session.lineSwitchPosition() { lineResume = position }
+        session.resumeNextOpen(at: lineResume)
+        // The failed line's message would otherwise sit over the next line's start.
+        session.onFailure?(nil)
+        PlaybackSession.log.notice("[playback] line \(flag, privacy: .public) failed — switching to \(line.name, privacy: .public)")
+        session.onLineSwitch?("「\(flag)」無法播放，正在切換線路至「\(line.name)」") {
+            lineSwitchStopped = true
+            lineRound = nil
+        }
+        selectedFlag = line.name
+        await play(line.episodes[step.episode], flag: line.name, switching: true)
+        return true
     }
 
     /// Resolves the episode after the one playing, in the background, and keeps the result.
@@ -3418,6 +3497,10 @@ private struct VodView: View {
                 var record = record(for: next, flag: flag)
                 record.quality = await WatchHistoryStore.shared.record(forKey: historyKey)?.quality ?? ""
                 playingEpisode = next
+                lineRound = nil
+                lineResume = nil
+                lineSwitchStopped = false
+                observeLine(nil)
                 publishEpisodeSteps(flag: flag)
                 session.open(offline: offline, title: "\(summary.name) \(next.name)", artwork: summary.picture,
                              history: record, resuming: false)
@@ -3454,6 +3537,10 @@ private struct VodView: View {
                                    episode: next.name)
             let record = record(for: next, flag: flag)
             playingEpisode = next
+            lineRound = nil
+            lineResume = nil
+            lineSwitchStopped = false
+            observeLine(flag)
             publishEpisodeSteps(flag: flag)
             // The quality the viewer last chose in the bar, which `finished()` has just persisted.
             let remembered = await WatchHistoryStore.shared.record(forKey: historyKey)?.quality ?? ""
@@ -5483,6 +5570,12 @@ struct EpisodeSteps: Equatable {
     var onPlaylistFinished: (() -> Void)?
     /// IOS-POC-59 U3: the live screen's own "this line started / failed" slot; `onFailure` belongs to PlayerView.
     var lineObserver: ((LiveLineEvent) -> Void)?
+    /// W-263: the VOD detail screen's slot, told when the episode started or finally failed — after
+    /// the engine fallback, the live re-resolve and W-253's give-up — so it can try the next line.
+    /// Kept apart from `lineObserver`, whose presence turns on the live startup budget.
+    var vodLineObserver: ((LiveLineEvent) -> Void)?
+    /// W-263: shows a line-switch notice with a way to stop switching; set by `PlayerView`.
+    var onLineSwitch: ((String, @escaping () -> Void) -> Void)?
     /// IOS-POC-59 U3 (Manager #2158 B3-1): the next `load` opens on the global default engine — once, then cleared,
     /// so a later item (the next of an inline playlist) keeps the session's engine as before.
     private var freshEngineOnce = false
@@ -5611,6 +5704,16 @@ struct EpisodeSteps: Equatable {
     private var retryResumeSeconds: Double?
     /// A hand-picked episode is not the retried one and must not start where that one failed.
     func forgetRetryPosition() { retryResumeSeconds = nil }
+    /// W-263: where the failed item got to, for the same episode on another line; nil when it never
+    /// started — W-253 gives up before the engine opens, so the router still holds the item before.
+    /// An engine that failed to open after a fallback reads 0, so the position it was handed counts.
+    func lineSwitchPosition() -> Double? {
+        guard startupMilliseconds != nil else { return nil }
+        let position = max(lastPlayhead, router.request?.startSeconds ?? 0)
+        return position > 0 ? position : nil
+    }
+    /// W-263: the next open starts at `seconds` (nil: the usual resume).
+    func resumeNextOpen(at seconds: Double?) { retryResumeSeconds = seconds }
 
     /// The `[playback]` diagnostics (IOS-POC-15D). `Logger`, not `print`: a SideStore Release build
     /// has no debugger attached, and stdout goes nowhere there, while the unified log reaches
@@ -5803,6 +5906,7 @@ struct EpisodeSteps: Equatable {
                 self.notePlayHealth(succeeded: false)
                 self.onFailure?(failure)
                 self.lineObserver?(.failed)
+                self.vodLineObserver?(.failed)
                 return
             }
             self.retryWithoutPrefetch = nil
@@ -5812,6 +5916,7 @@ struct EpisodeSteps: Equatable {
                     self.notePlayHealth(succeeded: false)
                     self.onFailure?(failure)
                     self.lineObserver?(.failed)
+                    self.vodLineObserver?(.failed)
                 }
             }
         }
@@ -6030,6 +6135,7 @@ struct EpisodeSteps: Equatable {
     func closePlayer() {
         // A closed live player hears nothing more, whatever closed it.
         lineObserver = nil
+        vodLineObserver = nil
         // IOS-POC-48: closed in the final credits is finished too; the view persisted the position first.
         reportCompletion(ended: false)
         favoriteLibrary.playerClosed()
@@ -6851,6 +6957,7 @@ struct EpisodeSteps: Equatable {
                 self.notePlayHealth(succeeded: false)
                 self.onFailure?(failure)
                 self.lineObserver?(.failed)
+                self.vodLineObserver?(.failed)
             }
         }
         return true
@@ -7183,6 +7290,7 @@ struct EpisodeSteps: Equatable {
                     if copyRetryUntil == nil { retryWithoutPrefetch = nil }
                     notePlayHealth(succeeded: true)
                     lineObserver?(.started)
+                    vodLineObserver?(.started)
                     carrySubtitle(mediaSelection)
                     // W-247: the moment the old `started` line used, kept to show how far it ran ahead.
                     Self.log.notice("[playback] playing \(self.itemTitle, privacy: .public) on \(self.engineKind.shortName, privacy: .public) in \(milliseconds)ms after open")
@@ -9029,6 +9137,8 @@ private struct PlayerView: View {
     /// IOS-POC-27A: why a start was handed to the other engine, shown for a few seconds.
     @State private var notice: String?
     @State private var noticeTimer: Task<Void, Never>?
+    /// W-263: while a line-switch notice is up, how the viewer stops the switching.
+    @State private var stopLineSwitch: (() -> Void)?
     /// The chosen speed. Observed alongside position, because `PlaybackSession` is a plain class
     /// and the speed can also change without the menu — `load` re-applies it on the next episode.
     @State private var rate: Float = 1
@@ -9099,7 +9209,21 @@ private struct PlayerView: View {
         .overlay(alignment: .top) {
             // IOS-POC-27A: below the bar's top row, so it covers neither the close button nor the
             // spinner of the engine that just took over.
-            if let notice { bubble(notice).padding(.horizontal, 32).padding(.top, 72) }
+            if let notice {
+                VStack(spacing: 8) {
+                    bubble(notice)
+                    if let stop = stopLineSwitch {
+                        Button("停止換線") {
+                            stop()
+                            stopLineSwitch = nil
+                            self.notice = nil
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.black.opacity(0.7))
+                    }
+                }
+                .padding(.horizontal, 32).padding(.top, 72)
+            }
         }
         .overlay {
             if let hud {
@@ -9212,6 +9336,7 @@ private struct PlayerView: View {
             session.onEngineChange = nil
             session.onFailure = nil
             session.onNotice = nil
+            session.onLineSwitch = nil
             noticeTimer?.cancel()
             session.onMediaSelectionChange = nil
         }
@@ -9231,7 +9356,14 @@ private struct PlayerView: View {
                 reloadMedia()
             }
             session.onFailure = { failure = $0?.message }
-            session.onNotice = { showNotice($0) }
+            session.onNotice = {
+                stopLineSwitch = nil
+                showNotice($0)
+            }
+            session.onLineSwitch = { text, stop in
+                showNotice(text)
+                stopLineSwitch = stop
+            }
             online = session.onlineSubtitles.session
             session.onOnlineSubtitlesChange = { online = $0 }
             itemTitle = session.itemTitle
@@ -9396,6 +9528,7 @@ private struct PlayerView: View {
             try? await Task.sleep(for: .seconds(4))
             guard !Task.isCancelled else { return }
             notice = nil
+            stopLineSwitch = nil
         }
     }
 

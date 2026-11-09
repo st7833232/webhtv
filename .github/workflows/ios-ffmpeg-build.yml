@@ -144,8 +144,21 @@ jobs:
       - name: Place the pinned dependency zips
         env:
           WORKDIR: ${{ steps.lock.outputs.workdir }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # W-262: through the API with the job's token. GitHub refused anonymous
+          # release downloads with 504 (11-09); the same file came at once with a token.
+          fetch() { # release download url, output file
+            local rest="${1#https://github.com/}" repo tag name attempt
+            repo="${rest%%/releases/download/*}"; rest="${rest#*/releases/download/}"
+            tag="${rest%%/*}"; name="${rest#*/}"
+            for attempt in 1 2 3 4 5; do
+              gh release download "$tag" -R "$repo" -p "$name" -O "$2" --clobber && return 0
+              sleep 15
+            done
+            return 1
+          }
           # FFmpeg is built from source here, so its zip is not placed: the
           # recipe would take an existing FFmpeg directory as already cloned.
           python3 - > "$RUNNER_TEMP/deps.tsv" <<'EOF'
@@ -157,7 +170,7 @@ jobs:
           while IFS=$'\t' read -r name version url sha256; do
             dir="$WORKDIR/dist/$name-$version"
             mkdir -p "$dir"
-            curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors -o "$dir/$name.zip" "$url"
+            fetch "$url" "$dir/$name.zip"
             echo "$sha256  $dir/$name.zip" | shasum -a 256 -c -
             unzip -q -o "$dir/$name.zip" -d "$dir"
           done < "$RUNNER_TEMP/deps.tsv"
@@ -214,8 +227,21 @@ jobs:
           REPRO_SHA256: ${{ steps.lock.outputs.repro_sha256 }}
           REF_AVCODEC_URL: ${{ steps.lock.outputs.ref_avcodec_url }}
           REF_AVCODEC_SHA256: ${{ steps.lock.outputs.ref_avcodec_sha256 }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # W-262: through the API with the job's token. GitHub refused anonymous
+          # release downloads with 504 (11-09); the same file came at once with a token.
+          fetch() { # release download url, output file
+            local rest="${1#https://github.com/}" repo tag name attempt
+            repo="${rest%%/releases/download/*}"; rest="${rest#*/releases/download/}"
+            tag="${rest%%/*}"; name="${rest#*/}"
+            for attempt in 1 2 3 4 5; do
+              gh release download "$tag" -R "$repo" -p "$name" -O "$2" --clobber && return 0
+              sleep 15
+            done
+            return 1
+          }
           work="$RUNNER_TEMP/compare"
           mkdir -p "$work"
           report="$RUNNER_TEMP/out/compare.txt"
@@ -238,7 +264,7 @@ jobs:
             if lipo -info "$1" | grep -q '^Non-fat'; then cp "$1" "$2"; else lipo -thin arm64 "$1" -output "$2"; fi
           }
           unpack() { # name, url, sha256, dir
-            curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors -o "$work/$1.zip" "$2"
+            fetch "$2" "$work/$1.zip"
             echo "$3  $work/$1.zip" | shasum -a 256 -c -
             mkdir -p "$4"
             unzip -q "$work/$1.zip" -d "$4"

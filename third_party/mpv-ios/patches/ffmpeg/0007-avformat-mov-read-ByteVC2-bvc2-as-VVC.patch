@@ -1,0 +1,57 @@
+From 312f823507e816b2bc439f6ad55f7ecf36e62fbd Mon Sep 17 00:00:00 2001
+From: W-262 WebHTV <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 06:10:00 +0000
+Subject: [PATCH] avformat/mov: read ByteVC2 ('bvc2') as VVC
+
+ByteVC2 video, found in some short-drama MP4 sources, is a standard
+H.266/VVC bitstream (W-254: FFmpeg's vvc decoder and Fraunhofer vvdec give
+bit-identical frames) stored under a 'bvc2' sample entry with a private
+'bv2C' configuration box and the parameter sets in the samples. Map the
+fourcc to AV_CODEC_ID_VVC after vvc1/vvi1 and give such a track the minimal
+vvcC record (4-byte NAL lengths, no arrays), so the decoder reads the
+samples as length-prefixed NAL units. Written for WebHTV (W-262) against
+n8.1.2; no librempeg code.
+---
+ libavformat/isom_tags.c |  1 +
+ libavformat/mov.c       | 13 +++++++++++++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/libavformat/isom_tags.c b/libavformat/isom_tags.c
+index 1cd655b..547c9b7 100644
+--- a/libavformat/isom_tags.c
++++ b/libavformat/isom_tags.c
+@@ -125,6 +125,7 @@ const AVCodecTag ff_codec_movvideo_tags[] = {
+ 
+     { AV_CODEC_ID_VVC,  MKTAG('v', 'v', 'c', '1') },
+     { AV_CODEC_ID_VVC,  MKTAG('v', 'v', 'i', '1') },
++    { AV_CODEC_ID_VVC,  MKTAG('b', 'v', 'c', '2') }, /* ByteVC2: VVC, parameter sets in ES; after vvc1/vvi1 so muxers keep those */
+ 
+     { AV_CODEC_ID_HEVC, MKTAG('h', 'e', 'v', '1') }, /* HEVC/H.265 which indicates parameter sets may be in ES */
+     { AV_CODEC_ID_HEVC, MKTAG('h', 'v', 'c', '1') }, /* HEVC/H.265 which indicates parameter sets shall not be in ES */
+diff --git a/libavformat/mov.c b/libavformat/mov.c
+index 386d2f0..4269cfc 100644
+--- a/libavformat/mov.c
++++ b/libavformat/mov.c
+@@ -3048,6 +3048,19 @@ static int mov_finalize_stsd_codec(MOVContext *c, AVIOContext *pb,
+     case AV_CODEC_ID_H264:
+         sti->need_parsing = AVSTREAM_PARSE_HEADERS;
+         break;
++    case AV_CODEC_ID_VVC:
++        /* ByteVC2 ('bvc2') is VVC with 4-byte NAL lengths and parameter sets in
++         * the samples, configured by a private 'bv2C' box instead of 'vvcC'.
++         * Give the decoder the vvcC record that says so: lengthSizeMinusOne 3,
++         * no PTL, no parameter set arrays. */
++        if (st->codecpar->codec_tag == MKTAG('b','v','c','2') && !st->codecpar->extradata_size) {
++            int ret = ff_alloc_extradata(st->codecpar, 2);
++            if (ret < 0)
++                return ret;
++            st->codecpar->extradata[0] = 0xfe;
++            st->codecpar->extradata[1] = 0;
++        }
++        break;
+     default:
+         break;
+     }
+-- 
+2.54.0
+

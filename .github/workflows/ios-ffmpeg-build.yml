@@ -10,6 +10,11 @@ name: iOS FFmpeg Build
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the prerelease from this branch (W-262: test branches)"
+        type: boolean
+        default: false
   push:
     branches:
       - ios-poc
@@ -17,6 +22,7 @@ on:
       - ".github/workflows/ios-ffmpeg-build.yml"
       - "third_party/mpv-ios/patches/ffmpeg/**"
       - "third_party/mpv-ios/patches/buildscripts/0002-build-ffmpeg-only.patch"
+      - "third_party/mpv-ios/patches/buildscripts/0003-enable-vvc-decoder.patch"
 
 permissions:
   contents: write
@@ -56,6 +62,8 @@ jobs:
               "ref_sha256": ff["reference"]["sha256"],
               "repro_url": ff["reproducibility"]["url"],
               "repro_sha256": ff["reproducibility"]["sha256"],
+              "ref_avcodec_url": ff["reference_avcodec"]["url"],
+              "ref_avcodec_sha256": ff["reference_avcodec"]["sha256"],
               "tag": ff["artifact"]["release_tag"],
           }
           for key, value in values.items():
@@ -118,8 +126,9 @@ jobs:
           for name in names:
               if sha(os.path.join(patch_dir, name)) != ff["patches"]["files"][name]:
                   sys.exit(f"::error title=FFmpeg patches::{name} does not match the lock")
-          if sha(ff["buildscripts"]["path"]) != ff["buildscripts"]["sha256"]:
-              sys.exit(f"::error title=Buildscripts patch::{ff['buildscripts']['path']} does not match the lock")
+          for key in ("buildscripts", "buildscripts_vvc"):
+              if sha(ff[key]["path"]) != ff[key]["sha256"]:
+                  sys.exit(f"::error title=Buildscripts patch::{ff[key]['path']} does not match the lock")
           # The recipe has no FFmpeg patches of its own; ours must be the only ones.
           upstream = os.path.join(os.environ["WORKDIR"], "Sources/BuildScripts/patch/FFmpeg")
           if os.path.exists(upstream):
@@ -128,6 +137,8 @@ jobs:
           mkdir -p "$WORKDIR/Sources/BuildScripts/patch/FFmpeg"
           cp third_party/mpv-ios/patches/ffmpeg/*.patch "$WORKDIR/Sources/BuildScripts/patch/FFmpeg/"
           git -C "$WORKDIR" apply "$GITHUB_WORKSPACE/third_party/mpv-ios/patches/buildscripts/0002-build-ffmpeg-only.patch"
+          # W-262: the recipe's decoder list plus vvc, for ByteVC2 ('bvc2') sources.
+          git -C "$WORKDIR" apply "$GITHUB_WORKSPACE/third_party/mpv-ios/patches/buildscripts/0003-enable-vvc-decoder.patch"
           git -C "$WORKDIR" status --short
 
       - name: Place the pinned dependency zips
@@ -176,6 +187,8 @@ jobs:
             test -f "$src/$f" || { echo "::error title=FFmpeg source::$f is missing: the WebHTV patches were not applied"; exit 1; }
           done
           grep -q ff_hls_timestamp_map "$src/libavformat/hls.c" || { echo "::error title=FFmpeg source::hls.c does not call the timestamp mapping"; exit 1; }
+          grep -q "MKTAG('b', 'v', 'c', '2')" "$src/libavformat/isom_tags.c" || { echo "::error title=FFmpeg source::the bvc2 patch was not applied"; exit 1; }
+          grep -q -- "--enable-decoder=vvc" "$WORKDIR/Sources/BuildScripts/XCFrameworkBuild/main.swift" || { echo "::error title=Recipe::vvc is not in the decoder list"; exit 1; }
           git -C "$src" status --short | tee "$RUNNER_TEMP/out/ffmpeg-source-status.txt"
           python3 - <<'EOF'
           import glob, hashlib, json, os, sys
@@ -199,6 +212,8 @@ jobs:
           REF_SHA256: ${{ steps.lock.outputs.ref_sha256 }}
           REPRO_URL: ${{ steps.lock.outputs.repro_url }}
           REPRO_SHA256: ${{ steps.lock.outputs.repro_sha256 }}
+          REF_AVCODEC_URL: ${{ steps.lock.outputs.ref_avcodec_url }}
+          REF_AVCODEC_SHA256: ${{ steps.lock.outputs.ref_avcodec_sha256 }}
         run: |
           set -euo pipefail
           work="$RUNNER_TEMP/compare"
@@ -230,7 +245,11 @@ jobs:
           }
           unpack ref-avformat "$REF_URL" "$REF_SHA256" "$work/ref"
           unpack ref-avutil "$REPRO_URL" "$REPRO_SHA256" "$work/ref"
-          for lib in Libavformat Libavutil; do
+          unpack ref-avcodec "$REF_AVCODEC_URL" "$REF_AVCODEC_SHA256" "$work/ref"
+          # W-262: the one configure argument WebHTV adds; every configuration string
+          # must equal upstream's once it is taken out.
+          novvc() { sed 's/ --enable-decoder=vvc//'; }
+          for lib in Libavformat Libavutil Libavcodec; do
             unzip -q "$WORKDIR/dist/release/$lib.xcframework.zip" -d "$work/new"
           done
 
@@ -241,7 +260,7 @@ jobs:
           thin "$ref_fw/Libavutil" "$work/ref-avutil.a"
           thin "$new_fw/Libavutil" "$work/new-avutil.a"
           check "Libavutil configuration" "$(strings -a "$work/ref-avutil.a" | grep -F -- '--disable-armv5te' | sort -u)" \
-                                          "$(strings -a "$work/new-avutil.a" | grep -F -- '--disable-armv5te' | sort -u)"
+                                          "$(strings -a "$work/new-avutil.a" | grep -F -- '--disable-armv5te' | novvc | sort -u)"
           check "Libavutil archive members" "$(ar t "$work/ref-avutil.a" | grep -v '^__.SYMDEF' | sort)" \
                                             "$(ar t "$work/new-avutil.a" | grep -v '^__.SYMDEF' | sort)"
           check "Libavutil defined external symbols" "$(symbols -gUj "$work/ref-avutil.a")" "$(symbols -gUj "$work/new-avutil.a")"
@@ -256,7 +275,7 @@ jobs:
           thin "$new_fw/Libavformat" "$new_lib"
           for text in "--disable-armv5te" "FFmpeg version"; do
             check "Libavformat strings containing $text" "$(strings -a "$ref_lib" | grep -F -- "$text" | sort -u)" \
-                                                         "$(strings -a "$new_lib" | grep -F -- "$text" | sort -u)"
+                                                         "$(strings -a "$new_lib" | grep -F -- "$text" | novvc | sort -u)"
           done
           words() { tr '\n' ' ' | sed 's/ $//'; }
           members() { ar t "$1" | { grep -v '^__.SYMDEF' || true; } | sort; }
@@ -306,9 +325,15 @@ jobs:
           # identifier and three assembler/SDK probes may differ, and only to the
           # values Xcode 26.6 gives. None of the three probes reaches libavformat.
           toolchain_lines='^#define (CC_IDENT|HAVE_AS_ARCHEXT_DOTPROD_DIRECTIVE|HAVE_AS_ARCHEXT_I8MM_DIRECTIVE|HAVE_KVTQPMODULATIONLEVEL_DEFAULT) '
-          check "Libavformat config.h outside the toolchain lines" \
-            "$(grep -Ev "$toolchain_lines" "$ref_fw/Headers/config.h" | shasum -a 256)" \
-            "$(grep -Ev "$toolchain_lines" "$new_fw/Headers/config.h" | shasum -a 256)"
+          # W-262: enabling vvc changes the recorded configuration and turns on vvc_sei;
+          # config.h is shared by every library, so the same two lines move everywhere.
+          vvc_lines='^#define (FFMPEG_CONFIGURATION|CONFIG_VVC_SEI) '
+          check "Libavformat config.h outside the toolchain and vvc lines" \
+            "$(grep -Ev "$toolchain_lines" "$ref_fw/Headers/config.h" | grep -Ev "$vvc_lines" | shasum -a 256)" \
+            "$(grep -Ev "$toolchain_lines" "$new_fw/Headers/config.h" | grep -Ev "$vvc_lines" | shasum -a 256)"
+          check "Libavformat config.h vvc lines" \
+            "$(grep -E "$vvc_lines" "$ref_fw/Headers/config.h" | sed 's/CONFIG_VVC_SEI 0/CONFIG_VVC_SEI 1/')" \
+            "$(grep -E "$vvc_lines" "$new_fw/Headers/config.h" | novvc)"
           check "Libavformat config.h toolchain lines" \
             "$(printf '%s\n' '#define CC_IDENT "Apple clang version 21.0.0 (clang-2100.1.1.101)"' \
                               '#define HAVE_AS_ARCHEXT_DOTPROD_DIRECTIVE 1' \
@@ -331,8 +356,48 @@ jobs:
           done
           echo "config.h, upstream against new:" >> "$report"
           diff "$ref_fw/Headers/config.h" "$new_fw/Headers/config.h" >> "$report" || true
+
+          # 3. Libavcodec (W-262): the upstream library plus the vvc decoder and nothing else.
+          ref_fw="$work/ref/Libavcodec.xcframework/ios-arm64/Libavcodec.framework"
+          new_fw="$work/new/Libavcodec.xcframework/ios-arm64/Libavcodec.framework"
+          ref_lib="$work/ref-avcodec.a"
+          new_lib="$work/new-avcodec.a"
+          thin "$ref_fw/Libavcodec" "$ref_lib"
+          thin "$new_fw/Libavcodec" "$new_lib"
+          check "Libavcodec configuration" "$(strings -a "$ref_lib" | grep -F -- '--disable-armv5te' | sort -u)" \
+                                           "$(strings -a "$new_lib" | grep -F -- '--disable-armv5te' | novvc | sort -u)"
+          removed="$(comm -23 <(members "$ref_lib") <(members "$new_lib") | words)"
+          check "Libavcodec archive members removed" "none" "${removed:-none}"
+          removed="$(comm -23 <(symbols -gUj "$ref_lib") <(symbols -gUj "$new_lib") | words)"
+          check "Libavcodec defined external symbols removed" "none" "${removed:-none}"
+          added="$(comm -13 <(symbols -gUj "$ref_lib") <(symbols -gUj "$new_lib"))"
+          check "Libavcodec has the vvc decoder" "_ff_vvc_decoder" "$(printf '%s\n' "$added" | grep -x _ff_vvc_decoder || true)"
+          other="$(printf '%s\n' "$added" | sed '/^$/d' | grep -Eiv 'vvc|h266|executor' | words)"
+          check "Libavcodec defined external symbols added outside vvc" "none" "${other:-none}"
+          check "Libavcodec framework files other than the binary and the generated config" \
+            "$(cd "$ref_fw" && find . -type f ! -name Libavcodec ! -name config.h ! -name config_components.h -exec shasum -a 256 {} + | sort -k 2)" \
+            "$(cd "$new_fw" && find . -type f ! -name Libavcodec ! -name config.h ! -name config_components.h -exec shasum -a 256 {} + | sort -k 2)"
+          if [[ -f "$ref_fw/Headers/config_components.h" ]]; then
+            check "Libavcodec config_components.h outside CONFIG_VVC_DECODER" \
+              "$(grep -v '^#define CONFIG_VVC_DECODER ' "$ref_fw/Headers/config_components.h" | shasum -a 256)" \
+              "$(grep -v '^#define CONFIG_VVC_DECODER ' "$new_fw/Headers/config_components.h" | shasum -a 256)"
+            check "Libavcodec CONFIG_VVC_DECODER" "#define CONFIG_VVC_DECODER 1" \
+              "$(grep '^#define CONFIG_VVC_DECODER ' "$new_fw/Headers/config_components.h")"
+          fi
+          check "Libavcodec simulator architectures" \
+            "$(lipo -archs "$work/ref/Libavcodec.xcframework/ios-arm64_x86_64-simulator/Libavcodec.framework/Libavcodec")" \
+            "$(lipo -archs "$work/new/Libavcodec.xcframework/ios-arm64_x86_64-simulator/Libavcodec.framework/Libavcodec")"
+          {
+            echo "Libavcodec members added: $(comm -13 <(members "$ref_lib") <(members "$new_lib") | words)"
+            echo "Libavcodec defined external symbols added: $(printf '%s\n' "$added" | sed '/^$/d' | wc -l | tr -d ' ')"
+            echo "Libavcodec undefined symbols, upstream only: $(comm -23 <(symbols -guj "$ref_lib") <(symbols -guj "$new_lib") | words)"
+            echo "Libavcodec undefined symbols, new only: $(comm -13 <(symbols -guj "$ref_lib") <(symbols -guj "$new_lib") | words)"
+            echo "Libavcodec ios-arm64 bytes, upstream: $(stat -f %z "$ref_lib"); new: $(stat -f %z "$new_lib")"
+            echo "Libavcodec zip bytes, upstream: $(stat -f %z "$work/ref-avcodec.zip"); new: $(stat -f %z "$WORKDIR/dist/release/Libavcodec.xcframework.zip")"
+          } >> "$report"
           mkdir -p "$RUNNER_TEMP/out/new-libs"
-          cp "$WORKDIR/dist/release/Libavformat.xcframework.zip" "$WORKDIR/dist/release/Libavutil.xcframework.zip" "$RUNNER_TEMP/out/new-libs/"
+          cp "$WORKDIR/dist/release/Libavformat.xcframework.zip" "$WORKDIR/dist/release/Libavutil.xcframework.zip" \
+             "$WORKDIR/dist/release/Libavcodec.xcframework.zip" "$RUNNER_TEMP/out/new-libs/"
           cat "$report"
           exit "$fail"
 
@@ -344,19 +409,25 @@ jobs:
         run: |
           set -euo pipefail
           release="$WORKDIR/dist/release"
-          zip="$release/Libavformat.xcframework.zip"
-          sha256="$(shasum -a 256 "$zip" | cut -d ' ' -f 1)"
-          checksum="$(tr -d '[:space:]' < "$release/Libavformat.xcframework.checksum.txt")"
-          if [[ "$sha256" != "$checksum" ]]; then
-            echo "::error title=Checksum::SwiftPM checksum $checksum is not the zip's sha256 $sha256"
-            exit 1
-          fi
-          cp "$zip" "$RUNNER_TEMP/out/Libavformat.xcframework.zip"
+          : > "$RUNNER_TEMP/artifacts.txt"
+          for lib in Libavformat Libavcodec; do
+            zip="$release/$lib.xcframework.zip"
+            sha256="$(shasum -a 256 "$zip" | cut -d ' ' -f 1)"
+            checksum="$(tr -d '[:space:]' < "$release/$lib.xcframework.checksum.txt")"
+            if [[ "$sha256" != "$checksum" ]]; then
+              echo "::error title=Checksum::$lib SwiftPM checksum $checksum is not the zip's sha256 $sha256"
+              exit 1
+            fi
+            cp "$zip" "$RUNNER_TEMP/out/$lib.xcframework.zip"
+            {
+              echo "artifact: $lib.xcframework.zip"
+              echo "bytes: $(stat -f %z "$zip")"
+              echo "sha256 (SwiftPM checksum): $sha256"
+            } >> "$RUNNER_TEMP/artifacts.txt"
+          done
           {
-            echo "artifact: Libavformat.xcframework.zip"
+            cat "$RUNNER_TEMP/artifacts.txt"
             echo "release tag: $TAG"
-            echo "bytes: $(stat -f %z "$zip")"
-            echo "sha256 (SwiftPM checksum): $sha256"
             echo "source: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
             echo "run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo "runner image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
@@ -367,15 +438,15 @@ jobs:
             echo "ffmpeg patches:"
             (cd "$WORKDIR/Sources/BuildScripts/patch/FFmpeg" && shasum -a 256 *.patch)
             shasum -a 256 third_party/mpv-ios/patches/buildscripts/0002-build-ffmpeg-only.patch
+            shasum -a 256 third_party/mpv-ios/patches/buildscripts/0003-enable-vvc-decoder.patch
             echo "dependency zips:"
             (cd "$WORKDIR/dist" && shasum -a 256 */*.zip | grep -v ' release/')
           } > "$RUNNER_TEMP/out/build-manifest.txt"
           cat "$RUNNER_TEMP/out/build-manifest.txt"
           {
-            echo "### Libavformat.xcframework.zip"
+            echo "### Libavformat and Libavcodec ($TAG)"
             echo
-            echo "- sha256 (SwiftPM checksum): \`$sha256\`"
-            echo "- release tag: \`$TAG\`"
+            sed 's/^/    /' "$RUNNER_TEMP/artifacts.txt"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload build outputs
@@ -389,7 +460,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Publish the prerelease
-        if: github.ref == 'refs/heads/ios-poc'
+        if: github.ref == 'refs/heads/ios-poc' || inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.lock.outputs.tag }}
@@ -400,17 +471,18 @@ jobs:
             exit 1
           fi
           cat > "$RUNNER_TEMP/notes.md" <<EOF
-          Libavformat.xcframework for the WebHTV iOS app (IOS-POC-26-2b), not an app release.
+          Libavformat and Libavcodec xcframeworks for the WebHTV iOS app (IOS-POC-26-2b, W-262), not an app release.
 
-          FFmpeg n8.1.2 built by this workflow with the MPVKit 1.0.0 recipe (LGPL product) and the patches in third_party/mpv-ios/patches/ffmpeg: upstream caa3fa6af070c1eeee59da027fdcde326fc64a89 and e27ad5760c0c8eca7c95bb907dc6e4e62dbf129b with their test commits, FongMi/FFmpeg 5805f9364c2e9a5f6ce625c9077b308c3ed4014d, and a WebHTV adaptation. HLS packet timestamps follow the playlist timeline across EXT-X-DISCONTINUITY. Every other FFmpeg library the app links is the upstream 1.0.0 binary. Provenance: third_party/mpv-ios-lock.json and build-manifest.txt; the modified FFmpeg source is n8.1.2 plus those patches.
+          FFmpeg n8.1.2 built by this workflow with the MPVKit 1.0.0 recipe (LGPL product) and the patches in third_party/mpv-ios/patches/ffmpeg: upstream caa3fa6af070c1eeee59da027fdcde326fc64a89 and e27ad5760c0c8eca7c95bb907dc6e4e62dbf129b with their test commits, FongMi/FFmpeg 5805f9364c2e9a5f6ce625c9077b308c3ed4014d, and a WebHTV adaptation. HLS packet timestamps follow the playlist timeline across EXT-X-DISCONTINUITY. W-262: the MPVKit decoder list plus vvc (third_party/mpv-ios/patches/buildscripts/0003), and the mov demuxer reads ByteVC2 ('bvc2') as VVC (patch 0007, WebHTV's own, no librempeg code). Every other FFmpeg library the app links is the upstream 1.0.0 binary. Provenance: third_party/mpv-ios-lock.json and build-manifest.txt; the modified FFmpeg source is n8.1.2 plus those patches.
           EOF
           gh release create "$TAG" \
             "$RUNNER_TEMP/out/Libavformat.xcframework.zip" \
+            "$RUNNER_TEMP/out/Libavcodec.xcframework.zip" \
             "$RUNNER_TEMP/out/build-manifest.txt" \
             "$RUNNER_TEMP/out/compare.txt" \
             "$RUNNER_TEMP/out/build.log" \
             --target "$GITHUB_SHA" \
             --prerelease \
             --latest=false \
-            --title "Libavformat for WebHTV ($TAG)" \
+            --title "Libavformat and Libavcodec for WebHTV ($TAG)" \
             --notes-file "$RUNNER_TEMP/notes.md"

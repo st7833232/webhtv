@@ -37,7 +37,13 @@
 - 驗證：
   - 單元測試 `playsThePackedPlayersOwnAddressBeforeTheSEOStream`：打包的播放器加上 `ld+json` 陷阱，結果取到代理網址；沒有打包時仍取頁內唯一串流。換回原版 `XBPQ.js` 時這個測試是紅的，修正後是綠的。XBPQ 相關測試 32 個全過。
   - 真實網站（熱點，暫時測試、沒有提交）：引擎在真實影片頁回 `{"parse":0,"url":"https://kissavs.com/media/m3u8/?url=…"}`；ffmpeg 讀這個網址 5 秒，AES 解密與解碼都正常（h264 1280x720＋aac）。
-  - 還沒驗：Simulator 上的 App 實播（要先把修正版放進本機相容包），以及 Android 對照。
+  - Simulator App 實播（Reviewer C-1，11-10 15:57）：iPhone 18 Pro、iOS 27，App 是 W-278 的 Debug 建置。本機 https 相容包放在 `artifacts/w250/kissav/srv/`：設定 `w250-kissav.json` 只有 wang-sex 的兩個 KISSAV 站，站點物件原樣照抄；`spiders/manifest.json` 只覆蓋修正版 `XBPQ.js`；用 18448 埠提供，不碰共用的 18445；測試 CA 已用 `simctl keychain add-root-cert` 加入 Simulator。
+    - 重開 App 後，伺服器 log 有取 `manifest.json` 與 `XBPQ.js`，首頁「KISSAV(標籤) · 已載入 5 部」。
+    - 第一部「立即播放」，進度從 00:10 走到 00:30（總長 1:17:10），有起播且持續播放。
+    - 證據只存畫面的文字樹（`artifacts/w250/kissav/sim/*.txt`）與伺服器 log，不存成人內容截圖。
+  - Android 對照：Reviewer 說 Android 本來就能播，不必對照，所以沒做。
+- Ponytail（Reviewer C-2）：1 項必修，已修。打包區塊的基數 `a` 和字數 `c` 是從頁面讀來的；不合理的值（`a` 不在 2～62 之間，或 `c` 很大）原本會讓 `word()` 無限遞迴，或讓迴圈空轉很久。現在 `a` 超出範圍就跳過這個區塊，`c` 上限是實際字數。測試加了兩個不合理的打包區塊，都會跳過，最後仍播頁內那條串流。XBPQ 測試 32 個全過。
+- 香肠派对：11-09 已經在 iOS 跑過 survey，全段通過（見「每站結論」）；這次沒有另外在 Simulator 實播。
 
 ## KISSAV 播放（Simulator 11-09 11:29，當時未解，保留紀錄）
 

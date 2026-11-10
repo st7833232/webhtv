@@ -609,5 +609,10 @@ func search(_ spider: JavaScriptSpiderRuntime, _ key: String, page: String = "1"
         == ("https://s30.invalid/media/m3u8/?url=https%3A%2F%2Fcdn.invalid%2Fa.m3u8", 0))
     // No packed player: the page's one stream is still played, as before.
     #expect(try await play(spider, "https://s30.invalid/video/2/") == ("https://cdn.invalid/only.m3u8", 0))
+    // A packed block whose counts are absurd is skipped, not spun on (Ponytail): the page's stream still plays.
+    RuleSite.serve(["https://s30.invalid/video/3/": #"<script>eval(function(p,a,c,k,e,d){}('0',0,999999999,'x'.split('|'),0,{}))</script>"#
+        + #"<script>eval(function(p,a,c,k,e,d){}('0',62,999999999,'x'.split('|'),0,{}))</script>"#
+        + #"<script type="application/ld+json">{"contentUrl":"https://cdn.invalid/three.m3u8"}</script>"#])
+    #expect(try await play(spider, "https://s30.invalid/video/3/") == ("https://cdn.invalid/three.m3u8", 0))
     await spider.destroy()
 }

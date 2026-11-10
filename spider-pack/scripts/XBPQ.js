@@ -351,7 +351,10 @@ var spider = (function () {
     var out = [];
     var re = /\}\('((?:\\'|[^'])*)',\s*(\d+),\s*(\d+),\s*'((?:\\'|[^'])*)'\.split\('\|'\)/g, m;
     while ((m = re.exec(String(raw || '')))) {
-      var a = parseInt(m[2], 10), c = parseInt(m[3], 10), k = m[4].split('|'), dict = {};
+      var a = parseInt(m[2], 10), k = m[4].split('|'), dict = {};
+      // The counts come from the page: a radix outside 2…62 never ends `word`, and a count past the words would spin.
+      if (!(a >= 2 && a <= 62)) continue;
+      var c = Math.min(parseInt(m[3], 10) || 0, k.length);
       var word = function (n) {
         return (n < a ? '' : word(Math.floor(n / a))) + ((n = n % a) > 35 ? String.fromCharCode(n + 29) : n.toString(36));
       };

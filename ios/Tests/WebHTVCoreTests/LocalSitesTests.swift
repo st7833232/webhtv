@@ -39,7 +39,7 @@ private func remoteSites(_ json: String) throws -> [Site] {
     let remote = try remoteSites(#"[{"key":"a","name":"A","type":1,"api":"https://a.com/api.php/provide/vod/"},{"key":"x","name":"X","type":3,"api":"csp_XBPQ"}]"#)
     let shadowed = try #require(LocalSite(name: "A 本機", type: 0, api: "http://a.com/api.php/provide/vod/at/xml", detectedFrom: ""))
     let own = try #require(LocalSite(name: "B", type: 1, api: "https://b.com/api.php/provide/vod/", detectedFrom: ""))
-    let merged = LocalSites.merged(remote, with: [shadowed, own])
+    let merged = LocalSites.merged(remote, with: [shadowed, own], runnable: \.isNativeCMS)
     #expect(merged.map(\.key) == ["a", "x", own.key])
     #expect(LocalSites.isShadowed(shadowed, by: LocalSites.remoteAPIs(remote)))
 }
@@ -66,4 +66,20 @@ private func remoteSites(_ json: String) throws -> [Site] {
     #expect(store.sites(for: "A").isEmpty && store.sites(for: "B").count == 1)
     store.remove(key: site.key, for: "B")
     #expect(store.bySource.isEmpty)
+}
+
+/// W-278: a web-template site keeps its rules, is never shadowed, and waits on the same rule a remote spider does.
+@Test func aWebTemplateSiteIsListedOnlyWhenItsEngineCanRun() throws {
+    let web = try #require(LocalSite(name: "網頁", type: 3, api: "csp_XBPQ", ext: #"{"分类":"电影$1","主页url":"https://w.com"}"#,
+                                     home: "https://w.com/", detectedFrom: "苹果CMS 網頁版型"))
+    #expect(web.key == LocalSites.key(forAPI: "http://W.com") && web.address == "https://w.com/" && !web.isInsecure)
+    let site = try #require(web.site)
+    #expect(site.isCSPSpider && site.rawExtJSON.contains("电影$1"))
+    #expect(!LocalSites.isShadowed(web, by: ["//w.com"]))
+    #expect(LocalSites.merged([], with: [web], runnable: \.isNativeCMS).isEmpty)
+    #expect(LocalSites.merged([], with: [web], runnable: { _ in true }).map(\.key) == [web.key])
+    // A file written before W-278 has neither field.
+    let old = #"{"bySource":{"A":[{"key":"local_x","name":"甲","type":1,"api":"https://a.com/api.php","addedAt":0,"detectedFrom":"v10"}]}}"#
+    let store = try JSONDecoder().decode(LocalSiteStore.self, from: Data(old.utf8))
+    #expect(store.sites(for: "A").first?.ext == nil && store.sites(for: "A").first?.home == nil)
 }

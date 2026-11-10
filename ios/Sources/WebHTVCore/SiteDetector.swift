@@ -8,6 +8,8 @@ import Foundation
 public struct SiteDetector: Sendable {
     public enum Format: String, Sendable {
         case given, v10JSON, v10XML, v8JSON, v8XML
+        /// W-278 (W-275 §9): the site's own pages in the stui／myui skin, read by the bundled `XBPQ.js`.
+        case webTemplate
 
         public var label: String {
             switch self {
@@ -16,13 +18,14 @@ public struct SiteDetector: Sendable {
             case .v10XML: "苹果CMS v10 XML"
             case .v8JSON: "苹果CMS v8 JSON"
             case .v8XML: "苹果CMS v8 XML"
+            case .webTemplate: "苹果CMS 網頁版型"
             }
         }
     }
 
     public struct Candidate: Equatable, Sendable {
         public let url: URL
-        /// 0 for XML, 1 for JSON: the TVBox type the site is added as.
+        /// 0 for XML, 1 for JSON, 3 for a web template: the TVBox type the site is added as.
         public let type: Int
         public let format: Format
 
@@ -32,6 +35,8 @@ public struct SiteDetector: Sendable {
     public enum Failure: Error, Equatable, Sendable {
         case closed, unauthorized, challenge, empty, timeout, network, notCMS, noTitles, noEpisodes
         case http(Int)
+        /// W-278
+        case notTemplate, noCategories, needsSpiderTool
 
         public var message: String {
             switch self {
@@ -45,6 +50,9 @@ public struct SiteDetector: Sendable {
             case .noTitles: "介面有回應，但沒有任何影片"
             case .noEpisodes: "影片詳情沒有線路或集數"
             case .http(let status): "HTTP \(status)"
+            case .notTemplate: "不是苹果CMS 網頁版型"
+            case .noCategories: "網頁上找不到分類"
+            case .needsSpiderTool: "需要先下載爬蟲工具"
             }
         }
     }
@@ -65,8 +73,21 @@ public struct SiteDetector: Sendable {
         public let episodeCount: Int
         /// The first episode is a media file; otherwise it needs sniffing or a parse and may not play.
         public let isDirect: Bool
+        /// W-278: a web template's XBPQ rules; nil for an API.
+        public let ext: String?
 
         public var isInsecure: Bool { candidate.url.scheme == "http" }
+
+        /// The site to store, under the name the viewer gave or else the host.
+        public func localSite(named name: String) -> LocalSite? {
+            let named = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? candidate.url.host ?? "本機站" : name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let ext else {
+                return LocalSite(name: named, type: candidate.type, api: candidate.url.absoluteString, detectedFrom: candidate.label)
+            }
+            return LocalSite(name: named, type: 3, api: SiteDetector.webEngine, ext: ext, home: candidate.url.absoluteString,
+                             detectedFrom: candidate.label)
+        }
     }
 
     public enum Outcome: Sendable {
@@ -75,13 +96,20 @@ public struct SiteDetector: Sendable {
         case invalidInput
     }
 
+    /// W-278: builds the client a web-template site runs through — `SourceClient.make` in the app. Nil leaves
+    /// the web template out, as when the spider tool cannot run `csp_XBPQ`.
+    public typealias SpiderClientMaker = @Sendable (Site) async throws -> SourceClient
+    static let webEngine = "csp_XBPQ"
+
     let session: URLSession
     let budget: Duration
+    let makeSpiderClient: SpiderClientMaker?
 
     /// §4.3: 10 s per request (`URLSession.webHTV`), 45 s for the whole round.
-    public init(session: URLSession = .webHTV, budget: Duration = .seconds(45)) {
+    public init(session: URLSession = .webHTV, budget: Duration = .seconds(45), makeSpiderClient: SpiderClientMaker? = nil) {
         self.session = session
         self.budget = budget
+        self.makeSpiderClient = makeSpiderClient
     }
 
     /// §4.1–4.2, in order. No scheme typed: every https candidate, then every http one. Nil when the input is
@@ -117,6 +145,8 @@ public struct SiteDetector: Sendable {
                 guard let url = URL(string: origin + suffix), !round.contains(where: { $0.url == url }) else { continue }
                 round.append(Candidate(url: url, type: type, format: format))
             }
+            // §9.2: the site's own pages, only after every API of this scheme failed.
+            if let url = URL(string: origin + "/") { round.append(Candidate(url: url, type: 3, format: .webTemplate)) }
             result += round
         }
         return result
@@ -135,8 +165,7 @@ public struct SiteDetector: Sendable {
             return nil
         }
         // E7: a page that is not the API but asks a person to prove themselves.
-        let markers = ["cf-chl", "cf-browser-verification", "challenge-platform", "just a moment", "captcha", "验证", "驗證", "人机"]
-        if markers.contains(where: lower.contains) { return .challenge }
+        if challengeMarkers.contains(where: lower.contains) { return .challenge }
         return ok ? .notCMS : .http(status)
     }
 
@@ -154,7 +183,7 @@ public struct SiteDetector: Sendable {
         let deadline = ContinuousClock.now + budget
         var attempts: [Attempt] = []
         var unreachable: Set<String> = []
-        for candidate in candidates {
+        for candidate in candidates where candidate.format != .webTemplate || makeSpiderClient != nil {
             guard !Task.isCancelled else { break }
             // An origin that timed out or could not be reached will not answer its other paths either.
             let origin = (candidate.url.scheme ?? "") + "://" + (candidate.url.host ?? "")
@@ -165,9 +194,11 @@ public struct SiteDetector: Sendable {
                 break
             }
             do {
-                let found = try await verify(candidate)
+                let found = try await verify(candidate, before: deadline)
                 progress(Attempt(candidate: candidate, failure: nil))
                 return .found(found)
+            } catch is CancellationError {
+                break
             } catch {
                 let failure = error as? Failure ?? .network
                 if failure == .timeout || failure == .network { unreachable.insert(origin) }
@@ -179,7 +210,14 @@ public struct SiteDetector: Sendable {
     }
 
     /// §4.3: the shape, then home and one title's detail through `CMSClient`, which must give a line with an episode.
-    func verify(_ candidate: Candidate) async throws -> Found {
+    /// The budget is checked before every request, not only between candidates (W-277 review N-2): one
+    /// candidate makes up to five requests of 10 s each.
+    func verify(_ candidate: Candidate, before deadline: ContinuousClock.Instant) async throws -> Found {
+        func inTime() throws {
+            try Task.checkCancellation()
+            if ContinuousClock.now >= deadline { throw Failure.timeout }
+        }
+        if candidate.format == .webTemplate { return try await verifyWebTemplate(candidate, inTime: inTime) }
         do {
             let (data, response) = try await session.data(from: candidate.url)
             if let failure = Self.judge(data, status: (response as? HTTPURLResponse)?.statusCode ?? 200, xml: candidate.type == 0) {
@@ -188,17 +226,21 @@ public struct SiteDetector: Sendable {
             guard let site = LocalSite(name: "", type: candidate.type, api: candidate.url.absoluteString, detectedFrom: "")?.site
             else { throw Failure.notCMS }
             let client = try CMSClient(site: site, session: session)
+            try inTime()
             let home = try await client.home()
             func playable(_ list: [Vod]) -> Vod? { list.first { !$0.id.isEmpty && !$0.isFolder } }
             var first = playable(home.list)
             if first == nil, let category = home.firstListableCategory {
+                try inTime()
                 first = playable(try await client.category(id: category.id).list)
             }
             guard let first else { throw Failure.noTitles }
+            try inTime()
             let flags = (try await client.detail(id: first.id))?.flags.filter { !$0.episodes.isEmpty } ?? []
             guard let line = flags.first, let episode = line.episodes.first else { throw Failure.noEpisodes }
             return Found(candidate: candidate, categoryCount: home.classes.count, firstTitle: first, lineCount: flags.count,
-                         episodeCount: line.episodes.count, isDirect: episode.mediaURL.map(CMSClient.isDirectMedia) ?? false)
+                         episodeCount: line.episodes.count, isDirect: episode.mediaURL.map(CMSClient.isDirectMedia) ?? false,
+                         ext: nil)
         } catch let failure as Failure {
             throw failure
         } catch CMSClientError.invalidHTTPStatus(let status) {
@@ -208,5 +250,78 @@ public struct SiteDetector: Sendable {
         } catch is DecodingError {
             throw Failure.notCMS
         }
+    }
+
+    // MARK: - W-278 web template (W-275 §9)
+
+    /// §9.2: the home page must carry the stui／myui skin; its navigation gives `名$id`, the paging template
+    /// follows the navigation's own URL style, and `XBPQ.js` must list the first category and give a title a line.
+    func verifyWebTemplate(_ candidate: Candidate, inTime: () throws -> Void) async throws -> Found {
+        guard let makeSpiderClient else { throw Failure.needsSpiderTool }
+        let html: String
+        try inTime()
+        do {
+            let (data, response) = try await session.data(from: candidate.url)
+            html = String(decoding: data, as: UTF8.self)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 200
+            let lower = html.lowercased()
+            if !lower.contains("stui-") && !lower.contains("myui-") {
+                if Self.challengeMarkers.contains(where: lower.contains) { throw Failure.challenge }
+                throw (200...299).contains(status) ? Failure.notTemplate : Failure.http(status)
+            }
+        } catch let error as URLError {
+            throw error.code == .timedOut ? Failure.timeout : Failure.network
+        }
+        let origin = String(candidate.url.absoluteString.dropLast())
+        let (categories, indexStyle) = Self.navigationCategories(html)
+        guard let first = categories.first else { throw Failure.noCategories }
+        let templates = indexStyle
+            ? ["/index.php/vod/show/id/{cateId}/page/{catePg}.html", "/index.php/vod/type/id/{cateId}/page/{catePg}.html"]
+            : ["/vodshow/{cateId}--------{catePg}---.html", "/vodtype/{cateId}-{catePg}.html"]
+        let spec = categories.map { "\($0.name)$\($0.id)" }.joined(separator: "#")
+        for template in templates {
+            try inTime()
+            let rules = ["主页url": origin, "分类url": origin + template, "分类": spec]
+            guard let json = try? JSONSerialization.data(withJSONObject: rules, options: [.sortedKeys, .withoutEscapingSlashes]),
+                  let site = LocalSite(name: "", type: 3, api: Self.webEngine, ext: String(decoding: json, as: UTF8.self),
+                                       home: candidate.url.absoluteString, detectedFrom: "")?.site
+            else { throw Failure.notTemplate }
+            let client = try await makeSpiderClient(site)
+            guard let title = (try? await client.category(id: first.id).list)?.first(where: { !$0.id.isEmpty && !$0.isFolder })
+            else { continue }
+            try inTime()
+            let flags = (try? await client.detail(id: title.id))?.flags.filter { !$0.episodes.isEmpty } ?? []
+            guard let line = flags.first, let episode = line.episodes.first else { throw Failure.noEpisodes }
+            return Found(candidate: candidate, categoryCount: categories.count, firstTitle: title, lineCount: flags.count,
+                         episodeCount: line.episodes.count, isDirect: episode.mediaURL.map(CMSClient.isDirectMedia) ?? false,
+                         ext: site.rawExtJSON)
+        }
+        throw Failure.noTitles
+    }
+
+    static let challengeMarkers = ["cf-chl", "cf-browser-verification", "challenge-platform", "just a moment", "captcha", "验证", "驗證", "人机"]
+
+    /// `名$id` from the page's category links (`/vodtype/1.html`, `/vodtype/1/`, `/index.php/vod/type/id/1.html`),
+    /// in page order, once each, at most 20; and whether they are the `index.php` style.
+    static func navigationCategories(_ html: String) -> ([(name: String, id: String)], Bool) {
+        let link = try! NSRegularExpression(pattern: #"<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a>"#,
+                                            options: [.caseInsensitive, .dotMatchesLineSeparators])
+        let id = try! NSRegularExpression(pattern: #"/(?:vodtype|vod/type/id)/(\d+)(?:[./-]|$)"#)
+        let tags = try! NSRegularExpression(pattern: "<[^>]+>")
+        var seen = Set<String>(), found: [(name: String, id: String)] = [], indexStyle = false
+        let text = html as NSString
+        for match in link.matches(in: html, range: NSRange(location: 0, length: text.length)) {
+            let href = text.substring(with: match.range(at: 1))
+            guard let m = id.firstMatch(in: href, range: NSRange(location: 0, length: (href as NSString).length)) else { continue }
+            let value = (href as NSString).substring(with: m.range(at: 1))
+            let inner = text.substring(with: match.range(at: 2))
+            let name = tags.stringByReplacingMatches(in: inner, range: NSRange(location: 0, length: (inner as NSString).length),
+                                                     withTemplate: "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, !name.contains("$"), !name.contains("#"), seen.insert(value).inserted else { continue }
+            if found.isEmpty { indexStyle = href.contains("index.php/vod/type") }
+            found.append((name, value))
+            if found.count == 20 { break }
+        }
+        return (found, indexStyle)
     }
 }

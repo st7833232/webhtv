@@ -56,15 +56,16 @@ private func detector(budget: Duration = .seconds(45)) -> SiteDetector { SiteDet
     let bare = try #require(SiteDetector.candidates(for: " example.com "))
     #expect(bare.map(\.url.absoluteString) == [
         "https://example.com/api.php/provide/vod/", "https://example.com/api.php/provide/vod/at/xml/",
-        "https://example.com/inc/apijson_vod.php", "https://example.com/inc/api.php",
+        "https://example.com/inc/apijson_vod.php", "https://example.com/inc/api.php", "https://example.com/",
         "http://example.com/api.php/provide/vod/", "http://example.com/api.php/provide/vod/at/xml/",
-        "http://example.com/inc/apijson_vod.php", "http://example.com/inc/api.php",
+        "http://example.com/inc/apijson_vod.php", "http://example.com/inc/api.php", "http://example.com/",
     ])
-    #expect(bare.map(\.type) == [1, 0, 1, 0, 1, 0, 1, 0])
+    // W-278: the web template comes last in each scheme's round.
+    #expect(bare.map(\.type) == [1, 0, 1, 0, 3, 1, 0, 1, 0, 3])
 
     // A typed API goes first as given and is not tried twice.
     let given = try #require(SiteDetector.candidates(for: "http://x.com:8080/api.php/provide/vod/at/xml/#a"))
-    #expect(given.map(\.format) == [.given, .v10JSON, .v8JSON, .v8XML])
+    #expect(given.map(\.format) == [.given, .v10JSON, .v8JSON, .v8XML, .webTemplate])
     #expect(given.first?.type == 0 && given.first?.url.absoluteString == "http://x.com:8080/api.php/provide/vod/at/xml/")
     let v8 = try #require(SiteDetector.candidates(for: "https://x.com/inc/api.php")?.first)
     #expect(v8.format == .given && v8.type == 0)
@@ -151,6 +152,15 @@ private func detector(budget: Duration = .seconds(45)) -> SiteDetector { SiteDet
     #expect(none.map(\.failure) == [.timeout])
 }
 
+/// W-277 review N-2: a candidate stops at the budget between its own requests, not only before the next candidate.
+@Test func theBudgetStopsACandidateBetweenItsRequests() async throws {
+    let api = "https://late.invalid/api.php/provide/vod/"
+    CMSServer.serve([api: .body(200, jsonHome), api + "#detail": .body(200, jsonDetail)])
+    let candidate = try #require(SiteDetector.candidates(for: api)?.first)
+    await #expect(throws: SiteDetector.Failure.timeout) { try await detector().verify(candidate, before: .now) }
+    #expect(CMSServer.requests(host: "late.invalid").count == 1)
+}
+
 @Test func anAddressThatIsNotHTTPIsRefused() async {
     guard case .invalidInput = await detector().detect("file:///etc/hosts") else { Issue.record("accepted"); return }
 }
@@ -160,4 +170,108 @@ private final class Heard: @unchecked Sendable {
     private var list: [SiteDetector.Attempt] = []
     func add(_ attempt: SiteDetector.Attempt) { lock.withLock { list.append(attempt) } }
     var all: [SiteDetector.Attempt] { lock.withLock { list } }
+}
+
+// MARK: - W-278 web template (W-275 §9), through the bundled XBPQ.js
+
+private let stuiHome = """
+<html><body><div class="stui-header__menu"><ul>
+<li><a href="/">首页</a></li><li><a href="/vodtype/1.html">电影</a></li><li><a href="/vodtype/2.html"><span>剧集</span></a></li>
+<li><a href="/vodtype/1.html">电影</a></li><li><a href="/voddetail/9.html">網頁片</a></li></ul></div>
+<ul class="stui-vodlist"><li><a href="/voddetail/9.html" title="網頁片"></a></li></ul></body></html>
+"""
+private let stuiListing = #"<ul class="stui-vodlist"><li><a href="/voddetail/9.html" title="網頁片" data-original="/9.jpg"></a></li></ul>"#
+private let stuiDetail = """
+<h1 class="title">網頁片</h1><div class="stui-pannel__head"><h3>線路一</h3></div>
+<ul class="stui-content__playlist"><li><a href="/vodplay/9-1-1.html">第1集</a></li><li><a href="/vodplay/9-1-2.html">第2集</a></li></ul>
+"""
+
+/// The detector with `RuleSite` behind both its own requests and the XBPQ runtime it builds.
+private func webDetector(budget: Duration = .seconds(45)) -> SiteDetector {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [RuleSite.self]
+    let session = URLSession(configuration: configuration)
+    return SiteDetector(session: session, budget: budget, makeSpiderClient: { site in
+        let registry = SpiderRegistry.bundled(bundle: .repoSpiders)
+        let script = try #require(registry.entry(for: site.api)?.script)
+        let runtime = try JavaScriptSpiderRuntime(name: "XBPQ", script: script, prelude: registry.prelude,
+                                                  storage: SpiderStorage(siteKey: site.key, defaults: UserDefaults(suiteName: "w278-test")!),
+                                                  session: session)
+        return .spider(SpiderSession(site: site, runtime: runtime), site)
+    })
+}
+
+private func rules(_ json: String) -> [String: String] {
+    (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: String] ?? [:]
+}
+
+@Test func navigationLinksGiveTheCategoriesAndTheirStyle() {
+    let (stui, stuiIndex) = SiteDetector.navigationCategories(stuiHome)
+    #expect(stui.map { "\($0.name)$\($0.id)" } == ["电影$1", "剧集$2"] && !stuiIndex)
+    let (myui, myuiIndex) = SiteDetector.navigationCategories(#"<a href="/index.php/vod/type/id/6.html">动作片</a><a href='/vodtype/7/'>喜剧</a>"#)
+    #expect(myui.map { "\($0.name)$\($0.id)" } == ["动作片$6", "喜剧$7"] && myuiIndex)
+    #expect(SiteDetector.navigationCategories(#"<a href="/vod/9.html">x</a>"#).0.isEmpty)
+}
+
+@Test func aStuiSiteWithoutAnAPIIsFoundAsAWebTemplate() async throws {
+    RuleSite.serve(["https://web.invalid/": stuiHome,
+                    "https://web.invalid/vodshow/1--------1---.html": stuiListing,
+                    "https://web.invalid/voddetail/9.html": stuiDetail])
+    guard case .found(let found) = await webDetector().detect("https://web.invalid") else { Issue.record("not found"); return }
+    #expect(found.candidate.format == .webTemplate && found.candidate.type == 3)
+    #expect(found.categoryCount == 2 && found.firstTitle.name == "網頁片" && found.lineCount == 1 && found.episodeCount == 2)
+    #expect(!found.isDirect)
+    let local = try #require(found.localSite(named: ""))
+    #expect(local.type == 3 && local.api == "csp_XBPQ" && local.home == "https://web.invalid/" && local.name == "web.invalid")
+    let site = try #require(local.site)
+    #expect(site.isCSPSpider && rules(site.rawExtJSON) == ["主页url": "https://web.invalid", "分类": "电影$1#剧集$2",
+                                                          "分类url": "https://web.invalid/vodshow/{cateId}--------{catePg}---.html"])
+    // Every API was asked first, and nothing was searched.
+    let asked = RuleSite.requests(on: "web.invalid")
+    #expect(asked.prefix(4).allSatisfy { $0.contains("/api.php") || $0.contains("/inc/") })
+    #expect(!asked.contains { $0.contains("wd=") })
+}
+
+@Test func anEmptyVodshowPageFallsBackToTheVodtypePaging() async throws {
+    RuleSite.serve(["https://web2.invalid/": stuiHome,
+                    "https://web2.invalid/vodtype/1-1.html": stuiListing,
+                    "https://web2.invalid/voddetail/9.html": stuiDetail])
+    guard case .found(let found) = await webDetector().detect("https://web2.invalid") else { Issue.record("not found"); return }
+    #expect(rules(found.ext ?? "")["分类url"] == "https://web2.invalid/vodtype/{cateId}-{catePg}.html")
+}
+
+@Test func aWebTemplateSaysWhyItFailed() async throws {
+    RuleSite.serve(["https://plain.invalid/": "<html><body>一般網站</body></html>",
+                    "https://nocat.invalid/": #"<ul class="myui-vodlist"></ul>"#,
+                    "https://empty.invalid/": stuiHome,
+                    "https://noeps.invalid/": stuiHome,
+                    "https://noeps.invalid/vodshow/1--------1---.html": stuiListing,
+                    "https://noeps.invalid/voddetail/9.html": "<h1>網頁片</h1>"])
+    func last(_ host: String) async -> SiteDetector.Failure? {
+        guard case .failed(let attempts) = await webDetector().detect("https://\(host)") else { return nil }
+        return attempts.last?.failure
+    }
+    #expect(await last("plain.invalid") == .notTemplate)
+    #expect(await last("nocat.invalid") == .noCategories)
+    #expect(await last("empty.invalid") == .noTitles)
+    #expect(await last("noeps.invalid") == .noEpisodes)
+}
+
+/// Reviewer C-1: without the spider tool the web round says so, after every API was still tried.
+@Test func aWebTemplateWithoutTheEngineSaysTheToolIsNeeded() async throws {
+    RuleSite.serve(["https://notool.invalid/": stuiHome])
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [RuleSite.self]
+    let detector = SiteDetector(session: URLSession(configuration: configuration),
+                                makeSpiderClient: { _ in throw SiteDetector.Failure.needsSpiderTool })
+    guard case .failed(let attempts) = await detector.detect("https://notool.invalid") else { Issue.record("found"); return }
+    #expect(attempts.map(\.failure) == [.http(404), .http(404), .http(404), .http(404), .needsSpiderTool])
+}
+
+/// Reviewer C-2: the web round checks the budget before its own requests too.
+@Test func theWebRoundStopsAtTheBudget() async throws {
+    RuleSite.serve(["https://late2.invalid/": stuiHome])
+    let candidate = try #require(SiteDetector.candidates(for: "https://late2.invalid")?.first { $0.format == .webTemplate })
+    await #expect(throws: SiteDetector.Failure.timeout) { try await webDetector().verify(candidate, before: .now) }
+    #expect(RuleSite.requests(on: "late2.invalid").isEmpty)
 }

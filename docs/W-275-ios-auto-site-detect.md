@@ -251,3 +251,30 @@ revert W-278 的提交即可。已存的網頁版型站留在 `local-sites.json`
 ### 9.8 工時
 
 設計審查後：偵測與合併 1.5 小時、測試 1 小時、UI 小改 0.5 小時、Simulator 1 小時。
+
+### 9.9 實作紀錄（W-278）
+
+- 設計 8a271c8a，Reviewer #7453 核准，附條件 C-1～C-3。W-277 審查的 N-1、N-2、N-3、N-4 也一起處理（Manager #7458）。
+- 程式：
+  - `SiteDetector`：新增 `.webTemplate` 候選，排在每一輪四個 API 候選之後；`verifyWebTemplate` 照 9.2 的流程：首頁要有 `stui-`／`myui-`，導覽列抽分類，`navigationCategories` 抓 `/vodtype/N` 與 `/vod/type/id/N`，先試 vodshow（或 index.php show），沒影片再試 vodtype 一次，最後用 XBPQ 讀分類頁和詳情。新增失敗原因「不是苹果CMS 網頁版型」「網頁上找不到分類」「需要先下載爬蟲工具」。`Found.localSite(named:)` 產生要存的站。
+  - `LocalSite` 新增 `ext`、`home`：key 用 `home`，舊檔沒有這兩個鍵也照樣讀。`LocalSites.merged(_:with:runnable:)` 用遠端站同一條規則過濾；網頁版型站不和遠端比對 api。
+  - App：`show()` 傳入 `isNativeCMS || (isSpiderShape && resolver.canResolve)`；偵測時建 `SiteDetector(makeSpiderClient:)`；本機站清單在爬蟲工具還沒到時標「等爬蟲工具，暫不顯示」；網頁版型站不做「已有此站」檢查，同一個網址再加一次就是改名。
+- 審查條件怎麼做到：
+  - C-1：resolver 跑不了 XBPQ 時，網頁那一輪回「需要先下載爬蟲工具」。有單元測試，也在 Simulator 看到（官方包下載前，w278-02-needs-tool）。
+  - C-2：`verify` 的每個請求前都會檢查取消與 45 秒預算，API 輪和網頁輪都一樣。按「取消」時，正在跑的那個請求會由 URLSession 中止，之後不再試下一個候選，畫面顯示「已取消」。有兩個測試證明預算檢查（API 輪、網頁輪）。
+  - C-3：偵測用 `resolver.session(for:)`，每次都建新的 session，不進 `SpiderSessionStore`，偵測完沒人持有就由 ARC 釋放。站點健康圓點只在 App 的瀏覽、播放畫面記錄，偵測不會寫。HTTP cookie 和其他請求一樣用共用的 `URLSession.webHTV`。
+  - W-277 N-1：`IOS-POC-31` 的註解移回 `SiteChoiceList` 上方。
+  - W-277 N-2：同 C-2。
+  - W-277 N-3（匯入檔換檔後，舊檔的本機站留在檔案裡）**不修**。匯入檔的身分是依內容算的，換回同一份檔，那些站就會回來；這時刪掉等於丟掉使用者還可能用到的資料。量也很小（每站一筆）。記為已知行為。
+  - W-277 N-4：在 Simulator 「忘記」來源 B 之後，`local-sites.json` 裡 B 的本機站已刪除，A 的兩個站還在。
+- 已知限制：只認 stui／myui 版型和 `/vodtype/`、`/vod/type/id/` 兩種導覽寫法。mxpro、mxone 這類新版 module 版型（`module-` class）不支援，會顯示「不是苹果CMS 網頁版型」；要支援另開單。分類只取導覽列連結，最多 20 個。
+- 驗證：
+  - 單元測試 21 個（SiteDetectorTests 16、LocalSitesTests 5）全過。全量 `swift test` 1541 個全過。
+  - Simulator（iPhone 18 Pro、iOS 27；本機 stui 假站 18280，見 `artifacts/w277/work/srv.py`；截圖在 `artifacts/w278/sim/`）：
+    - 下載爬蟲工具前：網頁輪顯示「需要先下載爬蟲工具」（w278-02）。
+    - 下載官方包序號 16 之後：四個 API 都是 HTTP 404，網頁版型可用。預覽顯示 2 個分類、第一部片、1 條線路、「需嗅探或解析」、「未加密」（w278-04、05）。
+    - 試播第一集起播：XBPQ 從播放頁的 `player_aaaa` 取出 m3u8（w278-07）。加入後站點選單有「本機」標記（w278-09），首頁有分類與影片，可以播放（w278-10、11）。重開 App 站還在（w278-12）。
+    - 忘記來源 B 會連同刪除 B 的本機站（w278-13、14）。
+  - 熱點冒煙：一個真實的苹果CMS stui 網頁站（站名不寫）。它的 API 會轉到驗證頁，四個 API 都判成「需要人機驗證」。網頁版型可用：16 個分類、9 條線路，試播起播（w278-15～17）。這一站沒有加入。
+  - Ponytail：沒有必修項。非阻擋：網頁站分類頁沒影片時，失敗原因沿用「介面有回應，但沒有任何影片」，字面上稍有出入。
+- 下一步：Reviewer 審 W-278。

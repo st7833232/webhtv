@@ -10,30 +10,41 @@ public struct LocalSite: Codable, Equatable, Identifiable, Sendable {
     public var name: String
     public let type: Int
     public let api: String
+    /// W-278: a web-template site's XBPQ rules (`主页url`, `分类url`, `分类`) as JSON text; nil for an API site.
+    public let ext: String?
+    /// W-278: the address a web-template site was found at; it, not `api` (`csp_XBPQ`), names the site.
+    public let home: String?
     public let addedAt: Date
     /// The detector's format label, e.g. 苹果CMS v10 JSON. Shown in settings only.
     public let detectedFrom: String
 
     public var id: String { key }
 
-    /// Nil when `api` is not an http(s) address, which the detector never produces.
-    public init?(name: String, type: Int, api: String, detectedFrom: String, addedAt: Date = Date()) {
-        guard let key = LocalSites.key(forAPI: api) else { return nil }
+    /// Nil when neither `home` nor `api` is an http(s) address, which the detector never produces.
+    public init?(name: String, type: Int, api: String, ext: String? = nil, home: String? = nil, detectedFrom: String,
+                 addedAt: Date = Date()) {
+        guard let key = LocalSites.key(forAPI: home ?? api) else { return nil }
         self.key = key
         self.name = name
         self.type = type
         self.api = api
+        self.ext = ext
+        self.home = home
         self.addedAt = addedAt
         self.detectedFrom = detectedFrom
     }
 
     public var site: Site? {
-        let object: [String: Any] = ["key": key, "name": name, "type": type, "api": api]
+        var object: [String: Any] = ["key": key, "name": name, "type": type, "api": api]
+        if let ext, let rules = try? JSONSerialization.jsonObject(with: Data(ext.utf8)) { object["ext"] = rules }
         guard let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
         return try? JSONDecoder().decode(Site.self, from: data)
     }
 
-    public var isInsecure: Bool { URL(string: api)?.scheme?.lowercased() == "http" }
+    /// Where the site is, for settings: the web address of a web-template site, else its api.
+    public var address: String { home ?? api }
+
+    public var isInsecure: Bool { URL(string: address)?.scheme?.lowercased() == "http" }
 }
 
 public enum LocalSites {
@@ -76,17 +87,21 @@ public enum LocalSites {
 
     /// The listed sites: the configuration's, then this source's local ones that it does not already carry
     /// (W-275 §4.4: a remote site with the same api wins; the local one stays stored and settings says why).
-    public static func merged(_ remote: [Site], with local: [LocalSite]) -> [Site] {
+    /// `runnable` is the rule the configuration's own sites were listed by (W-275 §9.3, Reviewer N-1), so a
+    /// local XBPQ site waits for the spider tool exactly as a remote one does.
+    public static func merged(_ remote: [Site], with local: [LocalSite], runnable: (Site) -> Bool) -> [Site] {
         let taken = remoteAPIs(remote)
-        return remote + local.filter { !isShadowed($0, by: taken) }.compactMap(\.site)
+        return remote + local.filter { !isShadowed($0, by: taken) }.compactMap(\.site).filter(runnable)
     }
 
     public static func remoteAPIs(_ remote: [Site]) -> Set<String> {
         Set(remote.filter(\.isNativeCMS).compactMap { normalizedAPI($0.api) })
     }
 
+    /// A web-template site has no api to compare (W-275 §9.3) and is never shadowed.
     public static func isShadowed(_ local: LocalSite, by remoteAPIs: Set<String>) -> Bool {
-        normalizedAPI(local.api).map(remoteAPIs.contains) ?? true
+        guard local.ext == nil else { return false }
+        return normalizedAPI(local.api).map(remoteAPIs.contains) ?? true
     }
 }
 

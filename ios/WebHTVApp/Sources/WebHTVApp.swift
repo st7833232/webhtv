@@ -632,7 +632,10 @@ private struct ConfigView: View {
     private func show(_ config: WebHTVConfig, from source: ConfigSource) {
         let resolver = CSPSourceResolver(source: source)
         // W-277: this source's local sites after its own, unless it already carries the same api (W-275 §4.4).
-        sites = LocalSites.merged(config.drivableSites(resolvedBy: resolver), with: localSites.sites(for: source.identity))
+        // W-278: by the rule the configuration's own sites were listed by, so a local XBPQ site waits for the
+        // spider tool as a remote one does (W-275 §9.3, Reviewer N-1).
+        sites = LocalSites.merged(config.drivableSites(resolvedBy: resolver), with: localSites.sites(for: source.identity),
+                                  runnable: { $0.isNativeCMS || ($0.isSpiderShape && resolver.canResolve($0)) })
         waitingSites = config.sitesNeedingSpiderTool(resolvedBy: resolver)
         lives = config.lives
     }
@@ -2313,7 +2316,7 @@ private struct SettingsView: View {
                 if !localSites.isEmpty {
                     NavigationLink {
                         LocalSiteListView(sites: localSites, remoteAPIs: LocalSites.remoteAPIs(sites.filter { !LocalSites.isLocal($0) }),
-                                          onRename: onRenameLocal, onRemove: onRemoveLocal)
+                                          listedKeys: Set(sites.map(\.key)), onRename: onRenameLocal, onRemove: onRemoveLocal)
                     } label: {
                         LabeledContent("本機加入的站", value: "\(localSites.count) 個")
                     }
@@ -2516,9 +2519,6 @@ private struct SiteHealthDot: View {
     }
 }
 
-/// IOS-POC-31: the settings page's 內容來源, one screen down. Opens on the source in use, as the home
-/// screen's picker does; choosing one goes back to the home screen with it, as the list on the
-/// settings page used to.
 /// W-277 (W-275 §4.5): address → detection progress → preview → 試播第一集 → 加入.
 private struct AddSiteView: View {
     let source: ConfigSource
@@ -2550,7 +2550,7 @@ private struct AddSiteView: View {
                     }
                 }
             } footer: {
-                Text("依序試苹果CMS 採集介面（v10、v8 的 JSON 與 XML），一次一個，並實際讀取首頁和一部影片的詳情確認能用。不會搜尋，也不送任何登入資料。加入的站只存在這支手機，跟著目前的設定來源。")
+                Text("依序試苹果CMS 採集介面（v10、v8 的 JSON 與 XML），都不行再試苹果CMS 網頁版型；一次一個，並實際讀取影片清單和一部影片的詳情確認能用。不會搜尋，也不送任何登入資料。加入的站只存在這支手機，跟著目前的設定來源。")
             }
             if !attempts.isEmpty {
                 Section("試過的格式") {
@@ -2590,12 +2590,7 @@ private struct AddSiteView: View {
         .onDisappear { detecting?.cancel() }
     }
 
-    private var candidate: LocalSite? {
-        guard let found else { return nil }
-        let typed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return LocalSite(name: typed.isEmpty ? found.candidate.url.host ?? "本機站" : typed, type: found.candidate.type,
-                         api: found.candidate.url.absoluteString, detectedFrom: found.candidate.label)
-    }
+    private var candidate: LocalSite? { found?.localSite(named: name) }
 
     private func detect() {
         // The progress and the preview appear below the fields; the keyboard would cover them.
@@ -2607,7 +2602,14 @@ private struct AddSiteView: View {
         let input = address
         detecting = Task {
             // W-275 §4.6: the format and the result only, never the address or a title.
-            let outcome = await SiteDetector().detect(input) { attempt in
+            // W-278: a web template runs through the engine a listed XBPQ site gets, but in a session of its own
+            // that is never cached and goes when detection ends (Reviewer C-3); without the engine, say so (C-1).
+            let resolver = CSPSourceResolver(source: source)
+            let detector = SiteDetector(makeSpiderClient: { site in
+                guard resolver.canResolve(site) else { throw SiteDetector.Failure.needsSpiderTool }
+                return .spider(try await resolver.session(for: site), site)
+            })
+            let outcome = await detector.detect(input) { attempt in
                 print("[site-detect] \(attempt.candidate.format.rawValue) type \(attempt.candidate.type) -> \(attempt.failure?.message ?? "ok")")
                 Task { @MainActor in attempts.append(attempt) }
             }
@@ -2624,7 +2626,8 @@ private struct AddSiteView: View {
 
     private func add() {
         guard let site = candidate else { return }
-        guard let api = LocalSites.normalizedAPI(site.api), !existingAPIs.contains(api) else {
+        // A web template has no api to compare (W-275 §9.3); the same address again renames it.
+        guard site.ext != nil || LocalSites.normalizedAPI(site.api).map({ !existingAPIs.contains($0) }) == true else {
             message = "目前的設定已有這個站，不用再加。"
             return
         }
@@ -2638,6 +2641,8 @@ private struct AddSiteView: View {
 private struct LocalSiteListView: View {
     let sites: [LocalSite]
     let remoteAPIs: Set<String>
+    /// The keys listed now; a local site missing from them is either shadowed or waiting for the spider tool.
+    let listedKeys: Set<String>
     let onRename: (String, String) -> Void
     let onRemove: (String) -> Void
     @State private var renaming: LocalSite?
@@ -2653,10 +2658,12 @@ private struct LocalSiteListView: View {
                     } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(site.name).foregroundStyle(.primary)
-                            Text(site.detectedFrom + "・" + (URL(string: site.api)?.host ?? site.api)
+                            Text(site.detectedFrom + "・" + (URL(string: site.address)?.host ?? site.address)
                                  + (site.isInsecure ? "・未加密" : "")).font(.caption).foregroundStyle(.secondary)
                             if LocalSites.isShadowed(site, by: remoteAPIs) {
                                 Text("遠端設定已有此站，未顯示").font(.caption).foregroundStyle(.orange)
+                            } else if !listedKeys.contains(site.key) {
+                                Text("等爬蟲工具，暫不顯示").font(.caption).foregroundStyle(.orange)
                             }
                         }
                     }
@@ -2693,6 +2700,9 @@ private struct LocalSiteMark: View {
     }
 }
 
+/// IOS-POC-31: the settings page's 內容來源, one screen down. Opens on the source in use, as the home
+/// screen's picker does; choosing one goes back to the home screen with it, as the list on the
+/// settings page used to.
 private struct SiteChoiceList: View {
     @ObservedObject private var displayModel = TaiwanDisplay.shared
     let sites: [Site]

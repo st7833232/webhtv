@@ -323,11 +323,11 @@
       "sha256": "bc54e9886cb508f41a08e2afa1c8c64a1ecacad0421140b9480d90cb107519e6"
     },
     {
-      "bytes": 36859,
+      "bytes": 38710,
       "class": "XBPQ",
       "logicalType": "spider.js",
       "path": "spiders/XBPQ.js",
-      "sha256": "77620d55617b307c1b18650ffa16c637e47b1da1ecd1b737206a54495ced52d4"
+      "sha256": "eaa6cfd85693b44c8b2f6b2812c18274a65f47e218778953004f63a447bb9344"
     },
     {
       "bytes": 20412,
@@ -352,7 +352,7 @@
     }
   ],
   "format": "webhtv.runtime-pack",
-  "notes": "新增多種來源的 iOS 爬蟲：雲盤公開分享的影片可直接播放、動畫 API 站、以網頁解析取片的動畫與影視站、支援分類篩選的 App API 影視站，以及播放頁直接解析、不必嗅探的影視站；XYQHiker 規則站補上分類篩選列、自動補齊分類網址、截取欄位與備註合併；修正上游的分類篩選沒有套用或送錯值、導演與主演對調、詳情海報網址錯誤、多集只顯示第一集；需要驗證碼的搜尋維持空結果，不繞過。",
+  "notes": "XBPQ 規則站：播放頁的播放器網址經過打包時，改為先解開並播放播放器自己的網址，修正部分站點的金鑰與影片片段被拒、無法播放；頁面給出不合理的打包資料時會略過，不會卡住；已能播放的站不受影響。",
   "packId": "webhtv.spiders",
   "requires": {
     "abi": {
@@ -370,6 +370,6 @@
   "scope": {
     "kind": "global"
   },
-  "sequence": 16,
-  "version": "2026-11-10.1"
+  "sequence": 17,
+  "version": "2026-11-10.2"
 }

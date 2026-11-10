@@ -419,6 +419,8 @@ private struct ConfigView: View {
         do {
             let (data, config) = try await ConfigLoader.fetch(from: url)
             try adopt(data, config: config, from: .remote(url))
+            // W-276: loading may have installed the configuration's own compatibility pack (W-271); Settings shows it now.
+            if let pack = await SpiderPackStore.shared.installedPack() { packStatus = Self.describe(pack) }
             if showHome { selectedTab = 0 }
             return true
         } catch {

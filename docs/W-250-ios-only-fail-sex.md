@@ -47,6 +47,8 @@
 
 ## 香肠派对：Simulator 實播（11-10，task/W-250-scpd）
 
+> 已移到 docs/W-283-scpd-ios-play.md（W-283）：根因是爬蟲方法 1 的正則與 re.sub，修在 recha；本節保留當時紀錄。
+
 - 用同一個本機 https 相容包（`w250-kissav.json` 加上 `scpd` 站，`py/香肠派对.py` 原樣照抄）。首頁載入 20 部；第一部（`/vodplay/402997-1-1.html`）按「立即播放」，出現「這一集沒有可播放的網址」。修正後再播一次，有一次出現 `requests` 的 `Connection reset by peer`（偶發），再播仍是「沒有可播放的網址」。證據 `artifacts/w250/kissav/sim/w250-09…14*.txt`、`scpd-play.html`。
 - 找到兩個原因：
   1. **iOS 跟 Android 讀播放結果的方式不一樣（已修）**：這支爬蟲的前四種取法都只回 `{"parse":0,"playUrl":…}`、沒有 `url`。FongMi 播的是 `Result.getRealUrl()` = `playUrl + url`（`PlaybackActivity.startPlayer`、`PlaySpec.from`），iOS 只讀 `url`。修法：`PlayURL.prefixed(by:)`，`parse` 與 `jx` 都是 0 時，爬蟲結果與 type 4 結果都改播 `playUrl + url`；type 4 的 `PlayResponse` 沒有 `url` 也照樣解碼。測試 `aSpiderResultPlaysPlayUrlPlusUrlWhenNothingParses`。

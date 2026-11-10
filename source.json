@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.101",
+          "date": "2026-11-10",
+          "localizedDescription": "片名與簡介：\n- 網頁來源的片名、簡介不再出現「&amp;」「&#39;」這類網頁特殊字元，會顯示成正常文字（與 Android 版一致）。\n\n設定：\n- 加入新的設定檔後，設定頁的「設定檔相容包」名稱會立刻更新，不用重新開啟 App。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.101-b102/WebHTV-0.1.101-102.ipa",
+          "size": 36418705,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.1.100",
           "date": "2026-11-10",
           "localizedDescription": "新增站台：\n- 設定頁可以貼上網址新增站台：App 會自動判斷常見的影視採集介面，判斷不到時再試常見的網頁版型，驗證過首頁與詳情才加入；最多約 45 秒，可隨時取消。\n- 手機上加的站跟著目前的設定來源保存，可在設定頁改名或刪除，站點選單會標示為本機站；使用 http 的網址會標示未加密。\n\n播放：\n- 修正部分來源回傳的播放網址分成兩段時只用到後半段、顯示「這一集沒有可播放的網址」的問題，做法與 Android 版一致。",

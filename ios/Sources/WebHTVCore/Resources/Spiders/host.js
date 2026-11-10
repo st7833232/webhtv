@@ -204,6 +204,23 @@ var host = (function () {
     return out;
   }
 
+  // W-286: Jsoup's text() decodes character references; a page's `&amp;` must not reach a title as is. Every numeric
+  // reference is decoded; named ones only from this list.
+  // shortcut: a short named list, not HTML5's 2,231 names, and only references closed by `;`; extend the table when a
+  // page shows another one raw.
+  var ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0', copy: '\u00a9', reg: '\u00ae',
+                   trade: '\u2122', hellip: '\u2026', mdash: '\u2014', ndash: '\u2013', lsquo: '\u2018', rsquo: '\u2019',
+                   ldquo: '\u201c', rdquo: '\u201d', middot: '\u00b7', bull: '\u2022', times: '\u00d7', divide: '\u00f7',
+                   laquo: '\u00ab', raquo: '\u00bb', deg: '\u00b0', yen: '\u00a5' };
+  function decodeEntities(text) {
+    return String(text).replace(/&(?:#(\d+)|#[xX]([0-9a-fA-F]+)|([a-zA-Z][a-zA-Z0-9]*));/g, function (all, dec, hex, name) {
+      if (name) return Object.prototype.hasOwnProperty.call(ENTITIES, name) ? ENTITIES[name] : all;
+      var code = dec !== undefined ? parseInt(dec, 10) : parseInt(hex, 16);
+      // Jsoup answers U+FFFD for a reference to nothing (0, a surrogate, past U+10FFFF).
+      return code > 0 && code <= 0x10FFFF && (code < 0xD800 || code > 0xDFFF) ? String.fromCodePoint(code) : '\uFFFD';
+    });
+  }
+
   function textOf(node) {
     var out = node.text || '';
     for (var i = 0; i < node.children.length; i++) out += textOf(node.children[i]);
@@ -351,7 +368,7 @@ var host = (function () {
     var names = String(attr).split('||');
     for (var i = 0; i < names.length; i++) {
       var name = names[i];
-      if (name === 'Text') return textOf(node).replace(/\s+/g, ' ').trim();
+      if (name === 'Text') return decodeEntities(textOf(node)).replace(/\s+/g, ' ').trim();
       if (name === 'Html') return textOf(node);
       var value = node.attrs[name.toLowerCase()];
       if (value) return value;

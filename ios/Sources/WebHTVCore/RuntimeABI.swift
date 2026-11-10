@@ -69,7 +69,9 @@ public enum RuntimeABI {
             // `aesGcmSeal`/`aesGcmOpen`, `aesCbc`, `deflate`, `inflate` — additions only.
             // 1.5 (W-97): `host.hmac`'s optional 4th argument `{input, key}` reads hex or base64 bytes;
             // three-argument calls are unchanged.
-            case .jsHost: Version(1, 5)
+            // 1.6 (W-286): a selector's `Text` decodes character references (`&amp;`, `&#..;`) as Jsoup's
+            // text() does; same calls, and only text that held a reference reads differently.
+            case .jsHost: Version(1, 6)
             // 1.1 (IOS-POC-37) adds pycryptodome, lxml, bs4 and pyquery, a working
             // `Spider.html()`, and `init`'s return value ignored as on Android — additions only.
             // 1.2 (IOS-POC-37.1): `getCache`/`setCache` use the calling spider's own site key and

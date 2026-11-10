@@ -22,6 +22,13 @@
       "sha256": "fb3f10c9756d1fc346f5ba7d874b7bedbbd8689221cda748c3df89aa6bee63ab"
     },
     {
+      "bytes": 7981,
+      "class": "AnimeXifan",
+      "logicalType": "spider.js",
+      "path": "spiders/AnimeXifan.js",
+      "sha256": "c75343c36ca7b99509969e5e2ddf62f0120f1fe15c7faaf3cfc7d021211b3699"
+    },
+    {
       "bytes": 6450,
       "class": "App3Q",
       "logicalType": "spider.js",
@@ -352,7 +359,7 @@
     }
   ],
   "format": "webhtv.runtime-pack",
-  "notes": "XBPQ 規則站：播放頁的播放器網址經過打包時，改為先解開並播放播放器自己的網址，修正部分站點的金鑰與影片片段被拒、無法播放；頁面給出不合理的打包資料時會略過，不會卡住；已能播放的站不受影響。",
+  "notes": "新增一個動畫來源的 iOS 爬蟲：支援分類瀏覽、詳情多條播放線與搜尋，播放線失效時會自動換下一條。",
   "packId": "webhtv.spiders",
   "requires": {
     "abi": {
@@ -370,6 +377,6 @@
   "scope": {
     "kind": "global"
   },
-  "sequence": 17,
-  "version": "2026-11-10.2"
+  "sequence": 18,
+  "version": "2026-11-10.3"
 }

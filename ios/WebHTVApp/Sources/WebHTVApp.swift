@@ -151,6 +151,8 @@ private struct ConfigView: View {
     /// IOS-POC-10D: the named sources the viewer kept. The active one is `source`; this is the
     /// list they can come back to without retyping an address.
     @State private var saved = SavedSourceList()
+    /// W-277: sites added on this device by address, per configuration source (W-275 §4.4, user choice 1b).
+    @State private var localSites = LocalSiteStore()
     @State private var updatedAt: Date?
     @State private var refreshing = false
     /// What the compatibility pack is doing, shown in settings so a refused pack is visible rather
@@ -272,7 +274,11 @@ private struct ConfigView: View {
                             saved: saved,
                             onUseSaved: { entry in use(entry) },
                             onRename: { entry, name in rename(entry, to: name) },
-                            onForget: { entry in forget(entry) }
+                            onForget: { entry in forget(entry) },
+                            localSites: localSites.sites(for: source.identity),
+                            onAddLocal: { site in changeLocalSites { $0.upsert(site, for: source.identity) } },
+                            onRenameLocal: { key, name in changeLocalSites { $0.rename(key: key, to: name, for: source.identity) } },
+                            onRemoveLocal: { key in changeLocalSites { $0.remove(key: key, for: source.identity) } }
                         )
                     }
                     .environment(\.tabReturnActions, settingsNavigation)
@@ -467,6 +473,26 @@ private struct ConfigView: View {
         UserDefaults.standard.set(memory, forKey: siteBySourceKey)
         // The cached copy goes with it; leaving it behind would be an orphan nobody can reach.
         if let url = try? configURL(for: .remote(entry.url)) { try? FileManager.default.removeItem(at: url) }
+        // W-277: and the sites added under it (W-275 §4.4, 1b).
+        localSites.forget(source: ConfigSource.remote(entry.url).identity)
+        persistLocalSites()
+    }
+
+    /// W-277: store the change, then list it through the same path a pack rebuild takes.
+    private func changeLocalSites(_ change: (inout LocalSiteStore) -> Void) {
+        change(&localSites)
+        persistLocalSites()
+        rebuildSites()
+    }
+
+    private func persistLocalSites() {
+        guard let url = try? localSitesURL() else { return }
+        try? localSites.save(to: url)
+    }
+
+    private func localSitesURL() throws -> URL {
+        try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            .appendingPathComponent("local-sites.json")
     }
 
     private func persistSaved() {
@@ -605,7 +631,8 @@ private struct ConfigView: View {
     /// all-spider screen never describe another configuration than the one listed.
     private func show(_ config: WebHTVConfig, from source: ConfigSource) {
         let resolver = CSPSourceResolver(source: source)
-        sites = config.drivableSites(resolvedBy: resolver)
+        // W-277: this source's local sites after its own, unless it already carries the same api (W-275 §4.4).
+        sites = LocalSites.merged(config.drivableSites(resolvedBy: resolver), with: localSites.sites(for: source.identity))
         waitingSites = config.sitesNeedingSpiderTool(resolvedBy: resolver)
         lives = config.lives
     }
@@ -687,6 +714,7 @@ private struct ConfigView: View {
     }
 
     private func restore() {
+        if let url = try? localSitesURL() { localSites = LocalSiteStore.load(from: url) }
         if let url = try? savedSourcesURL(), let data = try? Data(contentsOf: url),
            let list = try? JSONDecoder().decode(SavedSourceList.self, from: data) {
             saved = list
@@ -1057,6 +1085,7 @@ private struct HomeView: View {
                     } label: {
                         HStack {
                             Text(zhTW: site.name.displayName).foregroundStyle(.primary)
+                            LocalSiteMark(site: site)
                             Spacer()
                             SiteHealthDot(status: health[site.id]?.status)
                             if site.id == selectedSite.id {
@@ -2105,6 +2134,11 @@ private struct SettingsView: View {
     let onUseSaved: (SavedSource) -> Void
     let onRename: (SavedSource, String) -> Void
     let onForget: (SavedSource) -> Void
+    /// W-277: the current source's local sites.
+    let localSites: [LocalSite]
+    let onAddLocal: (LocalSite) -> Void
+    let onRenameLocal: (String, String) -> Void
+    let onRemoveLocal: (String) -> Void
 
     @State private var renaming: SavedSource?
     @State private var renameText = ""
@@ -2269,6 +2303,21 @@ private struct SettingsView: View {
                 } label: {
                     LabeledContent("目前來源", value: currentSiteName)
                 }
+                // W-277: a site by its address. Local sites belong to a source, so there must be one (W-275 §4.4.3).
+                NavigationLink("新增站台（自動偵測）") {
+                    // Only the configuration's own: the same api added again renames the local site (W-275 §4.4).
+                    AddSiteView(source: source, existingAPIs: LocalSites.remoteAPIs(sites.filter { !LocalSites.isLocal($0) }),
+                                onAdd: onAddLocal)
+                }
+                .disabled(sites.isEmpty)
+                if !localSites.isEmpty {
+                    NavigationLink {
+                        LocalSiteListView(sites: localSites, remoteAPIs: LocalSites.remoteAPIs(sites.filter { !LocalSites.isLocal($0) }),
+                                          onRename: onRenameLocal, onRemove: onRemoveLocal)
+                    } label: {
+                        LabeledContent("本機加入的站", value: "\(localSites.count) 個")
+                    }
+                }
                 // IOS-POC-41C
                 NavigationLink("檢查來源") { SourceCheckView(sites: sites, source: source) }
                 // IOS-POC-41B: Android's 站點健康排序 and its 清空.
@@ -2280,7 +2329,8 @@ private struct SettingsView: View {
             } header: {
                 Text("內容來源")
             } footer: {
-                Text("來源清單的圓點依平常瀏覽、搜尋、詳情與播放的結果標示：綠色正常、黃色不確定、紅色常失敗，沒用過的站沒有圓點。開啟排序時較健康的來源排在前面。記錄只存在這支手機，也取決於當時的網路。")
+                Text((sites.isEmpty ? "新增站台：請先加入設定來源，本機加入的站會跟著目前的設定來源。\n" : "")
+                     + "來源清單的圓點依平常瀏覽、搜尋、詳情與播放的結果標示：綠色正常、黃色不確定、紅色常失敗，沒用過的站沒有圓點。開啟排序時較健康的來源排在前面。記錄只存在這支手機，也取決於當時的網路。")
             }
 
             if let site = sites.first(where: { $0.id == selectedSiteID }) ?? sites.first {
@@ -2469,6 +2519,180 @@ private struct SiteHealthDot: View {
 /// IOS-POC-31: the settings page's 內容來源, one screen down. Opens on the source in use, as the home
 /// screen's picker does; choosing one goes back to the home screen with it, as the list on the
 /// settings page used to.
+/// W-277 (W-275 §4.5): address → detection progress → preview → 試播第一集 → 加入.
+private struct AddSiteView: View {
+    let source: ConfigSource
+    /// The configuration's own normalized apis: those are not added as local sites.
+    let existingAPIs: Set<String>
+    let onAdd: (LocalSite) -> Void
+    @State private var address = ""
+    @State private var name = ""
+    @State private var attempts: [SiteDetector.Attempt] = []
+    @State private var found: SiteDetector.Found?
+    @State private var message: String?
+    @State private var detecting: Task<Void, Never>?
+    @State private var added = false
+
+    var body: some View {
+        List {
+            Section {
+                TextField("站台網址，例如 example.com", text: $address)
+                    .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                TextField("名稱（可不填）", text: $name)
+                if detecting == nil {
+                    Button("偵測", action: detect).disabled(address.trimmingCharacters(in: .whitespaces).isEmpty)
+                } else {
+                    HStack {
+                        ProgressView()
+                        Text("偵測中…")
+                        Spacer()
+                        Button("取消") { detecting?.cancel() }
+                    }
+                }
+            } footer: {
+                Text("依序試苹果CMS 採集介面（v10、v8 的 JSON 與 XML），一次一個，並實際讀取首頁和一部影片的詳情確認能用。不會搜尋，也不送任何登入資料。加入的站只存在這支手機，跟著目前的設定來源。")
+            }
+            if !attempts.isEmpty {
+                Section("試過的格式") {
+                    ForEach(Array(attempts.enumerated()), id: \.offset) { _, attempt in
+                        LabeledContent(attempt.candidate.label + (attempt.candidate.url.scheme == "http" ? "（http）" : ""),
+                                       value: attempt.failure?.message ?? "可用")
+                    }
+                }
+            }
+            if let message {
+                Section { Text(message).foregroundStyle(.red) }
+            }
+            if let found {
+                Section("結果") {
+                    LabeledContent("格式", value: found.candidate.label)
+                    LabeledContent("介面", value: found.candidate.url.absoluteString)
+                    if found.isInsecure {
+                        Label("未加密（http）：網路上的第三方可能看到或改動內容", systemImage: "lock.open").foregroundStyle(.orange)
+                    }
+                    LabeledContent("分類", value: "\(found.categoryCount) 個")
+                    LabeledContent("第一部", value: found.firstTitle.name)
+                    LabeledContent("線路", value: "\(found.lineCount) 條，第一條 \(found.episodeCount) 集")
+                    LabeledContent("播放", value: found.isDirect ? "直連可播" : "需嗅探或解析，可能無法播放")
+                    if let site = candidate?.site {
+                        NavigationLink("試播第一集") { VodView(site: site, summary: found.firstTitle, source: source) }
+                    }
+                    Button(added ? "已加入" : "加入", action: add).disabled(added)
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .appWallpaper()
+        .scrollDismissesKeyboard(.immediately)
+        .navigationTitle("新增站台")
+        .navigationBarTitleDisplayMode(.inline)
+        .appNavigationBar()
+        .onDisappear { detecting?.cancel() }
+    }
+
+    private var candidate: LocalSite? {
+        guard let found else { return nil }
+        let typed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return LocalSite(name: typed.isEmpty ? found.candidate.url.host ?? "本機站" : typed, type: found.candidate.type,
+                         api: found.candidate.url.absoluteString, detectedFrom: found.candidate.label)
+    }
+
+    private func detect() {
+        // The progress and the preview appear below the fields; the keyboard would cover them.
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        attempts = []
+        found = nil
+        message = nil
+        added = false
+        let input = address
+        detecting = Task {
+            // W-275 §4.6: the format and the result only, never the address or a title.
+            let outcome = await SiteDetector().detect(input) { attempt in
+                print("[site-detect] \(attempt.candidate.format.rawValue) type \(attempt.candidate.type) -> \(attempt.failure?.message ?? "ok")")
+                Task { @MainActor in attempts.append(attempt) }
+            }
+            switch outcome {
+            case .found(let result): found = result
+            case .failed(let tried):
+                attempts = tried
+                message = Task.isCancelled ? "已取消" : tried.isEmpty ? "沒有可試的格式" : "找不到可用的苹果CMS 介面，這個站不能自動加入。"
+            case .invalidInput: message = "請輸入 http 或 https 網址。"
+            }
+            detecting = nil
+        }
+    }
+
+    private func add() {
+        guard let site = candidate else { return }
+        guard let api = LocalSites.normalizedAPI(site.api), !existingAPIs.contains(api) else {
+            message = "目前的設定已有這個站，不用再加。"
+            return
+        }
+        onAdd(site)
+        added = true
+        message = nil
+    }
+}
+
+/// W-277: the current source's local sites — rename, delete, and which ones the configuration now carries itself.
+private struct LocalSiteListView: View {
+    let sites: [LocalSite]
+    let remoteAPIs: Set<String>
+    let onRename: (String, String) -> Void
+    let onRemove: (String) -> Void
+    @State private var renaming: LocalSite?
+    @State private var renameText = ""
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(sites) { site in
+                    Button {
+                        renameText = site.name
+                        renaming = site
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(site.name).foregroundStyle(.primary)
+                            Text(site.detectedFrom + "・" + (URL(string: site.api)?.host ?? site.api)
+                                 + (site.isInsecure ? "・未加密" : "")).font(.caption).foregroundStyle(.secondary)
+                            if LocalSites.isShadowed(site, by: remoteAPIs) {
+                                Text("遠端設定已有此站，未顯示").font(.caption).foregroundStyle(.orange)
+                            }
+                        }
+                    }
+                }
+                .onDelete { offsets in offsets.map { sites[$0].key }.forEach(onRemove) }
+            } footer: {
+                Text("點一下改名，左滑刪除。這些站只存在這支手機、只屬於目前的設定來源，不會隨備份還原。刪除後收藏與觀看紀錄會保留，加回同一個介面就會接回。")
+            }
+        }
+        .alert("重新命名", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("名稱", text: $renameText)
+            Button("儲存") {
+                if let site = renaming, !renameText.trimmingCharacters(in: .whitespaces).isEmpty { onRename(site.key, renameText) }
+                renaming = nil
+            }
+            Button("取消", role: .cancel) { renaming = nil }
+        }
+        .scrollContentBackground(.hidden)
+        .appWallpaper()
+        .navigationTitle("本機加入的站")
+        .navigationBarTitleDisplayMode(.inline)
+        .appNavigationBar()
+    }
+}
+
+/// W-277: the 本機 mark on a site the viewer added by address (W-275 §4.4).
+private struct LocalSiteMark: View {
+    let site: Site
+    var body: some View {
+        if LocalSites.isLocal(site) {
+            Text("本機").font(.caption2).foregroundStyle(.secondary)
+                .padding(.horizontal, 6).padding(.vertical, 2).background(Capsule().strokeBorder(.secondary))
+        }
+    }
+}
+
 private struct SiteChoiceList: View {
     @ObservedObject private var displayModel = TaiwanDisplay.shared
     let sites: [Site]
@@ -2493,6 +2717,7 @@ private struct SiteChoiceList: View {
                 } label: {
                     HStack {
                         Text(zhTW: site.name.displayName).foregroundStyle(.primary)
+                        LocalSiteMark(site: site)
                         Spacer()
                         SiteHealthDot(status: health[site.id]?.status)
                         if site.id == currentID {

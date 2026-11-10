@@ -6,8 +6,8 @@
 ## Recovery anchor
 
 - 目標：使用者在 App 輸入站台網址 → App 用公開請求判斷能用哪種通用格式 → 實際取首頁與一部詳情驗證 → 預覽 → 加入。不寫爬蟲、不改 GitLab 設定。加的站只在這支 iOS 裝置（使用者核准的雙平台規則例外）。
-- 狀態：**階段 1 設計**。第一次送審 298e0f44，Reviewer #7314 方向核准、退回小修 F-1～F-3（`artifacts/w275-stage1-review-reviewer2.md`）；8eeeb6ba 修完後核准（#7323）。階段 2 等使用者答覆第七節三題並核准。沒有改程式。
-- 下一步：Reviewer 意見 → 修 → Manager 轉使用者核准階段 2。
+- 狀態：階段 1 設計已核准（Reviewer #7323，75e633f3）。使用者 11-10 答覆第七節：**1b 跟著目前來源**、2a 允許 http 並標「未加密」、3a 網頁版型退路另開 W-278。**階段 2a 實作中（W-277，分支 `task/W-277`）**，4.4 已改成 1b 寫法；實作紀錄見第八節。
+- 下一步：見第八節最後一行。
 
 ## 一、現況（origin/ios-poc d198228a）
 
@@ -83,10 +83,11 @@
 
 ### 4.4 存放與合併
 
-- 新檔 `Application Support/local-sites.json`（裝置本機，不上傳、不回寫 GitLab）：`{"sites":[{key,name,type,api,ext?,addedAt,detectedFrom}]}`，形狀就是設定檔的站點，直接解碼成 `Site`。
+- 新檔 `Application Support/local-sites.json`（裝置本機，不上傳、不回寫 GitLab），**依設定來源分開**（使用者 1b）：`{"bySource":{"<source.identity>":[{key,name,type,api,addedAt,detectedFrom}]}}`。每筆的 `key name type api` 就是設定檔站點的形狀，解碼成 `Site`。
 - key＝`local_`＋正規化 api（4.4.1）的 SHA-256 前 10 碼：不會和遠端站撞名；同一個 api 永遠得到同一個 key，所以刪掉再加回來，收藏與歷史會接回去（4.4.2）。同一 api 再加一次就是改名（比照 `SavedSourceList.upsert`）。
-- 合併：`show(_:from:)`（`WebHTVApp.swift:606`）裡 `sites = config.drivableSites(...) + localSites`，排在最後，站點選單上加「本機」標記。遠端設定已經有正規化後相同的 api 時，本機那筆不顯示，設定頁註明「遠端設定已有此站」。2a 只有 type 0／1，`isNativeCMS` 就能用；2b 的 `csp_XBPQ`（type 3）併入時要和遠端站一樣經過 `drivableSites`／resolver 過濾，不能直接附加（Reviewer N-1，2b 開工時寫進設計）。
-- 全域、不分來源（未決事項 1 的建議）。若使用者選「跟著目前來源」：檔案改成依 `source.identity` 分開存，4.4.2 的專用來源 ID 換成目前來源，4.4.3 改成「必須先有來源」。
+- 合併：`show(_:from:)`（`WebHTVApp.swift:606`）裡 `sites = config.drivableSites(...) + 這個來源的本機站`，排在最後，站點選單上加「本機」標記。遠端設定已經有正規化後相同的 api 時，本機那筆不顯示，設定頁註明「遠端設定已有此站」。2a 只有 type 0／1，`isNativeCMS` 就能用；2b 的 `csp_XBPQ`（type 3）併入時要和遠端站一樣經過 `drivableSites`／resolver 過濾，不能直接附加（Reviewer N-1，2b 開工時寫進設計）。
+- 跟著目前來源（1b）：換到 B 來源就看不到 A 的本機站，換回 A 又出現。在設定頁「忘記」某個來源時，連同它的本機站一起刪（`forget(_:)`，`WebHTVApp.swift:461`，和站點記憶、快取設定同一處）。
+- 加入時若目前來源已經有正規化後相同的 api，直接告知「目前設定已有此站」、不加入。
 - 刪除／改名：設定頁「本機加入的站」清單，註明「不會隨備份還原」（W-119 的備份不含此檔，Reviewer N-2）。刪掉只影響本機檔。
 - 搜尋：沿用站點 `searchable` 的預設值（沒寫就是可搜尋，和遠端站相同）；聚合搜尋只在使用者主動搜尋時才打，偵測本身不用搜尋（E8，Reviewer N-3）。
 - 不做：備份同步、匯出成設定檔（以後要可另開單）。
@@ -104,26 +105,21 @@
 
 例：`https://Example.com:443/api.php/provide/vod/at/xml/`、`http://example.com/api.php/provide/vod?ac=list`、`https://example.com/api.php/provide/vod/` 三者相同；`https://www.example.com/api.php/provide/vod/` 不同；`/inc/api.php` 與 `/api.php/provide/vod/` 不同。
 
-#### 4.4.2 收藏、歷史、站點記憶（F-2）
+#### 4.4.2 收藏、歷史、站點記憶（F-2，1b 寫法）
 
-現況：收藏的身分含 `configSourceID`，換來源時判成 `.otherConfiguration` 而打不開（`FavoriteBrowsing.swift:48`）；歷史帶 `sourceID`，只在擁有它的來源列出，**沒有 `sourceID` 的紀錄才會在每個來源都列出**，而且可以依來源各自隱藏（`WatchHistory.swift:319-330` `isListed`／`hiding`）；站點記憶是 `siteMemory()[source.identity]`。
+現況：收藏的身分含 `configSourceID`，換來源時判成 `.otherConfiguration`（`FavoriteBrowsing.swift:48`）；歷史帶 `sourceID`，只在擁有它的來源列出（`WatchHistory.swift:319-330`）；站點記憶是 `siteMemory()[source.identity]`。
 
-設計：本機站的紀錄改掛在固定的專用來源 ID `LocalSites.sourceID`（例如 `webhtv.local-sites`）：
+1b 之後本機站就是「目前來源站點清單的一部分」，所以**完全沿用現有規則，不加任何特例**：
 
-- 寫入：收藏或觀看的站 key 以 `local_` 開頭時，`FavoriteIdentity.configSourceID`、`WatchHistory.sourceID` 填 `LocalSites.sourceID`，不填當下來源。
-- 歷史列出：`isListed` 把 `LocalSites.sourceID` 當成「沒有擁有者」那一類處理——每個來源都列出，在某來源滑掉只對那個來源隱藏（沿用現有 `hiddenFrom`），「清除全部」也只隱藏。
-- 收藏能不能開：`FavoriteAvailability` 遇到 `LocalSites.sourceID` 時不比對目前來源，直接在目前的 `sites`（已含本機站）找；找到就能開，找不到就是現有的 `.siteMissing`（「目前設定中找不到原始來源，此收藏仍會保留」）。
-- 站點身分遷移：`FavoriteStore.migrateSiteIdentities`／`WatchHistoryStore.migrateSiteIdentities` 對本機紀錄同樣用目前 `sites` 解析；本機站的 `Site.id` 由固定的 key＋ext 組成，實際上不會變。
-- 站點記憶：不改。記的是「這個來源上次選哪個站」，本機站在每個來源的 `sites` 裡都有，選到本機站也能照常記住。
+- 寫入：收藏、歷史照常填目前來源的 ID（和遠端站相同）。原先為全域設計的專用來源 ID `LocalSites.sourceID` 與 `isListed` 的 `hiddenFrom` 分支（Reviewer #7323 實作注意）都不需要了，不實作。
+- 換來源：A 的本機站在 B 看不到，它的收藏在 B 判成 `.otherConfiguration`、歷史只在 A 列出——和 A 的遠端站一模一樣。換回 A 一切恢復。
+- 站點記憶：不改。選到本機站會記在目前來源下；換回來源時本機站已經在 `sites` 裡，照常選回。
 - 刪掉本機站：收藏、歷史都保留，顯示成「站已不在」（和遠端站被移除時相同）；再加回同一 api 會得到同一個 key，紀錄自動接回。
-- 實作注意（Reviewer #7323）：`WatchHistory.isListed` 目前只對 `sourceID == nil` 看 `hiddenFrom`，`LocalSites.sourceID` 要接到同一個分支。
-- 已知行為（Reviewer N-4）：本機站因遠端設定已有同 api 而被隱藏時，它的收藏與歷史會顯示「站已不在」。階段 2 實作時優先用 `normalizedAPI` 把這些紀錄對到遠端那個站；做不到就保留為已知行為並在設定頁說明。
+- 已知行為（Reviewer N-4）：加入時已擋掉「目前來源已有同 api」；只有在**加入之後**遠端設定才新增同一個 api 時，本機那筆會被隱藏，它的收藏與歷史顯示「站已不在」。把這些紀錄改對到遠端站，需要改收藏／歷史的站點身分遷移規則（目前依 key＋ext 對站），超出 2a 範圍，保留為已知行為，設定頁的本機站清單把這筆標成「遠端設定已有此站，未顯示」，使用者可自行刪除。
 
-#### 4.4.3 沒有設定檔時（F-1）
+#### 4.4.3 沒有設定檔時（F-1，1b 寫法）
 
-現況：`restore()` 在沒有快取檔時直接 return（`WebHTVApp.swift:717`），驗證失敗走 catch，`rebuildSites()` 讀不到也 return（`:596`），三條路都不會呼叫 `show()`，`sites` 一直是空的。
-
-設計：新增一個入口 `showLocalSitesOnly()`，在這三個「沒有可用設定」的分支呼叫，令 `sites = localSites`；加入或刪除本機站後呼叫同一個「重新整理站點」：有設定就重跑 `rebuildSites()`（它會呼叫 `show()`），沒有就呼叫 `showLocalSitesOnly()`。所以全新安裝、還沒加任何來源也能用「新增站台」加站並播放；既有設定壞掉時，本機站仍在、原本的錯誤訊息照常顯示。
+本機站必須掛在某個來源下。沒有可用設定時（全新安裝、快取不存在或驗證失敗，`restore()` `WebHTVApp.swift:717`、`rebuildSites()` `:596`），「新增站台」按鈕停用，下方說明「請先加入設定來源，本機加入的站會跟著目前的設定來源」。原先全域設計的 `showLocalSitesOnly()` 不需要，不實作。
 
 ### 4.5 UI 流程
 
@@ -142,10 +138,11 @@ W-274（claude-dev）盤點現有專用爬蟲能否改走通用格式。兩者�
 
 ## 五、驗收條件（階段 2a）
 
-1. 單元測試（假回應，不連外）：`normalizedAPI` 照 4.4.1 的每條規則與三個例子；本機紀錄的歷史在每個來源都列出、依來源隱藏；本機收藏的可開判斷；v10 JSON、v10 XML、v8 JSON、v8 XML 各一例判對 type；`closed`、`域名未授权`、HTML 挑戰頁、空白、逾時各判成對應原因；詳情沒有集數判失敗；候選順序與「第一個成功就停」；`local_` key 不撞名、同 api 改名不重複；與遠端同 api 時本機那筆不顯示。
+1. 單元測試（假回應，不連外）：`normalizedAPI` 照 4.4.1 的每條規則與三個例子；本機站依來源分開存、忘記來源連同刪除；v10 JSON、v10 XML、v8 JSON、v8 XML 各一例判對 type；`closed`、`域名未授权`、HTML 挑戰頁、空白、逾時各判成對應原因；詳情沒有集數判失敗；候選順序與「第一個成功就停」；`local_` key 不撞名、同 api 改名不重複；與遠端同 api 時本機那筆不顯示。
 2. Simulator：用本機測試伺服器模擬一個苹果CMS v10 JSON 站、一個只開 XML 的站、一個回 `closed` 的站，走完 輸入→預覽→加入→首頁出現→播放第一集；重開 App 仍在。
-   - **沒有任何設定來源**（全新安裝）時加站：出現在首頁並能播放（F-1）。
-   - **換設定來源**：本機站仍在；在 A 來源收藏、看過的本機站，換到 B 後收藏能開、歷史仍列出（F-2）。
+   - **沒有任何設定來源**（全新安裝）時：「新增站台」停用並顯示提示（F-1，1b）。
+   - **換設定來源**：A 的本機站在 B 看不到，換回 A 又出現，收藏與歷史照常（F-2，1b）。
+   - http 站：預覽標示「未加密」。
    - **刪掉本機站**：收藏與歷史保留並顯示「站已不在」；加回同一 api 後恢復可開（F-2）。
 3. 熱點下用一個真實開放 API 的站做一次冒煙（站名不寫進文件與版本說明）。
 4. 遠端設定、既有站點、W-262／W-268 等既有行為不變：全量 `swift test` 通過。
@@ -156,8 +153,37 @@ W-274（claude-dev）盤點現有專用爬蟲能否改走通用格式。兩者�
 - 程式：revert 階段 2 的提交即可；`show()` 回到只用遠端站點。
 - 資料：`local-sites.json` 只是多出來的檔案，舊版不讀它，不影響任何遠端設定或快取；不需要遷移。
 
-## 七、未決事項（請 Manager 轉使用者）
+## 七、未決事項（使用者 11-10 已答覆，Manager W-277 工單）
 
-1. 本機加的站要**全域**（換設定來源也在，本文建議）還是**跟著目前來源**？
-2. 是否允許 `http://`（不加密）站？本文建議允許但在預覽頁標示「未加密」。
-3. 方案 C（網頁版型退路）是否要排在 2a 之後做？
+1. 本機加的站要**全域**還是**跟著目前來源**？→ **1b 跟著目前來源**（4.4 已改）。
+2. 是否允許 `http://`（不加密）站？→ **允許**，預覽頁標示「未加密」。
+3. 方案 C（網頁版型退路）是否要排在 2a 之後做？→ **另開 W-278**。
+
+## 八、階段 2a 實作紀錄（W-277）
+
+- 11-10 13:40 CST 自 `origin/ios-poc` 3967892b 開 `task/W-277`；task guard standard。4.4／4.4.2／4.4.3、第五節、第七節改成 1b。
+- 程式（全在 `ios/`）：
+  - `Sources/WebHTVCore/LocalSites.swift`：`LocalSite`（設定檔站點形狀＋`addedAt`、`detectedFrom`，`site` 解碼成 `Site`）、`LocalSites.normalizedAPI`／`key(forAPI:)`（4.4.1）、`merged`（遠端同 api 時本機那筆不列）、`LocalSiteStore`（`bySource`，upsert 同 api 即改名、rename、remove、forget、load／save）。
+  - `Sources/WebHTVCore/SiteDetector.swift`：`candidates(for:)`（4.1／4.2；沒寫 scheme 先整輪 https 再整輪 http）、`judge`（4.3 形狀與 closed／域名未授权／挑戰頁／空白／HTTP 狀態）、`detect`（逐一、第一個成功就停、45 秒預算、同一 origin 逾時或連不上就跳過其餘路徑、可取消）、`verify`（`CMSClient` 取首頁＋一部詳情，要有線路與集數，記直連與否）。子路徑（`/m/`）只試 origin，已用 `shortcut:` 註明。
+  - `Sources/WebHTVCore/CMSClient.swift`：`init(site:session:)`，預設仍是 `URLSession.webHTV`，只讓測試注入假伺服器。
+  - `WebHTVApp/Sources/WebHTVApp.swift`：`localSites` 狀態；`restore()` 先讀 `local-sites.json`；`show()` 併入目前來源的本機站；`forget()` 連同刪除；`changeLocalSites` 存檔後走 `rebuildSites()`；設定頁「新增站台（自動偵測）」（沒有站點時停用並在說明加提示）與「本機加入的站」（改名、左滑刪除、遠端已有時標示）；`AddSiteView`（輸入→逐步列出試過的格式→預覽→試播第一集→加入，按偵測會收起鍵盤）；兩個站點選單加「本機」標記。log 只印格式與結果（4.6）。
+- 實作和設計的差異：
+  - 刪除後收藏顯示的是 App 既有字樣「來源不可用」（不是文件原寫的「站已不在」），行為相同。
+  - `CMSClient.home()` 對 type 1 本來就同時打兩個請求（分類＋列表）；「逐一」指的是候選之間，沒改 `home()`。
+  - 試播後沒加入的站，觀看紀錄會留一筆「來源不可用」；之後加回同一 api 就接回。
+- 驗證：
+  - 單元測試 13 個（`LocalSitesTests` 4、`SiteDetectorTests` 9）全過：正規化每條規則與三個例子、key 穩定、依來源存放／改名／忘記、遠端同 api 隱藏本機；候選順序、各失敗原因、v10 JSON／v10 XML（http，未加密）／v8 JSON、沒集數判失敗、逾時跳過同 origin 與預算、非 http 拒絕、從不搜尋。
+  - 全量 `swift test`：1522 個測試，2 個失敗（`offlineSubtitleRedirectsKeepTheSourceCredentialsOnItsOrigin`、`theRulesScriptRunsOnTheSnifferWebViewAndItsStreamIsCaught`），單獨重跑都通過，是高負載下的既有不穩測試，與本單無關。
+  - Simulator（iPhone 18 Pro，iOS 27，本機測試伺服器 `artifacts/w277/work/srv.py`；截圖在 `artifacts/w277/sim/`）：
+    - 全新安裝沒有設定時只有「尚未載入設定」，沒有設定頁可進，所以不能加站（v01）。
+    - 加入來源 A 後輸入 `127.0.0.1:18278`（只開 XML）：https 連不上（其餘 https 路徑跳過）→ http v10 JSON 404 → v10 XML 可用；預覽有格式、介面、「未加密」、分類、第一部、線路、直連（v08～v10）；試播第一集起播（v12）；加入（v14）。
+    - 重開 App 本機站仍在，站點選單有「本機」標記（v18、v19）。
+    - 回 `closed` 的站：四個格式都顯示「站方關閉了採集介面」，不加入（v21）。
+    - 輸入來源 A 自己的 api：「目前的設定已有這個站，不用再加」（v24）。
+    - v10 JSON 站偵測、加入（v25、v26）；收藏它的一部片（v29）。
+    - 換到來源 B：站點選單只有 B 的站（v31）；收藏顯示「來源不可用」（v34）。換回 A：本機站回來、上次選的站記得、收藏可開（v35、v36）。
+    - 改名、左滑刪除（v39）；刪除後收藏保留並顯示「來源不可用」（v40）；用另一種寫法（`…/at/json/`）加回同一 api，收藏接回（v41、v42）。
+    - 熱點下對一個真實開放 API 的站冒煙：https v10 JSON 可用、分類 39 個、2 條線路（v43，站名不寫）。
+  - Ponytail 審查：1 項「應修」——加入時的「已有此站」檢查原本也包含本機站，擋掉「同 api 再加一次即改名」；已改成只比對遠端站，App 重新編譯通過。改名路徑由 `LocalSiteStore.upsert` 單元測試涵蓋，修正後沒有再跑 Simulator。
+- 沒驗證：實機（依規定只建 IPA 不裝機，本單未建 IPA）；忘記來源連同刪除只有單元測試（`forget(source:)`）和程式閱讀，沒在 Simulator 刪來源。
+- 下一步：Reviewer 審查本單（W-277）；通過後 W-278（網頁版型退路）。

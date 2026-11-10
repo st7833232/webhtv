@@ -439,10 +439,13 @@ public enum CMSClientError: Error, Equatable, LocalizedError {
 
 public struct CMSClient: Sendable {
     public let site: Site
+    /// W-277: the site detector's tests answer from a URLProtocol; everything else uses the shared session.
+    let session: URLSession
 
-    public init(site: Site) throws {
+    public init(site: Site, session: URLSession = .webHTV) throws {
         guard site.type == 0 || site.type == 1 || site.type == 4 else { throw CMSClientError.unsupportedSiteType(site.type) }
         self.site = site
+        self.session = session
     }
 
     public func home(page: Int = 1) async throws -> CMSResponse {
@@ -564,7 +567,7 @@ public struct CMSClient: Sendable {
 
     private func data(for query: [URLQueryItem]) async throws -> Data {
         let url = try requestURL(query)
-        let (data, response) = try await URLSession.webHTV.data(from: url)
+        let (data, response) = try await session.data(from: url)
         if let response = response as? HTTPURLResponse, !(200...299).contains(response.statusCode) {
             throw CMSClientError.invalidHTTPStatus(response.statusCode)
         }

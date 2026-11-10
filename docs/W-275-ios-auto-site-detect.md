@@ -1,0 +1,125 @@
+# W-275 iOS App 內輸入網址自動偵測站型並加站（階段 1 設計）
+
+工單 W-275（Manager #7281、#7283，使用者 11-10 選定做在 iOS App 裡）。分支 `task/W-275`，自 `origin/ios-poc` d198228a。
+階段 1 只寫文件；階段 2 實作需 Manager 轉使用者核准後另行開始。
+
+## Recovery anchor
+
+- 目標：使用者在 App 輸入站台網址 → App 用公開請求判斷能用哪種通用格式 → 實際取首頁與一部詳情驗證 → 預覽 → 加入。不寫爬蟲、不改 GitLab 設定。加的站只在這支 iOS 裝置（使用者核准的雙平台規則例外）。
+- 狀態：**階段 1 設計，等 Reviewer**。沒有改程式。
+- 下一步：Reviewer 意見 → 修 → Manager 轉使用者核准階段 2。
+
+## 一、現況（origin/ios-poc d198228a）
+
+| 位置 | 內容 | 對本單的意義 |
+|---|---|---|
+| `ios/Sources/WebHTVCore/ConfigSource.swift:11` | 來源只有 `.remote(URL)` 與 `.imported(id:)`（匯入的本機設定） | 「把自動站做成另一個本機來源」是現成可行的方案，但使用者要切換來源才看得到 |
+| `ios/Sources/WebHTVCore/SavedSource.swift` | 存的是**設定檔網址**清單，站點在設定檔裡 | 自動加的「站」不是一個「來源」，要另外存 |
+| `ios/WebHTVApp/Sources/WebHTVApp.swift` `show(_:from:)`（:606） | 所有設定（啟動還原、重新整理、相容包重建）進畫面的唯一入口：`sites = config.drivableSites(resolvedBy:)` | 本機站在這裡併入，一處就涵蓋所有路徑 |
+| `ios/Sources/WebHTVCore/WebHTVConfig.swift:94` `Site` | `Decodable`、欄位多為 `let`；type 0/1/4 且 api 為 http(s) 即 `isNativeCMS` | 本機站用同一個 JSON 形狀存，解碼成 `Site`，不另造型別 |
+| `ios/Sources/WebHTVCore/CMSClient.swift:444-550` | 已支援 type 0（XML，`MacCMSXML.swift`）、1、4：`home()`、`category(t,pg)`、`detail(ids)`、`search(wd)`；type 0 的詳情用 `ac=videolist` | 偵測直接用 `CMSClient` 驗證候選，不寫第二套解析 |
+| `CMSClient.swift:538` `isDirectMedia` | 副檔名 m3u8／mp4／flv／mkv／ts／mov／mpd 視為直連 | 預覽可標「直連可播」或「需嗅探」 |
+| `ios/Spiders/XBPQ.js:14`、`:245-276`、`:432-439` | XBPQ 沒設規則時退回苹果CMS **stui／myui** 網頁版型（列表、線路、播放頁 `var now=`） | 網頁版型退路可以用現成引擎，不寫爬蟲 |
+| `ios/Sources/WebHTVCore/Spider/DrpyEngine.swift:80`、`:99-103` | drpy 的 `模板.js` 等程式庫只從**設定檔自己的來源**載入，且只接受 https | drpy 自動模板依附使用者設定的信任模型，不適合放進「任意網址」功能 |
+| `ios/WebHTVApp/Info.plist:5-9` | `NSAllowsArbitraryLoads=true`，沒有其他 ATS 鍵 | 使用者輸入的 http 站不用改 ATS；**不能**再加 `NSAllowsArbitraryLoadsForMedia` 等鍵（E10） |
+| `ConfigLoader.swift` `URLSession.webHTV` | 每個請求逾時 10 秒、不快取 | 偵測沿用 |
+
+## 二、研究證據
+
+完整引文在 `.herdr-synapse/webhtv-dev/artifacts/w275/research-site-detect.md`（2026-11-10）。我已自己抽查 E2（maccms10 `Provide.php` L22-25：API 關閉時 `echo 'closed'; exit;`）。
+
+| # | 結論 | 來源（等級） |
+|---|---|---|
+| E1 | 苹果CMS v10 API：`/api.php/provide/vod/`，參數 `ac`（list／videolist／detail）`t pg wd h ids`；預設 JSON `{code:1,msg,page,pagecount,limit,total,list,class}`；`at=xml` 或 `/at/xml/` 回 `<rss><list><video>…`。`pg` 從 1 起，`pagesize` 上限 100 | maccms10 v2026.1000.4057 `application/api/controller/Provide.php`、官方文件（A） |
+| E2 | API 關閉回 200＋文字 `closed`；收費且未授權回 `域名未授权`；Content-Type 一律 `text/html` → 不能只看 HTTP 200，要看內容形狀 | 同上（A，已抽查） |
+| E3 | `ac=list` 沒有 `vod_pic`、`vod_play_url`，只有 `videolist`／`detail` 有完整欄位 → 驗證要多打一個 `ac=detail&ids=` | 同上（A） |
+| E4 | v8 舊版：XML 在 `/inc/api.php`、JSON 在 `/inc/apijson_vod.php`，詳情 `ac=videolist`（這就是 TVBox type 0 用 videolist 的原因） | 研究檔第 1 節（A） |
+| E5 | FongMi：首頁是對 `api` 的 GET；分類 `ac,t,pg`；詳情 `ac,ids`；搜尋 `wd,quick,extend`；最小站點 `{key,name,type,api}`；解析失敗會**默默**變成空結果 | FongMi `SiteApi.java`、`Result.java` @4512b4c9（A） |
+| E6 | drpy2 `模板:'自动'`：抓一次首頁，依序試 mx→mxpro→mxone5→首图→首图2→vfed→海螺3→海螺2→短视，第一個 `class_parse` 找得到分類的勝出；**不驗列表、詳情、播放**，會誤判 | drpy2 原始碼（A） |
+| E7 | 海闊 drmatch：找不到預期標記就當驗證頁交給使用者手動處理 | 研究檔第 3 節（A） |
+| E8 | 搜尋在伺服器跑 `LIKE '%..%'`，站長回報 CPU 100% → 探測不要用搜尋、不要並發 | maccms10 #677（B） |
+| E9 | 同一 API 從某些網路可用、某些被封（#1208）→ 偵測結果與網路有關，要能重試 | maccms10 #1208（B） |
+| E10 | ATS：任意使用者輸入的 http 網址只能靠 `NSAllowsArbitraryLoads`；同時存在 `…ForMedia`／`…InWebContent`／`NSAllowsLocalNetworking` 會讓它被忽略；iOS 17 起預設不允許直連 IP | Apple 文件（A） |
+| — | 沒找到：type 4 的書面規格；現成「給一個裸網址就探測苹果CMS 路徑」的成熟工具；FongMi／MacCMS 關於 API 回 Cloudflare 挑戰頁的 issue | 研究檔第 12 點 |
+
+## 三、方案比較（AGENTS §7）
+
+| 方案 | 內容 | 能接的站 | 誤判風險 | 工時（我的實作時間） | 結論 |
+|---|---|---|---|---|---|
+| A 不做 | 照舊改設定檔 | — | — | 0 | 不採用：使用者明確要這功能 |
+| B 只偵測苹果CMS API（type 0／1） | 依序試 v10 JSON、v10 XML、v8 JSON、v8 XML；每個候選用 `CMSClient` 實際取首頁＋一部詳情 | 開放採集 API 的苹果CMS 站（資源站、大部分影視站） | 低：API 有固定形狀（`code`、`class`／`list`），再加上詳情驗證 | 約 6～8 小時（偵測＋本機站存放＋合併＋UI＋測試）＋Simulator 1 小時 | **建議先做（階段 2a）** |
+| C B＋XBPQ 網頁版型退路 | API 都不通時抓一次首頁，有 stui／myui 標記才建 XBPQ 站（只給 `主页url`／`分类url`），再用 XBPQ 引擎實跑列表＋詳情＋線路驗證 | 關了 API 但用標準 stui／myui 模板的站 | 中：網址規則（分類、分頁）各站不同，推不出來就驗證失敗、不加 | B 之外再 4～6 小時 | 建議做在 **2b**，2a 上線後再決定；W-274 盤點的 stui／myui 站可當測試集 |
+| D C＋drpy 自動模板 | 照 drpy2 `模板:'自动'` 試多個模板 | 更多網頁版型 | 高：drpy2 本身不驗列表／詳情／播放（E6）；而且 drpy 程式庫只從設定檔來源載入（`DrpyEngine.swift:80`、`:99`），要讓任意網址的站用它，得改信任模型 | 1～2 天＋安全審查 | 不採用（本單範圍外；要做另開單） |
+| E 不偵測、只給表單 | 使用者自己填 type／api | 會填的人 | 由使用者負責 | 約 3 小時 | 不採用：不符「自動」；但 B 的預覽頁可以讓使用者改名稱 |
+
+**建議**：階段 2a 做 B；2b（C）等 2a 實測後由 Manager／使用者決定。
+
+## 四、設計（方案 B，C 的差異另註）
+
+### 4.1 輸入與正規化
+
+- 只接受 `http`、`https`；沒寫 scheme 時先試 `https`，整輪都失敗再試 `http`（來源都不會自己升降級，這是我們的選擇，E 研究檔第 4 節）。其他 scheme（`file`、`javascript` 等）直接拒絕。
+- 輸入如果已經是 API（路徑含 `provide/vod`、`api.php`、`inc/api`）→ 先原樣試，再試同源的其他候選。
+- 其餘取 origin（scheme＋host＋port），子路徑若像站點根目錄（例如 `/m/`）就保留一份候選。
+
+### 4.2 候選與順序（逐一、不並發，E8）
+
+1. 使用者原樣網址（若像 API）
+2. `{origin}/api.php/provide/vod/` → 期望 JSON → type 1
+3. `{origin}/api.php/provide/vod/at/xml/` → 期望 XML → type 0
+4. `{origin}/inc/apijson_vod.php` → JSON → type 1
+5. `{origin}/inc/api.php` → XML → type 0
+6. （方案 C）`{origin}/` 首頁 HTML：有 `stui-vodlist`／`myui-vodlist` 等標記 → XBPQ 候選
+
+找到第一個通過驗證的就停。type 4 不做自動偵測：沒有書面規格（E 研究檔），它的 api 通常是設定檔作者給的完整網址，不是使用者會輸入的站台首頁；使用者若貼的正好是 type 4 介面，第 1 步會被當 JSON API 試，失敗就列「不支援的格式」。
+
+### 4.3 判定（每個候選）
+
+- 形狀：JSON 要能解、`code` 是 1 或沒有、`class` 非空或 `list` 是陣列；XML 要有 `<rss>` 且有 `<list>` 或 `<class>`。
+- 明確失敗原因，分開顯示（E2、E7）：`closed`（站方關了 API）、`域名未授权`（收費 API）、HTTP 4xx／5xx、HTML 挑戰頁（含 `cf-`、`challenge`、`验证` 等）→「需要人機驗證，不支援」、逾時、內容空白。
+- 驗證（E3）：用暫時的 `Site`（`{key,name,type,api}`）建 `CMSClient`，跑 `home()`；取第一部的 id 跑 `detail(id:)`，要有至少一條線、一集。記下第一集是否直連（`isDirectMedia`），不是就標「需嗅探或解析，播放可能失敗」，仍可加入。
+- 方案 C：建 XBPQ 站後經現有爬蟲 session 跑 `homeContent`→`categoryContent`→`detailContent`，同樣要有線路與集數。
+- 預算：每請求 10 秒（`URLSession.webHTV`），整輪上限 45 秒，最多約 10 個請求；使用者可取消。只用 GET 公開頁面，不帶登入資訊。
+
+### 4.4 存放與合併
+
+- 新檔 `Application Support/local-sites.json`（裝置本機，不上傳、不回寫 GitLab）：`{"sites":[{key,name,type,api,ext?,addedAt,detectedFrom}]}`，形狀就是設定檔的站點，直接解碼成 `Site`。
+- key 一律 `local_` 加 api 的短雜湊，不會和遠端站撞名；同一 api 再加一次就是改名（比照 `SavedSourceList.upsert`）。
+- 合併：`show(_:from:)` 裡 `sites = config.drivableSites(...) + localSites`（排在最後，站點選單上加「本機」標記）。遠端設定已經有同一 api（正規化後相同）的站時，本機那筆不顯示，在設定頁註明「遠端設定已有此站」。
+- 全域、不分來源：使用者是「把站加進 App」，換設定來源後仍在（未決事項 1，請使用者確認）。
+- 刪除／改名：設定頁「本機加入的站」清單。刪掉只影響本機檔。
+- 不做：備份同步、匯出成設定檔（以後要可另開單）。
+
+### 4.5 UI 流程
+
+設定 →「新增站台（自動偵測）」→ 輸入網址（可選名稱）→ 偵測中：逐步列出試過的候選與結果，可取消 → 結果預覽：格式（苹果CMS JSON／XML、XBPQ 網頁）、api、分類數、第一部片名、線路數／集數、是否直連 → 「試播第一集」（用既有播放器）→「加入」。失敗時顯示原因，不加入。
+
+### 4.6 安全
+
+- 只有 http(s)；不新增任何執行遠端程式碼的能力：API 型是純資料；方案 C 用 App 內建、已審查的 `XBPQ.js`，規則只是字串；不載 drpy。
+- 不繞過驗證碼、登入、收費授權：遇到就顯示原因、不加入。
+- 不改 ATS（E10）；不碰 `DrpyEngine.checked` 的 https 限制（那是 drpy 的信任邊界，偵測有自己的 scheme 規則）。
+- log 只記候選類別（v10 JSON、v8 XML…）與結果、失敗原因，不記完整網址與片名。
+
+### 4.7 與 W-274 的關係
+
+W-274（claude-dev）盤點現有專用爬蟲能否改走通用格式。兩者用的是同一套通用格式：W-274 找出的「其實是苹果CMS API」的站，可以拿本功能驗證；「stui／myui 網頁」那一組可當方案 C 的測試集與標記清單。2a 不依賴 W-274 的結果；2b 建議等 W-274 完成再定標記清單。
+
+## 五、驗收條件（階段 2a）
+
+1. 單元測試（假回應，不連外）：v10 JSON、v10 XML、v8 JSON、v8 XML 各一例判對 type；`closed`、`域名未授权`、HTML 挑戰頁、空白、逾時各判成對應原因；詳情沒有集數判失敗；候選順序與「第一個成功就停」；`local_` key 不撞名、同 api 改名不重複；與遠端同 api 時本機那筆不顯示。
+2. Simulator：用本機測試伺服器模擬一個苹果CMS v10 JSON 站、一個只開 XML 的站、一個回 `closed` 的站，走完 輸入→預覽→加入→首頁出現→播放第一集；重開 App 仍在；換設定來源仍在；刪除後消失。
+3. 熱點下用一個真實開放 API 的站做一次冒煙（站名不寫進文件與版本說明）。
+4. 遠端設定、既有站點、W-262／W-268 等既有行為不變：全量 `swift test` 通過。
+5. 方案 C 另訂（2b 開工時）。
+
+## 六、Rollback
+
+- 程式：revert 階段 2 的提交即可；`show()` 回到只用遠端站點。
+- 資料：`local-sites.json` 只是多出來的檔案，舊版不讀它，不影響任何遠端設定或快取；不需要遷移。
+
+## 七、未決事項（請 Manager 轉使用者）
+
+1. 本機加的站要**全域**（換設定來源也在，本文建議）還是**跟著目前來源**？
+2. 是否允許 `http://`（不加密）站？本文建議允許但在預覽頁標示「未加密」。
+3. 方案 C（網頁版型退路）是否要排在 2a 之後做？

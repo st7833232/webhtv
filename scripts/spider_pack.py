@@ -140,7 +140,7 @@ DEFAULT_ORIGINS = {
            "AnimeGiri":  "direct HLS episodes; detail posters joined to the list image host",
            "AppFox":     "Appfox API on the ext host; ext cms and category 2 not ported",
            "AnimeBashi": "hhplayer url/t/key through its /api/parse",
-           "SaoHuo":     "ext host or the shapp.us mirror's first; play is the sniffer's (parse 1)",
+           "SaoHuo":     "ext host or the shapp.us mirror's first; play resolves the hhplayer iframe directly, the sniffer (parse 1) only when that fails",
        }.items()},
 }
 

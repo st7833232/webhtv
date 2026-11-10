@@ -143,7 +143,7 @@ public struct SpiderRegistry: Sendable {
         "AnimeGiri",    // http-json: spider.jar (maccms JSON API; direct HLS episodes)
         "AppFox",       // http-json: spider.jar (Appfox app API on an ext host; jiexi/parse table for non-direct lines)
         "AnimeBashi",   // http-html: spider.jar (HTML lists; hhplayer iframe url/t/key through its /api/parse)
-        "SaoHuo",       // http-html: spider.jar (ext host or shapp.us mirror; play page iframe to the sniffer, parse 1)
+        "SaoHuo",       // http-html: spider.jar (ext host or shapp.us mirror; hhplayer iframe resolved directly, sniffer parse 1 only as fallback)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

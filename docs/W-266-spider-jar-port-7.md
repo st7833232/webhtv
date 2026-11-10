@@ -129,5 +129,7 @@ CHANGELOG 由發包 workflow 依 `release_notes` 寫入；發包時請用 `spide
 
 ## 8. 狀態與下一步
 
-- 狀態：程式＋單元測試完成；iOS 引擎層、Simulator、FongMi 對照完成（XingChen 兩平台都受站方限流）；通用格式判斷見 2.1（AnimeGiri type 1 部分可接，Manager #7372 同意保留專用爬蟲）。
-- 下一步：guard finish（暫存探測檔已刪）→ rebase 到最新 origin/ios-poc → 送審。
+- 狀態：`774f1daf` Reviewer APPROVE（#7402，`artifacts/w266-review-reviewer2.md`）。
+- 審查非阻擋項：N-1 SaoHuo 的 `SpiderRegistry` 註解與 `spider_pack.py` notes 原寫「嗅探 parse 1」，已改成「hhplayer 直解，失敗才嗅探」（notes 會進包，第 16 包前修）；N-2 本節已更新；N-3 Yidong4K 每層目錄只取 200 筆（已知限制，記錄不改；超過的分享目錄會少列集數）；N-4 只有 csp 站時顯示「尚未載入設定」為範圍外，由 Manager 決定是否開單。
+- Ponytail（N-1 修正 diff）：無發現；`test_pack_exclusions` PASS。
+- 下一步：Manager 推 ios-poc；發第 16 包用 `spider_pack.py` 從 `ios/Spiders` 重產。

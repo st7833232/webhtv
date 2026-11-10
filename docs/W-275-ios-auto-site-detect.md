@@ -6,7 +6,7 @@
 ## Recovery anchor
 
 - 目標：使用者在 App 輸入站台網址 → App 用公開請求判斷能用哪種通用格式 → 實際取首頁與一部詳情驗證 → 預覽 → 加入。不寫爬蟲、不改 GitLab 設定。加的站只在這支 iOS 裝置（使用者核准的雙平台規則例外）。
-- 狀態：**階段 1 設計，等 Reviewer**。沒有改程式。
+- 狀態：**階段 1 設計**。第一次送審 298e0f44，Reviewer #7314 方向核准、退回小修 F-1～F-3（`artifacts/w275-stage1-review-reviewer2.md`）；本版已補（4.4.1～4.4.3、第五節），等複審。沒有改程式。
 - 下一步：Reviewer 意見 → 修 → Manager 轉使用者核准階段 2。
 
 ## 一、現況（origin/ios-poc d198228a）
@@ -84,11 +84,44 @@
 ### 4.4 存放與合併
 
 - 新檔 `Application Support/local-sites.json`（裝置本機，不上傳、不回寫 GitLab）：`{"sites":[{key,name,type,api,ext?,addedAt,detectedFrom}]}`，形狀就是設定檔的站點，直接解碼成 `Site`。
-- key 一律 `local_` 加 api 的短雜湊，不會和遠端站撞名；同一 api 再加一次就是改名（比照 `SavedSourceList.upsert`）。
-- 合併：`show(_:from:)` 裡 `sites = config.drivableSites(...) + localSites`（排在最後，站點選單上加「本機」標記）。遠端設定已經有同一 api（正規化後相同）的站時，本機那筆不顯示，在設定頁註明「遠端設定已有此站」。
-- 全域、不分來源：使用者是「把站加進 App」，換設定來源後仍在（未決事項 1，請使用者確認）。
-- 刪除／改名：設定頁「本機加入的站」清單。刪掉只影響本機檔。
+- key＝`local_`＋正規化 api（4.4.1）的 SHA-256 前 10 碼：不會和遠端站撞名；同一個 api 永遠得到同一個 key，所以刪掉再加回來，收藏與歷史會接回去（4.4.2）。同一 api 再加一次就是改名（比照 `SavedSourceList.upsert`）。
+- 合併：`show(_:from:)`（`WebHTVApp.swift:606`）裡 `sites = config.drivableSites(...) + localSites`，排在最後，站點選單上加「本機」標記。遠端設定已經有正規化後相同的 api 時，本機那筆不顯示，設定頁註明「遠端設定已有此站」。2a 只有 type 0／1，`isNativeCMS` 就能用；2b 的 `csp_XBPQ`（type 3）併入時要和遠端站一樣經過 `drivableSites`／resolver 過濾，不能直接附加（Reviewer N-1，2b 開工時寫進設計）。
+- 全域、不分來源（未決事項 1 的建議）。若使用者選「跟著目前來源」：檔案改成依 `source.identity` 分開存，4.4.2 的專用來源 ID 換成目前來源，4.4.3 改成「必須先有來源」。
+- 刪除／改名：設定頁「本機加入的站」清單，註明「不會隨備份還原」（W-119 的備份不含此檔，Reviewer N-2）。刪掉只影響本機檔。
+- 搜尋：沿用站點 `searchable` 的預設值（沒寫就是可搜尋，和遠端站相同）；聚合搜尋只在使用者主動搜尋時才打，偵測本身不用搜尋（E8，Reviewer N-3）。
 - 不做：備份同步、匯出成設定檔（以後要可另開單）。
+
+#### 4.4.1 「同一個 api」的正規化（F-3）
+
+比對與產生 key 都用同一個函式 `LocalSites.normalizedAPI(_:)`（WebHTVCore，純函式）：
+
+1. 用 `URLComponents` 解析；不是 http(s) 就不是有效 api。
+2. 不分 scheme：`http` 與 `https` 視為同一站（同一主機常兩種都開；E 研究檔：用戶端不會自己升降級，但資料相同）。
+3. 主機轉小寫；去掉預設埠（http 的 80、https 的 443），其他埠保留。`www.` **不**去掉（可能是不同主機）。
+4. 路徑大小寫保留（伺服器可能區分）；連續斜線合成一個；去掉結尾斜線；去掉結尾的 `/at/xml`、`/at/json`（同一端點的 XML 與 JSON 寫法是同一站）。
+5. query：去掉 `at` 和協定參數（`ac t pg wd h ids f quick extend`）；剩下的參數依名稱排序、保留值。
+6. 去掉 fragment。
+
+例：`https://Example.com:443/api.php/provide/vod/at/xml/`、`http://example.com/api.php/provide/vod?ac=list`、`https://example.com/api.php/provide/vod/` 三者相同；`https://www.example.com/api.php/provide/vod/` 不同；`/inc/api.php` 與 `/api.php/provide/vod/` 不同。
+
+#### 4.4.2 收藏、歷史、站點記憶（F-2）
+
+現況：收藏的身分含 `configSourceID`，換來源時判成 `.otherConfiguration` 而打不開（`FavoriteBrowsing.swift:48`）；歷史帶 `sourceID`，只在擁有它的來源列出，**沒有 `sourceID` 的紀錄才會在每個來源都列出**，而且可以依來源各自隱藏（`WatchHistory.swift:319-330` `isListed`／`hiding`）；站點記憶是 `siteMemory()[source.identity]`。
+
+設計：本機站的紀錄改掛在固定的專用來源 ID `LocalSites.sourceID`（例如 `webhtv.local-sites`）：
+
+- 寫入：收藏或觀看的站 key 以 `local_` 開頭時，`FavoriteIdentity.configSourceID`、`WatchHistory.sourceID` 填 `LocalSites.sourceID`，不填當下來源。
+- 歷史列出：`isListed` 把 `LocalSites.sourceID` 當成「沒有擁有者」那一類處理——每個來源都列出，在某來源滑掉只對那個來源隱藏（沿用現有 `hiddenFrom`），「清除全部」也只隱藏。
+- 收藏能不能開：`FavoriteAvailability` 遇到 `LocalSites.sourceID` 時不比對目前來源，直接在目前的 `sites`（已含本機站）找；找到就能開，找不到就是現有的 `.siteMissing`（「目前設定中找不到原始來源，此收藏仍會保留」）。
+- 站點身分遷移：`FavoriteStore.migrateSiteIdentities`／`WatchHistoryStore.migrateSiteIdentities` 對本機紀錄同樣用目前 `sites` 解析；本機站的 `Site.id` 由固定的 key＋ext 組成，實際上不會變。
+- 站點記憶：不改。記的是「這個來源上次選哪個站」，本機站在每個來源的 `sites` 裡都有，選到本機站也能照常記住。
+- 刪掉本機站：收藏、歷史都保留，顯示成「站已不在」（和遠端站被移除時相同）；再加回同一 api 會得到同一個 key，紀錄自動接回。
+
+#### 4.4.3 沒有設定檔時（F-1）
+
+現況：`restore()` 在沒有快取檔時直接 return（`WebHTVApp.swift:717`），驗證失敗走 catch，`rebuildSites()` 讀不到也 return（`:596`），三條路都不會呼叫 `show()`，`sites` 一直是空的。
+
+設計：新增一個入口 `showLocalSitesOnly()`，在這三個「沒有可用設定」的分支呼叫，令 `sites = localSites`；加入或刪除本機站後呼叫同一個「重新整理站點」：有設定就重跑 `rebuildSites()`（它會呼叫 `show()`），沒有就呼叫 `showLocalSitesOnly()`。所以全新安裝、還沒加任何來源也能用「新增站台」加站並播放；既有設定壞掉時，本機站仍在、原本的錯誤訊息照常顯示。
 
 ### 4.5 UI 流程
 
@@ -107,8 +140,11 @@ W-274（claude-dev）盤點現有專用爬蟲能否改走通用格式。兩者�
 
 ## 五、驗收條件（階段 2a）
 
-1. 單元測試（假回應，不連外）：v10 JSON、v10 XML、v8 JSON、v8 XML 各一例判對 type；`closed`、`域名未授权`、HTML 挑戰頁、空白、逾時各判成對應原因；詳情沒有集數判失敗；候選順序與「第一個成功就停」；`local_` key 不撞名、同 api 改名不重複；與遠端同 api 時本機那筆不顯示。
-2. Simulator：用本機測試伺服器模擬一個苹果CMS v10 JSON 站、一個只開 XML 的站、一個回 `closed` 的站，走完 輸入→預覽→加入→首頁出現→播放第一集；重開 App 仍在；換設定來源仍在；刪除後消失。
+1. 單元測試（假回應，不連外）：`normalizedAPI` 照 4.4.1 的每條規則與三個例子；本機紀錄的歷史在每個來源都列出、依來源隱藏；本機收藏的可開判斷；v10 JSON、v10 XML、v8 JSON、v8 XML 各一例判對 type；`closed`、`域名未授权`、HTML 挑戰頁、空白、逾時各判成對應原因；詳情沒有集數判失敗；候選順序與「第一個成功就停」；`local_` key 不撞名、同 api 改名不重複；與遠端同 api 時本機那筆不顯示。
+2. Simulator：用本機測試伺服器模擬一個苹果CMS v10 JSON 站、一個只開 XML 的站、一個回 `closed` 的站，走完 輸入→預覽→加入→首頁出現→播放第一集；重開 App 仍在。
+   - **沒有任何設定來源**（全新安裝）時加站：出現在首頁並能播放（F-1）。
+   - **換設定來源**：本機站仍在；在 A 來源收藏、看過的本機站，換到 B 後收藏能開、歷史仍列出（F-2）。
+   - **刪掉本機站**：收藏與歷史保留並顯示「站已不在」；加回同一 api 後恢復可開（F-2）。
 3. 熱點下用一個真實開放 API 的站做一次冒煙（站名不寫進文件與版本說明）。
 4. 遠端設定、既有站點、W-262／W-268 等既有行為不變：全量 `swift test` 通過。
 5. 方案 C 另訂（2b 開工時）。

@@ -187,3 +187,67 @@ W-274（claude-dev）盤點現有專用爬蟲能否改走通用格式。兩者�
   - Ponytail 審查：1 項「應修」——加入時的「已有此站」檢查原本也包含本機站，擋掉「同 api 再加一次即改名」；已改成只比對遠端站，App 重新編譯通過。改名路徑由 `LocalSiteStore.upsert` 單元測試涵蓋，修正後沒有再跑 Simulator。
 - 沒驗證：實機（依規定只建 IPA 不裝機，本單未建 IPA）；忘記來源連同刪除只有單元測試（`forget(source:)`）和程式閱讀，沒在 Simulator 刪來源。
 - 下一步：Reviewer 審查本單（W-277）；通過後 W-278（網頁版型退路）。
+
+## 九、階段 2b 設計：網頁版型退路（W-278，方案 C）
+
+使用者 11-10 選 3a（2a 之後做）。基底是 W-277（task/W-277 e6d9f559，送審中），W-278 分支自它開。本節是開工前的設計，送審後才改程式。
+
+### 9.1 現況（程式位置）
+
+| 位置 | 內容 | 對本單的意義 |
+|---|---|---|
+| `ios/Spiders/XBPQ.js:14` | 沒有規則時，列表、線路、播放都退回苹果CMS stui／myui 版型 | 只要給 `主页url`、`分类url`、`分类` 三個字串，其餘都走現成退路 |
+| `XBPQ.js:245-276` | 線路：`ul.stui-content__playlist`／`ul.myui-content__list`，線路名取 `.stui-pannel__head h3`／`.myui-panel__head h3` | 詳情驗證直接用它 |
+| `XBPQ.js:432-439` | 列表：`.stui-vodlist li`、`ul.stui-vodlist__media li`、`.myui-vodlist li` | 偵測的版型標記就用這幾個 class |
+| `XBPQ.js:366-394` `categories()` | 分類只認明寫的 `分类`（或 `分类数组` 切片）；原版用 XPath 猜導覽列的那段沒移植 | 偵測端要自己從首頁導覽列抽出 `名$id`，寫成 `分类` |
+| `XBPQ.js:404-430` `categoryUrl()` | `{cateId}`／`{catePg}` 代換，相對網址補上主頁 | 分頁網址由偵測端給模板 |
+| `XBPQ.js:683-697` `playerContent` | 依序試 `player_aaaa`（macPlayerUrl）、`"url":`、`var now=`、頁內唯一串流，都沒有才交給嗅探 | 播放不必另寫 |
+| `docs/W-185-ios-xbpq-filter.md:16`、`docs/IOS-POC-5I-…:46` | 苹果CMS v10 的 `/vodshow/{id}-{area}-{by}-{class}-{lang}-{letter}---{pg}---{year}.html`；導覽列有 `/vodtype/1/`、`/vodtype/1.html` 兩種寫法 | 分頁模板與導覽列樣式的依據 |
+| `artifacts/w275/research-site-detect.md:66` | drpy 的 mxpro 模板：分類取導覽列 `a&&href` 的 `/(\d+)`，分頁 `/vodshow/fyclass--------fypage---.html` | 同一個推法，成熟專案在用 |
+| `Spider/SpiderRegistry.swift:72`、`CSPSourceResolver` | `csp_XBPQ` 是已移植、已審查的引擎；能不能跑由 resolver 判斷（爬蟲工具包有沒有到） | Reviewer N-1：本機的 type 3 站要和遠端站一樣經過 resolver 過濾 |
+
+### 9.2 流程（API 四個候選全部失敗之後才做）
+
+1. 抓一次 `{origin}/`（沿用 2a 的 http／https 輪次與 origin 逾時跳過）。沒有 `stui-`／`myui-` 版型 class → 失敗「不是苹果CMS 網頁版型」；挑戰頁、HTTP 錯誤沿用 2a 的 `judge` 原因。
+2. 分類：從首頁所有 `<a href>` 抽 `/vodtype/(\d+)`、`/index.php/vod/type/id/(\d+)`、`/vod/type/id/(\d+)`，名稱用連結文字（去標籤、去空白），依出現順序去重，最多 20 個。抽不到 → 失敗「找不到分類」。
+3. 分頁模板，依導覽列的寫法選一個，只用第一個分類試第 1 頁：
+   - `index.php` 形式 → `{origin}/index.php/vod/show/id/{cateId}/page/{catePg}.html`
+   - 其他 → `{origin}/vodshow/{cateId}--------{catePg}---.html`
+   - 第 1 頁沒有影片時，改試導覽列本身的分頁形式 `{origin}/vodtype/{cateId}-{catePg}.html` 一次；再沒有 → 失敗「分類頁沒有影片」。
+4. 用 `{"主页url":origin,"分类url":模板,"分类":"名$id#…"}` 建暫時的 `csp_XBPQ` 站，經現有爬蟲 session 跑 `categoryContent`（第 1 頁）→ `detailContent`（第一部），要有至少一條線、一集；記第一集是否直連（大多不是，標「需解析或嗅探」）。播放不在偵測裡驗，由預覽頁的「試播第一集」驗（和 2a 相同）。
+5. 預算：網頁輪最多 4 個請求（首頁、分類 1～2 次、詳情），算在 2a 的 45 秒總預算內；一次一個，不搜尋。
+
+### 9.3 存放與合併
+
+- `LocalSite` 加選填的 `ext`（JSON 字串）；type 3、api `csp_XBPQ`。key 用 `local_`＋正規化 `主页url` 的雜湊（同一站加兩次即改名）。舊的 `local-sites.json` 沒有 `ext` 照樣讀。
+- 合併（N-1）：`show()` 裡本機站也要過 `drivableSites` 的同一條規則——`isNativeCMS`，或 `isSpiderShape && resolver.canResolve`；爬蟲工具包還沒到時本機 XBPQ 站和遠端 XBPQ 站一樣先不列，設定頁的本機站清單標「等爬蟲工具」。
+- 「目前設定已有此站」：type 3 站沒有可比的 api，只比本機站彼此（同 key 即改名），不和遠端 XBPQ 站比對（遠端的 `主页url` 在 ext 規則檔裡，可能是遠端 URL，不下載比對）。
+
+### 9.4 方案比較
+
+| 方案 | 內容 | 結論 |
+|---|---|---|
+| 不做 | 只有 2a | 不採用：使用者選 3a |
+| 照原版 XBPQ 猜導覽列（XPath） | 移植原版 `m()` 的 XPath 導覽列推測 | 不採用：XBPQ.js 沒有 XPath（`categories()` 的 ponytail 註記），要補一整套 XPath，風險大於收益 |
+| drpy 自動模板 | 第三節 D | 不採用（第三節已說明信任模型） |
+| **偵測端抽 `名$id`＋給分頁模板（建議）** | 9.2 | 引擎不改；規則只是三個字串；每一步都有實際取資料的驗證 |
+
+### 9.5 安全
+
+- 不改 `XBPQ.js`；不新增任何遠端程式碼；ext 是三個字串，由 App 自己產生，不從網路取規則檔。
+- 遇到驗證頁、登入、收費就顯示原因、不加入；不帶 Cookie。log 只記「網頁版型」與結果。
+
+### 9.6 驗收（2b）
+
+1. 單元測試（假回應）：stui 首頁（`/vodtype/1.html` 導覽）與 myui 首頁（`/index.php/vod/type/id/1.html` 導覽）各一例抽出分類與模板、經 `XBPQ.js` 跑出列表與線路並判成功；沒有版型 class、找不到分類、分類頁沒影片、詳情沒集數各判對原因；vodshow 第 1 頁空時改試 vodtype 一次；舊 `local-sites.json`（沒有 ext）照樣讀；resolver 不能跑 XBPQ 時本機 XBPQ 站不列。
+2. Simulator：本機假站（stui 版型 HTML＋HLS）走完 輸入→API 四個都失敗→網頁版型成功→預覽→試播→加入→首頁出現→播放；重開仍在。
+3. 熱點下用一個真實、關了採集 API 的苹果CMS 網頁站做一次冒煙（站名不寫進文件）；找不到合適的站就明寫沒驗。
+4. 全量 `swift test` 通過（既有不穩測試另記）。
+
+### 9.7 Rollback
+
+revert W-278 的提交即可。已存的網頁版型站留在 `local-sites.json`，回到 W-277 的程式時不會出現：`LocalSites.merged` 遇到 api 不是 http(s)（`csp_XBPQ`）時 `normalizedAPI` 為 nil，`isShadowed` 判成隱藏；設定頁清單仍看得到，可以手動刪。
+
+### 9.8 工時
+
+設計審查後：偵測與合併 1.5 小時、測試 1 小時、UI 小改 0.5 小時、Simulator 1 小時。

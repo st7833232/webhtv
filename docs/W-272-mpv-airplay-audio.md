@@ -6,7 +6,7 @@ Reviewer 預審重點：webhtv-dev-codex-reviewer-2 #7224（6 點，本文逐點
 ## Recovery anchor
 
 - 目標：MPV 播放時控制列也有 AirPlay；選了 AirPlay 喇叭或 Apple TV 後，聲音從那裡出，畫面留在手機，影音同步可接受。原生播放器的 AirPlay（含影片投放）完全不變。不做 MPV 影片投放。
-- 狀態：**階段 1 設計**。第一次送審 cc3daf49，Reviewer #7232 方向核准、退回小修 F-1～F-3（`.herdr-synapse/webhtv-dev/artifacts/w272-stage1-review-reviewer2.md`）；本版已修，等複審。還沒改程式。
+- 狀態：**階段 2 完成，送審**（設計 93bc0a97 經 Reviewer #7237 核准，條件 C-1 已照辦）。階段 1：第一次送審 cc3daf49，Reviewer #7232 方向核准、退回小修 F-1～F-3（`.herdr-synapse/webhtv-dev/artifacts/w272-stage1-review-reviewer2.md`）；93bc0a97 修完後核准。
 - 下一步：Reviewer 核准後照第五節實作（階段 2）。
 
 ## 一、現況（origin/ios-poc b168c4eb）
@@ -76,7 +76,7 @@ Reviewer 預審重點：webhtv-dev-codex-reviewer-2 #7224（6 點，本文逐點
   - 「上次處理過的輸出」在 MPV engine 建立時取 `currentRoute`。
 - `MPVEngine.swift`：
   - 建立 handle 時註冊 `routeChangeNotification`、拆掉時移除。通知在背景執行緒（E5）：讀 `currentRoute` 後把判斷與動作排進 mpv 佇列 `mpv.engine`，**判斷（讀 `pause`）和動作在同一個佇列區塊裡依序做**，使用者在中間按的暫停一定排在它後面（N-1）。
-  - `.resync`：佇列上設旗標 `resyncingPause`，同步呼叫 `pause=yes`、`pause=no`（`mpv_set_property_string` 是同步的：yes 時 ao `reset`、no 時 ao `start` 重讀延遲）。旗標期間，`pause` 屬性事件的 `true` 不寫進 snapshot、收到 `false` 才清旗標（F-3a）；所以 `state`、`isPlaying`、`rate`（控制列、背景暫停判斷、路由器都從這裡讀）一直是播放中。使用者經 `setPaused` 暫停時先清旗標，使用者的暫停照常反映。極端競態（使用者剛好在重新同步那一刻按暫停）最壞是控制列閃一下，最後狀態正確。
+  - `.resync`：在佇列上同步呼叫 `pause=yes`、`pause=no`（`mpv_set_property_string` 是同步的：yes 時 ao `reset`、no 時 ao `start` 重讀延遲）。**實作依 Reviewer C-1 改掉旗標**：`record` 收到 `pause` 事件時一律改讀 mpv 當下的 `pause`（`mpv_get_property`）。drain 和重新同步在同一個佇列上，重新同步留下的過期 `true` 被處理時，mpv 當下已經是 `false`，所以 snapshot 不會閃成暫停（F-3a）；每個真正的變化最後都有一個事件，讀到的就是最終值，`autoplay=false` 載入的 `true` 照常生效。沒有旗標，就不會有卡住的問題。
   - `.pause`：回主執行緒呼叫 `PlaybackSession.shared.control("pause")`（F-3b），不直接設 mpv 的 `pause`。
   - log 一行（不記裝置名稱）：`[audio] route <reason> airplay <舊>→<新> latency <通知當下 outputLatency ms> -> <response>`；重新同步後再記一次 `outputLatency`（`start()` 讀的就是這個值，N-2）。
 - 測試：`supportsAirPlay` 兩個 engine 皆 true；控制列在 MPV 時顯示 AirPlay（照現有控制列測試的寫法）；`MPVAudioRoute`：耳機／藍牙進出 → `.none`；連上 AirPlay → `.resync`；**同一路由連送兩次通知只 `.resync` 一次**；AirPlay 斷線 → `.pause`；暫停中 → `.none`；換另一台 AirPlay → `.resync`。
@@ -96,3 +96,24 @@ Simulator 沒有真的 AirPlay 裝置，以下只能交 IPA 給使用者實機�
 3. 選了 Apple TV 時，MPV 只投聲音、畫面留在手機；原生切回來仍然投影片。
 4. AirPlay 斷線時停在暫停、不從手機外放。
 5. 原生投到 Apple TV 時切到 MPV，路由是否留在 Apple TV（聲音）或回到手機。
+
+## 八、階段 2 實作紀錄（2026-11-10）
+
+- `ios/Sources/WebHTVCore/PlaybackEngine.swift`：`supportsAirPlay` 兩個 engine 都是 true；新增 `MPVAudioRoute`（`Outputs`、`Response`、`response(from:to:deviceLeft:paused:)`），規則照第五節。
+- `ios/WebHTVApp/Sources/MPVEngine.swift`：
+  - `MPVEngine.init` 註冊 `AVAudioSession.routeChangeNotification`（`queue: nil`），只讀 `currentRoute` 與原因，交給 `core.audioRouteChanged(to:deviceLeft:)`；`teardown` 照既有的 `observers` 一起移除。
+  - `MPVPlayerCore.audioRouteChanged`：在 `mpv.engine` 佇列上判斷並執行；`.resync` 同步設 `pause=yes`、`pause=no`；`.pause` 回主執行緒走 `PlaybackSession.shared.control("pause")`；AirPlay 有無改變或有動作時記一行 `[audio] route …`（通知當下與重新同步後的 `outputLatency`）。
+  - `record`：`pause` 事件改讀 mpv 當下的值（C-1，沒有旗標）。
+- 測試（`PlaybackEngineTests.swift`）：`bothEnginesOfferAirPlay`；`mpvResyncsOnlyAroundAirPlayAndOncePerRoute`（耳機／藍牙不動、連上與換台 resync、同路由第二次通知不動、斷線 pause、選回 iPhone resync、暫停中不動）。
+- 控制列：顯示 AirPlay 的唯一條件就是 `engine.supportsAirPlay`（`WebHTVApp.swift` 控制列），App target 沒有測試 target，所以由上面第一個測試加上 Simulator 截圖涵蓋。
+
+## 九、驗證
+
+- `swift test --filter PlaybackEngineTests`：51/51 通過（含兩個新測試）。全量 `swift test`：1507 項只有 1 項失敗——`SnifferRulesTests.theRulesScriptRunsOnTheSnifferWebViewAndItsStreamIsCaught`（WebView 嗅探，和本單無關）；單獨重跑通過，屬於已知平行執行時不穩的 WebView 測試（W-270 也記過）。
+- App（Debug、iOS Simulator）`xcodebuild build` 成功，MPVEngine 沒有新警告。
+- Ponytail review：沒有發現（未驗只有實機 AirPlay）。
+- Simulator（webhtv-w185，iOS 26，KIT｜bvc2 kit 設定）：
+  - 原生播放時控制列仍有 AirPlay（`artifacts/w272/sim-native-airplay.png`），MPV 播放時也有（`sim-mpv-airplay.png`，控制列標「MPV」）。
+  - 重新同步：只在本機測試包暫時加一個每 8 秒假造「有／沒有 AirPlay」的計時器（**沒有提交**，測完已還原），走真正的 `audioRouteChanged`→`.resync` 路徑。約 95 秒內 log 記到每 8 秒一次 `-> resync`（`sim-applog.txt`）；同時取樣 36 次控制列，時間 00:32→02:07 持續前進、播放鍵每次都是「暫停」（播放中），包含落在重新同步那一刻的取樣（`sim-resync-samples.txt`、`sim-mpv-at-resync.png`）。取樣間隔約 1 秒，證明的是「看得到的時間內沒有停下、沒有顯示成暫停」；毫秒級的狀態由 `record` 讀回 mpv 當下值保證。
+  - Simulator 的 `outputLatency` 是 0 ms（沒有真的 AirPlay），所以這裡驗不到延遲值的變化。
+- 第七節的實機項目都**沒驗**，要交 IPA 由使用者實測。

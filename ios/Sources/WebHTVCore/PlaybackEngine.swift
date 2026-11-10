@@ -23,9 +23,40 @@ public enum PlaybackEngineKind: String, CaseIterable, Sendable, Codable {
     public var other: PlaybackEngineKind { self == .native ? .mpv : .native }
 
     /// Whether the control bar offers AirPlay while this engine plays: the bar hides what the
-    /// running engine cannot do instead of drawing a dead control. MPV's AirPlay Audio remains a
-    /// later stage.
-    public var supportsAirPlay: Bool { self == .native }
+    /// running engine cannot do instead of drawing a dead control. W-272: MPV sends its sound to the
+    /// picked route (the picture stays on the phone) and resyncs through `MPVAudioRoute`.
+    public var supportsAirPlay: Bool { true }
+}
+
+/// W-272: what MPV does when the audio route changes. mpv's iOS audio output reads the route's
+/// latency only when it starts (`ao_audiounit` `start()`, also run on every unpause), so a route
+/// that gains or loses AirPlay mid-play keeps the old latency in the A/V sync until it restarts.
+public enum MPVAudioRoute {
+    /// The session's outputs: their port UIDs, and whether one is AirPlay.
+    public struct Outputs: Equatable, Sendable {
+        public var ports: Set<String>
+        public var hasAirPlay: Bool
+        public init(ports: Set<String>, hasAirPlay: Bool) {
+            self.ports = ports
+            self.hasAirPlay = hasAirPlay
+        }
+    }
+
+    public enum Response: Equatable, Sendable {
+        case none
+        /// Pause and resume at once, so the audio output starts again on the new route's latency.
+        case resync
+        /// AirPlay went away: stop instead of carrying on out of the phone's speaker.
+        case pause
+    }
+
+    /// Only routes with AirPlay on one side: wired and Bluetooth changes keep today's behaviour.
+    /// Several notifications for one connection change the outputs once, so they answer once.
+    /// `deviceLeft` is `AVAudioSession.RouteChangeReason.oldDeviceUnavailable`.
+    public static func response(from last: Outputs, to now: Outputs, deviceLeft: Bool, paused: Bool) -> Response {
+        guard now != last, last.hasAirPlay || now.hasAirPlay, !paused else { return .none }
+        return last.hasAirPlay && !now.hasAirPlay && deviceLeft ? .pause : .resync
+    }
 }
 
 // MARK: - The global default

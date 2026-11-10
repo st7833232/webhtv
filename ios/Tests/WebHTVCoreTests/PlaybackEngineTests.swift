@@ -746,3 +746,35 @@ private func avError(_ code: Int, underlying: NSError? = nil) -> NSError {
     #expect(MPVRequestHeaders.fields(["X-Bad": "a\r\nHost: evil"]).isEmpty)
     #expect(MPVRequestHeaders.fields([:]).isEmpty)
 }
+
+// W-272: both engines offer AirPlay; the control bar's only condition is `supportsAirPlay`.
+@Test func bothEnginesOfferAirPlay() {
+    #expect(PlaybackEngineKind.native.supportsAirPlay)
+    #expect(PlaybackEngineKind.mpv.supportsAirPlay)
+}
+
+@Test func mpvResyncsOnlyAroundAirPlayAndOncePerRoute() {
+    let speaker = MPVAudioRoute.Outputs(ports: ["Speaker"], hasAirPlay: false)
+    let wired = MPVAudioRoute.Outputs(ports: ["Wired"], hasAirPlay: false)
+    let bluetooth = MPVAudioRoute.Outputs(ports: ["BT-1"], hasAirPlay: false)
+    let homePod = MPVAudioRoute.Outputs(ports: ["AP-1"], hasAirPlay: true)
+    let appleTV = MPVAudioRoute.Outputs(ports: ["AP-2"], hasAirPlay: true)
+    let answer = { (last: MPVAudioRoute.Outputs, now: MPVAudioRoute.Outputs, left: Bool, paused: Bool) in
+        MPVAudioRoute.response(from: last, to: now, deviceLeft: left, paused: paused)
+    }
+    // Wired and Bluetooth in and out: nothing changes for them.
+    #expect(answer(speaker, wired, false, false) == .none)
+    #expect(answer(wired, speaker, true, false) == .none)
+    #expect(answer(speaker, bluetooth, false, false) == .none)
+    // Picking AirPlay, or another AirPlay device, while playing resyncs.
+    #expect(answer(speaker, homePod, false, false) == .resync)
+    #expect(answer(homePod, appleTV, false, false) == .resync)
+    // The connection's second notification sees the outputs it already handled.
+    #expect(answer(homePod, homePod, false, false) == .none)
+    // AirPlay lost pauses; picking the iPhone in the menu instead resyncs back.
+    #expect(answer(homePod, speaker, true, false) == .pause)
+    #expect(answer(homePod, speaker, false, false) == .resync)
+    // Paused: the next play starts the output again on the new latency anyway.
+    #expect(answer(speaker, homePod, false, true) == .none)
+    #expect(answer(homePod, speaker, true, true) == .none)
+}

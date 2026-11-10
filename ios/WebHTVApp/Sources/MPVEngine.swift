@@ -80,6 +80,14 @@ final class MPVEngine: PlaybackEngine {
                 self.setDisplaySleepPrevented(self.playbackIntendsToRun)
             }
         })
+        // W-272: AirPlay audio. Posted on a secondary thread; the core decides on its own queue.
+        observers.append(NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil
+        ) { [core] note in
+            let reason = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            core.audioRouteChanged(to: MPVPlayerCore.audioOutputs(),
+                                   deviceLeft: reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue)
+        })
         let pictureInPicture = MPVPictureInPicture(engine: self, core: core, layer: view.sampleBufferLayer)
         pictureInPicture.onActiveChange = { active in
             // IOS-POC-36.2: the session hears it now, not when SwiftUI next updates the screen.
@@ -464,6 +472,8 @@ final class MPVPlayerCore: @unchecked Sendable {
     private var mpv: OpaquePointer?
     private let queue = DispatchQueue(label: "mpv.engine", qos: .userInitiated)
     private let lock = NSLock()
+    /// W-272: the outputs the last route change was judged against. `queue` only.
+    private var audioOutputs = MPVPlayerCore.audioOutputs()
     private var state = Snapshot()
     /// The software output while Picture in Picture has the video (17H). `queue` only.
     private var software: MPVSoftwareRenderer?
@@ -679,6 +689,40 @@ final class MPVPlayerCore: @unchecked Sendable {
     }
 
     func setPaused(_ paused: Bool) { set("pause", paused ? "yes" : "no") }
+
+    static func audioOutputs() -> MPVAudioRoute.Outputs {
+        let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
+        return MPVAudioRoute.Outputs(ports: Set(outputs.map(\.uid)), hasAirPlay: outputs.contains { $0.portType == .airPlay })
+    }
+
+    /// W-272: mpv's audio unit reads the route's latency only when it starts, so a route that gains
+    /// or loses AirPlay mid-play is resynced by a pause and resume, both synchronous here; `record`
+    /// reads `pause` back from mpv, so the moment in between never reaches the snapshot. Judged and
+    /// done in one block on `queue`, so a pause the viewer asks for meanwhile lands after it.
+    func audioRouteChanged(to now: MPVAudioRoute.Outputs, deviceLeft: Bool) {
+        queue.async { [self] in
+            guard let mpv else { return }
+            let last = audioOutputs
+            audioOutputs = now
+            let paused = flagProperty(mpv, "pause") ?? true
+            let response = MPVAudioRoute.response(from: last, to: now, deviceLeft: deviceLeft, paused: paused)
+            guard response != .none || last.hasAirPlay != now.hasAirPlay else { return }
+            let before = AVAudioSession.sharedInstance().outputLatency
+            if response == .resync {
+                mpv_set_property_string(mpv, "pause", "yes")
+                mpv_set_property_string(mpv, "pause", "no")
+            }
+            // No device name: the AirPlay flag, the reason and what the output's start read.
+            let line = "[audio] route airplay \(last.hasAirPlay)->\(now.hasAirPlay) deviceLeft=\(deviceLeft)"
+                + " paused=\(paused) latency \(Int(before * 1000))ms->\(Int(AVAudioSession.sharedInstance().outputLatency * 1000))ms"
+                + " -> \(response)"
+            Task { @MainActor in
+                PlaybackSession.log.notice("\(line, privacy: .public)")
+                // The viewer's pause, as when Picture in Picture closes: judged for a reload on return.
+                if response == .pause { PlaybackSession.shared.control("pause") }
+            }
+        }
+    }
     func setSpeed(_ rate: Float) { set("speed", String(rate)) }
     func setVolume(_ volume: Double) { set("volume", String(min(max(volume, 0), 100))) }
     func setVideoTrackEnabled(_ enabled: Bool) { set("vid", enabled ? "auto" : "no") }
@@ -1059,6 +1103,9 @@ final class MPVPlayerCore: @unchecked Sendable {
             ? property.data?.assumingMemoryBound(to: Double.self).pointee : nil
         let flag = property.format == MPV_FORMAT_FLAG
             ? property.data.map { $0.assumingMemoryBound(to: Int32.self).pointee != 0 } : nil
+        // W-272: mpv's value now, not the event's — a resync's pause and resume can arrive as a stale
+        // `true` after both ran; every real change still ends in an event carrying the current value.
+        let pausedNow = name == "pause" ? mpv.flatMap { flagProperty($0, "pause") } : nil
         update { now in
             switch name {
             case "time-pos":
@@ -1067,7 +1114,7 @@ final class MPVPlayerCore: @unchecked Sendable {
                 // playhead gone once the file stops, sometimes before the failure itself.
                 if now.loaded, now.position > 0 { now.reached = now.position }
             case "duration": now.duration = double.map { $0.isFinite ? max($0, 0) : 0 } ?? 0
-            case "pause": now.paused = flag ?? now.paused
+            case "pause": now.paused = pausedNow ?? flag ?? now.paused
             case "paused-for-cache": now.buffering = flag ?? false
             case "speed": now.speed = double ?? now.speed
             case "volume": now.volume = double ?? now.volume

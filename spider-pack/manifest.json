@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "2026-10-15.1",
+  "version": "2026-11-10.1",
   "minHostApi": 2,
   "scripts": [
     {
@@ -82,7 +82,7 @@
     {
       "class": "Duboku",
       "path": "./scripts/Duboku.js",
-      "sha256": "3f900c986ad43c7c48e21832fabdb6c53abc2c3d854d416b48df5b7f6af35823",
+      "sha256": "1e060dae103e21cbf4a79f933d7224bdeb4a00cb08cb29b80e2c1d66a8bc913d",
       "originJar": "spider.jar",
       "jarSha256": "72a1f3928eca281d878e44fc57162ff6a1f3ef779a2da05a2b351b241b110d69"
     },
@@ -243,17 +243,16 @@
     {
       "class": "XBPQ",
       "path": "./scripts/XBPQ.js",
-      "sha256": "66e7f59df554bacdb710af01f293933e38829fd29c0058474b0fb1d62b6ab219",
+      "sha256": "eaa6cfd85693b44c8b2f6b2812c18274a65f47e218778953004f63a447bb9344",
       "originJar": "xyqxbpq.jar",
       "jarSha256": "7b732f2289236619b791d9c5a0d862d42c9bf3e5bb6123a6982736329bbe9e16"
     },
     {
       "class": "XYQHiker",
       "path": "./scripts/XYQHiker.js",
-      "sha256": "7c9a719b8e05fa3f5bb2230247da014bd2dad4153f3daad160cad8b362c245ad",
+      "sha256": "670fb205c73c42f72eb0caa241389d6990e10aebd9144264c132c15dc28e874b",
       "originJar": "xyqxbpq.jar",
       "jarSha256": "7b732f2289236619b791d9c5a0d862d42c9bf3e5bb6123a6982736329bbe9e16"
     }
-  ],
-  "mappings": []
+  ]
 }

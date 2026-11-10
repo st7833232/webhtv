@@ -52,6 +52,68 @@ var spider = (function () {
     });
   }
 
+  /** A `||` spec holds one group per category, in order; 空 means none. One group serves them all. */
+  function groupFor(spec, index) {
+    var groups = String(spec || '').split('||');
+    var group = groups.length > 1 ? (groups[index] || '') : groups[0];
+    return group === '空' ? '' : group;
+  }
+
+  // W-265 (X4): the filter keys "ext" builds, with the extend key each answers under.
+  var FILTER_KEYS = [['子分类', 'cateId', '分类'], ['地区', 'area', '地区'],
+                     ['年份', 'year', '年份'], ['排序', 'by', '排序']];
+
+  /**
+   * W-265 (X4): the filter bar. 筛选数据 is FongMi's own shape keyed by type_id, passed through, or
+   * "ext": built from 筛选<名>名称 and 替换词, where a 替换词 of * makes the names the values. Each
+   * list opens on 全部, which sends no value, so the category's own listing comes back.
+   */
+  function filters() {
+    var data = rule['筛选数据'];
+    if (data && typeof data === 'object') return data;
+    if (data !== 'ext') return null;
+    var out = {};
+    categories().forEach(function (category, index) {
+      var list = [];
+      FILTER_KEYS.forEach(function (key) {
+        var names = groupFor(text('筛选' + key[0] + '名称'), index).split('&').filter(Boolean);
+        if (!names.length) return;
+        var replaced = groupFor(text('筛选' + key[0] + '替换词'), index);
+        var values = replaced === '*' ? names : replaced.split('&');
+        list.push({ key: key[1], name: key[2], value: [{ n: '全部', v: '' }].concat(names.map(function (n, i) {
+          return { n: n, v: values[i] === undefined ? n : values[i] };
+        })) });
+      });
+      if (list.length) out[category.type_id] = list;
+    });
+    return out;
+  }
+
+  /**
+   * W-265 (X6): one field rule. Hiker joins `'字'+规则+…` with `+`: a quoted part is text, the rest a
+   * Jsoup rule — or, where the rule file says 是否Jsoup写法=0, a `前&&後` cut. In the 29 configured
+   * rule files a `+` only ever sits between parts, never inside a selector.
+   */
+  function field(node, spec, cutMode) {
+    spec = String(spec || '');
+    if (!spec) return '';
+    // shortcut: a parsed node keeps no markup, so a cut on one reads its text, script bodies included
+    // (动漫PRO's `video_url: '&&',`); a cut naming tags inside a node needs a serializer first.
+    var source = cutMode && typeof node !== 'string' ? host.text(node) : node;
+    var one = function (part) { return cutMode ? host.cut1(source, part) : host.pdfh(node, part); };
+    if (!/[+＋]/.test(spec)) return one(spec);
+    return (spec.match(/'[^']*'|"[^"]*"|[^+＋]+/g) || []).map(function (part) {
+      part = part.trim();
+      return /^(['"])[\s\S]*\1$/.test(part) ? part.slice(1, -1) : one(part);
+    }).join('');
+  }
+
+  /** A text field: a cut keeps the page's markup, which the Jsoup `Text` would have dropped. */
+  function textField(node, spec, cutMode) {
+    var value = field(node, spec, cutMode);
+    return cutMode ? host.stripTags(value).trim() : value;
+  }
+
   /**
    * Hiker lets a listing template carry `[firstPage=<template>]`: the first page uses that
    * template and every later page the main one. 巴士动漫 and 動漫巴士 list page 1 at
@@ -135,7 +197,7 @@ var spider = (function () {
         vod_id: joinPrefix(prefix, link) + suffix,
         vod_name: title,
         vod_pic: host.urljoin(prefix, host.pdfh(nodes[i], picRule)),
-        vod_remarks: remarkRule ? host.pdfh(nodes[i], remarkRule) : ''
+        vod_remarks: remarkRule ? field(nodes[i], remarkRule, false) : ''
       });
     }
     return out;
@@ -196,7 +258,7 @@ var spider = (function () {
       return '';
     },
 
-    homeContent: function () { return host.result.home(categories(), []); },
+    homeContent: function () { return host.result.home(categories(), [], filters()); },
 
     homeVideoContent: function () {
       var url = text('首页推荐链接');
@@ -207,12 +269,12 @@ var spider = (function () {
     categoryContent: function (tid, page, filter, extend) {
       var startPage = text('分类起始页码', '1');
       var pageNumber = String(page || startPage);
-      var url = fill(pickTemplate(text('分类链接'), pageNumber, startPage), {
-        cateId: tid, catePg: pageNumber,
-        by: (extend && extend.by) || '', year: (extend && extend.year) || '',
-        area: (extend && extend.area) || '', 'class': (extend && extend['class']) || '',
-        lang: (extend && extend.lang) || '', letter: ''
-      });
+      // W-265 (X5): every chosen filter fills its own {key}; a 子分类 (cateId) replaces the category.
+      var values = { by: '', year: '', area: '', 'class': '', lang: '', letter: '' };
+      Object.keys(extend || {}).forEach(function (key) { values[key] = extend[key] == null ? '' : String(extend[key]); });
+      values.cateId = values.cateId || tid;
+      values.catePg = pageNumber;
+      var url = fill(pickTemplate(text('分类链接'), pageNumber, startPage), values);
       if (!url) return { list: [] };
       var body = fetch(url);
       // XYQ.jar `m161`: 分类截取模式 0 cuts the reply with 分类Json数据二次截取 when it holds a `&&`, then
@@ -243,12 +305,17 @@ var spider = (function () {
       var episodePrefix = text('选集链接加前缀') || prefix || url;
       var episodeSuffix = text('选集链接加后缀');
       var reverse = text('是否反转选集序列') === '1';
+      // W-265 (X6): 是否Jsoup写法=0 reads the episode (and detail) fields as `前&&後` cuts.
+      var episodeCut = text('选集标题链接是否Jsoup写法') === '0';
+      var detailCut = text('详情是否Jsoup写法') === '0';
       for (var l = 0; l < listNodes.length; l++) {
         var items = host.pdfa(listNodes[l], text('选集列表数组规则') || 'li');
+        // 动漫PRO's list rule names the playlist node itself, which holds the player script to cut.
+        if (!items.length && episodeCut) items = [listNodes[l]];
         var episodes = [];
         for (var e = 0; e < items.length; e++) {
-          var link = host.pdfh(items[e], text('选集链接') || 'a&&href');
-          var label = host.pdfh(items[e], text('选集标题') || 'a&&Text');
+          var link = field(items[e], text('选集链接') || 'a&&href', episodeCut);
+          var label = textField(items[e], text('选集标题') || 'a&&Text', episodeCut);
           if (!link || !label) continue;
           // A "$" inside either half would corrupt the name$url encoding the app splits on.
           episodes.push(label.split('$').join('') + '$' +
@@ -256,7 +323,7 @@ var spider = (function () {
         }
         if (reverse) episodes.reverse();
         if (episodes.length) {
-          froms.push(lineNodes[l] ? host.pdfh(lineNodes[l], text('线路标题') || 'Text') : ('线路' + (l + 1)));
+          froms.push((lineNodes[l] && field(lineNodes[l], text('线路标题') || 'Text', false)) || ('线路' + (l + 1)));
           urls.push(episodes.join('#'));
         }
       }
@@ -271,11 +338,11 @@ var spider = (function () {
         vod_id: url,
         vod_name: name,
         vod_pic: host.pdfh(html, text('详情图片') || 'img&&src'),
-        vod_year: host.pdfh(html, text('年代详情')),
-        vod_area: host.pdfh(html, text('地区详情')),
-        vod_actor: host.pdfh(html, text('演员详情')),
-        type_name: host.pdfh(html, text('类型详情')),
-        vod_content: host.pdfh(html, text('简介详情')),
+        vod_year: textField(html, text('年代详情'), detailCut),
+        vod_area: textField(html, text('地区详情'), detailCut),
+        vod_actor: textField(html, text('演员详情'), detailCut),
+        type_name: textField(html, text('类型详情'), detailCut),
+        vod_content: textField(html, text('简介详情'), detailCut),
         vod_play_from: froms.join('$$$'),
         vod_play_url: urls.join('$$$')
       });

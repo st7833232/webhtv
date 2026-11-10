@@ -40,3 +40,15 @@
 3. 另一個選項（交使用者／Manager 決定）：既然沒有使用者會讀到 repo 這包，也可以**不再維護 `spider-pack/scripts/` 副本**，只留官方包；但 IOS-POC-61 的決定是「相容包不動」，要撤掉需要使用者同意，本單不建議擅自做。
 
 建議做 1＋2，一張 quick-fix 單。
+
+## 5. W-288 修正（2026-11-10，claude-dev）
+依 §4 建議 1＋2（Manager #7753；撤掉副本與否由 Manager 問使用者，本單照「保留並修好」）。
+
+- **重產**：把 manifest 原本的 33 個類別從 `ios/Spiders/` 複製到暫存目錄，`python3 -I scripts/spider_pack.py build --scripts <暫存> --out spider-pack --version 2026-11-10.1`。結果只動 3 支：Duboku、XBPQ 只改雜湊（副本內容本來就是新的），XYQHiker 內容與雜湊都更新成目前的 `ios/Spiders`（W-265）。類別數仍 33，`minHostApi` 2 不變。工具不再寫空的 `"mappings": []`，App 讀不到欄位時視同空陣列（`manifest.mappings ?? []`）。
+- **一致性檢查**：`RuntimeABITests.theRepositoryCompatibilityPackMatchesItsManifest` 逐支比對 `spider-pack/scripts/` 實檔 SHA-256 與 manifest，並要求目錄裡沒有 manifest 沒列的檔。放在每張單都會跑的 `swift test`（兩個 Python 檢查都不在 CI 裡）。
+- 驗證：
+  - 新測試在重產後通過；在 Duboku.js 尾端加一行、不重產，新測試失敗（`RuntimeABITests.swift:236`），還原後通過。
+  - 暫時測試把重產後的 `spider-pack/` 餵給 App 的 `SpiderPackStore.refresh`：`installed 2026-11-10.1 scripts=33 rejected=[]`（跑完已刪）。
+  - `runtime_pack.py verify --dir spider-pack/official`：0 problem；`test_pack_exclusions.py`：PASS；`RuntimeABITests`、`SpiderPackTests` 全過。
+- 注意：之後改 `ios/Spiders/` 的爬蟲時，若同時改 `spider-pack/scripts/` 副本，要一起重產 manifest，否則這個測試會失敗。
+- Ponytail（W-288）：1 項 Nice to have（目錄比對只看 `.js`，避免 Finder 的 `.DS_Store` 誤判）已修；其餘無發現。

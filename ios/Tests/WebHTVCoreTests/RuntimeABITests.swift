@@ -219,3 +219,25 @@ func everySurfaceMatchesTheFingerprintItsVersionWasFrozenWith(_ surface: Runtime
         #expect(FileManager.default.fileExists(atPath: ios.appendingPathComponent("Sources/WebHTVCore/Resources/Spiders/" + name).path))
     }
 }
+
+/// W-288: the repository's compatibility pack must be one the App would accept. An edited `spider-pack/scripts/` copy
+/// without a rebuilt manifest is refused whole (`SpiderPackError.hashMismatch`); W-287 found XBPQ and Duboku so.
+/// Rebuild with `scripts/spider_pack.py build --out spider-pack`.
+@Test func theRepositoryCompatibilityPackMatchesItsManifest() throws {
+    let pack = repo.appendingPathComponent("spider-pack")
+    let manifest = try #require(try JSONSerialization.jsonObject(
+        with: Data(contentsOf: pack.appendingPathComponent("manifest.json"))) as? [String: Any])
+    let scripts = try #require(manifest["scripts"] as? [[String: Any]])
+    #expect(!scripts.isEmpty)
+    for script in scripts {
+        let path = try #require(script["path"] as? String)
+        let body = try Data(contentsOf: pack.appendingPathComponent(path))
+        let digest = SHA256.hash(data: body).map { String(format: "%02x", $0) }.joined()
+        #expect(digest == script["sha256"] as? String, "\(path): rebuild spider-pack/manifest.json")
+    }
+    // Nothing in scripts/ the manifest does not describe.
+    let listed = Set(scripts.compactMap { ($0["path"] as? String).map { URL(fileURLWithPath: $0).lastPathComponent } })
+    let present = Set(try FileManager.default.contentsOfDirectory(atPath: pack.appendingPathComponent("scripts").path)
+        .filter { $0.hasSuffix(".js") })  // Finder's .DS_Store is not a script
+    #expect(present == listed)
+}

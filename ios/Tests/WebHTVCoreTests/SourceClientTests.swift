@@ -587,3 +587,37 @@ private extension String {
     #expect(try await client.playbackURL(for: Episode(name: "02", url: "two"), flag: "x")?.url.absoluteString
         == "https://cdn.invalid/two.m3u8")
 }
+
+/// A type-4 endpoint whose `?play=` answer carries `playUrl`, with or without `url`.
+private final class PlayUrlOnlyAPI: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "t4play.invalid" }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+
+    override func startLoading() {
+        let play = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+            .queryItems?.first { $0.name == "play" }?.value ?? ""
+        let body = play.hasSuffix("only")
+            ? #"{"parse":0,"playUrl":"https://cdn.invalid/only.m3u8"}"#
+            : #"{"parse":0,"playUrl":"https://cdn.invalid/","url":"two.m3u8"}"#
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                       headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+}
+
+/// W-283 (Reviewer N-1 on 1431df33): the type-4 side of the same rule — a `?play=` answer with no `url`
+/// plays its `playUrl`, and one with both plays `playUrl + url`.
+@Test func aType4AnswerPlaysPlayUrlPlusUrlWhenNothingParses() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [PlayUrlOnlyAPI.self]
+    let site = try JSONDecoder().decode(Site.self, from: Data(
+        #"{"key":"t4","name":"t4","type":4,"api":"https://t4play.invalid/api"}"#.utf8))
+    let client = SourceClient.cms(try CMSClient(site: site, session: URLSession(configuration: configuration)))
+    #expect(try await client.playbackURL(for: Episode(name: "01", url: "https://t4play.invalid/vod/only"), flag: "x")?
+        .url.absoluteString == "https://cdn.invalid/only.m3u8")
+    #expect(try await client.playbackURL(for: Episode(name: "02", url: "https://t4play.invalid/vod/two"), flag: "x")?
+        .url.absoluteString == "https://cdn.invalid/two.m3u8")
+}

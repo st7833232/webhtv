@@ -6,7 +6,7 @@ Reviewer 預審重點：webhtv-dev-codex-reviewer-2 #7224（6 點，本文逐點
 ## Recovery anchor
 
 - 目標：MPV 播放時控制列也有 AirPlay；選了 AirPlay 喇叭或 Apple TV 後，聲音從那裡出，畫面留在手機，影音同步可接受。原生播放器的 AirPlay（含影片投放）完全不變。不做 MPV 影片投放。
-- 狀態：**階段 1 設計，等 Reviewer 核准**。還沒改程式。
+- 狀態：**階段 1 設計**。第一次送審 cc3daf49，Reviewer #7232 方向核准、退回小修 F-1～F-3（`.herdr-synapse/webhtv-dev/artifacts/w272-stage1-review-reviewer2.md`）；本版已修，等複審。還沒改程式。
 - 下一步：Reviewer 核准後照第五節實作（階段 2）。
 
 ## 一、現況（origin/ios-poc b168c4eb）
@@ -44,7 +44,7 @@ Reviewer 預審重點：webhtv-dev-codex-reviewer-2 #7224（6 點，本文逐點
 |---|---|---|---|---|
 | A 不改 | MPV 時不顯示 AirPlay | 零風險 | 使用者要求的功能沒有；只能從控制中心切，切了也沒有同步處理 | 不採用 |
 | B 上游做法：只開放 picker | `supportsAirPlay` 對 MPV 也回 true | 一行；聲音確實會跟著系統路由走（RemoteIO 跟隨工作階段路由） | E1：**播放中**切到 AirPlay 時 `device_latency` 停在本機值（約幾十 ms），AirPlay 的延遲（E3 文件寫約 2 秒）沒被算進同步，聲音會比畫面慢，直到使用者自己暫停或拖動一次（E2）才會對上。AirPlay 斷線時 MPV 繼續從手機喇叭大聲播 | 不採用（同步不可接受） |
-| **C WebHTV 調整版（建議）** | B ＋ MPV 監聽 `routeChangeNotification`：播放中路由有變就送一次「暫停→繼續」，讓 `ao_audiounit` 重新 `start()`、重讀 `outputLatency`（E2）；AirPlay 斷線（`oldDeviceUnavailable` 且舊路由有 `.airPlay`）時改成停在暫停 | 用 mpv 既有的重讀時機，不改 libmpv、不換 ao、不碰工作階段；中斷只是一次暫停→繼續（比 `ao-reload` 的拆掉重建＋refresh seek 小，E8）；斷線不會突然從手機外放 | 依賴 `outputLatency` 在收到通知時**已經**是 AirPlay 的值（E3／E5 文件沒保證，要實機確認）；real-time AirPlay 本身的延遲仍在，只是畫面跟著延後，所以按下播放到出聲會多約 2 秒 | **採用** |
+| **C WebHTV 調整版（建議）** | B ＋ MPV 監聽 `routeChangeNotification`：播放中、而且**新舊路由有一邊是 AirPlay**、輸出真的變了，才送一次「暫停→繼續」，讓 `ao_audiounit` 重新 `start()`、重讀 `outputLatency`（E2）；AirPlay 斷線時停在暫停（走使用者暫停的同一條路） | 用 mpv 既有的重讀時機，不改 libmpv、不換 ao、不碰工作階段；中斷只是一次暫停→繼續（比 `ao-reload` 的拆掉重建＋refresh seek 小，E8）；斷線不會突然從手機外放 | 依賴 `outputLatency` 在收到通知時**已經**是 AirPlay 的值（E3／E5 文件沒保證，要實機確認）；real-time AirPlay 本身的延遲仍在，只是畫面跟著延後，所以按下播放到出聲會多約 2 秒 | **採用** |
 | D 改用 `ao=avfoundation` | 設 `ao=avfoundation`，用 AVSampleBufferAudioRenderer | Apple 列名的加強緩衝 API（E4）；延遲由 synchronizer 處理 | 換掉**所有** MPV 播放的音訊輸出，不只 AirPlay；E7 的開放問題（變速、靜音、結尾、暫停）會直接影響現有 MPV 播放；輸出變更時會記 desync；我們的 patch 0004 對它也有作用，但它在 WebHTV 從沒被測過 | 不採用：回歸風險遠大於本單收益。若 C 的實機結果不能接受，再另開單評估 |
 | E `ao-reload` 取代暫停→繼續 | 路由變更時送 `ao-reload` | 一定重新初始化 | 實驗性內部指令（E8）、聽得到的中斷、refresh seek 會讓畫面跳 | 不採用；保留為 C 實機失敗時的備案 |
 
@@ -56,7 +56,8 @@ Reviewer 預審重點：webhtv-dev-codex-reviewer-2 #7224（6 點，本文逐點
 4. **路由切換情境**：
    - 播放中選 AirPlay：重新同步（暫停→繼續）。
    - 暫停中選 AirPlay：不做事；使用者按播放時 mpv 本來就會 `start()` 重讀（E2）。
-   - AirPlay 斷線：停在暫停。這是設計選擇（避免斷線後突然從手機喇叭外放），不是 Apple 的規定；只限舊路由有 `.airPlay`，耳機拔掉的現有行為不在本單範圍，不改。
+   - AirPlay 斷線：停在暫停，走 `PlaybackSession.shared.control("pause")`（和 PiP 從外面關窗同一條路，`MPVEngine.swift` `ended(pausingInBackground:)`），所以 intendsToPlay、回前景的判斷都把它當成使用者暫停。這是設計選擇（避免斷線後突然從手機喇叭外放），不是 Apple 的規定。
+   - 有線耳機、藍牙（新舊路由都不是 AirPlay）：**完全不動**，現有行為不變（F-1）。藍牙也有延遲，同一招也許能改善，後續可另開單評估。
    - 播放中切 engine：MPV→原生，AVPlayer 照它原本的 AirPlay 行為（Apple TV 會投影片），本單不改；原生→MPV，若當時路由仍是 AirPlay，MPV 的 ao 第一次 `start()` 就讀到 AirPlay 延遲，不需要特別處理（AVPlayer 拆掉後路由會不會回到本機沒有證據，列入第七節）。
    - PiP：MPV 的 PiP 只換畫面輸出（IOS-POC-17H），聲音路徑相同，規則一樣適用。
    - 背景播放：通知在背景照樣送；暫停→繼續在背景也一樣有效。
@@ -67,15 +68,23 @@ Reviewer 預審重點：webhtv-dev-codex-reviewer-2 #7224（6 點，本文逐點
 ## 五、階段 2 實作（核准後）
 
 - `PlaybackEngine.swift`：`supportsAirPlay` 兩者皆 true，註解改寫。
-- 純邏輯（WebHTVCore，可單元測試）：`MPVAudioRoute.response(reason:previousHasAirPlay:currentHasAirPlay:paused:) -> .none | .resync | .pause`。
-  - `paused` → `.none`；`oldDeviceUnavailable` 且 `previousHasAirPlay` 且現在沒有 → `.pause`；`newDeviceAvailable`、`oldDeviceUnavailable`、`override`、`routeConfigurationChange` → `.resync`；其他（`categoryChange`、`wakeFromSleep`、`unknown`…）→ `.none`。
-- `MPVEngine.swift`：建立 handle 時註冊 `routeChangeNotification`、拆掉時移除；在 mpv 佇列上讀 `pause`，依 `.resync` 設 `pause=yes` 再 `pause=no`、依 `.pause` 設 `pause=yes`。記一行 log：`[audio] route <reason> airplay=<bool> latency=<ms> -> <response>`（不記裝置名稱），給實機驗證用。
-- 測試：`supportsAirPlay` 兩個 engine 皆 true；控制列在 MPV 時顯示 AirPlay（照現有控制列測試的寫法）；`MPVAudioRoute` 每個原因碼的對照表。
+- 純邏輯（WebHTVCore，可單元測試）：`MPVAudioRoute`，輸入「上次處理過的輸出」與「現在的輸出」（各為 port UID 集合＋是否含 `.airPlay`）、通知原因、是否暫停中，回 `.none | .resync | .pause`，並回傳新的「上次處理過的輸出」：
+  - 輸出集合和上次一樣 → `.none`（F-2：同一次連線連發的 `newDeviceAvailable`／`routeConfigurationChange`／`override` 只處理第一個真的改變輸出的）。
+  - 上次和現在都沒有 `.airPlay` → `.none`，只更新記錄（F-1：耳機、藍牙不動）。
+  - 上次有 `.airPlay`、現在沒有、原因是 `oldDeviceUnavailable` → `.pause`（暫停中則 `.none`）。
+  - 其他有一邊含 `.airPlay` 的變化（連上、換一台 AirPlay、從選單選回 iPhone）→ 播放中 `.resync`、暫停中 `.none`（使用者按播放時 mpv 本來就會重讀，E2）。
+  - 「上次處理過的輸出」在 MPV engine 建立時取 `currentRoute`。
+- `MPVEngine.swift`：
+  - 建立 handle 時註冊 `routeChangeNotification`、拆掉時移除。通知在背景執行緒（E5）：讀 `currentRoute` 後把判斷與動作排進 mpv 佇列 `mpv.engine`，**判斷（讀 `pause`）和動作在同一個佇列區塊裡依序做**，使用者在中間按的暫停一定排在它後面（N-1）。
+  - `.resync`：佇列上設旗標 `resyncingPause`，同步呼叫 `pause=yes`、`pause=no`（`mpv_set_property_string` 是同步的：yes 時 ao `reset`、no 時 ao `start` 重讀延遲）。旗標期間，`pause` 屬性事件的 `true` 不寫進 snapshot、收到 `false` 才清旗標（F-3a）；所以 `state`、`isPlaying`、`rate`（控制列、背景暫停判斷、路由器都從這裡讀）一直是播放中。使用者經 `setPaused` 暫停時先清旗標，使用者的暫停照常反映。極端競態（使用者剛好在重新同步那一刻按暫停）最壞是控制列閃一下，最後狀態正確。
+  - `.pause`：回主執行緒呼叫 `PlaybackSession.shared.control("pause")`（F-3b），不直接設 mpv 的 `pause`。
+  - log 一行（不記裝置名稱）：`[audio] route <reason> airplay <舊>→<新> latency <通知當下 outputLatency ms> -> <response>`；重新同步後再記一次 `outputLatency`（`start()` 讀的就是這個值，N-2）。
+- 測試：`supportsAirPlay` 兩個 engine 皆 true；控制列在 MPV 時顯示 AirPlay（照現有控制列測試的寫法）；`MPVAudioRoute`：耳機／藍牙進出 → `.none`；連上 AirPlay → `.resync`；**同一路由連送兩次通知只 `.resync` 一次**；AirPlay 斷線 → `.pause`；暫停中 → `.none`；換另一台 AirPlay → `.resync`。
 - 預估：實作＋測試約 1.5 小時、Simulator 約 30 分鐘（目前 Mac 負載很高，可能更久）。
 
 ## 六、驗收與回退
 
-- 驗收（Reviewer）：MPV 播放時控制列有 AirPlay；原生的控制列與 AirPlay 行為不變（現有測試全過）；`supportsAirPlay` 與控制列顯示有測試；`MPVAudioRoute` 對照表有測試；全量 `swift test` 通過；Simulator：MPV 播放中出現 AirPlay 按鈕、點了會跳系統選單、播放不中斷；文件寫明同步延遲的結論與未驗項目。
+- 驗收（Reviewer）：MPV 播放時控制列有 AirPlay；原生的控制列與 AirPlay 行為不變（現有測試全過）；`supportsAirPlay` 與控制列顯示有測試；`MPVAudioRoute` 對照表有測試；全量 `swift test` 通過；Simulator：MPV 播放中出現 AirPlay 按鈕、點了會跳系統選單、播放不中斷；Simulator 沒有 AirPlay、路由不會變，所以只在本機測試包暫時加一個計時呼叫觸發重新同步（不提交），確認重新同步時播放鍵不閃成暫停、位置持續前進（Now Playing：App 目前沒有發布 Now Playing，`MPNowPlayingInfoCenter` 全 repo 沒有使用，所以沒有可閃的項目）；文件寫明同步延遲的結論與未驗項目。
 - 回退：revert 該提交即可。沒有設定、資料格式、libmpv 或鎖檔變更。
 
 ## 七、沒驗到（要實機）

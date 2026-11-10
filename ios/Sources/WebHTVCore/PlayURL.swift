@@ -42,6 +42,14 @@ public struct PlayURL: Decodable, Sendable, Equatable {
     /// The source's own preferred index, clamped into range the way `Url.set(int)` clamps it.
     public let position: Int
 
+    /// FongMi's `Result.getRealUrl()`, `playUrl + url`, for a result nothing parses (`parse` and `jx` 0): a source
+    /// may put the whole address in `playUrl` and leave `url` empty, and Android plays it (W-250, 香肠派对.py).
+    func prefixed(by playUrl: String) -> PlayURL {
+        guard !playUrl.isEmpty else { return self }
+        guard !values.isEmpty else { return PlayURL(values: [Value(v: playUrl)]) }
+        return PlayURL(values: values.map { Value(n: $0.n, v: playUrl + $0.v) }, position: position)
+    }
+
     public init(values: [Value], position: Int = 0) {
         self.values = values
         self.position = values.isEmpty ? 0 : min(max(position, 0), values.count - 1)

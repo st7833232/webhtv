@@ -43,7 +43,16 @@
     - 證據只存畫面的文字樹（`artifacts/w250/kissav/sim/*.txt`）與伺服器 log，不存成人內容截圖。
   - Android 對照：Reviewer 說 Android 本來就能播，不必對照，所以沒做。
 - Ponytail（Reviewer C-2）：1 項必修，已修。打包區塊的基數 `a` 和字數 `c` 是從頁面讀來的；不合理的值（`a` 不在 2～62 之間，或 `c` 很大）原本會讓 `word()` 無限遞迴，或讓迴圈空轉很久。現在 `a` 超出範圍就跳過這個區塊，`c` 上限是實際字數。測試加了兩個不合理的打包區塊，都會跳過，最後仍播頁內那條串流。XBPQ 測試 32 個全過。
-- 香肠派对：11-09 已經在 iOS 跑過 survey，全段通過（見「每站結論」）；這次沒有另外在 Simulator 實播。
+- 實播版本（Manager #7546）：上面 Simulator 實播載入的相容包 `XBPQ.js` 和 78f67fd7 逐字相同，也就是 Ponytail 修正**之前**的版本。那項修正只會跳過數字不合理的打包區塊，KISSAV 的頁面不會走到，所以不重播。
+
+## 香肠派对：Simulator 實播（11-10，task/W-250-scpd）
+
+- 用同一個本機 https 相容包（`w250-kissav.json` 加上 `scpd` 站，`py/香肠派对.py` 原樣照抄）。首頁載入 20 部；第一部（`/vodplay/402997-1-1.html`）按「立即播放」，出現「這一集沒有可播放的網址」。修正後再播一次，有一次出現 `requests` 的 `Connection reset by peer`（偶發），再播仍是「沒有可播放的網址」。證據 `artifacts/w250/kissav/sim/w250-09…14*.txt`、`scpd-play.html`。
+- 找到兩個原因：
+  1. **iOS 跟 Android 讀播放結果的方式不一樣（已修）**：這支爬蟲的前四種取法都只回 `{"parse":0,"playUrl":…}`、沒有 `url`。FongMi 播的是 `Result.getRealUrl()` = `playUrl + url`（`PlaybackActivity.startPlayer`、`PlaySpec.from`），iOS 只讀 `url`。修法：`PlayURL.prefixed(by:)`，`parse` 與 `jx` 都是 0 時，爬蟲結果與 type 4 結果都改播 `playUrl + url`；type 4 的 `PlayResponse` 沒有 `url` 也照樣解碼。測試 `aSpiderResultPlaysPlayUrlPlusUrlWhenNothingParses`。
+  2. **這一部真正卡住的地方（還沒修）**：播放頁的 `var player_aaaa={…}` 後面沒有分號，直接接 `</script>`。爬蟲的正則 `var player_aaaa\s*=\s*({.*?});` 對不到，其他方法也都沒中，最後回 `{"parse":1,"url":播放頁}`，要求嗅探。iOS 交給 `MediaSniffer.sniffWithSubtitles` 去嗅探這一頁，結果沒抓到串流（頁面播放器依 `playerconfig.js` 與 `from:"aosika"` 再載入播放器），所以 `target()` 回 nil。Android 是用 WebView 嗅探。頁面裡其實就有 `player_aaaa.url`（一個 m3u8）。
+- 下一步建議（另開單或由 Manager 決定）：查 iOS 嗅探器在這一頁為什麼沒抓到（iframe／hls.js 的請求），或在 `parse:1` 的苹果CMS 頁面先讀 `player_aaaa.url` 再嗅探。不改使用者的爬蟲檔。
+- 驗證：SourceClient／PlayURL／GlobalParse／SpiderGolden 共 54 個測試全過；全量 1543 個裡只有已知不穩的嗅探 WebView 測試失敗，單獨重跑通過。App Debug 建置通過。
 
 ## KISSAV 播放（Simulator 11-09 11:29，當時未解，保留紀錄）
 

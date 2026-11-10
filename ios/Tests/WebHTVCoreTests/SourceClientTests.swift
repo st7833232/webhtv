@@ -564,3 +564,26 @@ private extension String {
     #expect(fallback.list.map(\.id) == ["c1"])
     #expect(fallback.listedCategoryID == "1")
 }
+
+/// W-250 (香肠派对.py): a result nothing parses plays `playUrl + url`, as FongMi's `Result.getRealUrl()`;
+/// with no `url` that is `playUrl` alone. Before, iOS read `url` only and said there was nothing to play.
+@Test func aSpiderResultPlaysPlayUrlPlusUrlWhenNothingParses() async throws {
+    let runtime = try JavaScriptSpiderRuntime(
+        name: "t", script: """
+        module.exports = {
+          init: function () { return ''; },
+          playerContent: function (flag, id) {
+            if (id === 'only') return JSON.stringify({ parse: 0, playUrl: 'https://cdn.invalid/only.m3u8' });
+            return JSON.stringify({ parse: 0, playUrl: 'https://cdn.invalid/', url: id + '.m3u8' });
+          }
+        };
+        """,
+        prelude: SpiderRegistry.bundled().prelude,
+        storage: SpiderStorage(siteKey: "t", defaults: .standard))
+    let site = try JSONDecoder().decode(Site.self, from: Data(#"{"key":"t","name":"t","type":3,"api":"csp_Bili"}"#.utf8))
+    let client = SourceClient.spider(SpiderSession(site: site, runtime: runtime), site)
+    #expect(try await client.playbackURL(for: Episode(name: "01", url: "only"), flag: "x")?.url.absoluteString
+        == "https://cdn.invalid/only.m3u8")
+    #expect(try await client.playbackURL(for: Episode(name: "02", url: "two"), flag: "x")?.url.absoluteString
+        == "https://cdn.invalid/two.m3u8")
+}

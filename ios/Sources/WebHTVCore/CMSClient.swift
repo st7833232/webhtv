@@ -412,7 +412,8 @@ struct PlayResponse: Decodable, Sendable {
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        url = try values.decode(PlayURL.self, forKey: .url)
+        // W-250: an answer with only `playUrl` is still an answer (`prefixed(by:)`).
+        url = try values.decodeIfPresent(PlayURL.self, forKey: .url) ?? PlayURL(values: [])
         subs = SourceSubtitle.list(in: values, forKey: .subs)
         parse = SpiderPlayResponse.flexibleInt(values, .parse)
         jx = SpiderPlayResponse.flexibleInt(values, .jx)

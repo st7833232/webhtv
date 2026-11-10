@@ -122,12 +122,16 @@ public enum SourceClient: Sendable {
             let global = site.type == 4
                 ? (play.parse, play.jx, play.playUrl, play.flag.isEmpty ? flag : play.flag)
                 : (site.playUrl.isEmpty ? 0 : 1, 0, site.playUrl, flag)
-            return try await Self.target(from: play.url, headers: [:], parse: 0, subtitles: play.subs,
+            // W-250: a type-4 answer nothing parses plays `playUrl + url`, as Android's `getRealUrl()`.
+            let url = site.type == 4 && play.parse == 0 && play.jx == 0 ? play.url.prefixed(by: play.playUrl) : play.url
+            return try await Self.target(from: url, headers: [:], parse: 0, subtitles: play.subs,
                                          global: global, settings: site.parsing)
         case .spider(let session, let site):
             let play = try await decode(SpiderPlayResponse.self,
                                         from: session.player(flag: flag, id: episode.url, vipFlags: site.parsing.flags))
-            return try await Self.target(from: await Self.servingAndroidProxy(play, session: session),
+            // W-250: a result nothing parses plays `playUrl + url`, as Android's `getRealUrl()`.
+            let url = play.parse == 0 && play.jx == 0 ? play.url.prefixed(by: play.playUrl) : play.url
+            return try await Self.target(from: await Self.servingAndroidProxy(url, format: play.format, session: session),
                                          headers: play.header ?? [:], parse: play.parse,
                                          subtitles: play.subs,
                                          global: (play.parse, play.jx, play.playUrl, play.flag.isEmpty ? flag : play.flag),
@@ -136,10 +140,10 @@ public enum SourceClient: Sendable {
     }
 
     /// W-202: a play address on Android's local proxy (`127.0.0.1:9978/proxy`) moved to the app's own.
-    private static func servingAndroidProxy(_ play: SpiderPlayResponse, session: SpiderSession) async -> PlayURL {
+    private static func servingAndroidProxy(_ url: PlayURL, format: String, session: SpiderSession) async -> PlayURL {
         #if canImport(Network)
-        let dash = play.format.lowercased().contains("dash")
-        var values = play.url.values
+        let dash = format.lowercased().contains("dash")
+        var values = url.values
         for index in values.indices {
             if let served = await SpiderProxyServer.shared.serve(values[index].v, for: session,
                                                                  dash: dash || values[index].v.contains(".mpd")
@@ -147,9 +151,9 @@ public enum SourceClient: Sendable {
                 values[index] = PlayURL.Value(n: values[index].n, v: served)
             }
         }
-        return PlayURL(values: values, position: play.url.position)
+        return PlayURL(values: values, position: url.position)
         #else
-        return play.url
+        return url
         #endif
     }
 

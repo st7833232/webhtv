@@ -136,6 +136,14 @@ public struct SpiderRegistry: Sendable {
         "Libvio",       // http-html: 摸魚 jar (stui lists, vod-* detail, player_aaaa; PoW cookie through the jar)
         // IOS-POC-57B-20: 豆瓣 ranking lists; every title is msearch:<id>, which the App turns into a search elsewhere.
         "Douban",       // http-json: river-fman.jar (frodo.douban.com lists, fixed apikey; no detail or lines)
+        // W-266: spider.jar's first batch (triage W-255).
+        "Yidong4K",     // http-json: spider.jar (JSON POST lists; each title a public 139 cloud share, played anonymously)
+        "AnimeHuazi",   // http-json: spider.jar (JSON API; the site's own /api/play/resolve; search behind a captcha)
+        "XingChen",     // http-html: spider.jar (shoutu HTML lists; the play page's player JSON m3u8)
+        "AnimeGiri",    // http-json: spider.jar (maccms JSON API; direct HLS episodes)
+        "AppFox",       // http-json: spider.jar (Appfox app API on an ext host; jiexi/parse table for non-direct lines)
+        "AnimeBashi",   // http-html: spider.jar (HTML lists; hhplayer iframe url/t/key through its /api/parse)
+        "SaoHuo",       // http-html: spider.jar (ext host or shapp.us mirror; play page iframe to the sniffer, parse 1)
     ]
 
     /// A configured class name that a *different* script drives, because the named class carries no

@@ -129,6 +129,19 @@ DEFAULT_ORIGINS = {
     "Douban":      {"originJar": "river-fman.jar",
                     "jarSha256": "3133519d148c35d03b947dc4b571ae7d59214422a181772ae5e4fe29ec680392",
                     "notes": "titles are msearch:<id> with no lines; the App searches other sites for the name (W-173 gate)"},
+    # W-266: spider.jar's first batch, read from recha c953e7c's spider.jar (W-255 triage).
+    **{name: {"originJar": "spider.jar",
+              "jarSha256": "5be3d16a600bb1a9cbf74810070ad098d4a43b8b4a0e2b947a7c58156bc45aeb",
+              "notes": notes}
+       for name, notes in {
+           "Yidong4K":   "each title a public 139 cloud share, listed and played anonymously; other drives never",
+           "AnimeHuazi": "search answers empty while the site asks for a captcha (never solved)",
+           "XingChen":   "play page's player JSON m3u8; the site may refuse clients (nginx 444), never worked around",
+           "AnimeGiri":  "direct HLS episodes; detail posters joined to the list image host",
+           "AppFox":     "Appfox API on the ext host; ext cms and category 2 not ported",
+           "AnimeBashi": "hhplayer url/t/key through its /api/parse",
+           "SaoHuo":     "ext host or the shapp.us mirror's first; play is the sniffer's (parse 1)",
+       }.items()},
 }
 
 # What the app reads from a mapping (`SpiderPack.ClassMapping`). `evidence` is provenance only.

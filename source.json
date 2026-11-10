@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.100",
+          "date": "2026-11-10",
+          "localizedDescription": "新增站台：\n- 設定頁可以貼上網址新增站台：App 會自動判斷常見的影視採集介面，判斷不到時再試常見的網頁版型，驗證過首頁與詳情才加入；最多約 45 秒，可隨時取消。\n- 手機上加的站跟著目前的設定來源保存，可在設定頁改名或刪除，站點選單會標示為本機站；使用 http 的網址會標示未加密。\n\n播放：\n- 修正部分來源回傳的播放網址分成兩段時只用到後半段、顯示「這一集沒有可播放的網址」的問題，做法與 Android 版一致。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.100-b101/WebHTV-0.1.100-101.ipa",
+          "size": 36419695,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.1.99",
           "date": "2026-11-10",
           "localizedDescription": "播放：\n- 用 MPV 播放時，控制列也可以選 AirPlay，把聲音投到 AirPlay 喇叭或 Apple TV（畫面留在手機上）；切換到 AirPlay 時會自動重新對齊聲音與畫面，AirPlay 斷線時會暫停播放。\n\n設定：\n- 修正只含爬蟲站的設定檔第一次加入時無法載入的問題：App 會先取得該設定檔需要的爬蟲包再檢查，之後就能直接列出站點。\n\n離線下載：\n- 改善需要 App 內建轉址服務的來源：更新爬蟲包後，下載中的項目會自動重試而不是直接失敗；確認頁會說明這類來源需要開著 App 才會下載，離開 App 會暫停、回到 App 後自動繼續。\n",

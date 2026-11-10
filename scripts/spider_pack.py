@@ -142,6 +142,10 @@ DEFAULT_ORIGINS = {
            "AnimeBashi": "hhplayer url/t/key through its /api/parse",
            "SaoHuo":     "ext host or the shapp.us mirror's first; play resolves the hhplayer iframe directly, the sniffer (parse 1) only when that fails",
        }.items()},
+    # W-281: spider.jar's second batch (W-273 evaluation), the same recha c953e7c spider.jar.
+    "AnimeXifan":  {"originJar": "spider.jar",
+                    "jarSha256": "5be3d16a600bb1a9cbf74810070ad098d4a43b8b4a0e2b947a7c58156bc45aeb",
+                    "notes": "search uses the site's own Supabase publishable key, as upstream; lists, detail and play need none"},
 }
 
 # What the app reads from a mapping (`SpiderPack.ClassMapping`). `evidence` is provenance only.

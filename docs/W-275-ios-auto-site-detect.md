@@ -6,7 +6,7 @@
 ## Recovery anchor
 
 - 目標：使用者在 App 輸入站台網址 → App 用公開請求判斷能用哪種通用格式 → 實際取首頁與一部詳情驗證 → 預覽 → 加入。不寫爬蟲、不改 GitLab 設定。加的站只在這支 iOS 裝置（使用者核准的雙平台規則例外）。
-- 狀態：**階段 1 設計**。第一次送審 298e0f44，Reviewer #7314 方向核准、退回小修 F-1～F-3（`artifacts/w275-stage1-review-reviewer2.md`）；本版已補（4.4.1～4.4.3、第五節），等複審。沒有改程式。
+- 狀態：**階段 1 設計**。第一次送審 298e0f44，Reviewer #7314 方向核准、退回小修 F-1～F-3（`artifacts/w275-stage1-review-reviewer2.md`）；8eeeb6ba 修完後核准（#7323）。階段 2 等使用者答覆第七節三題並核准。沒有改程式。
 - 下一步：Reviewer 意見 → 修 → Manager 轉使用者核准階段 2。
 
 ## 一、現況（origin/ios-poc d198228a）
@@ -116,6 +116,8 @@
 - 站點身分遷移：`FavoriteStore.migrateSiteIdentities`／`WatchHistoryStore.migrateSiteIdentities` 對本機紀錄同樣用目前 `sites` 解析；本機站的 `Site.id` 由固定的 key＋ext 組成，實際上不會變。
 - 站點記憶：不改。記的是「這個來源上次選哪個站」，本機站在每個來源的 `sites` 裡都有，選到本機站也能照常記住。
 - 刪掉本機站：收藏、歷史都保留，顯示成「站已不在」（和遠端站被移除時相同）；再加回同一 api 會得到同一個 key，紀錄自動接回。
+- 實作注意（Reviewer #7323）：`WatchHistory.isListed` 目前只對 `sourceID == nil` 看 `hiddenFrom`，`LocalSites.sourceID` 要接到同一個分支。
+- 已知行為（Reviewer N-4）：本機站因遠端設定已有同 api 而被隱藏時，它的收藏與歷史會顯示「站已不在」。階段 2 實作時優先用 `normalizedAPI` 把這些紀錄對到遠端那個站；做不到就保留為已知行為並在設定頁說明。
 
 #### 4.4.3 沒有設定檔時（F-1）
 

@@ -1,6 +1,27 @@
 {
   "files": [
     {
+      "bytes": 5991,
+      "class": "AnimeBashi",
+      "logicalType": "spider.js",
+      "path": "spiders/AnimeBashi.js",
+      "sha256": "7884d3a51db0ceba4503bee4e61a96ccd7a4d81dac41081f3bdc86eb2c9cc0ac"
+    },
+    {
+      "bytes": 3930,
+      "class": "AnimeGiri",
+      "logicalType": "spider.js",
+      "path": "spiders/AnimeGiri.js",
+      "sha256": "fd0b60d50103120a96e9862560e30c72f029d41be1f03e2ec1ac472eb21fbdde"
+    },
+    {
+      "bytes": 4593,
+      "class": "AnimeHuazi",
+      "logicalType": "spider.js",
+      "path": "spiders/AnimeHuazi.js",
+      "sha256": "fb3f10c9756d1fc346f5ba7d874b7bedbbd8689221cda748c3df89aa6bee63ab"
+    },
+    {
       "bytes": 6450,
       "class": "App3Q",
       "logicalType": "spider.js",
@@ -21,6 +42,13 @@
       "minHostApi": 3,
       "path": "spiders/AppDrama.js",
       "sha256": "3b9f10feba7ff800a7c261f2d88e2b86684e425e629e9820b7d41229ed957015"
+    },
+    {
+      "bytes": 9965,
+      "class": "AppFox",
+      "logicalType": "spider.js",
+      "path": "spiders/AppFox.js",
+      "sha256": "38cbfc76e71ef8f4e3babb742f7129eff423364cd92f5c695bdfb97e5e7d2c23"
     },
     {
       "bytes": 9543,
@@ -211,6 +239,13 @@
       "sha256": "e67e03d20b8631bf32eaac43ae6eafe212a8caf308a072521a97d3a70049d954"
     },
     {
+      "bytes": 8407,
+      "class": "SaoHuo",
+      "logicalType": "spider.js",
+      "path": "spiders/SaoHuo.js",
+      "sha256": "ac2412cc08ebfacec2cb34f38411d76ed9d390c71feecdfa493399f4fffcc019"
+    },
+    {
       "bytes": 7211,
       "class": "ShortXingya",
       "logicalType": "spider.js",
@@ -295,15 +330,29 @@
       "sha256": "77620d55617b307c1b18650ffa16c637e47b1da1ecd1b737206a54495ced52d4"
     },
     {
-      "bytes": 16753,
+      "bytes": 20412,
       "class": "XYQHiker",
       "logicalType": "spider.js",
       "path": "spiders/XYQHiker.js",
-      "sha256": "7c9a719b8e05fa3f5bb2230247da014bd2dad4153f3daad160cad8b362c245ad"
+      "sha256": "670fb205c73c42f72eb0caa241389d6990e10aebd9144264c132c15dc28e874b"
+    },
+    {
+      "bytes": 6361,
+      "class": "XingChen",
+      "logicalType": "spider.js",
+      "path": "spiders/XingChen.js",
+      "sha256": "ead02af1f6a443078e3ccf03f2aa536c62d6709eb8760a9f64275e70ba69b456"
+    },
+    {
+      "bytes": 7699,
+      "class": "Yidong4K",
+      "logicalType": "spider.js",
+      "path": "spiders/Yidong4K.js",
+      "sha256": "f4926acfe4b7e538b3eae0acc897e081a855423be32906f981bf899f8accfb54"
     }
   ],
   "format": "webhtv.runtime-pack",
-  "notes": "網頁站在沒有設定首頁、也抓不到分類時，改列網站首頁的影片（與 Android 版做法一致），不會再顯示空白；有分類的站行為不變。",
+  "notes": "新增多種來源的 iOS 爬蟲：雲盤公開分享的影片可直接播放、動畫 API 站、以網頁解析取片的動畫與影視站、支援分類篩選的 App API 影視站，以及播放頁直接解析、不必嗅探的影視站；XYQHiker 規則站補上分類篩選列、自動補齊分類網址、截取欄位與備註合併；修正上游的分類篩選沒有套用或送錯值、導演與主演對調、詳情海報網址錯誤、多集只顯示第一集；需要驗證碼的搜尋維持空結果，不繞過。",
   "packId": "webhtv.spiders",
   "requires": {
     "abi": {
@@ -321,6 +370,6 @@
   "scope": {
     "kind": "global"
   },
-  "sequence": 15,
-  "version": "2026-11-09.1"
+  "sequence": 16,
+  "version": "2026-11-10.1"
 }

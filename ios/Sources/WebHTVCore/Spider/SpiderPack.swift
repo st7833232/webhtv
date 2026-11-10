@@ -202,6 +202,19 @@ public actor SpiderPackStore {
     /// Fetches and adopts a pack. Throws without touching the installed one if anything fails.
     @discardableResult
     public func refresh(from url: URL) async throws -> SpiderPack {
+        try install(try await download(from: url))
+    }
+
+    /// A pack fetched and verified but not yet in force (W-271: a configuration is checked against its own pack
+    /// before either is adopted).
+    public struct Download: Sendable {
+        public let pack: SpiderPack
+        let manifest: Data
+        let sources: [String: Data]
+    }
+
+    /// Fetches and verifies a pack without installing it.
+    public func download(from url: URL) async throws -> Download {
         guard url.scheme?.lowercased() == "https" else { throw SpiderPackError.insecureURL }
         let (manifestData, response) = try await fetch(url)
         if let response, !(200...299).contains(response.statusCode) {
@@ -233,11 +246,16 @@ public actor SpiderPackStore {
             sources[script.className] = body
         }
 
-        let pack = try assemble(manifest: manifest, sources: sources)
-        try write(manifest: manifestData, sources: sources)
-        installed = pack
-        InstalledSpiderPack.shared.current = pack
-        return pack
+        return Download(pack: try assemble(manifest: manifest, sources: sources), manifest: manifestData, sources: sources)
+    }
+
+    /// Puts a downloaded pack in force.
+    @discardableResult
+    public func install(_ download: Download) throws -> SpiderPack {
+        try write(manifest: download.manifest, sources: download.sources)
+        installed = download.pack
+        InstalledSpiderPack.shared.current = download.pack
+        return download.pack
     }
 
     /// Verifies a manifest against the bytes that came with it. **A hash mismatch refuses the whole

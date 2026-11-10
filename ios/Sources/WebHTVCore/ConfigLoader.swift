@@ -103,6 +103,24 @@ public enum ConfigLoader {
         if let response = response as? HTTPURLResponse, !(200...299).contains(response.statusCode) {
             throw ConfigLoaderError.invalidHTTPStatus(response.statusCode)
         }
-        return (data, try validate(data))
+        return (data, try await validate(data, from: url))
+    }
+
+    /// A configuration fetched from `url`. W-271: one whose only sites are `csp_*` classes that just its own
+    /// compatibility pack (`./spiders/manifest.json` beside it) brings is refused by `validate` until that pack is
+    /// installed — and the App only fetches the pack for a configuration it has adopted, so it never was. Such a
+    /// configuration is checked once more against that pack, and the pack is installed only if it passes; a pack
+    /// that does not help is never installed, so the current source keeps its own.
+    public static func validate(_ data: Data, from url: URL, packs: SpiderPackStore = .shared) async throws -> WebHTVConfig {
+        do {
+            return try validate(data)
+        } catch ConfigLoaderError.noSupportedSites {
+            guard let packURL = SpiderPackStore.url(for: .remote(url)),
+                  let download = try? await packs.download(from: packURL) else { throw ConfigLoaderError.noSupportedSites }
+            let registry = SpiderRegistry.bundled(official: ActiveOfficialPack.shared.current, overlaying: download.pack)
+            let config = try validate(data, resolvedBy: CSPSourceResolver(registry: registry, source: .remote(url)))
+            try await packs.install(download)
+            return config
+        }
     }
 }

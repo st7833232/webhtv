@@ -245,7 +245,8 @@ private func site(key: String, type: Int, api: String, ext: String = "null") thr
 }
 
 /// IOS-POC-45H: a type-4 `?play=` answer's `subs` is read like a spider's; a broken one costs only
-/// itself, and the url is still required as before.
+/// itself. W-283 changed the url rule: an answer without one still decodes (empty), because `playUrl`
+/// may carry the whole address (`playUrl + url`, FongMi's `getRealUrl()`); nothing at all is still unplayable.
 @Test func aType4PlayAnswerCarriesItsSubtitles() throws {
     let answer = try JSONDecoder().decode(PlayResponse.self, from: Data("""
         {"url": "https://cdn.example/a.m3u8", "subs": [{"url": "https://cdn.example/a.vtt", "lang": "en"}, {"flag": 1}]}
@@ -254,7 +255,8 @@ private func site(key: String, type: Int, api: String, ext: String = "null") thr
     #expect(answer.subs == [SourceSubtitle(url: "https://cdn.example/a.vtt", language: "en")])
     let odd = try JSONDecoder().decode(PlayResponse.self, from: Data(#"{"url": "https://cdn.example/a.m3u8", "subs": {}}"#.utf8))
     #expect(odd.subs.isEmpty)
-    #expect(throws: (any Error).self) { try JSONDecoder().decode(PlayResponse.self, from: Data(#"{"subs": []}"#.utf8)) }
+    let bare = try JSONDecoder().decode(PlayResponse.self, from: Data(#"{"subs": []}"#.utf8))
+    #expect(bare.url.isEmpty && bare.subs.isEmpty)
 }
 
 /// Live smoke over every type-4 site in the supplied config. Remote reachability is volatile, so an

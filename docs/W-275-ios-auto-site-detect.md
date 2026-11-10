@@ -278,3 +278,12 @@ revert W-278 的提交即可。已存的網頁版型站留在 `local-sites.json`
   - 熱點冒煙：一個真實的苹果CMS stui 網頁站（站名不寫）。它的 API 會轉到驗證頁，四個 API 都判成「需要人機驗證」。網頁版型可用：16 個分類、9 條線路，試播起播（w278-15～17）。這一站沒有加入。
   - Ponytail：沒有必修項。非阻擋：網頁站分類頁沒影片時，失敗原因沿用「介面有回應，但沒有任何影片」，字面上稍有出入。
 - 下一步：Reviewer 審 W-278。
+
+### 9.10 審查修正（Reviewer #7478 REVISE）
+
+- F-1（必修）：`navigationCategories` 先把連結文字裡的 HTML 實體還原（`&nbsp;`、`&lt;`、`&gt;`、`&quot;`、`&#39;`、`&apos;`、十進位與十六進位的數字實體，最後處理 `&amp;`），再 trim；還原後還剩下的 `&` 換成全形「＆」。這樣 `分类` 裡就不會出現 `&`，XBPQ 也不會依 `&` 把整串切開。測試 `navigationLinksGiveTheCategoriesAndTheirStyle` 增加 `&nbsp;电影&nbsp;`、`日韩&amp;欧美`、數字實體三種情況。
+- 非阻擋也一起修了：
+  - N-1：`makeSpiderClient` 丟出不是 `Failure` 的錯誤（例如腳本載入失敗）時，改報「網頁版型引擎載入失敗」，不再當成「連不上」，也不會把這個 origin 標成連不上。
+  - N-2：網頁站分類頁沒有影片時，改報「分類頁沒有影片」（`noCategoryTitles`）。
+  - N-3：分類頁和詳情的 `try?` 之後各檢查一次取消與預算。取消或逾時不會再被記成「沒影片」或「沒集數」。
+- 驗證：SiteDetectorTests 與 LocalSitesTests 共 21 個全過。只動到 Core 和測試，App 端沒有用 `switch` 列舉 `Failure` 的地方，所以不需要重新編譯 App。

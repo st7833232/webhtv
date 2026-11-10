@@ -36,7 +36,7 @@ public struct SiteDetector: Sendable {
         case closed, unauthorized, challenge, empty, timeout, network, notCMS, noTitles, noEpisodes
         case http(Int)
         /// W-278
-        case notTemplate, noCategories, needsSpiderTool
+        case notTemplate, noCategories, needsSpiderTool, noCategoryTitles, engineFailed
 
         public var message: String {
             switch self {
@@ -53,6 +53,8 @@ public struct SiteDetector: Sendable {
             case .notTemplate: "不是苹果CMS 網頁版型"
             case .noCategories: "網頁上找不到分類"
             case .needsSpiderTool: "需要先下載爬蟲工具"
+            case .noCategoryTitles: "分類頁沒有影片"
+            case .engineFailed: "網頁版型引擎載入失敗"
             }
         }
     }
@@ -286,17 +288,23 @@ public struct SiteDetector: Sendable {
                   let site = LocalSite(name: "", type: 3, api: Self.webEngine, ext: String(decoding: json, as: UTF8.self),
                                        home: candidate.url.absoluteString, detectedFrom: "")?.site
             else { throw Failure.notTemplate }
-            let client = try await makeSpiderClient(site)
-            guard let title = (try? await client.category(id: first.id).list)?.first(where: { !$0.id.isEmpty && !$0.isFolder })
-            else { continue }
+            let client: SourceClient
+            do { client = try await makeSpiderClient(site) } catch let failure as Failure { throw failure } catch {
+                // Review N-1: a script that will not load is not an unreachable site.
+                throw Failure.engineFailed
+            }
+            let listing = try? await client.category(id: first.id).list
+            // Review N-3: `try?` must not turn the viewer's 取消 or the budget into "nothing listed".
             try inTime()
+            guard let title = listing?.first(where: { !$0.id.isEmpty && !$0.isFolder }) else { continue }
             let flags = (try? await client.detail(id: title.id))?.flags.filter { !$0.episodes.isEmpty } ?? []
+            try inTime()
             guard let line = flags.first, let episode = line.episodes.first else { throw Failure.noEpisodes }
             return Found(candidate: candidate, categoryCount: categories.count, firstTitle: title, lineCount: flags.count,
                          episodeCount: line.episodes.count, isDirect: episode.mediaURL.map(CMSClient.isDirectMedia) ?? false,
                          ext: site.rawExtJSON)
         }
-        throw Failure.noTitles
+        throw Failure.noCategoryTitles
     }
 
     static let challengeMarkers = ["cf-chl", "cf-browser-verification", "challenge-platform", "just a moment", "captcha", "验证", "驗證", "人机"]
@@ -315,13 +323,35 @@ public struct SiteDetector: Sendable {
             guard let m = id.firstMatch(in: href, range: NSRange(location: 0, length: (href as NSString).length)) else { continue }
             let value = (href as NSString).substring(with: m.range(at: 1))
             let inner = text.substring(with: match.range(at: 2))
-            let name = tags.stringByReplacingMatches(in: inner, range: NSRange(location: 0, length: (inner as NSString).length),
-                                                     withTemplate: "").trimmingCharacters(in: .whitespacesAndNewlines)
+            // Review F-1: XBPQ splits a `分类` holding `&` into name and value lists, so entities are decoded first
+            // and a literal `&` that is left becomes the full-width ＆.
+            let name = decodedEntities(tags.stringByReplacingMatches(in: inner, range: NSRange(location: 0, length: (inner as NSString).length),
+                                                                     withTemplate: ""))
+                .trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "&", with: "＆")
             guard !name.isEmpty, !name.contains("$"), !name.contains("#"), seen.insert(value).inserted else { continue }
             if found.isEmpty { indexStyle = href.contains("index.php/vod/type") }
             found.append((name, value))
             if found.count == 20 { break }
         }
         return (found, indexStyle)
+    }
+
+    /// The entities link text carries: the named ones a navigation bar uses, and numeric ones.
+    static func decodedEntities(_ text: String) -> String {
+        guard text.contains("&") else { return text }
+        var out = text
+        for (entity, char) in [("&nbsp;", " "), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""), ("&#39;", "'"), ("&apos;", "'")] {
+            out = out.replacingOccurrences(of: entity, with: char, options: .caseInsensitive)
+        }
+        let numeric = try! NSRegularExpression(pattern: "&#(x?)([0-9a-fA-F]+);")
+        for match in numeric.matches(in: out, range: NSRange(location: 0, length: (out as NSString).length)).reversed() {
+            let ns = out as NSString
+            let hex = ns.substring(with: match.range(at: 1)).isEmpty == false
+            guard let code = UInt32(ns.substring(with: match.range(at: 2)), radix: hex ? 16 : 10), let scalar = Unicode.Scalar(code)
+            else { continue }
+            out = ns.replacingCharacters(in: match.range, with: String(Character(scalar)))
+        }
+        // Last, so `&amp;lt;` stays the text `&lt;`.
+        return out.replacingOccurrences(of: "&amp;", with: "&", options: .caseInsensitive)
     }
 }

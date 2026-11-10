@@ -211,6 +211,11 @@ private func rules(_ json: String) -> [String: String] {
     let (myui, myuiIndex) = SiteDetector.navigationCategories(#"<a href="/index.php/vod/type/id/6.html">动作片</a><a href='/vodtype/7/'>喜剧</a>"#)
     #expect(myui.map { "\($0.name)$\($0.id)" } == ["动作片$6", "喜剧$7"] && myuiIndex)
     #expect(SiteDetector.navigationCategories(#"<a href="/vod/9.html">x</a>"#).0.isEmpty)
+    // Review F-1: entities decoded, a literal & made full-width, so XBPQ never splits `分类` on it.
+    let (named, _) = SiteDetector.navigationCategories(
+        #"<a href="/vodtype/1.html">&nbsp;电影&nbsp;</a><a href="/vodtype/2.html">日韩&amp;欧美</a><a href="/vodtype/3.html">&#x52A8;&#28459;</a>"#)
+    #expect(named.map { "\($0.name)$\($0.id)" } == ["电影$1", "日韩＆欧美$2", "动漫$3"])
+    #expect(!named.map(\.name).joined().contains("&"))
 }
 
 @Test func aStuiSiteWithoutAnAPIIsFoundAsAWebTemplate() async throws {
@@ -253,7 +258,7 @@ private func rules(_ json: String) -> [String: String] {
     }
     #expect(await last("plain.invalid") == .notTemplate)
     #expect(await last("nocat.invalid") == .noCategories)
-    #expect(await last("empty.invalid") == .noTitles)
+    #expect(await last("empty.invalid") == .noCategoryTitles)
     #expect(await last("noeps.invalid") == .noEpisodes)
 }
 

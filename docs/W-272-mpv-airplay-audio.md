@@ -96,6 +96,7 @@ Simulator 沒有真的 AirPlay 裝置，以下只能交 IPA 給使用者實機�
 3. 選了 Apple TV 時，MPV 只投聲音、畫面留在手機；原生切回來仍然投影片。
 4. AirPlay 斷線時停在暫停、不從手機外放。
 5. 原生投到 Apple TV 時切到 MPV，路由是否留在 Apple TV（聲音）或回到手機。
+6. 使用者在 AirPlay 選單**主動**選回 iPhone 時，系統送的原因碼若也是 `oldDeviceUnavailable`（Reviewer N-1），`MPVAudioRoute` 會判成斷線而**暫停**，不是重新同步後繼續播。log 會記 `deviceLeft=true … -> pause`；若實機確認會這樣，再改成看舊路由的裝置是否真的消失（另開單），本單先記為已知行為。
 
 ## 八、階段 2 實作紀錄（2026-11-10）
 

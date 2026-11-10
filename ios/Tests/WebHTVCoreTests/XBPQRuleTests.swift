@@ -593,3 +593,21 @@ func search(_ spider: JavaScriptSpiderRuntime, _ key: String, page: String = "1"
     #expect(RuleSite.requests(on: "s27.invalid").isEmpty)
     await spider.destroy()
 }
+
+/// W-250 (KISSAV): the page's SEO block names a stream whose key and segments answer 403; the site's own player,
+/// packed with Dean Edwards' packer, opens the site's `/media/m3u8/?url=…` instead. Unpacked as text, that one wins.
+@Test func playsThePackedPlayersOwnAddressBeforeTheSEOStream() async throws {
+    let packed = #"eval(function(p,a,c,k,e,d){e=function(c){return c};return p}('0(!/1/2.3(4.5)){6 7=8({\'9\':\'a\',\'b\':\'/c/d/?b=e%f%g%h.i%j.d\',\'k\':\'e://l.i/m.n\'})}',62,24,'if|googlebot|i|test|navigator|userAgent|const|my_player|create_player|id|mse|url|media|m3u8|https|3A|2F|2Fcdn|invalid|2Fa|poster|img|p|jpg'.split('|'),0,{}))"#
+    RuleSite.serve([
+        "https://s30.invalid/video/1/": """
+        <script type="application/ld+json">{"@type":"VideoObject","contentUrl":"https://cdn.invalid/seo.m3u8?auth_key=1"}</script>
+        <script>\(packed)</script>
+        """,
+        "https://s30.invalid/video/2/": #"<script type="application/ld+json">{"contentUrl":"https://cdn.invalid/only.m3u8"}</script>"#])
+    let spider = try await xbpq(#"{"分类url":"https://s30.invalid/{cateId}"}"#)
+    #expect(try await play(spider, "https://s30.invalid/video/1/")
+        == ("https://s30.invalid/media/m3u8/?url=https%3A%2F%2Fcdn.invalid%2Fa.m3u8", 0))
+    // No packed player: the page's one stream is still played, as before.
+    #expect(try await play(spider, "https://s30.invalid/video/2/") == ("https://cdn.invalid/only.m3u8", 0))
+    await spider.destroy()
+}

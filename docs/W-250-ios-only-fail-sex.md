@@ -29,7 +29,17 @@
 - 測試 `XBPQRuleTests.listsTheHomePageWhenUnsetAndNoCategoryWasFound`：分類規則對不到時，首頁列出首頁的片。修正前失敗、修正後通過；`swift test --filter XBPQ` 31 項通過。
 - 真實網站（熱點 172.20.10.6，暫時測試、未提交）：兩個 KISSAV 站都是首頁 5 部、詳情 1 線 1 集（`;;z` 直接播放），`playerContent` 從影片頁解出 m3u8（parse=0）。這個 m3u8 是 AES-128 HLS，不帶 Referer 也回 200。
 
-## KISSAV 播放（Simulator 11-09 11:29，未解）
+## KISSAV 播放：根因與修正（11-10，task/W-250-kissav）
+
+- 根因：影片頁的播放器程式用 Dean Edwards 的 p,a,c,k,e,d 打包。解開後，播放器開的是站內代理 `https://<站>/media/m3u8/?url=<原 m3u8>`。代理回的清單裡，金鑰與片段換成另一組有簽章的網址（`hc163/...?auth_key=`），curl 不帶 Referer 也回 200。iOS 原本是用 `playerContent` 最後一條正則，抓到頁面 SEO 區塊（`ld+json` 的 `contentUrl`）裡的原始 m3u8，那組金鑰與片段一律 403。證據在 `artifacts/w250/kissav/`：`video.html`、`player-unpacked.js`、`proxied.m3u8`。
+- 修正（通用，不是只給 KISSAV）：`XBPQ.js` 新增 `unpacked(raw)`，用純字串運算解開打包，不執行頁面程式。`playerContent` 在「頁內唯一串流」那條正則之前，先取解開後播放器的 `'url':'…'`，用播放頁網址補成完整網址，路徑含 m3u8 或 .mp4 就直接播（parse 0）。這裡不用 `isVideo`，因為它預設的過濾詞 `url=http` 會擋掉代理網址；是網站自己的播放器開這個網址，才放寬。`ios/Spiders/XBPQ.js` 與 `spider-pack/scripts/XBPQ.js` 同步修改，內容相同。
+- 為什麼不是改設定檔：不能改使用者的設定檔；而且同樣的打包手法在其他苹果CMS 類網站也很常見，修在通用引擎可以一起受惠（符合 11-10「新增站台先走通用格式、優先擴充規則引擎」）。
+- 驗證：
+  - 單元測試 `playsThePackedPlayersOwnAddressBeforeTheSEOStream`：打包的播放器加上 `ld+json` 陷阱，結果取到代理網址；沒有打包時仍取頁內唯一串流。換回原版 `XBPQ.js` 時這個測試是紅的，修正後是綠的。XBPQ 相關測試 32 個全過。
+  - 真實網站（熱點，暫時測試、沒有提交）：引擎在真實影片頁回 `{"parse":0,"url":"https://kissavs.com/media/m3u8/?url=…"}`；ffmpeg 讀這個網址 5 秒，AES 解密與解碼都正常（h264 1280x720＋aac）。
+  - 還沒驗：Simulator 上的 App 實播（要先把修正版放進本機相容包），以及 Android 對照。
+
+## KISSAV 播放（Simulator 11-09 11:29，當時未解，保留紀錄）
 
 - 首頁 5 部 → 詳情（直播列表 1 集）→ 立即播放：`resolve … live 1304ms`。原生播放器 10 秒內沒起播（`neverReady`、buffer 0），自動改用 MPV 也一樣失敗（`Failed to open xv.dzuxta.cn .m3u8`）。
 - curl：m3u8 回 200。它的 AES 金鑰和 `.ts` 片段，不論帶不帶 `Referer: https://kissavs.com/`、補不補上 m3u8 的 `auth_key` query，都回 403。這個 m3u8 是頁面 SEO 區塊（`ld+json` 的 `contentUrl`）裡的網址，iOS 的 `playerContent` 是用最後一條正則抓到它；網站自己的播放器實際用哪個網址還沒找到。

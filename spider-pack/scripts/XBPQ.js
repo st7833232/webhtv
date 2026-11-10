@@ -343,6 +343,24 @@ var spider = (function () {
     return url;
   }
 
+  /**
+   * Dean Edwards' packer, `eval(function(p,a,c,k,e,d){…}('…',a,c,'…'.split('|'),0,{}))`, undone as string work:
+   * nothing on the page runs. W-250: KISSAV's player keeps its stream address only in there.
+   */
+  function unpacked(raw) {
+    var out = [];
+    var re = /\}\('((?:\\'|[^'])*)',\s*(\d+),\s*(\d+),\s*'((?:\\'|[^'])*)'\.split\('\|'\)/g, m;
+    while ((m = re.exec(String(raw || '')))) {
+      var a = parseInt(m[2], 10), c = parseInt(m[3], 10), k = m[4].split('|'), dict = {};
+      var word = function (n) {
+        return (n < a ? '' : word(Math.floor(n / a))) + ((n = n % a) > 35 ? String.fromCharCode(n + 29) : n.toString(36));
+      };
+      while (c--) dict[word(c)] = k[c] || word(c);
+      out.push(m[1].replace(/\b\w+\b/g, function (w) { return Object.prototype.hasOwnProperty.call(dict, w) ? dict[w] : w; }));
+    }
+    return out.join('\n').replace(/\\'/g, "'");
+  }
+
   /** The original's `主页url` chain, ending in the host of whichever listing URL is configured. */
   function homeUrl() {
     var home = pick(['主页url', '首页推荐链接', '网站地址', 'url', 'homeUrl']);
@@ -690,6 +708,15 @@ var spider = (function () {
       if (!isVideo(url)) url = host.match(raw, '"url"\\s*:\\s*"([^"]+)"').replace(/\\\//g, '/') || url;
       // Several stui templates publish the stream as `var now="https://.../index.m3u8"` instead.
       if (!isVideo(url)) url = host.match(raw, 'var\\s+now\\s*=\\s*"([^"]+)"').replace(/\\\//g, '/') || url;
+      // W-250: a packed player's own `url` before any address merely written on the page. KISSAV's SEO block
+      // (`ld+json` contentUrl) names a stream whose key and segments answer 403; the player opens the site's
+      // `/media/m3u8/?url=…` instead, which re-signs them. That address carries `url=http`, which `isVideo`'s
+      // default 过滤词 refuses, so a stream path is enough here: the site's own player opens it.
+      if (!isVideo(url)) {
+        var inner = host.match(unpacked(raw), '[\'"]url[\'"]\\s*:\\s*[\'"]([^\'"]+)[\'"]');
+        if (inner) inner = host.urljoin(target, inner.replace(/\\\//g, '/'));
+        if (/^https?:\/\/[^?#]*(?:m3u8|\.mp4)/i.test(inner)) return host.result.play(inner, false, headers);
+      }
       // Last resort, and what the original's 嗅探 amounts to: the page contains exactly one stream.
       if (!isVideo(url)) url = host.match(raw, '(https?:[^"\'\\s\\\\$#]+\\.(?:m3u8|mp4|mkv|flv)[^"\'\\s\\\\$#]*)') || url;
       if (isVideo(url)) return host.result.play(url, false, headers);

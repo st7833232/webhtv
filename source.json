@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.102",
+          "date": "2026-11-11",
+          "localizedDescription": "播放：\n- 影片來源的腳本服務回報錯誤時，會在數秒內直接顯示「無法播放：來源腳本回報失敗」，不再逐一嘗試所有播放器與線路、空轉約一分半鐘。\n",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.102-b103/WebHTV-0.1.102-103.ipa",
+          "size": 36422547,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.1.101",
           "date": "2026-11-10",
           "localizedDescription": "片名與簡介：\n- 網頁來源的片名、簡介不再出現「&amp;」「&#39;」這類網頁特殊字元，會顯示成正常文字（與 Android 版一致）。\n\n設定：\n- 加入新的設定檔後，設定頁的「設定檔相容包」名稱會立刻更新，不用重新開啟 App。",

@@ -73,10 +73,19 @@ public enum MP4SampleEntry {
 public enum LoopbackMP4Probe {
     /// A moov at the front of an episode fits (a 168 s bvc2 episode's is 206 KB, at byte 28); one at the end is not looked for.
     static let limit = 512 * 1024
-    /// Loopback answers at once when it answers at all; a script still fetching gives up the probe, not the play.
-    static let timeout: TimeInterval = 3
+    /// W-292: long enough for a script building its media session cold (3–18 s; 红果 refuses after ~14 s). The probe
+    /// runs beside the open, so waiting costs the play nothing.
+    static let timeout: TimeInterval = 30
     private static let lock = NSLock()
     nonisolated(unsafe) private static var vvc = Set<String>()
+
+    /// What the first bytes said.
+    public enum Finding: Equatable, Sendable {
+        /// Whether the episode's video is VVC (or ByteVC2).
+        case vvc(Bool)
+        /// W-292: the script's own service answered this 5xx — it cannot make the episode, after its own retries.
+        case refused(Int)
+    }
 
     /// A loopback http address the spider proxy does not serve, and not a playlist or manifest.
     public static func applies(to url: URL) -> Bool {
@@ -87,15 +96,18 @@ public enum LoopbackMP4Probe {
     /// Whether a probe found `url` to be VVC (or ByteVC2).
     public static func isVVC(_ url: URL) -> Bool { lock.withLock { vvc.contains(url.absoluteString) } }
 
-    /// Reads up to `limit` bytes of `url` and notes whether its video is VVC; nil when nothing could be read.
-    public static func probe(_ url: URL, headers: [String: String]) async -> Bool? {
+    /// Reads up to `limit` bytes of `url` and notes whether its video is VVC; nil when that says nothing —
+    /// no answer, a timeout, a 4xx, a 504 (which may only mean slow), or no whole moov.
+    public static func probe(_ url: URL, headers: [String: String], fetch: OfflineFetch? = nil) async -> Finding? {
         var request = URLRequest(url: url)
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         request.setValue("bytes=0-\(limit - 1)", forHTTPHeaderField: "Range")
         request.timeoutInterval = timeout
-        let fetch = OfflineHTTP.fetcher(origin: url, originalHeaders: headers)
-        guard let response = try? await fetch(request, limit), (200...299).contains(response.status) else { return nil }
-        return record(url, prefix: response.data)
+        let fetch = fetch ?? OfflineHTTP.fetcher(origin: url, originalHeaders: headers)
+        guard let response = try? await fetch(request, limit) else { return nil }
+        if (500...599).contains(response.status), response.status != 504 { return .refused(response.status) }
+        guard (200...299).contains(response.status) else { return nil }
+        return record(url, prefix: response.data).map(Finding.vvc)
     }
 
     /// Notes what `prefix` (the file's first bytes) says about `url`; nil when it holds no whole moov.

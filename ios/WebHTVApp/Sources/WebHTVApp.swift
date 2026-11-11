@@ -7380,12 +7380,30 @@ struct EpisodeSteps: Equatable {
            !LoopbackMP4Probe.isVVC(target.url) {
             Task { @MainActor [weak self] in
                 let started = ContinuousClock.now
-                let isVVC = await LoopbackMP4Probe.probe(target.url, headers: target.headers)
+                let finding = await LoopbackMP4Probe.probe(target.url, headers: target.headers)
                 guard let self else { return }
-                Self.log.notice("[playback] \(self.itemTitle, privacy: .public) loopback probe vvc=\(isVVC.map { $0 ? "yes" : "no" } ?? "unknown", privacy: .public) in \(Int((ContinuousClock.now - started) / .milliseconds(1)))ms")
-                guard isVVC == true, self.engineKind == .native, self.router.request?.target.url == target.url,
-                      self.router.select(.mpv, playing: true) else { return }
-                Self.log.notice("[playback] \(self.itemTitle, privacy: .public) is VVC — moved to MPV (loopback probe)")
+                let said = switch finding {
+                case .vvc(let vvc)?: vvc ? "yes" : "no"
+                case .refused(let status)?: "refused HTTP \(status)"
+                case nil: "unknown"
+                }
+                Self.log.notice("[playback] \(self.itemTitle, privacy: .public) loopback probe vvc=\(said, privacy: .public) in \(Int((ContinuousClock.now - started) / .milliseconds(1)))ms")
+                guard self.router.request?.target.url == target.url else { return }
+                switch finding {
+                case .vvc(true)?:
+                    guard self.engineKind == .native, self.router.select(.mpv, playing: true) else { return }
+                    Self.log.notice("[playback] \(self.itemTitle, privacy: .public) is VVC — moved to MPV (loopback probe)")
+                case .refused(let status)?:
+                    // W-292: the script said it cannot make this episode. Each engine, a live re-resolve and every other
+                    // line ask the same script the same thing: about 90 s of spinner for the same answer.
+                    guard self.startupMilliseconds == nil else { return }
+                    self.startupWatch?.cancel()
+                    self.retryWithoutPrefetch = nil
+                    self.vodLineObserver = nil
+                    Self.log.notice("[playback] \(self.itemTitle, privacy: .public) not started: its script's local service answered HTTP \(status) — shown failed")
+                    self.router.giveUp(.source("無法播放：來源腳本回報失敗（HTTP \(status)）"))
+                default: return
+                }
             }
         }
         startSampling()

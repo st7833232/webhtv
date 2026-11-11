@@ -76,5 +76,24 @@ struct LoopbackMP4ProbeTests {
         #expect(LoopbackMP4Probe.record(tail, prefix: bvc2.prefix(100)) == nil)
         #expect(!PlayerRouter.needsMPV(tail))
     }
+
+    /// W-292: only a script's own 5xx is a refusal; a 504 may only be slow, and a 4xx or no answer says nothing.
+    @Test func onlyAScriptsOwnFiveHundredIsARefusal() async throws {
+        let url = try #require(URL(string: "http://127.0.0.1:10010/hg.mp4?vid=\(UUID().uuidString)"))
+        func answer(_ status: Int, _ data: Data = Data("media session failed".utf8)) async -> LoopbackMP4Probe.Finding? {
+            await LoopbackMP4Probe.probe(url, headers: [:]) { request, _ in
+                #expect(request.value(forHTTPHeaderField: "Range") == "bytes=0-524287")
+                return OfflineHTTPResponse(data: data, status: status, url: url, headers: [:])
+            }
+        }
+        #expect(await answer(502) == .refused(502))
+        #expect(await answer(500) == .refused(500))
+        #expect(await answer(504) == nil)
+        #expect(await answer(404) == nil)
+        #expect(await LoopbackMP4Probe.probe(url, headers: [:]) { _, _ in throw URLError(.timedOut) } == nil)
+        let bvc2 = MP4Fixture.file([MP4Fixture.track(handler: "vide", entry: "bvc2")])
+        #expect(await answer(206, bvc2) == .vvc(true))
+        #expect(PlayerRouter.needsMPV(url))
+    }
 }
 #endif

@@ -311,12 +311,15 @@ private struct ConfigView: View {
                                 .tag(3)
                                 .tabItem { Label("搜尋", systemImage: "magnifyingglass") }
                             appTab(1)
+                                .modifier(PlatformTabBarVisibility())
                                 .tag(1)
                                 .tabItem { Label("片庫", systemImage: "rectangle.stack.fill") }
                             appTab(4)
+                                .modifier(PlatformTabBarVisibility())
                                 .tag(4)
                                 .tabItem { Label("下載", systemImage: "arrow.down.circle") }
                             appTab(2)
+                                .modifier(PlatformTabBarVisibility())
                                 .tag(2)
                                 .tabItem { Label("設定", systemImage: "gearshape.fill") }
                         }

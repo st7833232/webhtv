@@ -134,6 +134,7 @@ private struct ConfigView: View {
     @State private var lives = [LiveSource]()
     @State private var selectedSiteID: Site.ID?
     @State private var selectedTab = 0
+    @State private var mountedTabs: Set<Int> = [0]
     @State private var keyboardVisible = false
     @State private var homeTopRequest = 0
     /// W-260: bumped when the scripts in force change, so the listing on screen loads again.
@@ -177,6 +178,84 @@ private struct ConfigView: View {
     @State private var waitingSites = [Site]()
     private var needSpiderTool: Int { waitingSites.count }
 
+    // iOS 26+ uses a native-tab-free host. Retain each tab after the first visit,
+    // preserving its navigation, search results, and scroll offset.
+    @ViewBuilder private func retainedTab<Content: View>(
+        _ tab: Int, @ViewBuilder content: () -> Content
+    ) -> some View {
+        if mountedTabs.contains(tab) || selectedTab == tab {
+            content()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .opacity(selectedTab == tab ? 1 : 0)
+                .allowsHitTesting(selectedTab == tab)
+                .accessibilityHidden(selectedTab != tab)
+        }
+    }
+
+    @ViewBuilder private func appTab(_ tab: Int) -> some View {
+        switch tab {
+        case 0:
+            Group {
+                if sites.isEmpty {
+                    SpiderToolNeededView(count: needSpiderTool, note: spiderToolNote, busy: spiderToolBusy,
+                                         onDownload: checkSpiderTool)
+                } else {
+                    HomeView(sites: sites, selectedSiteID: pickedSite, source: source,
+                             topRequest: homeTopRequest, lives: lives, scriptRevision: scriptRevision)
+                }
+            }
+        case 3:
+            AggregateSearchView(sites: sites, source: source)
+        case 1:
+            NavigationStack {
+                LibraryView(sites: sites, source: source, waiting: waitingSites, spiderToolBusy: spiderToolBusy,
+                            onDownloadSpiderTool: checkSpiderTool)
+            }
+            .environment(\.tabReturnActions, libraryNavigation)
+        case 4:
+            NavigationStack {
+                OfflineDownloadsView()
+            }
+        case 2:
+            NavigationStack {
+                SettingsView(
+                    sites: sites,
+                    selectedSiteID: pickedSite,
+                    source: source,
+                    updatedAt: updatedAt,
+                    refreshing: refreshing,
+                    packStatus: packStatus,
+                    spiderToolStatus: SpiderToolText.status(of: officialPack),
+                    spiderToolNote: spiderToolNote,
+                    spiderToolReleaseNotes: spiderToolReleaseNotes,
+                    spiderToolCheckedAt: spiderToolCheckedAt,
+                    spiderToolBusy: spiderToolBusy,
+                    onCheckSpiderTool: checkSpiderTool,
+                    onResetSpiderTool: resetSpiderTool,
+                    onImport: { importing = true },
+                    onAskRemote: {
+                        remoteText = ""
+                        remoteName = ""
+                        askingRemote = true
+                    },
+                    onRefresh: { Task { await refreshRemote() } },
+                    onOpenHome: { selectedTab = 0 },
+                    saved: saved,
+                    onUseSaved: { entry in use(entry) },
+                    onRename: { entry, name in rename(entry, to: name) },
+                    onForget: { entry in forget(entry) },
+                    localSites: localSites.sites(for: source.identity),
+                    onAddLocal: { site in changeLocalSites { $0.upsert(site, for: source.identity) } },
+                    onRenameLocal: { key, name in changeLocalSites { $0.rename(key: key, to: name, for: source.identity) } },
+                    onRemoveLocal: { key in changeLocalSites { $0.remove(key: key, for: source.identity) } }
+                )
+            }
+            .environment(\.tabReturnActions, settingsNavigation)
+        default:
+            EmptyView()
+        }
+    }
+
     var body: some View {
         Group {
             if !officialLoaded {
@@ -207,86 +286,43 @@ private struct ConfigView: View {
                 }
             } else {
                 VStack(spacing: 0) {
-                TabView(selection: $selectedTab) {
-                    Group {
-                        // Never an empty list into HomeView, whose selected site is `sites[0]` (Manager #2112 ③).
-                        if sites.isEmpty {
-                            SpiderToolNeededView(count: needSpiderTool, note: spiderToolNote, busy: spiderToolBusy,
-                                                 onDownload: checkSpiderTool)
-                        } else {
-                            HomeView(sites: sites, selectedSiteID: pickedSite, source: source, topRequest: homeTopRequest, lives: lives,
-                                     scriptRevision: scriptRevision)
+                // iOS 26 may reserve a hidden system tab-bar height. Combined with our
+                // custom bar, that clips the poster grid and leaves a blank band.
+                Group {
+                    if #available(iOS 26.0, *) {
+                        ZStack {
+                            retainedTab(0) { appTab(0) }
+                            retainedTab(3) { appTab(3) }
+                            retainedTab(1) { appTab(1) }
+                            retainedTab(4) { appTab(4) }
+                            retainedTab(2) { appTab(2) }
                         }
-                    }
+                        .onChangeCompat(of: selectedTab, initial: true) { _, tab in
+                            mountedTabs.insert(tab)
+                        }
+                    } else {
+                        TabView(selection: $selectedTab) {
+                            appTab(0)
+                                .modifier(PlatformTabBarVisibility())
+                                .tag(0)
+                                .tabItem { Label("首頁", systemImage: "play.rectangle.fill") }
+                            appTab(3)
+                                .modifier(PlatformTabBarVisibility())
+                                .tag(3)
+                                .tabItem { Label("搜尋", systemImage: "magnifyingglass") }
+                            appTab(1)
+                                .tag(1)
+                                .tabItem { Label("片庫", systemImage: "rectangle.stack.fill") }
+                            appTab(4)
+                                .tag(4)
+                                .tabItem { Label("下載", systemImage: "arrow.down.circle") }
+                            appTab(2)
+                                .tag(2)
+                                .tabItem { Label("設定", systemImage: "gearshape.fill") }
+                        }
                         .modifier(PlatformTabBarVisibility())
-                        .tag(0)
-                        .tabItem { Label("首頁", systemImage: "play.rectangle.fill") }
-
-                    // IOS-POC-20. Tag 3 rather than renumbering: the other tabs keep the tags code
-                    // already switches to.
-                    AggregateSearchView(sites: sites, source: source)
-                        .modifier(PlatformTabBarVisibility())
-                        .tag(3)
-                        .tabItem { Label("搜尋", systemImage: "magnifyingglass") }
-
-                    // IOS-POC-48: 片庫 — 收藏 and 記錄 on one tab, in the place 記錄 had, rather than a
-                    // sixth tab (HIG: avoid overflow tabs). Tag 1 is still this place.
-                    NavigationStack {
-                        LibraryView(sites: sites, source: source, waiting: waitingSites, spiderToolBusy: spiderToolBusy,
-                                    onDownloadSpiderTool: checkSpiderTool)
                     }
-                    .environment(\.tabReturnActions, libraryNavigation)
-                    .tag(1)
-                    .modifier(PlatformTabBarVisibility())
-                    .tabItem { Label("片庫", systemImage: "rectangle.stack.fill") }
-
-                    // IOS-POC-47. Tag 4: the other tabs keep the tags code already switches to.
-                    NavigationStack {
-                        OfflineDownloadsView()
-                    }
-                    .tag(4)
-                    .modifier(PlatformTabBarVisibility())
-                    .tabItem { Label("下載", systemImage: "arrow.down.circle") }
-
-                    NavigationStack {
-                        SettingsView(
-                            sites: sites,
-                            selectedSiteID: pickedSite,
-                            source: source,
-                            updatedAt: updatedAt,
-                            refreshing: refreshing,
-                            packStatus: packStatus,
-                            spiderToolStatus: SpiderToolText.status(of: officialPack),
-                            spiderToolNote: spiderToolNote,
-                            spiderToolReleaseNotes: spiderToolReleaseNotes,
-                            spiderToolCheckedAt: spiderToolCheckedAt,
-                            spiderToolBusy: spiderToolBusy,
-                            onCheckSpiderTool: checkSpiderTool,
-                            onResetSpiderTool: resetSpiderTool,
-                            onImport: { importing = true },
-                            onAskRemote: {
-                                remoteText = ""
-                                remoteName = ""
-                                askingRemote = true
-                            },
-                            onRefresh: { Task { await refreshRemote() } },
-                            onOpenHome: { selectedTab = 0 },
-                            saved: saved,
-                            onUseSaved: { entry in use(entry) },
-                            onRename: { entry, name in rename(entry, to: name) },
-                            onForget: { entry in forget(entry) },
-                            localSites: localSites.sites(for: source.identity),
-                            onAddLocal: { site in changeLocalSites { $0.upsert(site, for: source.identity) } },
-                            onRenameLocal: { key, name in changeLocalSites { $0.rename(key: key, to: name, for: source.identity) } },
-                            onRemoveLocal: { key in changeLocalSites { $0.remove(key: key, for: source.identity) } }
-                        )
-                    }
-                    .environment(\.tabReturnActions, settingsNavigation)
-                    .tag(2)
-                    .modifier(PlatformTabBarVisibility())
-                    .tabItem { Label("設定", systemImage: "gearshape.fill") }
                 }
-                .modifier(PlatformTabBarVisibility())
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // A sibling reserves actual height even when the native TabView does not pass an
                 // outer safeAreaInset through to its navigation/scroll containers (iOS 27).

@@ -1,0 +1,7 @@
+WebHTV iOS SideStore release request
+Version: 0.1.103
+Build: 104
+Branch: ios-poc
+Source commit: 4be9b5d592c11843546e08c15c0f923be915efa4
+Purpose: iOS 26 home poster grid clipping and redundant tab safe-area fix.
+Workflow: .github/workflows/ios-sidestore-release.yml

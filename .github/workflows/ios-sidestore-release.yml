@@ -14,11 +14,16 @@ on:
       release_notes:
         description: "Release notes"
         required: false
-        default: "Automated SideStore release."
+        default: "修復 iOS 26 以上首頁海報列遭底部分頁列截斷與多餘留白；保留切換分頁後的畫面狀態。"
         type: string
   push:
     tags:
       - "ios-v*-b*"
+    # Publish this one release from ios-poc; ordinary code pushes cannot create releases.
+    branches:
+      - ios-poc
+    paths:
+      - "ios/release-requests/0.1.103-104.txt"
 
 permissions:
   contents: write
@@ -113,7 +118,7 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
           BUILD: ${{ steps.meta.outputs.build }}
           TAG: ${{ steps.meta.outputs.tag }}
-          RELEASE_NOTES: ${{ inputs.release_notes || 'Automated SideStore release.' }}
+          RELEASE_NOTES: ${{ inputs.release_notes || '修復 iOS 26 以上首頁海報列遭底部分頁列截斷與多餘留白；保留切換分頁後的畫面狀態。' }}
         run: |
           set -euo pipefail
           mkdir -p package/Payload dist
@@ -141,7 +146,7 @@ jobs:
           ASSET: ${{ steps.meta.outputs.asset }}
           VERSION: ${{ steps.meta.outputs.version }}
           BUILD: ${{ steps.meta.outputs.build }}
-          RELEASE_NOTES: ${{ inputs.release_notes || 'Automated SideStore release.' }}
+          RELEASE_NOTES: ${{ inputs.release_notes || '修復 iOS 26 以上首頁海報列遭底部分頁列截斷與多餘留白；保留切換分頁後的畫面狀態。' }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
@@ -170,7 +175,7 @@ jobs:
           BUILD: ${{ steps.meta.outputs.build }}
           TAG: ${{ steps.meta.outputs.tag }}
           ASSET: ${{ steps.meta.outputs.asset }}
-          RELEASE_NOTES: ${{ inputs.release_notes || 'Automated SideStore release.' }}
+          RELEASE_NOTES: ${{ inputs.release_notes || '修復 iOS 26 以上首頁海報列遭底部分頁列截斷與多餘留白；保留切換分頁後的畫面狀態。' }}
         run: |
           set -euo pipefail
           git fetch origin ios-poc

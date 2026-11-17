@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.104",
+          "date": "2026-11-17",
+          "localizedDescription": "設定：\n- 支援多倉設定：加入多倉設定網址後，各倉會列在「已存來源」並依倉分組，可直接切換；重開 App 會記得上次使用的倉。\n",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.104-b105/WebHTV-0.1.104-105.ipa",
+          "size": 36465429,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.1.103",
           "date": "2026-11-17",
           "localizedDescription": "修復 iOS 26 以上首頁海報列遭底部分頁列截斷與多餘留白；保留切換分頁後的畫面狀態。",

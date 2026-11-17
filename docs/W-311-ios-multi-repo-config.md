@@ -8,8 +8,8 @@
 ## Recovery anchor
 
 - 目標：設計 iOS 對「設定網址回傳 `{"urls":[{name,url}]}`」的多倉支援，對齊 Android 行為，單倉設定行為不變。
-- 狀態：設計研究完成，待審查與使用者核准。未改任何程式碼。
-- 下一步：使用者核准方案 C 後，開新的 guard（scope 見「第二階段範圍」）實作並在 Simulator 驗證。
+- 狀態：第二階段（實作＋Simulator 驗證）完成，送審。見 §11。
+- 下一步：Reviewer 審查；通過後由 Manager 推 ios-poc。
 
 ## 1. 證據來源
 
@@ -189,6 +189,64 @@
 - 驗證環境（Reviewer N-3）：本機 HTTPS 伺服器提供 `{"urls":[…]}`，各項指向 GitHub `st7833232/recha` main 的 `wang-movie.json`、`wang-sex.json`（用前 `git ls-remote https://github.com/st7833232/recha.git main`，報告寫 SHA）；另備一份含相對網址的多倉檔供匯入測試。
 - 時間（本 agent 實際作業）：Core＋測試約 1 小時；App 流程（含匯入入口）與 UI 約 1.5 小時；Simulator 驗證（建置、本機多倉伺服器、驗收 1–9）約 1.5 小時；Ponytail 與文件約 0.5 小時。合計約 4.5 小時，不含審查往返。
 
-## 10. 狀態
+## 10. 第一階段狀態
 
 第一階段完成；2026-11-17 依 Reviewer #8681 補匯入本機檔案入口（F-1）、倉名稱欄位（F-2）與 N-1～N-3 註記，重送 Reviewer（webhtv-dev-codex-reviewer-2）審查；核准「開始實施」前不改程式碼。
+
+## 11. 第二階段：實作與驗證（2026-11-17，使用者核准方案 C，Manager #8694）
+
+使用者確認的行為：原有來源保留在「其他」組；新多倉各項自動加入並載入第一倉；網址相同不重複；同一網址出現在兩個多倉時歸到最後加入的那組。Reviewer 提醒：同名匯入檔改用內容雜湊分組。
+
+### 11.1 改動
+
+| 檔案 | 內容 |
+|---|---|
+| `ios/Sources/WebHTVCore/DepotConfig.swift`（新） | `DepotConfig.entries(_:from:)`：解包後（`unwrapped`，JSON5）只有頂層物件且 `urls` 是陣列才算多倉；相對 `./`、`../` 以倉網址解析，無網址（匯入檔）時略過並計數；略過空白／非 http(s)／重複；全空丟 `emptyDepot`。`importedID(_:)`：`imported:`＋SHA-256 前 8 位元組。 |
+| `ios/Sources/WebHTVCore/ConfigLoader.swift` | `ConfigLoaderError` 加 `emptyDepot`／`depotLoop`／`importedDepotNeedsAddress`；`fetch(from:)` 回傳 `Fetched`（`.config`／`.depot`），**驗證前**先判斷多倉，倉網址不會被探測相容套件。 |
+| `ios/Sources/WebHTVCore/SavedSource.swift` | `SavedSource.depot: Depot?`（`{id, url?, name}`，舊檔相容）；`SavedSourceList.adopt(_:into:replacing:)`（移除倉網址本身、同網址只留一筆並移到最後加入的倉、保留使用者改過的名稱）、`renameDepot(id:to:)`、`groups`（各倉依出現順序，無倉的最後）。 |
+| `ios/WebHTVApp/Sources/WebHTVApp.swift` | `load(remote:)` → 新 `open(remote:visited:)`：多倉時加入各項、目前來源已屬此倉則只更新清單（「重新整理倉清單」），否則開第一項；深度 3＋循環偵測。匯入入口 `load(_:)` 先判斷多倉（§5.2 F-1）。`depotNotice` 提示在載入結束且未失敗時才顯示，失敗時併進錯誤訊息。設定頁：有多倉時「已存來源」依倉分組（標題「多倉：名稱」＋改名、倉網址在 footer，無倉者在「其他」），沒有多倉時維持原本單一區塊；「設定來源」的「來源」對多倉項目顯示「名稱（多倉：倉名）」，並出現「重新整理倉清單」。 |
+| `ios/Tests/WebHTVCoreTests/DepotConfigTests.swift`（新） | 10 個測試：相對解析、`urls` 優先／一般設定不是多倉／直播 `urls` 不誤判、空白重複非 http 略過與空清單錯誤、base64 包裝與註解、匯入檔相對略過計數、內容雜湊分組、加入與移除倉網址、最後加入的倉擁有、整組改名、舊檔相容與往返。 |
+| `ios/Tests/WebHTVCoreTests/ConfigSourceTests.swift` | 連網測試配合 `fetch` 新回傳型別。 |
+
+### 11.2 驗證
+
+- 單元測試：`swift test`（`ios/`）**1563 tests in 67 suites 全過**（`.herdr-synapse/webhtv-dev/artifacts/w311/core-tests-full.txt`）。
+- Simulator：webhtv-w311（iOS 27，iPhone 17 Pro），本分支 Debug 現場建置；熱點 172.20.10.7。測試伺服器 HTTPS 18451 提供多倉檔與 GitHub `st7833232/recha` main **`e6adf93a55996b876029f5c994fde330b439a30f`**（`git ls-remote` 確認）的鏡像；多倉的絕對項目指向 `raw.githubusercontent.com/st7833232/recha/e6adf93a…/wang-movie.json`。證據 `.herdr-synapse/webhtv-dev/artifacts/w311/`（`sim/*.labels`、`*-end.txt`、`srv.log`、`w311.sh`）。
+
+| 驗收 | 結果 |
+|---|---|
+| 1 加入多倉網址 | 「加入 2 個倉，第一個是『影視（GitHub）』」；已存來源只剩兩項、倉網址本身已移除；相對 `./mirror/wang-sex.json` 解析為 `https://127.0.0.1:18451/mirror/wang-sex.json`；首頁為第一項的站（YouTube｜PY，22 部）（`v1`） |
+| 2 選第二項 | 首頁換成 wang-sex 的站（黃豆短劇，18 部），`configSourceURL` 為第二項（`v5`）。兩份設定的直播清單名稱相同，畫面上無法以名稱區分；程式上直播一律取自目前那份設定 |
+| 3 重開 App | 仍是第二項；在第二項改選 Pornhub(嗷嗚) 後重開仍是它（`v6`、`v9`） |
+| 4 單倉不變 | 單倉網址加入照舊載入、歸「其他」組、無多倉提示（`t4`）；既有單元測試全過 |
+| 5 包裝／優先／空 | base64 包裝的多倉被辨識（`t6`）；`urls`＋`sites` 走多倉（`t8`）；空清單「多倉清單是空的（Depot urls is empty）」（`t7`） |
+| 6 巢狀／循環 | 多倉→內層多倉→載入 wang-sex（`t9`）；自我引用「多倉設定巢狀過深或互相引用」（`t10b`） |
+| 7 一項失敗 | 第一項 404：「設定來源回應 HTTP 404」，目前來源不變（`t11d`） |
+| 8 倉網址不當來源 | 倉網址不在已存來源、不寫入 `configSourceURL`；重開時伺服器沒有再收到倉網址請求（`srv.log`） |
+| 8a 匯入多倉檔 | 只有相對網址：提示改用網址、已存來源與目前來源不變（`i5`）；混合：加入絕對項並開啟、略過 1 個相對項並提示、分組鍵 `imported:f99996bd…`、名稱為檔名（`i6`） |
+| 8b 倉名稱 | 分組標題「多倉：<輸入的名稱>」；未輸入時為主機名稱；整組改名只改該組（`v4`、`n1`） |
+| 同網址兩倉 | 第二個多倉列相同網址：兩項移到後加入的倉、保留原名稱（`t5`） |
+| 重新整理倉清單 | 重抓倉網址、「倉清單已更新：1 個倉」、目前來源不變（`r1`） |
+| 9 舊檔相容 | 單元測試 `aListSavedBeforeDepotsDecodesUnchanged` |
+| 10 單元測試 | 見上 |
+
+驗證中修正的問題（已含在本次提交）：
+1. 多倉提示與錯誤同時出現時兩個對話框都不顯示（自我引用、第一項失敗）→ 提示等載入結束才顯示，失敗時併進錯誤。
+2. 提示裡的第一項名稱改用已存名稱（使用者改過的名稱優先）。
+
+Simulator 操作備註：此模擬器 App 為繁中、鍵盤為注音，XCUITest 打英文網址會被注音吃掉，改用 `simctl pbcopy`＋貼上；匯入檔放在 `group.com.apple.FileProvider.LocalStorage` 的 File Provider Storage。
+
+### 11.3 Ponytail
+
+`ponytail:ponytail-review`：Ship。唯一一項（啟動安靜刷新失敗時仍可能留下多倉提示）已套用：失敗時一律清掉 `depotNotice`。
+
+### 11.4 限制
+
+- 抓取失敗的網址（例如空的多倉清單）照既有行為留在已存來源，方便重試（與現有單倉一致）。
+- 自我引用的倉會留下一筆指向自己的項目（點它會再顯示循環錯誤）。
+- 真機沒測；Android 不改。
+- 相容套件與「上次更新」仍是全域一份（§7 既有限制）。
+
+### 11.5 回退
+
+`git revert` 本提交；`saved-sources.json` 的 `depot` 是可選欄位，舊版 App 會忽略它。

@@ -142,6 +142,8 @@ private struct ConfigView: View {
     @State private var libraryNavigation = TabReturnActions()
     @State private var settingsNavigation = TabReturnActions()
     @State private var error: String?
+    /// W-311: what adding or refreshing a multi-depot list did, shown once.
+    @State private var depotNotice: String?
     @State private var importing = false
     /// The remote-URL prompt, which the empty state needs as much as the settings page does.
     @State private var askingRemote = false
@@ -244,6 +246,13 @@ private struct ConfigView: View {
                     onUseSaved: { entry in use(entry) },
                     onRename: { entry, name in rename(entry, to: name) },
                     onForget: { entry in forget(entry) },
+                    onRefreshDepot: { url in Task { await load(remote: url, showHome: false) } },
+                    onRenameDepot: { id, name in
+                        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmed.isEmpty else { return }
+                        saved.renameDepot(id: id, to: trimmed)
+                        persistSaved()
+                    },
                     localSites: localSites.sites(for: source.identity),
                     onAddLocal: { site in changeLocalSites { $0.upsert(site, for: source.identity) } },
                     onRenameLocal: { key, name in changeLocalSites { $0.rename(key: key, to: name, for: source.identity) } },
@@ -413,6 +422,14 @@ private struct ConfigView: View {
         } message: {
             Text(error ?? "未知錯誤")
         }
+        // W-311: shown once loading has finished and only when it did not fail — a failure folds the notice into its
+        // own alert, because two alerts raised together, or one raised and withdrawn mid-load, show neither.
+        .alert("多倉設定", isPresented: Binding(get: { depotNotice != nil && error == nil && !refreshing },
+                                              set: { if !$0 { depotNotice = nil } })) {
+            Button("確定", role: .cancel) {}
+        } message: {
+            Text(depotNotice ?? "")
+        }
     }
 
     private func selectTab(_ tab: Int) {
@@ -435,6 +452,24 @@ private struct ConfigView: View {
         defer { url.stopAccessingSecurityScopedResource() }
         do {
             let data = try Data(contentsOf: url)
+            // W-311: a depot list imported from a file. It has no address, so relative entries cannot be fetched and are
+            // left out; the rest join the saved sources and the first opens. The file itself is not kept as a source.
+            if let entries = try DepotConfig.entries(data, from: nil) {
+                guard let first = entries.sources.first else { throw ConfigLoaderError.importedDepotNeedsAddress }
+                let depot = SavedSource.Depot(id: DepotConfig.importedID(data), url: nil,
+                                              name: url.deletingPathExtension().lastPathComponent)
+                saved.adopt(entries.sources, into: depot, replacing: nil)
+                persistSaved()
+                let notice = "「\(depot.name)」加入 \(entries.sources.count) 個倉，第一個是「\((saved.source(id: first.id) ?? first).displayName)」。"
+                    + (entries.skippedRelative > 0
+                        ? "\n\(entries.skippedRelative) 個相對網址的倉略過：匯入的檔案沒有網址可以對照，請改用「使用網址」加入多倉網址。" : "")
+                // Set in the same turn as `load` raises `refreshing`, so the notice waits for the load to finish.
+                Task {
+                    depotNotice = notice
+                    await load(remote: first.url)
+                }
+                return
+            }
             let config = try ConfigLoader.validate(data)
             // IOS-POC-48: this content's own identity, recorded before it replaces the file imported
             // now — so whatever stops between the two, the file on disk keeps the identity it has.
@@ -456,16 +491,45 @@ private struct ConfigView: View {
         refreshing = true
         defer { refreshing = false }
         do {
-            let (data, config) = try await ConfigLoader.fetch(from: url)
-            try adopt(data, config: config, from: .remote(url))
+            try await open(remote: url, visited: [])
             // W-276: loading may have installed the configuration's own compatibility pack (W-271); Settings shows it now.
             if let pack = await SpiderPackStore.shared.installedPack() { packStatus = Self.describe(pack) }
             if showHome { selectedTab = 0 }
             return true
         } catch {
             // The cached configuration and the live source list are untouched by a failed fetch.
-            if reportFailure { self.error = "遠端設定載入失敗：\(error.localizedDescription)" }
+            if reportFailure {
+                // W-311: a depot that was added before its first entry failed says so in the same alert — two alerts
+                // raised together show neither.
+                self.error = "遠端設定載入失敗：\(error.localizedDescription)" + (depotNotice.map { "\n\n\($0)" } ?? "")
+            }
+            depotNotice = nil
             return false
+        }
+    }
+
+    /// Fetches `url` and adopts it. W-311: a multi-depot address is unpacked into saved sources under its group — its
+    /// own entry dropped before the first one opens, unlike FongMi, which drops it only once the first loads (doc §5.2:
+    /// every entry is usable by itself by then) — and its first entry opens, unless the source on screen already belongs
+    /// to that depot (a refresh of the list). Depots inside depots open the same way, three deep at most, never in a circle.
+    /// Only the outermost call reports and moves to Home (`load(remote:)`), so a nested depot shows one result.
+    private func open(remote url: URL, visited: [URL]) async throws {
+        switch try await ConfigLoader.fetch(from: url) {
+        case .config(let data, let config):
+            try adopt(data, config: config, from: .remote(url))
+        case .depot(let entries):
+            guard visited.count < 3, !visited.contains(url) else { throw ConfigLoaderError.depotLoop }
+            let depot = SavedSource.Depot(id: url.absoluteString, url: url,
+                                          name: saved.source(id: url.absoluteString)?.displayName ?? url.host ?? url.absoluteString)
+            saved.adopt(entries.sources, into: depot, replacing: url)
+            persistSaved()
+            if case .remote(let current) = source, saved.source(id: current.absoluteString)?.depot?.id == depot.id {
+                depotNotice = "「\(depot.name)」倉清單已更新：\(entries.sources.count) 個倉。"
+                return
+            }
+            guard let first = entries.sources.first else { throw ConfigLoaderError.emptyDepot }
+            depotNotice = "「\(depot.name)」加入 \(entries.sources.count) 個倉，第一個是「\((saved.source(id: first.id) ?? first).displayName)」。"
+            try await open(remote: first.url, visited: visited + [url])
         }
     }
 
@@ -2178,6 +2242,9 @@ private struct SettingsView: View {
     let onUseSaved: (SavedSource) -> Void
     let onRename: (SavedSource, String) -> Void
     let onForget: (SavedSource) -> Void
+    /// W-311: fetches a depot's list again; renames a depot's group.
+    let onRefreshDepot: (URL) -> Void
+    let onRenameDepot: (String, String) -> Void
     /// W-277: the current source's local sites.
     let localSites: [LocalSite]
     let onAddLocal: (LocalSite) -> Void
@@ -2186,6 +2253,8 @@ private struct SettingsView: View {
 
     @State private var renaming: SavedSource?
     @State private var renameText = ""
+    /// W-311: the depot whose group is being renamed.
+    @State private var renamingDepot: SavedSource.Depot?
     @State private var confirmingSpiderToolReset = false
     @AppStorage(siteHealthSortKey) private var healthSort = true
     @State private var healthCleared = false
@@ -2397,6 +2466,14 @@ private struct SettingsView: View {
             }
             Button("取消", role: .cancel) { renaming = nil }
         }
+        .alert("重新命名多倉", isPresented: Binding(get: { renamingDepot != nil }, set: { if !$0 { renamingDepot = nil } })) {
+            TextField("名稱", text: $renameText)
+            Button("儲存") {
+                if let depot = renamingDepot { onRenameDepot(depot.id, renameText) }
+                renamingDepot = nil
+            }
+            Button("取消", role: .cancel) { renamingDepot = nil }
+        }
         .scrollContentBackground(.hidden)
         .appWallpaper()
         .listStyle(.insetGrouped)
@@ -2422,6 +2499,9 @@ private extension SettingsView {
             Button("加入設定來源", action: onAskRemote)
             if isRemote {
                 Button(refreshing ? "更新中…" : "重新整理", action: onRefresh).disabled(refreshing)
+            }
+            if let depotURL = activeSource?.depot?.url {
+                Button("重新整理倉清單") { onRefreshDepot(depotURL) }.disabled(refreshing)
             }
             Button("匯入本機檔案", action: onImport)
         } header: {
@@ -2466,31 +2546,57 @@ private extension SettingsView {
 
     /// IOS-POC-10D. Names, not addresses — the address is what the viewer had to read before.
     @ViewBuilder var savedSection: some View {
-        if !saved.sources.isEmpty {
-            Section("已存來源") {
-                ForEach(saved.sources) { entry in
-                    Button {
-                        onUseSaved(entry)
-                        onOpenHome()
-                    } label: {
+        // W-311: with no depot the list is one section, exactly as before; with depots, one section per depot and
+        // the sources added one by one under 「其他」.
+        if saved.groups.contains(where: { $0.depot != nil }) {
+            ForEach(saved.groups) { group in
+                Section {
+                    savedRows(group.sources)
+                } header: {
+                    if let depot = group.depot {
                         HStack {
-                            Text(entry.displayName).foregroundStyle(.primary)
+                            Text("多倉：\(depot.name)")
                             Spacer()
-                            if entry.id == activeSourceID {
-                                Image(systemName: "checkmark").foregroundStyle(appAccent)
+                            Button("改名") {
+                                renameText = depot.name
+                                renamingDepot = depot
                             }
+                            .font(.caption)
                         }
-                        .contentShape(Rectangle())
+                    } else {
+                        Text("其他")
                     }
-                    .swipeActions(edge: .trailing) {
-                        Button("刪除", role: .destructive) { onForget(entry) }
-                        Button("改名") {
-                            renameText = entry.name
-                            renaming = entry
-                        }
-                        .tint(.blue)
+                } footer: {
+                    if let url = group.depot?.url { Text(url.absoluteString).lineLimit(1).truncationMode(.middle) }
+                }
+            }
+        } else if !saved.sources.isEmpty {
+            Section("已存來源") { savedRows(saved.sources) }
+        }
+    }
+
+    @ViewBuilder private func savedRows(_ sources: [SavedSource]) -> some View {
+        ForEach(sources) { entry in
+            Button {
+                onUseSaved(entry)
+                onOpenHome()
+            } label: {
+                HStack {
+                    Text(entry.displayName).foregroundStyle(.primary)
+                    Spacer()
+                    if entry.id == activeSourceID {
+                        Image(systemName: "checkmark").foregroundStyle(appAccent)
                     }
                 }
+                .contentShape(Rectangle())
+            }
+            .swipeActions(edge: .trailing) {
+                Button("刪除", role: .destructive) { onForget(entry) }
+                Button("改名") {
+                    renameText = entry.name
+                    renaming = entry
+                }
+                .tint(.blue)
             }
         }
     }
@@ -2506,6 +2612,9 @@ private extension SettingsView {
         return url.absoluteString
     }
 
+    /// W-311: the saved entry on screen, for its depot.
+    var activeSource: SavedSource? { saved.source(id: activeSourceID) }
+
     var isRemote: Bool {
         if case .remote = source { return true }
         return false
@@ -2514,7 +2623,9 @@ private extension SettingsView {
     var sourceLabel: String {
         switch source {
         case .imported: "本機匯入檔案"
-        case .remote(let url): url.absoluteString
+        case .remote(let url):
+            // W-311: an entry of a depot is named with its depot; any other source shows its address, as before.
+            if let entry = activeSource, let depot = entry.depot { "\(entry.displayName)（多倉：\(depot.name)）" } else { url.absoluteString }
         }
     }
 

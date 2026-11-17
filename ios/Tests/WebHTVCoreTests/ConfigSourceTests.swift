@@ -82,7 +82,7 @@ private let base = "https://example.com/group/project/-/raw/main/"
 @Test func fetchesAndAnchorsARealRemoteConfig() async throws {
     guard let value = ProcessInfo.processInfo.environment["WANG_MOVIE_URL"],
           let url = URL(string: value) else { return }
-    let (data, config) = try await ConfigLoader.fetch(from: url)
+    guard case .config(let data, let config) = try await ConfigLoader.fetch(from: url) else { Issue.record("a depot, not a configuration"); return }
     let source = ConfigSource.remote(url)
 
     #expect(config.nativeCMSSites.count == 30)

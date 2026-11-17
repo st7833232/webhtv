@@ -28,11 +28,20 @@ public extension URLSession {
 public enum ConfigLoaderError: Error, Equatable, LocalizedError {
     case invalidHTTPStatus(Int)
     case noSupportedSites
+    /// W-311: a multi-depot list with no usable address (FongMi: "Depot urls is empty").
+    case emptyDepot
+    /// W-311: a depot that leads back to itself, or more than three depots deep.
+    case depotLoop
+    /// W-311: a depot imported from a file whose entries are all relative, so none can be fetched.
+    case importedDepotNeedsAddress
 
     public var errorDescription: String? {
         switch self {
         case .invalidHTTPStatus(let code): "設定來源回應 HTTP \(code)。"
         case .noSupportedSites: "此設定沒有 iOS 可用的來源（CMS 或已支援的爬蟲）。"
+        case .emptyDepot: "多倉清單是空的（Depot urls is empty）。"
+        case .depotLoop: "多倉設定巢狀過深或互相引用。"
+        case .importedDepotNeedsAddress: "匯入的多倉檔案沒有完整網址，請改用「使用網址」加入多倉網址。"
         }
     }
 }
@@ -96,14 +105,22 @@ public enum ConfigLoader {
         return config
     }
 
+    /// What an address served: a configuration, or (W-311) a multi-depot list of configuration addresses.
+    public enum Fetched {
+        case config(data: Data, config: WebHTVConfig)
+        case depot(DepotConfig.Entries)
+    }
+
     /// Downloads and validates a configuration. The bytes come back so the caller can cache exactly
-    /// what it verified rather than re-encoding the decoded model.
-    public static func fetch(from url: URL) async throws -> (data: Data, config: WebHTVConfig) {
+    /// what it verified rather than re-encoding the decoded model. W-311: a depot list is recognised
+    /// before validation, so its address is never probed for a compatibility pack beside it.
+    public static func fetch(from url: URL) async throws -> Fetched {
         let (data, response) = try await URLSession.webHTV.data(from: url)
         if let response = response as? HTTPURLResponse, !(200...299).contains(response.statusCode) {
             throw ConfigLoaderError.invalidHTTPStatus(response.statusCode)
         }
-        return (data, try await validate(data, from: url))
+        if let entries = try DepotConfig.entries(data, from: url) { return .depot(entries) }
+        return .config(data: data, config: try await validate(data, from: url))
     }
 
     /// A configuration fetched from `url`. W-271: one whose only sites are `csp_*` classes that just its own

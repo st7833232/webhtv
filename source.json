@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.103",
+          "date": "2026-11-17",
+          "localizedDescription": "修復 iOS 26 以上首頁海報列遭底部分頁列截斷與多餘留白；保留切換分頁後的畫面狀態。",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.103-b104/WebHTV-0.1.103-104.ipa",
+          "size": 36426104,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.1.102",
           "date": "2026-11-11",
           "localizedDescription": "播放：\n- 影片來源的腳本服務回報錯誤時，會在數秒內直接顯示「無法播放：來源腳本回報失敗」，不再逐一嘗試所有播放器與線路、空轉約一分半鐘。\n",

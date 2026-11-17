@@ -75,7 +75,9 @@ import Testing
         list.adopt([SavedSource(name: "影視", url: shared), SavedSource(name: "", url: URL(string: "https://repo.example/sex.json")!)],
                    into: first, replacing: first.url)
         #expect(list.sources.map(\.id) == [own.id, shared.absoluteString, "https://repo.example/sex.json"])
-        #expect(list.source(id: shared.absoluteString)?.depot == first)
+        // The name typed with the depot's address names the group.
+        #expect(list.source(id: shared.absoluteString)?.depot?.name == "typed")
+        #expect(list.source(id: shared.absoluteString)?.depot?.id == first.id)
         // Groups: depots first, then the sources added one by one.
         #expect(list.groups.map(\.id) == [first.id, ""])
         #expect(list.groups.last?.sources == [own])
@@ -96,6 +98,31 @@ import Testing
                    into: first, replacing: nil)
         list.renameDepot(id: first.id, to: "改名")
         #expect(list.sources.allSatisfy { $0.depot?.name == "改名" })
+    }
+
+    /// Reviewer #8759 F-1: a refresh (the depot address is no longer saved) or the same file imported again keeps the
+    /// group's name — the one typed when it was added, or one it was renamed to — instead of falling back to the host.
+    @Test func aRefreshOrReImportKeepsTheGroupName() {
+        var list = SavedSourceList(sources: [SavedSource(name: "我的多倉", url: first.url!)])
+        let added = list.adopt([SavedSource(name: "", url: shared)], into: SavedSource.Depot(id: first.id, url: first.url, name: "repo.example"),
+                               replacing: first.url)
+        #expect(added.name == "我的多倉")
+        let refreshed = list.adopt([SavedSource(name: "", url: shared)], into: SavedSource.Depot(id: first.id, url: first.url, name: "repo.example"),
+                                   replacing: first.url)
+        #expect(refreshed.name == "我的多倉" && list.source(id: shared.absoluteString)?.depot?.name == "我的多倉")
+        list.renameDepot(id: first.id, to: "改過的名字")
+        list.adopt([SavedSource(name: "", url: shared), SavedSource(name: "", url: URL(string: "https://repo.example/new.json")!)],
+                   into: SavedSource.Depot(id: first.id, url: first.url, name: "repo.example"), replacing: first.url)
+        #expect(list.sources.allSatisfy { $0.depot?.name == "改過的名字" })
+        // Typed again with a new name: that name wins, for the whole group.
+        list.upsert(SavedSource(name: "新名字", url: first.url!))
+        list.adopt([SavedSource(name: "", url: shared)], into: SavedSource.Depot(id: first.id, url: first.url, name: "repo.example"),
+                   replacing: first.url)
+        #expect(list.sources.allSatisfy { $0.depot?.name == "新名字" })
+        // A new depot with nothing typed falls back to the caller's name.
+        let fresh = list.adopt([SavedSource(name: "", url: URL(string: "https://x.example/a.json")!)],
+                               into: SavedSource.Depot(id: "imported:abc", url: nil, name: "file"), replacing: nil)
+        #expect(fresh.name == "file")
     }
 
     @Test func aListSavedBeforeDepotsDecodesUnchanged() throws {

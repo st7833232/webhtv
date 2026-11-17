@@ -456,9 +456,9 @@ private struct ConfigView: View {
             // left out; the rest join the saved sources and the first opens. The file itself is not kept as a source.
             if let entries = try DepotConfig.entries(data, from: nil) {
                 guard let first = entries.sources.first else { throw ConfigLoaderError.importedDepotNeedsAddress }
-                let depot = SavedSource.Depot(id: DepotConfig.importedID(data), url: nil,
-                                              name: url.deletingPathExtension().lastPathComponent)
-                saved.adopt(entries.sources, into: depot, replacing: nil)
+                let depot = saved.adopt(entries.sources, into: SavedSource.Depot(id: DepotConfig.importedID(data), url: nil,
+                                                                                 name: url.deletingPathExtension().lastPathComponent),
+                                        replacing: nil)
                 persistSaved()
                 let notice = "「\(depot.name)」加入 \(entries.sources.count) 個倉，第一個是「\((saved.source(id: first.id) ?? first).displayName)」。"
                     + (entries.skippedRelative > 0
@@ -519,9 +519,10 @@ private struct ConfigView: View {
             try adopt(data, config: config, from: .remote(url))
         case .depot(let entries):
             guard visited.count < 3, !visited.contains(url) else { throw ConfigLoaderError.depotLoop }
-            let depot = SavedSource.Depot(id: url.absoluteString, url: url,
-                                          name: saved.source(id: url.absoluteString)?.displayName ?? url.host ?? url.absoluteString)
-            saved.adopt(entries.sources, into: depot, replacing: url)
+            // The name typed with this address, or the group's own name on a refresh, is settled in `adopt`; the host is the fallback.
+            let depot = saved.adopt(entries.sources, into: SavedSource.Depot(id: url.absoluteString, url: url,
+                                                                             name: url.host ?? url.absoluteString),
+                                    replacing: url)
             persistSaved()
             if case .remote(let current) = source, saved.source(id: current.absoluteString)?.depot?.id == depot.id {
                 depotNotice = "「\(depot.name)」倉清單已更新：\(entries.sources.count) 個倉。"

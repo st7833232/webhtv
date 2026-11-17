@@ -211,7 +211,7 @@
 ### 11.2 驗證
 
 - 單元測試：`swift test`（`ios/`）**1563 tests in 67 suites 全過**（`.herdr-synapse/webhtv-dev/artifacts/w311/core-tests-full.txt`）。
-- Simulator：webhtv-w311（iOS 27，iPhone 17 Pro），本分支 Debug 現場建置；熱點 172.20.10.7。測試伺服器 HTTPS 18451 提供多倉檔與 GitHub `st7833232/recha` main **`e6adf93a55996b876029f5c994fde330b439a30f`**（`git ls-remote` 確認）的鏡像；多倉的絕對項目指向 `raw.githubusercontent.com/st7833232/recha/e6adf93a…/wang-movie.json`。證據 `.herdr-synapse/webhtv-dev/artifacts/w311/`（`sim/*.labels`、`*-end.txt`、`srv.log`、`w311.sh`）。
+- Simulator：webhtv-w311（iOS 27，iPhone 17 Pro），本分支 Debug 現場建置；熱點 172.20.10.7。測試伺服器 HTTPS 18451 提供多倉檔與 GitHub `st7833232/recha` main **`e6adf93a55996b876029f5c994fde330b439a30f`**（`git ls-remote` 確認）的鏡像；多倉的絕對項目指向 `raw.githubusercontent.com/st7833232/recha/e6adf93a…/wang-movie.json`。（Reviewer N-1）`r1`／`n1`（13:29–13:33）進行時 GitHub main 已前進到 `f650d843`，與 `e6adf93a` 只差 `py/Jable.py`，不影響多倉解析與 wang-movie／wang-sex 首頁；測試檔刻意釘在 `e6adf93a`，結論不變。證據 `.herdr-synapse/webhtv-dev/artifacts/w311/`（`sim/*.labels`、`*-end.txt`、`srv.log`、`w311.sh`）。
 
 | 驗收 | 結果 |
 |---|---|
@@ -243,6 +243,8 @@ Simulator 操作備註：此模擬器 App 為繁中、鍵盤為注音，XCUITest
 ### 11.4 限制
 
 - 抓取失敗的網址（例如空的多倉清單）照既有行為留在已存來源，方便重試（與現有單倉一致）。
+- （Reviewer N-2）在「加入設定來源」手動輸入一個已屬某倉的網址，會把它移到「其他」組（視為使用者手動加入，與「最後加入者為準」一致）。刻意如此。
+- （Reviewer N-3）倉清單更新後，已不在新清單裡的舊項目仍留在該組，使用者可自行刪除；FongMi 也只加不刪。
 - 自我引用的倉會留下一筆指向自己的項目（點它會再顯示循環錯誤）。
 - 真機沒測；Android 不改。
 - 相容套件與「上次更新」仍是全域一份（§7 既有限制）。
@@ -250,3 +252,11 @@ Simulator 操作備註：此模擬器 App 為繁中、鍵盤為注音，XCUITest
 ### 11.5 回退
 
 `git revert` 本提交；`saved-sources.json` 的 `depot` 是可選欄位，舊版 App 會忽略它。
+
+### 11.6 退件修正（Reviewer #8759 F-1）
+
+- 問題：「重新整理倉清單」與同一檔案再匯入會把倉名稱蓋回主機名稱／檔名——倉網址那一筆第一次加入時已移除，重新整理時查不到輸入的名稱，而 `adopt` 又無條件覆寫 `depot`。
+- 修正（只在一處，遠端與匯入共用）：`SavedSourceList.adopt` 決定名稱——倉網址剛以**非空名稱**存入時用輸入的名稱（並同步整組）；否則同一倉 id 已有分組時**沿用既有名稱**；都沒有才用呼叫端給的後備名稱（主機名稱或檔名）。`adopt` 回傳實際存下的 `Depot`，App 的提示用它。
+- 測試：`SavedSourceDepotTests.aRefreshOrReImportKeepsTheGroupName`（加入時輸入名稱→重新整理不變→改名後再 adopt 不變→再次輸入新名稱則整組換名→新倉無輸入用後備名稱）。
+- Simulator（`.herdr-synapse/webhtv-dev/artifacts/w311/sim-f1/`，先清空已存來源與設定）：從空狀態以名稱「多倉A」加入 `depot.json` → 「重新整理倉清單」後仍為「多倉A」（`f2`）→ 改名為「多倉A改」→ 再「重新整理倉清單」，分組標題與「來源」列仍為「多倉A改」（`f3`、`f4`）。
+- `swift test` 1564/1564 通過（`core-tests-full2.txt`）。

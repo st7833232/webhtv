@@ -101,8 +101,22 @@ public struct SavedSourceList: Codable, Sendable, Equatable {
     /// W-311: a depot's entries join the list under `depot`. An address already saved keeps the name the viewer gave it
     /// and moves to this depot — the last depot added owns it (user, 2026-11-17); one address is never listed twice.
     /// The depot's own address, saved when it was typed in, is dropped: it is a list, not a configuration.
-    public mutating func adopt(_ entries: [SavedSource], into depot: SavedSource.Depot, replacing depotURL: URL?) {
+    ///
+    /// The group's name: a non-empty name just typed with the depot's address wins; otherwise a group this depot already
+    /// has keeps its name (a refresh, or the same file imported again, never undoes a rename); otherwise `depot.name`,
+    /// the caller's fallback (host or file name). Returns the depot as stored.
+    @discardableResult
+    public mutating func adopt(_ entries: [SavedSource], into depot: SavedSource.Depot, replacing depotURL: URL?) -> SavedSource.Depot {
+        var depot = depot
+        let typed = depotURL.flatMap { source(id: $0.absoluteString) }?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !typed.isEmpty {
+            depot.name = typed
+        } else if let existing = sources.first(where: { $0.depot?.id == depot.id })?.depot {
+            depot.name = existing.name
+        }
         if let depotURL { remove(id: depotURL.absoluteString) }
+        // A new typed name renames the entries already in the group too, so one depot never shows two names.
+        for index in sources.indices where sources[index].depot?.id == depot.id { sources[index].depot = depot }
         for entry in entries {
             var joined = entry
             joined.depot = depot
@@ -113,6 +127,7 @@ public struct SavedSourceList: Codable, Sendable, Equatable {
                 sources.append(joined)
             }
         }
+        return depot
     }
 
     /// W-311: renames a depot on every entry of its group.

@@ -103,23 +103,33 @@
 
 ### 5.1 Core（`ios/Sources/WebHTVCore/`）
 
-- 新增 `Depot`（或放在 `ConfigLoader.swift`）：`static func entries(_ data: Data, from url: URL) -> [SavedSource]?`
+- 新增 `Depot`（或放在 `ConfigLoader.swift`）：`static func entries(_ data: Data, from url: URL?) -> [SavedSource]?`（`url` 為 nil 表示匯入的本機檔案）
   - 用既有 `unwrapped`＋JSON5 解碼；**只有頂層是物件且 `urls` 是陣列**才回非 nil（`urls` 優先於 `sites`，對齊 Android）。
-  - 每項 `{url,name}`：`url` 去空白，空的略過（比 Android 寬容）；相對 `./`、`../` 以**倉網址**解析（`URL(string:relativeTo:)`，同 `ConfigSource.resourceURL` 規則）；只收 http(s)；依 `absoluteString` 去重、保留順序。
+  - 每項 `{url,name}`：`url` 去空白，空的略過（比 Android 寬容）；相對 `./`、`../` 以**倉網址**解析（`URL(string:relativeTo:)`，同 `ConfigSource.resourceURL` 規則），沒有倉網址（匯入檔案）時相對項目略過並計數；只收 http(s)；依 `absoluteString` 去重、保留順序。
   - 陣列為空或全部無效 → 丟新錯誤 `ConfigLoaderError.emptyDepot`，訊息「多倉清單是空的（Depot urls is empty）」。
 - `ConfigLoader.fetch(from:)` 改回傳列舉 `.config(data, WebHTVConfig)`／`.depot([SavedSource])`，**在 `validate(_:from:)` 之前判斷多倉**，避免對倉網址旁的 `./spiders/manifest.json` 發請求（`ConfigLoader.swift:117-119`）。
-- `SavedSource` 加可選欄位 `depot: URL?`（`Codable` 用 `decodeIfPresent`，舊檔相容）。
+- `SavedSource` 加可選欄位 `depot: SavedSource.Depot?`，`Depot { id: String, url: URL?, name: String }`（`Codable` 用 `decodeIfPresent`，舊檔相容）：
+  - `id`：分組鍵。遠端倉＝倉網址 `absoluteString`；匯入的多倉檔＝`imported:<檔名>`。
+  - `url`：遠端倉網址（供「重新整理倉清單」重抓）；匯入檔為 nil。
+  - `name`：分組標題。取「加入設定來源」對話框輸入的名稱；空白時用倉網址的主機名稱（匯入檔用檔名）。因為倉網址那一筆會從已存來源移除（§5.2），**倉名稱只存在各項的 `depot.name`**，同一倉各項一致；「改名」倉時一次改同組各項。
 
 ### 5.2 App（`WebHTVApp.swift`）
 
 - `load(remote:)` 收到 `.depot(entries)`：
-  1. 每項 `entries` 標上 `depot = 倉網址`，`saved.upsert`（已存在的保留使用者改過的名稱，空名才補倉給的名稱）；把**倉網址本身**從 `saved` 移除（對齊 Android 刪外層），`persistSaved()`。
+  1. 每項 `entries` 標上 `depot = Depot(id: 倉網址, url: 倉網址, name: 使用者輸入的名稱或主機名稱)`，`saved.upsert`（已存在的保留使用者改過的項目名稱，空名才補倉給的名稱）；把**倉網址本身**從 `saved` 移除，`persistSaved()`。
+     - **刻意與 Android 不同**（Reviewer N-1）：Android 是第一倉**載入成功後**才刪外層網址；iOS 在載入前就移除。理由：各倉此時都已是可單獨使用的已存來源，第一倉失敗時使用者可直接點其他倉；倉網址仍保存在各項的 `depot.url`，可用「重新整理倉清單」重抓。所以第一倉失敗時 iOS 留下各倉、沒有外層；Android 則留著外層。
   2. 選要載入的倉：若目前來源已是此倉的一項 → 不切換；否則載入第一項。（Android 永遠第一項；iOS 只在「重新整理倉清單」時保留目前那倉，避免無故跳倉。）
   3. 遞迴呼叫 `load(remote: 子URL)`，帶入已走過的網址集合；**深度上限 3、遇到已走過的網址即停**，顯示「多倉設定巢狀過深或互相引用」。
+     - （Reviewer N-2）中間層不切畫面、不跳錯誤：遞迴時內層以 `showHome: false, reportFailure: false` 呼叫，只有最外層在最後成功時切回首頁、失敗時只顯示一次錯誤。
   4. 顯示提示「已加入 N 個倉，目前使用：<名稱>」。
 - **倉網址永遠不會成為 `source`／`configSourceURL`**，所以 `restore()` 與啟動時的安靜刷新只會刷新目前那一倉（風險見 §7）。
 - 子設定以 `ConfigSource.remote(子URL)` 採用：快取、記住的站（`selectedSiteBySource`）、本機站、站點健康、直播、收藏與觀看紀錄全部**自動按倉分開**，與 Android「跟著倉走」一致，不需改。
 - 單一倉失敗：沿用現有行為——保留目前來源與快取，只顯示錯誤（`App:465-468`），不自動換下一倉（對齊 Android）。
+- **匯入本機檔案**（Reviewer F-1；`App:405` `.fileImporter` → `load(_ url:)` `App:430`，今天直接 `ConfigLoader.validate(data)`）：在 `validate` 之前先 `Depot.entries(data, from: nil)`：
+  - 是多倉：**絕對 http(s) 網址**的項目照加入已存來源（`depot = Depot(id: "imported:<檔名>", url: nil, name: <檔名>)`），**相對網址的項目略過**（匯入檔沒有基準網址，對齊 iOS 現有「匯入檔不錨定相對路徑」的規則，`ios/Tests/WebHTVCoreTests/ConfigSourceTests.swift` 的 `anImportedFileAnchorsNothing`）；接著以 `load(remote:)` 載入第一個絕對項目。提示「已加入 N 個倉；M 個相對網址略過，請改用『使用網址』加入多倉網址」。
+  - 全部都是相對網址或空：不改任何狀態，顯示「匯入的多倉檔案沒有完整網址，請改用『使用網址』加入」。
+  - 匯入的多倉檔本身不寫入 `wang-movie.json` 快取、不成為目前來源；這一組沒有「重新整理倉清單」（`depot.url` 為 nil）。
+  - 不是多倉：照現有流程，不變。
 - 直播：iOS 沒有獨立直播來源，切倉時 `lives` 跟著子設定換，等同 Android「直播跟隨點播」的預設情形。Android `LiveConfig` 的 `urls`（獨立直播多倉）iOS 沒有對應入口，**不做**。
 
 ### 5.3 UI 草圖
@@ -136,7 +146,7 @@
 │   重新整理倉清單                            ← 只有目前來源屬於某倉時才出現（重抓倉網址）
 │   匯入本機檔案
 ├ 已存來源
-│   ── 我的多倉（https://…/depot.json）──
+│   ── 我的多倉（https://…/depot.json）──     ← 標題＝depot.name（＋網址）；匯入檔的組顯示檔名
 │   王的影視                              ✓
 │   成人
 │   ── 其他 ──
@@ -157,8 +167,10 @@
 6. 巢狀：倉內一項本身又是多倉可展開；自我引用或超過 3 層會停下並提示，不當機。
 7. 某一倉抓取失敗：保留目前來源，只提示錯誤。
 8. 倉網址本身不出現在已存來源、不成為目前來源；啟動安靜刷新只刷新目前那一倉。
+8a. **匯入本機多倉檔案**：絕對網址的項目加入已存來源並自動載入第一個，分組標題為檔名；相對網址項目略過並提示改用網址；全部是相對網址時不改狀態只提示。匯入一般單倉檔案行為不變。
+8b. 倉名稱：加入時輸入的名稱出現在分組標題；未輸入時顯示主機名稱；重開 App 後仍在。
 9. 舊版 `saved-sources.json`（沒有 `depot` 欄位）可正常讀入。
-10. Core 新增單元測試：多倉解析（含包裝、相對 url、去重、空陣列、`urls` 優先）、只有 `sites` 的設定不被當成多倉、`SavedSource` 新舊格式相容。
+10. Core 新增單元測試：多倉解析（含包裝、相對 url、去重、空陣列、`urls` 優先、`from: nil` 時相對項目略過並計數）、只有 `sites` 的設定不被當成多倉、`SavedSource`（含 `depot`）新舊格式相容。
 
 ## 7. 風險
 
@@ -174,8 +186,9 @@
 ## 9. 第二階段範圍與時間
 
 - 預計改動：`ios/Sources/WebHTVCore/ConfigLoader.swift`（或新檔 `Depot.swift`）、`SavedSource.swift`、`ios/WebHTVApp/Sources/WebHTVApp.swift`（`load(remote:)`、`useRemote`、設定頁已存來源分組與「重新整理倉清單」）、`ios/Tests/WebHTVCoreTests/` 新增或擴充測試、本文件。
-- 時間（本 agent 實際作業）：Core＋測試約 1 小時；App 流程與 UI 約 1.5 小時；Simulator 驗證（建置、本機多倉伺服器、驗收 1–9）約 1.5 小時；Ponytail 與文件約 0.5 小時。合計約 4.5 小時，不含審查往返。
+- 驗證環境（Reviewer N-3）：本機 HTTPS 伺服器提供 `{"urls":[…]}`，各項指向 GitHub `st7833232/recha` main 的 `wang-movie.json`、`wang-sex.json`（用前 `git ls-remote https://github.com/st7833232/recha.git main`，報告寫 SHA）；另備一份含相對網址的多倉檔供匯入測試。
+- 時間（本 agent 實際作業）：Core＋測試約 1 小時；App 流程（含匯入入口）與 UI 約 1.5 小時；Simulator 驗證（建置、本機多倉伺服器、驗收 1–9）約 1.5 小時；Ponytail 與文件約 0.5 小時。合計約 4.5 小時，不含審查往返。
 
 ## 10. 狀態
 
-第一階段完成，送 Reviewer（webhtv-dev-codex-reviewer-2）審查；核准「開始實施」前不改程式碼。
+第一階段完成；2026-11-17 依 Reviewer #8681 補匯入本機檔案入口（F-1）、倉名稱欄位（F-2）與 N-1～N-3 註記，重送 Reviewer（webhtv-dev-codex-reviewer-2）審查；核准「開始實施」前不改程式碼。

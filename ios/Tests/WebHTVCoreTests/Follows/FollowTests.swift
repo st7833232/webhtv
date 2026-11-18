@@ -360,3 +360,19 @@ private func named(_ name: String, vod: String = "v1") -> Follow {
     _ = await checker.run([searchedToday], forced: false)
     #expect(await calls.asked.count == 3)
 }
+
+/// Review N-6: a failed season search still counts as today's look.
+@Test func aFailedSeasonSearchWaitsUntilTomorrow() async throws {
+    let cmsSite = try site("cms")
+    struct Down: Error {}
+    let item = FollowSchedule.Candidate(follow: Follow(identity: FavoriteIdentity(configSourceID: "cfg", siteID: cmsSite.id, vodID: "v1"),
+                                                       vodName: "慶餘年", vodPic: "", siteName: "", remarks: "",
+                                                       listing: listing(episodes(1...2))),
+                                        site: cmsSite, isSpider: false)
+    let checker = FollowChecker(activity: SiteActivity(), conditions: { .init(playerOpen: false, onFollowScreen: false) },
+                                search: { _, _ in throw Down() }) { _, _ in nil }
+    let report = await checker.run([item], forced: false)
+    let results = try #require(report.seasons[item.follow.identity])
+    #expect(results.isEmpty)
+    #expect(!item.follow.searched(results).seasonDue())
+}

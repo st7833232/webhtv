@@ -485,3 +485,10 @@
 - **N-5**：§9 第 4 項（回到前景 30 分鐘）、第 7 項（播放中不檢查）仍然只做到程式碼層級，見 §12.2。
 - 驗證：`swift test` 1596/1596（`artifacts/w313/core-tests-full-f1.txt`）。
 - Ponytail：`ponytail:ponytail-review` 程序對這筆修正（802b1c2d）的 diff：沒有必修。已確認 `round` 在主執行緒上、等待者恢復前就清空，不會無限等待；非強制的觸發遇到進行中的一輪只是等它跑完再略過，不會多跑一輪。
+
+## 15. 第二次退件（Reviewer #8886／#8887）
+- **F-1**：已在 802b1c2d 修好（§14）。和 Reviewer 建議的寫法不同：沒有放在 `restore()` 之後用 `await` 等它，而是在「site list ready」紀錄之後馬上另開工作讀檔、不等它；理由是放在前面並等待時，實測啟動時間從 81–159 ms 變成 566–2702 ms。這次讀檔仍然在 `refreshRemote`、`refreshSpiderPack` 和第一輪檢查之前完成；Simulator 實測第一輪還沒跑時，追更列、片庫數字和鈴鐺都正確（§14）。
+- **N-6**：同站新季搜尋失敗或逾時，也當成「今天查過、什麼都沒找到」（`Report.seasons` 給空陣列，`Follow.searched([])` 記下時間、保留已找到的提示），所以失敗的站隔天才會再搜。新增測試 `aFailedSeasonSearchWaitsUntilTomorrow`。
+- **N-7**：606bdcb1 起第 281 行就已經是 `candidate.strength == .strong`；Reviewer 看的可能是更早的版本。
+- 驗證：`swift test --filter "FollowTests|SeriesTitleTests"` 33/33。全套在 802b1c2d 是 1596/1596，這次只改到 `FollowCheck` 的兩個 case，沒有重跑全套。
+- Ponytail：N-6 的 diff 只有兩行行為改動加一個測試，沒有發現問題。

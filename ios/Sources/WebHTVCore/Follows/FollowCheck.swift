@@ -113,7 +113,7 @@ public struct FollowChecker: Sendable {
     public typealias Search = @Sendable (Site, String) async throws -> [Vod]
 
     /// What a round found: each asked follow's listing, and the search results of those searched for a
-    /// later season. A follow not asked is absent and stays as it was.
+    /// later season — empty when the search failed. A follow not asked is absent and stays as it was.
     public struct Report: Sendable {
         public var outcomes = [FavoriteIdentity: Outcome]()
         public var seasons = [FavoriteIdentity: [Vod]]()
@@ -209,8 +209,11 @@ public struct FollowChecker: Sendable {
                 case .value(let results):
                     report.seasons[identity] = results
                 case .failed:
-                    break
+                    // Counted as a look that found nothing, so a failing site is searched again tomorrow,
+                    // not every round (review N-6). A hint already found stays (`Follow.searched`).
+                    report.seasons[identity] = []
                 case .timedOut:
+                    report.seasons[identity] = []
                     Self.log.notice("[follow] \(candidate.site.name, privacy: .public) search past \(timeout) — no longer waited for")
                     if spider { return report }
                 }

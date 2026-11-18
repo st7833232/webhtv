@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.105",
+          "date": "2026-11-18",
+          "localizedDescription": "追更新：\n- 影片詳情頁可以「追更新」：有新集數時，片庫記錄頁的追更區會顯示「+N 集」，片庫分頁也會出現徽章；播放到最新一集後提示自動清除。\n- 影集出新一季時會提示，可直接搜尋新一季。\n- 開著 App 時最多每 30 分鐘檢查一次，播放中不檢查。\n\n搜尋：\n- 搜尋結果依片名與關鍵字的接近程度排序，同一系列的各季排在一起；開始捲動或點選後順序固定，新結果改用提示列，點了才重排。\n- 狀況較好的來源優先搜尋。\n- 不再改寫關鍵字裡的標準簡體字，減少搜不到的情況。\n",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.105-b106/WebHTV-0.1.105-106.ipa",
+          "size": 36674480,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.1.104",
           "date": "2026-11-17",
           "localizedDescription": "設定：\n- 支援多倉設定：加入多倉設定網址後，各倉會列在「已存來源」並依倉分組，可直接切換；重開 App 會記得上次使用的倉。\n",

@@ -484,3 +484,4 @@
 - **N-4**：`EpisodeListing` 判斷順序時，改從頭尾往內各找第一個有編號的集，而且取新集名稱時跳過已見過的名稱，所以「預告」放在最上面的倒序清單也判斷得對。新增測試 `anUnnumberedHeadDoesNotHideANewestFirstOrder`。
 - **N-5**：§9 第 4 項（回到前景 30 分鐘）、第 7 項（播放中不檢查）仍然只做到程式碼層級，見 §12.2。
 - 驗證：`swift test` 1596/1596（`artifacts/w313/core-tests-full-f1.txt`）。
+- Ponytail：`ponytail:ponytail-review` 程序對這筆修正（802b1c2d）的 diff：沒有必修。已確認 `round` 在主執行緒上、等待者恢復前就清空，不會無限等待；非強制的觸發遇到進行中的一輪只是等它跑完再略過，不會多跑一輪。

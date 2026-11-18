@@ -1869,6 +1869,7 @@ private struct SearchCanceller: View {
 
 private struct AggregateSearchView: View {
     @ObservedObject private var displayModel = TaiwanDisplay.shared
+    @AppStorage(siteHealthSortKey) private var healthSort = true
     let sites: [Site]
     let source: ConfigSource
     var initialQuery: String?
@@ -1894,23 +1895,52 @@ private struct AggregateSearchView: View {
     @State private var groups = [SiteHits]()
     /// The chip in use: a site's position in the searched list, or nil for 全部.
     @State private var selected: Int?
+    /// W-312 A1 (§4.3 point 5): 全部 is ranked again as each site answers until the viewer scrolls, taps a card or a
+    /// chip; from then on it keeps this order, so nothing moves under a finger, and later answers wait for 重新排序.
+    @State private var frozenOrder: [String]?
 
+    private static let resultsSpace = "webhtv.search.results"
+    private static let resultsTop = "webhtv.search.top"
     private let columns = [GridItem(.adaptive(minimum: 104, maximum: 180), spacing: 12)]
 
     private struct SiteHits {
         let index: Int
         let site: Site
-        var vods: [Vod]
+        var vods: [Vod] {
+            // 載入更多 only appends (`DualScriptSearch.nextPage` merges onto what is shown), so only new titles are worked out.
+            didSet { annotate(vods.dropFirst(scores.count)) }
+        }
+        /// W-312 A1: each title's `SearchRelevance.score`, worked out once when it arrives.
+        private(set) var scores: [Int] = []
+        /// W-312 A2: each title split into series and season, parsed once when it arrives.
+        private(set) var series: [SeriesTitle] = []
+        let keyword: String
         /// IOS-POC-33: the next page of each keyword form still adding titles.
         var cursor: DualScriptSearch.Cursor
         var canLoadMore = true
         var loadingMore = false
+
+        init(index: Int, site: Site, vods: [Vod], keyword: String, cursor: DualScriptSearch.Cursor) {
+            self.index = index
+            self.site = site
+            self.vods = vods
+            self.keyword = keyword
+            self.cursor = cursor
+            annotate(vods[...])
+        }
+
+        private mutating func annotate(_ new: ArraySlice<Vod>) {
+            scores += new.map { SearchRelevance.score(title: $0.name, keyword: keyword) }
+            series += new.map { SeriesTitle($0.name) }
+        }
     }
 
     private struct Hit: Identifiable {
         let site: Site
         let vod: Vod
         let id: String
+        let score: Int
+        let series: SeriesTitle
     }
 
     var body: some View {
@@ -1953,34 +1983,43 @@ private struct AggregateSearchView: View {
             .padding(.horizontal, 20).padding(.top, 12)
             CinematicSearchField(text: $query, prompt: "搜尋所有站台", onSubmit: { submit() })
                 .padding(.horizontal, 20)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if !groups.isEmpty { chipRow }
-                    if searching || answered > 0 { progressRow }
-                    if hits.isEmpty { emptyState.padding(.top, 48) }
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
-                        ForEach(hits) { hit in
-                            NavigationLink {
-                                vodDestination(hit.vod, site: hit.site, source: source, extend: [:])
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    VodCard(vod: hit.vod)
-                                    Text(zhTW: hit.site.name.displayName)
-                                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .onAppear {
-                                if let selected, hit.id == hits.last?.id { Task { await loadMore(selected) } }
-                            }
-                        }
+            ScrollViewReader { proxy in
+                // Outside the scroll view, so it stays in sight however far the viewer has scrolled.
+                let unseen = unseenCount
+                if unseen > 0 {
+                    Button("有 \(unseen) 筆新結果，點這裡重新排序") {
+                        frozenOrder = ranked(allHits).map(\.id)
+                        proxy.scrollTo(Self.resultsTop, anchor: .top)
                     }
+                    .font(.caption.weight(.semibold))
                     .padding(.horizontal, 20)
-                    if selectedGroup?.loadingMore == true { ProgressView().frame(maxWidth: .infinity) }
                 }
-                .padding(.bottom, 24)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Color.clear.frame(height: 0).id(Self.resultsTop)
+                            .onGeometryChange(for: Bool.self) { $0.frame(in: .named(Self.resultsSpace)).minY < -8 } action: {
+                                if $0 { freeze() }
+                            }
+                        if !groups.isEmpty { chipRow }
+                        if searching || answered > 0 { progressRow }
+                        let shown = hits
+                        if shown.isEmpty { emptyState.padding(.top, 48) }
+                        // 全部 puts the titles that do not contain the keyword at all after a heading of their own;
+                        // a season pulled up next to its series stays above it.
+                        let split = selected == nil ? (shown.lastIndex { $0.score > 0 }).map { $0 + 1 } ?? shown.startIndex
+                                                    : shown.endIndex
+                        grid(shown[..<split], last: shown.last?.id)
+                        if split > shown.startIndex, split < shown.endIndex {
+                            Text("其他結果").font(.headline).padding(.horizontal, 20)
+                        }
+                        grid(shown[split...], last: shown.last?.id)
+                        if selectedGroup?.loadingMore == true { ProgressView().frame(maxWidth: .infinity) }
+                    }
+                    .padding(.bottom, 24)
+                }
+                .coordinateSpace(name: Self.resultsSpace)
+                .scrollDismissesKeyboard(.immediately)
             }
-            .scrollDismissesKeyboard(.immediately)
         }
         .dismissKeyboardOnBackgroundTap()
         .appWallpaper()
@@ -1999,11 +2038,63 @@ private struct AggregateSearchView: View {
         }
     }
 
-    private var hits: [Hit] {
-        let shown = selected.map { index in groups.filter { $0.index == index } } ?? groups
-        return shown.flatMap { group in
-            group.vods.map { Hit(site: group.site, vod: $0, id: "\(group.index)\u{0}\($0.id)") }
+    private func grid(_ hits: ArraySlice<Hit>, last: String?) -> some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
+            ForEach(hits) { hit in
+                NavigationLink {
+                    vodDestination(hit.vod, site: hit.site, source: source, extend: [:])
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        VodCard(vod: hit.vod)
+                        Text(zhTW: hit.site.name.displayName)
+                            .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                .buttonStyle(.plain)
+                .simultaneousGesture(TapGesture().onEnded { freeze() })
+                .onAppear {
+                    if let selected, hit.id == last { Task { await loadMore(selected) } }
+                }
+            }
         }
+        .padding(.horizontal, 20)
+    }
+
+    /// Every site's titles in the order the sites answered.
+    private var allHits: [Hit] {
+        groups.flatMap { group in
+            zip(group.vods, zip(group.scores, group.series)).map { vod, annotation in
+                Hit(site: group.site, vod: vod, id: "\(group.index)\u{0}\(vod.id)", score: annotation.0,
+                    series: annotation.1)
+            }
+        }
+    }
+
+    /// A site's chip: its titles as the site sent them. 全部: by `SearchRelevance.score`, equal scores in the order the
+    /// sites answered, then each series' seasons together where its best-placed one was — or, once frozen, the
+    /// order it had then.
+    private var hits: [Hit] {
+        if let selected { return allHits.filter { $0.id.hasPrefix("\(selected)\u{0}") } }
+        guard let frozenOrder else { return ranked(allHits) }
+        let byID = Dictionary(allHits.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return frozenOrder.compactMap { byID[$0] }
+    }
+
+    private func ranked(_ hits: [Hit]) -> [Hit] {
+        let byScore = hits.enumerated().sorted { $0.element.score != $1.element.score ? $0.element.score > $1.element.score
+                                                                                      : $0.offset < $1.offset }
+        return SeriesGrouping.groups(byScore.map(\.element), series: \.series).flatMap { $0 }
+    }
+
+    /// Titles that arrived after 全部 was frozen.
+    private var unseenCount: Int {
+        guard let frozenOrder, selected == nil else { return 0 }
+        return Set(allHits.map(\.id)).subtracting(frozenOrder).count
+    }
+
+    private func freeze() {
+        guard frozenOrder == nil, selected == nil, !groups.isEmpty else { return }
+        frozenOrder = hits.map(\.id)
     }
 
     private var selectedGroup: SiteHits? {
@@ -2025,7 +2116,10 @@ private struct AggregateSearchView: View {
 
     private func chip(_ title: String, index: Int?) -> some View {
         let isActive = selected == index
-        return CinematicChoice(title: title, selected: isActive) { selected = index }
+        return CinematicChoice(title: title, selected: isActive) {
+            freeze()
+            selected = index
+        }
     }
 
     private var progressRow: some View {
@@ -2094,10 +2188,15 @@ private struct AggregateSearchView: View {
         let targets = AggregateSearch.sites(from: sites)
         total = targets.count
         searching = true
-        let reports = engine.run(targets, keyword: text)
         let started = ContinuousClock.now
+        let byHealth = healthSort, engine = engine, identity = source.identity
         task = Task {
-            for await report in reports {
+            // W-312 A5: as Android's `CollectFragment.setSites`, the healthiest sites are asked first, so the ones
+            // that keep failing stop holding the first slots; the setting's 站點健康排序 switch turns it off.
+            let order = byHealth ? SiteHealth.ordered(targets, by: await SiteHealthStore.shared.health(in: identity))
+                                 : targets
+            guard current == generation, !Task.isCancelled else { return }
+            for await report in engine.run(order, keyword: text) {
                 guard current == generation else { return }
                 apply(report)
                 // IOS-POC-41B: as `SiteViewModel.searchContent` records each site's answer.
@@ -2126,6 +2225,7 @@ private struct AggregateSearchView: View {
     private func clear() {
         groups = []
         selected = nil
+        frozenOrder = nil
         total = 0
         answered = 0
         failed = 0
@@ -2137,7 +2237,7 @@ private struct AggregateSearchView: View {
         answered += 1
         switch report.outcome {
         case .found(let vods) where !vods.isEmpty:
-            groups.append(SiteHits(index: report.index, site: report.site, vods: vods, cursor: report.cursor))
+            groups.append(SiteHits(index: report.index, site: report.site, vods: vods, keyword: keyword, cursor: report.cursor))
         case .found:
             break
         case .failed:

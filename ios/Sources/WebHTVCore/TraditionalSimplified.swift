@@ -11,8 +11,9 @@ import Foundation
 /// drives Android's Simplified → Traditional direction, and `HashMap.put` keeps the later pair — so
 /// Android sends 餘 as 馀, 強 as 犟 and 線 as 缐, and 慶餘年 as 庆馀年, which no site indexes. Here
 /// the first pair wins, which is the standard form for nine of the ten; 謔 is the tenth and is set to
-/// 谑 by hand. Every other character converts exactly as on Android, and a character the table does
-/// not list — anything already simplified — passes through unchanged.
+/// 谑 by hand. **A second one (W-312 A0):** fourteen characters that are already standard Simplified
+/// (吒, 猛, 呼…) are left as they are instead of being turned into another word. Every other character
+/// converts exactly as on Android, and a character the table does not list passes through unchanged.
 public enum TraditionalSimplified {
     public static func toSimplified(_ text: String) -> String {
         guard !text.isEmpty else { return text }
@@ -27,6 +28,13 @@ public enum TraditionalSimplified {
         var table = Dictionary(zip(traditional.unicodeScalars, simplified.unicodeScalars),
                                uniquingKeysWith: { first, _ in first })
         table["謔"] = "谑"
+        // W-312 A0: the table also rewrites characters that are already standard Simplified into a different
+        // character, so 哪吒 went out as 哪咤 and every site was searched twice. Each one is a word of its own:
+        // 吒(哪吒)/咤(叱咤), 猛/勐(Dai place names), 呼/唿(唿哨), 呱/哌(chemistry), 嗬/呵, 劈/噼(噼啪), 脊/嵴(山嵴),
+        // 怵/憷, 糊/煳(scorched), 溜/熘(cooking), 佘(surname)/畲(ethnic group), 屙/疴(沉疴), 镟/碹, 槁(枯槁)/藁.
+        // Only these: 夥, 於, 後, 著, 矽 and 鍾 also appear in GB2312 but convert correctly (or 著 ambiguously),
+        // and the keyword as typed still goes as the second form (docs/W-312-ios-search-improvements.md §2.4.1).
+        for kept in "吒猛呼呱嗬劈脊怵糊溜佘屙镟槁".unicodeScalars { table[kept] = nil }
         return table
     }()
 

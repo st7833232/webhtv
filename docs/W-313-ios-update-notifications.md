@@ -13,7 +13,7 @@
 
 - 目標：評估「追更（集數更新）」與「系列新季」兩個功能在 iOS 上怎麼做、做到什麼程度可靠，並提出方案、驗收、回退、預估。
 - 狀態：評估完成；Reviewer 退件（#8803，F-1 集數訊號、F-2 爬蟲不可中斷），已修正 §4.1–4.5、§8、§9、§11，並依 N-1、N-2 更新 §1、§4.5，重新送審。程式碼未改。
-- 未定：新季偵測依賴 W-312 的 Core 系列拆名器；介面已在看板 #8796 向 claude-dev-2 提出，對方確認前 §6.2 的介面是暫定。
+- 新季偵測依賴 W-312 的 Core 系列拆名器；介面已由 claude-dev-2 確認（#8809），見 §6.2。
 - 下一步：Reviewer 審查；Manager 把 §8 的決定項整理給使用者。
 
 ## 1. 證據來源
@@ -267,21 +267,16 @@
 5. 跨站找新季**不自動做**：一次跨站搜尋要等全部站，同時 6 站、最多 30 秒（`AggregateSearch`），50 部作品就是 50 次全站搜尋，太重，也容易被站擋。
    - 改成詳情頁加按鈕「找其他季」，使用者點了才跑一次跨站搜尋，結果用 W-312 的系列歸組顯示。
 
-### 6.2 拆名器介面（暫定，等 claude-dev-2 確認，看板 #8796）
-```swift
-public enum SeriesName {
-    public static func parse(_ title: String) -> SeriesTitle
-}
-public struct SeriesTitle: Equatable, Sendable {
-    public let key: String        // 跨站比對用：簡繁、全半形、標點空白折疊後的基名
-    public let searchBase: String // 原文基名，拿去 searchContent 當關鍵字
-    public let season: Int?       // nil = 沒寫季數（視為第 1 季或單季）
-    public let kind: Kind         // .season / .special / .movie / .unknown
-}
-```
-- W-313 只用這四個欄位。
-- 季數的寫法規則（第二季、第2季、第二部、S2、Season 2、中文數字等）由 W-312 定義，本文件不重複。
-- 正規化可重用 `SeriesCompletion.normalized`（簡體、寬度與大小寫折疊、去空白）。
+### 6.2 拆名器介面（claude-dev-2 已確認，看板 #8809；以 W-312 為準）
+- 入口：`SeriesTitle(title)` 建構子（不另設 `SeriesName.parse`）。
+- W-313 用到的欄位：
+  - `baseKey`：跨站比對用的正規化基名。
+  - `baseDisplay`：原文基名，拿去 `searchContent` 當關鍵字。
+  - `season: Int?`：nil 表示沒標記，當第 1 季。
+  - `special: Special?`：nil 表示正季；`.movie` 劇場版／電影版、`.special` 特別篇／SP／OVA／總集篇、`.extra` 番外。
+  - `strength`：strong／weak／none。
+- 新季判斷直接用 `SeriesGrouping.isNewerSeason`，只認 `strength != .none` 且 `special == nil` 的候選。§6.1 的「`key` 相同、`kind == 正季`、`season` 更大」就是這個函式的條件，W-313 不自己重寫。
+- 季數寫法規則見 `docs/W-312-ios-search-improvements.md` §4（W-312 完稿後回填段落位置）。
 
 ### 6.3 可靠度（直說）
 | 風險 | 例子 | 程度 | 對策 |
@@ -376,6 +371,6 @@ public struct SeriesTitle: Equatable, Sendable {
 - 未在實機確認 SideStore 側載後 `BGAppRefreshTask` 會被喚醒，只有文件推論。
 - Python 爬蟲在背景冷啟動的耗時未量。
 - 爬蟲站詳情耗時只有 Simulator 的 3 筆既有紀錄，樣本少。
-- §6.2 拆名器介面等 claude-dev-2 確認。
+- §6.2 拆名器介面已確認命名（#8809）；季數規則段落位置等 W-312 完稿回填。
 - 「成熟相關專案」查不到逐站追更的同類實作。本設計的比對規則來自本倉既有的完結判斷（`FavoriteAutoRemoval`）與 §3 實測，不是外部最佳實務。
 - Ponytail：本單只有文件、沒有程式碼變更，不適用（AGENTS.md §4 只要求程式碼變更跑）。

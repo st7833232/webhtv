@@ -12,7 +12,7 @@
 ## Recovery anchor
 
 - 目標：評估「追更（集數更新）」與「系列新季」兩個功能在 iOS 上怎麼做、做到什麼程度可靠，並提出方案、驗收、回退、預估。
-- 狀態：評估完成，送審。程式碼未改。
+- 狀態：評估完成；Reviewer 退件（#8803，F-1 集數訊號、F-2 爬蟲不可中斷），已修正 §4.1–4.5、§8、§9、§11，並依 N-1、N-2 更新 §1、§4.5，重新送審。程式碼未改。
 - 未定：新季偵測依賴 W-312 的 Core 系列拆名器；介面已在看板 #8796 向 claude-dev-2 提出，對方確認前 §6.2 的介面是暫定。
 - 下一步：Reviewer 審查；Manager 把 §8 的決定項整理給使用者。
 
@@ -25,8 +25,8 @@
 | 正式文件 | Apple〈Choosing background strategies for your app〉 https://developer.apple.com/documentation/backgroundtasks/choosing-background-strategies-for-your-app | 2026-11-18 讀 | `BGAppRefreshTask`：「系統決定最佳啟動時間」，最多約 30 秒，逾時被系統終止 | A |
 | 正式文件 | Apple〈Using background tasks to update your app〉 https://developer.apple.com/documentation/uikit/using-background-tasks-to-update-your-app 、`BGAppRefreshTask`、`BGTaskScheduler` 參考頁 | 2026-11-18 讀 | 需要 `UIBackgroundModes` 加 `fetch`，以及 `Info.plist` 的 `BGTaskSchedulerPermittedIdentifiers`；`earliestBeginDate` 只是「不早於」 | A |
 | 正式文件 | Apple〈Scheduling a notification locally from your app〉 https://developer.apple.com/documentation/usernotifications/scheduling-a-notification-locally-from-your-app | 2026-11-18 讀 | 本機通知由 App 自己排程（`UNUserNotificationCenter.add`），須先向使用者要權限；不經推播伺服器 | A |
-| 維護者討論 | Apple Developer Forums thread 783297、738991、793189、780848 | 2026-11-18 讀搜尋摘要 | DTS 回覆：背景重新整理頻率主要看使用者使用習慣，不是可靠的喚醒機制、沒有確定的排程；使用者從多工畫面滑掉 App 後 `BGAppRefreshTask` 不會再喚醒 | B（論壇，但為 Apple 工程師回覆） |
-| 側載環境 | SideStore README（GitHub）、社群安裝說明 | 2026-11-18 讀搜尋摘要 | 免費帳號簽章約 7 天到期須重新整理；推播（`aps-environment`）屬付費開發者描述檔權限 | C（社群） |
+| 維護者討論 | Apple Developer Forums thread 783297、738991、793189、780848 | 2026-11-18 嘗試讀原文：頁面由前端腳本產生，`curl` 只拿到外框，**未讀到原文** | 搜尋摘要提到：背景重新整理頻率看使用習慣、不是可靠的喚醒機制；滑掉 App 後 `BGAppRefreshTask` 不再喚醒 | **未讀原文，只當線索**（審查 N-1）。§5 中「不會準時」的結論以 Apple 正式文件的「system decides」為準；「滑掉後不跑」只影響已暫緩的方案 D，D 開工前要實機確認 |
+| 側載環境 | SideStore README 原文 https://github.com/SideStore/SideStore/blob/develop/README.md | develop 分支，2026-11-18 讀 | 原文：用個人開發憑證重新簽章，App 有「normal 7-day development period」，SideStore 會在背景定期重新整理 | A（原文）；「推播屬付費權限」仍只有搜尋摘要，不影響方案 B/C |
 | 成熟相關專案 | TVBox 各分支、Animeko（open-ani/animeko）發布說明 | 2026-11-18 搜尋 | 查不到 TVBox 系有「追劇更新」；Animeko 的追番進度靠 Bangumi 中央資料庫，不是逐站輪詢。**沒有可直接參考的逐站追更實作**，本設計以本倉現有收藏／完結判斷為基礎 | C |
 | 實測（熱點） | 6 個 recha type 1 採集站 `ac=detail` | 2026-11-18 10:20，`.herdr-synapse/webhtv-dev/artifacts/w313/cms-probe.txt` | 單筆詳情 0.47–1.96 秒；`vod_serial` 全空、`vod_isend` 全 0；`vod_remarks` 有「更新全集」卻只有 1 集、綜藝寫「更新至20261117期」 | A（實測） |
 | 實測（Simulator 既有紀錄） | 3 台 Simulator 的 `site-health.json`（W-311 等測試留下） | 2026-11-18 讀 | 真實站詳情 `lastDetailMilliseconds` 1032–1742 ms（3 筆，樣本少，只當量級） | B |
@@ -136,8 +136,10 @@
 - 一筆追更 `Follow` 的欄位：
   - `identity: FavoriteIdentity`：重用，不新造識別。
   - `vodName`、`vodPic`、`siteName`：快照；觀看紀錄過期後仍能顯示。
-  - `seenCount`：使用者最後確認時的集數，徽章就是 `latestCount - seenCount`。
+  - `seenCount`：使用者最後確認時的集數（留作紀錄；徽章改看 `pending`，見 §4.2）。
   - `latestCount`、`latestEpisodeName`。
+  - `knownTail: [String]`：最長線路「最新端」往回最多 20 個集名（正規化後），給 §4.2 的第二個訊號用。只存集名不存網址：網址每次抓取可能不同（`WatchHistory.carryingOver` 也是因此用名稱比對）。
+  - `pending: Int`：已偵測到、使用者還沒確認的新集數，徽章顯示它。
   - `checkedAt`、`seenAt`、`failures`。
   - `state`：`ok`／`siteMissing`／`notFound`／`failing`。
 - 上限 50 部：超過時提示先取消一些，不默默丟掉。
@@ -147,11 +149,20 @@
 - `count = max(每條線路的 episodes.count)`：
   - 取最長線路，換線路或某條線路落後都不影響。
   - 這和 `FavoriteAutoRemoval` 用最長線路判斷最後一集是同一個理由。
-- 判斷：
-  - `count > latestCount`：有新集，更新 `latestCount` 與 `latestEpisodeName`（最長線路的最後一集名稱）。
-  - `count < latestCount`：站台刪集或改版。**重設基準**，`seenCount = min(seenCount, count)`，不顯示負數，也不顯示徽章。
-  - 綜藝的日期型（「20261117期」）一樣看清單長度，不解析日期。
+- **最新端在哪一頭**（審查 F-1，倒序清單）：
+  - 用 `SeriesCompletion.episodeNumber` 取最長線路第一集與最後一集的編號；第一集編號比最後一集大，就是倒序，最新端在開頭；否則最新端在結尾。
+  - 日期型（「20261117期」）的編號就是日期，一樣適用。
+  - 兩端都拿不到編號（例如「預告」「正片」「上」「下」），視為正序，這是站台最常見的排法；倒序又沒編號的清單，`latestEpisodeName` 可能顯示錯，列為限制（§11）。
+- **兩個訊號**：
+  1. 長度：`count > latestCount` 時，新集數 = `count - latestCount`。
+  2. 最新端集名（處理長度不變或變短的更新）：從最新端往回走，數到第一個出現在 `knownTail` 裡的集名為止；走過的集名數量就是新集數。
+     - 只保留最近 N 期的滾動清單：每天新一期，最新端是沒見過的名字、下一個見過 → `+1`。
+     - 正片取代預告：最新端從「預告」變成「第12集」，下一個見過 → `+1`。
+     - 兩個訊號取較大的值，加到 `pending`。
+- **改版保護**：走完整個 `knownTail` 範圍（20 個）都沒碰到見過的集名，表示站台整批改了集名格式或換了片源。**重設基準**（`knownTail` 改成這次的），不加徽章，以免一次跳出「+20」。長度變短也一樣只重設基準，不顯示負數。
+- 每次檢查後更新 `latestCount`、`latestEpisodeName`（最新端那一集）和 `knownTail`。
 - remarks 不參與判斷，只照原樣顯示在列上，例如「更新至12集」。
+- 已知漏報（寫進 §11、§8）：站台在最新端以外的位置插入新集（例如中間補上漏掉的一集），長度又同時刪掉一集時，兩個訊號都看不到。這種情況少見，不另外處理。
 
 ### 4.3 什麼時候檢查
 - **打開 App**：在 `refreshRemote` 完成後，延遲 3 秒再背景執行。
@@ -161,10 +172,32 @@
 - **背景重新整理**：屬於方案 D，見 §5。
 - 節流：
   - 每部作品 30 分鐘內最多檢查一次（下拉例外）。
-  - 同時最多 2 個站；同一站一次只跑一部，避免被站台擋。
-  - 每部詳情最多等 10 秒，整批最多 60 秒，超過的留到下一輪。
+  - 同一站一次只跑一部，避免被站台擋。
+  - 整批最多 60 秒，超過的留到下一輪。
 - **播放中暫停**：`favoriteLibrary.playerOpen` 為真時不開新請求，避免搶頻寬或拖慢播放。
 - 檢查結果也記進 `SiteHealthStore`，因為那是真實的詳情請求。
+
+#### 爬蟲站不能中斷：期限只停止等待（審查 F-2）
+- 事實（`AggregateSearch.swift:6-17`）：
+  - CMS 站是 async `URLSession`，取消 Task 就真的停止。
+  - JS 與 Python 爬蟲各自跑在該站的序列佇列上，HTTP host 用號誌擋住執行緒，**每個請求最多 65 秒，沒有東西能中斷**。
+- 所以：
+  - **CMS 站**：每部 10 秒逾時，逾時就真的取消。
+  - **爬蟲站**：10 秒只是「不再等它」，這次記為失敗並把該站本輪剩下的追更跳過；請求本身會一直跑到結束（最多 65 秒），在那之前**使用者對同一站的首頁、詳情、播放都會排在它後面**。「播放中暫停」也只擋新請求，擋不住已經在跑的。
+- 避免卡到使用者的規則（全部在發出爬蟲請求「之前」判斷，因為發出去就收不回）：
+  1. **全域一次只跑一個爬蟲請求**；CMS 站可另外同時跑 2 個。
+  2. **忙碌就略過，不排隊**：該站有任何進行中的呼叫（使用者的、搜尋的、或上一個檢查）就跳過，留到下一輪。比照 `AggregateSearch` 的 `.busy`，但要把「進行中的呼叫」記錄提升成全 App 共用（例如 `SpiderSessionStore` 依 `Site.id` 計數，所有爬蟲呼叫都經過它），讓使用者自己的操作也算進去。
+  3. **使用者最近碰過的站不檢查**：使用者正在看的站，或 2 分鐘內碰過首頁、分類、詳情、播放的站，本輪跳過。
+  4. **使用者正在看「記錄」頁或詳情頁時不發新的爬蟲檢查**：這時候點列表最可能點到追更作品的站。CMS 站不受限，因為可以取消。
+  5. **慢站先排除**：`SiteHealth` 顯示該站最近詳情失敗、或上次詳情超過 5 秒，本輪不檢查。
+  6. **下拉重新整理**：仍遵守 1、2、5；3、4 不適用，因為是使用者自己要求的。
+- 剩餘風險（直說）：
+  - 檢查剛發出時，使用者正好點進同一站，最多等這一個請求結束。一般 1–2 秒（§3），站台當掉時最壞 65 秒。
+  - 規則 1–5 只能降低機率，不能保證不撞。
+- **不採用「追更用獨立 session」**：
+  - 等於同一站多一個 JS context 或 Python 模組實例，要重跑 `init`（規則檔下載、模組匯入），記憶體和網路成本加倍。
+  - Python 的 GIL 仍然共用，還是會互相拖慢。
+  - 換來的只是避開上面那個小機率的等待，不划算。
 
 ### 4.4 紀錄頁顯示
 - 「記錄」最上面加一區「追更」，列出所有追更作品：
@@ -177,8 +210,11 @@
 - 點一下打開詳情頁（和現在一樣）。
 
 ### 4.5 看過後怎麼清除
-- 詳情頁載入成功時，設 `seenCount = latestCount = 這次詳情的 count`，徽章就消失。
+- 詳情頁載入成功、**而且詳情的 `FavoriteIdentity`（設定來源＋`Site.id`＋vodID）和追更那筆完全相同**時（審查 N-2）：
+  - 用這次詳情更新 `latestCount`、`knownTail`。
+  - 設 `seenCount = count`、`pending = 0`，徽章消失。
   - 使用者已經在詳情頁看到集數清單，等於「知道了」。
+- 同一部片從別站或別的設定來源打開，不算看過，不清除。
 - 另一種做法是「播放了最新一集才清除」：比較準，但使用者只想看一眼就要點進播放，太囉嗦。
   - 建議選「打開詳情就清除」。若使用者想要後者，屬 §8 決定 2。
 
@@ -264,9 +300,9 @@ public struct SeriesTitle: Equatable, Sendable {
 | 使用者看得到 | 無 | 打開 App 或下拉後，紀錄頁出現「+N 集」，片庫標籤有數字 | 加上「可能有新季」與「找其他季」 | 加上 App 沒開時偶爾跳出通知、App 圖示紅點 |
 | 可靠度 | — | 高：每次打開都會檢查 | 新季部分中低 | 背景部分低且不可預期 |
 | 改動 | 0 | Core：`Follow`、`FollowStore`、比對與檢查器，加測試；App：詳情頁開關、記錄頁區塊與徽章、下拉、前景觸發 | 加上拆名器呼叫、同站搜尋、每日節流、詳情頁按鈕 | 加上 Info.plist 兩個鍵、通知權限 UI、背景任務、把設定還原抽到 Core（中等重構） |
-| 風險 | — | 低：新檔、新 UI，不動既有三個 store；主要風險是對站台多一些請求（有節流） | 誤報或漏報，用語要保守 | 背景 Python 冷啟動、30 秒限制、記憶體；重構還原流程可能影響啟動 |
+| 風險 | — | 低到中：新檔、新 UI，不動既有三個 store；對站台多一些請求（有節流）；爬蟲請求不能中斷，偶爾讓使用者對同一站的操作多等一個請求（§4.3） | 誤報或漏報，用語要保守 | 背景 Python 冷啟動、30 秒限制、記憶體；重構還原流程可能影響啟動 |
 | 依賴 | — | 無 | W-312 拆名器先落地 | 實機 SideStore 安裝驗證（使用者操作） |
-| 預估（Claude 實作、本機） | — | 約 6–8 小時：Core 加測試 2–3、UI 2–3、Simulator 驗證 1.5 | B 之外 +3–4 小時（拆名器已存在時） | C 之外 +6–10 小時，另加使用者實機測試的等待 |
+| 預估（Claude 實作、本機） | — | 約 7–9 小時：Core 加測試 3–4（含兩個集數訊號、排程規則、共用的進行中呼叫記錄）、UI 2–3、Simulator 驗證 2 | B 之外 +3–4 小時（拆名器已存在時） | C 之外 +6–10 小時，另加使用者實機測試的等待 |
 
 **建議**：
 - 先做 **B**。
@@ -282,6 +318,10 @@ public struct SeriesTitle: Equatable, Sendable {
    - (b) 播放最新一集才清除。
 3. 方案：B（建議）／B+C／B+C+D。
 
+另外要讓使用者知道的限制（不需要選）：
+- 新集數看「集數清單變長」和「最新一集的名稱變了」兩件事；站台在清單中間補集又同時刪集，這種少見情況會漏報。
+- 大部分站是爬蟲站，爬蟲請求一旦發出就停不下來。追更檢查會避開正在用、最近用過、忙碌和慢的站，但若檢查剛發出時正好點進同一站，可能要多等一下：一般 1–2 秒，站台當掉時最久 65 秒。
+
 ## 9. 驗收條件（方案 B；C 另列）
 
 **Core 單元測試**
@@ -289,6 +329,12 @@ public struct SeriesTitle: Equatable, Sendable {
 - 集數減少 → 重設基準且不顯示徽章。
 - 多條線路取最長。
 - 綜藝日期型以清單長度判斷。
+- 滾動清單（長度固定 20，最新端多一期、最舊端少一期）→ `+1`。
+- 預告換正片（長度不變，最新端集名改變）→ `+1`。
+- 倒序清單（第一集編號大於最後一集）→ 最新端取開頭，`latestEpisodeName` 正確；兩端都沒編號時視為正序。
+- 整批改集名（`knownTail` 全部對不上）→ 重設基準、不加徽章。
+- 清除只在 `FavoriteIdentity` 完全相同時發生；同片別站的詳情不清除。
+- 排程規則（純函式）：忙碌的站、2 分鐘內碰過的站、`SiteHealth` 慢或失敗的站、使用者在「記錄」或詳情頁時的爬蟲站，都不會被排入；全域同時最多 1 個爬蟲檢查。
 - remarks 說謊（「更新全集」1 集）不影響判斷。
 - 連續 3 次失敗才顯示「最近檢查失敗」，成功一次歸零。
 - 30 分鐘節流（下拉例外）。
@@ -305,6 +351,10 @@ public struct SeriesTitle: Equatable, Sendable {
 5. 讓假站逾時，不出錯誤視窗，第 3 次後顯示灰字。
 6. 刪掉假站，追更列顯示「站台不在目前設定」，資料還在。
 7. 播放中不發檢查請求（看 log）。
+8. 爬蟲站卡住（審查 F-2）：用本機假 JS 爬蟲站，其詳情固定延遲 8 秒。
+   - 檢查進行中立刻點同一站的詳情：log 證明詳情最多等那一個進行中的請求，而且檢查器沒有再發第二個。
+   - 先點進該站詳情，再觸發檢查：log 顯示該站被略過（最近碰過或忙碌），詳情載入時間與沒有追更時相同。
+   - 檢查超過 10 秒：畫面不等它，本輪該站剩下的追更被跳過。
 
 **效能**：「site list ready」啟動 log 在有 10 部追更、無追更兩種情況下，差異在量測誤差內。
 
@@ -321,6 +371,8 @@ public struct SeriesTitle: Equatable, Sendable {
 - **D 的回退**：拿掉 Info.plist 兩個鍵與任務註冊；已排程的本機通知要在下一版啟動時 `removeAllPendingNotificationRequests()`。
 
 ## 11. 未驗證與限制
+- 新集數偵測的已知漏報：站台在最新端以外插入新集、同時又刪掉一集時看不到；倒序且兩端都沒有集數編號的清單，最新一集的名稱可能顯示錯（§4.2）。
+- 爬蟲請求不能中斷：檢查剛發出時使用者正好點同一站，最多要等這一個請求結束（一般 1–2 秒，最壞 65 秒）。§4.3 的規則只降低機率（審查 F-2）。
 - 未在實機確認 SideStore 側載後 `BGAppRefreshTask` 會被喚醒，只有文件推論。
 - Python 爬蟲在背景冷啟動的耗時未量。
 - 爬蟲站詳情耗時只有 Simulator 的 3 筆既有紀錄，樣本少。

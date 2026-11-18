@@ -145,7 +145,13 @@ public enum SeriesGrouping {
     /// remake and its original (「射鵰英雄傳(1983)」「(2017)」) are never merged. A series sits where its
     /// first member did; inside it, seasons ascend (no marker is season 1) and specials come last.
     public static func groups<T>(_ items: [T], title: (T) -> String) -> [[T]] {
-        let parsed = items.map { ($0, SeriesTitle(title($0))) }
+        groups(items, series: { SeriesTitle(title($0)) })
+    }
+
+    /// The same, for items whose titles are already parsed: a list regrouped as results keep arriving
+    /// parses each title once, not on every regroup (W-312 A2).
+    public static func groups<T>(_ items: [T], series: (T) -> SeriesTitle) -> [[T]] {
+        let parsed = items.map { ($0, series($0)) }
         var buckets = [String: [(T, SeriesTitle)]]()
         var order = [String]()
         for item in parsed {

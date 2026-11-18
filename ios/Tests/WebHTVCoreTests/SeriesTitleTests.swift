@@ -61,6 +61,13 @@ private let titles: [(String, String, Int?, SeriesTitle.Strength)] = [
                        ["射雕英雄传(2017)"], ["射雕英雄传(1983)"], ["鬼灭之刃 第二季", "鬼灭之刃 剧场版"]])
 }
 
+@Test func groupingParsedTitlesMatchesGroupingStrings() {
+    let names = ["怪奇物语 第四季", "庆余年", "怪奇物语", "庆余年2", "狂飙", "射雕英雄传(2017)", "射雕英雄传(1983)"]
+    let parsed = names.map(SeriesTitle.init)
+    #expect(SeriesGrouping.groups(parsed, series: { $0 }).map { $0.map(\.original) }
+            == SeriesGrouping.groups(names, title: { $0 }))
+}
+
 /// W-312 §4.5, the rule W-313 notifies by: strong markers only.
 @Test func onlyAStrongLaterSeasonOfTheSameSeriesIsNew() {
     let watched = SeriesTitle("慶餘年")

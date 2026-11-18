@@ -398,6 +398,9 @@ private struct ConfigView: View {
             if let pack = await SpiderPackStore.shared.installedPack() { packStatus = Self.describe(pack) }
             restore()
             Self.spiderToolLog.notice("site list ready \(Int(Date().timeIntervalSince(launch) * 1000)) ms after launch, \(officialPack.map { "\($0.version) seq \($0.generation.sequence)" } ?? "no pack", privacy: .public)")
+            // W-313 review F-1: the follows are on screen right away — the bell, the 片庫 count — not only once
+            // the first round has run behind the network work below. A disk read, not waited for.
+            Task { await followCenter.reload() }
             await WatchHistoryStore.shared.migrateSiteIdentities(in: sites)
             // IOS-POC-52 (F32): the saved configuration is in; queued retries may resolve now.
             OfflineAppContext.shared.markLoaded(sites: sites, source: source)
@@ -3124,6 +3127,7 @@ private struct VodView: View {
     @ObservedObject private var followsModel = followCenter
     /// W-313: following stopped at `FollowStore.limit`.
     @State private var followFull = false
+    @State private var followScreenID = UUID()
     @ObservedObject private var downloadsModel = offlineLibrary
     let site: Site
     let summary: Vod
@@ -3231,8 +3235,8 @@ private struct VodView: View {
             ToolbarItem(placement: .topBarTrailing) { detailFavorite }
         }
         // W-313: no spider check is started while a detail is on screen (§4.3).
-        .onAppear { followCenter.screenAppeared() }
-        .onDisappear { followCenter.screenDisappeared() }
+        .onAppear { followCenter.screenAppeared(followScreenID) }
+        .onDisappear { followCenter.screenDisappeared(followScreenID) }
         .alert("追更已達上限", isPresented: $followFull) {
             Button("好", role: .cancel) {}
         } message: {
@@ -4043,6 +4047,7 @@ private struct HistoryView: View {
     let spiderToolBusy: Bool
     let onDownloadSpiderTool: () -> Void
     @ObservedObject private var followsModel = followCenter
+    @State private var followScreenID = UUID()
     @State private var records = [WatchHistory]()
     @State private var needsTool: WatchHistory?
     @State private var loaded = false
@@ -4107,8 +4112,8 @@ private struct HistoryView: View {
         }
         .appWallpaper()
         // W-313: no spider check is started while this list is on screen (§4.3).
-        .onAppear { followCenter.screenAppeared() }
-        .onDisappear { followCenter.screenDisappeared() }
+        .onAppear { followCenter.screenAppeared(followScreenID) }
+        .onDisappear { followCenter.screenDisappeared(followScreenID) }
         .safeAreaInset(edge: .top, spacing: 0) {
             if !records.isEmpty {
                 HStack {
@@ -4272,9 +4277,12 @@ private struct HistoryView: View {
 @MainActor final class FollowCenter: ObservableObject {
     /// Every follow, the most recently followed first.
     @Published private(set) var follows = [Follow]()
-    /// 記錄 and detail screens on show: no spider check is made while one is (§4.3).
-    private(set) var followScreens = 0
-    private var running = false
+    /// 記錄 and detail screens on show: no spider check is made while one is (§4.3). A set of ids, not a
+    /// count, so an `onAppear` SwiftUI repeats without an `onDisappear` cannot leave it stuck (review N-2).
+    private var followScreens = Set<UUID>()
+    var onFollowScreen: Bool { !followScreens.isEmpty }
+    /// The round in flight, if any.
+    private var round: Task<Void, Never>?
     private var lastRound: Date?
     private static let log = Logger(subsystem: "com.webhtv.ios.poc", category: "follow")
 
@@ -4290,8 +4298,8 @@ private struct HistoryView: View {
         follows.filter { $0.identity.configSourceID == sourceID && $0.hasNews }.count
     }
 
-    func screenAppeared() { followScreens += 1 }
-    func screenDisappeared() { followScreens = max(0, followScreens - 1) }
+    func screenAppeared(_ id: UUID) { followScreens.insert(id) }
+    func screenDisappeared(_ id: UUID) { followScreens.remove(id) }
 
     /// The detail screen's bell. Following starts from the listing on screen, so nothing is new yet.
     /// Answers false when the limit stopped it.
@@ -4336,11 +4344,21 @@ private struct HistoryView: View {
     /// One round (§4.3): on launch, on returning to the app 30 minutes after the last round, and on a
     /// pull to refresh (`forced`), which skips the per-title interval and the viewer-in-use rules.
     func check(sites: [Site], source: ConfigSource, waiting: [Site], forced: Bool) async {
-        guard !running else { return }
+        // A pull while a round runs waits for it and then runs its own: the viewer asked for a check now,
+        // and a spinner that ends having done nothing reads as "checked" (review N-1). Others just skip.
+        while let current = round {
+            await current.value
+            guard forced else { return }
+        }
         if !forced, let lastRound, Date().timeIntervalSince(lastRound) < FollowSchedule.interval { return }
-        running = true
-        defer { running = false }
         lastRound = Date()
+        // Main-actor work: `round` is cleared before anyone waiting on it resumes.
+        let task = Task { await self.runRound(sites: sites, source: source, waiting: waiting, forced: forced); self.round = nil }
+        round = task
+        await task.value
+    }
+
+    private func runRound(sites: [Site], source: ConfigSource, waiting: [Site], forced: Bool) async {
         await reload()
         let resolver = CSPSourceResolver(source: source)
         let spiders = Set(sites.filter { resolver.canResolve($0) }.map(\.id))
@@ -4350,7 +4368,7 @@ private struct HistoryView: View {
         guard !due.isEmpty else { return }
         Self.log.notice("[follow] checking \(due.count) of \(self.follows.count), forced \(forced)")
         let checker = FollowChecker(conditions: {
-            await MainActor.run { .init(playerOpen: favoriteLibrary.playerOpen, onFollowScreen: followCenter.followScreens > 0) }
+            await MainActor.run { .init(playerOpen: favoriteLibrary.playerOpen, onFollowScreen: followCenter.onFollowScreen) }
         }, search: { site, keyword in
             // 方案 C: the followed title's own site, first page only (§6.1).
             let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))

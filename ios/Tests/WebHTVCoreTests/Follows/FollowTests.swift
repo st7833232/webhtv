@@ -70,6 +70,15 @@ private func site(_ key: String) throws -> Site {
     #expect(next.latestEpisodeName == "第12集")
 }
 
+/// Review N-4: a trailer heading a newest-first list does not flip it.
+@Test func anUnnumberedHeadDoesNotHideANewestFirstOrder() {
+    let start = follow(["预告"] + Array(episodes(1...12).reversed()))
+    #expect(start.latestEpisodeName == "预告")
+    let next = start.updated(with: listing(["预告"] + Array(episodes(1...13).reversed())), remarks: "")
+    #expect(next.unseen == ["第13集"])
+    #expect(next.playing("第13集")?.unseen == [])
+}
+
 @Test func endsWithoutNumbersReadOldestFirst() {
     #expect(EpisodeListing(flags: [flag(["上", "下"])]).newestFirst == ["下", "上"])
 }

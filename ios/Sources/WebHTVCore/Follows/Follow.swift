@@ -106,7 +106,8 @@ public struct Follow: Codable, Equatable, Sendable, Identifiable {
             fresh = growth
         }
         if fresh > 0 {
-            let names = listing.newestFirst.prefix(fresh).reversed()
+            // Names already seen are not the new ones, even at the newest end (a 「預告」 kept on top).
+            let names = listing.newestFirst.filter { !known.contains(Self.normalized($0)) }.prefix(fresh).reversed()
             var seen = Set(unseen.map(Self.normalized))
             for name in names where seen.insert(Self.normalized(name)).inserted { next.unseen.append(name) }
             if next.unseen.count > Self.unseenLimit { next.unseen.removeFirst(next.unseen.count - Self.unseenLimit) }
@@ -223,13 +224,15 @@ public struct EpisodeListing: Equatable, Sendable {
 
     /// The longest line — a line that lags behind the others, or the one the viewer switched to, does
     /// not decide (the reason `FavoriteAutoRemoval` reads the longest line too). Which end is newest
-    /// comes from the episode numbers at the two ends (`SeriesCompletion.episodeNumber`; a date-named
+    /// comes from the first episode numbers in from the two ends (`SeriesCompletion.episodeNumber`; a date-named
     /// 「20261117期」 is its own number): a first number above the last means the source lists newest
     /// first. Without numbers at both ends, oldest first — how sources usually list.
     public init(flags: [Flag]) {
         let line = flags.max { $0.episodes.count < $1.episodes.count }?.episodes.map(\.name) ?? []
-        if let first = line.first.flatMap(SeriesCompletion.episodeNumber),
-           let last = line.last.flatMap(SeriesCompletion.episodeNumber), first > last {
+        // The first numbered name from each end, so a 「預告」 heading a newest-first list does not hide its
+        // order (review N-4).
+        if let first = line.lazy.compactMap(SeriesCompletion.episodeNumber).first,
+           let last = line.reversed().lazy.compactMap(SeriesCompletion.episodeNumber).first, first > last {
             newestFirst = line
         } else {
             newestFirst = line.reversed()

@@ -25,7 +25,10 @@ public enum SourceClient: Sendable {
     /// call would re-fetch it on every page, every search and every episode.
     public static func make(site: Site, resolver: CSPSourceResolver) async throws -> SourceClient {
         guard resolver.canResolve(site) else { return .cms(try CMSClient(site: site)) }
-        return .spider(try await SpiderSessionStore.shared.session(for: site, resolver: resolver), site)
+        // W-313 review N-3: building a session (a script download, a Python import) occupies the site too.
+        return .spider(try await SiteActivity.shared.tracking(site.id) {
+            try await SpiderSessionStore.shared.session(for: site, resolver: resolver)
+        }, site)
     }
 
     // MARK: - W-313: every content call is recorded in `SiteActivity`

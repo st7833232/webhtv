@@ -472,3 +472,15 @@
   - 中文數字解析不會越界。
   - `\bsp\b` 在中文字後面不成立，這點和 Python 試作一致。
   - 搜尋失敗時不更新 `seasonCheckedAt`，下一輪會重試。
+
+## 14. 方案 B 審查修正（Reviewer #8876，2026-11-18）
+- **F-1（必修）**：啟動時先讀追更檔。
+  - `ConfigView` 啟動 `.task` 在「site list ready」紀錄之後馬上 `Task { await followCenter.reload() }`。
+  - 第一版放在 `restore()` 之後、而且等它讀完，結果「site list ready」變成 566–2702 ms；改成不等，就回到 81–159 ms。重新安裝後第一次啟動是 504 ms。
+  - Simulator 驗證：假站停掉讓第一輪檢查往後延，重開後 applog 的 `checking` 是 0 輪，但記錄頁已經有追更列和 3 個「+1 集」，片庫標籤顯示「2 部有新集數」（`f2-early.txt`）。開回假站後，已追更作品的詳情頁鈴鐺是 `bell.fill`／「已追更」（`f3-detail.txt`）。
+- **N-1**：`FollowCenter.check` 改成記住「進行中的這一輪」（`round`）。自動檢查進行中時下拉，會等這一輪跑完再跑一輪強制檢查；其他觸發遇到進行中的一輪就略過。只做了程式碼審視，沒在 Simulator 測。
+- **N-2**：「畫面在顯示中」改用畫面 id 的集合（`Set<UUID>`）記錄。SwiftUI 重複呼叫 `onAppear` 時只會插入同一個 id，不會卡住。剩下的限制：如果 SwiftUI 完全沒呼叫 `onDisappear`，那個 id 會一直留到 App 重開，這段時間自動檢查不會發爬蟲請求（偏安全的方向）。
+- **N-3**：`SourceClient.make` 建立爬蟲 session 的過程（下載腳本、匯入 Python）也包進 `SiteActivity.tracking`，算「忙碌」。session 的 `init` 本來就是在第一次內容呼叫時跑，已經在追蹤範圍內。
+- **N-4**：`EpisodeListing` 判斷順序時，改從頭尾往內各找第一個有編號的集，而且取新集名稱時跳過已見過的名稱，所以「預告」放在最上面的倒序清單也判斷得對。新增測試 `anUnnumberedHeadDoesNotHideANewestFirstOrder`。
+- **N-5**：§9 第 4 項（回到前景 30 分鐘）、第 7 項（播放中不檢查）仍然只做到程式碼層級，見 §12.2。
+- 驗證：`swift test` 1596/1596（`artifacts/w313/core-tests-full-f1.txt`）。

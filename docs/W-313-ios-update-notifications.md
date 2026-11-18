@@ -1,0 +1,329 @@
+# W-313 iOS 集數更新通知與系列新季通知——評估（只評估、不改碼）
+
+- 工單：herdr W-313（Manager #8787／#8792，brief `.herdr-synapse/webhtv-dev/artifacts/w313-brief.md`）。
+- 使用者需求（2026-11-18）：
+  1. 對某部劇設定通知後，打開 App 時能在「紀錄」那邊知道有新集數。
+  2. 也評估「系列更新」：影集出了新的一季時也能知道。
+- 階段：**只做設計研究，不改程式碼**（AGENTS.md §7）。經 Reviewer 審查、使用者選定方案並核准「開始實施」後才實作。
+- 分支：`task/W-313`，底版 ios-poc `645c5152`（0.1.104 (105)）。下文 iOS 行號以此為準。
+- 研究時間：2026-11-18 10:00–11:00（Asia/Taipei）。網路：手機熱點 172.20.10.7。
+- 設定基準：GitHub `st7833232/recha` main `f650d84378821a2d0ff2964a2d9022f48ed798fc`（`git ls-remote`，2026-11-18 10:15）。
+
+## Recovery anchor
+
+- 目標：評估「追更（集數更新）」與「系列新季」兩個功能在 iOS 上怎麼做、做到什麼程度可靠，並提出方案、驗收、回退、預估。
+- 狀態：評估完成，送審。程式碼未改。
+- 未定：新季偵測依賴 W-312 的 Core 系列拆名器；介面已在看板 #8796 向 claude-dev-2 提出，對方確認前 §6.2 的介面是暫定。
+- 下一步：Reviewer 審查；Manager 把 §8 的決定項整理給使用者。
+
+## 1. 證據來源
+
+| 類別 | 來源 | 版本／存取 | 支持的結論 | 等級 |
+|---|---|---|---|---|
+| iOS 現況 | `ios/Sources/WebHTVCore/*`、`ios/WebHTVApp/Sources/WebHTVApp.swift`、`ios/WebHTVApp/Info.plist` | `645c5152`，2026-11-18 讀 | 現有資料模型、插入點（§2） | A（實際程式） |
+| 參考實作（本倉 Android） | `app/src/main/java/com/fongmi/android/tv/bean/Keep.java`、`History.java`，全 `app/src/main/java` 搜尋 `WorkManager`／`NotificationCompat` | 本倉 HEAD，2026-11-18 讀 | FongMi 的收藏（`Keep`：key、siteName、vodName、vodPic、createTime、type、cid）**不記集數、沒有追更或新季檢查**；Android 沒有可對齊的行為，這是 iOS 新功能 | A |
+| 正式文件 | Apple〈Choosing background strategies for your app〉 https://developer.apple.com/documentation/backgroundtasks/choosing-background-strategies-for-your-app | 2026-11-18 讀 | `BGAppRefreshTask`：「系統決定最佳啟動時間」，最多約 30 秒，逾時被系統終止 | A |
+| 正式文件 | Apple〈Using background tasks to update your app〉 https://developer.apple.com/documentation/uikit/using-background-tasks-to-update-your-app 、`BGAppRefreshTask`、`BGTaskScheduler` 參考頁 | 2026-11-18 讀 | 需要 `UIBackgroundModes` 加 `fetch`，以及 `Info.plist` 的 `BGTaskSchedulerPermittedIdentifiers`；`earliestBeginDate` 只是「不早於」 | A |
+| 正式文件 | Apple〈Scheduling a notification locally from your app〉 https://developer.apple.com/documentation/usernotifications/scheduling-a-notification-locally-from-your-app | 2026-11-18 讀 | 本機通知由 App 自己排程（`UNUserNotificationCenter.add`），須先向使用者要權限；不經推播伺服器 | A |
+| 維護者討論 | Apple Developer Forums thread 783297、738991、793189、780848 | 2026-11-18 讀搜尋摘要 | DTS 回覆：背景重新整理頻率主要看使用者使用習慣，不是可靠的喚醒機制、沒有確定的排程；使用者從多工畫面滑掉 App 後 `BGAppRefreshTask` 不會再喚醒 | B（論壇，但為 Apple 工程師回覆） |
+| 側載環境 | SideStore README（GitHub）、社群安裝說明 | 2026-11-18 讀搜尋摘要 | 免費帳號簽章約 7 天到期須重新整理；推播（`aps-environment`）屬付費開發者描述檔權限 | C（社群） |
+| 成熟相關專案 | TVBox 各分支、Animeko（open-ani/animeko）發布說明 | 2026-11-18 搜尋 | 查不到 TVBox 系有「追劇更新」；Animeko 的追番進度靠 Bangumi 中央資料庫，不是逐站輪詢。**沒有可直接參考的逐站追更實作**，本設計以本倉現有收藏／完結判斷為基礎 | C |
+| 實測（熱點） | 6 個 recha type 1 採集站 `ac=detail` | 2026-11-18 10:20，`.herdr-synapse/webhtv-dev/artifacts/w313/cms-probe.txt` | 單筆詳情 0.47–1.96 秒；`vod_serial` 全空、`vod_isend` 全 0；`vod_remarks` 有「更新全集」卻只有 1 集、綜藝寫「更新至20261117期」 | A（實測） |
+| 實測（Simulator 既有紀錄） | 3 台 Simulator 的 `site-health.json`（W-311 等測試留下） | 2026-11-18 讀 | 真實站詳情 `lastDetailMilliseconds` 1032–1742 ms（3 筆，樣本少，只當量級） | B |
+| 論文／部落格 | — | — | 本題是 iOS 平台限制＋本 App 資料流的設計，論文不會改變結論；不另查 | — |
+
+## 2. iOS 現況（檔案:符號）
+
+### 2.1 觀看紀錄
+- `ios/Sources/WebHTVCore/WatchHistory.swift:9` `struct WatchHistory`：一部作品一筆。欄位有：
+  - `key`（`Site.id@@@vodId`）、`sourceID`（設定來源）、`siteKey`、`siteName`、`vodId`、`vodName`、`vodPic`。
+  - `vodFlag`（線路）、`vodRemarks`（**最後播的那一集的名稱**，不是作品的更新說明）、`episodeUrl`、`quality`。
+  - `position`、`duration`、`opening`、`ending`、`createTime`。
+  - **沒有集數清單，也沒有總集數。**
+- `WatchHistory.swift:289` `actor WatchHistoryStore`：存 `Application Support/WatchHistory/history.json`，整檔重寫。
+  - 保留 60 天（`retention`，`:293`），最多 500 筆（`limit`，`:296`）。
+  - `save(_:)`（`:369`）整筆取代：播放器每次存檔都用播放當下的新紀錄覆蓋。
+  - 結論：**不能把追更狀態加在這筆紀錄上**，否則播放存檔會蓋掉，而且 60 天後會被刪。
+- `ios/WebHTVApp/Sources/WebHTVApp.swift:3959` `HistoryView`（片庫 →「記錄」）：
+  - `.task` 每次進頁讀 `records(for: source.identity)`。
+  - 列表顯示片名、站名／線路／集名（`:4071–4077`）。
+  - 已有 `.badge(...)` 樣式，用在「需要爬蟲工具」（`:4051`）。
+  - 沒有下拉重新整理。
+- `WebHTVApp.swift:4203` `LibraryView`：片庫分「記錄」「收藏」兩頁，預設開「記錄」。
+
+### 2.2 收藏
+- `ios/Sources/WebHTVCore/Favorites/Favorite.swift:15` `FavoriteIdentity { configSourceID, siteID, vodID }`：
+  - 跨設定、跨站唯一識別一部作品。
+  - 有 `historyKey`，可對到觀看紀錄。
+  - **追更可直接沿用這個識別**。
+- `Favorite.swift:93` `Favorite`：快照欄位有 name、picture、`remarks`、year、area、typeName 等，另有 `createdAt`、`snapshotUpdatedAt`。
+- `Favorites/FavoriteStore.swift:20` `actor FavoriteStore`：
+  - 存 `favorites.json`，有 `schemaVersion`，解碼寬容。
+  - `refresh(_:with:)`（`:105`）：在詳情頁載入時更新快照。
+- `Favorites/FavoriteCompletion.swift:8` `SeriesCompletion`：從 remarks 判斷「完結／更新中／未知」。
+  - `episodeNumber(_:)`（`:39`）從集名取集數。
+  - 已處理簡繁、全半形；可重用。
+- `FavoriteCompletion.swift:66` `FavoriteAutoRemoval`：看完已完結作品的最後一集會自動移出收藏。
+  - 追更若綁收藏，完結移出時要一起停止追更（§4.7）。
+- `WebHTVApp.swift:4108` `FavoriteLibrary`：
+  - `detailLoaded(_:snapshot:lines:)`（`:4159`）：詳情載入時把線路清單放在記憶體（最多 32 部）。
+  - 另有 `playerOpen` 旗標（`:4117`）。
+
+### 2.3 詳情頁怎麼拿集數
+- `WebHTVApp.swift:3098` `VodView`，`loadDetail()`（`:3157`）流程：
+  1. `SourceClient.make(site:resolver:)`。
+  2. `client.detail(id:)`。
+  3. 記 `SiteHealth`。
+  4. 交給 `favoriteLibrary.detailLoaded`。
+- `ios/Sources/WebHTVCore/SourceClient.swift:94` `detail(id:)`：
+  - CMS（type 0/1/4）走 HTTP。
+  - 爬蟲（type 3：Python／JS）走 `SpiderSession.detail`，session 依 `Site.id` 快取。
+  - **recha 影視設定 87 站中 66 站是 type 3**，所以多數追更檢查需要爬蟲執行環境。
+- `ios/Sources/WebHTVCore/CMSClient.swift:286` `Vod.flags`：線路陣列，每條線路有 `episodes`。
+  - `Vod.remarks` 是站台寫的更新說明，例如「更新至12集」。
+
+### 2.4 App 啟動
+- `WebHTVApp.swift:385` WindowGroup 的 `.task`，依序做：
+  1. 讀爬蟲包。
+  2. `restore()` 還原設定與站台。
+  3. `WatchHistoryStore.migrateSiteIdentities`。
+  4. `refreshRemote(quiet: true)` 重抓遠端設定。
+  5. `refreshSpiderPack()`。
+- 站台清單 `sites` 是 View 的 `@State`，只在前景 UI 流程裡建立。
+- 全 App 沒有使用 `scenePhase`，所以回到前景時不會觸發任何事。
+- Python：`ios/WebHTVApp/Sources/PythonBoot.swift:80` `ensureStarted()` 是在第一次用到時才啟動。
+- 併發先例：`ios/Sources/WebHTVCore/AggregateSearch.swift:22` 跨站搜尋同時最多 6 站，總期限 30 秒。
+
+### 2.5 背景與通知
+- `ios/WebHTVApp/Info.plist`：`UIBackgroundModes` 只有 `audio`。
+  - 沒有 `fetch`，也沒有 `BGTaskSchedulerPermittedIdentifiers`。
+- 全專案沒有 `BGTaskScheduler`，也沒有 `UNUserNotificationCenter`。
+- 唯一的背景執行是離線下載：
+  - `beginBackgroundTask`（`WebHTVApp.swift:4808`，`OfflineAppDelegate`）。
+  - 背景 `URLSession`（`Offline/OfflineRuntime.swift:125`）。
+- 最低版本 iOS 16（`project.pbxproj` `IPHONEOS_DEPLOYMENT_TARGET = 16.0`）。
+  - 可以用 SwiftUI `.backgroundTask(.appRefresh(_:))`。
+  - App 圖示紅點數字可用 `UNUserNotificationCenter.setBadgeCount`。
+
+## 3. 實測：站台的「集數訊號」可不可靠
+
+6 個採集站各取最新 20 筆（熱點，2026-11-18 10:20）：
+
+| 站 | 首頁詳情 | 單筆詳情 | remarks 分布 | 觀察 |
+|---|---|---|---|---|
+| 360 | 1439 ms | 798 ms | 更新 18／完結 2 | 「更新至07集」與集數 7 相符 |
+| 非凡 | 3629 ms | 470 ms | 更新 19／完結 1 | 「更新至第710集」與 710 相符 |
+| 量子 | 3182 ms | 624 ms | 更新 18／完結 2 | 綜藝「更新至20261117期」，實際 149 期：**remarks 是日期，不是集數** |
+| 如意 | 1787 ms | 875 ms | 更新 18／完結 2 | 同上，日期型 |
+| 優酷 | 2173 ms | 1957 ms | 其他 5／更新 14／完結 1 | 「正片」 |
+| 天涯 | 1242 ms | 950 ms | 更新 20 | 「更新全集」卻只有 1 集：**remarks 會說謊** |
+
+所有站的 `vod_serial` 都是空的，`vod_isend` 都是 0。
+
+結論：
+- **判斷新集數以「詳情的集數清單」為準**。
+- remarks 只拿來顯示，不拿來判斷。
+- 每部作品每次檢查成本是一次詳情請求：CMS 約 0.5–2 秒；爬蟲站依 Simulator 紀錄約 1–1.7 秒，但第一次還要加上 Python 啟動與規則下載。
+
+## 4. 集數更新（追更）設計
+
+### 4.1 入口與資料
+- 詳情頁右上角收藏旁加「追更」開關（鈴鐺）。
+  - 只有多集作品可開：最長線路 ≥ 2 集，且 typeName 不是電影。
+  - 另一種做法是「收藏的劇集自動追更」，交使用者決定（§8 決定 1）。
+- 「記錄」列表長按選單加「追更／取消追更」，兩個入口寫同一份資料。
+- 新檔 `Application Support/follows.json`，由 `actor FollowStore` 管理（新增 `ios/Sources/WebHTVCore/Follows/`），寫法比照 `FavoriteStore`：有 `schemaVersion`、解碼寬容、atomic 寫入。
+- 一筆追更 `Follow` 的欄位：
+  - `identity: FavoriteIdentity`：重用，不新造識別。
+  - `vodName`、`vodPic`、`siteName`：快照；觀看紀錄過期後仍能顯示。
+  - `seenCount`：使用者最後確認時的集數，徽章就是 `latestCount - seenCount`。
+  - `latestCount`、`latestEpisodeName`。
+  - `checkedAt`、`seenAt`、`failures`。
+  - `state`：`ok`／`siteMissing`／`notFound`／`failing`。
+- 上限 50 部：超過時提示先取消一些，不默默丟掉。
+- 不改 `history.json` 和 `favorites.json`，所以舊檔不需要遷移。
+
+### 4.2 比對規則（Core 純函式，可單元測試）
+- `count = max(每條線路的 episodes.count)`：
+  - 取最長線路，換線路或某條線路落後都不影響。
+  - 這和 `FavoriteAutoRemoval` 用最長線路判斷最後一集是同一個理由。
+- 判斷：
+  - `count > latestCount`：有新集，更新 `latestCount` 與 `latestEpisodeName`（最長線路的最後一集名稱）。
+  - `count < latestCount`：站台刪集或改版。**重設基準**，`seenCount = min(seenCount, count)`，不顯示負數，也不顯示徽章。
+  - 綜藝的日期型（「20261117期」）一樣看清單長度，不解析日期。
+- remarks 不參與判斷，只照原樣顯示在列上，例如「更新至12集」。
+
+### 4.3 什麼時候檢查
+- **打開 App**：在 `refreshRemote` 完成後，延遲 3 秒再背景執行。
+  - 不擋首頁，啟動流程不等它。
+- **回到前景**：新增 `scenePhase == .active`，條件是距離上次整批檢查超過 30 分鐘。
+- **在「記錄」頁下拉重新整理**：強制檢查。
+- **背景重新整理**：屬於方案 D，見 §5。
+- 節流：
+  - 每部作品 30 分鐘內最多檢查一次（下拉例外）。
+  - 同時最多 2 個站；同一站一次只跑一部，避免被站台擋。
+  - 每部詳情最多等 10 秒，整批最多 60 秒，超過的留到下一輪。
+- **播放中暫停**：`favoriteLibrary.playerOpen` 為真時不開新請求，避免搶頻寬或拖慢播放。
+- 檢查結果也記進 `SiteHealthStore`，因為那是真實的詳情請求。
+
+### 4.4 紀錄頁顯示
+- 「記錄」最上面加一區「追更」，列出所有追更作品：
+  - 有新集的排在最前，標 `+N 集`（沿用 `.badge`）。
+  - 其餘依 `seenAt` 排序。
+  - 原本的觀看紀錄列表照舊在下方。
+- 追更作品的觀看紀錄過了 60 天被刪掉，仍會靠 `Follow` 的快照顯示。
+- 片庫分頁標籤顯示有更新的部數（`:325` 的 `.tabItem` 加 `.badge(n)`）。
+- 「記錄」裡同一作品的觀看紀錄列也加 `+N 集`。
+- 點一下打開詳情頁（和現在一樣）。
+
+### 4.5 看過後怎麼清除
+- 詳情頁載入成功時，設 `seenCount = latestCount = 這次詳情的 count`，徽章就消失。
+  - 使用者已經在詳情頁看到集數清單，等於「知道了」。
+- 另一種做法是「播放了最新一集才清除」：比較準，但使用者只想看一眼就要點進播放，太囉嗦。
+  - 建議選「打開詳情就清除」。若使用者想要後者，屬 §8 決定 2。
+
+### 4.6 異常情況
+| 情況 | 處理 |
+|---|---|
+| 站慢／逾時／一次失敗 | 保留上次狀態，`failures += 1`，不顯示錯誤 |
+| 連續 3 次失敗 | 列上灰字「最近檢查失敗」，下拉時再試；成功一次就歸零 |
+| 換線路 | 不影響：取最長線路 |
+| 站台不在目前設定（改名、移除、換設定來源） | 只檢查 `identity.configSourceID == 目前來源`、且站台在 `sites` 裡的；其他列灰字「站台不在目前設定」，**不刪資料**，比照收藏 `FavoriteAvailability` |
+| 站台還在等爬蟲工具 | 跳過，比照 `waiting` |
+| `vod_id` 變動或作品下架（詳情回 nil） | `state = notFound`，灰字「站台找不到這部作品」，提供「用片名搜尋」按鈕（重用現有搜尋）。**不自動改綁**：同名不同作品太常見 |
+| 站台身分遷移（ext 鍵序變動） | 重用 `SiteSelection.resolveIdentity`，與收藏的 `migrateSiteIdentities` 相同 |
+| 多倉／換設定 | 追更跟著 `configSourceID` 走，只在該設定載入時檢查 |
+
+### 4.7 與現有功能的關係
+- 收藏的完結自動移除（`FavoriteAutoRemoval`）不受影響。
+  - 若選「收藏即追更」，移除收藏時追更一起移除。
+  - 若選獨立開關，追更看到 remarks 說已完結，而且使用者看完最後一集時，提示是否取消追更，不自動刪。
+- 觀看紀錄、收藏、下載三個 store 都不改格式。
+- 啟動時間：檢查是在啟動完成後延遲執行的背景工作，驗收時要量啟動 log「site list ready」前後差不超過量測誤差（§7）。
+
+## 5. iOS 背景與通知限制（結論）
+
+| 項目 | 結論 | 依據 |
+|---|---|---|
+| 本機通知權限 | 可用，不需要特殊權限，但要向使用者要通知權限；推播（APNs）需要付費帳號權限加伺服器，**本專案不用** | Apple 本機通知文件；SideStore 免費簽章 |
+| 背景重新整理在 SideStore 上 | `fetch` 背景模式與 `BGTaskSchedulerPermittedIdentifiers` 是 Info.plist 設定，不是付費權限，側載後**理論上可用**；**未在實機驗證**，要使用者裝 IPA 實測 | Apple 文件；本專案已用 `audio` 背景模式，側載後正常 |
+| 會不會準時跑 | **不會**。系統依使用習慣決定，可能一天幾次，也可能完全不跑。低電量模式、「背景 App 重新整理」關閉、被使用者從多工畫面滑掉，都不會跑 | Apple 文件「system decides」；DTS 論壇回覆 |
+| 可用時間 | 每次約 30 秒，用完被終止 | Apple 文件 |
+| 背景時爬蟲能不能跑 | CMS（URLSession）可以；JS 爬蟲（JavaScriptCore，程序內）可以；Python 是程序內 CPython，背景冷啟動要 `Py_Initialize` 加規則下載，**30 秒內只夠檢查少數幾部**，啟動耗時未量 | 程式結構；未實測 |
+| 背景啟動要改的結構 | 站台清單現在只在前景 View 裡建立（`restore()` 寫入 `@State`），背景喚醒時沒有 `sites`。要先把「從磁碟還原設定與站台」抽成 Core 可呼叫的函式，屬中等重構 | §2.4 |
+| 7 天簽章 | SideStore 憑證過期時 App 整個不能開，背景也不會跑 | SideStore 說明 |
+
+**結論**：
+- 背景重新整理加本機通知可以做成「有跑到就通知」的加分功能，但**不能當成主要機制**，也不能承諾準時。
+- 主要機制應是「打開 App／回到前景／下拉」時檢查，並在紀錄頁顯示。
+- 這也正好符合使用者原話「打開 App 時，在紀錄那邊能知道」。
+
+## 6. 系列新季偵測
+
+### 6.1 做法
+1. 對每部追更作品，用 W-312 的 Core 拆名器拆片名，得到基名鍵 `key`、可搜尋的基名 `searchBase`、季數 `season`（沒寫季數視為第 1 季）、種類 `kind`。
+2. 只有 `kind == 正季` 才做新季檢查。特別篇、劇場版、外傳都不做。
+3. **只搜尋原作品所在的那一站**：一次 `search(searchBase)`。
+   - 解析每筆結果，條件是 `key` 完全相同、`kind == 正季`、`season > 目前季數`。
+   - 若片名或 remarks 拆得出年份，還要求不早於原作品年份，以排除同名重拍。
+   - 命中就標「可能有新季：第 N 季」，點了打開那筆詳情。
+4. 頻率：每部每天最多一次（新季很少，而且搜尋比詳情貴），整批與追更檢查共用 60 秒預算和併發上限。
+5. 跨站找新季**不自動做**：一次跨站搜尋要等全部站，同時 6 站、最多 30 秒（`AggregateSearch`），50 部作品就是 50 次全站搜尋，太重，也容易被站擋。
+   - 改成詳情頁加按鈕「找其他季」，使用者點了才跑一次跨站搜尋，結果用 W-312 的系列歸組顯示。
+
+### 6.2 拆名器介面（暫定，等 claude-dev-2 確認，看板 #8796）
+```swift
+public enum SeriesName {
+    public static func parse(_ title: String) -> SeriesTitle
+}
+public struct SeriesTitle: Equatable, Sendable {
+    public let key: String        // 跨站比對用：簡繁、全半形、標點空白折疊後的基名
+    public let searchBase: String // 原文基名，拿去 searchContent 當關鍵字
+    public let season: Int?       // nil = 沒寫季數（視為第 1 季或單季）
+    public let kind: Kind         // .season / .special / .movie / .unknown
+}
+```
+- W-313 只用這四個欄位。
+- 季數的寫法規則（第二季、第2季、第二部、S2、Season 2、中文數字等）由 W-312 定義，本文件不重複。
+- 正規化可重用 `SeriesCompletion.normalized`（簡體、寬度與大小寫折疊、去空白）。
+
+### 6.3 可靠度（直說）
+| 風險 | 例子 | 程度 | 對策 |
+|---|---|---|---|
+| 漏報（看不到新季） | 新季只在別站有；站台把第二季命名成新片名（「XXX 歸來」）；第 1 季寫「XXX 第一季」但第 2 季沒標季數 | **高**，同站搜尋只能找到同站有的 | 用語寫「可能有新季」，不承諾；提供「找其他季」手動跨站 |
+| 誤報 | 同名不同作品（重拍版）；「XXX 2」是電影續集而非第二季；基名太短（兩字片名命中一堆） | 中 | `key` 完全相等、`kind` 必須是正季、年份不倒退、基名 < 2 字不檢查；點進去才確認，不自動追更新季 |
+| 站台搜尋本身不準 | 有的站搜尋只回前 N 筆、或是模糊比對 | 中 | 只當提示 |
+| 成本 | 每部每天一次搜尋，CMS 約 1–3 秒 | 低（有節流） | 每日一次、共用預算 |
+
+**判斷**：同站新季提示可做，但只是「提示」，漏報率不低。若使用者期待「一定會通知新季」，目前的資料來源（沒有中央片庫 ID，只有各站片名）做不到。
+
+## 7. 方案比較
+
+| | A 不做 | B 前景追更（建議先做） | C = B ＋同站新季提示 | D = C ＋背景重新整理＋本機通知 |
+|---|---|---|---|---|
+| 使用者看得到 | 無 | 打開 App 或下拉後，紀錄頁出現「+N 集」，片庫標籤有數字 | 加上「可能有新季」與「找其他季」 | 加上 App 沒開時偶爾跳出通知、App 圖示紅點 |
+| 可靠度 | — | 高：每次打開都會檢查 | 新季部分中低 | 背景部分低且不可預期 |
+| 改動 | 0 | Core：`Follow`、`FollowStore`、比對與檢查器，加測試；App：詳情頁開關、記錄頁區塊與徽章、下拉、前景觸發 | 加上拆名器呼叫、同站搜尋、每日節流、詳情頁按鈕 | 加上 Info.plist 兩個鍵、通知權限 UI、背景任務、把設定還原抽到 Core（中等重構） |
+| 風險 | — | 低：新檔、新 UI，不動既有三個 store；主要風險是對站台多一些請求（有節流） | 誤報或漏報，用語要保守 | 背景 Python 冷啟動、30 秒限制、記憶體；重構還原流程可能影響啟動 |
+| 依賴 | — | 無 | W-312 拆名器先落地 | 實機 SideStore 安裝驗證（使用者操作） |
+| 預估（Claude 實作、本機） | — | 約 6–8 小時：Core 加測試 2–3、UI 2–3、Simulator 驗證 1.5 | B 之外 +3–4 小時（拆名器已存在時） | C 之外 +6–10 小時，另加使用者實機測試的等待 |
+
+**建議**：
+- 先做 **B**。
+- W-312 拆名器落地後再做 **C**。
+- **D 暫緩**：等 B/C 用一陣子、使用者仍需要「沒開 App 也要被通知」時，再先做一個最小背景任務 PoC，由使用者實機確認在 SideStore 上真的會被喚醒，再決定。
+
+## 8. 需要使用者決定的事（Manager 整理）
+1. 追更入口：
+   - (a) 詳情頁獨立「追更」開關（建議，對應「對某部劇設定通知」）。
+   - (b) 收藏的劇集自動追更（不用多一個按鈕，但收藏多時檢查量大）。
+2. 清除時機：
+   - (a) 打開詳情頁就清除（建議）。
+   - (b) 播放最新一集才清除。
+3. 方案：B（建議）／B+C／B+C+D。
+
+## 9. 驗收條件（方案 B；C 另列）
+
+**Core 單元測試**
+- 集數增加 → `+N`。
+- 集數減少 → 重設基準且不顯示徽章。
+- 多條線路取最長。
+- 綜藝日期型以清單長度判斷。
+- remarks 說謊（「更新全集」1 集）不影響判斷。
+- 連續 3 次失敗才顯示「最近檢查失敗」，成功一次歸零。
+- 30 分鐘節流（下拉例外）。
+- 只檢查目前設定來源的追更。
+- 站台缺席與找不到作品時保留資料。
+- `follows.json` 損毀或多出欄位時解碼寬容。
+- 舊 `history.json`／`favorites.json` 不變。
+
+**Simulator（本機 HTTPS 假 CMS 站，可在兩次啟動間改集數）**
+1. 追更一部 3 集作品，改成 5 集，重開 App，紀錄頁出現「+2 集」並排在最前，片庫標籤顯示 1。
+2. 打開詳情，回來徽章消失。
+3. 下拉立即重新檢查。
+4. 回到前景超過 30 分鐘才檢查（可用除錯開關縮短）。
+5. 讓假站逾時，不出錯誤視窗，第 3 次後顯示灰字。
+6. 刪掉假站，追更列顯示「站台不在目前設定」，資料還在。
+7. 播放中不發檢查請求（看 log）。
+
+**效能**：「site list ready」啟動 log 在有 10 部追更、無追更兩種情況下，差異在量測誤差內。
+
+**熱點實機站**：追更 1 部真實採集站作品、1 部 Python 爬蟲站作品，檢查成功，並記錄耗時。
+
+**C 另加**：拆名器測試由 W-312 負責；W-313 測試同站搜尋命中「第二季」會提示，同名不同作品（年份倒退、基名不同、劇場版）不提示，每日節流生效。
+
+## 10. 遷移與回退
+- **遷移**：只新增 `follows.json`，沒有舊資料要轉換。舊版 App 不認得這個檔案，會直接忽略。
+- **回退**：
+  - revert 該任務 commit 即可。
+  - `follows.json` 留在手機上沒有副作用，也可以在下一版加一行刪檔。
+  - 三個既有 store 不動，回退不會丟失觀看紀錄或收藏。
+- **D 的回退**：拿掉 Info.plist 兩個鍵與任務註冊；已排程的本機通知要在下一版啟動時 `removeAllPendingNotificationRequests()`。
+
+## 11. 未驗證與限制
+- 未在實機確認 SideStore 側載後 `BGAppRefreshTask` 會被喚醒，只有文件推論。
+- Python 爬蟲在背景冷啟動的耗時未量。
+- 爬蟲站詳情耗時只有 Simulator 的 3 筆既有紀錄，樣本少。
+- §6.2 拆名器介面等 claude-dev-2 確認。
+- 「成熟相關專案」查不到逐站追更的同類實作。本設計的比對規則來自本倉既有的完結判斷（`FavoriteAutoRemoval`）與 §3 實測，不是外部最佳實務。
+- Ponytail：本單只有文件、沒有程式碼變更，不適用（AGENTS.md §4 只要求程式碼變更跑）。

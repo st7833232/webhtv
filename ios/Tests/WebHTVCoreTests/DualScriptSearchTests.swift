@@ -18,6 +18,18 @@ import Testing
     #expect(DualScriptSearch.forms(of: "頭髮") == ["头髮", "頭髮"])
 }
 
+// W-312 A0: a Simplified keyword whose characters the Android table also maps elsewhere is sent once, as typed;
+// the pairs that really are Traditional → Simplified still send both forms.
+@Test func leavesStandardSimplifiedCharactersAlone() {
+    #expect(DualScriptSearch.forms(of: "哪吒") == ["哪吒"])
+    #expect(DualScriptSearch.forms(of: "猛龙过江") == ["猛龙过江"])
+    #expect(TraditionalSimplified.toSimplified("吒猛呼呱嗬劈脊怵糊溜佘屙镟槁") == "吒猛呼呱嗬劈脊怵糊溜佘屙镟槁")
+    #expect(DualScriptSearch.forms(of: "合夥人") == ["合伙人", "合夥人"])
+    #expect(DualScriptSearch.forms(of: "活著") == ["活着", "活著"])
+    #expect(DualScriptSearch.forms(of: "鍾馗") == ["锺馗", "鍾馗"])
+    #expect(DualScriptSearch.forms(of: "呼嘯山莊") == ["呼啸山庄", "呼嘯山莊"])
+}
+
 @Test func keepsTheFirstAnswerAsSentAndAddsOnlyNewTitles() async throws {
     let answer = try await DualScriptSearch.firstPage(
         forms: ["庆余年", "慶餘年"], titles: { $0 },

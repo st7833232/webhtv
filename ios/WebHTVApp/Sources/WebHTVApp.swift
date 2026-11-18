@@ -1843,6 +1843,7 @@ private struct SearchCanceller: View {
 
 private struct AggregateSearchView: View {
     @ObservedObject private var displayModel = TaiwanDisplay.shared
+    @AppStorage(siteHealthSortKey) private var healthSort = true
     let sites: [Site]
     let source: ConfigSource
     var initialQuery: String?
@@ -2068,10 +2069,15 @@ private struct AggregateSearchView: View {
         let targets = AggregateSearch.sites(from: sites)
         total = targets.count
         searching = true
-        let reports = engine.run(targets, keyword: text)
         let started = ContinuousClock.now
+        let byHealth = healthSort, engine = engine, identity = source.identity
         task = Task {
-            for await report in reports {
+            // W-312 A5: as Android's `CollectFragment.setSites`, the healthiest sites are asked first, so the ones
+            // that keep failing stop holding the first slots; the setting's 站點健康排序 switch turns it off.
+            let order = byHealth ? SiteHealth.ordered(targets, by: await SiteHealthStore.shared.health(in: identity))
+                                 : targets
+            guard current == generation, !Task.isCancelled else { return }
+            for await report in engine.run(order, keyword: text) {
                 guard current == generation else { return }
                 apply(report)
                 // IOS-POC-41B: as `SiteViewModel.searchContent` records each site's answer.

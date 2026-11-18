@@ -12,9 +12,9 @@
 ## Recovery anchor
 
 - 目標：評估「追更（集數更新）」與「系列新季」兩個功能在 iOS 上怎麼做、做到什麼程度可靠，並提出方案、驗收、回退、預估。
-- 狀態：評估已核准（8530269b）。使用者決定 1a、2b、3b（B＋C）。方案 B 已實作並在 Simulator 驗證（§12），送審中；方案 C 下一步。
+- 狀態：使用者決定 1a、2b、3b。方案 B（§12，606bdcb1）與方案 C（§13）都已實作、在 Simulator 驗證並送審。
 - 新季偵測依賴 W-312 的 Core 系列拆名器；介面已由 claude-dev-2 確認（#8809），見 §6.2。
-- 下一步：B 送審後做方案 C（Core 實作 `SeriesTitle`／`SeriesGrouping`，規則依 W-312 83c3730e §4），另一筆提交。
+- 下一步：等 Reviewer 審查 B、C；拆名器提交後把 SHA 告訴 claude-dev-2（W-312 A2 會用）。
 
 ## 1. 證據來源
 
@@ -437,3 +437,38 @@
 - 已修：`FollowSchedule.due` 只在自動檢查時排除慢站；`aSlowSpiderSiteIsLeftOut` 加上下拉仍會檢查的斷言。
 - 修正後 FollowTests 23/23 通過；沒有重跑 Simulator（改的只有一個條件，由單元測試覆蓋）。
 - 審查也列出沒查到的部分：前景 30 分鐘觸發、播放中暫停（只有 Core 測試），同 §12.2。
+
+## 13. 方案 C 實作紀錄（2026-11-18）
+
+### 13.1 改了什麼
+- **Core `ios/Sources/WebHTVCore/SeriesTitle.swift`（W-312 與 W-313 共用）**：`SeriesTitle(title)` 與 `SeriesGrouping.groups`／`isNewerSeason`，規則照 W-312 83c3730e §4.1–4.5。和 W-312 的 Python 試作（`artifacts/w312/series_proto.py`）不同的地方有兩處：
+  - `S N` 前面不能是英文字母，「PS5」不會被當成「P」的第 5 季（`SeriesTitleTests` 有這一筆）。
+  - 片名裡的零寬空白（U+200B）不算進基名。
+- **和試作逐筆比對**：W-312 收集的 5 個關鍵字共 700 個不同片名，基名、季數、強弱三項有 699 筆相同；唯一的差異就是上面零寬空白那一筆。比對用的暫時測試已刪除。
+- **Core `Follows/`**：
+  - `Follow` 加 `newSeason`、`seasonCheckedAt`。兩者都是 Optional，所以方案 B 寫的 `follows.json` 照樣讀得進來。
+  - 另加 `seasonKeyword`（劇場版、特別篇或基名少於 2 字時不做新季檢查）、`seasonDue`（每天一次）、`searched`（取 strong 而且季數最高的候選；不收原作品本身；兩邊片名都有年份時，候選不得比原作品舊；找到的提示保留到出現更高季數為止）、`seasonOpened`、`hasNews`。
+  - `FollowChecker` 在某部作品詳情檢查完後，如果到了每日新季檢查時間，就在同一站搜尋 `baseDisplay` 第一頁。這次搜尋和詳情檢查走同一套規則：使用者正在用、最近用過、忙碌的站都不發；爬蟲逾時只停止等待，不中斷請求。結果放在 `Report.seasons`。
+- **`WebHTVApp.swift`**：
+  - 檢查時把同站搜尋結果交給 `FollowCenter`。
+  - 記錄頁的追更列顯示「可能有新季：…」，有新季的也排在最前、也算進片庫標籤的數字。
+  - 詳情頁「立即播放」下面放兩個連結：「可能有新季：…」直接開那一季的詳情；「找其他季」用 `baseDisplay` 開現有的跨站搜尋畫面（`AggregateSearchView` 的 `initialQuery`）。搜尋結果怎麼依系列歸組，是 W-312 A2 的工作，不在這裡做。
+  - 打開提示的那一季，提示就清除。
+
+### 13.2 驗證
+- `swift test --filter "FollowTests|SeriesTitleTests"`：31/31 通過。
+- 全套 `swift test`：1595 項中 1594 項通過。唯一失敗的是既有測試 `theProbeReadsOnlyTheHeadOfABodyThatNeverEnds` 的 5 秒時間上限，單獨重跑 0.05 秒就通過，前兩次全套也都通過，判斷是平行負載造成的抖動，和這次改動無關。輸出在 `artifacts/w313/core-tests-full-c.txt`。
+- Simulator（同一台、同一套假站；假站收到搜尋請求時，多回一筆「追更測試劇 第二季」）：
+  - 重開 App 後，啟動檢查發出詳情請求加同站搜尋（`srv.log` 有 `wd=追更測試劇`），applog 記「1 answered, 1 searched」，`follows.json` 記下 `newSeason` 第 2 季。
+  - 記錄頁顯示「可能有新季：追更測試劇 第二季」，片庫標籤數字變 2（`c1-history.txt`）。
+  - 詳情頁兩個連結都在（`c2-detail.png`）。點新季連結會開第二季詳情（`ids=2`），提示清除（`follows.json` 的 `newSeason` 變回 null）。
+  - 「找其他季」開跨站搜尋，搜尋欄是「追更測試劇」，第一季和第二季都列出（`c3-search.txt`）。
+- 沒驗到：爬蟲站的新季搜尋。慢站測試劇因為先前 25 秒的紀錄被判為慢站，這輪自動檢查排除了它；規則和 CMS 相同，由 Core 測試覆蓋。真實站台上的誤判率也沒測，只有 W-312 的 700 個片名離線比對。
+
+### 13.3 Ponytail
+- `ponytail:ponytail-review` 程序對方案 C 的 diff：沒有必修。
+- 審查時逐項確認過：
+  - `detailLoaded` 迴圈裡 `reload` 改到的是陣列副本，不會影響迭代。
+  - 中文數字解析不會越界。
+  - `\bsp\b` 在中文字後面不成立，這點和 Python 試作一致。
+  - 搜尋失敗時不更新 `seasonCheckedAt`，下一輪會重試。

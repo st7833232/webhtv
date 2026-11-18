@@ -109,6 +109,20 @@ public struct FollowChecker: Sendable {
     }
 
     public typealias Detail = @Sendable (Site, String) async throws -> Vod?
+    /// 方案 C: one page of the site's search for a keyword.
+    public typealias Search = @Sendable (Site, String) async throws -> [Vod]
+
+    /// What a round found: each asked follow's listing, and the search results of those searched for a
+    /// later season. A follow not asked is absent and stays as it was.
+    public struct Report: Sendable {
+        public var outcomes = [FavoriteIdentity: Outcome]()
+        public var seasons = [FavoriteIdentity: [Vod]]()
+
+        mutating func merge(_ other: Report) {
+            outcomes.merge(other.outcomes) { _, new in new }
+            seasons.merge(other.seasons) { _, new in new }
+        }
+    }
     /// What the app knows that Core does not: whether the player is open, whether a follow screen is up.
     public struct Conditions: Sendable {
         public var playerOpen: Bool
@@ -123,35 +137,38 @@ public struct FollowChecker: Sendable {
     public var budget: Duration = .seconds(60)
     public var cmsLimit = 2
     let detail: Detail
+    let search: Search
     let activity: SiteActivity
     let conditions: @Sendable () async -> Conditions
 
     private static let log = Logger(subsystem: "com.webhtv.ios.poc", category: "follow")
 
     public init(activity: SiteActivity = .shared, conditions: @escaping @Sendable () async -> Conditions,
-                detail: @escaping Detail) {
+                search: @escaping Search = { _, _ in [] }, detail: @escaping Detail) {
         self.activity = activity
         self.conditions = conditions
+        self.search = search
         self.detail = detail
     }
 
-    /// Checks `candidates` and answers what each one found; a follow not asked (out of budget, its site
-    /// busy or in use) is simply absent and stays as it was.
-    public func run(_ candidates: [FollowSchedule.Candidate], forced: Bool) async -> [FavoriteIdentity: Outcome] {
+    /// Checks `candidates`: each one's detail and, once a day (`Follow.seasonDue`), the same site's search
+    /// for a later season, under the same rules. A follow not asked (out of budget, its site busy or in
+    /// use) is absent from the report and stays as it was.
+    public func run(_ candidates: [FollowSchedule.Candidate], forced: Bool) async -> Report {
         let deadline = ContinuousClock.now + budget
         let bySite = Dictionary(grouping: candidates, by: \.site.id)
         let order = candidates.map(\.site.id).reduce(into: [Site.ID]()) { if !$0.contains($1) { $0.append($1) } }
         let cms = order.filter { bySite[$0]?.first?.isSpider == false }.compactMap { bySite[$0] }
         let spiders = order.filter { bySite[$0]?.first?.isSpider == true }.compactMap { bySite[$0] }
         return await SiteActivity.$background.withValue(true) {
-            await withTaskGroup(of: [FavoriteIdentity: Outcome].self) { group in
+            await withTaskGroup(of: Report.self) { group in
                 let queue = SiteQueue(cms)
                 for _ in 0..<max(1, cmsLimit) {
                     group.addTask { await lane(queue, spider: false, forced: forced, deadline: deadline) }
                 }
                 group.addTask { await lane(SiteQueue(spiders), spider: true, forced: forced, deadline: deadline) }
-                var all = [FavoriteIdentity: Outcome]()
-                for await part in group { all.merge(part) { _, new in new } }
+                var all = Report()
+                for await part in group { all.merge(part) }
                 return all
             }
         }
@@ -160,38 +177,55 @@ public struct FollowChecker: Sendable {
     /// One worker: takes a site, checks its follows in turn, takes the next. A spider that runs past the
     /// timeout ends the spider lane for this round — its call is still running and cannot be stopped.
     private func lane(_ queue: SiteQueue, spider: Bool, forced: Bool,
-                      deadline: ContinuousClock.Instant) async -> [FavoriteIdentity: Outcome] {
-        var found = [FavoriteIdentity: Outcome]()
+                      deadline: ContinuousClock.Instant) async -> Report {
+        var report = Report()
         while let site = await queue.next() {
             for candidate in site {
-                guard ContinuousClock.now < deadline, !Task.isCancelled else { return found }
-                let now = await conditions()
-                let id = candidate.site.id
-                guard FollowSchedule.mayStart(isSpider: spider, busy: await activity.isBusy(id),
-                                              lastTouched: await activity.lastTouched(id),
-                                              playerOpen: now.playerOpen, onFollowScreen: now.onFollowScreen,
-                                              forced: forced)
-                else {
+                guard ContinuousClock.now < deadline, !Task.isCancelled else { return report }
+                guard await allowed(candidate, spider: spider, forced: forced) else {
                     Self.log.notice("[follow] skip \(candidate.site.name, privacy: .public): busy or in use")
                     break
                 }
                 let detail = self.detail, vodID = candidate.follow.identity.vodID, target = candidate.site
+                let identity = candidate.follow.identity
                 switch await Self.waiting(timeout, cancelling: !spider, { try await detail(target, vodID) }) {
                 case .value(let vod?):
-                    found[candidate.follow.identity] = .listed(EpisodeListing(flags: vod.flags), remarks: vod.remarks)
+                    report.outcomes[identity] = .listed(EpisodeListing(flags: vod.flags), remarks: vod.remarks)
                 case .value(nil):
-                    found[candidate.follow.identity] = .missing
+                    report.outcomes[identity] = .missing
                 case .failed:
-                    found[candidate.follow.identity] = .failed
+                    report.outcomes[identity] = .failed
                 case .timedOut:
-                    found[candidate.follow.identity] = .failed
+                    report.outcomes[identity] = .failed
                     Self.log.notice("[follow] \(candidate.site.name, privacy: .public) past \(timeout) — no longer waited for")
-                    if spider { return found }
+                    if spider { return report }
+                    continue
+                }
+                guard candidate.follow.seasonDue(), let keyword = candidate.follow.seasonKeyword,
+                      ContinuousClock.now < deadline, await allowed(candidate, spider: spider, forced: forced)
+                else { continue }
+                let search = self.search
+                switch await Self.waiting(timeout, cancelling: !spider, { try await search(target, keyword) }) {
+                case .value(let results):
+                    report.seasons[identity] = results
+                case .failed:
                     break
+                case .timedOut:
+                    Self.log.notice("[follow] \(candidate.site.name, privacy: .public) search past \(timeout) — no longer waited for")
+                    if spider { return report }
                 }
             }
         }
-        return found
+        return report
+    }
+
+    /// `FollowSchedule.mayStart`, asked right before each call.
+    private func allowed(_ candidate: FollowSchedule.Candidate, spider: Bool, forced: Bool) async -> Bool {
+        let now = await conditions()
+        let id = candidate.site.id
+        return FollowSchedule.mayStart(isSpider: spider, busy: await activity.isBusy(id),
+                                       lastTouched: await activity.lastTouched(id), playerOpen: now.playerOpen,
+                                       onFollowScreen: now.onFollowScreen, forced: forced)
     }
 
     enum Waited<T: Sendable>: Sendable {

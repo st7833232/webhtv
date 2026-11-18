@@ -264,10 +264,10 @@ private actor Calls {
                                    candidate("c1", cmsSite, spider: false)], forced: false)
     // Not waited for: the round is over while the spider call is still running.
     #expect(!(await calls.spiderEnded))
-    #expect(found.count == 2)
-    #expect(found.values.contains(.failed))
+    #expect(found.outcomes.count == 2)
+    #expect(found.outcomes.values.contains(.failed))
     #expect(!(await calls.asked.contains("s2")))
-    if case .listed(let listed, _)? = found[FavoriteIdentity(configSourceID: "cfg", siteID: cmsSite.id, vodID: "c1")] {
+    if case .listed(let listed, _)? = found.outcomes[FavoriteIdentity(configSourceID: "cfg", siteID: cmsSite.id, vodID: "c1")] {
         #expect(listed.count == 3)
     } else {
         Issue.record("the CMS follow was not listed")
@@ -283,6 +283,71 @@ private actor Calls {
         await calls.add(vod)
         return nil
     }
-    #expect(await checker.run([item], forced: true).isEmpty)
+    #expect(await checker.run([item], forced: true).outcomes.isEmpty)
     #expect(await calls.asked.isEmpty)
+}
+
+// MARK: - A later season (方案 C)
+
+private func named(_ name: String, vod: String = "v1") -> Follow {
+    Follow(identity: FavoriteIdentity(configSourceID: "cfg", siteID: "site", vodID: vod), vodName: name, vodPic: "",
+           siteName: "", remarks: "", listing: listing(episodes(1...2)), now: Date(timeIntervalSince1970: 0))
+}
+
+@Test func onlyASeriesWithASearchableNameLooksForLaterSeasons() {
+    #expect(named("慶餘年 第一季").seasonKeyword == "慶餘年")
+    #expect(named("慶餘年").seasonKeyword == "慶餘年")
+    #expect(named("鬼滅之刃 劇場版").seasonKeyword == nil)
+    #expect(named("家").seasonKeyword == nil)
+    let item = named("慶餘年")
+    #expect(item.seasonDue(now: Date(timeIntervalSince1970: 10)))
+    let searched = item.searched([], now: Date(timeIntervalSince1970: 10))
+    #expect(!searched.seasonDue(now: Date(timeIntervalSince1970: 10 + 3_600)))
+    #expect(searched.seasonDue(now: Date(timeIntervalSince1970: 10 + Follow.seasonInterval)))
+}
+
+@Test func theHighestStrongLaterSeasonIsHintedAndOpeningItClearsIt() throws {
+    let results = [Vod(id: "v1", name: "慶餘年", picture: ""),
+                   Vod(id: "a", name: "庆余年2", picture: ""),
+                   Vod(id: "b", name: "庆余年第二季", picture: ""),
+                   Vod(id: "c", name: "庆余年 第三季", picture: ""),
+                   Vod(id: "d", name: "庆余年第四季 特别篇", picture: ""),
+                   Vod(id: "e", name: "庆余年之帝王业 第五季", picture: "")]
+    let hinted = named("慶餘年").searched(results)
+    #expect(hinted.newSeason == Follow.NewSeason(vodID: "c", name: "庆余年 第三季", season: 3))
+    // A later search that misses it keeps the hint; a higher one replaces it.
+    #expect(hinted.searched([]).newSeason?.vodID == "c")
+    #expect(hinted.searched([Vod(id: "f", name: "慶餘年 第四季", picture: "")]).newSeason?.season == 4)
+    #expect(hinted.seasonOpened(vodID: "b") == nil)
+    #expect(try #require(hinted.seasonOpened(vodID: "c")).newSeason == nil)
+}
+
+@Test func aRemakeOlderThanTheFollowedTitleIsNoNewSeason() {
+    let item = named("某劇 第一季(2020)")
+    #expect(item.searched([Vod(id: "x", name: "某劇 第二季(2008)", picture: "")]).newSeason == nil)
+    #expect(item.searched([Vod(id: "y", name: "某劇 第二季(2022)", picture: "")]).newSeason?.vodID == "y")
+    #expect(named("某劇 第二季").searched([Vod(id: "z", name: "某劇 第二季", picture: "")]).newSeason == nil)
+}
+
+@Test func aDueFollowIsSearchedOnItsOwnSiteAfterItsDetail() async throws {
+    let cmsSite = try site("cms")
+    let item = FollowSchedule.Candidate(follow: Follow(identity: FavoriteIdentity(configSourceID: "cfg", siteID: cmsSite.id, vodID: "v1"),
+                                                       vodName: "慶餘年", vodPic: "", siteName: "", remarks: "",
+                                                       listing: listing(episodes(1...2))),
+                                        site: cmsSite, isSpider: false)
+    let calls = Calls()
+    let checker = FollowChecker(activity: SiteActivity(), conditions: { .init(playerOpen: false, onFollowScreen: false) },
+                                search: { _, keyword in
+                                    await calls.add("search:\(keyword)")
+                                    return [Vod(id: "s2", name: "慶餘年 第二季", picture: "")]
+                                }) { _, vod in
+        await calls.add("detail:\(vod)")
+        return nil
+    }
+    let report = await checker.run([item], forced: false)
+    #expect(await calls.asked == ["detail:v1", "search:慶餘年"])
+    #expect(report.seasons[item.follow.identity]?.first?.id == "s2")
+    let searchedToday = FollowSchedule.Candidate(follow: item.follow.searched([]), site: cmsSite, isSpider: false)
+    _ = await checker.run([searchedToday], forced: false)
+    #expect(await calls.asked.count == 3)
 }

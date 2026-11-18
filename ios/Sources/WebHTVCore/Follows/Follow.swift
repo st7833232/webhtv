@@ -33,11 +33,25 @@ public struct Follow: Codable, Equatable, Sendable, Identifiable {
     public var failures: Int
     /// The site answered, but not with this title (`detail` came back empty).
     public var notFound: Bool
+    /// W-313 方案 C: a later season the same site lists, until the viewer opens it. Optional, like
+    /// `seasonCheckedAt`, so a file written before 方案 C still reads.
+    public var newSeason: NewSeason?
+    /// When the site was last searched for a later season.
+    public var seasonCheckedAt: Date?
+
+    public struct NewSeason: Codable, Equatable, Sendable {
+        public let vodID: String
+        public let name: String
+        public let season: Int
+    }
 
     public var id: FavoriteIdentity { identity }
 
     /// Three misses in a row before the row says so: one slow evening is not news.
     public var isFailing: Bool { failures >= 3 }
+
+    /// New episodes or a later season waiting: what the 片庫 tab counts and what sorts a row first.
+    public var hasNews: Bool { !unseen.isEmpty || newSeason != nil }
 
     /// A new follow, its baseline the listing the detail screen has just shown: nothing is new yet.
     public init(identity: FavoriteIdentity, vodName: String, vodPic: String, siteName: String, remarks: String,
@@ -55,6 +69,8 @@ public struct Follow: Codable, Equatable, Sendable, Identifiable {
         checkedAt = now
         failures = 0
         notFound = false
+        newSeason = nil
+        seasonCheckedAt = nil
     }
 
     // MARK: - Comparing a new listing (§4.2)
@@ -138,6 +154,57 @@ public struct Follow: Codable, Equatable, Sendable, Identifiable {
             return nil
         }
         return next
+    }
+
+    // MARK: - A later season (方案 C, §6)
+
+    /// New seasons are rare and a search costs more than a detail: one look a day.
+    public static let seasonInterval: TimeInterval = 24 * 60 * 60
+
+    /// What the site is searched for, or nil when this title takes no part: a special or film of a
+    /// series, or a name too short to search for without matching half the site (§6.3).
+    public var seasonKeyword: String? {
+        let title = SeriesTitle(vodName)
+        guard title.special == nil, title.baseKey.count >= 2 else { return nil }
+        return title.baseDisplay
+    }
+
+    public func seasonDue(now: Date = .now) -> Bool {
+        guard seasonKeyword != nil else { return false }
+        guard let seasonCheckedAt else { return true }
+        return now.timeIntervalSince(seasonCheckedAt) >= Self.seasonInterval
+    }
+
+    /// This follow after the site's search for `seasonKeyword` answered `results`: the highest later
+    /// season among them (`SeriesGrouping.isNewerSeason`, strong markers only), never the title itself,
+    /// and not older than it when both names carry a year. A hint already found is kept unless a higher
+    /// one turns up: one search that misses it does not mean it is gone.
+    public func searched(_ results: [Vod], now: Date = .now) -> Follow {
+        var next = self
+        next.seasonCheckedAt = now
+        let watched = SeriesTitle(vodName)
+        let watchedYear = Self.year(watched.tags)
+        let found = results.compactMap { vod -> NewSeason? in
+            guard vod.id != identity.vodID else { return nil }
+            let candidate = SeriesTitle(vod.name)
+            guard SeriesGrouping.isNewerSeason(candidate, than: watched), let season = candidate.season else { return nil }
+            if let watchedYear, let year = Self.year(candidate.tags), year < watchedYear { return nil }
+            return NewSeason(vodID: vod.id, name: vod.name, season: season)
+        }.max { $0.season < $1.season }
+        if let found, found.season > (newSeason?.season ?? 0) { next.newSeason = found }
+        return next
+    }
+
+    /// The viewer opened the later season: the hint has done its job.
+    public func seasonOpened(vodID: String) -> Follow? {
+        guard newSeason?.vodID == vodID else { return nil }
+        var next = self
+        next.newSeason = nil
+        return next
+    }
+
+    private static func year(_ tags: [String]) -> Int? {
+        tags.lazy.compactMap { Int($0) }.first { (1900...2100).contains($0) }
     }
 
     static func tail(of listing: EpisodeListing) -> [String] {

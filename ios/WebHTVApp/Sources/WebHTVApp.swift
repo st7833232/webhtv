@@ -3209,6 +3209,7 @@ private struct VodView: View {
                     detailHeader(detail)
                     VStack(alignment: .leading, spacing: 24) {
                         primaryPlayButton(detail)
+                        seasonLinks(detail)
                         metadataRows(detail)
                         if let flag = currentFlag(in: detail.flags) { episodeSection(detail, flag: flag) }
                     }
@@ -3284,6 +3285,33 @@ private struct VodView: View {
     }
 
     private var posterPicture: String { summary.picture.isEmpty ? (detail?.picture ?? "") : summary.picture }
+
+    /// W-313 方案 C: the later season following found on this site, and 找其他季 — every site's search for
+    /// the series name, on the viewer's tap only (§6.1).
+    @ViewBuilder private func seasonLinks(_ detail: Vod) -> some View {
+        if EpisodeListing.isFollowable(flags: detail.flags, typeName: detail.typeName) {
+            let series = SeriesTitle(detail.name.isEmpty ? summary.name : detail.name)
+            HStack(spacing: 16) {
+                if let later = followCenter.follow(favoriteIdentity)?.newSeason {
+                    NavigationLink {
+                        VodView(site: site, summary: Vod(id: later.vodID, name: later.name, picture: ""), source: source)
+                    } label: {
+                        Label(title: { Text(zhTW: "可能有新季：\(later.name)").lineLimit(1) },
+                              icon: { Image(systemName: "sparkles") })
+                    }
+                }
+                if series.special == nil, series.baseKey.count >= 2 {
+                    NavigationLink {
+                        AggregateSearchView(sites: OfflineAppContext.shared.sites, source: source,
+                                            initialQuery: series.baseDisplay, embedded: true)
+                    } label: {
+                        Label("找其他季", systemImage: "square.stack.3d.up")
+                    }
+                }
+            }
+            .font(.subheadline.weight(.semibold))
+        }
+    }
 
     /// W-313: a series can be followed once its episodes are on screen; a film or a one-episode line cannot.
     @ViewBuilder private var detailFollow: some View {
@@ -4022,7 +4050,7 @@ private struct HistoryView: View {
     /// W-313: this configuration's follows, those with new episodes first, otherwise as followed.
     private var follows: [Follow] {
         let mine = followCenter.follows.filter { $0.identity.configSourceID == source.identity }
-        return mine.filter { !$0.unseen.isEmpty } + mine.filter { $0.unseen.isEmpty }
+        return mine.filter(\.hasNews) + mine.filter { !$0.hasNews }
     }
 
     var body: some View {
@@ -4147,6 +4175,11 @@ private struct HistoryView: View {
                             follow.remarks].filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 if let note { Text(note).font(.caption2).foregroundStyle(.secondary) }
+                if let later = follow.newSeason {
+                    // 方案 C: a hint, never a promise (§6.3); the detail screen links to it.
+                    Text(zhTW: "可能有新季：\(later.name)").font(.caption2.weight(.semibold)).foregroundStyle(appAccent)
+                        .lineLimit(1)
+                }
             }
         }
         .padding(.vertical, 4)
@@ -4252,9 +4285,9 @@ private struct HistoryView: View {
 
     func follow(_ identity: FavoriteIdentity) -> Follow? { follows.first { $0.identity == identity } }
 
-    /// Titles with new episodes waiting in the configuration in use, for the 片庫 tab.
+    /// Titles with new episodes or a later season waiting in the configuration in use, for the 片庫 tab.
     func unseenTitles(sourceID: String) -> Int {
-        follows.filter { $0.identity.configSourceID == sourceID && !$0.unseen.isEmpty }.count
+        follows.filter { $0.identity.configSourceID == sourceID && $0.hasNews }.count
     }
 
     func screenAppeared() { followScreens += 1 }
@@ -4281,7 +4314,13 @@ private struct HistoryView: View {
     }
 
     /// A detail the viewer opened is a check too. New episodes it shows stay waiting until played (2b).
+    /// Opening a hinted later season (方案 C) settles that hint.
     func detailLoaded(_ identity: FavoriteIdentity, detail: Vod) async {
+        for hinted in follows where hinted.identity.configSourceID == identity.configSourceID
+            && hinted.identity.siteID == identity.siteID && hinted.newSeason?.vodID == identity.vodID {
+            await FollowStore.shared.update(hinted.identity) { $0.seasonOpened(vodID: identity.vodID) }
+            await reload()
+        }
         guard follow(identity) != nil else { return }
         let listing = EpisodeListing(flags: detail.flags)
         if await FollowStore.shared.update(identity, { $0.updated(with: listing, remarks: detail.remarks) }) != nil {
@@ -4312,6 +4351,10 @@ private struct HistoryView: View {
         Self.log.notice("[follow] checking \(due.count) of \(self.follows.count), forced \(forced)")
         let checker = FollowChecker(conditions: {
             await MainActor.run { .init(playerOpen: favoriteLibrary.playerOpen, onFollowScreen: followCenter.followScreens > 0) }
+        }, search: { site, keyword in
+            // 方案 C: the followed title's own site, first page only (§6.1).
+            let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
+            return try await client.search(keyword).list
         }) { site, vodID in
             let started = Date()
             let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
@@ -4321,7 +4364,7 @@ private struct HistoryView: View {
             return vod
         }
         let found = await checker.run(due, forced: forced)
-        for (identity, outcome) in found {
+        for (identity, outcome) in found.outcomes {
             await FollowStore.shared.update(identity) { follow in
                 switch outcome {
                 case .listed(let listing, let remarks): follow.updated(with: listing, remarks: remarks)
@@ -4330,8 +4373,11 @@ private struct HistoryView: View {
                 }
             }
         }
+        for (identity, results) in found.seasons {
+            await FollowStore.shared.update(identity) { $0.searched(results) }
+        }
         await reload()
-        Self.log.notice("[follow] round done: \(found.count) answered, \(self.unseenTitles(sourceID: source.identity)) with new episodes")
+        Self.log.notice("[follow] round done: \(found.outcomes.count) answered, \(found.seasons.count) searched, \(self.unseenTitles(sourceID: source.identity)) with new episodes")
     }
 }
 

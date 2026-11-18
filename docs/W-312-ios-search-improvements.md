@@ -281,3 +281,28 @@ A5 排序依的量（審查 N-1）：`SiteHealth.score`（`ios/Sources/WebHTVCor
 
 - 證據（`.herdr-synapse/webhtv-dev/artifacts/w312/`）：`sim/k1–k5-search.log`（App 日誌 `[search]` 行）、`sim/k2–k5-health-before/after.json`（站點健康快照）、`sim/*r0–r2.labels`（結果畫面的無障礙標籤）、`sim/*-run.log`、`titles-<關鍵字>.tsv`／`mac-<關鍵字>.tsv`（Mac 端片名）、`searchlog.py`（計時與同時數推算）、`relstats.py`（相關度與重複）、`series_proto.py`（§4 規則試作與自測）、`macsearch.py`、`runkw.sh`。截圖都沒有保留。
 - 收尾：Simulator webhtv-w308 的偏好設定已還原成測試前（`https://127.0.0.1:18448/wang-sex.json`）並關機；鍵盤設定試改後已刪回原狀（原本沒有設定）；18448 伺服器已停；`~/.cache/w308-probe` 已刪。爬蟲工具 `2026-11-10.3` 留在這台模擬器上（App 自己下載的，和使用者裝置一致）。`artifacts/w312/recha` 淺複製（1.2 GB）保留到結案後再刪，由 Manager 追蹤（審查 N-3）。
+
+## 11. 實作紀錄（第一批：A0、A5、A1、A2）
+
+核准：使用者核准第一批（Manager #8866）；A2 的做法依 Manager #8892、#8910。分支 `task/W-312`（底 `ios-poc` 645c5152），未推送。實測環境：熱點（閘道 172.20.10.1）、設定檔用 GitHub recha `main` f650d843 的 raw 網址、Simulator webhtv-w308（iOS 26，Debug 建置）。
+
+| 項目 | commit | 改了什麼 |
+|---|---|---|
+| A0 | f4d62db4 | `TraditionalSimplified` 建表後移除 §2.4.1 的 14 個標準簡體字；`DualScriptSearchTests.leavesStandardSimplifiedCharactersAlone` |
+| A5 | 2b0250ae | `AggregateSearchView.submit()` 在「站點健康排序」開啟時用 `SiteHealth.ordered` 決定發問順序（和首頁同一個偏好鍵） |
+| A1 | 98ee9a99 | 新增 `SearchRelevance`（3 完全相同／2 開頭／1 包含／0 其他，比對前做全形、繁簡、大小寫、標點折疊，去掉片名尾端 14 字以內的括號標籤）；「全部」依分數穩定排序，0 分的放在「其他結果」標題下；捲動或點卡片、點晶片後凍結順序，新到的結果只加在後面並在捲動區上方顯示「有 N 筆新結果，點這裡重新排序」 |
+| A2 | 本次提交 | `SeriesTitle.swift`／`SeriesTitleTests.swift` 由 task/W-313 39dc4d58（Reviewer #8929 核准）原樣取來，未合併分支；`AggregateSearchView` 的 `SiteHits` 在結果到達時對每個片名只解析一次 `SeriesTitle`（載入更多只處理新加的），「全部」在相關度排序後用 `SeriesGrouping.groups(_:series:)` 把同系列各季排在一起，整組放在最前面那一季的位置；「其他結果」改在最後一筆有關的結果之後才分開，被拉上來的季不會被切到下面 |
+
+驗收（§7 編號）：
+
+- 0：`DualScriptSearchTests` 過；Simulator 搜「哪吒」日誌 `form 1/2` 0 行（評估時 68 行）。證據 `impl/v1-search.log`。
+- 2：`SearchRelevanceTests` 3 項過。
+- 3：「鬼滅之刃」送出後捲動，已顯示的卡片順序到搜尋結束都沒變，提示列由 527 增加到 600；點提示列後重排並回到頂端；從詳情頁返回順序不變。證據 `impl/v3*`、`v4*.labels`。第一版提示列放在捲動區內會跟著捲走（座標 y=-328），已移到捲動區外再測。
+- 4：A1「慶餘年」畫面上的卡片都是片名完全相同的作品，「其他結果」在很下面才出現（`impl/v2*`）。A2「怪奇物語」（78 站 55.6 秒回完）：片名完全相同的幾張之後，第一季全部相鄰、接著第二季、第三季；弱標記「怪奇物語2」併進第二季；「怪奇物語：1985故事集」自成一組（基名不同）。證據 `impl/a2k2-search.log`、`a2k2r0–r3.labels`、`a2k2s1–s2.labels`。
+- 5：單站晶片「可可影視」的內容與順序和站台回傳相同。證據 `impl/v5c.labels`。
+- 6：健康排序開啟時 10 個一直失敗的站最後才問，「慶餘年」全部回完 30.9 秒（評估時 38.7 秒，單次觀測）；關閉時發問順序回到設定檔順序。證據 `impl/v2-search.log`、`v6-search.log`。
+- 7：`swift test` 1573 項全過（A2 後，含 SeriesTitleTests 5 項）。Ponytail：A0/A5/A1 Ship（已採納合併輔助函式的建議）；A2 Ship，載入更多改為只算新片名，順帶解掉 A1 審查提到的整站重算。沒查的：單一系列上百筆時每次重繪的歸組成本（`SeriesGrouping` 內判斷系列是否成立的部分隨系列大小平方成長，屬 W-313 檔案）。
+
+沒驗到：真機；「慶餘年」的 A2 各季相鄰沒有另外在 Simulator 截取（同一份程式，以「怪奇物語」驗）；同時搜尋數（A7）不在這批。
+
+環境收尾：Simulator webhtv-w308 偏好已還原成 `https://127.0.0.1:18448/wang-sex.json` 並關機；`~/.cache/w308-probe` 與建置資料夾已刪。第一次 A2 實測因偏好未生效載到舊設定（119 站），含不適當片名的標籤檔已刪除不保留。

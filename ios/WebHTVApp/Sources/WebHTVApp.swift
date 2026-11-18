@@ -1881,10 +1881,13 @@ private struct AggregateSearchView: View {
         let index: Int
         let site: Site
         var vods: [Vod] {
-            didSet { scores = vods.map { SearchRelevance.score(title: $0.name, keyword: keyword) } }
+            // 載入更多 only appends (`DualScriptSearch.nextPage` merges onto what is shown), so only new titles are worked out.
+            didSet { annotate(vods.dropFirst(scores.count)) }
         }
         /// W-312 A1: each title's `SearchRelevance.score`, worked out once when it arrives.
-        private(set) var scores: [Int]
+        private(set) var scores: [Int] = []
+        /// W-312 A2: each title split into series and season, parsed once when it arrives.
+        private(set) var series: [SeriesTitle] = []
         let keyword: String
         /// IOS-POC-33: the next page of each keyword form still adding titles.
         var cursor: DualScriptSearch.Cursor
@@ -1897,7 +1900,12 @@ private struct AggregateSearchView: View {
             self.vods = vods
             self.keyword = keyword
             self.cursor = cursor
-            scores = vods.map { SearchRelevance.score(title: $0.name, keyword: keyword) }
+            annotate(vods[...])
+        }
+
+        private mutating func annotate(_ new: ArraySlice<Vod>) {
+            scores += new.map { SearchRelevance.score(title: $0.name, keyword: keyword) }
+            series += new.map { SeriesTitle($0.name) }
         }
     }
 
@@ -1906,6 +1914,7 @@ private struct AggregateSearchView: View {
         let vod: Vod
         let id: String
         let score: Int
+        let series: SeriesTitle
     }
 
     var body: some View {
@@ -1969,8 +1978,10 @@ private struct AggregateSearchView: View {
                         if searching || answered > 0 { progressRow }
                         let shown = hits
                         if shown.isEmpty { emptyState.padding(.top, 48) }
-                        // 全部 puts the titles that do not contain the keyword at all after a heading of their own.
-                        let split = selected == nil ? shown.firstIndex { $0.score == 0 } ?? shown.endIndex : shown.endIndex
+                        // 全部 puts the titles that do not contain the keyword at all after a heading of their own;
+                        // a season pulled up next to its series stays above it.
+                        let split = selected == nil ? (shown.lastIndex { $0.score > 0 }).map { $0 + 1 } ?? shown.startIndex
+                                                    : shown.endIndex
                         grid(shown[..<split], last: shown.last?.id)
                         if split > shown.startIndex, split < shown.endIndex {
                             Text("其他結果").font(.headline).padding(.horizontal, 20)
@@ -2026,14 +2037,16 @@ private struct AggregateSearchView: View {
     /// Every site's titles in the order the sites answered.
     private var allHits: [Hit] {
         groups.flatMap { group in
-            zip(group.vods, group.scores).map { vod, score in
-                Hit(site: group.site, vod: vod, id: "\(group.index)\u{0}\(vod.id)", score: score)
+            zip(group.vods, zip(group.scores, group.series)).map { vod, annotation in
+                Hit(site: group.site, vod: vod, id: "\(group.index)\u{0}\(vod.id)", score: annotation.0,
+                    series: annotation.1)
             }
         }
     }
 
     /// A site's chip: its titles as the site sent them. 全部: by `SearchRelevance.score`, equal scores in the order the
-    /// sites answered — or, once frozen, the order it had then.
+    /// sites answered, then each series' seasons together where its best-placed one was — or, once frozen, the
+    /// order it had then.
     private var hits: [Hit] {
         if let selected { return allHits.filter { $0.id.hasPrefix("\(selected)\u{0}") } }
         guard let frozenOrder else { return ranked(allHits) }
@@ -2042,8 +2055,9 @@ private struct AggregateSearchView: View {
     }
 
     private func ranked(_ hits: [Hit]) -> [Hit] {
-        hits.enumerated().sorted { $0.element.score != $1.element.score ? $0.element.score > $1.element.score
-                                                                          : $0.offset < $1.offset }.map(\.element)
+        let byScore = hits.enumerated().sorted { $0.element.score != $1.element.score ? $0.element.score > $1.element.score
+                                                                                      : $0.offset < $1.offset }
+        return SeriesGrouping.groups(byScore.map(\.element), series: \.series).flatMap { $0 }
     }
 
     /// Titles that arrived after 全部 was frozen.

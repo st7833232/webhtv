@@ -128,6 +128,8 @@ struct WebHTVApp: App {
 
 private struct ConfigView: View {
     @ObservedObject private var favoritesModel = favoriteLibrary
+    @ObservedObject private var followsModel = followCenter
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var displayModel = TaiwanDisplay.shared
     @State private var sites = [Site]()
     /// IOS-POC-59: the configuration's live lists, adopted with its sites so the two never describe different ones.
@@ -323,6 +325,7 @@ private struct ConfigView: View {
                                 .modifier(PlatformTabBarVisibility())
                                 .tag(1)
                                 .tabItem { Label("片庫", systemImage: "rectangle.stack.fill") }
+                                .badge(followCenter.unseenTitles(sourceID: source.identity))
                             appTab(4)
                                 .modifier(PlatformTabBarVisibility())
                                 .tag(4)
@@ -350,7 +353,8 @@ private struct ConfigView: View {
                         // iOS 16: keep the system TabView bar only; its hide preference is not reliable there.
                         // iOS 17+: use the existing Cinematic bar with the system bar hidden.
                         if #available(iOS 17.0, *), !keyboardVisible {
-                            CinematicTabBar(selection: selectedTab, onSelect: selectTab)
+                            CinematicTabBar(selection: selectedTab, onSelect: selectTab,
+                                            badges: [1: followCenter.unseenTitles(sourceID: source.identity)])
                         }
                     }
                 }
@@ -401,6 +405,15 @@ private struct ConfigView: View {
             // rather than on whatever happened to be cached.
             await refreshRemote(quiet: true)
             await refreshSpiderPack()
+            // W-313 §4.3: after launch has settled, never in its way.
+            try? await Task.sleep(for: .seconds(3))
+            await followCenter.check(sites: sites, source: source, waiting: waitingSites, forced: false)
+        }
+        // W-313: back in the app, a round when the last one is 30 minutes old (`FollowCenter.check`).
+        .onChangeCompat(of: scenePhase) { _, phase in
+            // The launch round goes first, after launch has settled; only later returns start one here.
+            guard phase == .active, !sites.isEmpty, followCenter.hasChecked else { return }
+            Task { await followCenter.check(sites: sites, source: source, waiting: waitingSites, forced: false) }
         }
         .alert("加入設定來源", isPresented: $askingRemote) {
             TextField("名稱", text: $remoteName)
@@ -963,6 +976,8 @@ private struct TabReturnTarget: ViewModifier {
 private struct CinematicTabBar: View {
     let selection: Int
     let onSelect: (Int) -> Void
+    /// W-313: a count on a tab (片庫's titles with new episodes); zero shows nothing.
+    var badges: [Int: Int] = [:]
     @Environment(\.dynamicTypeSize) private var textSize
     private let tabs: [(tag: Int, title: String, icon: String)] = [
         (0, "首頁", "house.fill"), (3, "搜尋", "magnifyingglass"),
@@ -976,6 +991,13 @@ private struct CinematicTabBar: View {
                 Button { onSelect(tab.tag) } label: {
                     VStack(spacing: 4) {
                         Image(systemName: tab.icon).font(.system(size: 19, weight: .medium))
+                            .overlay(alignment: .topTrailing) {
+                                if let count = badges[tab.tag], count > 0 {
+                                    Text(verbatim: "\(count)").font(.caption2.weight(.bold)).monospacedDigit()
+                                        .foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 1)
+                                        .background(Capsule().fill(appAccent)).offset(x: 12, y: -6)
+                                }
+                            }
                         Text(tab.title).font(.caption2.weight(selection == tab.tag ? .semibold : .regular))
                     }
                     .foregroundStyle(selection == tab.tag ? appAccent : .primary.opacity(0.60))
@@ -984,6 +1006,7 @@ private struct CinematicTabBar: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(tab.title)
+                .accessibilityValue(badges[tab.tag].map { $0 > 0 ? "\($0) 部有新集數" : "" } ?? "")
                 .accessibilityAddTraits(selection == tab.tag ? .isSelected : [])
             }
         }
@@ -3098,6 +3121,9 @@ private struct JapaneseTranslationBar: View {
 private struct VodView: View {
     @ObservedObject private var displayModel = TaiwanDisplay.shared
     @ObservedObject private var favoritesModel = favoriteLibrary
+    @ObservedObject private var followsModel = followCenter
+    /// W-313: following stopped at `FollowStore.limit`.
+    @State private var followFull = false
     @ObservedObject private var downloadsModel = offlineLibrary
     let site: Site
     let summary: Vod
@@ -3165,6 +3191,7 @@ private struct VodView: View {
             // are kept in memory for telling the real final episode (A12).
             if let detail {
                 await favoriteLibrary.detailLoaded(favoriteIdentity, snapshot: favoriteSnapshot, lines: detail.flags)
+                await followCenter.detailLoaded(favoriteIdentity, detail: detail)
             }
         } catch {
             self.error = error.localizedDescription
@@ -3199,7 +3226,16 @@ private struct VodView: View {
         .appNavigationBar()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { detailFollow }
             ToolbarItem(placement: .topBarTrailing) { detailFavorite }
+        }
+        // W-313: no spider check is started while a detail is on screen (§4.3).
+        .onAppear { followCenter.screenAppeared() }
+        .onDisappear { followCenter.screenDisappeared() }
+        .alert("追更已達上限", isPresented: $followFull) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text("最多追更 \(FollowStore.limit) 部，請先在「記錄」取消一些。")
         }
         .sheet(isPresented: $showsPoster) {
             NavigationStack {
@@ -3248,6 +3284,21 @@ private struct VodView: View {
     }
 
     private var posterPicture: String { summary.picture.isEmpty ? (detail?.picture ?? "") : summary.picture }
+
+    /// W-313: a series can be followed once its episodes are on screen; a film or a one-episode line cannot.
+    @ViewBuilder private var detailFollow: some View {
+        if let detail, favoriteIdentity.isComplete,
+           EpisodeListing.isFollowable(flags: detail.flags, typeName: detail.typeName) {
+            FollowToggle(isFollowing: followCenter.follow(favoriteIdentity) != nil) {
+                let identity = favoriteIdentity, summary = summary, siteName = site.name
+                Task {
+                    if !(await followCenter.toggle(identity, summary: summary, detail: detail, siteName: siteName)) {
+                        followFull = true
+                    }
+                }
+            }
+        }
+    }
 
     private var detailFavorite: some View {
         FavoriteToggle(isFavorite: favoriteLibrary.contains(favoriteIdentity)) {
@@ -3963,13 +4014,20 @@ private struct HistoryView: View {
     let waiting: [Site]
     let spiderToolBusy: Bool
     let onDownloadSpiderTool: () -> Void
+    @ObservedObject private var followsModel = followCenter
     @State private var records = [WatchHistory]()
     @State private var needsTool: WatchHistory?
     @State private var loaded = false
 
+    /// W-313: this configuration's follows, those with new episodes first, otherwise as followed.
+    private var follows: [Follow] {
+        let mine = followCenter.follows.filter { $0.identity.configSourceID == source.identity }
+        return mine.filter { !$0.unseen.isEmpty } + mine.filter { $0.unseen.isEmpty }
+    }
+
     var body: some View {
         Group {
-            if records.isEmpty {
+            if records.isEmpty && follows.isEmpty {
                 CompatContentUnavailableView(
                     "還沒有觀看記錄",
                     systemImage: "clock.arrow.circlepath",
@@ -3977,6 +4035,19 @@ private struct HistoryView: View {
                 )
             } else {
                 List {
+                    if !follows.isEmpty {
+                        Section {
+                            ForEach(follows) { follow in followRow(follow) }
+                                .onDelete { offsets in
+                                    let removing = offsets.map { follows[$0].identity }
+                                    Task { for identity in removing { await followCenter.remove(identity) } }
+                                }
+                                .listRowBackground(appRaisedSurface.opacity(0.82))
+                        } header: {
+                            Text("追更")
+                        }
+                    }
+                    Section {
                     ForEach(records) { record in
                         row(for: record)
                     }
@@ -3995,11 +4066,21 @@ private struct HistoryView: View {
                         }
                     }
                     .listRowBackground(appRaisedSurface.opacity(0.82))
+                    } header: {
+                        if !follows.isEmpty && !records.isEmpty { Text("觀看記錄") }
+                    }
                 }
                 .scrollContentBackground(.hidden)
+                // W-313: pulling checks every follow now, the viewer's own request.
+                .refreshable {
+                    await followCenter.check(sites: sites, source: source, waiting: waiting, forced: true)
+                }
             }
         }
         .appWallpaper()
+        // W-313: no spider check is started while this list is on screen (§4.3).
+        .onAppear { followCenter.screenAppeared() }
+        .onDisappear { followCenter.screenDisappeared() }
         .safeAreaInset(edge: .top, spacing: 0) {
             if !records.isEmpty {
                 HStack {
@@ -4026,8 +4107,55 @@ private struct HistoryView: View {
         .task {
             await WatchHistoryStore.shared.migrateSiteIdentities(in: sites)
             records = await WatchHistoryStore.shared.records(for: source.identity)
+            await followCenter.reload()
             loaded = true
         }
+    }
+
+    /// W-313: a followed title. It opens like a history row; a site that is gone or waiting for the
+    /// spider tool greys it out but keeps it, as favourites do.
+    @ViewBuilder
+    private func followRow(_ follow: Follow) -> some View {
+        if let site = sites.first(where: { $0.id == follow.identity.siteID }) {
+            NavigationLink {
+                VodView(site: site, summary: Vod(id: follow.identity.vodID, name: follow.vodName, picture: follow.vodPic),
+                        source: source)
+            } label: {
+                followLabel(follow, note: follow.notFound ? "站台找不到這部作品" : follow.isFailing ? "最近檢查失敗" : nil)
+            }
+            .badge(newEpisodes(follow))
+        } else {
+            let waits = waiting.contains { $0.id == follow.identity.siteID }
+            followLabel(follow, note: waits ? FavoriteAvailability.Reason.needsSpiderTool.title : "站台不在目前設定")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func followLabel(_ follow: Follow, note: String?) -> some View {
+        HStack(spacing: 12) {
+            RemoteImage(follow.vodPic) { phase in
+                switch phase {
+                case .success(let image): image.resizable().scaledToFill()
+                default: appSurface.overlay { Image(systemName: "bell").foregroundStyle(.secondary) }
+                }
+            }
+            .frame(width: 40, height: 60)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(zhTW: follow.vodName).font(.headline).lineLimit(2)
+                Text(zhTW: [follow.siteName.displayName, follow.latestEpisodeName.isEmpty ? "" : "最新 \(follow.latestEpisodeName)",
+                            follow.remarks].filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                if let note { Text(note).font(.caption2).foregroundStyle(.secondary) }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    /// 「+N 集」 until the new episodes are played (user decision 2b).
+    private func newEpisodes(_ follow: Follow?) -> Text? {
+        guard let follow, !follow.unseen.isEmpty else { return nil }
+        return accentBadge("+\(follow.unseen.count) 集")
     }
 
     @ViewBuilder
@@ -4042,6 +4170,9 @@ private struct HistoryView: View {
             } label: {
                 label(for: record)
             }
+            .badge(newEpisodes(followCenter.follows.first {
+                $0.identity.configSourceID == source.identity && $0.identity.historyKey == record.key
+            }))
         } else if waiting.contains(where: { WatchHistory.key(siteID: $0.id, vodId: record.vodId) == record.key }) {
             // W-143: the site is there, its spider is not installed yet — say so and offer the download.
             Button { needsTool = record } label: { label(for: record).foregroundStyle(.secondary) }
@@ -4096,6 +4227,130 @@ private struct HistoryView: View {
         let minutes = total / 60, seconds = total % 60
         if minutes < 60 { return String(format: "%d:%02d", minutes, seconds) }
         return String(format: "%d:%02d:%02d", minutes / 60, minutes % 60, seconds)
+    }
+}
+
+// MARK: - W-313: following new episodes (追更)
+
+/// The screens' snapshot of `FollowStore`, and the rounds of checks. Owns no data: every change goes
+/// through the store and is read back.
+@MainActor let followCenter = FollowCenter()
+
+@MainActor final class FollowCenter: ObservableObject {
+    /// Every follow, the most recently followed first.
+    @Published private(set) var follows = [Follow]()
+    /// 記錄 and detail screens on show: no spider check is made while one is (§4.3).
+    private(set) var followScreens = 0
+    private var running = false
+    private var lastRound: Date?
+    private static let log = Logger(subsystem: "com.webhtv.ios.poc", category: "follow")
+
+    func reload() async { follows = await FollowStore.shared.all() }
+
+    /// Whether a round has run since launch.
+    var hasChecked: Bool { lastRound != nil }
+
+    func follow(_ identity: FavoriteIdentity) -> Follow? { follows.first { $0.identity == identity } }
+
+    /// Titles with new episodes waiting in the configuration in use, for the 片庫 tab.
+    func unseenTitles(sourceID: String) -> Int {
+        follows.filter { $0.identity.configSourceID == sourceID && !$0.unseen.isEmpty }.count
+    }
+
+    func screenAppeared() { followScreens += 1 }
+    func screenDisappeared() { followScreens = max(0, followScreens - 1) }
+
+    /// The detail screen's bell. Following starts from the listing on screen, so nothing is new yet.
+    /// Answers false when the limit stopped it.
+    func toggle(_ identity: FavoriteIdentity, summary: Vod, detail: Vod, siteName: String) async -> Bool {
+        if follow(identity) != nil {
+            await remove(identity)
+            return true
+        }
+        let item = Follow(identity: identity, vodName: detail.name.isEmpty ? summary.name : detail.name,
+                          vodPic: detail.picture.isEmpty ? summary.picture : detail.picture, siteName: siteName,
+                          remarks: detail.remarks, listing: EpisodeListing(flags: detail.flags))
+        let result = await FollowStore.shared.add(item)
+        await reload()
+        return result != .full
+    }
+
+    func remove(_ identity: FavoriteIdentity) async {
+        await FollowStore.shared.remove(identity)
+        await reload()
+    }
+
+    /// A detail the viewer opened is a check too. New episodes it shows stay waiting until played (2b).
+    func detailLoaded(_ identity: FavoriteIdentity, detail: Vod) async {
+        guard follow(identity) != nil else { return }
+        let listing = EpisodeListing(flags: detail.flags)
+        if await FollowStore.shared.update(identity, { $0.updated(with: listing, remarks: detail.remarks) }) != nil {
+            await reload()
+        }
+    }
+
+    /// The player saved where it got to: an episode of a followed title settles its new episodes.
+    func played(_ record: WatchHistory) async {
+        if await FollowStore.shared.played(record) != nil { await reload() }
+    }
+
+    /// One round (§4.3): on launch, on returning to the app 30 minutes after the last round, and on a
+    /// pull to refresh (`forced`), which skips the per-title interval and the viewer-in-use rules.
+    func check(sites: [Site], source: ConfigSource, waiting: [Site], forced: Bool) async {
+        guard !running else { return }
+        if !forced, let lastRound, Date().timeIntervalSince(lastRound) < FollowSchedule.interval { return }
+        running = true
+        defer { running = false }
+        lastRound = Date()
+        await reload()
+        let resolver = CSPSourceResolver(source: source)
+        let spiders = Set(sites.filter { resolver.canResolve($0) }.map(\.id))
+        let health = await SiteHealthStore.shared.health(in: source.identity)
+        let due = FollowSchedule.due(follows, sourceID: source.identity, sites: sites,
+                                     waiting: Set(waiting.map(\.id)), spiders: spiders, health: health, forced: forced)
+        guard !due.isEmpty else { return }
+        Self.log.notice("[follow] checking \(due.count) of \(self.follows.count), forced \(forced)")
+        let checker = FollowChecker(conditions: {
+            await MainActor.run { .init(playerOpen: favoriteLibrary.playerOpen, onFollowScreen: followCenter.followScreens > 0) }
+        }) { site, vodID in
+            let started = Date()
+            let client = try await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
+            let vod = try await client.detail(id: vodID)
+            let milliseconds = Int(Date().timeIntervalSince(started) * 1000)
+            recordHealth(.detail(milliseconds: milliseconds), succeeded: vod != nil, site: site, source: source)
+            return vod
+        }
+        let found = await checker.run(due, forced: forced)
+        for (identity, outcome) in found {
+            await FollowStore.shared.update(identity) { follow in
+                switch outcome {
+                case .listed(let listing, let remarks): follow.updated(with: listing, remarks: remarks)
+                case .missing: follow.missing()
+                case .failed: follow.failed()
+                }
+            }
+        }
+        await reload()
+        Self.log.notice("[follow] round done: \(found.count) answered, \(self.unseenTitles(sourceID: source.identity)) with new episodes")
+    }
+}
+
+/// W-313: the detail screen's bell, beside the heart.
+private struct FollowToggle: View {
+    let isFollowing: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: isFollowing ? "bell.fill" : "bell")
+                .foregroundStyle(isFollowing ? appAccent : .primary)
+                .font(.title3.weight(.medium))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(isFollowing ? "已追更" : "追更"))
+        .accessibilityAddTraits(isFollowing ? .isSelected : [])
     }
 }
 
@@ -6827,6 +7082,8 @@ struct EpisodeSteps: Equatable {
         self.record = record
         if record.isNearEnding { measuredNearEnd = true }
         await WatchHistoryStore.shared.save(record)
+        // W-313 (2b): playing a followed title's new episode settles it and the older new ones.
+        await followCenter.played(record)
     }
 
     /// IOS-POC-48 A12: an episode of a titled playback was completed — the real end (`finished`:

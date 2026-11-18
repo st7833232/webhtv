@@ -1,0 +1,288 @@
+import Foundation
+import Testing
+@testable import WebHTVCore
+
+// W-313 方案 B — following a title's new episodes (docs/W-313-ios-update-notifications.md §4, §9).
+
+private let identity = FavoriteIdentity(configSourceID: "cfg", siteID: "site", vodID: "v1")
+
+private func episodes(_ range: ClosedRange<Int>) -> [String] { range.map { "第\($0)集" } }
+
+private func flag(_ names: [String], name: String = "A") -> Flag {
+    Flag(name: name, episodes: names.map { Episode(name: $0, url: "u/\($0)") })
+}
+
+private func follow(_ names: [String]) -> Follow {
+    Follow(identity: identity, vodName: "劇", vodPic: "", siteName: "站", remarks: "",
+           listing: EpisodeListing(flags: [flag(names)]), now: Date(timeIntervalSince1970: 0))
+}
+
+private func listing(_ names: [String]) -> EpisodeListing { EpisodeListing(flags: [flag(names)]) }
+
+private func site(_ key: String) throws -> Site {
+    try JSONDecoder().decode(Site.self, from: Data(#"{"key":"\#(key)","name":"\#(key)","type":1,"api":"https://x/\#(key)"}"#.utf8))
+}
+
+// MARK: - Comparing
+
+@Test func aLongerListAddsItsNewEpisodes() {
+    let next = follow(episodes(1...3)).updated(with: listing(episodes(1...5)), remarks: "更新至5集")
+    #expect(next.unseen == ["第4集", "第5集"])
+    #expect(next.latestCount == 5)
+    #expect(next.latestEpisodeName == "第5集")
+    #expect(next.remarks == "更新至5集")
+}
+
+@Test func aShorterListResetsTheBaselineWithoutABadge() {
+    let next = follow(episodes(1...5)).updated(with: listing(episodes(1...4)), remarks: "")
+    #expect(next.unseen.isEmpty)
+    #expect(next.latestCount == 4)
+}
+
+@Test func theLongestLineDecides() {
+    let start = follow(episodes(1...3))
+    let next = start.updated(with: EpisodeListing(flags: [flag(episodes(1...2), name: "slow"),
+                                                          flag(episodes(1...4), name: "fast")]), remarks: "")
+    #expect(next.unseen == ["第4集"])
+}
+
+@Test func aRollingListOfFixedLengthStillCountsTheNewEpisode() {
+    let next = follow(episodes(1...20)).updated(with: listing(episodes(2...21)), remarks: "")
+    #expect(next.unseen == ["第21集"])
+}
+
+@Test func aTrailerReplacedByTheEpisodeCounts() {
+    let next = follow(episodes(1...11) + ["预告"]).updated(with: listing(episodes(1...12)), remarks: "")
+    #expect(next.unseen == ["第12集"])
+}
+
+@Test func dateNamedVarietyEpisodesFollowTheListLength() {
+    let next = follow(["20261115期", "20261116期"]).updated(with: listing(["20261115期", "20261116期", "20261117期"]),
+                                                            remarks: "更新至20261117期")
+    #expect(next.unseen == ["20261117期"])
+}
+
+@Test func aNewestFirstListIsReadFromItsStart() {
+    let start = follow(Array(episodes(1...10).reversed()))
+    #expect(start.latestEpisodeName == "第10集")
+    let next = start.updated(with: listing(Array(episodes(1...12).reversed())), remarks: "")
+    #expect(next.unseen == ["第11集", "第12集"])
+    #expect(next.latestEpisodeName == "第12集")
+}
+
+@Test func endsWithoutNumbersReadOldestFirst() {
+    #expect(EpisodeListing(flags: [flag(["上", "下"])]).newestFirst == ["下", "上"])
+}
+
+@Test func renamingEveryEpisodeResetsTheBaselineWithoutABadge() {
+    let next = follow(episodes(1...20)).updated(with: listing((1...20).map { "EP\($0)" }), remarks: "")
+    #expect(next.unseen.isEmpty)
+    #expect(next.knownTail.first == SeriesCompletion.normalized("EP20"))
+}
+
+/// Review N-4: a short drama dropping thirty episodes at once is thirty, not a rename.
+@Test func aBulkDropIsCountedInFull() {
+    let next = follow(episodes(1...10)).updated(with: listing(episodes(1...40)), remarks: "")
+    #expect(next.unseen.count == 30)
+    #expect(next.unseen.first == "第11集")
+    #expect(next.unseen.last == "第40集")
+}
+
+@Test func remarksThatLieDecideNothing() {
+    let next = follow(["正片"]).updated(with: listing(["正片"]), remarks: "更新全集")
+    #expect(next.unseen.isEmpty)
+}
+
+@Test func newEpisodesAccumulateAcrossChecks() {
+    let once = follow(episodes(1...3)).updated(with: listing(episodes(1...4)), remarks: "")
+    let twice = once.updated(with: listing(episodes(1...6)), remarks: "")
+    #expect(twice.unseen == ["第4集", "第5集", "第6集"])
+}
+
+@Test func threeFailuresInARowAreShownAndOneAnswerClearsThem() {
+    let failing = follow(episodes(1...3)).failed().failed().failed()
+    #expect(failing.isFailing)
+    #expect(!follow(episodes(1...3)).failed().failed().isFailing)
+    #expect(!failing.updated(with: listing(episodes(1...3)), remarks: "").isFailing)
+    #expect(follow(episodes(1...3)).missing().notFound)
+}
+
+// MARK: - Clearing by playing (2b)
+
+@Test func playingANewEpisodeSettlesItAndOlderOnes() throws {
+    let waiting = follow(episodes(1...10)).updated(with: listing(episodes(1...13)), remarks: "")
+    let partly = try #require(waiting.playing("第11集"))
+    #expect(partly.unseen == ["第12集", "第13集"])
+    let all = try #require(partly.playing("第13集"))
+    #expect(all.unseen.isEmpty)
+}
+
+@Test func playingAnOldEpisodeLeavesTheBadge() {
+    let waiting = follow(episodes(1...10)).updated(with: listing(episodes(1...12)), remarks: "")
+    #expect(waiting.playing("第3集") == nil)
+    #expect(follow(episodes(1...3)).playing("第3集") == nil)
+}
+
+// MARK: - Store
+
+@Test func theStoreKeepsFollowsAndMatchesPlaysOnTheSameTitleOnly() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let store = FollowStore(directory: directory)
+    let waiting = follow(episodes(1...2)).updated(with: listing(episodes(1...4)), remarks: "")
+    #expect(await store.add(waiting) == .added)
+    #expect(await store.add(waiting) == .alreadyFollowing)
+
+    var other = WatchHistory(key: identity.historyKey, siteKey: "site", sourceID: "another", vodId: "v1",
+                             vodRemarks: "第4集", position: 1)
+    #expect(await store.played(other) == nil)
+    other.sourceID = "cfg"
+    let played = try #require(await store.played(other))
+    #expect(played.unseen.isEmpty)
+
+    let reread = FollowStore(directory: directory)
+    #expect(await reread.all().map(\.unseen) == [[]])
+    #expect(await reread.remove(identity))
+    #expect(await reread.all().isEmpty)
+}
+
+@Test func anEntryThisBuildCannotReadIsKeptAndALimitApplies() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try Data(#"{"schemaVersion":1,"follows":[{"future":true}]}"#.utf8)
+        .write(to: directory.appendingPathComponent("follows.json"))
+    let store = FollowStore(directory: directory)
+    #expect(await store.all().isEmpty)
+    for index in 0..<FollowStore.limit {
+        let item = Follow(identity: FavoriteIdentity(configSourceID: "cfg", siteID: "s", vodID: "\(index)"),
+                          vodName: "", vodPic: "", siteName: "", remarks: "", listing: listing(episodes(1...2)))
+        #expect(await store.add(item) == .added)
+    }
+    #expect(await store.add(follow(episodes(1...2))) == .full)
+    let written = try String(contentsOf: directory.appendingPathComponent("follows.json"), encoding: .utf8)
+    #expect(written.contains("\"future\":true"))
+}
+
+// MARK: - Scheduling (§4.3, review F-2)
+
+@Test func onlyDueFollowsOfTheLoadedConfigurationAreChecked() throws {
+    let here = try site("site")
+    let fresh = Follow(identity: FavoriteIdentity(configSourceID: "cfg", siteID: here.id, vodID: "a"),
+                       vodName: "", vodPic: "", siteName: "", remarks: "", listing: listing(episodes(1...2)),
+                       now: Date(timeIntervalSince1970: 1_000))
+    let elsewhere = Follow(identity: FavoriteIdentity(configSourceID: "other", siteID: here.id, vodID: "b"),
+                           vodName: "", vodPic: "", siteName: "", remarks: "", listing: listing(episodes(1...2)),
+                           now: .distantPast)
+    let gone = Follow(identity: FavoriteIdentity(configSourceID: "cfg", siteID: "missing", vodID: "c"),
+                      vodName: "", vodPic: "", siteName: "", remarks: "", listing: listing(episodes(1...2)),
+                      now: .distantPast)
+    let soon = Date(timeIntervalSince1970: 1_000 + 60)
+    let late = Date(timeIntervalSince1970: 1_000 + FollowSchedule.interval + 1)
+    func due(_ forced: Bool, _ now: Date, waiting: Set<Site.ID> = []) -> [String] {
+        FollowSchedule.due([fresh, elsewhere, gone], sourceID: "cfg", sites: [here], waiting: waiting, spiders: [],
+                           health: [:], forced: forced, now: now).map(\.follow.identity.vodID)
+    }
+    #expect(due(false, soon).isEmpty)
+    #expect(due(true, soon) == ["a"])
+    #expect(due(false, late) == ["a"])
+    #expect(due(true, soon, waiting: [here.id]).isEmpty)
+}
+
+@Test func aSlowSpiderSiteIsLeftOut() throws {
+    let here = try site("site")
+    var slow = SiteHealth()
+    slow.record(.detail(milliseconds: 8_000), succeeded: true, at: 0)
+    let item = Follow(identity: FavoriteIdentity(configSourceID: "cfg", siteID: here.id, vodID: "a"),
+                      vodName: "", vodPic: "", siteName: "", remarks: "", listing: listing(episodes(1...2)),
+                      now: .distantPast)
+    #expect(FollowSchedule.due([item], sourceID: "cfg", sites: [here], waiting: [], spiders: [here.id],
+                               health: [here.id: slow], forced: false).isEmpty)
+    // A pull still reaches it: only a detail call rewrites the time it is judged by (Ponytail finding 1).
+    #expect(FollowSchedule.due([item], sourceID: "cfg", sites: [here], waiting: [], spiders: [here.id],
+                               health: [here.id: slow], forced: true).count == 1)
+    #expect(FollowSchedule.due([item], sourceID: "cfg", sites: [here], waiting: [], spiders: [],
+                               health: [here.id: slow], forced: false).count == 1)
+}
+
+@Test func aSpiderCallIsNeverMadeWhereTheViewerIs() {
+    let now = Date(timeIntervalSince1970: 10_000)
+    func may(spider: Bool = true, busy: Bool = false, touched: Date? = nil, player: Bool = false,
+             screen: Bool = false, forced: Bool = false) -> Bool {
+        FollowSchedule.mayStart(isSpider: spider, busy: busy, lastTouched: touched, playerOpen: player,
+                                onFollowScreen: screen, forced: forced, now: now)
+    }
+    #expect(may())
+    #expect(!may(busy: true))
+    #expect(!may(busy: true, forced: true))
+    #expect(!may(player: true))
+    #expect(!may(screen: true))
+    #expect(may(screen: true, forced: true))
+    #expect(!may(touched: now.addingTimeInterval(-60)))
+    #expect(may(touched: now.addingTimeInterval(-FollowSchedule.touchWindow - 1)))
+    #expect(may(spider: false, touched: now, screen: true))
+}
+
+@Test func onlyTheViewersCallsCountAsUsingASite() async {
+    let activity = SiteActivity()
+    await SiteActivity.$background.withValue(true) { await activity.begin("a") }
+    #expect(await activity.isBusy("a"))
+    #expect(await activity.lastTouched("a") == nil)
+    await activity.end("a")
+    #expect(!(await activity.isBusy("a")))
+    await activity.begin("a")
+    #expect(await activity.lastTouched("a") != nil)
+}
+
+// MARK: - Checking
+
+private actor Calls {
+    var asked = [String]()
+    var spiderEnded = false
+    func add(_ vod: String) { asked.append(vod) }
+    func endSpider() { spiderEnded = true }
+}
+
+@Test func aSpiderPastItsTimeoutIsNoLongerWaitedForAndEndsItsLane() async throws {
+    let spiderSite = try site("spider"), cmsSite = try site("cms")
+    func candidate(_ vod: String, _ site: Site, spider: Bool) -> FollowSchedule.Candidate {
+        FollowSchedule.Candidate(follow: Follow(identity: FavoriteIdentity(configSourceID: "cfg", siteID: site.id, vodID: vod),
+                                                vodName: "", vodPic: "", siteName: "", remarks: "",
+                                                listing: listing(episodes(1...2))),
+                                 site: site, isSpider: spider)
+    }
+    let calls = Calls()
+    var checker = FollowChecker(activity: SiteActivity(),
+                                conditions: { .init(playerOpen: false, onFollowScreen: false) }) { site, vod in
+        await calls.add(vod)
+        if site.key == "spider" {
+            try? await Task.sleep(for: .seconds(5))
+            await calls.endSpider()
+        }
+        return Vod(id: vod, name: "", picture: "", playFrom: "A", playURL: "第1集$a#第2集$b#第3集$c")
+    }
+    checker.timeout = .milliseconds(300)
+    let found = await checker.run([candidate("s1", spiderSite, spider: true), candidate("s2", spiderSite, spider: true),
+                                   candidate("c1", cmsSite, spider: false)], forced: false)
+    // Not waited for: the round is over while the spider call is still running.
+    #expect(!(await calls.spiderEnded))
+    #expect(found.count == 2)
+    #expect(found.values.contains(.failed))
+    #expect(!(await calls.asked.contains("s2")))
+    if case .listed(let listed, _)? = found[FavoriteIdentity(configSourceID: "cfg", siteID: cmsSite.id, vodID: "c1")] {
+        #expect(listed.count == 3)
+    } else {
+        Issue.record("the CMS follow was not listed")
+    }
+}
+
+@Test func nothingIsAskedWhileThePlayerIsOpen() async throws {
+    let cmsSite = try site("cms")
+    let item = FollowSchedule.Candidate(follow: follow(episodes(1...2)), site: cmsSite, isSpider: false)
+    let calls = Calls()
+    let checker = FollowChecker(activity: SiteActivity(),
+                                conditions: { .init(playerOpen: true, onFollowScreen: false) }) { _, vod in
+        await calls.add(vod)
+        return nil
+    }
+    #expect(await checker.run([item], forced: true).isEmpty)
+    #expect(await calls.asked.isEmpty)
+}

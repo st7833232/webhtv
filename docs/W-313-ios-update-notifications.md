@@ -12,9 +12,9 @@
 ## Recovery anchor
 
 - 目標：評估「追更（集數更新）」與「系列新季」兩個功能在 iOS 上怎麼做、做到什麼程度可靠，並提出方案、驗收、回退、預估。
-- 狀態：評估完成；Reviewer 退件（#8803，F-1 集數訊號、F-2 爬蟲不可中斷），已修正 §4.1–4.5、§8、§9、§11，並依 N-1、N-2 更新 §1、§4.5，重新送審。程式碼未改。
+- 狀態：評估已核准（8530269b）。使用者決定 1a、2b、3b（B＋C）。方案 B 已實作並在 Simulator 驗證（§12），送審中；方案 C 下一步。
 - 新季偵測依賴 W-312 的 Core 系列拆名器；介面已由 claude-dev-2 確認（#8809），見 §6.2。
-- 下一步：Reviewer 審查；Manager 把 §8 的決定項整理給使用者。
+- 下一步：B 送審後做方案 C（Core 實作 `SeriesTitle`／`SeriesGrouping`，規則依 W-312 83c3730e §4），另一筆提交。
 
 ## 1. 證據來源
 
@@ -131,15 +131,15 @@
 - 詳情頁右上角收藏旁加「追更」開關（鈴鐺）。
   - 只有多集作品可開：最長線路 ≥ 2 集，且 typeName 不是電影。
   - 另一種做法是「收藏的劇集自動追更」，交使用者決定（§8 決定 1）。
-- 「記錄」列表長按選單加「追更／取消追更」，兩個入口寫同一份資料。
+- 「記錄」列表長按選單加「追更／取消追更」，兩個入口寫同一份資料。（實作：使用者選 1a，只做詳情頁鈴鐺；「記錄」的追更區可左滑取消追更，沒有做長按追更。）
 - 新檔 `Application Support/follows.json`，由 `actor FollowStore` 管理（新增 `ios/Sources/WebHTVCore/Follows/`），寫法比照 `FavoriteStore`：有 `schemaVersion`、解碼寬容、atomic 寫入。
 - 一筆追更 `Follow` 的欄位：
   - `identity: FavoriteIdentity`：重用，不新造識別。
   - `vodName`、`vodPic`、`siteName`：快照；觀看紀錄過期後仍能顯示。
-  - `seenCount`：使用者最後確認時的集數（留作紀錄；徽章改看 `pending`，見 §4.2）。
+  - （評估稿的 `seenCount` 不實作：決定 2b 改成播放才清除，見 §4.5。）
   - `latestCount`、`latestEpisodeName`。
   - `knownTail: [String]`：最長線路「最新端」往回最多 20 個集名（正規化後），給 §4.2 的第二個訊號用。只存集名不存網址：網址每次抓取可能不同（`WatchHistory.carryingOver` 也是因此用名稱比對）。
-  - `pending: Int`：已偵測到、使用者還沒確認的新集數，徽章顯示它。
+  - `unseen: [String]`：已偵測到、還沒播放的新集名稱（舊到新，上限 200），徽章數字就是它的數量。
   - `checkedAt`、`seenAt`、`failures`。
   - `state`：`ok`／`siteMissing`／`notFound`／`failing`。
 - 上限 50 部：超過時提示先取消一些，不默默丟掉。
@@ -158,7 +158,7 @@
   2. 最新端集名（處理長度不變或變短的更新）：從最新端往回走，數到第一個出現在 `knownTail` 裡的集名為止；走過的集名數量就是新集數。
      - 只保留最近 N 期的滾動清單：每天新一期，最新端是沒見過的名字、下一個見過 → `+1`。
      - 正片取代預告：最新端從「預告」變成「第12集」，下一個見過 → `+1`。
-     - 兩個訊號取較大的值，加到 `pending`。
+     - 兩個訊號取較大的值，這麼多集的名稱（從最新端取）加進 `unseen`。
 - **改版保護**：走完整個 `knownTail` 範圍（20 個）都沒碰到見過的集名，表示站台整批改了集名格式或換了片源。**重設基準**（`knownTail` 改成這次的），不加徽章，以免一次跳出「+20」。
   - 實作條件（審查 N-4）：短劇常一次上架 20 集以上。往回走的範圍取 `max(20, count - latestCount)`；長度增量本身就說明新集數，改版保護只在**長度沒有增加**時才生效。單元測試：10 集→40 集要顯示 `+30`。長度變短也一樣只重設基準，不顯示負數。
 - 每次檢查後更新 `latestCount`、`latestEpisodeName`（最新端那一集）和 `knownTail`。
@@ -191,7 +191,7 @@
   3. **使用者最近碰過的站不檢查**：使用者正在看的站，或 2 分鐘內碰過首頁、分類、詳情、播放的站，本輪跳過。
   4. **使用者正在看「記錄」頁或詳情頁時不發新的爬蟲檢查**：這時候點列表最可能點到追更作品的站。CMS 站不受限，因為可以取消。
   5. **慢站先排除**：`SiteHealth` 顯示該站最近詳情失敗、或上次詳情超過 5 秒，本輪不檢查。
-  6. **下拉重新整理**：仍遵守 1、2、5；3、4 不適用，因為是使用者自己要求的。
+  6. **下拉重新整理**：仍遵守 1、2；3、4、5 不適用，因為是使用者自己要求的。（實作時依 Ponytail 審查改掉 5：慢站的判斷依據只有詳情請求會更新，下拉若也排除，慢過一次的站就永遠不會再被檢查。）
 - 剩餘風險（直說）：
   - 檢查剛發出時，使用者正好點進同一站，最多等這一個請求結束。一般 1–2 秒（§3），站台當掉時最壞 65 秒。
   - 規則 1–5 只能降低機率，不能保證不撞。
@@ -210,14 +210,16 @@
 - 「記錄」裡同一作品的觀看紀錄列也加 `+N 集`。
 - 點一下打開詳情頁（和現在一樣）。
 
-### 4.5 看過後怎麼清除
-- 詳情頁載入成功、**而且詳情的 `FavoriteIdentity`（設定來源＋`Site.id`＋vodID）和追更那筆完全相同**時（審查 N-2）：
-  - 用這次詳情更新 `latestCount`、`knownTail`。
-  - 設 `seenCount = count`、`pending = 0`，徽章消失。
-  - 使用者已經在詳情頁看到集數清單，等於「知道了」。
-- 同一部片從別站或別的設定來源打開，不算看過，不清除。
-- 另一種做法是「播放了最新一集才清除」：比較準，但使用者只想看一眼就要點進播放，太囉嗦。
-  - 建議選「打開詳情就清除」。若使用者想要後者，屬 §8 決定 2。
+### 4.5 看過後怎麼清除（使用者決定 2b：播放到最新一集才清除）
+- 徽章數字就是 `unseen`：偵測到、還沒播放的新集名稱，舊到新排列。
+- **播放才算看過**：播放器存觀看紀錄時（`PlaybackSession.persist`，每次存檔都會呼叫 `FollowCenter.played`），只有該筆紀錄的 `key` 與設定來源和追更那筆**完全相同**才算（審查 N-2）。同一部片從別站或別的設定來源播放，不算。
+- **部分觀看的顯示規則**：
+  - 播放的那一集如果在 `unseen` 裡，它和比它舊的新集一起清掉，比它新的留著。例：新集是第 11、12、13 集（+3），播第 11 集 → +2，播第 13 集 → 0。
+  - 播放的是站台目前最新的一集（`latestEpisodeName`），全部清掉。
+  - 播舊集（例如回頭看第 3 集）不影響徽章。
+  - 「開始播放」就算，不用看完：只要播放器存過一次進度（`WatchHistory.canSave`，位置大於 0）。
+- **打開詳情頁不清除**：詳情載入只當成一次檢查，更新 `latestCount`、`knownTail`；若看到更新的集數，還會再加到徽章。
+- 舊欄位 `seenCount`、`pending` 不再需要：徽章直接是 `unseen.count`，實作沒有這兩個欄位。
 
 ### 4.6 異常情況
 | 情況 | 處理 |
@@ -227,7 +229,7 @@
 | 換線路 | 不影響：取最長線路 |
 | 站台不在目前設定（改名、移除、換設定來源） | 只檢查 `identity.configSourceID == 目前來源`、且站台在 `sites` 裡的；其他列灰字「站台不在目前設定」，**不刪資料**，比照收藏 `FavoriteAvailability` |
 | 站台還在等爬蟲工具 | 跳過，比照 `waiting` |
-| `vod_id` 變動或作品下架（詳情回 nil） | `state = notFound`，灰字「站台找不到這部作品」，提供「用片名搜尋」按鈕（重用現有搜尋）。**不自動改綁**：同名不同作品太常見 |
+| `vod_id` 變動或作品下架（詳情回 nil） | `state = notFound`，灰字「站台找不到這部作品」（方案 B 沒有做「用片名搜尋」按鈕，使用者可自行到搜尋頁找）。**不自動改綁**：同名不同作品太常見 |
 | 站台身分遷移（ext 鍵序變動） | 重用 `SiteSelection.resolveIdentity`，與收藏的 `migrateSiteIdentities` 相同 |
 | 多倉／換設定 | 追更跟著 `configSourceID` 走，只在該設定載入時檢查 |
 
@@ -276,7 +278,7 @@
   - `season: Int?`：nil 表示沒標記，當第 1 季。
   - `special: Special?`：nil 表示正季；`.movie` 劇場版／電影版、`.special` 特別篇／SP／OVA／總集篇、`.extra` 番外。
   - `strength`：strong／weak／none。
-- 新季判斷直接用 `SeriesGrouping.isNewerSeason`，只認 `strength != .none` 且 `special == nil` 的候選。§6.1 的「`key` 相同、`kind == 正季`、`season` 更大」就是這個函式的條件，W-313 不自己重寫。
+- 新季判斷直接用 `SeriesGrouping.isNewerSeason`（W-312 83c3730e §4.1／§4.5 定案）：只認 `candidate.strength == .strong`、`special == nil`、`season > (watched.season ?? 1)`；weak 與沒標記一律不算，weak 只用在搜尋歸組排序。§6.1 的「`key` 相同、`kind == 正季`、`season` 更大」就是這個函式的條件，W-313 不自己重寫。
 - 季數寫法規則見 `docs/W-312-ios-search-improvements.md` §4（W-312 完稿後回填段落位置）。
 
 ### 6.3 可靠度（直說）
@@ -313,6 +315,8 @@
    - (a) 打開詳情頁就清除（建議）。
    - (b) 播放最新一集才清除。
 3. 方案：B（建議）／B+C／B+C+D。
+
+**使用者決定（2026-11-18，Manager #8828）**：1a 詳情頁獨立「追更」開關；2b 播放到最新一集才清除（部分觀看規則見 §4.5）；3b 實作方案 B＋C。
 
 另外要讓使用者知道的限制（不需要選）：
 - 新集數看「集數清單變長」和「最新一集的名稱變了」兩件事；站台在清單中間補集又同時刪集，這種少見情況會漏報。
@@ -375,4 +379,61 @@
 - 爬蟲站詳情耗時只有 Simulator 的 3 筆既有紀錄，樣本少。
 - §6.2 拆名器介面已確認命名（#8809）；季數規則段落位置等 W-312 完稿回填。
 - 「成熟相關專案」查不到逐站追更的同類實作。本設計的比對規則來自本倉既有的完結判斷（`FavoriteAutoRemoval`）與 §3 實測，不是外部最佳實務。
-- Ponytail：本單只有文件、沒有程式碼變更，不適用（AGENTS.md §4 只要求程式碼變更跑）。
+- Ponytail：評估階段只有文件、不適用；方案 B 實作的 Ponytail 結果見 §12.4。
+
+## 12. 方案 B 實作紀錄（2026-11-18）
+
+### 12.1 改了什麼
+- Core 新增 `ios/Sources/WebHTVCore/Follows/`：
+  - `Follow.swift`：`Follow` 資料、`EpisodeListing`（取最長線路、判斷最新端），以及 §4.2 兩個訊號加改版保護、§4.5 播放清除。
+  - `FollowStore.swift`：`follows.json`，看不懂的條目原樣保留，上限 50 部。
+  - `FollowCheck.swift`：`SiteActivity`（記錄各站忙碌與使用者最近使用時間）、`FollowSchedule`（`due`／`mayStart` 規則）、`FollowChecker`（CMS 兩條、爬蟲一條，爬蟲逾時只停止等待並結束該條）。
+- `SourceClient.swift`：首頁、分類、搜尋、詳情、播放解析五個呼叫都包進 `SiteActivity.tracking`。追更自己的呼叫用 TaskLocal `SiteActivity.background` 標記，不算使用者使用。
+- `WebHTVApp.swift`：
+  - `FollowCenter`：啟動完成後 3 秒、回到前景（距上一輪 30 分鐘）、記錄頁下拉時檢查。
+  - 詳情頁加鈴鐺 `FollowToggle`；詳情載入也算一次檢查，但不清除。
+  - `PlaybackSession.persist` 存檔後呼叫 `FollowCenter.played`。
+  - 記錄頁加「追更」區、`+N 集` 徽章、下拉重新整理。
+  - 片庫標籤加數字：iOS 16 用 `.badge`，iOS 17 以上用 `CinematicTabBar` 的 `badges`。
+- 測試：`ios/Tests/WebHTVCoreTests/Follows/FollowTests.swift` 23 項。
+
+### 12.2 驗證
+- `swift test --filter FollowTests`：23/23 通過。全套 `swift test`：1587/1587 通過（`artifacts/w313/core-tests-full.txt`，是 Ponytail 修正前的結果；修正後只重跑 FollowTests）。
+- 期間修掉兩個問題：
+  - 既有的 `FavoriteAppWiringTests` 鎖定 `ToolbarItem(...) { detailFavorite }` 這段原始碼，鈴鐺因此改成獨立的 `ToolbarItem`。
+  - 計時測試在全套平行執行時不穩，改成驗證行為。
+- Simulator：webhtv-w311 這台、iOS 26、本機 Debug 建置；在模擬器裡看得到鈴鐺和追更區，證明裝的是這個版本。測試工具都在 `artifacts/w313/`：
+  - `cms_srv.py`：本機 HTTPS 假採集站，集數讀 `srv/eps.txt`。
+  - `py/w313slow.py`：假 Python 爬蟲站，延遲讀 `srv/delay.txt`。
+  - 驅動程式 `w313.sh`。
+
+| §9 項目 | 結果 | 證據（`artifacts/w313/sim/`） |
+|---|---|---|
+| 1 追更 3 集→5 集，重開後 `+2 集`、片庫標籤顯示 1 | 通過：啟動後約 3 秒自動檢查 | `s1-followed.png`、`s2-history.png`、applog「checking 1 of 1」 |
+| 2（改為 2b）打開詳情不清除；播第 4 集剩 +1；播到最新一集清除 | 通過：第 4 集播完自動接第 5 集時清除；另測 7 集時播第 6 集，兩列都剩 `+1 集` | `s7-detail.png`、`s10-plus1.txt`、`srv.log` 的 `e=4`→`e=5`、`e=6` |
+| 3 下拉立即重新檢查 | 通過：`+2 集`（第 6、7 集），觀看紀錄列也顯示 | `s6-pulled.png` |
+| 4 回到前景 30 分鐘 | **未在 Simulator 測**（要等 30 分鐘或另加除錯開關）；只有程式碼審視 | — |
+| 5 站台逾時 3 次 | 通過：停掉假站下拉 3 次，出現「最近檢查失敗」、沒有錯誤視窗、`+1` 保留；恢復後一次就消失 | `s11-failing.txt`、`s12-recovered.txt` |
+| 6 站台不在目前設定 | 通過：把站的 key 改名後重開，列變灰並顯示該字樣，資料還在 | `s15-missing.txt` |
+| 7 播放中不發檢查 | **未在 Simulator 測**；Core 測試 `nothingIsAskedWhileThePlayerIsOpen` | — |
+| 8 爬蟲卡住（F-2） | 通過：見下 | applog、`srv.log` |
+| 效能 | 「site list ready」沒有追更時 187／271 ms，有 1–2 部時 136–274 ms，另有一次 1360 ms 離群值；檢查在啟動完成後 3 秒才開始，不在量測範圍內 | applog |
+
+**第 8 項（F-2）實測經過：**
+- **逾時**：慢站延遲 15 秒。11:13:35 發出檢查，11:13:45 記「past 10.0 seconds — no longer waited for」，這一輪隨即結束；請求本身到 11:13:50 才回來。
+- **忙碌略過**：使用者正在載入慢站詳情時下拉，記錄「skip 追更測試PY: busy or in use」，檢查器沒有對它另發請求（伺服器只有一個 `/pydetail`）。
+- **慢站排除**：上次詳情 8–15 秒後的自動檢查，`due` 把它排除（「checking 1 of 2」）。
+- **剩餘風險實測**：延遲 25 秒。11:22:29.9 發出檢查，11:22:40 不再等待；使用者 11:22:51 把首頁切到同一站，請求排在檢查後面，11:22:54 才開始、11:23:20 回來，等於多等約 3 秒。
+- **下拉時點列表**：重新整理期間點列表不會進詳情頁（SwiftUI 的行為），所以「下拉中點同一站」這個情境自然不會發生。
+
+### 12.3 和評估稿不同的地方
+- 不用 `seenCount`、`pending`，改用 `unseen` 集名清單（§4.1、§4.5）。
+- 沒有做「用片名搜尋」按鈕，也沒有做「記錄」長按追更（§4.1、§4.6）。
+- 下拉時不排除慢站（§4.3 規則 6，Ponytail 修正）。
+- 記錄頁原本頂部的「最近觀看／清除記錄」列保留在追更區上方，有觀看紀錄時兩區各有標題。
+
+### 12.4 Ponytail
+- `ponytail:ponytail-review` 對最終 diff：1 項必修。慢過一次的爬蟲站在下拉時也被排除，而判斷依據只有詳情請求會更新，所以那個站的追更會永遠停住；Simulator 上實際出現過。
+- 已修：`FollowSchedule.due` 只在自動檢查時排除慢站；`aSlowSpiderSiteIsLeftOut` 加上下拉仍會檢查的斷言。
+- 修正後 FollowTests 23/23 通過；沒有重跑 Simulator（改的只有一個條件，由單元測試覆蓋）。
+- 審查也列出沒查到的部分：前景 30 分鐘觸發、播放中暫停（只有 Core 測試），同 §12.2。

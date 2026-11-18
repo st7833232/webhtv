@@ -28,7 +28,41 @@ public enum SourceClient: Sendable {
         return .spider(try await SpiderSessionStore.shared.session(for: site, resolver: resolver), site)
     }
 
+    // MARK: - W-313: every content call is recorded in `SiteActivity`
+
+    /// The site this client calls.
+    public var siteID: Site.ID {
+        switch self {
+        case .cms(let client): client.site.id
+        case .spider(_, let site): site.id
+        }
+    }
+
     public func home(page: Int = 1) async throws -> CMSResponse {
+        try await SiteActivity.shared.tracking(siteID) { try await untrackedHome(page: page) }
+    }
+
+    /// `extend` carries the chosen filter values, keyed exactly as the source's own filter rows
+    /// name them. Only a type-1 MacCMS endpoint that published rows can have any (IOS-POC-62).
+    public func category(id: String, page: Int = 1,
+                         extend: [String: String] = [:]) async throws -> CMSResponse {
+        try await SiteActivity.shared.tracking(siteID) { try await untrackedCategory(id: id, page: page, extend: extend) }
+    }
+
+    public func search(_ keyword: String, page: Int = 1) async throws -> CMSResponse {
+        try await SiteActivity.shared.tracking(siteID) { try await untrackedSearch(keyword, page: page) }
+    }
+
+    public func detail(id: String) async throws -> Vod? {
+        try await SiteActivity.shared.tracking(siteID) { try await untrackedDetail(id: id) }
+    }
+
+    /// Resolves an episode to something `AVPlayer` can open, or nil when it cannot (`untrackedPlaybackURL`).
+    public func playbackURL(for episode: Episode, flag: String) async throws -> PlaybackTarget? {
+        try await SiteActivity.shared.tracking(siteID) { try await untrackedPlaybackURL(for: episode, flag: flag) }
+    }
+
+    private func untrackedHome(page: Int) async throws -> CMSResponse {
         switch self {
         case .cms(let client):
             // IOS-POC-63: a type-0/1 home lists the newest titles of every category, so they are kept
@@ -59,10 +93,8 @@ public enum SourceClient: Sendable {
         }
     }
 
-    /// `extend` carries the chosen filter values, keyed exactly as the source's own filter rows
-    /// name them. Only a type-1 MacCMS endpoint that published rows can have any (IOS-POC-62).
-    public func category(id: String, page: Int = 1,
-                         extend: [String: String] = [:]) async throws -> CMSResponse {
+    private func untrackedCategory(id: String, page: Int,
+                                   extend: [String: String]) async throws -> CMSResponse {
         switch self {
         case .cms(let client):
             return try await explained { try await client.category(id: id, page: page, extend: extend) }
@@ -82,7 +114,7 @@ public enum SourceClient: Sendable {
         }
     }
 
-    public func search(_ keyword: String, page: Int = 1) async throws -> CMSResponse {
+    private func untrackedSearch(_ keyword: String, page: Int) async throws -> CMSResponse {
         switch self {
         case .cms(let client):
             return try await client.search(keyword, page: page)
@@ -91,7 +123,7 @@ public enum SourceClient: Sendable {
         }
     }
 
-    public func detail(id: String) async throws -> Vod? {
+    private func untrackedDetail(id: String) async throws -> Vod? {
         switch self {
         case .cms(let client):
             return try await client.detail(id: id)
@@ -111,7 +143,7 @@ public enum SourceClient: Sendable {
     /// answer 403 to a bare request and 206 to one carrying a Referer, and that difference is the
     /// whole gap between "resolves" and "plays". They are used for the probe, for the sniff and by
     /// the player itself.
-    public func playbackURL(for episode: Episode, flag: String) async throws -> PlaybackTarget? {
+    private func untrackedPlaybackURL(for episode: Episode, flag: String) async throws -> PlaybackTarget? {
         switch self {
         case .cms(let client):
             // A MacCMS endpoint has no header protocol, so these are the app's own defaults: none.

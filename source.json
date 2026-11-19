@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.107",
+          "date": "2026-11-19",
+          "localizedDescription": "搜尋：\n- 點進單一來源的搜尋結果時，同一系列的各季也會排在一起，依季數由小到大。\n\n來源順序：\n- 拖曳來源時原地放回不會被固定。\n- 從未選過來源時，首頁預設為自訂順序的第一個來源。\n",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.107-b108/WebHTV-0.1.107-108.ipa",
+          "size": 36782723,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.1.106",
           "date": "2026-11-19",
           "localizedDescription": "搜尋：\n- 同一部片在多個來源都有時，合併成一張卡並標示來源數，點進去可選來源。\n- 輸入框下方顯示最近 12 筆搜尋紀錄，可單筆刪除或全部清除。\n- 一直搜尋失敗的來源會暫時略過，進度列可點開手動重試；設定裡可關閉此功能。\n- 設定裡可關閉個別來源，不參與全部搜尋。\n\n來源順序：\n- 設定裡可拖曳調整來源順序，自訂的順序優先；未調整的來源仍依狀況或原順序排列，可一鍵恢復原順序。\n",

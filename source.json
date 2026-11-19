@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.106",
+          "date": "2026-11-19",
+          "localizedDescription": "搜尋：\n- 同一部片在多個來源都有時，合併成一張卡並標示來源數，點進去可選來源。\n- 輸入框下方顯示最近 12 筆搜尋紀錄，可單筆刪除或全部清除。\n- 一直搜尋失敗的來源會暫時略過，進度列可點開手動重試；設定裡可關閉此功能。\n- 設定裡可關閉個別來源，不參與全部搜尋。\n\n來源順序：\n- 設定裡可拖曳調整來源順序，自訂的順序優先；未調整的來源仍依狀況或原順序排列，可一鍵恢復原順序。\n",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.106-b107/WebHTV-0.1.106-107.ipa",
+          "size": 36780791,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.1.105",
           "date": "2026-11-18",
           "localizedDescription": "追更新：\n- 影片詳情頁可以「追更新」：有新集數時，片庫記錄頁的追更區會顯示「+N 集」，片庫分頁也會出現徽章；播放到最新一集後提示自動清除。\n- 影集出新一季時會提示，可直接搜尋新一季。\n- 開著 App 時最多每 30 分鐘檢查一次，播放中不檢查。\n\n搜尋：\n- 搜尋結果依片名與關鍵字的接近程度排序，同一系列的各季排在一起；開始捲動或點選後順序固定，新結果改用提示列，點了才重排。\n- 狀況較好的來源優先搜尋。\n- 不再改寫關鍵字裡的標準簡體字，減少搜不到的情況。\n",

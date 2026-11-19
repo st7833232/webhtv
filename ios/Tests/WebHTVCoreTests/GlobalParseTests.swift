@@ -364,15 +364,20 @@ module.exports = {
     #expect(found?.absoluteString == "https://cdn.invalid/frame/index.m3u8", "a stream requested inside an iframe is caught")
 }
 
+/// W-321: a quiet page never finds anything, so only the time tells a cancelled sniff from one that waited out its
+/// timeout. The timeout is two minutes and the bound 30 s, counted from the cancel: in a full parallel run the
+/// WebView tests keep the main actor busy and a prompt end still reports 6–7 s, which a 5 s bound could not
+/// tell from a failure; a sniff that ignores the cancel runs on to the two minutes.
 @MainActor @Test func aSniffEndsWhenItsCallerGivesUp() async throws {
     let sniffer = MediaSniffer()
     let quiet = try #require(URL(string: "data:text/html;charset=utf-8;base64," + Data("<p>quiet</p>".utf8).base64EncodedString()))
     let clock = ContinuousClock()
-    let began = clock.now
-    let task = Task { await sniffer.sniffWithSubtitles(page: quiet, timeout: .seconds(20)) }
+    let task = Task { await sniffer.sniffWithSubtitles(page: quiet, timeout: .seconds(120)) }
     try await Task.sleep(for: .milliseconds(500))
+    let cancelled = clock.now
     task.cancel()
-    #expect(await task.value == nil && clock.now - began < .seconds(5))
+    #expect(await task.value == nil)
+    #expect(clock.now - cancelled < .seconds(30), "the sniff must end when its caller gives up, not at its timeout")
 }
 
 @MainActor @Test func aWebServicesPageIsOpenedWithItsUserAgent() async throws {

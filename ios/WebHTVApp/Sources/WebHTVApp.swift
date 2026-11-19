@@ -193,6 +193,8 @@ private struct ConfigView: View {
                 .opacity(selectedTab == tab ? 1 : 0)
                 .allowsHitTesting(selectedTab == tab)
                 .accessibilityHidden(selectedTab != tab)
+                // W-331: a retained tab never re-appears, so pages that reload on entry key on this.
+                .environment(\.isSelectedTab, selectedTab == tab)
         }
     }
 
@@ -964,6 +966,16 @@ private extension EnvironmentValues {
         get { self[TabReturnActionsKey.self] }
         set { self[TabReturnActionsKey.self] = newValue }
     }
+    /// W-331: whether this page's tab is the one on screen. Only the iOS 26 retained-tab host sets it;
+    /// the native TabView re-appears its tabs on entry, so there it stays true.
+    var isSelectedTab: Bool {
+        get { self[SelectedTabKey.self] }
+        set { self[SelectedTabKey.self] = newValue }
+    }
+}
+
+private struct SelectedTabKey: EnvironmentKey {
+    static let defaultValue = true
 }
 
 private struct TabReturnTarget: ViewModifier {
@@ -4481,6 +4493,13 @@ private struct HistoryView: View {
     @State private var records = [WatchHistory]()
     @State private var needsTool: WatchHistory?
     @State private var loaded = false
+    @Environment(\.isSelectedTab) private var isSelectedTab
+
+    /// W-331: what the list is read for; a change reloads it.
+    private struct HistoryLoad: Equatable {
+        let source: String
+        let selected: Bool
+    }
 
     /// W-313: this configuration's follows, those with new episodes first, otherwise as followed.
     private var follows: [Follow] {
@@ -4566,8 +4585,10 @@ private struct HistoryView: View {
             Text(FavoriteAvailability.Reason.needsSpiderTool.message)
         }
         // .task runs again whenever the tab is re-entered, which is what keeps the list current
-        // after a viewing without any notification plumbing.
-        .task {
+        // after a viewing without any notification plumbing. W-331: the iOS 26 host retains its
+        // tabs, so entry and a switched configuration source are keyed explicitly.
+        .task(id: HistoryLoad(source: source.identity, selected: isSelectedTab)) {
+            guard isSelectedTab else { return }
             await WatchHistoryStore.shared.migrateSiteIdentities(in: sites)
             records = await WatchHistoryStore.shared.records(for: source.identity)
             await followCenter.reload()
@@ -4998,6 +5019,7 @@ private struct FavoritesView: View {
     /// The watch history by title, read whenever the page appears.
     @State private var watched = [String: WatchHistory]()
     @State private var unavailable: Favorite?
+    @Environment(\.isSelectedTab) private var isSelectedTab
 
     private let columns = [GridItem(.adaptive(minimum: 140, maximum: 220), spacing: 12)]
 
@@ -5026,7 +5048,9 @@ private struct FavoritesView: View {
         }
         .dismissKeyboardOnBackgroundTap()
         .appWallpaper()
-        .task {
+        // W-331: on entry to a retained iOS 26 tab too, not only its first appearance.
+        .task(id: isSelectedTab) {
+            guard isSelectedTab else { return }
             await favoriteLibrary.reload()
             let records = await WatchHistoryStore.shared.records()
             watched = Dictionary(records.map { ($0.key, $0) }, uniquingKeysWith: { newest, _ in newest })

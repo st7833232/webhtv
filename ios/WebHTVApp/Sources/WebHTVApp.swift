@@ -1898,6 +1898,8 @@ private struct AggregateSearchView: View {
     /// W-312 A1 (§4.3 point 5): 全部 is ranked again as each site answers until the viewer scrolls, taps a card or a
     /// chip; from then on it keeps this order, so nothing moves under a finger, and later answers wait for 重新排序.
     @State private var frozenOrder: [String]?
+    /// W-318: each card's lead result when 全部 was frozen, so a later source never swaps a card's poster.
+    @State private var frozenLeads = [String: String]()
     /// W-315 A3: the merged card whose sources are on offer, the one picked there, and the one it opens once
     /// the menu is gone (a push while the sheet is still closing can be dropped).
     @State private var sourcesOf: Card?
@@ -1952,8 +1954,8 @@ private struct AggregateSearchView: View {
         let score: Int
         let series: SeriesTitle
         let merge: String?
-        /// Its place in `allHits`: a merged card shows its earliest source, so a later site never swaps the
-        /// poster or title under a finger.
+        /// Its place in `allHits`: a merged card is led by its earliest result with the work's own remarks
+        /// (W-318), and once frozen keeps that lead, so a later site never swaps the poster under a finger.
         let arrival: Int
     }
 
@@ -2013,7 +2015,10 @@ private struct AggregateSearchView: View {
                 let unseen = unseenCount
                 if unseen > 0 {
                     Button("有 \(unseen) 筆新結果，點這裡重新排序") {
-                        frozenOrder = merged(ranked(allHits)).map(\.id)
+                        frozenLeads = [:]
+                        let now = merged(ranked(allHits))
+                        frozenOrder = now.map(\.id)
+                        frozenLeads = Dictionary(now.map { ($0.id, $0.hit.id) }, uniquingKeysWith: { first, _ in first })
                         proxy.scrollTo(Self.resultsTop, anchor: .top)
                     }
                     .font(.caption.weight(.semibold))
@@ -2178,7 +2183,13 @@ private struct AggregateSearchView: View {
 
     private func merged(_ hits: [Hit]) -> [Card] {
         SearchMerge.merged(hits, key: \.merge).map { hits in
-            Card(id: hits[0].merge.map { "=\($0)" } ?? hits[0].id, hits: hits.sorted { $0.arrival < $1.arrival })
+            var hits = hits.sorted { $0.arrival < $1.arrival }
+            let id = hits[0].merge.map { "=\($0)" } ?? hits[0].id
+            // W-318: the lead is the earliest result with the work's own remarks — or, once frozen, the one it was.
+            let lead = frozenLeads[id].flatMap { lead in hits.firstIndex { $0.id == lead } }
+                ?? SearchMerge.lead(hits, remarks: \.vod.remarks)
+            hits.insert(hits.remove(at: lead), at: 0)
+            return Card(id: id, hits: hits)
         }
     }
 
@@ -2196,7 +2207,9 @@ private struct AggregateSearchView: View {
 
     private func freeze() {
         guard frozenOrder == nil, selected == nil, !groups.isEmpty else { return }
-        frozenOrder = cards.map(\.id)
+        let now = cards
+        frozenOrder = now.map(\.id)
+        frozenLeads = Dictionary(now.map { ($0.id, $0.hit.id) }, uniquingKeysWith: { first, _ in first })
     }
 
     private var selectedGroup: SiteHits? {
@@ -2370,6 +2383,7 @@ private struct AggregateSearchView: View {
         groups = []
         selected = nil
         frozenOrder = nil
+        frozenLeads = [:]
         total = 0
         answered = 0
         failed = 0

@@ -31,6 +31,19 @@ public enum SearchMerge {
         return result
     }
 
+    /// W-318: which of a card's results stands for it — the first with remarks that are not a bare play length
+    /// (「13057:27」「1:17:00」, what clip and audio sites put there), so a card shows the work's own facts
+    /// (「全46集」「已完結」) rather than a clip's. Blank remarks tell nothing either; with no such result, the
+    /// first one, as before.
+    public static func lead<T>(_ items: [T], remarks: (T) -> String) -> Int {
+        items.firstIndex { let text = remarks($0); return !text.isEmpty && !isDuration(text) } ?? 0
+    }
+
+    /// A bare play length: minutes:seconds or hours:minutes:seconds, nothing else.
+    static func isDuration(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespaces).wholeMatch(of: /[0-9]{1,6}(:[0-5][0-9]){1,2}/) != nil
+    }
+
     /// The first four-digit year in a site's year field (「2019」「2019-11-26」「2019年」), or "".
     static func year(_ text: String) -> String {
         text.firstMatch(of: /(?:^|[^0-9])((?:19|20)[0-9]{2})(?:[^0-9]|$)/).map { String($0.output.1) } ?? ""

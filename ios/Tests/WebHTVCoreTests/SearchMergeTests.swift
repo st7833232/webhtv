@@ -48,3 +48,19 @@ private func vod(_ name: String, year: String = "", tag: String = "") -> Vod {
     let groups = SearchMerge.merged(items) { $0 == "x" ? nil : $0 }
     #expect(groups == [["a", "a"], ["b", "b"], ["x"], ["c"], ["x"]])
 }
+
+// W-318: a card is shown by a result with the work's own facts, not a clip site's play length.
+@Test func leadsWithAResultWhoseRemarksAreNotAPlayLength() {
+    #expect(SearchMerge.lead(["13057:27", "1:17:00", "全46集", "已完结"]) { $0 } == 2)
+    #expect(SearchMerge.lead(["13057:27", "45:10"]) { $0 } == 0)
+    #expect(SearchMerge.lead(["", "13057:27"]) { $0 } == 0)
+    #expect(SearchMerge.lead(["13057:27", "", "全46集"]) { $0 } == 2)
+    #expect(SearchMerge.lead([String]()) { $0 } == 0)
+}
+
+@Test func tellsAPlayLengthFromOtherRemarks() {
+    for length in ["13057:27", "1:17:00", "05:30", " 45:10 "] { #expect(SearchMerge.isDuration(length), "\(length)") }
+    for other in ["全46集", "更新至12集", "HD", "", "2019", "12:", "1:7", "第3:00集", "更新至 20:00", "1:60"] {
+        #expect(!SearchMerge.isDuration(other), "\(other)")
+    }
+}

@@ -13,6 +13,20 @@ public enum SiteOrder {
         return head + (health.map { SiteHealth.ordered(rest, by: $0) } ?? rest)
     }
 
+    /// W-330: the search's site chips. `items` come in the order the sites answered; the pinned sites come first in
+    /// the viewer's order, the rest stay in the order they answered. `kept` holds the chips on screen when the viewer
+    /// touched the results: they keep their places, and every later answer — a pinned site too — joins the end as it
+    /// arrives, so no chip on screen ever moves under a finger.
+    public static func chips<T>(_ items: [T], site: (T) -> Site.ID, key: (T) -> Int, pinned: [Site.ID],
+                                kept: Set<Int>?) -> [T] {
+        let rank = Dictionary(pinned.enumerated().map { ($1, $0) }, uniquingKeysWith: min)
+        let ordered = items.enumerated().sorted {
+            (rank[site($0.element)] ?? Int.max, $0.offset) < (rank[site($1.element)] ?? Int.max, $1.offset)
+        }.map(\.element)
+        guard let kept else { return ordered }
+        return ordered.filter { kept.contains(key($0)) } + items.filter { !kept.contains(key($0)) }
+    }
+
     /// The pinned list after the viewer drags `shown[from]` to `to`, SwiftUI's `onMove` destination (the index it
     /// lands before, counted in the list as it was). `shown` is what `apply` returned. The dragged site is pinned,
     /// at most just after the last pinned one, so dropping it among the rest pins no other site. Put back where it

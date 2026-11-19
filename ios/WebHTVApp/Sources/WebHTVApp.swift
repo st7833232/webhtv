@@ -1896,8 +1896,12 @@ private struct AggregateSearchView: View {
     @State private var busy = 0
     /// W-316 A10: sites left out of this search because their searches keep failing.
     @State private var skipped = [Site]()
-    /// Sites that found something, in the order they answered: the chip order, as on Android.
+    /// Sites that found something, in the order they answered, as on Android; the chips put the pinned ones first.
     @State private var groups = [SiteHits]()
+    /// W-330: the sites the viewer ordered by hand (W-317) when this search started; their chips come first.
+    @State private var pinnedSites = [Site.ID]()
+    /// W-330: the chips on screen when the viewer first touched the results; they keep their places from then on.
+    @State private var frozenChips: Set<Int>?
     /// The chip in use: a site's position in the searched list, or nil for 全部.
     @State private var selected: Int?
     /// W-312 A1 (§4.3 point 5): 全部 is ranked again as each site answers until the viewer scrolls, taps a card or a
@@ -1915,6 +1919,7 @@ private struct AggregateSearchView: View {
 
     private static let resultsSpace = "webhtv.search.results"
     private static let resultsTop = "webhtv.search.top"
+    private static let chipsSpace = "webhtv.search.chips"
     private let columns = [GridItem(.adaptive(minimum: 104, maximum: 180), spacing: 12)]
 
     private struct SiteHits {
@@ -2029,6 +2034,7 @@ private struct AggregateSearchView: View {
                         let now = merged(ranked(allHits))
                         frozenOrder = now.map(\.id)
                         frozenLeads = Dictionary(now.map { ($0.id, $0.hit.id) }, uniquingKeysWith: { first, _ in first })
+                        frozenChips = Set(groups.map(\.index))
                         proxy.scrollTo(Self.resultsTop, anchor: .top)
                     }
                     .font(.caption.weight(.semibold))
@@ -2226,6 +2232,7 @@ private struct AggregateSearchView: View {
         let now = cards
         frozenOrder = now.map(\.id)
         frozenLeads = Dictionary(now.map { ($0.id, $0.hit.id) }, uniquingKeysWith: { first, _ in first })
+        frozenChips = Set(groups.map(\.index))
     }
 
     private var selectedGroup: SiteHits? {
@@ -2277,13 +2284,20 @@ private struct AggregateSearchView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 chip("全部 \(groups.reduce(0) { $0 + $1.vods.count })", index: nil)
-                ForEach(groups, id: \.index) { group in
+                // W-330: the pinned sites first in the viewer's order, the rest in the order they answered.
+                let chips = SiteOrder.chips(groups, site: \.site.id, key: \.index, pinned: pinnedSites, kept: frozenChips)
+                ForEach(chips, id: \.index) { group in
                     chip("\(zhTW(group.site.name.displayName)) \(group.vods.count)", index: group.index)
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
+            // W-330: scrolling the chips is touching the results too, so they stop moving from here on.
+            .onGeometryChange(for: Bool.self) { $0.frame(in: .named(Self.chipsSpace)).minX < -8 } action: {
+                if $0 { freeze() }
+            }
         }
+        .coordinateSpace(name: Self.chipsSpace)
     }
 
     private func chip(_ title: String, index: Int?) -> some View {
@@ -2384,6 +2398,7 @@ private struct AggregateSearchView: View {
         searching = true
         let byHealth = healthSort, skipping = skipFailing, identity = source.identity
         let pinned = SiteOrderStore().pinned(in: identity)
+        pinnedSites = pinned
         task = Task {
             // W-317: the sites the viewer ordered by hand are asked first.
             var order = SiteOrder.apply(targets, pinned: pinned, health: nil)
@@ -2450,6 +2465,7 @@ private struct AggregateSearchView: View {
         selected = nil
         frozenOrder = nil
         frozenLeads = [:]
+        frozenChips = nil
         total = 0
         answered = 0
         failed = 0

@@ -76,3 +76,23 @@ private func keys(_ sites: [Site]) -> [String] { sites.map(\.key) }
     reopened.set([], in: "one", keeping: [a, b])
     #expect(SiteOrderStore(defaults: defaults).pinned(in: "one").isEmpty)
 }
+
+// W-330 (`docs/W-330-ios-search-chip-pinned-first.md`): the chips put the pinned sites first in the viewer's order,
+// the rest in the order they answered; once touched, the chips on screen stay put and later answers follow them.
+@Test func chipsPutPinnedSitesFirstAndKeepTheirPlacesOnceTouched() throws {
+    let a = try site("a"), b = try site("b"), c = try site("c"), d = try site("d")
+    // (chip key, site) in the order the sites answered.
+    let answered = [(0, c), (1, b), (2, d), (3, a)]
+    func chips(_ items: [(Int, Site)], kept: Set<Int>?) -> [String] {
+        SiteOrder.chips(items, site: { $0.1.id }, key: { $0.0 }, pinned: [a.id, d.id], kept: kept).map { $0.1.key }
+    }
+    #expect(chips(answered, kept: nil) == ["a", "d", "c", "b"])
+    // Touched while c, b and d were shown (d already first); the pinned a answers later: it follows, it does not cut in.
+    #expect(chips(answered, kept: [0, 1, 2]) == ["d", "c", "b", "a"])
+    // Touched while only c was shown: b, then the pinned d, then the pinned a join the end as they answer, so b,
+    // already on screen when d arrives, is not pushed aside.
+    #expect(chips(answered, kept: [0]) == ["c", "b", "d", "a"])
+    // No pinned site: the order they answered.
+    #expect(SiteOrder.chips(answered, site: { $0.1.id }, key: { $0.0 }, pinned: [], kept: nil).map { $0.1.key }
+            == ["c", "b", "d", "a"])
+}

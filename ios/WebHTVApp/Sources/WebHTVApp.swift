@@ -2144,11 +2144,16 @@ private struct AggregateSearchView: View {
             .joined(separator: "、")
     }
 
+    /// W-316 A6: less the sites switched off in 參與搜尋的站台.
+    private var searchSites: [Site] {
+        AggregateSearch.sites(from: sites, excluding: SearchExclusions().sites(in: source.identity))
+    }
+
     @ViewBuilder private var emptyState: some View {
         if keyword.isEmpty {
             CompatContentUnavailableView(
                 "全站台搜尋", systemImage: "magnifyingglass",
-                description: Text("輸入關鍵字後按搜尋，會同時搜尋這個資訊源的 \(AggregateSearch.sites(from: sites).count) 個站台。")
+                description: Text("輸入關鍵字後按搜尋，會同時搜尋這個資訊源的 \(searchSites.count) 個站台。")
             )
         } else if !groups.isEmpty {
             EmptyView()
@@ -2156,7 +2161,7 @@ private struct AggregateSearchView: View {
             ProgressView("搜尋中 \(answered)/\(total)")
         } else if total == 0 {
             CompatContentUnavailableView("沒有可搜尋的站台", systemImage: "magnifyingglass",
-                                   description: Text("這個資訊源的站台都沒有開放搜尋。"))
+                                   description: Text("這個資訊源的站台都沒有開放搜尋，或已在設定的「參與搜尋的站台」關掉。"))
         } else if answered < total {
             CompatContentUnavailableView("已停止搜尋", systemImage: "stop.circle",
                                    description: Text("已完成 \(answered)/\(total) 個站台，還沒有結果。"))
@@ -2185,7 +2190,7 @@ private struct AggregateSearchView: View {
         generation += 1
         let current = generation
         keyword = text
-        let targets = AggregateSearch.sites(from: sites)
+        let targets = searchSites
         total = targets.count
         searching = true
         let started = ContinuousClock.now
@@ -2560,6 +2565,8 @@ private struct SettingsView: View {
                 }
                 // IOS-POC-41C
                 NavigationLink("檢查來源") { SourceCheckView(sites: sites, source: source) }
+                // W-316 A6
+                NavigationLink("參與搜尋的站台") { SearchSitesView(sites: AggregateSearch.sites(from: sites), source: source) }
                 // IOS-POC-41B: Android's 站點健康排序 and its 清空.
                 Toggle("站點健康排序", isOn: $healthSort)
                 Button(healthCleared ? "站點健康記錄已清空" : "清除站點健康記錄", role: .destructive) {
@@ -3030,6 +3037,39 @@ private struct SiteChoiceList: View {
         .navigationTitle("內容來源")
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBar()
+    }
+}
+
+/// W-316 A6: which of the configuration's searchable sites 全站台搜尋 asks. Saved on every switch.
+private struct SearchSitesView: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
+    let sites: [Site]
+    let source: ConfigSource
+
+    @State private var excluded: Set<Site.ID> = []
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(sites) { site in
+                    Toggle(isOn: Binding(get: { !excluded.contains(site.id) }, set: { on in
+                        if on { excluded.remove(site.id) } else { excluded.insert(site.id) }
+                        SearchExclusions().set(excluded, in: source.identity)
+                    })) {
+                        Text(zhTW: site.name.displayName)
+                    }
+                }
+            } footer: {
+                Text("關掉的站不會出現在全站台搜尋；首頁瀏覽與換站不受影響。只對目前的設定來源有效。")
+            }
+            .listRowBackground(appSurface)
+        }
+        .scrollContentBackground(.hidden)
+        .appWallpaper()
+        .navigationTitle("參與搜尋的站台")
+        .navigationBarTitleDisplayMode(.inline)
+        .appNavigationBar()
+        .onAppear { excluded = SearchExclusions().sites(in: source.identity) }
     }
 }
 

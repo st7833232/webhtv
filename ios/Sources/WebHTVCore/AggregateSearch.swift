@@ -57,9 +57,10 @@ public struct AggregateSearch: Sendable {
     /// The sites a search goes to, in configuration order: the searchable ones, each `Site.id` once.
     /// A spider session is keyed on `Site.id` (`SpiderSessionStore`), so a second site with the same
     /// id would only ask the first one's session again.
-    public static func sites(from sites: [Site]) -> [Site] {
+    /// W-316 A6: `excluded` is the viewer's own list (`SearchExclusions`).
+    public static func sites(from sites: [Site], excluding excluded: Set<Site.ID> = []) -> [Site] {
         var seen = Set<String>()
-        return sites.filter { $0.isSearchable && seen.insert($0.id).inserted }
+        return sites.filter { $0.isSearchable && !excluded.contains($0.id) && seen.insert($0.id).inserted }
     }
 
     /// One search. The stream yields one report per site and then finishes. Ending the iteration, or
@@ -264,5 +265,27 @@ public struct AggregateSearch: Sendable {
 
         func begin(_ id: String) -> Bool { sites.insert(id).inserted }
         func end(_ id: String) { sites.remove(id) }
+    }
+}
+
+/// W-316 A6: the sites the viewer took out of 全站台搜尋, per configuration (`ConfigSource.identity`), by
+/// `Site.id`. Stored as JSON because a `Site.id` carries a NUL; a site that left the configuration stays
+/// listed and simply matches nothing.
+public struct SearchExclusions {
+    public static let key = "webhtv.search.excludedSites"
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+
+    public func sites(in source: String) -> Set<Site.ID> { all()[source] ?? [] }
+
+    public func set(_ sites: Set<Site.ID>, in source: String) {
+        var all = all()
+        all[source] = sites.isEmpty ? nil : sites
+        defaults.set(try? JSONEncoder().encode(all), forKey: Self.key)
+    }
+
+    private func all() -> [String: Set<Site.ID>] {
+        defaults.data(forKey: Self.key).flatMap { try? JSONDecoder().decode([String: Set<Site.ID>].self, from: $0) } ?? [:]
     }
 }

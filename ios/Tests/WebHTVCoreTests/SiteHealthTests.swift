@@ -70,3 +70,24 @@ private func site(_ key: String) throws -> Site {
     #expect(await reopened.health(in: "one").isEmpty)
     #expect(await SiteHealthStore(directory: directory).health(in: "two").isEmpty)
 }
+
+// W-316 A10: three failed searches in a row leave a site out of 全站台搜尋 for a week from the last of
+// them; one answer, or the week running out, brings it back. A file written before the streak decodes.
+@Test func aSiteWhoseSearchesKeepFailingSitsOutForAWeek() throws {
+    let failed = (SiteHealth.Event.search(count: 0, milliseconds: 30000), false)
+    let answered = (SiteHealth.Event.search(count: 5, milliseconds: 900), true)
+    #expect(!health([failed, failed]).keepsFailingSearch(at: 3))
+    let out = health([answered, failed, failed, failed])
+    #expect(out.keepsFailingSearch(at: 5))
+    #expect(!out.keepsFailingSearch(at: 4 + 7 * 24 * 3600))
+    // A failed browse or play does not count; one answered search starts the streak again.
+    #expect(!health([failed, failed, (.browse, false), (.play, false)]).keepsFailingSearch(at: 5))
+    #expect(!health([failed, failed, failed, answered, failed]).keepsFailingSearch(at: 6))
+
+    let old = try JSONDecoder().decode(SiteHealth.self, from: Data(#"""
+        {"searchSuccess":0,"searchFail":9,"browseSuccess":0,"browseFail":0,"detailSuccess":0,"detailFail":0,
+         "playSuccess":0,"playFail":0,"lastSearchCount":0,"lastSearchMilliseconds":30000,"lastDetailMilliseconds":0,
+         "lastPlaySuccessAt":0,"lastPlayFailAt":0,"updatedAt":1}
+        """#.utf8))
+    #expect(old.searchFail == 9 && !old.keepsFailingSearch(at: 2))
+}

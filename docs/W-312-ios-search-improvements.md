@@ -306,3 +306,7 @@ A5 排序依的量（審查 N-1）：`SiteHealth.score`（`ios/Sources/WebHTVCor
 沒驗到：真機；「慶餘年」的 A2 各季相鄰沒有另外在 Simulator 截取（同一份程式，以「怪奇物語」驗）；同時搜尋數（A7）不在這批。
 
 環境收尾：Simulator webhtv-w308 偏好已還原成 `https://127.0.0.1:18448/wang-sex.json` 並關機；`~/.cache/w308-probe` 與建置資料夾已刪。第一次 A2 實測因偏好未生效載到舊設定（119 站），含不適當片名的標籤檔已刪除不保留。
+
+## 12. 第二批
+
+- A10、A6：W-316，見 `docs/W-316-ios-search-site-participation.md`（A10 依 Manager #9050 改為獨立開關「略過一直失敗的站」）。

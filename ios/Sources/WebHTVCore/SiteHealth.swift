@@ -27,6 +27,10 @@ public struct SiteHealth: Codable, Equatable, Sendable {
     var lastPlaySuccessAt: Double = 0
     var lastPlayFailAt: Double = 0
     var updatedAt: Double = 0
+    /// W-316 A10: searches failed since the last one that answered, and when the last of them failed.
+    /// Optional so a file written before them still decodes.
+    var searchFailStreak: Int?
+    var lastSearchFailAt: Double?
 
     mutating func record(_ event: Event, succeeded: Bool, at now: Double) {
         updatedAt = now
@@ -34,7 +38,11 @@ public struct SiteHealth: Codable, Equatable, Sendable {
         case .search(let count, let milliseconds):
             lastSearchMilliseconds = max(0, milliseconds)
             lastSearchCount = max(0, count)
-            if succeeded { searchSuccess += 1 } else { searchFail += 1 }
+            if succeeded { searchSuccess += 1; searchFailStreak = 0 } else {
+                searchFail += 1
+                searchFailStreak = (searchFailStreak ?? 0) + 1
+                lastSearchFailAt = now
+            }
         case .browse:
             if succeeded { browseSuccess += 1 } else { browseFail += 1 }
         case .detail(let milliseconds):
@@ -71,6 +79,12 @@ public struct SiteHealth: Codable, Equatable, Sendable {
         if score >= 20 || (lastPlaySuccessAt >= lastPlayFailAt && playSuccess > 0) { return .good }
         if score <= -20 { return .bad }
         return .warn
+    }
+
+    /// W-316 A10: the last three searches or more all failed, the last within a week, so 全站台搜尋 leaves the
+    /// site out this time. A week after that failure, or when the viewer retries it, it is asked again.
+    public func keepsFailingSearch(at now: Double) -> Bool {
+        (searchFailStreak ?? 0) >= 3 && now - (lastSearchFailAt ?? 0) < 7 * 24 * 3600
     }
 
     /// `sortSites`: healthiest first, an unrecorded site scoring 0. Stable, as Android's `List.sort`

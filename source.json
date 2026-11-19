@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.108",
+          "date": "2026-11-19",
+          "localizedDescription": "搜尋：\n- 搜尋結果上方的來源標籤，自訂順序的來源排在前面，其餘依回傳先後排列。\n",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.108-b109/WebHTV-0.1.108-109.ipa",
+          "size": 36790893,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.1.107",
           "date": "2026-11-19",
           "localizedDescription": "搜尋：\n- 點進單一來源的搜尋結果時，同一系列的各季也會排在一起，依季數由小到大。\n\n來源順序：\n- 拖曳來源時原地放回不會被固定。\n- 從未選過來源時，首頁預設為自訂順序的第一個來源。\n",

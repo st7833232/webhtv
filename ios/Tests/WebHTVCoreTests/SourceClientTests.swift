@@ -134,18 +134,27 @@ private func gatedSession() -> URLSession {
 
 /// IOS-POC-15D: a server that ignores `Range` must not make the probe read the whole file. This one
 /// sends a media head and then holds the connection open with nothing more — reading to the end of
-/// the body would wait out the session's ten-second timeout; reading the head returns at once.
+/// the body would wait out the session's request timeout; reading the head returns at once.
+///
+/// W-319: the timeout is a minute here, not the app session's ten seconds. In a full parallel run the
+/// WebView and script tests keep the process busy for the first several seconds, and every test started
+/// then — this one, which takes 0.05 s alone — reports 5–7 s; a 5 s bound against a 10 s failure could
+/// not tell the two apart. A probe that reads on hangs here for a minute and then comes back `.unknown`.
 @Test func theProbeReadsOnlyTheHeadOfABodyThatNeverEnds() async throws {
     // No Content-Length and no close: the body only ends if the client stops reading.
     let server = try OneShotHTTPServer(
         reply: Data("HTTP/1.1 200 OK\r\nContent-Type: video/mp2t\r\n\r\n".utf8) + Data(repeating: 0x47, count: 4096),
         closes: false)
     defer { server.stop() }
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.timeoutIntervalForRequest = 60
+    let session = URLSession(configuration: configuration)
+    defer { session.invalidateAndCancel() }
 
     let started = ContinuousClock.now
-    let kind = await MediaProbe.classify(server.url)
+    let kind = await MediaProbe.classify(server.url, session: session)
     #expect(kind == .media)
-    #expect(ContinuousClock.now - started < .seconds(5),
+    #expect(ContinuousClock.now - started < .seconds(30),
             "the probe must stop after the head, not wait for a body that never ends")
 }
 

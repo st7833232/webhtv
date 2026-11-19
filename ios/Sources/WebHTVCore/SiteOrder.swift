@@ -15,8 +15,10 @@ public enum SiteOrder {
 
     /// The pinned list after the viewer drags `shown[from]` to `to`, SwiftUI's `onMove` destination (the index it
     /// lands before, counted in the list as it was). `shown` is what `apply` returned. The dragged site is pinned,
-    /// at most just after the last pinned one, so dropping it among the rest pins no other site.
+    /// at most just after the last pinned one, so dropping it among the rest pins no other site. Put back where it
+    /// was, nothing changes (W-324).
     public static func moved(_ shown: [Site], from: Int, to: Int, pinned: [Site.ID]) -> [Site.ID] {
+        guard to != from, to != from + 1 else { return pinned }
         let id = shown[from].id
         let present = Set(shown.map(\.id))
         var kept = pinned.filter { $0 != id && present.contains($0) }

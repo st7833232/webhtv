@@ -87,3 +87,13 @@ W-316 的「參與搜尋的站台」頁（`SearchSitesView`）只列可搜尋站
 
 - 真機。
 - 設定檔真的刪站或加站：只有單元測試（`apply` 跳過已刪除的站、新站落在自動區），沒有在 Simulator 換一份少站的設定檔。
+
+## 8. W-324 小修（審查備註 N-2、N-1）
+
+分支 `task/W-324`，從 `task/W-317` `f3d5e42f` 開；兩個 commit，不進 0.1.106。
+
+### 8.1 原地放回不固定（N-2）
+
+- 問題：拿起未排站又放回原位時，SwiftUI 若仍呼叫 `onMove`，`SiteOrder.moved` 會把它加進已排區尾端，畫面上那站往上跳。
+- 改法：`moved` 開頭判斷 `to == from` 或 `to == from + 1`（SwiftUI `onMove` 對「原位」的兩種目的地）就原樣回傳 `pinned`。已排站原地放回也一樣不變。
+- Core：新增 `aSitePutBackWhereItWasIsNotPinned`（兩種原位目的地、已排站原位、往上一格仍算移動）；`swift test` 1609 項全過（`artifacts/w324/core-tests-a.txt`）。

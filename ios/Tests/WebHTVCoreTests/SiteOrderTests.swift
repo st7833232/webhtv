@@ -44,6 +44,18 @@ private func keys(_ sites: [Site]) -> [String] { sites.map(\.key) }
     #expect(SiteOrder.moved(SiteOrder.apply([a, b, c], pinned: [], health: nil), from: 2, to: 0, pinned: []) == [c.id])
 }
 
+@Test func aSitePutBackWhereItWasIsNotPinned() throws {
+    let a = try site("a"), b = try site("b"), c = try site("c"), d = try site("d")
+    let pinned = [a.id]
+    let shown = SiteOrder.apply([a, b, c, d], pinned: pinned, health: nil)
+    // SwiftUI's destination for "back in place" is the index itself or the one after it.
+    #expect(SiteOrder.moved(shown, from: 2, to: 2, pinned: pinned) == pinned)
+    #expect(SiteOrder.moved(shown, from: 2, to: 3, pinned: pinned) == pinned)
+    #expect(SiteOrder.moved(shown, from: 0, to: 1, pinned: pinned) == pinned)
+    // One slot up is a real move: c is pinned after a.
+    #expect(SiteOrder.moved(shown, from: 2, to: 1, pinned: pinned) == [a.id, c.id])
+}
+
 @Test func theOrderIsKeptPerConfigurationAndForgetsRemovedSites() throws {
     let defaults = try #require(UserDefaults(suiteName: "W-317-\(UUID())"))
     let a = try site("a"), b = try site("b"), gone = try site("gone")

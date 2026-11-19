@@ -2121,11 +2121,13 @@ private struct AggregateSearchView: View {
     private func openSources(_ card: Card) {
         freeze()
         let byHealth = healthSort, identity = source.identity
+        let pinned = SiteOrderStore().pinned(in: identity)
         Task {
             guard byHealth else { sourcesOf = card; return }
             let health = await SiteHealthStore.shared.health(in: identity)
-            let rank = Dictionary(SiteHealth.ordered(card.hits.map(\.site), by: health).enumerated().map { ($1.id, $0) },
-                                  uniquingKeysWith: min)
+            // W-322: the hand-ordered sites (W-317) stay first here too, as the search asks them.
+            let ordered = SiteOrder.apply(card.hits.map(\.site), pinned: pinned, health: health)
+            let rank = Dictionary(ordered.enumerated().map { ($1.id, $0) }, uniquingKeysWith: min)
             let hits = card.hits.enumerated().sorted {
                 (rank[$0.element.site.id] ?? 0, $0.offset) < (rank[$1.element.site.id] ?? 0, $1.offset)
             }

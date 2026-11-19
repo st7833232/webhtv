@@ -1898,6 +1898,11 @@ private struct AggregateSearchView: View {
     /// W-312 A1 (§4.3 point 5): 全部 is ranked again as each site answers until the viewer scrolls, taps a card or a
     /// chip; from then on it keeps this order, so nothing moves under a finger, and later answers wait for 重新排序.
     @State private var frozenOrder: [String]?
+    /// W-315 A3: the merged card whose sources are on offer, the one picked there, and the one it opens once
+    /// the menu is gone (a push while the sheet is still closing can be dropped).
+    @State private var sourcesOf: Card?
+    @State private var picked: Hit?
+    @State private var chosen: Hit?
 
     private static let resultsSpace = "webhtv.search.results"
     private static let resultsTop = "webhtv.search.top"
@@ -1914,6 +1919,8 @@ private struct AggregateSearchView: View {
         private(set) var scores: [Int] = []
         /// W-312 A2: each title split into series and season, parsed once when it arrives.
         private(set) var series: [SeriesTitle] = []
+        /// W-315 A3: each title's `SearchMerge.key`, worked out once when it arrives.
+        private(set) var keys: [String?] = []
         let keyword: String
         /// IOS-POC-33: the next page of each keyword form still adding titles.
         var cursor: DualScriptSearch.Cursor
@@ -1932,6 +1939,7 @@ private struct AggregateSearchView: View {
         private mutating func annotate(_ new: ArraySlice<Vod>) {
             scores += new.map { SearchRelevance.score(title: $0.name, keyword: keyword) }
             series += new.map { SeriesTitle($0.name) }
+            keys += new.map(SearchMerge.key(for:))
         }
     }
 
@@ -1941,6 +1949,18 @@ private struct AggregateSearchView: View {
         let id: String
         let score: Int
         let series: SeriesTitle
+        let merge: String?
+        /// Its place in `allHits`: a merged card shows its earliest source, so a later site never swaps the
+        /// poster or title under a finger.
+        let arrival: Int
+    }
+
+    /// W-315 A3: what one card stands for — on 全部, every site's result with the same `SearchMerge.key`; on a
+    /// site's chip, one result.
+    private struct Card: Identifiable {
+        let id: String
+        let hits: [Hit]
+        var hit: Hit { hits[0] }
     }
 
     var body: some View {
@@ -1988,7 +2008,7 @@ private struct AggregateSearchView: View {
                 let unseen = unseenCount
                 if unseen > 0 {
                     Button("有 \(unseen) 筆新結果，點這裡重新排序") {
-                        frozenOrder = ranked(allHits).map(\.id)
+                        frozenOrder = merged(ranked(allHits)).map(\.id)
                         proxy.scrollTo(Self.resultsTop, anchor: .top)
                     }
                     .font(.caption.weight(.semibold))
@@ -2002,11 +2022,11 @@ private struct AggregateSearchView: View {
                             }
                         if !groups.isEmpty { chipRow }
                         if searching || answered > 0 { progressRow }
-                        let shown = hits
+                        let shown = cards
                         if shown.isEmpty { emptyState.padding(.top, 48) }
                         // 全部 puts the titles that do not contain the keyword at all after a heading of their own;
                         // a season pulled up next to its series stays above it.
-                        let split = selected == nil ? (shown.lastIndex { $0.score > 0 }).map { $0 + 1 } ?? shown.startIndex
+                        let split = selected == nil ? (shown.lastIndex { $0.hit.score > 0 }).map { $0 + 1 } ?? shown.startIndex
                                                     : shown.endIndex
                         grid(shown[..<split], last: shown.last?.id)
                         if split > shown.startIndex, split < shown.endIndex {
@@ -2023,6 +2043,13 @@ private struct AggregateSearchView: View {
         }
         .dismissKeyboardOnBackgroundTap()
         .appWallpaper()
+        .sheet(item: $sourcesOf, onDismiss: {
+            chosen = picked
+            picked = nil
+        }) { sourcesMenu($0) }
+        .navigationDestination(isPresented: Binding(get: { chosen != nil }, set: { if !$0 { chosen = nil } })) {
+            if let chosen { vodDestination(chosen.vod, site: chosen.site, source: source, extend: [:]) }
+        }
     }
 
     private var engine: AggregateSearch { AggregateSearch(search: Self.search(in: source)) }
@@ -2038,46 +2065,115 @@ private struct AggregateSearchView: View {
         }
     }
 
-    private func grid(_ hits: ArraySlice<Hit>, last: String?) -> some View {
+    private func grid(_ cards: ArraySlice<Card>, last: String?) -> some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
-            ForEach(hits) { hit in
-                NavigationLink {
-                    vodDestination(hit.vod, site: hit.site, source: source, extend: [:])
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        VodCard(vod: hit.vod)
-                        Text(zhTW: hit.site.name.displayName)
-                            .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            ForEach(cards) { card in
+                Group {
+                    if card.hits.count > 1 {
+                        Button { openSources(card) } label: { cardLabel(card) }
+                    } else {
+                        NavigationLink {
+                            vodDestination(card.hit.vod, site: card.hit.site, source: source, extend: [:])
+                        } label: { cardLabel(card) }
+                        .simultaneousGesture(TapGesture().onEnded { freeze() })
                     }
                 }
                 .buttonStyle(.plain)
-                .simultaneousGesture(TapGesture().onEnded { freeze() })
                 .onAppear {
-                    if let selected, hit.id == last { Task { await loadMore(selected) } }
+                    if let selected, card.id == last { Task { await loadMore(selected) } }
                 }
             }
         }
         .padding(.horizontal, 20)
     }
 
-    /// Every site's titles in the order the sites answered.
-    private var allHits: [Hit] {
-        groups.flatMap { group in
-            zip(group.vods, zip(group.scores, group.series)).map { vod, annotation in
-                Hit(site: group.site, vod: vod, id: "\(group.index)\u{0}\(vod.id)", score: annotation.0,
-                    series: annotation.1)
+    private func cardLabel(_ card: Card) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            VodCard(vod: card.hit.vod)
+            Group {
+                if card.hits.count > 1 {
+                    Text("\(card.hits.count) 個來源")
+                } else {
+                    Text(zhTW: card.hit.site.name.displayName)
+                }
             }
+            .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
         }
     }
 
-    /// A site's chip: its titles as the site sent them. 全部: by `SearchRelevance.score`, equal scores in the order the
-    /// sites answered, then each series' seasons together where its best-placed one was — or, once frozen, the
-    /// order it had then.
-    private var hits: [Hit] {
-        if let selected { return allHits.filter { $0.id.hasPrefix("\(selected)\u{0}") } }
-        guard let frozenOrder else { return ranked(allHits) }
-        let byID = Dictionary(allHits.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    /// W-315 A3: a merged card's sites, healthiest first as the search asks them (W-312 A5, same switch), each
+    /// with its own year and remarks, so a different title that only shares the name can be told apart.
+    private func openSources(_ card: Card) {
+        freeze()
+        let byHealth = healthSort, identity = source.identity
+        Task {
+            guard byHealth else { sourcesOf = card; return }
+            let health = await SiteHealthStore.shared.health(in: identity)
+            let rank = Dictionary(SiteHealth.ordered(card.hits.map(\.site), by: health).enumerated().map { ($1.id, $0) },
+                                  uniquingKeysWith: min)
+            let hits = card.hits.enumerated().sorted {
+                (rank[$0.element.site.id] ?? 0, $0.offset) < (rank[$1.element.site.id] ?? 0, $1.offset)
+            }
+            sourcesOf = Card(id: card.id, hits: hits.map(\.element))
+        }
+    }
+
+    private func sourcesMenu(_ card: Card) -> some View {
+        NavigationStack {
+            List(card.hits) { hit in
+                Button {
+                    picked = hit
+                    sourcesOf = nil
+                } label: {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(zhTW: hit.site.name.displayName).font(.body.weight(.semibold))
+                        let facts = [hit.vod.year, hit.vod.remarks].filter { !$0.isEmpty }.map { zhTW($0) }
+                        if !facts.isEmpty {
+                            Text(verbatim: facts.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .navigationTitle(Text(zhTW: card.hit.vod.name))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { sourcesOf = nil } }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    /// Every site's titles in the order the sites answered.
+    private var allHits: [Hit] {
+        groups.flatMap { group in
+            group.vods.indices.map { at in (group, at) }
+        }.enumerated().map { arrival, item in
+            let (group, at) = item
+            return Hit(site: group.site, vod: group.vods[at], id: "\(group.index)\u{0}\(group.vods[at].id)",
+                       score: group.scores[at], series: group.series[at], merge: group.keys[at], arrival: arrival)
+        }
+    }
+
+    /// A site's chip: its titles as the site sent them, one card each. 全部: by `SearchRelevance.score`, equal scores
+    /// in the order the sites answered, then each series' seasons together where its best-placed one was, then the
+    /// same title from many sites as one card where its best-placed one was (W-315 A3) — or, once frozen, the order
+    /// it had then; a later site's copy of a title on screen joins that card where it is.
+    private var cards: [Card] {
+        if let selected {
+            return allHits.filter { $0.id.hasPrefix("\(selected)\u{0}") }.map { Card(id: $0.id, hits: [$0]) }
+        }
+        guard let frozenOrder else { return merged(ranked(allHits)) }
+        let byID = Dictionary(merged(allHits).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return frozenOrder.compactMap { byID[$0] }
+    }
+
+    private func merged(_ hits: [Hit]) -> [Card] {
+        SearchMerge.merged(hits, key: \.merge).map { hits in
+            Card(id: hits[0].merge.map { "=\($0)" } ?? hits[0].id, hits: hits.sorted { $0.arrival < $1.arrival })
+        }
     }
 
     private func ranked(_ hits: [Hit]) -> [Hit] {
@@ -2089,12 +2185,12 @@ private struct AggregateSearchView: View {
     /// Titles that arrived after 全部 was frozen.
     private var unseenCount: Int {
         guard let frozenOrder, selected == nil else { return 0 }
-        return Set(allHits.map(\.id)).subtracting(frozenOrder).count
+        return Set(merged(allHits).map(\.id)).subtracting(frozenOrder).count
     }
 
     private func freeze() {
         guard frozenOrder == nil, selected == nil, !groups.isEmpty else { return }
-        frozenOrder = hits.map(\.id)
+        frozenOrder = cards.map(\.id)
     }
 
     private var selectedGroup: SiteHits? {

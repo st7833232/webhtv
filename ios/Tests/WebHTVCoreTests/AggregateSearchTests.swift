@@ -173,12 +173,16 @@ import Testing
     #expect(peak >= 1 && peak <= 3)
 }
 
-@Test func reportsASlowSiteWithoutWaitingForIt() async throws {
+/// W-323: the deadline is two seconds, not 50 ms. The fast site has to be called and answer inside it, and in a full
+/// parallel run the first seconds are so busy that 50 ms was sometimes not enough for an immediate answer, which
+/// then counted as 逾時. The slow site still has to be reported 逾時 while it is blocked; a search that waited for
+/// it would never get past the first two reports, and the time limit turns that hang into a failure.
+@Test(.timeLimit(.minutes(1))) func reportsASlowSiteWithoutWaitingForIt() async throws {
     let gate = Gate()
     let slow = try site(unique("slow"))
     let fast = try site(unique("fast"))
     // The slow site ignores cancellation, the way a spider blocked in its HTTP host does.
-    let search = AggregateSearch(deadline: .milliseconds(50)) { site, _, _ in
+    let search = AggregateSearch(deadline: .seconds(2)) { site, _, _ in
         if site.id == slow.id { await gate.wait() }
         return [Vod(id: "1", name: "片名", picture: "")]
     }

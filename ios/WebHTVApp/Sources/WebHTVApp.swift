@@ -1213,7 +1213,8 @@ private struct HomeView: View {
     private var sourcePicker: some View {
         NavigationStack {
             ScrollViewReader { proxy in
-                List(healthSort ? SiteHealth.ordered(sites, by: health) : sites) { site in
+                // W-317: the viewer's own order first, then health or the configuration's.
+                List(SiteOrder.apply(sites, pinned: SiteOrderStore().pinned(in: source.identity), health: healthSort ? health : nil)) { site in
                     Button {
                         selectedSiteID = site.id
                         picking = false
@@ -2213,14 +2214,16 @@ private struct AggregateSearchView: View {
         total = targets.count
         searching = true
         let byHealth = healthSort, skipping = skipFailing, identity = source.identity
+        let pinned = SiteOrderStore().pinned(in: identity)
         task = Task {
-            var order = targets
+            // W-317: the sites the viewer ordered by hand are asked first.
+            var order = SiteOrder.apply(targets, pinned: pinned, health: nil)
             if byHealth || skipping {
                 let health = await SiteHealthStore.shared.health(in: identity)
                 guard current == generation else { return }
                 // W-312 A5: as Android's `CollectFragment.setSites`, the healthiest sites are asked first, so the ones
                 // that keep failing stop holding the first slots; the setting's 站點健康排序 switch turns it off.
-                if byHealth { order = SiteHealth.ordered(targets, by: health) }
+                if byHealth { order = SiteOrder.apply(targets, pinned: pinned, health: health) }
                 // W-316 A10: a site whose searches keep failing is not asked this time; 略過一直失敗的站 turns it off.
                 if skipping {
                     let now = Date.now.timeIntervalSince1970
@@ -2614,7 +2617,7 @@ private struct SettingsView: View {
                 // IOS-POC-41C
                 NavigationLink("檢查來源") { SourceCheckView(sites: sites, source: source) }
                 // W-316 A6
-                NavigationLink("參與搜尋的站台") { SearchSitesView(sites: AggregateSearch.sites(from: sites), source: source) }
+                NavigationLink("站點順序與搜尋") { SearchSitesView(sites: sites, source: source) }
                 // IOS-POC-41B: Android's 站點健康排序 and its 清空.
                 Toggle("站點健康排序", isOn: $healthSort)
                 // W-316 A10
@@ -2627,7 +2630,7 @@ private struct SettingsView: View {
                 Text("內容來源")
             } footer: {
                 Text((sites.isEmpty ? "新增站台：請先加入設定來源，本機加入的站會跟著目前的設定來源。\n" : "")
-                     + "來源清單的圓點依平常瀏覽、搜尋、詳情與播放的結果標示：綠色正常、黃色不確定、紅色常失敗，沒用過的站沒有圓點。開啟排序時較健康的來源排在前面。開啟「略過一直失敗的站」時，全站台搜尋會暫時略過最近連續搜尋失敗 3 次以上的站，一週後或手動重試時再問。記錄只存在這支手機，也取決於當時的網路。")
+                     + "來源清單的圓點依平常瀏覽、搜尋、詳情與播放的結果標示：綠色正常、黃色不確定、紅色常失敗，沒用過的站沒有圓點。開啟排序時較健康的來源排在前面；在「站點順序與搜尋」拖曳過的站固定排在最前，其餘才依健康或設定檔順序。開啟「略過一直失敗的站」時，全站台搜尋會暫時略過最近連續搜尋失敗 3 次以上的站，一週後或手動重試時再問。記錄只存在這支手機，也取決於當時的網路。")
             }
 
             if let site = sites.first(where: { $0.id == selectedSiteID }) ?? sites.first {
@@ -3057,7 +3060,8 @@ private struct SiteChoiceList: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            List(healthSort ? SiteHealth.ordered(sites, by: health) : sites) { site in
+            // W-317: the viewer's own order first, then health or the configuration's.
+            List(SiteOrder.apply(sites, pinned: SiteOrderStore().pinned(in: source.identity), health: healthSort ? health : nil)) { site in
                 Button {
                     selectedSiteID = site.id
                     dismiss()
@@ -3093,35 +3097,83 @@ private struct SiteChoiceList: View {
 }
 
 /// W-316 A6: which of the configuration's searchable sites 全站台搜尋 asks. Saved on every switch.
+/// W-317: also the viewer's own site order — every site, as the pickers show them; a dragged site is pinned.
 private struct SearchSitesView: View {
     @ObservedObject private var displayModel = TaiwanDisplay.shared
+    @AppStorage(siteHealthSortKey) private var healthSort = true
     let sites: [Site]
     let source: ConfigSource
 
     @State private var excluded: Set<Site.ID> = []
+    @State private var pinned: [Site.ID] = []
+    @State private var health: [Site.ID: SiteHealth] = [:]
+    /// The app's own 排序／完成 rather than `EditButton`, whose title the system gives in English here.
+    @State private var editMode = EditMode.inactive
+
+    private var shown: [Site] { SiteOrder.apply(sites, pinned: pinned, health: healthSort ? health : nil) }
 
     var body: some View {
+        let shown = shown, searchable = Set(AggregateSearch.sites(from: sites).map(\.id))
         List {
             Section {
-                ForEach(sites) { site in
-                    Toggle(isOn: Binding(get: { !excluded.contains(site.id) }, set: { on in
-                        if on { excluded.remove(site.id) } else { excluded.insert(site.id) }
-                        SearchExclusions().set(excluded, in: source.identity)
-                    })) {
-                        Text(zhTW: site.name.displayName)
-                    }
+                ForEach(shown) { site in
+                    row(site, searchable: searchable.contains(site.id))
+                        .swipeActions {
+                            if pinned.contains(site.id) {
+                                Button("取消自訂") { setPinned(pinned.filter { $0 != site.id }) }
+                            }
+                        }
+                }
+                .onMove { from, to in
+                    guard let index = from.first else { return }
+                    setPinned(SiteOrder.moved(shown, from: index, to: to, pinned: pinned))
                 }
             } footer: {
-                Text("關掉的站不會出現在全站台搜尋；首頁瀏覽與換站不受影響。只對目前的設定來源有效。")
+                Text("按「排序」拖曳：拖過的站（圖釘）固定排在最前，左滑可取消自訂；其餘依「站點健康排序」或設定檔順序。首頁換站與全站台搜尋都照這個順序。關掉開關的站不會出現在全站台搜尋。只對目前的設定來源有效。")
+            }
+            .listRowBackground(appSurface)
+            Section {
+                Button("恢復設定檔順序", role: .destructive) { setPinned([]) }
+                    .disabled(pinned.isEmpty)
             }
             .listRowBackground(appSurface)
         }
         .scrollContentBackground(.hidden)
         .appWallpaper()
-        .navigationTitle("參與搜尋的站台")
+        .navigationTitle("站點順序與搜尋")
         .navigationBarTitleDisplayMode(.inline)
+        .environment(\.editMode, $editMode)
+        .toolbar {
+            Button(editMode.isEditing ? "完成" : "排序") { editMode = editMode.isEditing ? .inactive : .active }
+        }
         .appNavigationBar()
-        .onAppear { excluded = SearchExclusions().sites(in: source.identity) }
+        .onAppear {
+            excluded = SearchExclusions().sites(in: source.identity)
+            pinned = SiteOrderStore().pinned(in: source.identity)
+        }
+        .task { health = await SiteHealthStore.shared.health(in: source.identity) }
+    }
+
+    @ViewBuilder private func row(_ site: Site, searchable: Bool) -> some View {
+        let name = HStack(spacing: 6) {
+            if pinned.contains(site.id) {
+                Image(systemName: "pin.fill").font(.caption).foregroundStyle(appAccent).accessibilityLabel("自訂順序")
+            }
+            Text(zhTW: site.name.displayName)
+        }
+        if searchable {
+            Toggle(isOn: Binding(get: { !excluded.contains(site.id) }, set: { on in
+                if on { excluded.remove(site.id) } else { excluded.insert(site.id) }
+                SearchExclusions().set(excluded, in: source.identity)
+            })) { name }
+        } else {
+            name
+        }
+    }
+
+    private func setPinned(_ ids: [Site.ID]) {
+        SiteOrderStore().set(ids, in: source.identity, keeping: sites)
+        pinned = SiteOrderStore().pinned(in: source.identity)
     }
 }
 

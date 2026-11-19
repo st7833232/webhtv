@@ -1903,6 +1903,8 @@ private struct AggregateSearchView: View {
     @State private var sourcesOf: Card?
     @State private var picked: Hit?
     @State private var chosen: Hit?
+    /// W-315 A4: the keywords the viewer searched lately, shown while the field is empty.
+    @State private var history = SearchHistory().entries
 
     private static let resultsSpace = "webhtv.search.results"
     private static let resultsTop = "webhtv.search.top"
@@ -1978,8 +1980,11 @@ private struct AggregateSearchView: View {
         .task {
             guard keyword.isEmpty, let initialQuery, !initialQuery.isEmpty else { return }
             query = initialQuery
-            submit()
+            // A title handed over by another screen is not one the viewer typed.
+            submit(remember: false)
         }
+        // A search in another search page (the 搜尋 tab and a sheet) shows here too.
+        .onAppear { history = SearchHistory().entries }
         .onDisappear { if isSheet { stop() } }
         .onChangeCompat(of: source) {
             stop()
@@ -2020,6 +2025,7 @@ private struct AggregateSearchView: View {
                             .onGeometryChange(for: Bool.self) { $0.frame(in: .named(Self.resultsSpace)).minY < -8 } action: {
                                 if $0 { freeze() }
                             }
+                        if query.isEmpty, !history.isEmpty { historyRow }
                         if !groups.isEmpty { chipRow }
                         if searching || answered > 0 { progressRow }
                         let shown = cards
@@ -2197,6 +2203,47 @@ private struct AggregateSearchView: View {
         selected.flatMap { index in groups.first { $0.index == index } }
     }
 
+    /// W-315 A4: tap a keyword to search it again; × forgets that one, 全部清除 all of them.
+    private var historyRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("搜尋紀錄").font(.headline)
+                Spacer()
+                Button("全部清除") {
+                    SearchHistory().clear()
+                    history = []
+                }
+                .font(.caption.weight(.semibold))
+            }
+            .padding(.horizontal, 20)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(history, id: \.self) { word in
+                        HStack(spacing: 0) {
+                            Button {
+                                query = word
+                                submit()
+                            } label: {
+                                Text(verbatim: word).lineLimit(1).padding(.leading, 14).frame(minHeight: 40)
+                            }
+                            .accessibilityLabel("搜尋 \(word)")
+                            Button { history = SearchHistory().remove(word) } label: {
+                                Image(systemName: "xmark").font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.secondary).frame(width: 36, height: 40)
+                            }
+                            .accessibilityLabel("刪除 \(word)")
+                        }
+                        .font(.subheadline)
+                        .background(appSurface, in: Capsule())
+                        .overlay { Capsule().stroke(appStroke, lineWidth: 0.5) }
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     private var chipRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -2273,9 +2320,10 @@ private struct AggregateSearchView: View {
         }
     }
 
-    private func submit() {
+    private func submit(remember: Bool = true) {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        if remember { history = SearchHistory().add(text) }
         stop()
         clear()
         generation += 1

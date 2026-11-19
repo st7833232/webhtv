@@ -30,3 +30,32 @@
 - 不跳動：送出後 4 秒捲動一次（凍結），30 秒後再截圖：畫面上同樣的卡片在同樣的位置，只有來源數變多（13→19、4→11、15→18），提示列「有 21 筆新結果」→「83 筆」（`a3f-1.png`、`a3f-2.png`）。兩張截圖整體往上差約 14 pt，卡片順序沒變。
 - 單元測試：`swift test` 1607 項，1 項失敗：`SourceClientTests.theProbeReadsOnlyTheHeadOfABodyThatNeverEnds` 平行執行時 5.88 s 超過 5 s 上限（和本單無關的計時測試）；單獨重跑 0.04 s 通過（`a3-swifttest.log`、`a3-probe-retest.log`）。
 - Ponytail（A3 diff）：Ship。唯一 Nice-to-have 是來源排序可少兩行（直接依分數排），保留現狀，讓排序規則只在 `SiteHealth.ordered` 一處。未查：上千筆時每次重繪的合併成本（只多一次線性合併，579 筆時沒有可見延遲）。
+
+## 2. A4 搜尋紀錄
+
+| 項目 | 做法 | 位置 |
+|---|---|---|
+| 儲存 | `UserDefaults.standard` 的字串陣列（鍵 `webhtv.searchHistory`），只存在本機、不送出；設定頁「初始化」清掉整個偏好網域時一起清除 | `ios/Sources/WebHTVCore/SearchHistory.swift` |
+| 規則 | 新的排最前；同一個關鍵字不重複（再搜一次移到最前）；最多 12 筆，超過丟最舊的；前後空白去掉、空白關鍵字不記 | `SearchHistory.add` |
+| 何時記 | 使用者自己送出的搜尋（輸入框送出、點紀錄、全部失敗時的「重試」）。其他畫面帶片名打開搜尋頁（豆瓣片單的 `msearch:`、WebHome 的 `app.search`）的那次自動搜尋**不記**，那不是使用者打的字 | `submit(remember:)`、`.task` |
+| 顯示 | 輸入框是空的、而且有紀錄時，在結果區最上方顯示「搜尋紀錄」與一排關鍵字膠囊；點關鍵字就搜，膠囊右側 × 刪除單筆，「全部清除」清掉全部。沒放在 `emptyState`，避開 W-316 會改的同一段（Reviewer #9036 第 6 點）；搜尋後按輸入框的 × 清空，紀錄出現在原本結果的上方，結果不受影響 | `historyRow` |
+| 多個搜尋頁 | 搜尋分頁一直留著，sheet 或推入的搜尋頁記下的關鍵字，回到分頁時（`onAppear`）重新讀取 | `.onAppear` |
+
+單元測試 `SearchHistoryTests`（3 項）：新的在前、不重複、空白不記；最多 12 筆、丟最舊；刪一筆、全部清除，以及新的實例（等同重開 App）讀回同樣的清單。
+
+### 2.1 A4 驗收
+
+環境同 §1.1（10:20–10:26）。證據在 `artifacts/w315/sim/`。
+
+- 依序搜「庆余年」「怪奇物語」「海街日记」後按 × 清空輸入框：紀錄顯示「海街日记、怪奇物語、庆余年」（`h4-history.png`）；刪「怪奇物語」後剩「海街日记、庆余年」（`h5-deleted.png`）。
+- 結束 App 再開、切到搜尋分頁：紀錄仍是「海街日记、庆余年」（`h6-relaunch.png`）。
+- 點紀錄「庆余年」：輸入框填入並開始搜尋，A3 合併卡照常出現（`h7-research.png`）。
+- 按 × 清空後點「全部清除」：紀錄列消失（`h8-cleared.png`），偏好檔裡已沒有 `webhtv.searchHistory`。
+- 單元測試：`swift test` 1610 項，唯一失敗又是 `SourceClientTests.theProbeReadsOnlyTheHeadOfABodyThatNeverEnds`（平行執行 5.41 s ＞ 5 s，和本單無關的計時測試；A3 那次單獨重跑通過）。`SearchHistoryTests` 3 項過（`a4-swifttest.log`）。
+- Ponytail（A4 diff）：Ship，沒有發現。查過：紀錄只寫本機偏好；自動搜尋不記；輸入框非空時不顯示；初始化會清掉。
+
+## 3. 環境收尾
+
+- Simulator webhtv-w308 的偏好已整份換回測試前的 `prefs-before.plist`（`configSourceURL` = `https://127.0.0.1:18448/wang-sex.json`）並關機；已存的來源清單沒有新增（GitHub 那筆是 W-312 時就存的）。
+- XCUITest 探針建置資料夾 `~/.cache/w308-probe` 已刪；App 建置資料夾 `~/.cache/webhtv-dev2-gui/dd-w315` 保留到審查結束。
+- 截圖都是 wang-movie.json（一般片源）的搜尋畫面，保留在 `artifacts/w315/sim/`。

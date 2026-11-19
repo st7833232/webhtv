@@ -56,6 +56,16 @@ private func keys(_ sites: [Site]) -> [String] { sites.map(\.key) }
     #expect(SiteOrder.moved(shown, from: 2, to: 1, pinned: pinned) == [a.id, c.id])
 }
 
+@Test func aSourceNeverPickedFromOpensOnTheFirstOfTheViewersOrder() throws {
+    let a = try site("a"), b = try site("b"), c = try site("c"), gone = try site("gone")
+    // Nothing remembered or showing: the first pinned site the configuration still has.
+    #expect(SiteSelection.choose(remembered: nil, current: nil, in: [a, b, c], pinned: [gone.id, c.id, b.id]) == c.id)
+    #expect(SiteSelection.choose(remembered: nil, current: nil, in: [a, b, c], pinned: []) == a.id)
+    // A site the viewer picked, or the one showing, still wins.
+    #expect(SiteSelection.choose(remembered: SiteSelection.token(for: b.id), current: nil, in: [a, b, c], pinned: [c.id]) == b.id)
+    #expect(SiteSelection.choose(remembered: nil, current: a.id, in: [a, b, c], pinned: [c.id]) == a.id)
+}
+
 @Test func theOrderIsKeptPerConfigurationAndForgetsRemovedSites() throws {
     let defaults = try #require(UserDefaults(suiteName: "W-317-\(UUID())"))
     let a = try site("a"), b = try site("b"), gone = try site("gone")

@@ -35,9 +35,11 @@ public enum SiteSelection {
     }
 
     /// IOS-POC-19 — which site a configuration opens on: the one remembered for its source, else
-    /// the one already showing if the configuration still has it, else its first.
-    public static func choose(remembered: String?, current: Site.ID?, in sites: [Site]) -> Site.ID? {
-        resolve(remembered, in: sites) ?? sites.first { $0.id == current }?.id ?? sites.first?.id
+    /// the one already showing if the configuration still has it, else its first — W-324: the first of the
+    /// viewer's own order (`pinned`, W-317) when they ordered any.
+    public static func choose(remembered: String?, current: Site.ID?, in sites: [Site], pinned: [Site.ID] = []) -> Site.ID? {
+        resolve(remembered, in: sites) ?? sites.first { $0.id == current }?.id
+            ?? pinned.first { id in sites.contains { $0.id == id } } ?? sites.first?.id
     }
 
     static func canonicalStructuredExtend(_ extend: String) -> String {

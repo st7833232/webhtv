@@ -97,3 +97,24 @@ W-316 的「參與搜尋的站台」頁（`SearchSitesView`）只列可搜尋站
 - 問題：拿起未排站又放回原位時，SwiftUI 若仍呼叫 `onMove`，`SiteOrder.moved` 會把它加進已排區尾端，畫面上那站往上跳。
 - 改法：`moved` 開頭判斷 `to == from` 或 `to == from + 1`（SwiftUI `onMove` 對「原位」的兩種目的地）就原樣回傳 `pinned`。已排站原地放回也一樣不變。
 - Core：新增 `aSitePutBackWhereItWasIsNotPinned`（兩種原位目的地、已排站原位、往上一格仍算移動）；`swift test` 1609 項全過（`artifacts/w324/core-tests-a.txt`）。
+
+### 8.2 沒選過站時預設為自訂順序第一站（N-1，Manager #9218 決定）
+
+- 問題：首頁預設站取設定檔第一站，不跟自訂順序。
+- 改法：`SiteSelection.choose` 多一個 `pinned` 參數（預設空，舊呼叫不變）；優先順序維持「記住的站 → 正在顯示的站」，兩者都沒有時，改取 `pinned` 裡設定還有的第一站，沒有已排站才是設定檔第一站。App 的 `rebuildSites`、`adopt`、`restore` 三處都傳入該設定來源的 `SiteOrderStore().pinned`。不跟健康排序：預設站不該因為健康分數每次開 App 都換。自動選出的站不寫入「已選站」記錄（只有使用者點選才寫，IOS-POC-19 原規則）。
+- Core：新增 `aSourceNeverPickedFromOpensOnTheFirstOfTheViewersOrder`（已排第一站、跳過已刪站、沒有已排時設定檔第一站、記住的站與正在顯示的站優先）。`swift test` 1610 項中 1609 過，唯一失敗的是無關的計時測試 `theProbeReadsOnlyTheHeadOfABodyThatNeverEnds`（平行負載下超過 5 秒上限），單獨重跑與 SiteOrder／SiteSelection 測試一起 16 項全過（`artifacts/w324/core-tests-b.txt`、`core-tests-b-rerun.txt`）。App：Debug 模擬器建置成功（`artifacts/w324/build.txt`）。
+
+### 8.3 Simulator（W-324 兩個 commit 合在一起的建置；模擬器 webhtv-w316，設定 recha `main` `f650d843…`）
+
+| 步驟 | 結果 | 證據（`artifacts/w324/sim/`） |
+|---|---|---|
+| 原地放回（沒有已排站） | 「排序」模式下拿起洛雪TV、王子各一次放回原位：畫面沒有圖釘 | `p2a`、`p2b` |
+| 對照：實際拖曳 | 拿洛雪TV 拖到第一列：出現圖釘，偏好檔存成 `["洛雪TV\u0000"]`（第一次對照落點在清單上方，沒拖動，`p3a`） | `p4b`、`putback-pref.txt` |
+| 原地放回（已有已排站） | 再拿第 5、第 7 列各放回原位：仍只有洛雪TV 一個圖釘，App 結束後偏好檔不變 | `p5b`、`putback-pref.txt` |
+| 冷開預設站 | 刪掉 `selectedSiteBySource` 與舊鍵 `selectedSiteKey`（模擬沒選過站）後冷開：首頁「目前為 🥇｜洛雪TV｜」；設定檔第一站是「熱播排行榜｜自動切換」 | `default-before-launch.txt`、`d1a` |
+
+沒驗到：SwiftUI 對原地放回到底會不會呼叫 `onMove`（舊版建置沒有重測）；改法在兩種情況下結果都對。
+
+### 8.4 Ponytail
+
+`ponytail:ponytail-review` 審 W-324 全部差異（`e78bf7c0`＋預設站改動）：沒有發現問題，判定可出貨（Ship）。核對了兩種原位目的地、`choose` 的全部呼叫端（App 三處＋既有測試靠預設參數不變）、記住的站與正在顯示的站仍優先、自動選站不寫入記錄。

@@ -1870,6 +1870,7 @@ private struct SearchCanceller: View {
 private struct AggregateSearchView: View {
     @ObservedObject private var displayModel = TaiwanDisplay.shared
     @AppStorage(siteHealthSortKey) private var healthSort = true
+    @AppStorage(skipFailingSitesKey) private var skipFailing = true
     let sites: [Site]
     let source: ConfigSource
     var initialQuery: String?
@@ -1891,6 +1892,8 @@ private struct AggregateSearchView: View {
     @State private var failed = 0
     @State private var timedOut = 0
     @State private var busy = 0
+    /// W-316 A10: sites left out of this search because their searches keep failing.
+    @State private var skipped = [Site]()
     /// Sites that found something, in the order they answered: the chip order, as on Android.
     @State private var groups = [SiteHits]()
     /// The chip in use: a site's position in the searched list, or nil for 全部.
@@ -2032,7 +2035,7 @@ private struct AggregateSearchView: View {
                             }
                         if query.isEmpty, !history.isEmpty { historyRow }
                         if !groups.isEmpty { chipRow }
-                        if searching || answered > 0 { progressRow }
+                        if searching || answered > 0 || !skipped.isEmpty { progressRow }
                         let shown = cards
                         if shown.isEmpty { emptyState.padding(.top, 48) }
                         // 全部 puts the titles that do not contain the keyword at all after a heading of their own;
@@ -2279,12 +2282,25 @@ private struct AggregateSearchView: View {
     }
 
     private var progressRow: some View {
-        HStack(spacing: 8) {
-            if searching { ProgressView().controlSize(.small) }
-            Text("已完成 \(answered)/\(total)")
-            if !problems.isEmpty { Text(problems).foregroundStyle(.secondary) }
-            Spacer()
-            if searching { Button("停止") { stop() }.fontWeight(.semibold) }
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                if searching { ProgressView().controlSize(.small) }
+                Text("已完成 \(answered)/\(total)")
+                if !problems.isEmpty { Text(problems).foregroundStyle(.secondary) }
+                Spacer()
+                if searching { Button("停止") { stop() }.fontWeight(.semibold) }
+            }
+            // W-316 A10
+            if !skipped.isEmpty {
+                Menu {
+                    Section("近期連續搜尋失敗 3 次以上，一週後會再試") {
+                        ForEach(skipped) { Text(zhTW: $0.name.displayName) }
+                    }
+                    Button("現在重試這些站") { retrySkipped() }.disabled(searching)
+                } label: {
+                    Label("略過 \(skipped.count) 個近期一直失敗的站", systemImage: "forward")
+                }
+            }
         }
         .font(.caption)
         .foregroundStyle(.primary)
@@ -2300,19 +2316,27 @@ private struct AggregateSearchView: View {
             .joined(separator: "、")
     }
 
+    /// W-316 A6: less the sites switched off in 參與搜尋的站台.
+    private var searchSites: [Site] {
+        AggregateSearch.sites(from: sites, excluding: SearchExclusions().sites(in: source.identity))
+    }
+
     @ViewBuilder private var emptyState: some View {
         if keyword.isEmpty {
             CompatContentUnavailableView(
                 "全站台搜尋", systemImage: "magnifyingglass",
-                description: Text("輸入關鍵字後按搜尋，會同時搜尋這個資訊源的 \(AggregateSearch.sites(from: sites).count) 個站台。")
+                description: Text("輸入關鍵字後按搜尋，會同時搜尋這個資訊源的 \(searchSites.count) 個站台。")
             )
         } else if !groups.isEmpty {
             EmptyView()
         } else if searching {
             ProgressView("搜尋中 \(answered)/\(total)")
+        } else if total == 0, !skipped.isEmpty {
+            CompatContentUnavailableView("已略過近期一直失敗的站", systemImage: "forward",
+                                   description: Text("可搜尋的 \(skipped.count) 個站近期都連續失敗，這次沒有問；點上方「略過」可以現在重試。"))
         } else if total == 0 {
             CompatContentUnavailableView("沒有可搜尋的站台", systemImage: "magnifyingglass",
-                                   description: Text("這個資訊源的站台都沒有開放搜尋。"))
+                                   description: Text("這個資訊源的站台都沒有開放搜尋，或已在設定的「參與搜尋的站台」關掉。"))
         } else if answered < total {
             CompatContentUnavailableView("已停止搜尋", systemImage: "stop.circle",
                                    description: Text("已完成 \(answered)/\(total) 個站台，還沒有結果。"))
@@ -2342,34 +2366,61 @@ private struct AggregateSearchView: View {
         generation += 1
         let current = generation
         keyword = text
-        let targets = AggregateSearch.sites(from: sites)
+        let targets = searchSites
         total = targets.count
         searching = true
-        let started = ContinuousClock.now
-        let byHealth = healthSort, engine = engine, identity = source.identity
+        let byHealth = healthSort, skipping = skipFailing, identity = source.identity
         task = Task {
-            // W-312 A5: as Android's `CollectFragment.setSites`, the healthiest sites are asked first, so the ones
-            // that keep failing stop holding the first slots; the setting's 站點健康排序 switch turns it off.
-            let order = byHealth ? SiteHealth.ordered(targets, by: await SiteHealthStore.shared.health(in: identity))
-                                 : targets
-            guard current == generation, !Task.isCancelled else { return }
-            for await report in engine.run(order, keyword: text) {
+            var order = targets
+            if byHealth || skipping {
+                let health = await SiteHealthStore.shared.health(in: identity)
                 guard current == generation else { return }
-                apply(report)
-                // IOS-POC-41B: as `SiteViewModel.searchContent` records each site's answer.
-                switch report.outcome {
-                case .found(let vods):
-                    recordHealth(.search(count: vods.count, milliseconds: elapsedMilliseconds(since: started)),
-                                 succeeded: true, site: report.site, source: source)
-                case .failed, .timedOut:
-                    recordHealth(.search(count: 0, milliseconds: elapsedMilliseconds(since: started)),
-                                 succeeded: false, site: report.site, source: source)
-                case .busy:
-                    break
+                // W-312 A5: as Android's `CollectFragment.setSites`, the healthiest sites are asked first, so the ones
+                // that keep failing stop holding the first slots; the setting's 站點健康排序 switch turns it off.
+                if byHealth { order = SiteHealth.ordered(targets, by: health) }
+                // W-316 A10: a site whose searches keep failing is not asked this time; 略過一直失敗的站 turns it off.
+                if skipping {
+                    let now = Date.now.timeIntervalSince1970
+                    let out = Set(targets.filter { health[$0.id]?.keepsFailingSearch(at: now) == true }.map(\.id))
+                    skipped = targets.filter { out.contains($0.id) }
+                    order = order.filter { !out.contains($0.id) }
+                    total = order.count
                 }
             }
-            if current == generation { searching = false }
+            await ask(order, keyword: text, generation: current, offset: 0)
         }
+    }
+
+    /// W-316 A10: the sites a search skipped, asked now for the same keyword; their results join the ones shown.
+    private func retrySkipped() {
+        guard !skipped.isEmpty, !searching else { return }
+        let sites = skipped, offset = total
+        skipped = []
+        total += sites.count
+        searching = true
+        task = Task { await ask(sites, keyword: keyword, generation: generation, offset: offset) }
+    }
+
+    /// Asks `sites` and shows each answer; `offset` keeps a later batch's chips apart from the first one's.
+    private func ask(_ sites: [Site], keyword text: String, generation current: Int, offset: Int) async {
+        let started = ContinuousClock.now
+        guard current == generation, !Task.isCancelled else { return }
+        for await report in engine.run(sites, keyword: text) {
+            guard current == generation else { return }
+            apply(report, offset: offset)
+            // IOS-POC-41B: as `SiteViewModel.searchContent` records each site's answer.
+            switch report.outcome {
+            case .found(let vods):
+                recordHealth(.search(count: vods.count, milliseconds: elapsedMilliseconds(since: started)),
+                             succeeded: true, site: report.site, source: source)
+            case .failed, .timedOut:
+                recordHealth(.search(count: 0, milliseconds: elapsedMilliseconds(since: started)),
+                             succeeded: false, site: report.site, source: source)
+            case .busy:
+                break
+            }
+        }
+        if current == generation { searching = false }
     }
 
     /// Ending the iteration stops the search itself (`AggregateSearch.run`).
@@ -2389,13 +2440,14 @@ private struct AggregateSearchView: View {
         failed = 0
         timedOut = 0
         busy = 0
+        skipped = []
     }
 
-    private func apply(_ report: AggregateSearch.Report) {
+    private func apply(_ report: AggregateSearch.Report, offset: Int) {
         answered += 1
         switch report.outcome {
         case .found(let vods) where !vods.isEmpty:
-            groups.append(SiteHits(index: report.index, site: report.site, vods: vods, keyword: keyword, cursor: report.cursor))
+            groups.append(SiteHits(index: offset + report.index, site: report.site, vods: vods, keyword: keyword, cursor: report.cursor))
         case .found:
             break
         case .failed:
@@ -2542,6 +2594,7 @@ private struct SettingsView: View {
     @State private var renamingDepot: SavedSource.Depot?
     @State private var confirmingSpiderToolReset = false
     @AppStorage(siteHealthSortKey) private var healthSort = true
+    @AppStorage(skipFailingSitesKey) private var skipFailing = true
     @State private var healthCleared = false
     @AppStorage(appAppearanceKey) private var appearance = AppAppearance.dark
     /// IOS-POC-17: `globalDefaultEngine`. Mirrored here only so the checkmark redraws.
@@ -2718,8 +2771,12 @@ private struct SettingsView: View {
                 }
                 // IOS-POC-41C
                 NavigationLink("檢查來源") { SourceCheckView(sites: sites, source: source) }
+                // W-316 A6
+                NavigationLink("參與搜尋的站台") { SearchSitesView(sites: AggregateSearch.sites(from: sites), source: source) }
                 // IOS-POC-41B: Android's 站點健康排序 and its 清空.
                 Toggle("站點健康排序", isOn: $healthSort)
+                // W-316 A10
+                Toggle("略過一直失敗的站", isOn: $skipFailing)
                 Button(healthCleared ? "站點健康記錄已清空" : "清除站點健康記錄", role: .destructive) {
                     Task { await SiteHealthStore.shared.clear(); healthCleared = true }
                 }
@@ -2728,7 +2785,7 @@ private struct SettingsView: View {
                 Text("內容來源")
             } footer: {
                 Text((sites.isEmpty ? "新增站台：請先加入設定來源，本機加入的站會跟著目前的設定來源。\n" : "")
-                     + "來源清單的圓點依平常瀏覽、搜尋、詳情與播放的結果標示：綠色正常、黃色不確定、紅色常失敗，沒用過的站沒有圓點。開啟排序時較健康的來源排在前面。記錄只存在這支手機，也取決於當時的網路。")
+                     + "來源清單的圓點依平常瀏覽、搜尋、詳情與播放的結果標示：綠色正常、黃色不確定、紅色常失敗，沒用過的站沒有圓點。開啟排序時較健康的來源排在前面。開啟「略過一直失敗的站」時，全站台搜尋會暫時略過最近連續搜尋失敗 3 次以上的站，一週後或手動重試時再問。記錄只存在這支手機，也取決於當時的網路。")
             }
 
             if let site = sites.first(where: { $0.id == selectedSiteID }) ?? sites.first {
@@ -2922,6 +2979,8 @@ private extension SettingsView {
 
 /// IOS-POC-41B: Android's `site_health_sort`, on by default as there.
 private let siteHealthSortKey = "webhtv.siteHealthSort"
+/// W-316 A10 (Manager #9050): its own switch, so a viewer who orders sites by hand still skips the dead ones.
+private let skipFailingSitesKey = "webhtv.search.skipFailingSites"
 
 /// IOS-POC-41B: one call's outcome for the source list's dot. Never waits on the store.
 private func recordHealth(_ event: SiteHealth.Event, succeeded: Bool, site: Site, source: ConfigSource) {
@@ -3188,6 +3247,39 @@ private struct SiteChoiceList: View {
         .navigationTitle("內容來源")
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBar()
+    }
+}
+
+/// W-316 A6: which of the configuration's searchable sites 全站台搜尋 asks. Saved on every switch.
+private struct SearchSitesView: View {
+    @ObservedObject private var displayModel = TaiwanDisplay.shared
+    let sites: [Site]
+    let source: ConfigSource
+
+    @State private var excluded: Set<Site.ID> = []
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(sites) { site in
+                    Toggle(isOn: Binding(get: { !excluded.contains(site.id) }, set: { on in
+                        if on { excluded.remove(site.id) } else { excluded.insert(site.id) }
+                        SearchExclusions().set(excluded, in: source.identity)
+                    })) {
+                        Text(zhTW: site.name.displayName)
+                    }
+                }
+            } footer: {
+                Text("關掉的站不會出現在全站台搜尋；首頁瀏覽與換站不受影響。只對目前的設定來源有效。")
+            }
+            .listRowBackground(appSurface)
+        }
+        .scrollContentBackground(.hidden)
+        .appWallpaper()
+        .navigationTitle("參與搜尋的站台")
+        .navigationBarTitleDisplayMode(.inline)
+        .appNavigationBar()
+        .onAppear { excluded = SearchExclusions().sites(in: source.identity) }
     }
 }
 

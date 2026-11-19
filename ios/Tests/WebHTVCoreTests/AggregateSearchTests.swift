@@ -29,6 +29,22 @@ import Testing
     #expect(AggregateSearch.sites(from: sites).map(\.key) == ["a", "d"])
 }
 
+// W-316 A6: a site switched off in 參與搜尋的站台 is not asked, in that configuration only, and the
+// list survives a relaunch (it is in UserDefaults) even though a `Site.id` holds a NUL.
+@Test func leavesOutTheSitesSwitchedOffForThisConfiguration() throws {
+    let defaults = try #require(UserDefaults(suiteName: "W-316-A6-\(UUID())"))
+    let a = try site("a"), d = try site("d", searchable: "1")
+    #expect(a.id.contains("\u{0}"))
+    SearchExclusions(defaults: defaults).set([a.id], in: "https://one/config.json")
+
+    let reopened = SearchExclusions(defaults: defaults)
+    #expect(AggregateSearch.sites(from: [a, d], excluding: reopened.sites(in: "https://one/config.json")).map(\.key) == ["d"])
+    #expect(reopened.sites(in: "https://two/config.json").isEmpty)
+
+    reopened.set([], in: "https://one/config.json")
+    #expect(SearchExclusions(defaults: defaults).sites(in: "https://one/config.json").isEmpty)
+}
+
 @Test func convertsTraditionalCharactersAndLeavesTheRestAlone() {
     #expect(TraditionalSimplified.toSimplified("慶餘年") == "庆余年")
     // Android's own table turns these into 犟 and 缐, which no site indexes.

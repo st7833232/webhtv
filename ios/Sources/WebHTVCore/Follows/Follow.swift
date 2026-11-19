@@ -38,6 +38,9 @@ public struct Follow: Codable, Equatable, Sendable, Identifiable {
     public var newSeason: NewSeason?
     /// When the site was last searched for a later season.
     public var seasonCheckedAt: Date?
+    /// W-332: the year the source gives the followed title (`vod_year`), nil when it gives none.
+    /// Optional so a file written before W-332 still reads; the next detail fills it.
+    public var year: Int?
 
     public struct NewSeason: Codable, Equatable, Sendable {
         public let vodID: String
@@ -55,12 +58,13 @@ public struct Follow: Codable, Equatable, Sendable, Identifiable {
 
     /// A new follow, its baseline the listing the detail screen has just shown: nothing is new yet.
     public init(identity: FavoriteIdentity, vodName: String, vodPic: String, siteName: String, remarks: String,
-                listing: EpisodeListing, now: Date = .now) {
+                year: String = "", listing: EpisodeListing, now: Date = .now) {
         self.identity = identity
         self.vodName = vodName
         self.vodPic = vodPic
         self.siteName = siteName
         self.remarks = remarks
+        self.year = Self.year(in: year)
         latestCount = listing.count
         latestEpisodeName = listing.newestFirst.first ?? ""
         knownTail = Self.tail(of: listing)
@@ -84,12 +88,13 @@ public struct Follow: Codable, Equatable, Sendable, Identifiable {
     /// renamed everything: that resets the baseline instead of announcing twenty "new" episodes. The walk
     /// reaches `max(tailLength, growth)` back plus the tail, so a short drama dropping thirty episodes at
     /// once still counts thirty (W-313 review N-4).
-    public func updated(with listing: EpisodeListing, remarks: String, now: Date = .now) -> Follow {
+    public func updated(with listing: EpisodeListing, remarks: String, year: String = "", now: Date = .now) -> Follow {
         var next = self
         next.checkedAt = now
         next.failures = 0
         next.notFound = false
         if !remarks.isEmpty { next.remarks = remarks }
+        if let known = Self.year(in: year) { next.year = known }
         guard listing.count > 0 else { return next }
         let growth = max(0, listing.count - latestCount)
         let known = Set(knownTail)
@@ -178,21 +183,31 @@ public struct Follow: Codable, Equatable, Sendable, Identifiable {
 
     /// This follow after the site's search for `seasonKeyword` answered `results`: the highest later
     /// season among them (`SeriesGrouping.isNewerSeason`, strong markers only), never the title itself,
-    /// and not older than it when both names carry a year. A hint already found is kept unless a higher
+    /// and not older than it when both carry a year. A hint already found is kept unless a higher
     /// one turns up: one search that misses it does not mean it is gone.
+    ///
+    /// W-332: a year is the name's own (「(2020)」) or else the source's `vod_year`, so 青蛙軍曹 of 2026
+    /// is not told of a 第七季 of 2010 whose names carry none. A kept hint the search now lists as older
+    /// is dropped.
     public func searched(_ results: [Vod], now: Date = .now) -> Follow {
         var next = self
         next.seasonCheckedAt = now
         let watched = SeriesTitle(vodName)
-        let watchedYear = Self.year(watched.tags)
+        let watchedYear = Self.year(watched.tags) ?? year
+        var older = Set<String>()
         let found = results.compactMap { vod -> NewSeason? in
             guard vod.id != identity.vodID else { return nil }
             let candidate = SeriesTitle(vod.name)
             guard SeriesGrouping.isNewerSeason(candidate, than: watched), let season = candidate.season else { return nil }
-            if let watchedYear, let year = Self.year(candidate.tags), year < watchedYear { return nil }
+            if let watchedYear, let candidateYear = Self.year(candidate.tags) ?? Self.year(in: vod.year),
+               candidateYear < watchedYear {
+                older.insert(vod.id)
+                return nil
+            }
             return NewSeason(vodID: vod.id, name: vod.name, season: season)
         }.max { $0.season < $1.season }
-        if let found, found.season > (newSeason?.season ?? 0) { next.newSeason = found }
+        if let hinted = next.newSeason, older.contains(hinted.vodID) { next.newSeason = nil }
+        if let found, found.season > (next.newSeason?.season ?? 0) { next.newSeason = found }
         return next
     }
 
@@ -206,6 +221,20 @@ public struct Follow: Codable, Equatable, Sendable, Identifiable {
 
     private static func year(_ tags: [String]) -> Int? {
         tags.lazy.compactMap { Int($0) }.first { (1900...2100).contains($0) }
+    }
+
+    /// W-332: the first four-digit year in a source's `vod_year` (「2010」, 「2010-2011」), nil for none.
+    static func year(in text: String) -> Int? {
+        var digits = ""
+        for character in text + " " {
+            if character.isASCII, character.isNumber {
+                digits.append(character)
+                continue
+            }
+            if digits.count == 4, let value = Int(digits), (1900...2100).contains(value) { return value }
+            digits = ""
+        }
+        return nil
     }
 
     static func tail(of listing: EpisodeListing) -> [String] {

@@ -4761,7 +4761,7 @@ private struct HistoryView: View {
         }
         let item = Follow(identity: identity, vodName: detail.name.isEmpty ? summary.name : detail.name,
                           vodPic: detail.picture.isEmpty ? summary.picture : detail.picture, siteName: siteName,
-                          remarks: detail.remarks, listing: EpisodeListing(flags: detail.flags))
+                          remarks: detail.remarks, year: detail.year, listing: EpisodeListing(flags: detail.flags))
         let result = await FollowStore.shared.add(item)
         await reload()
         return result != .full
@@ -4782,7 +4782,7 @@ private struct HistoryView: View {
         }
         guard follow(identity) != nil else { return }
         let listing = EpisodeListing(flags: detail.flags)
-        if await FollowStore.shared.update(identity, { $0.updated(with: listing, remarks: detail.remarks) }) != nil {
+        if await FollowStore.shared.update(identity, { $0.updated(with: listing, remarks: detail.remarks, year: detail.year) }) != nil {
             await reload()
         }
     }
@@ -4836,7 +4836,7 @@ private struct HistoryView: View {
         for (identity, outcome) in found.outcomes {
             await FollowStore.shared.update(identity) { follow in
                 switch outcome {
-                case .listed(let listing, let remarks): follow.updated(with: listing, remarks: remarks)
+                case .listed(let listing, let remarks, let year): follow.updated(with: listing, remarks: remarks, year: year)
                 case .missing: follow.missing()
                 case .failed: follow.failed()
                 }

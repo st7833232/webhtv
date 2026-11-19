@@ -103,7 +103,8 @@ public enum FollowSchedule {
 /// follows one after another, within one budget.
 public struct FollowChecker: Sendable {
     public enum Outcome: Equatable, Sendable {
-        case listed(EpisodeListing, remarks: String)
+        /// `year` is the detail's `vod_year` (W-332), empty when it gives none.
+        case listed(EpisodeListing, remarks: String, year: String)
         case missing
         case failed
     }
@@ -190,7 +191,7 @@ public struct FollowChecker: Sendable {
                 let identity = candidate.follow.identity
                 switch await Self.waiting(timeout, cancelling: !spider, { try await detail(target, vodID) }) {
                 case .value(let vod?):
-                    report.outcomes[identity] = .listed(EpisodeListing(flags: vod.flags), remarks: vod.remarks)
+                    report.outcomes[identity] = .listed(EpisodeListing(flags: vod.flags), remarks: vod.remarks, year: vod.year)
                 case .value(nil):
                     report.outcomes[identity] = .missing
                 case .failed:

@@ -276,7 +276,7 @@ private actor Calls {
     #expect(found.outcomes.count == 2)
     #expect(found.outcomes.values.contains(.failed))
     #expect(!(await calls.asked.contains("s2")))
-    if case .listed(let listed, _)? = found.outcomes[FavoriteIdentity(configSourceID: "cfg", siteID: cmsSite.id, vodID: "c1")] {
+    if case .listed(let listed, _, _)? = found.outcomes[FavoriteIdentity(configSourceID: "cfg", siteID: cmsSite.id, vodID: "c1")] {
         #expect(listed.count == 3)
     } else {
         Issue.record("the CMS follow was not listed")
@@ -336,6 +336,37 @@ private func named(_ name: String, vod: String = "v1") -> Follow {
     #expect(item.searched([Vod(id: "x", name: "某劇 第二季(2008)", picture: "")]).newSeason == nil)
     #expect(item.searched([Vod(id: "y", name: "某劇 第二季(2022)", picture: "")]).newSeason?.vodID == "y")
     #expect(named("某劇 第二季").searched([Vod(id: "z", name: "某劇 第二季", picture: "")]).newSeason == nil)
+}
+
+// W-332: the viewer followed 青蛙軍曹 of 2026 and was told of 青蛙軍曹 第七季 of 2010. Neither name carries a
+// year; the sources' vod_year does, and an older later season is no new season.
+@Test func aLaterSeasonOlderByTheSourcesYearIsNoNewSeason() {
+    let item = Follow(identity: identity, vodName: "青蛙軍曹", vodPic: "", siteName: "", remarks: "", year: "2026",
+                      listing: listing(episodes(1...2)))
+    #expect(item.year == 2026)
+    let older = Vod(id: "s7", name: "青蛙軍曹 第七季", picture: "", year: "2010")
+    #expect(item.searched([older]).newSeason == nil)
+    #expect(item.searched([Vod(id: "s2", name: "青蛙軍曹 第二季", picture: "", year: "2027")]).newSeason?.vodID == "s2")
+    // A year on one side only decides nothing: the names do, as before.
+    #expect(item.searched([Vod(id: "s3", name: "青蛙軍曹 第三季", picture: "")]).newSeason?.vodID == "s3")
+    #expect(named("青蛙軍曹").searched([older]).newSeason?.vodID == "s7")
+    #expect(Follow.year(in: "2010-2011") == 2010)
+    #expect(Follow.year(in: "") == nil)
+    #expect(Follow.year(in: "12345") == nil)
+}
+
+// W-332: a follow made before the fix has no year and may already hold the wrong hint. Its next detail
+// gives the year, and the next search that lists the hint as older drops it.
+@Test func aFollowLearnsItsYearAndDropsAnOlderHint() {
+    let older = Vod(id: "s7", name: "青蛙軍曹 第七季", picture: "", year: "2010")
+    let stale = named("青蛙軍曹").searched([older])
+    #expect(stale.newSeason?.vodID == "s7")
+    let learned = stale.updated(with: listing(episodes(1...2)), remarks: "", year: "2026")
+    #expect(learned.year == 2026)
+    #expect(learned.updated(with: listing(episodes(1...2)), remarks: "").year == 2026)
+    #expect(learned.searched([older]).newSeason == nil)
+    // One search that does not list it keeps it, as any kept hint.
+    #expect(learned.searched([]).newSeason?.vodID == "s7")
 }
 
 @Test func aDueFollowIsSearchedOnItsOwnSiteAfterItsDetail() async throws {

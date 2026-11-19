@@ -746,7 +746,7 @@ private struct ConfigView: View {
         show(config, from: source)
         adoptAdBlocking(from: config)
         selectedSiteID = SiteSelection.choose(remembered: siteMemory()[source.identity], current: selectedSiteID,
-                                              in: sites)
+                                              in: sites, pinned: SiteOrderStore().pinned(in: source.identity))
     }
 
     /// The listed sites and, with them, how many wait for the 爬蟲工具 — always together, so the banner and the
@@ -802,7 +802,7 @@ private struct ConfigView: View {
         // misses the cache regardless.
         Task { await SpiderSessionStore.shared.reset() }
         selectedSiteID = SiteSelection.choose(remembered: siteMemory()[source.identity], current: selectedSiteID,
-                                              in: sites)
+                                              in: sites, pinned: SiteOrderStore().pinned(in: source.identity))
     }
 
     /// IOS-POC-19 — the pickers' binding. Only a site the viewer picks is remembered, for the source
@@ -880,7 +880,8 @@ private struct ConfigView: View {
             let restoredConfig = try ConfigLoader.validate(data)
             show(restoredConfig, from: restored)
             adoptAdBlocking(from: restoredConfig)
-            selectedSiteID = SiteSelection.choose(remembered: siteMemory()[restored.identity], current: nil, in: sites)
+            selectedSiteID = SiteSelection.choose(remembered: siteMemory()[restored.identity], current: nil, in: sites,
+                                                  pinned: SiteOrderStore().pinned(in: restored.identity))
         } catch {
             self.error = "已保存的設定無法載入：\(error.localizedDescription)。請重新匯入。"
         }

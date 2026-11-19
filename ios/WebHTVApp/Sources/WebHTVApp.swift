@@ -1921,8 +1921,13 @@ private struct AggregateSearchView: View {
         let site: Site
         var vods: [Vod] {
             // 載入更多 only appends (`DualScriptSearch.nextPage` merges onto what is shown), so only new titles are worked out.
-            didSet { annotate(vods.dropFirst(scores.count)) }
+            didSet {
+                if vods.count > scores.count { pageStarts.append(scores.count) }
+                annotate(vods.dropFirst(scores.count))
+            }
         }
+        /// W-326: where each 載入更多 page began, so the chip groups a page's seasons without moving what is shown.
+        private(set) var pageStarts: [Int] = []
         /// W-312 A1: each title's `SearchRelevance.score`, worked out once when it arrives.
         private(set) var scores: [Int] = []
         /// W-312 A2: each title split into series and season, parsed once when it arrives.
@@ -2174,13 +2179,17 @@ private struct AggregateSearchView: View {
         }
     }
 
-    /// A site's chip: its titles as the site sent them, one card each. 全部: by `SearchRelevance.score`, equal scores
-    /// in the order the sites answered, then each series' seasons together where its best-placed one was, then the
-    /// same title from many sites as one card where its best-placed one was (W-315 A3) — or, once frozen, the order
-    /// it had then; a later site's copy of a title on screen joins that card where it is.
+    /// A site's chip: its titles as the site sent them, each series' seasons together (W-326), one card each.
+    /// 全部: by `SearchRelevance.score`, equal scores in the order the sites answered, then each series' seasons
+    /// together where its best-placed one was, then the same title from many sites as one card where its best-placed
+    /// one was (W-315 A3) — or, once frozen, the order it had then; a later site's copy of a title on screen joins
+    /// that card where it is.
     private var cards: [Card] {
         if let selected {
-            return allHits.filter { $0.id.hasPrefix("\(selected)\u{0}") }.map { Card(id: $0.id, hits: [$0]) }
+            // W-326: a site's own order, with each series' seasons together (W-312 A2), page by page.
+            let hits = allHits.filter { $0.id.hasPrefix("\(selected)\u{0}") }
+            return SeriesGrouping.paged(hits, pageStarts: selectedGroup?.pageStarts ?? [], series: \.series)
+                .map { Card(id: $0.id, hits: [$0]) }
         }
         guard let frozenOrder else { return merged(ranked(allHits)) }
         let byID = Dictionary(merged(allHits).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })

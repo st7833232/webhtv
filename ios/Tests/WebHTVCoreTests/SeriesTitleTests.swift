@@ -79,3 +79,15 @@ private let titles: [(String, String, Int?, SeriesTitle.Strength)] = [
     #expect(SeriesGrouping.isNewerSeason(SeriesTitle("Stranger Things Season 3"), than: SeriesTitle("Stranger Things S02")))
     #expect(!SeriesGrouping.isNewerSeason(SeriesTitle("第二季"), than: SeriesTitle("第一季")))
 }
+
+// W-326 (`docs/W-326-ios-site-chip-series-grouping.md`): one site's chip keeps each series' seasons together, page
+// by page; a 載入更多 page follows what is shown instead of slipping into it.
+@Test func aSitesListGroupsSeasonsPageByPage() {
+    let first = ["怪奇物语 第三季", "狂飙", "怪奇物语", "怪奇物语 第五季", "庆余年", "怪奇物语 第二季"]
+    #expect(SeriesGrouping.paged(first, pageStarts: [], series: SeriesTitle.init)
+            == ["怪奇物语", "怪奇物语 第二季", "怪奇物语 第三季", "怪奇物语 第五季", "狂飙", "庆余年"])
+    // The second page (from 4 on) is grouped on its own: 第四季 does not move into the group already on screen.
+    let more = ["怪奇物语 第二季", "狂飙", "怪奇物语", "庆余年", "怪奇物语 第四季", "白夜追凶"]
+    #expect(SeriesGrouping.paged(more, pageStarts: [4], series: SeriesTitle.init)
+            == ["怪奇物语", "怪奇物语 第二季", "狂飙", "庆余年", "怪奇物语 第四季", "白夜追凶"])
+}

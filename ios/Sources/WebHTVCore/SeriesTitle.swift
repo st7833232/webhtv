@@ -177,6 +177,14 @@ public enum SeriesGrouping {
         return result
     }
 
+    /// W-326: one site's own list, grouped page by page (`pageStarts`: where each 載入更多 page began). A later page
+    /// is grouped on its own and follows what is already shown, so nothing on screen moves under the finger; the
+    /// price is that a season turning up only on a later page stays on that page.
+    public static func paged<T>(_ items: [T], pageStarts: [Int], series: (T) -> SeriesTitle) -> [T] {
+        let bounds = [0] + pageStarts.filter { $0 > 0 && $0 < items.count } + [items.count]
+        return zip(bounds, bounds.dropFirst()).flatMap { groups(Array(items[$0..<$1]), series: series).joined() }
+    }
+
     private static func isSeries(_ titles: [SeriesTitle]) -> Bool {
         guard titles.contains(where: { $0.strength != .none }) else { return false }
         var kinds = Set<String>()

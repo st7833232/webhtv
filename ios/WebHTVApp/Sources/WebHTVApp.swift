@@ -4466,7 +4466,12 @@ private struct VodView: View {
             session.open(target, preferredQuality: remembered,
                          title: "\(summary.name) \(next.name)",
                          artwork: summary.picture, history: record, resuming: false,
-                         retry: prefetched == nil ? nil : { await start(next, flag: flag, usingPrefetch: false) })
+                         retry: prefetched == nil ? nil : { await start(next, flag: flag, usingPrefetch: false) },
+                         resolveAgain: {
+                             // W-335: the same live resolve as above, for a return from a suspension.
+                             try? await SourceClient.make(site: site, resolver: CSPSourceResolver(source: source))
+                                 .playbackURL(for: next, flag: flag)
+                         })
             watched = await WatchHistoryStore.shared.record(forKey: historyKey)
             return true
         } catch {
@@ -6871,6 +6876,10 @@ struct EpisodeSteps: Equatable {
     /// unrecoverable failure, and dropped once playback actually starts — after that a failure is
     /// the stream's, and re-opening the episode from the start would be wrong.
     private var retryWithoutPrefetch: (() async -> Bool)?
+    /// W-335: resolves the open episode's address again, as reopening it from the detail page would.
+    /// Used on the return from a suspension with the player paused, when the old address may be gone:
+    /// a loopback server iOS closed (the spider proxy's, a script's own), or a signed link that expired.
+    private var resolveAgain: (() async -> PlaybackTarget?)?
     /// W-243 C3: the position up to which an item playing from a fetched copy keeps that retry, and
     /// when that window closes on the clock — mpv reports no position for a stream it ended.
     private var copyRetryUntil: Double?
@@ -7318,6 +7327,7 @@ struct EpisodeSteps: Equatable {
         favoriteLibrary.playerClosed()
         // A retry belongs to a player that is open; a late failure after closing must not reopen it.
         retryWithoutPrefetch = nil
+        resolveAgain = nil
         nextContent.dropAll()
         reportItem()
         // IOS-POC-47: a downloaded episode that really ended is unloaded, so the player lets go of it
@@ -7362,11 +7372,13 @@ struct EpisodeSteps: Equatable {
     func open(url: URL, headers: [String: String] = [:], sourceSubtitles: [SourceSubtitle] = [], title: String,
               artwork: String = "", history: WatchHistory? = nil, resuming: Bool = true,
               quality: PlaybackQualityChoice? = nil, retry: (() async -> Bool)? = nil,
-              offline: OfflinePlaybackSource? = nil, rate: Float? = nil, freshEngine: Bool = false) {
+              offline: OfflinePlaybackSource? = nil, rate: Float? = nil, freshEngine: Bool = false,
+              resolveAgain: (() async -> PlaybackTarget?)? = nil) {
         self.quality = quality
         freshEngineOnce = freshEngine
         offlineSource = offline
         retryWithoutPrefetch = retry
+        self.resolveAgain = resolveAgain
         measuredNearEnd = false
         completionReported = false
         favoriteLibrary.playerOpened()
@@ -7421,12 +7433,14 @@ struct EpisodeSteps: Equatable {
     /// A resolved episode: its quality menu goes to the control bar (IOS-POC-17E), starting on the
     /// remembered quality or the source's default.
     func open(_ target: PlaybackTarget, preferredQuality: String, title: String, artwork: String = "",
-              history: WatchHistory?, resuming: Bool = true, retry: (() async -> Bool)? = nil) {
+              history: WatchHistory?, resuming: Bool = true, retry: (() async -> Bool)? = nil,
+              resolveAgain: (() async -> PlaybackTarget?)? = nil) {
         let choice = PlaybackQualityChoice(target: target, preferred: preferredQuality)
         var record = history
         record?.quality = choice.name
         open(url: choice.url, headers: target.headers, sourceSubtitles: target.subtitles, title: title,
-             artwork: artwork, history: record, resuming: resuming, quality: choice, retry: retry)
+             artwork: artwork, history: record, resuming: resuming, quality: choice, retry: retry,
+             resolveAgain: resolveAgain)
     }
 
     /// What the control bar's quality menu shows. Nil for a bare URL, which has no menu.
@@ -7574,6 +7588,7 @@ struct EpisodeSteps: Equatable {
         chosenRate = PlaybackSpeedPreference().defaultSpeed
         quality = nil
         retryWithoutPrefetch = nil
+        resolveAgain = nil
         offlineSource = nil
         items = vod.items
         sourceSubtitles = []
@@ -7940,10 +7955,36 @@ struct EpisodeSteps: Equatable {
         adSkip.engineReloaded()
         // IOS-POC-52 (F12): iOS closes a suspended app's listening socket; the loopback server a
         // downloaded HLS episode plays from is started again before the reload asks it for anything.
-        guard servesOfflineHLS else { router.reload(at: seconds, autoplay: false); return }
+        guard servesOfflineHLS else { reloadResolvedAgain(at: seconds); return }
         Task { @MainActor in
             let moved = await self.restartOfflineServer()
             self.router.reload(at: seconds, autoplay: false, url: moved)
+        }
+    }
+
+    /// W-335: an online episode opened from its detail page is resolved again before the paused reload,
+    /// as closing and reopening it would: the same address is often gone after a suspension — iOS closed
+    /// the loopback server it played from, or its signed link expired — and reloading it hung until the
+    /// app was restarted. Anything else, or a resolve that gives nothing, reloads the old address as before.
+    private func reloadResolvedAgain(at seconds: Double) {
+        guard offlineSource == nil, let resolveAgain else {
+            router.reload(at: seconds, autoplay: false)
+            return
+        }
+        let asked = router.request?.target.url
+        Task { @MainActor in
+            let target = await resolveAgain()
+            // The viewer may have moved on while the source answered.
+            guard self.router.request?.target.url == asked else { return }
+            guard let target else {
+                Self.log.notice("[lifecycle] \(self.itemTitle, privacy: .public) not resolved again — reloading the old address")
+                self.router.reload(at: seconds, autoplay: false)
+                return
+            }
+            let choice = PlaybackQualityChoice(target: target, preferred: self.quality?.name ?? "")
+            self.quality = choice
+            Self.log.notice("[lifecycle] \(self.itemTitle, privacy: .public) resolved again after the suspension")
+            self.router.reload(at: seconds, autoplay: false, url: choice.url)
         }
     }
 

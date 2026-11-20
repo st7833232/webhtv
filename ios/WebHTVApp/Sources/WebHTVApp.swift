@@ -8617,11 +8617,29 @@ struct EpisodeSteps: Equatable {
         Self.log.notice("\(line, privacy: .public)")
     }
 
+    /// W-334: AVFoundation's own reading of the video track, whatever the address. AVPlayer plays a VVC or
+    /// ByteVC2 MP4 as sound over no picture and never fails, and the address checks miss some: the proxy's
+    /// mark can come after the start (W-262), a script's moov can lie past the probe's 512 KB (W-269), and
+    /// any other address is never probed. Such a track moves to MPV, even once native has "started".
+    private func moveVVCToMPV(_ asset: AVURLAsset, item: AVPlayerItem, url: URL) {
+        Task { @MainActor [weak self, weak item] in
+            guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+                  let format = try? await track.load(.formatDescriptions).first else { return }
+            let subtype = CMFormatDescriptionGetMediaSubType(format)
+            let fourCC = String(decoding: [24, 16, 8, 0].map { UInt8((subtype >> $0) & 0xFF) }, as: UTF8.self)
+            guard MP4SampleEntry.needsMPV.contains(fourCC), let self, let item, self.player.currentItem === item,
+                  self.engineKind == .native, self.router.request?.target.url == url,
+                  self.router.select(.mpv, playing: true) else { return }
+            Self.log.notice("[playback] \(self.itemTitle, privacy: .public) is \(fourCC, privacy: .public) — moved to MPV (AVFoundation track)")
+        }
+    }
+
     /// The AVPlayer half of what `load` used to do, unchanged apart from reading the request.
     /// `AVPlayerEngine.load` is its only caller.
     fileprivate func loadNative(_ request: PlaybackLoadRequest) {
         let asset = Self.asset(for: request.target.url, headers: request.target.headers)
         let item = AVPlayerItem(asset: asset)
+        moveVVCToMPV(asset, item: item, url: request.target.url)
 
         // **The viewer's silent 2.5× and 3×, reported 2026-09-23.**
         //

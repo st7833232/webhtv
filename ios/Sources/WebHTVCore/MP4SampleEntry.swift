@@ -64,6 +64,37 @@ public enum MP4SampleEntry {
     private static func fourcc(_ bytes: UnsafeRawBufferPointer, _ at: Int) -> String {
         String(decoding: bytes[at..<at + 4], as: Unicode.ASCII.self)
     }
+
+    /// W-333: no moov larger than this is read; a short drama's is a few hundred KB.
+    static let fileMoovLimit: UInt64 = 16 * 1024 * 1024
+
+    /// W-333: a downloaded file's video fourcc, its moov found by walking the top-level boxes so a moov
+    /// after the media is read too. Only the box headers and the moov are read; nil when there is none.
+    public static func videoFourCC(file url: URL) -> String? {
+        guard url.isFileURL, let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        var offset: UInt64 = 0
+        for _ in 0..<64 {
+            guard (try? handle.seek(toOffset: offset)) != nil,
+                  let header = try? handle.read(upToCount: 16), header.count >= 8 else { return nil }
+            let bytes = [UInt8](header)
+            var size = bytes[0..<4].reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
+            let type = String(decoding: bytes[4..<8], as: Unicode.ASCII.self)
+            if size == 1 {
+                guard bytes.count >= 16 else { return nil }
+                size = bytes[8..<16].reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
+            }
+            // 0 runs to the end of the file: nothing follows it.
+            guard size >= 8 else { return nil }
+            if type == "moov" {
+                guard size <= fileMoovLimit, (try? handle.seek(toOffset: offset)) != nil,
+                      let moov = try? handle.read(upToCount: Int(size)) else { return nil }
+                return videoFourCC(moov)
+            }
+            offset += size
+        }
+        return nil
+    }
 }
 
 #if canImport(Network)

@@ -47,6 +47,34 @@ struct MP4SampleEntryTests {
         huge.replaceSubrange(whole.startIndex + 24..<whole.startIndex + 28, with: [0xff, 0xff, 0xff, 0xff])
         #expect(MP4SampleEntry.videoFourCC(huge) == nil)
     }
+
+    /// W-333: a downloaded 红果 episode labelled 未標示 played its sound with no picture: AVPlayer was
+    /// handed a ByteVC2 file. The file itself is read, moov first or last, and only VVC goes to MPV.
+    @Test func aDownloadedVVCFileOpensOnMPVWhereverItsMoovIs() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        func saved(_ name: String, _ data: Data) throws -> URL {
+            let url = folder.appendingPathComponent(name)
+            try data.write(to: url)
+            return url
+        }
+        let audio = MP4Fixture.track(handler: "soun", entry: "mp4a")
+        let front = try saved("front.mp4", MP4Fixture.file([audio, MP4Fixture.track(handler: "vide", entry: "bvc2")]))
+        let last = try saved("last.mp4", MP4Fixture.file([MP4Fixture.track(handler: "vide", entry: "vvc1")], moovLast: true))
+        let hevc = try saved("hevc.mp4", MP4Fixture.file([MP4Fixture.track(handler: "vide", entry: "hvc1")], moovLast: true))
+        #expect(MP4SampleEntry.videoFourCC(file: front) == "bvc2")
+        #expect(MP4SampleEntry.videoFourCC(file: last) == "vvc1")
+        #expect(PlayerRouter.needsMPV(front) && PlayerRouter.needsMPV(last))
+        #expect(MP4SampleEntry.videoFourCC(file: hevc) == "hvc1")
+        #expect(!PlayerRouter.needsMPV(hevc))
+        // No file, no MP4, a cut moov, or not a file at all: the usual way.
+        #expect(MP4SampleEntry.videoFourCC(file: folder.appendingPathComponent("gone.mp4")) == nil)
+        #expect(MP4SampleEntry.videoFourCC(file: try saved("text.mp4", Data("#EXTM3U\n".utf8))) == nil)
+        let whole = MP4Fixture.file([MP4Fixture.track(handler: "vide", entry: "bvc2")])
+        #expect(MP4SampleEntry.videoFourCC(file: try saved("cut.mp4", whole.prefix(60))) == nil)
+        #expect(MP4SampleEntry.videoFourCC(file: try #require(URL(string: "https://cdn.example.com/ep1.mp4"))) == nil)
+    }
 }
 
 #if canImport(Network)

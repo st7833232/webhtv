@@ -459,6 +459,10 @@ public final class PlayerRouter {
         #if canImport(Network)
         if SpiderProxyServer.prefersMPV(url) || LoopbackMP4Probe.isVVC(url) { return true }
         #endif
+        // W-333: a downloaded VVC or ByteVC2 episode. AVPlayer plays its sound over no picture and
+        // never fails, so the offline file is read like the online front (W-262, W-269).
+        if url.isFileURL, let fourCC = MP4SampleEntry.videoFourCC(file: url),
+           MP4SampleEntry.needsMPV.contains(fourCC) { return true }
         return url.pathExtension.lowercased() == "mpd"
     }
 

@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.111",
+          "date": "2026-11-20",
+          "localizedDescription": "播放：\n- 線上播放 VVC 影片時，由系統讀出影片格式後改用 MPV，不再偶爾只有聲音沒有畫面。\n- 暫停後退到背景一段時間再回來，會重新取得播放網址後載入，不必重開 App。\n",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.111-b112/WebHTV-0.1.111-112.ipa",
+          "size": 36807366,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.1.110",
           "date": "2026-11-20",
           "localizedDescription": "下載：\n- 編碼標示為「未標示」的 VVC 下載集數，離線播放時改用 MPV，不再只有聲音沒有畫面。\n",

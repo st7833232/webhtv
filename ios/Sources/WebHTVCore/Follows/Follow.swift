@@ -199,7 +199,11 @@ public struct Follow: Codable, Equatable, Sendable, Identifiable {
             guard vod.id != identity.vodID else { return nil }
             let candidate = SeriesTitle(vod.name)
             guard SeriesGrouping.isNewerSeason(candidate, than: watched), let season = candidate.season else { return nil }
-            if let watchedYear, let candidateYear = Self.year(candidate.tags) ?? Self.year(in: vod.year),
+            // W-336: a spider's search result may carry its year only in the remarks (可可影視:
+            // 「已完結 · 2010」), so they are read last. Only an older year counts, so a remarks year
+            // that is an update date can only keep a hint, never drop one wrongly.
+            if let watchedYear,
+               let candidateYear = Self.year(candidate.tags) ?? Self.year(in: vod.year) ?? Self.year(in: vod.remarks),
                candidateYear < watchedYear {
                 older.insert(vod.id)
                 return nil

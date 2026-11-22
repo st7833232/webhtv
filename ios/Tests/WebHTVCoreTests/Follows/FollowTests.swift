@@ -355,6 +355,22 @@ private func named(_ name: String, vod: String = "v1") -> Follow {
     #expect(Follow.year(in: "12345") == nil)
 }
 
+// W-336: 0.1.111 still hinted 青蛙軍曹第七季 of 2010 on 可可影視, whose search results put the year only in
+// the remarks (「已完結 · 2010」) and leave vod_year empty; the hint came back after every daily search.
+@Test func aLaterSeasonOlderByItsRemarksYearIsNoNewSeason() {
+    let item = Follow(identity: identity, vodName: "青蛙軍曹", vodPic: "", siteName: "", remarks: "", year: "2026",
+                      listing: listing(episodes(1...2)))
+    let older = Vod(id: "s7", name: "青蛙軍曹第七季", picture: "", remarks: "已完結 · 2010")
+    #expect(item.searched([older]).newSeason == nil)
+    // A kept hint the search now lists as older by its remarks is dropped.
+    let stale = named("青蛙軍曹").searched([older]).updated(with: listing(episodes(1...2)), remarks: "", year: "2026")
+    #expect(stale.newSeason?.vodID == "s7")
+    #expect(stale.searched([older]).newSeason == nil)
+    // Remarks without a year, or a newer one, decide nothing against it.
+    #expect(item.searched([Vod(id: "s8", name: "青蛙軍曹第八季", picture: "", remarks: "更新至12集")]).newSeason?.vodID == "s8")
+    #expect(item.searched([Vod(id: "s9", name: "青蛙軍曹第九季", picture: "", remarks: "更新至03集 · 2027")]).newSeason?.vodID == "s9")
+}
+
 // W-332: a follow made before the fix has no year and may already hold the wrong hint. Its next detail
 // gives the year, and the next search that lists the hint as older drops it.
 @Test func aFollowLearnsItsYearAndDropsAnOlderHint() {

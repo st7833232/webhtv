@@ -8216,8 +8216,11 @@ struct EpisodeSteps: Equatable {
         // IOS-POC-47: the real end of a downloaded episode — the engine's end of file, or the formal
         // auto-next at the viewer's ending. IOS-POC-52 (F1, F12, F23): the rule is Core's — not after
         // a seek to the end, not short of the duration, no other reason.
+        // W-337: the playhead the engine last reported, not `position` — mpv drops its playhead at the
+        // end of the file while the duration stays (W-261), so `position` read 0 and the episode looked
+        // "short of the end": an MPV download was never marked watched nor auto-deleted.
         if let end = OfflineCompletionPolicy.endReason(finishedBy: reason) {
-            applyOffline(offlineCompletion.ended(end, position: position, duration: duration > 0 ? duration : nil))
+            applyOffline(offlineCompletion.ended(end, position: lastPlayhead, duration: duration > 0 ? duration : nil))
         }
         Self.log.notice("[playback] \(self.itemTitle, privacy: .public) finished (\(reason, privacy: .public)) on \(self.engineKind.shortName, privacy: .public) at \(Int(self.position))s/\(Int(self.duration))s")
         Task { @MainActor in

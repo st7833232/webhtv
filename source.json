@@ -12,6 +12,14 @@
       "iconURL": "https://raw.githubusercontent.com/st7833232/webhtv/ios-poc/ios/WebHTVApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
       "versions": [
         {
+          "version": "0.1.113",
+          "date": "2026-11-22",
+          "localizedDescription": "下載：\n- 用 MPV 播完的下載集數（例如編碼「未標示」的 VVC 集數），「看完後自動刪除」會正常生效。\n",
+          "downloadURL": "https://github.com/st7833232/webhtv/releases/download/ios-v0.1.113-b114/WebHTV-0.1.113-114.ipa",
+          "size": 36807476,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.1.112",
           "date": "2026-11-22",
           "localizedDescription": "追更：\n- 新季提示也會讀取搜尋結果備註裡的年份，不再提示比追蹤作品更舊的季（例如可可影視）。\n",

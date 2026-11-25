@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A90D04100000000000000001 /* Openhongguo in Frameworks */ = {isa = PBXBuildFile; productRef = A90D04100000000000000003 /* Openhongguo */; };
 		03A4E1B2D21D45A42BB9BC7A /* WebHTVCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7F55C50111675904118B251E /* WebHTVCore */; };
 		A55E1C0091D74B0EA0C41002 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A55E1C0091D74B0EA0C41001 /* Assets.xcassets */; };
 		0928EDE6AE603074F814CC71 /* wallpaper_1.png in Resources */ = {isa = PBXBuildFile; fileRef = 04FB031023165459EF586DFD /* wallpaper_1.png */; };
@@ -78,6 +79,7 @@
 			files = (
 				8B273AEB71F9B7002DBB0CD2 /* Foundation.framework in Frameworks */,
 				03A4E1B2D21D45A42BB9BC7A /* WebHTVCore in Frameworks */,
+				A90D04100000000000000001 /* Openhongguo in Frameworks */,
 				7E10000000000000000000A2 /* Python.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -167,6 +169,7 @@
 			packageProductDependencies = (
 				7F55C50111675904118B251E /* WebHTVCore */,
 				7F55C50111675904118B2520 /* MPVKit */,
+				A90D04100000000000000003 /* Openhongguo */,
 			);
 			productName = WebHTVApp;
 			productReference = AF891E7F959513A468894926 /* WebHTVApp.app */;
@@ -194,6 +197,7 @@
 			packageReferences = (
 				51D5A21CF68F51CEB529E12D /* XCLocalSwiftPackageReference ".." */,
 				51D5A21CF68F51CEB529E14D /* XCLocalSwiftPackageReference "../Vendor/MPVKit" */,
+				A90D04100000000000000002 /* XCRemoteSwiftPackageReference "openhongguo" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 9714E9BCC6842F611C477583 /* Products */;
@@ -446,7 +450,20 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		A90D04100000000000000002 /* XCRemoteSwiftPackageReference "openhongguo" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/beilunyang/openhongguo.git";
+			requirement = {kind = exactVersion; version = 0.4.1; };
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
+		A90D04100000000000000003 /* Openhongguo */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A90D04100000000000000002 /* XCRemoteSwiftPackageReference "openhongguo" */;
+			productName = Openhongguo;
+		};
 		7F55C50111675904118B251E /* WebHTVCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 51D5A21CF68F51CEB529E12D /* XCLocalSwiftPackageReference ".." */;

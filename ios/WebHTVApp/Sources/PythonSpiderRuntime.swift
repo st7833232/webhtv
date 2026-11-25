@@ -1,6 +1,7 @@
 import Foundation
 import Python
 import WebHTVCore
+import Openhongguo
 
 /// A CatVod Python spider, driven through the same `SpiderRuntime` contract the JavaScript ones use.
 ///
@@ -76,7 +77,11 @@ final class PythonSpiderRuntime: SpiderRuntime, @unchecked Sendable {
     }
 
     func playerContent(flag: String, id: String, vipFlags: [String]) async throws -> String {
-        try await call("playerContent", [flag, id, vipFlags])
+        // Keep public-web lines and every other spider on the existing path.
+        if siteKey == "红果短剧", let request = HongguoSDKPlayback.Request(token: id) {
+            return try await HongguoSDKPlayback.shared.resolve(request)
+        }
+        return try await call("playerContent", [flag, id, vipFlags])
     }
 
     func liveContent(url: String) async throws -> String {
@@ -226,5 +231,84 @@ final class PythonSpiderRuntime: SpiderRuntime, @unchecked Sendable {
             return "這個來源需要 \(module) 模組，App 內建的 Python 沒有它"
         }
         return last.isEmpty ? traceback : last
+    }
+}
+
+
+/// Experimental native provider. Only directly playable SDK-returned streams
+/// are accepted; access refusals never trigger device resets.
+private actor HongguoSDKPlayback {
+    static let shared = HongguoSDKPlayback()
+    private var client: OpenhongguoClient?
+    private var cooldownUntil = Date.distantPast
+
+    struct Request: Sendable {
+        let episodeID: String
+        let height: Int
+        init?(token: String) {
+            let pieces = token.split(separator: ":", omittingEmptySubsequences: false)
+            guard pieces.count == 3, pieces[0] == "hg-episode-v1",
+                  let quality = Int(pieces[1]), [360, 480, 540, 720, 1080].contains(quality),
+                  (1...30).contains(pieces[2].count),
+                  pieces[2].utf8.allSatisfy({ (48...57).contains($0) }) else { return nil }
+            episodeID = String(pieces[2])
+            height = quality
+        }
+    }
+
+    func resolve(_ request: Request) async throws -> String {
+        guard Date() >= cooldownUntil else {
+            throw SpiderError.scriptFailed("紅果 SDK 暫時限流，請稍後再試")
+        }
+        let sdk: OpenhongguoClient
+        if let client {
+            sdk = client
+        } else {
+            sdk = try OpenhongguoClient.create(options: ClientOptions(retryAttempts: 1, deviceResets: 0))
+            client = sdk
+        }
+        let result: PlaybackResult
+        do {
+            result = try await sdk.resolvePlayback(request.episodeID)
+        } catch let error as OpenhongguoError {
+            if error.code == .anonymousLimited || error.code == .rateLimited {
+                cooldownUntil = Date().addingTimeInterval(max(60, Double(error.retryAfterMs) / 1000))
+            }
+            throw SpiderError.scriptFailed("紅果 SDK 取源失敗（\(error.code.rawValue)）")
+        }
+        try Task.checkCancellation()
+        let model = result.playback
+        guard model.episodeId == request.episodeID else {
+            throw SpiderError.scriptFailed("紅果 SDK 回傳的分集不符")
+        }
+        guard model.expiresAt <= 0 || Double(model.expiresAt) > Date().timeIntervalSince1970 + 5 else {
+            throw SpiderError.scriptFailed("紅果 SDK 片源已過期")
+        }
+        guard !model.protected else {
+            throw SpiderError.scriptFailed("本集需要受支援的授權播放機制，尚無可直接播放的 SDK 片源")
+        }
+        // A vertical 1080 x 1920 stream is 1080P, not 1920P.
+        let codecs = Set(["h264", "avc", "avc1", "hevc", "h265", "hvc1", "hev1", "bytevc1"])
+        let candidates = model.streams.filter {
+            !$0.protected && !$0.dash &&
+            min($0.width, $0.height) == request.height &&
+            codecs.contains($0.codec.lowercased())
+        }.sorted { $0.bitrate > $1.bitrate }
+        let domains = ["fqnovelvod.com", "qznovelvod.com", "douyinvod.com"]
+        func allowed(_ value: String) -> Bool {
+            guard let url = URLComponents(string: value), url.scheme?.lowercased() == "https",
+                  url.user == nil, url.password == nil, url.port == nil || url.port == 443,
+                  let host = url.host?.lowercased() else { return false }
+            return domains.contains { host == $0 || host.hasSuffix("." + $0) }
+        }
+        guard let media = candidates.flatMap({ [$0.url, $0.backupUrl] }).first(where: allowed) else {
+            throw SpiderError.scriptFailed("本集暫無可直接播放的 \(request.height)P SDK 片源")
+        }
+        let response: [String: Any] = [
+            "parse": 0, "jx": 0, "playUrl": "", "url": media,
+            "header": ["User-Agent": "okhttp/4.12.0"],
+            "sourceProvider": "openhongguo", "quality": "\(request.height)P"
+        ]
+        return String(decoding: try JSONSerialization.data(withJSONObject: response), as: UTF8.self)
     }
 }

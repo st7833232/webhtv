@@ -1,0 +1,91 @@
+name: Hongguo SDK v0.4.1 compatibility experiment
+on:
+  push:
+    branches: [hongguo-sdk-v041]
+    paths:
+      - "ios/WebHTVApp/Sources/PythonSpiderRuntime.swift"
+      - "ios/WebHTVApp/WebHTVApp.xcodeproj/project.pbxproj"
+      - ".github/workflows/hongguo-sdk-experiment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sdk-metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install pinned SDK into runner temporary directory
+        run: |
+          cd "$RUNNER_TEMP"
+          npm install --ignore-scripts --no-audit --no-fund --save-exact openhongguo@0.4.1
+      - name: Check one sample episode without identity reset or protected-media handling
+        run: |
+          cd "$RUNNER_TEMP"
+          node --input-type=module <<'JS'
+          import { createClient, fileProfileStore } from 'openhongguo';
+          import { join } from 'node:path';
+          const client = await createClient({
+            profile: fileProfileStore(join(process.env.RUNNER_TEMP, 'anonymous.json')),
+            retryAttempts: 1, deviceResets: 0, timeoutMs: 15000
+          });
+          const episode = '7699003626647194649';
+          try {
+            const result = await client.resolvePlayback(episode);
+            const model = result?.playback;
+            if (String(model?.episode_id) !== episode) throw Object.assign(new Error(), {code:'EPISODE_MISMATCH'});
+            const streams = Array.isArray(model.streams) ? model.streams : [];
+            const allowed = url => {
+              try {
+                const u = new URL(url);
+                return u.protocol === 'https:' && !u.username && !u.password && (!u.port || u.port === '443') &&
+                  ['fqnovelvod.com','qznovelvod.com','douyinvod.com'].some(d => u.hostname === d || u.hostname.endsWith('.'+d));
+              } catch { return false; }
+            };
+            const qualities = [...new Set(streams.map(s => Math.min(Number(s.width)||0, Number(s.height)||0)).filter(x=>x>0))].sort((a,b)=>a-b);
+            const clear = streams.filter(s => !model.protected && !s.protected && !s.dash &&
+              ['h264','avc','avc1','hevc','h265','hvc1','hev1','bytevc1'].includes(String(s.codec).toLowerCase()) &&
+              [s.url,s.backup_url].some(allowed));
+            const available = [...new Set(clear.map(s => Math.min(Number(s.width)||0, Number(s.height)||0)).filter(x=>x>0))].sort((a,b)=>a-b);
+            console.log('SDK_MODEL_AVAILABLE=true');
+            console.log('SDK_MODEL_PROTECTED='+Boolean(model.protected));
+            console.log('SDK_REPORTED_QUALITIES='+JSON.stringify(qualities));
+            console.log('SDK_DIRECT_COMPATIBLE_QUALITIES='+JSON.stringify(available));
+            if (!available.includes(1080) && !available.includes(720)) process.exitCode = 3;
+          } catch (error) {
+            const code = /^[A-Z_]{1,40}$/.test(String(error?.code || '')) ? error.code : 'UNKNOWN';
+            console.log('SDK_RESOLUTION_ERROR='+code);
+            process.exitCode = 2;
+          } finally {
+            if (typeof client.close === 'function') await client.close();
+          }
+          JS
+  swift-provider:
+    runs-on: macos-15
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile isolated Swift provider against pinned native SDK (not an app build)
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          root = Path(os.environ["RUNNER_TEMP"]) / "HongguoSDKCheck"
+          target = root / "Sources" / "HongguoSDKCheck"
+          target.mkdir(parents=True, exist_ok=True)
+          src = Path("ios/WebHTVApp/Sources/PythonSpiderRuntime.swift").read_text()
+          actor = src[src.index("private actor HongguoSDKPlayback"):].strip()
+          (target / "Provider.swift").write_text("import Foundation\nimport Openhongguo\nenum SpiderError: Error { case scriptFailed(String) }\n" + actor + "\n")
+          (root / "Package.swift").write_text("""// swift-tools-version: 5.9
+          import PackageDescription
+          let package = Package(name: "HongguoSDKCheck", platforms: [.macOS(.v13)],
+            dependencies: [.package(url: "https://github.com/beilunyang/openhongguo.git", exact: "0.4.1")],
+            targets: [.target(name: "HongguoSDKCheck", dependencies: [.product(name: "Openhongguo", package: "openhongguo")])])
+          """)
+          PY
+          cd "$RUNNER_TEMP/HongguoSDKCheck"
+          swift build
